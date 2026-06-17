@@ -22,15 +22,17 @@ type AnalysisResult = {
   paymentTotal: number;
   paymentRecordsTotal: number;
   committedExpenses: number;
-  availableAfterPayments: number;
+  periodProgress: number;
+  expectedIncomeByDate: number;
+  expectedExpensesByDate: number;
   incomeProgress: number;
   expenseProgress: number;
+  incomePace: number;
+  expensePace: number;
+  incomePaceGap: number;
+  expensePaceGap: number;
   paymentCoverage: number;
-  incomeToPaymentsRatio: number;
-  salesShare: number;
-  successScore: number;
   maxPaymentRecord: number;
-  maxCategoryAmount: number;
   maxCashPosition: number;
   maxIncomeChannel: number;
   sortedPaymentRecords: PaymentRecord[];
@@ -76,10 +78,6 @@ function formatCompactMoney(value: number) {
   return compactMoneyFormatter.format(value);
 }
 
-function formatCompactSignedMoney(value: number) {
-  return `${value > 0 ? "+" : ""}${formatCompactMoney(value)}`;
-}
-
 function formatPreciseMoney(value: number) {
   return preciseMoneyFormatter.format(value);
 }
@@ -90,12 +88,6 @@ function formatSignedMoney(value: number) {
 
 function formatPercent(value: number) {
   return percentFormatter.format(value);
-}
-
-function formatRatio(value: number) {
-  return value.toLocaleString("ru-RU", {
-    maximumFractionDigits: 1,
-  });
 }
 
 function ratio(value: number, base: number) {
@@ -153,6 +145,14 @@ function buildAnalysis(): AnalysisResult {
     (sum, record) => sum + record.currentPayment,
     0,
   );
+  const periodProgress = ratio(
+    dashboardData.reportPeriod.elapsedDays,
+    dashboardData.reportPeriod.totalDays,
+  );
+  const expectedIncomeByDate =
+    dashboardData.income.monthlyPlan * periodProgress;
+  const expectedExpensesByDate =
+    dashboardData.expenses.monthlyPlan * periodProgress;
   const committedExpenses =
     dashboardData.expenses.cumulativeFact + dashboardData.expenses.currentPayments;
   const incomeProgress = ratio(
@@ -163,17 +163,17 @@ function buildAnalysis(): AnalysisResult {
     committedExpenses,
     dashboardData.expenses.monthlyPlan,
   );
+  const incomePace = ratio(
+    dashboardData.income.cumulativeFact,
+    expectedIncomeByDate,
+  );
+  const expensePace = ratio(committedExpenses, expectedExpensesByDate);
+  const incomePaceGap =
+    dashboardData.income.cumulativeFact - expectedIncomeByDate;
+  const expensePaceGap = committedExpenses - expectedExpensesByDate;
   const paymentCoverage = ratio(
     dashboardData.operations.endOfDayReserve,
     paymentTotal,
-  );
-  const incomeToPaymentsRatio = ratio(
-    dashboardData.income.currentDay,
-    paymentTotal,
-  );
-  const salesShare = ratio(
-    dashboardData.income.salesCurrentDay,
-    dashboardData.income.currentDay,
   );
   const sortedPaymentRecords = [...dashboardData.paymentRecords].sort(
     (a, b) => b.currentPayment - a.currentPayment,
@@ -184,31 +184,25 @@ function buildAnalysis(): AnalysisResult {
   const overLimitRecords = dashboardData.paymentRecords.filter(
     (record) => record.remainingLimit < 0,
   );
-  const availableAfterPayments =
-    dashboardData.cash.total +
-    dashboardData.income.currentDay -
-    dashboardData.expenses.currentPayments;
-  const successScore =
-    (clampRatio(incomeToPaymentsRatio / 3) +
-      clampRatio(paymentCoverage / 1.4) +
-      clampRatio(salesShare)) /
-    3;
   const headline =
-    successScore >= 0.85
-      ? "Анализ показывает устойчивый финансовый день"
-      : "Анализ показывает рабочий день с точками контроля";
+    incomePace >= 0.98
+      ? "Факт периода идет в темпе месячного плана"
+      : "Факт 1–16 июня ниже темпа плана месяца";
   const status =
-    successScore >= 0.85
-      ? "Устойчиво"
-      : overLimitRecords.length > 0
-        ? "Есть контроль"
-        : "Норма";
+    incomePace < 0.7
+      ? "Отставание по приходу"
+      : incomePace < 0.98
+        ? "Ниже темпа"
+        : overLimitRecords.length > 0
+          ? "В темпе, есть лимит"
+          : "В темпе";
   const lead = [
-    `Алгоритм сопоставил ${dashboardData.paymentRecords.length} платежных строк,`,
-    `${dashboardData.paymentCategories.length} групп расходов и`,
-    `${dashboardData.income.channels.length} канала поступлений.`,
-    `Итог: приход выше платежей в ${formatRatio(incomeToPaymentsRatio)} раза,`,
-    `резерв покрывает ${formatPercent(paymentCoverage)} расходов дня.`,
+    `Алгоритм разделил факт за ${dashboardData.reportPeriod.factLabel}`,
+    `и план на ${dashboardData.reportPeriod.planLabel}.`,
+    `На ${dashboardData.reportPeriod.elapsedDays} из ${dashboardData.reportPeriod.totalDays} дней`,
+    `ожидаемый темп поступлений равен ${formatMoney(expectedIncomeByDate)},`,
+    `факт составляет ${formatMoney(dashboardData.income.cumulativeFact)}.`,
+    `Текущая платежная ведомость покрыта резервом на ${formatPercent(paymentCoverage)}.`,
   ].join(" ");
 
   return {
@@ -218,24 +212,24 @@ function buildAnalysis(): AnalysisResult {
     paymentTotal,
     paymentRecordsTotal,
     committedExpenses,
-    availableAfterPayments,
+    periodProgress,
+    expectedIncomeByDate,
+    expectedExpensesByDate,
     incomeProgress,
     expenseProgress,
+    incomePace,
+    expensePace,
+    incomePaceGap,
+    expensePaceGap,
     paymentCoverage,
-    incomeToPaymentsRatio,
-    salesShare,
-    successScore,
     maxPaymentRecord: Math.max(
       ...dashboardData.paymentRecords.map((record) => record.currentPayment),
-    ),
-    maxCategoryAmount: Math.max(
-      ...dashboardData.paymentCategories.map((category) => category.amount),
     ),
     maxCashPosition: Math.max(
       ...dashboardData.cash.positions.map((position) => position.amount),
     ),
     maxIncomeChannel: Math.max(
-      ...dashboardData.income.channels.map((channel) => channel.currentDay),
+      ...dashboardData.income.channels.map((channel) => channel.cumulativeFact),
     ),
     sortedPaymentRecords,
     overLimitRecords,
@@ -244,31 +238,37 @@ function buildAnalysis(): AnalysisResult {
     categoryGradient: buildCategoryGradient(paymentTotal),
     findings: [
       {
-        label: "Денежный поток",
-        value: formatSignedMoney(dashboardData.operations.netCashFlowToday),
+        label: "Темп поступлений",
+        value: formatPercent(incomePace),
         detail:
-          dashboardData.operations.netCashFlowToday > 0
-            ? "Поступления дня закрывают текущие платежи и оставляют положительный поток."
-            : "Текущие платежи превышают поступления дня.",
-        tone: dashboardData.operations.netCashFlowToday > 0 ? "success" : "danger",
+          incomePace >= 1
+            ? `Факт ${formatMoney(
+                dashboardData.income.cumulativeFact,
+              )} не ниже расчетного темпа на ${dashboardData.reportPeriod.factLabel}.`
+            : `До темпа ${dashboardData.reportPeriod.elapsedDays}/${dashboardData.reportPeriod.totalDays} не хватает ${formatMoney(
+                Math.abs(incomePaceGap),
+              )}.`,
+        tone: incomePace >= 0.98 ? "success" : incomePace >= 0.75 ? "attention" : "danger",
       },
       {
-        label: "Ликвидность",
+        label: "Темп расходов",
+        value: formatPercent(expensePace),
+        detail:
+          expensePace <= 1
+            ? `Расходы 1–16 июня с текущим распределением ниже расчетного темпа на ${formatMoney(
+                Math.abs(expensePaceGap),
+              )}.`
+            : `Расходы выше расчетного темпа на ${formatMoney(expensePaceGap)}.`,
+        tone: expensePace <= 1 ? "success" : "attention",
+      },
+      {
+        label: "Ликвидность ведомости",
         value: formatPercent(paymentCoverage),
         detail:
           paymentCoverage >= 1
-            ? "Резерв на конец дня выше суммы текущих платежей."
+            ? "Резерв после распределения выше суммы текущих платежей."
             : "Резерв ниже суммы текущих платежей, нужен контроль кассового разрыва.",
         tone: paymentCoverage >= 1 ? "success" : "attention",
-      },
-      {
-        label: "Качество прихода",
-        value: formatPercent(salesShare),
-        detail:
-          salesShare >= 0.9
-            ? "Основной приход сформирован продажами продукции и услуг."
-            : "В приходе заметна доля непрофильных поступлений.",
-        tone: salesShare >= 0.9 ? "success" : "attention",
       },
       {
         label: "Лимиты",
@@ -276,14 +276,23 @@ function buildAnalysis(): AnalysisResult {
         detail:
           overLimitRecords.length > 0
             ? `Обнаружен перерасход по строке: ${overLimitRecords[0].label}.`
-            : "Платежные строки дня не выходят за лимиты.",
+            : "Платежные строки распределения не выходят за лимиты.",
         tone: overLimitRecords.length > 0 ? "attention" : "success",
       },
     ],
     actions: [
       {
-        title: "Утвердить денежную позицию дня",
-        detail: `После платежей доступно ${formatMoney(availableAfterPayments)} до депозитной операции.`,
+        title: "Разобрать отставание поступлений от темпа",
+        detail: `Факт ниже ожидаемого уровня на ${formatMoney(
+          Math.abs(incomePaceGap),
+        )}; нужен прогноз добора до ${dashboardData.reportPeriod.planLabel}.`,
+        tone: incomePace >= 0.98 ? "success" : "danger",
+      },
+      {
+        title: "Сохранить расходный темп месяца",
+        detail: `Расходы занимают ${formatPercent(
+          expenseProgress,
+        )} месячного плана при пройденных ${formatPercent(periodProgress)} месяца.`,
         tone: "success",
       },
       {
@@ -298,13 +307,6 @@ function buildAnalysis(): AnalysisResult {
               )}.`
             : "Критичных отклонений по строкам текущих платежей не найдено.",
         tone: overLimitRecords.length > 0 ? "attention" : "success",
-      },
-      {
-        title: "Держать в фокусе крупнейшую группу расходов",
-        detail: `${sortedCategories[0].label}: ${formatMoney(
-          sortedCategories[0].amount,
-        )}, ${formatPercent(ratio(sortedCategories[0].amount, paymentTotal))} платежей дня.`,
-        tone: "neutral",
       },
     ],
   };
@@ -324,29 +326,29 @@ function App() {
           <p className="lead">{analysis.lead}</p>
 
           <div className="hero-outcome" aria-label="Ключевой результат анализа">
-            <span>Расчетный чистый денежный поток</span>
+            <span>Отклонение поступлений от темпа</span>
             <strong>
-              {formatSignedMoney(dashboardData.operations.netCashFlowToday)}
+              {formatSignedMoney(analysis.incomePaceGap)}
             </strong>
             <p>
-              После текущих платежей модель видит{" "}
-              {formatMoney(analysis.availableAfterPayments)} доступной денежной
-              позиции до перевода на депозит.
+              Факт за {dashboardData.reportPeriod.factLabel}:{" "}
+              {formatMoney(dashboardData.income.cumulativeFact)}. Расчетный темп
+              на эту дату: {formatMoney(analysis.expectedIncomeByDate)}.
             </p>
           </div>
 
           <div className="hero-proof-grid">
             <div>
-              <span>Поступления / платежи</span>
-              <strong>{formatRatio(analysis.incomeToPaymentsRatio)}x</strong>
+              <span>Прошло месяца</span>
+              <strong>{formatPercent(analysis.periodProgress)}</strong>
             </div>
             <div>
-              <span>Резерв к платежам</span>
-              <strong>{formatPercent(analysis.paymentCoverage)}</strong>
+              <span>Факт поступлений</span>
+              <strong>{formatPercent(analysis.incomeProgress)}</strong>
             </div>
             <div>
-              <span>Доля продаж</span>
-              <strong>{formatPercent(analysis.salesShare)}</strong>
+              <span>Расходы к плану</span>
+              <strong>{formatPercent(analysis.expenseProgress)}</strong>
             </div>
           </div>
         </section>
@@ -358,24 +360,24 @@ function App() {
           </div>
 
           <GaugeChart
-            label="Индекс уверенности"
-            note="Поток, покрытие и качество прихода"
-            tone="green"
-            value={analysis.successScore}
+            label="Темп поступлений"
+            note={`Факт против ${dashboardData.reportPeriod.planLabel}`}
+            tone="red"
+            value={analysis.incomePace}
           />
 
           <div className="mini-gauge-grid">
             <GaugeChart
-              label="Покрытие платежей"
-              note={formatMoney(dashboardData.operations.endOfDayReserve)}
+              label="Расходный темп"
+              note={formatMoney(analysis.committedExpenses)}
               tone="blue"
-              value={clampRatio(analysis.paymentCoverage / 1.5)}
+              value={clampRatio(analysis.expensePace)}
             />
             <GaugeChart
-              label="Продажи в приходе"
-              note={formatMoney(dashboardData.income.salesCurrentDay)}
+              label="Покрытие платежей"
+              note={formatMoney(dashboardData.operations.endOfDayReserve)}
               tone="amber"
-              value={analysis.salesShare}
+              value={clampRatio(analysis.paymentCoverage / 1.5)}
             />
           </div>
 
@@ -383,9 +385,10 @@ function App() {
             <span>Источник данных</span>
             <strong>{dashboardData.sourceFile}</strong>
             <p>
-              Обработано: {dashboardData.paymentRecords.length} платежных строк,
-              {` ${dashboardData.paymentCategories.length}`} групп расходов,
-              {` ${dashboardData.income.channels.length}`} канала поступлений.
+              Факт: {dashboardData.reportPeriod.factLabel}. План:{" "}
+              {dashboardData.reportPeriod.planLabel}. Обработано:{" "}
+              {dashboardData.paymentRecords.length} платежных строк;{" "}
+              {dashboardData.reportPeriod.distributionLabel}.
             </p>
           </div>
         </aside>
@@ -393,19 +396,19 @@ function App() {
 
       <section className="analysis-strip" aria-label="Параметры обработки">
         <ProcessingStat
-          label="Проверено строк"
-          value={`${dashboardData.paymentRecords.length}`}
-          note="текущие платежи"
+          label="Дней в факте"
+          value={`${dashboardData.reportPeriod.elapsedDays}`}
+          note={dashboardData.reportPeriod.factLabel}
         />
         <ProcessingStat
-          label="Сгруппировано"
-          value={`${dashboardData.paymentCategories.length}`}
-          note="направлений расходов"
+          label="Дней в плане"
+          value={`${dashboardData.reportPeriod.totalDays}`}
+          note={dashboardData.reportPeriod.planLabel}
         />
         <ProcessingStat
-          label="Сверено каналов"
-          value={`${dashboardData.income.channels.length}`}
-          note="поступления дня"
+          label="Темп прихода"
+          value={formatPercent(analysis.incomePace)}
+          note="к ожидаемому уровню"
         />
         <ProcessingStat
           label="Найдено рисков"
@@ -415,27 +418,22 @@ function App() {
       </section>
 
       <section className="executive-visuals" aria-label="Визуальная аналитика">
-        <article className="visual-panel cash-flow-panel">
+        <article className="visual-panel pace-panel">
           <div className="visual-heading">
             <div>
-              <p className="eyebrow">Расчет движения денег</p>
-              <h2>Поток остается положительным</h2>
+              <p className="eyebrow">Темп к плану месяца</p>
+              <h2>Факт сравнен с планом до 30 июня</h2>
             </div>
-            <strong>
-              {formatCompactSignedMoney(dashboardData.operations.netCashFlowToday)}
-            </strong>
+            <strong>{formatPercent(analysis.periodProgress)} периода</strong>
           </div>
 
-          <WaterfallChart
-            paymentTotal={analysis.paymentTotal}
-            reserve={dashboardData.operations.endOfDayReserve}
-          />
+          <PlanPaceChart analysis={analysis} />
         </article>
 
         <article className="visual-panel">
           <div className="visual-heading">
             <div>
-              <p className="eyebrow">Автогруппировка платежей</p>
+              <p className="eyebrow">Автогруппировка распределения</p>
               <h2>{analysis.largestCategory.label} лидирует</h2>
             </div>
             <strong>{formatMoney(analysis.paymentTotal)}</strong>
@@ -450,7 +448,7 @@ function App() {
             >
               <div>
                 <strong>{formatMoney(analysis.paymentTotal)}</strong>
-                <span>день</span>
+                <span>распределение</span>
               </div>
             </div>
 
@@ -471,7 +469,7 @@ function App() {
         <article className="visual-panel">
           <div className="visual-heading">
             <div>
-              <p className="eyebrow">Определены драйверы платежей</p>
+              <p className="eyebrow">Определены драйверы распределения</p>
               <h2>{analysis.sortedPaymentRecords.length} строк ранжированы</h2>
             </div>
             <strong>
@@ -489,29 +487,31 @@ function App() {
       <section className="summary-grid" aria-label="Ключевые рассчитанные показатели">
         <MetricCard
           accent="green"
-          label="Денежные средства"
-          value={formatMoney(dashboardData.cash.total)}
-          note="Счета, касса, бизнес-карта и депозитные счета."
+          label="Поступления 1–16 июня"
+          value={formatMoney(dashboardData.income.cumulativeFact)}
+          note={`${formatPercent(
+            analysis.incomeProgress,
+          )} месячного плана; ${formatPercent(analysis.incomePace)} от темпа.`}
         />
         <MetricCard
           accent="blue"
-          label="Поступления дня"
-          value={formatMoney(dashboardData.income.currentDay)}
-          note={`Продажи и услуги: ${formatMoney(
-            dashboardData.income.salesCurrentDay,
-          )}.`}
+          label="Расходы 1–16 + распределение"
+          value={formatMoney(analysis.committedExpenses)}
+          note={`${formatPercent(
+            analysis.expenseProgress,
+          )} месячного плана; ${formatPercent(analysis.expensePace)} от темпа.`}
         />
         <MetricCard
           accent="amber"
-          label="Текущие платежи"
+          label="Платежи распределения"
           value={formatMoney(analysis.paymentTotal)}
-          note={`Сумма строк анализа: ${formatMoney(
+          note={`${dashboardData.reportPeriod.distributionLabel}; сумма строк: ${formatMoney(
             analysis.paymentRecordsTotal,
           )}.`}
         />
         <MetricCard
           accent="red"
-          label="Резерв конца дня"
+          label="Резерв после распределения"
           value={formatMoney(dashboardData.operations.endOfDayReserve)}
           note={`Покрытие платежей: ${formatPercent(
             analysis.paymentCoverage,
@@ -565,9 +565,9 @@ function App() {
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Сверка источников</p>
-              <h2>Поступления по каналам</h2>
+              <h2>Поступления 1–16 июня по каналам</h2>
             </div>
-            <strong>{formatMoney(dashboardData.income.currentDay)}</strong>
+            <strong>{formatMoney(dashboardData.income.cumulativeFact)}</strong>
           </div>
           <ul className="channel-list">
             {dashboardData.income.channels.map((channel) => (
@@ -576,20 +576,20 @@ function App() {
                   <span>
                     {channel.label} · код {channel.code}
                   </span>
-                  <strong>{formatPreciseMoney(channel.currentDay)}</strong>
+                  <strong>{formatPreciseMoney(channel.cumulativeFact)}</strong>
                 </div>
                 <div className="bar-track" aria-hidden="true">
                   <span
                     style={{
                       width: `${barWidth(
-                        channel.currentDay,
+                        channel.cumulativeFact,
                         analysis.maxIncomeChannel,
                       )}%`,
                     }}
                   />
                 </div>
                 <small>
-                  Нарастающий факт: {formatPreciseMoney(channel.cumulativeFact)}
+                  В распределении: {formatPreciseMoney(channel.currentDay)}
                 </small>
               </li>
             ))}
@@ -627,7 +627,7 @@ function App() {
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Контроль лимитов</p>
-              <h2>Ранжированные платежи дня</h2>
+              <h2>Ранжированные платежи распределения</h2>
             </div>
             <strong>{formatMoney(analysis.paymentTotal)}</strong>
           </div>
@@ -739,56 +739,90 @@ function GaugeChart({ label, note, tone, value }: GaugeChartProps) {
   );
 }
 
-type WaterfallChartProps = {
-  paymentTotal: number;
-  reserve: number;
+type PlanPaceChartProps = {
+  analysis: AnalysisResult;
 };
 
-function WaterfallChart({ paymentTotal, reserve }: WaterfallChartProps) {
-  const steps = [
+function PlanPaceChart({ analysis }: PlanPaceChartProps) {
+  const periodMarker = clampRatio(analysis.periodProgress) * 100;
+  const rows = [
     {
-      label: "Старт",
-      amount: dashboardData.cash.total,
-      tone: "blue",
+      label: "Поступления",
+      fact: dashboardData.income.cumulativeFact,
+      expected: analysis.expectedIncomeByDate,
+      plan: dashboardData.income.monthlyPlan,
+      pace: analysis.incomePace,
+      note:
+        analysis.incomePaceGap >= 0
+          ? `Факт выше темпа на ${formatMoney(analysis.incomePaceGap)}.`
+          : `Факт ниже темпа на ${formatMoney(Math.abs(analysis.incomePaceGap))}.`,
+      tone:
+        analysis.incomePace >= 0.98
+          ? "green"
+          : analysis.incomePace >= 0.75
+            ? "amber"
+            : "red",
     },
     {
-      label: "Приход",
-      amount: dashboardData.income.currentDay,
-      tone: "green",
+      label: "Расходы",
+      fact: analysis.committedExpenses,
+      expected: analysis.expectedExpensesByDate,
+      plan: dashboardData.expenses.monthlyPlan,
+      pace: analysis.expensePace,
+      note:
+        analysis.expensePace <= 1
+          ? `Расходы ниже темпа на ${formatMoney(
+              Math.abs(analysis.expensePaceGap),
+            )}.`
+          : `Расходы выше темпа на ${formatMoney(analysis.expensePaceGap)}.`,
+      tone: analysis.expensePace <= 1 ? "green" : "amber",
     },
-    {
-      label: "Платежи",
-      amount: -paymentTotal,
-      tone: "red",
-    },
-    {
-      label: "Депозит",
-      amount: -dashboardData.operations.depositTransfer,
-      tone: "amber",
-    },
-    {
-      label: "Резерв",
-      amount: reserve,
-      tone: "neutral",
-    },
-  ] as const;
-  const maxAmount = Math.max(...steps.map((step) => Math.abs(step.amount)));
+  ] satisfies Array<{
+    label: string;
+    fact: number;
+    expected: number;
+    plan: number;
+    pace: number;
+    note: string;
+    tone: PaymentTone;
+  }>;
 
   return (
-    <div className="waterfall-chart">
-      {steps.map((step) => (
-        <div className={`waterfall-step tone-${step.tone}`} key={step.label}>
-          <div className="waterfall-column" aria-hidden="true">
-            <span
-              className={step.amount < 0 ? "negative" : "positive"}
-              style={{
-                height: `${barWidth(Math.abs(step.amount), maxAmount)}%`,
-              }}
-            />
+    <div className="pace-chart">
+      {rows.map((row) => (
+        <article className={`pace-row tone-${row.tone}`} key={row.label}>
+          <div className="pace-row-head">
+            <div>
+              <span>{row.label}</span>
+              <strong>{formatMoney(row.fact)}</strong>
+            </div>
+            <b>{formatPercent(row.pace)} от темпа</b>
           </div>
-          <strong>{formatCompactSignedMoney(step.amount)}</strong>
-          <span>{step.label}</span>
-        </div>
+          <div
+            aria-label={`${row.label}: факт ${formatMoney(
+              row.fact,
+            )}, ожидаемый темп ${formatMoney(row.expected)}, план ${formatMoney(
+              row.plan,
+            )}`}
+            className="pace-track"
+            role="img"
+          >
+            <span
+              className="pace-expected"
+              style={{ width: `${periodMarker}%` }}
+            />
+            <span
+              className="pace-fact"
+              style={{ width: `${clampRatio(ratio(row.fact, row.plan)) * 100}%` }}
+            />
+            <i style={{ left: `${periodMarker}%` }} />
+          </div>
+          <div className="pace-values">
+            <span>Темп: {formatCompactMoney(row.expected)}</span>
+            <span>План: {formatCompactMoney(row.plan)}</span>
+          </div>
+          <p>{row.note}</p>
+        </article>
       ))}
     </div>
   );

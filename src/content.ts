@@ -36,6 +36,13 @@ export const dashboardData = {
   reportDate: "16 июня 2026",
   incomeDate: "15 июня 2026",
   sourceFile: "Распределение за 16.06.2026г..xlsx",
+  reportPeriod: {
+    factLabel: "1–16 июня 2026",
+    planLabel: "1–30 июня 2026",
+    elapsedDays: 16,
+    totalDays: 30,
+    distributionLabel: "распределение на 16 июня 2026",
+  },
   cash: {
     total: 2_650_090.99,
     controlTotal: 3_125_644.89,
@@ -92,7 +99,7 @@ export const dashboardData = {
     {
       label: "Персонал и налоги",
       amount: 461_627,
-      note: "Подоходный налог и кадровые платежи дня.",
+      note: "Подоходный налог и кадровые платежи распределения.",
       tone: "red",
     },
     {

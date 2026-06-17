@@ -329,57 +329,93 @@ h3 {
   text-align: right;
 }
 
-.waterfall-chart {
+.pace-chart {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pace-row {
+  display: grid;
   gap: 10px;
-  align-items: end;
-  min-height: 220px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
 }
 
-.waterfall-step {
-  display: grid;
-  grid-template-rows: 1fr auto auto;
-  gap: 7px;
-  min-width: 0;
-  height: 100%;
-  text-align: center;
-}
-
-.waterfall-column {
+.pace-row-head,
+.pace-values {
   display: flex;
-  align-items: flex-end;
-  min-height: 150px;
-  padding: 0 9px;
-  border-bottom: 1px solid var(--line);
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
 }
 
-.waterfall-column span {
-  display: block;
-  width: 100%;
-  min-height: 8px;
-  border-radius: 8px 8px 0 0;
-  background: var(--tone-color, var(--neutral));
-}
-
-.waterfall-column span.negative {
-  border-radius: 0 0 8px 8px;
-  opacity: 0.78;
-}
-
-.waterfall-step strong {
-  color: var(--tone-color, var(--text));
-  font-size: 13px;
-  line-height: 1.1;
-  white-space: nowrap;
-}
-
-.waterfall-step > span {
+.pace-row-head span,
+.pace-values span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.pace-row-head strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 24px;
+  line-height: 1.08;
+}
+
+.pace-row-head b {
+  color: var(--tone-color, var(--text));
+  font-size: 18px;
+  line-height: 1.1;
+  text-align: right;
   white-space: nowrap;
+}
+
+.pace-track {
+  position: relative;
+  height: 24px;
+  overflow: visible;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.pace-track span,
+.pace-track i {
+  position: absolute;
+  display: block;
+}
+
+.pace-expected {
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: rgba(94, 103, 112, 0.18);
+}
+
+.pace-fact {
+  inset: 5px auto 5px 0;
+  z-index: 1;
+  min-width: 4px;
+  border-radius: inherit;
+  background: var(--tone-color, var(--green));
+}
+
+.pace-track i {
+  top: -5px;
+  bottom: -5px;
+  z-index: 2;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--text);
+  opacity: 0.45;
+  transform: translateX(-1px);
+}
+
+.pace-row p {
+  margin: 0;
+  color: var(--muted);
 }
 
 .donut-layout {
@@ -1412,12 +1448,6 @@ dd {
     font-size: 34px;
   }
 
-  .waterfall-chart {
-    grid-template-columns: repeat(5, minmax(72px, 1fr));
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
-
   .visual-panel {
     min-height: auto;
   }
@@ -1440,7 +1470,9 @@ dd {
   .panel-heading,
   .facts-list div,
   .channel-list li > div:first-child,
-  .cash-list li > div:first-child {
+  .cash-list li > div:first-child,
+  .pace-row-head,
+  .pace-values {
     flex-direction: column;
   }
 
@@ -1451,7 +1483,8 @@ dd {
   }
 
   dd,
-  .flow-step b {
+  .flow-step b,
+  .pace-row-head b {
     text-align: left;
   }
 }
