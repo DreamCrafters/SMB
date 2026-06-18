@@ -36,6 +36,28 @@ test("selectDevAccessSession posts selected account type to the server", async (
   });
 });
 
+test("selectDevAccessSession can request dispatcher access", async () => {
+  let request;
+
+  globalThis.fetch = async (endpoint, init) => {
+    request = { endpoint, init };
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await selectDevAccessSession("dispatcher", {
+    endpoint: "/api/dev/access-session",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(JSON.parse(request.init.body), {
+    accountType: "dispatcher",
+  });
+});
+
 test("clearDevAccessSession deletes the server session with cookies", async () => {
   let request;
 

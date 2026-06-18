@@ -1,4 +1,4 @@
-export type AccountType = "admin" | "business_owner" | "worker";
+export type AccountType = "admin" | "business_owner" | "worker" | "dispatcher";
 
 export const accountCapabilities = [
   "platform.manage_business_accounts",
@@ -13,6 +13,8 @@ export const accountCapabilities = [
   "business.view_department_statistics",
   "business.view_notifications",
   "business.submit_forms",
+  "business.submit_dispatcher_forms",
+  "business.view_dispatcher_feed",
   "business.view_own_submissions",
 ] as const;
 

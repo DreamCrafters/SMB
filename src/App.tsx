@@ -1,5 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AccountType, ServerUserProfile } from "./contracts";
+import type {
+  AccountCapability,
+  AccountType,
+  DispatcherSubmission,
+  ServerUserProfile,
+} from "./contracts";
 import {
   accountShellPanels,
   accountTypeLabels,
@@ -21,6 +26,14 @@ import {
   requestAccessProfile,
   type AccessProfileLoadState,
 } from "./services/accessProfile";
+import {
+  requestDispatcherFeed,
+  submitDispatcherSubmission,
+  type DispatcherFeedResult,
+} from "./services/dispatcherSubmissions";
+import { getRemoteServerConnection } from "./services/remoteServer";
+
+type OwnerTab = "overview" | "dispatcher";
 
 type SessionRequestState =
   | {
@@ -35,6 +48,13 @@ type SessionRequestState =
       message: string;
     };
 
+type DispatcherFeedLoadState =
+  | {
+      status: "loading";
+      message: string;
+    }
+  | DispatcherFeedResult;
+
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
   message: "Запрашиваем серверный профиль доступа.",
@@ -42,6 +62,11 @@ const initialAccessProfileState: AccessProfileLoadState = {
 
 const initialSessionRequestState: SessionRequestState = {
   status: "idle",
+};
+
+const initialDispatcherFeedState: DispatcherFeedLoadState = {
+  status: "loading",
+  message: "Ожидаем профиль владельца для запроса диспетчерской истории.",
 };
 
 function stateLabel(state: NavigationItem["state"] | StatusPanel["state"]) {
@@ -73,9 +98,15 @@ export default function App() {
     initialSessionRequestState,
   );
   const [requestVersion, setRequestVersion] = useState(0);
-  const [workerSubmissionStatus, setWorkerSubmissionStatus] = useState(
+  const [dataEntryStatus, setDataEntryStatus] = useState(
     "Серверная запись формы ещё не подключена.",
   );
+  const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
+  const [ownerTab, setOwnerTab] = useState<OwnerTab>("overview");
+  const [dispatcherFeed, setDispatcherFeed] = useState<DispatcherFeedLoadState>(
+    initialDispatcherFeedState,
+  );
+  const [dispatcherFeedVersion, setDispatcherFeedVersion] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -95,6 +126,48 @@ export default function App() {
       controller.abort();
     };
   }, [requestVersion]);
+
+  useEffect(() => {
+    if (
+      accessProfile.status !== "ready" ||
+      !hasCapability(accessProfile.profile, "business.view_dispatcher_feed")
+    ) {
+      setDispatcherFeed(initialDispatcherFeedState);
+      return;
+    }
+
+    let isActive = true;
+    let currentController: AbortController | undefined;
+
+    function loadDispatcherFeed() {
+      currentController?.abort();
+      currentController = new AbortController();
+
+      setDispatcherFeed((current) =>
+        current.status === "ready"
+          ? current
+          : {
+              status: "loading",
+              message: "Запрашиваем диспетчерскую историю с удалённого сервера.",
+            },
+      );
+
+      requestDispatcherFeed({ signal: currentController.signal }).then((result) => {
+        if (isActive) {
+          setDispatcherFeed(result);
+        }
+      });
+    }
+
+    loadDispatcherFeed();
+    const intervalId = window.setInterval(loadDispatcherFeed, 5_000);
+
+    return () => {
+      isActive = false;
+      currentController?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [accessProfile, dispatcherFeedVersion]);
 
   async function handleSelectAccount(accountType: AccountType) {
     setSessionRequest({
@@ -132,11 +205,48 @@ export default function App() {
     setRequestVersion((version) => version + 1);
   }
 
-  function handleWorkerSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleDataEntrySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setWorkerSubmissionStatus(
-      "Данные не сохранены: production endpoint и база данных ещё не подключены.",
-    );
+
+    if (accessProfile.status !== "ready") {
+      setDataEntryStatus("Нельзя отправить данные без серверного профиля доступа.");
+      return;
+    }
+
+    if (
+      !hasCapability(accessProfile.profile, "business.submit_dispatcher_forms") &&
+      !hasCapability(accessProfile.profile, "business.submit_forms")
+    ) {
+      setDataEntryStatus("Серверный профиль не разрешает отправку формы.");
+      return;
+    }
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const businessAccountId = getActiveBusinessAccountId(accessProfile.profile);
+
+    setIsDataEntrySubmitting(true);
+    setDataEntryStatus("Отправляем данные на удалённый сервер.");
+
+    const result = await submitDispatcherSubmission({
+      businessAccountId,
+      period: String(formData.get("period") ?? ""),
+      metricCode: String(formData.get("metricCode") ?? ""),
+      rawValue: String(formData.get("rawValue") ?? ""),
+      comment: readOptionalFormValue(formData.get("comment")),
+    });
+
+    setIsDataEntrySubmitting(false);
+
+    if (result.status === "ready") {
+      setDataEntryStatus(
+        `Сервер принял отправку ${result.submission.id}. История обновится у владельца через remote feed.`,
+      );
+      form.reset();
+      return;
+    }
+
+    setDataEntryStatus(result.message);
   }
 
   if (accessProfile.status !== "ready") {
@@ -152,7 +262,11 @@ export default function App() {
 
   const profile = accessProfile.profile;
   const profileStatusPanel = buildProfileStatusPanel(accessProfile);
-  const visibleStatusPanels = [profileStatusPanel, ...statusPanels.slice(1)];
+  const visibleStatusPanels = [
+    profileStatusPanel,
+    buildRemoteServerStatusPanel(),
+    ...statusPanels.slice(1),
+  ];
   const serverSummary = buildServerSummary(accessProfile);
 
   return (
@@ -176,8 +290,15 @@ export default function App() {
         <RoleWorkspace
           profile={profile}
           visibleStatusPanels={visibleStatusPanels}
-          workerSubmissionStatus={workerSubmissionStatus}
-          onWorkerSubmit={handleWorkerSubmit}
+          dataEntryStatus={dataEntryStatus}
+          isDataEntrySubmitting={isDataEntrySubmitting}
+          onDataEntrySubmit={handleDataEntrySubmit}
+          ownerTab={ownerTab}
+          dispatcherFeed={dispatcherFeed}
+          onOwnerTabChange={setOwnerTab}
+          onRefreshDispatcherFeed={() =>
+            setDispatcherFeedVersion((version) => version + 1)
+          }
         />
       </section>
     </main>
@@ -392,13 +513,23 @@ function WorkspaceIntro({ accountType }: { accountType: AccountType }) {
 function RoleWorkspace({
   profile,
   visibleStatusPanels,
-  workerSubmissionStatus,
-  onWorkerSubmit,
+  dataEntryStatus,
+  isDataEntrySubmitting,
+  onDataEntrySubmit,
+  ownerTab,
+  dispatcherFeed,
+  onOwnerTabChange,
+  onRefreshDispatcherFeed,
 }: {
   profile: ServerUserProfile;
   visibleStatusPanels: StatusPanel[];
-  workerSubmissionStatus: string;
-  onWorkerSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  dataEntryStatus: string;
+  isDataEntrySubmitting: boolean;
+  onDataEntrySubmit: (event: FormEvent<HTMLFormElement>) => void;
+  ownerTab: OwnerTab;
+  dispatcherFeed: DispatcherFeedLoadState;
+  onOwnerTabChange: (tab: OwnerTab) => void;
+  onRefreshDispatcherFeed: () => void;
 }) {
   switch (profile.accountType) {
     case "admin":
@@ -409,12 +540,33 @@ function RoleWorkspace({
         />
       );
     case "business_owner":
-      return <OwnerWorkspace visibleStatusPanels={visibleStatusPanels} />;
+      return (
+        <OwnerWorkspace
+          visibleStatusPanels={visibleStatusPanels}
+          activeTab={ownerTab}
+          dispatcherFeed={dispatcherFeed}
+          onTabChange={onOwnerTabChange}
+          onRefreshDispatcherFeed={onRefreshDispatcherFeed}
+        />
+      );
     case "worker":
       return (
-        <WorkerWorkspace
-          workerSubmissionStatus={workerSubmissionStatus}
-          onWorkerSubmit={onWorkerSubmit}
+        <DataEntryWorkspace
+          title="Отправка данных"
+          meta="server write"
+          status={dataEntryStatus}
+          isSubmitting={isDataEntrySubmitting}
+          onSubmit={onDataEntrySubmit}
+        />
+      );
+    case "dispatcher":
+      return (
+        <DataEntryWorkspace
+          title="Диспетчерская отправка"
+          meta="remote DB"
+          status={dataEntryStatus}
+          isSubmitting={isDataEntrySubmitting}
+          onSubmit={onDataEntrySubmit}
         />
       );
   }
@@ -422,83 +574,121 @@ function RoleWorkspace({
 
 function OwnerWorkspace({
   visibleStatusPanels,
+  activeTab,
+  dispatcherFeed,
+  onTabChange,
+  onRefreshDispatcherFeed,
 }: {
   visibleStatusPanels: StatusPanel[];
+  activeTab: OwnerTab;
+  dispatcherFeed: DispatcherFeedLoadState;
+  onTabChange: (tab: OwnerTab) => void;
+  onRefreshDispatcherFeed: () => void;
 }) {
   return (
     <>
       <StatusGrid visibleStatusPanels={visibleStatusPanels} />
-      <section className="owner-board" aria-label="Панель владельца">
-        <article className="queue-panel">
-          <PanelHeading
-            label="очередь"
-            title="Подтверждения и формы"
-            meta="server response"
-          />
-          <div className="placeholder-table" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
-          <p>
-            Реальные строки очереди появятся только после серверного ответа с
-            разрешёнными действиями.
-          </p>
-        </article>
-        <article className="analytics-panel">
-          <PanelHeading label="kpi" title="Аналитика" meta="empty state" />
-          <div className="chart-placeholder" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </div>
-          <p>
-            Графики и показатели не рассчитываются на клиенте и ждут
-            backend-агрегаты.
-          </p>
-        </article>
+      <section className="owner-tabs" aria-label="Вкладки владельца">
+        <button
+          className={activeTab === "overview" ? "owner-tab-active" : ""}
+          type="button"
+          onClick={() => onTabChange("overview")}
+        >
+          Обзор
+        </button>
+        <button
+          className={activeTab === "dispatcher" ? "owner-tab-active" : ""}
+          type="button"
+          onClick={() => onTabChange("dispatcher")}
+        >
+          Диспетчерская
+        </button>
       </section>
+      {activeTab === "overview" ? (
+        <OwnerOverviewBoard />
+      ) : (
+        <DispatcherFeedPanel
+          dispatcherFeed={dispatcherFeed}
+          onRefresh={onRefreshDispatcherFeed}
+        />
+      )}
     </>
   );
 }
 
-function WorkerWorkspace({
-  workerSubmissionStatus,
-  onWorkerSubmit,
+function OwnerOverviewBoard() {
+  return (
+    <section className="owner-board" aria-label="Панель владельца">
+      <article className="queue-panel">
+        <PanelHeading
+          label="очередь"
+          title="Подтверждения и формы"
+          meta="server response"
+        />
+        <div className="placeholder-table" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+        <p>
+          Реальные строки очереди появятся только после серверного ответа с
+          разрешёнными действиями.
+        </p>
+      </article>
+      <article className="analytics-panel">
+        <PanelHeading label="kpi" title="Аналитика" meta="empty state" />
+        <div className="chart-placeholder" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+          <i />
+        </div>
+        <p>
+          Графики и показатели не рассчитываются на клиенте и ждут
+          backend-агрегаты.
+        </p>
+      </article>
+    </section>
+  );
+}
+
+function DataEntryWorkspace({
+  title,
+  meta,
+  status,
+  isSubmitting,
+  onSubmit,
 }: {
-  workerSubmissionStatus: string;
-  onWorkerSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  title: string;
+  meta: string;
+  status: string;
+  isSubmitting: boolean;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
     <section className="worker-workspace" aria-label="Рабочая форма">
       <article className="data-entry-panel">
-        <PanelHeading
-          label="форма"
-          title="Отправка данных"
-          meta="server write"
-        />
-        <form className="data-entry-form" onSubmit={onWorkerSubmit}>
+        <PanelHeading label="форма" title={title} meta={meta} />
+        <form className="data-entry-form" onSubmit={onSubmit}>
           <label>
             <span>Период</span>
             <input name="period" type="month" />
           </label>
           <label>
-            <span>Показатель</span>
-            <select name="metric" defaultValue="">
-              <option value="" disabled>
-                Выбрать из серверного списка
-              </option>
-            </select>
+            <span>Код показателя</span>
+            <input
+              name="metricCode"
+              placeholder="Проверяется удалённым сервером"
+            />
           </label>
           <label>
             <span>Значение</span>
             <input
-              name="value"
+              name="rawValue"
               inputMode="decimal"
-              placeholder="Будет проверено сервером"
+              placeholder="Будет сохранено сервером при подключённой БД"
             />
           </label>
           <label>
@@ -510,14 +700,77 @@ function WorkerWorkspace({
             />
           </label>
           <div className="form-actions">
-            <button className="primary-button" type="submit">
-              Отправить на сервер
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Отправка..." : "Отправить на сервер"}
             </button>
-            <p>{workerSubmissionStatus}</p>
+            <p>{status}</p>
           </div>
         </form>
       </article>
     </section>
+  );
+}
+
+function DispatcherFeedPanel({
+  dispatcherFeed,
+  onRefresh,
+}: {
+  dispatcherFeed: DispatcherFeedLoadState;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="dispatcher-feed-panel" aria-label="Диспетчерская">
+      <PanelHeading
+        label="live"
+        title="Диспетчерская"
+        meta={dispatcherFeed.status === "ready" ? "remote DB" : "server state"}
+      />
+      <div className={`feed-state feed-state-${dispatcherFeed.status}`}>
+        <strong>{dispatcherFeedTitle(dispatcherFeed)}</strong>
+        <p>{dispatcherFeedMessage(dispatcherFeed)}</p>
+        <button className="retry-button" type="button" onClick={onRefresh}>
+          Обновить
+        </button>
+      </div>
+      {dispatcherFeed.status === "ready" &&
+      dispatcherFeed.submissions.length > 0 ? (
+        <div className="dispatcher-feed-table" role="table">
+          <div className="dispatcher-feed-row dispatcher-feed-head" role="row">
+            <span role="columnheader">Время</span>
+            <span role="columnheader">Период</span>
+            <span role="columnheader">Показатель</span>
+            <span role="columnheader">Значение</span>
+            <span role="columnheader">Статус</span>
+          </div>
+          {dispatcherFeed.submissions.map((submission) => (
+            <DispatcherFeedRow
+              submission={submission}
+              key={submission.id}
+            />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function DispatcherFeedRow({
+  submission,
+}: {
+  submission: DispatcherSubmission;
+}) {
+  return (
+    <div className="dispatcher-feed-row" role="row">
+      <span role="cell">{submission.receivedAt}</span>
+      <span role="cell">{submission.period}</span>
+      <span role="cell">{submission.metricCode}</span>
+      <span role="cell">{submission.rawValue}</span>
+      <span role="cell">{submission.status}</span>
+    </div>
   );
 }
 
@@ -612,6 +865,24 @@ function buildProfileStatusPanel(profile: AccessProfileLoadState): StatusPanel {
   }
 }
 
+function buildRemoteServerStatusPanel(): StatusPanel {
+  const remoteServer = getRemoteServerConnection();
+
+  if (remoteServer.status === "configured") {
+    return {
+      label: "Удалённая БД",
+      state: "ready",
+      detail: "Remote API URL настроен.",
+    };
+  }
+
+  return {
+    label: "Удалённая БД",
+    state: "error",
+    detail: remoteServer.message,
+  };
+}
+
 function buildServerSummary(profile: AccessProfileLoadState) {
   switch (profile.status) {
     case "loading":
@@ -646,6 +917,53 @@ function buildAccountSelectorValue(profile: ServerUserProfile) {
   }
 
   return `Получено с сервера: ${businessCount}`;
+}
+
+function dispatcherFeedTitle(feed: DispatcherFeedLoadState) {
+  switch (feed.status) {
+    case "loading":
+      return "Запрос live-истории";
+    case "ready":
+      return feed.submissions.length === 0
+        ? "Сервер вернул пустую историю"
+        : `Записей с сервера: ${feed.submissions.length}`;
+    case "error":
+      return "Диспетчерская недоступна";
+  }
+}
+
+function dispatcherFeedMessage(feed: DispatcherFeedLoadState) {
+  switch (feed.status) {
+    case "loading":
+      return feed.message;
+    case "ready":
+      return `Последнее обновление remote feed: ${feed.receivedAt}.`;
+    case "error":
+      return feed.message;
+  }
+}
+
+function hasCapability(
+  profile: ServerUserProfile,
+  capability: AccountCapability,
+) {
+  return profile.activeAccess.capabilities.includes(capability);
+}
+
+function getActiveBusinessAccountId(profile: ServerUserProfile) {
+  const scope = profile.activeAccess.scope;
+
+  if (scope.kind === "business" || scope.kind === "department") {
+    return scope.businessAccountId;
+  }
+
+  return profile.businessAccounts[0]?.id ?? "";
+}
+
+function readOptionalFormValue(value: FormDataEntryValue | null) {
+  const text = typeof value === "string" ? value.trim() : "";
+
+  return text.length > 0 ? text : undefined;
 }
 
 function StatusPill({ panel }: { panel: StatusPanel }) {

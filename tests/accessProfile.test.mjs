@@ -56,6 +56,41 @@ test("requestAccessProfile accepts a minimal valid server profile", async () => 
   assert.equal(result.profile.accountType, "worker");
 });
 
+test("requestAccessProfile accepts dispatcher profiles", async () => {
+  const profile = {
+    userId: "dispatcher-id",
+    displayName: "Server dispatcher",
+    accountType: "dispatcher",
+    activeAccess: {
+      accountId: "dispatcher-access-id",
+      accountType: "dispatcher",
+      displayName: "Dispatcher access",
+      scope: {
+        kind: "department",
+        businessAccountId: "business-id",
+        departmentId: "department-id",
+      },
+      capabilities: ["business.submit_dispatcher_forms"],
+      issuedAt: "2026-06-18T00:00:00.000Z",
+    },
+    businessAccounts: [],
+    departments: [],
+    organizationStructureMode: "current",
+    receivedAt: "2026-06-18T00:00:00.000Z",
+  };
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ profile }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  const result = await requestAccessProfile({ endpoint: "/api/access/profile" });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.profile.accountType, "dispatcher");
+});
+
 test("requestAccessProfile rejects unsupported profile shapes", async () => {
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ profile: { accountType: "worker" } }), {

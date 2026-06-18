@@ -44,18 +44,22 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.view_department_statistics",
     "business.view_notifications",
     "business.submit_forms",
+    "business.submit_dispatcher_forms",
+    "business.view_dispatcher_feed",
     "business.view_own_submissions",
   ],
   business_owner: [
     "business.view_all_statistics",
     "business.view_department_statistics",
     "business.view_notifications",
+    "business.view_dispatcher_feed",
   ],
   worker: [
     "business.submit_forms",
     "business.view_notifications",
     "business.view_own_submissions",
   ],
+  dispatcher: ["business.submit_dispatcher_forms"],
 };
 
 function accessProfileApi(): Plugin {
@@ -233,6 +237,43 @@ function buildDevProfile(
     };
   }
 
+  if (accountType === "dispatcher") {
+    return {
+      userId: "dev-user-dispatcher",
+      displayName: "Dev dispatcher",
+      accountType,
+      activeAccess: {
+        accountId: "dev-access-dispatcher",
+        accountType,
+        displayName: "Dev dispatcher access",
+        scope: {
+          kind: "department",
+          businessAccountId: DEV_BUSINESS_ID,
+          departmentId: DEV_DEPARTMENT_ID,
+        },
+        capabilities,
+        issuedAt,
+      },
+      businessAccounts: [
+        {
+          id: DEV_BUSINESS_ID,
+          displayName: "Server business boundary",
+          status: "active",
+        },
+      ],
+      departments: [
+        {
+          id: DEV_DEPARTMENT_ID,
+          businessAccountId: DEV_BUSINESS_ID,
+          displayName: "Server department boundary",
+          structureMode: "current",
+        },
+      ],
+      organizationStructureMode: "current",
+      receivedAt,
+    };
+  }
+
   return {
     userId: "dev-user-worker",
     displayName: "Dev worker",
@@ -341,7 +382,12 @@ function createSessionId(accountType: AccountType) {
 }
 
 function isAccountType(value: unknown): value is AccountType {
-  return value === "admin" || value === "business_owner" || value === "worker";
+  return (
+    value === "admin" ||
+    value === "business_owner" ||
+    value === "worker" ||
+    value === "dispatcher"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

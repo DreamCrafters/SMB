@@ -67,6 +67,7 @@ export const accountTypeLabels: Record<AccountType, string> = {
   admin: "Администратор",
   business_owner: "Владелец бизнеса",
   worker: "Работник",
+  dispatcher: "Диспетчер",
 };
 
 export const authOptions: AuthOption[] = [
@@ -81,6 +82,12 @@ export const authOptions: AuthOption[] = [
     label: "Работник",
     description: "Видит только форму отправки данных и статус серверной записи.",
     scope: "form access",
+  },
+  {
+    accountType: "dispatcher",
+    label: "Диспетчер",
+    description: "Заполняет диспетчерскую форму для серверной истории владельца.",
+    scope: "dispatcher form",
   },
   {
     accountType: "admin",
@@ -130,6 +137,11 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "pending",
     },
     {
+      label: "Диспетчерская",
+      description: "Live-история отправленных данных",
+      state: "pending",
+    },
+    {
       label: "Аудит",
       description: "История действий и просмотров",
       state: "locked",
@@ -144,6 +156,13 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
     {
       label: "Форма",
       description: "Отправка рабочих данных",
+      state: "active",
+    },
+  ],
+  dispatcher: [
+    {
+      label: "Форма",
+      description: "Диспетчерская отправка",
       state: "active",
     },
   ],
@@ -171,6 +190,13 @@ export const roleWorkspaceCopy: Record<AccountType, RoleWorkspaceCopy> = {
       "Работник видит только рабочую форму. Сохранение в базу будет серверным действием, когда появится production backend.",
     boundaryValue: "submit server",
   },
+  dispatcher: {
+    eyebrow: "dispatcher entry",
+    title: "Диспетчерская форма",
+    lead:
+      "Диспетчер заполняет только форму. После подключения удалённого сервера запись уходит в БД и появляется в диспетчерской владельца.",
+    boundaryValue: "remote DB",
+  },
 };
 
 export const navigationItems: NavigationItem[] = [
@@ -187,6 +213,11 @@ export const navigationItems: NavigationItem[] = [
   {
     label: "Очередь",
     description: "Подтверждения и отклонения",
+    state: "pending",
+  },
+  {
+    label: "Диспетчерская",
+    description: "Live-история отправок",
     state: "pending",
   },
   {
@@ -240,6 +271,14 @@ export const accountShellPanels: AccountShellPanel[] = [
       "статусы",
       "уведомления",
     ],
+  },
+  {
+    accountType: "dispatcher",
+    label: "Диспетчер",
+    scope: "Форма",
+    serverDependency: "dispatcher access",
+    emptyState: "Доступ только к диспетчерской форме и отправке на сервер.",
+    availableAfterServer: ["форма", "отправка", "статус сервера"],
   },
 ];
 

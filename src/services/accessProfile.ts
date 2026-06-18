@@ -186,7 +186,12 @@ function isServerIssuedAccountAccess(value: unknown): value is ServerIssuedAccou
 }
 
 function isAccountType(value: unknown): value is AccountType {
-  return value === "admin" || value === "business_owner" || value === "worker";
+  return (
+    value === "admin" ||
+    value === "business_owner" ||
+    value === "worker" ||
+    value === "dispatcher"
+  );
 }
 
 function isAccountCapability(value: unknown): value is AccountCapability {

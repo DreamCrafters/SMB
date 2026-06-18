@@ -122,7 +122,7 @@ p {
 
 .auth-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
   gap: var(--density-3);
 }
 
@@ -156,6 +156,10 @@ p {
 
 .auth-option-worker {
   border-top-color: var(--amber);
+}
+
+.auth-option-dispatcher {
+  border-top-color: var(--blue-gray);
 }
 
 .auth-option-admin {
@@ -521,7 +525,7 @@ p {
 
 .segmented-control {
   display: grid;
-  grid-template-columns: repeat(3, minmax(88px, auto));
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   padding: 4px;
 }
 
@@ -620,7 +624,7 @@ p {
 }
 
 .account-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
 }
 
 .account-panel {
@@ -642,6 +646,10 @@ p {
 
 .account-worker {
   border-top-color: var(--amber);
+}
+
+.account-dispatcher {
+  border-top-color: var(--blue-gray);
 }
 
 .account-head {
@@ -700,10 +708,44 @@ p {
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
 }
 
+.owner-tabs {
+  display: flex;
+  gap: var(--density-2);
+  flex-wrap: wrap;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.owner-tabs button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--blue-gray);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.owner-tabs button:hover,
+.owner-tabs button:focus-visible {
+  border-color: var(--blue-gray);
+  outline: none;
+}
+
+.owner-tabs .owner-tab-active {
+  color: #ffffff;
+  background: var(--nav);
+}
+
 .queue-panel,
 .analytics-panel,
 .data-entry-panel,
-.admin-tool-panel {
+.admin-tool-panel,
+.dispatcher-feed-panel {
   display: grid;
   gap: var(--density-3);
   min-height: 310px;
@@ -875,6 +917,86 @@ p {
   outline: none;
 }
 
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.dispatcher-feed-panel {
+  align-content: start;
+}
+
+.feed-state {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--density-2) var(--density-3);
+  align-items: center;
+  padding: var(--density-3);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--blue-gray);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.feed-state-loading {
+  border-left-color: var(--amber);
+}
+
+.feed-state-ready {
+  border-left-color: var(--emerald);
+}
+
+.feed-state-error {
+  border-left-color: var(--brick);
+}
+
+.feed-state strong {
+  color: var(--ink);
+}
+
+.feed-state p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 13px;
+}
+
+.dispatcher-feed-table {
+  display: grid;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.dispatcher-feed-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(100px, 0.7fr) minmax(140px, 1fr) minmax(120px, 0.7fr) minmax(110px, 0.7fr);
+  min-width: 760px;
+  border-top: 1px solid var(--line);
+}
+
+.dispatcher-feed-row:first-child {
+  border-top: 0;
+}
+
+.dispatcher-feed-row span {
+  padding: 10px 11px;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.dispatcher-feed-head {
+  background: var(--surface-subtle);
+}
+
+.dispatcher-feed-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .capability-list {
   display: flex;
   flex-wrap: wrap;
@@ -908,7 +1030,7 @@ p {
   }
 
   .segmented-control {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -994,12 +1116,18 @@ p {
   .queue-panel,
   .analytics-panel,
   .data-entry-panel,
-  .admin-tool-panel {
+  .admin-tool-panel,
+  .dispatcher-feed-panel {
     padding: var(--density-3);
   }
 
   .auth-status,
-  .form-actions {
+  .form-actions,
+  .feed-state {
     display: grid;
+  }
+
+  .feed-state .retry-button {
+    width: fit-content;
   }
 }
