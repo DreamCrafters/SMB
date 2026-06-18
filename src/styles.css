@@ -230,6 +230,22 @@ p {
   border-left: 6px solid var(--blue-gray);
 }
 
+.server-strip-loading {
+  border-left-color: var(--amber);
+}
+
+.server-strip-ready {
+  border-left-color: var(--emerald);
+}
+
+.server-strip-empty {
+  border-left-color: var(--blue-gray);
+}
+
+.server-strip-error {
+  border-left-color: var(--brick);
+}
+
 .server-state {
   display: flex;
   gap: var(--density-3);
@@ -258,6 +274,21 @@ p {
   box-shadow: 0 0 0 4px var(--amber-soft);
 }
 
+.status-dot-ready {
+  background: var(--emerald);
+  box-shadow: 0 0 0 4px var(--emerald-soft);
+}
+
+.status-dot-empty {
+  background: var(--blue-gray);
+  box-shadow: 0 0 0 4px var(--blue-gray-soft);
+}
+
+.status-dot-error {
+  background: var(--brick);
+  box-shadow: 0 0 0 4px var(--brick-soft);
+}
+
 .server-actions {
   display: flex;
   flex-wrap: wrap;
@@ -280,9 +311,17 @@ p {
 }
 
 .status-pill-waiting,
+.status-pill-loading,
+.status-card-loading span,
 .status-card-waiting span {
   color: var(--amber);
   background: var(--amber-soft);
+}
+
+.status-pill-ready,
+.status-card-ready span {
+  color: var(--emerald);
+  background: var(--emerald-soft);
 }
 
 .status-pill-empty,
@@ -292,9 +331,33 @@ p {
 }
 
 .status-pill-locked,
+.status-pill-error,
+.status-card-error span,
 .status-card-locked span {
   color: var(--brick);
   background: var(--brick-soft);
+}
+
+.retry-button {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.retry-button:hover,
+.retry-button:focus-visible {
+  border-color: var(--blue-gray);
+  outline: none;
+}
+
+.retry-button:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .command-bar {

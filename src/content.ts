@@ -17,7 +17,7 @@ export type AccountShellPanel = {
 
 export type StatusPanel = {
   label: string;
-  state: "waiting" | "empty" | "locked";
+  state: "loading" | "ready" | "waiting" | "empty" | "error" | "locked";
   detail: string;
 };
 
@@ -29,8 +29,14 @@ export const shellCopy = {
   serverStatus: "Серверный профиль не подключён",
   serverStatusDetail:
     "Интерфейс показывает только структуру. Бизнес-данные, права и аналитика должны прийти из backend access/profile.",
+  accessProfileLoading: "Запрашиваем /api/access/profile",
+  accessProfileReady: "Серверный профиль получен",
+  accessProfileEmpty: "Профиль доступа пуст",
+  accessProfileError: "Серверный профиль недоступен",
   accountSelectorLabel: "Бизнес-аккаунт",
   accountSelectorPlaceholder: "Будет выбран из серверного ответа",
+  accountSelectorLoading: "Запрашиваем список бизнесов",
+  accountSelectorEmpty: "Сервер не вернул доступные бизнесы",
   accountTypeLabel: "Тип аккаунта выдаёт сервер",
   workspaceTitle: "Операционный контур",
   workspaceLead:

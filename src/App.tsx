@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   accountShellPanels,
   navigationItems,
@@ -7,11 +8,19 @@ import {
   type NavigationItem,
   type StatusPanel,
 } from "./content";
+import {
+  requestAccessProfile,
+  type AccessProfileLoadState,
+} from "./services/accessProfile";
 
 function stateLabel(state: NavigationItem["state"] | StatusPanel["state"]) {
   switch (state) {
     case "active":
       return "готов";
+    case "loading":
+      return "загрузка";
+    case "ready":
+      return "получен";
     case "pending":
       return "ожидание";
     case "locked":
@@ -20,6 +29,8 @@ function stateLabel(state: NavigationItem["state"] | StatusPanel["state"]) {
       return "запрос";
     case "empty":
       return "пусто";
+    case "error":
+      return "ошибка";
   }
 }
 
@@ -34,7 +45,42 @@ function accountTypeLabel(panel: AccountShellPanel) {
   }
 }
 
+const initialAccessProfileState: AccessProfileLoadState = {
+  status: "loading",
+  message: "Запрашиваем серверный профиль доступа.",
+};
+
 export default function App() {
+  const [accessProfile, setAccessProfile] = useState<AccessProfileLoadState>(
+    initialAccessProfileState,
+  );
+  const [requestVersion, setRequestVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setAccessProfile({
+      status: "loading",
+      message: "Запрашиваем серверный профиль доступа.",
+    });
+
+    requestAccessProfile({ signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted) {
+        setAccessProfile(result);
+      }
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [requestVersion]);
+
+  const profileStatusPanel = buildProfileStatusPanel(accessProfile);
+  const visibleStatusPanels = [profileStatusPanel, ...statusPanels.slice(1)];
+  const serverSummary = buildServerSummary(accessProfile);
+  const accountSelectorValue = buildAccountSelectorValue(accessProfile);
+  const accountTypeValue = buildAccountTypeValue(accessProfile);
+
   return (
     <main className="ops-shell">
       <aside className="side-rail" aria-label="Основная навигация">
@@ -65,29 +111,40 @@ export default function App() {
       </aside>
 
       <section className="workspace" aria-label="Рабочая область">
-        <header className="server-strip">
+        <header className={`server-strip server-strip-${accessProfile.status}`}>
           <div className="server-state">
-            <span className="status-dot" aria-hidden="true" />
+            <span
+              className={`status-dot status-dot-${accessProfile.status}`}
+              aria-hidden="true"
+            />
             <div>
-              <strong>{shellCopy.serverStatus}</strong>
-              <p>{shellCopy.serverStatusDetail}</p>
+              <strong>{serverSummary.title}</strong>
+              <p>{serverSummary.detail}</p>
             </div>
           </div>
           <div className="server-actions" aria-label="Серверные границы">
-            {statusPanels.map((panel) => (
+            {visibleStatusPanels.map((panel) => (
               <StatusPill panel={panel} key={panel.label} />
             ))}
+            <button
+              className="retry-button"
+              type="button"
+              disabled={accessProfile.status === "loading"}
+              onClick={() => setRequestVersion((version) => version + 1)}
+            >
+              Повторить
+            </button>
           </div>
         </header>
 
         <section className="command-bar" aria-label="Контекст аккаунта">
           <div className="selector-block">
             <span>{shellCopy.accountSelectorLabel}</span>
-            <strong>{shellCopy.accountSelectorPlaceholder}</strong>
+            <strong>{accountSelectorValue}</strong>
           </div>
           <div className="selector-block selector-block-muted">
             <span>access/profile</span>
-            <strong>{shellCopy.accountTypeLabel}</strong>
+            <strong>{accountTypeValue}</strong>
           </div>
           <div className="segmented-control" aria-label="Типы аккаунта">
             {accountShellPanels.map((panel) => (
@@ -109,7 +166,7 @@ export default function App() {
         </section>
 
         <section className="status-grid" aria-label="Панели статуса">
-          {statusPanels.map((panel) => (
+          {visibleStatusPanels.map((panel) => (
             <article className={`status-card status-card-${panel.state}`} key={panel.label}>
               <span>{stateLabel(panel.state)}</span>
               <strong>{panel.label}</strong>
@@ -160,6 +217,87 @@ export default function App() {
       </section>
     </main>
   );
+}
+
+function buildProfileStatusPanel(profile: AccessProfileLoadState): StatusPanel {
+  switch (profile.status) {
+    case "loading":
+      return {
+        label: "Профиль доступа",
+        state: "loading",
+        detail: profile.message,
+      };
+    case "ready":
+      return {
+        label: "Профиль доступа",
+        state: "ready",
+        detail: "Ответ принят через client fetch-boundary.",
+      };
+    case "empty":
+      return {
+        label: "Профиль доступа",
+        state: "empty",
+        detail: profile.message,
+      };
+    case "error":
+      return {
+        label: "Профиль доступа",
+        state: "error",
+        detail: profile.message,
+      };
+  }
+}
+
+function buildServerSummary(profile: AccessProfileLoadState) {
+  switch (profile.status) {
+    case "loading":
+      return {
+        title: shellCopy.accessProfileLoading,
+        detail: profile.message,
+      };
+    case "ready":
+      return {
+        title: shellCopy.accessProfileReady,
+        detail:
+          "Клиент отображает только разрешённые сервером поля и не сохраняет их как источник истины.",
+      };
+    case "empty":
+      return {
+        title: shellCopy.accessProfileEmpty,
+        detail: profile.message,
+      };
+    case "error":
+      return {
+        title: shellCopy.accessProfileError,
+        detail: profile.message,
+      };
+  }
+}
+
+function buildAccountSelectorValue(profile: AccessProfileLoadState) {
+  if (profile.status === "loading") {
+    return shellCopy.accountSelectorLoading;
+  }
+
+  if (profile.status !== "ready") {
+    return shellCopy.accountSelectorPlaceholder;
+  }
+
+  const businessCount = profile.profile.businessAccounts.length;
+
+  if (businessCount === 0) {
+    return shellCopy.accountSelectorEmpty;
+  }
+
+  return `Получено с сервера: ${businessCount}`;
+}
+
+function buildAccountTypeValue(profile: AccessProfileLoadState) {
+  if (profile.status !== "ready") {
+    return shellCopy.accountTypeLabel;
+  }
+
+  return profile.profile.accountType;
 }
 
 function StatusPill({ panel }: { panel: StatusPanel }) {
