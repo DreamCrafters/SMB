@@ -69,6 +69,41 @@ test("requestAccessProfile rejects unsupported profile shapes", async () => {
   assert.equal(result.code, "invalid_response");
 });
 
+test("requestAccessProfile rejects unknown server capabilities", async () => {
+  const profile = {
+    userId: "user-id",
+    displayName: "Server user",
+    accountType: "worker",
+    activeAccess: {
+      accountId: "account-id",
+      accountType: "worker",
+      displayName: "Worker access",
+      scope: {
+        kind: "department",
+        businessAccountId: "business-id",
+        departmentId: "department-id",
+      },
+      capabilities: ["unknown.capability"],
+      issuedAt: "2026-06-18T00:00:00.000Z",
+    },
+    businessAccounts: [],
+    departments: [],
+    organizationStructureMode: "current",
+    receivedAt: "2026-06-18T00:00:00.000Z",
+  };
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ profile }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  const result = await requestAccessProfile({ endpoint: "/api/access/profile" });
+
+  assert.equal(result.status, "error");
+  assert.equal(result.code, "invalid_response");
+});
+
 test("requestAccessProfile preserves server access errors", async () => {
   globalThis.fetch = async () =>
     new Response(

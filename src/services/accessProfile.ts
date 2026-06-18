@@ -1,9 +1,11 @@
 import type {
   AccountAccessErrorCode,
+  AccountCapability,
   AccountType,
   ServerIssuedAccountAccess,
   ServerUserProfile,
 } from "../contracts";
+import { accountCapabilities } from "../contracts/accounts.js";
 
 export const ACCESS_PROFILE_ENDPOINT = "/api/access/profile";
 
@@ -178,13 +180,20 @@ function isServerIssuedAccountAccess(value: unknown): value is ServerIssuedAccou
     isAccountType(value.accountType) &&
     typeof value.displayName === "string" &&
     Array.isArray(value.capabilities) &&
-    value.capabilities.every((capability) => typeof capability === "string") &&
+    value.capabilities.every(isAccountCapability) &&
     typeof value.issuedAt === "string"
   );
 }
 
 function isAccountType(value: unknown): value is AccountType {
   return value === "admin" || value === "business_owner" || value === "worker";
+}
+
+function isAccountCapability(value: unknown): value is AccountCapability {
+  return (
+    typeof value === "string" &&
+    accountCapabilities.includes(value as AccountCapability)
+  );
 }
 
 function isAccountAccessErrorCode(value: unknown): value is AccountAccessErrorCode {

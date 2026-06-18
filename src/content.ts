@@ -6,6 +6,13 @@ export type NavigationItem = {
   state: "active" | "locked" | "pending";
 };
 
+export type AuthOption = {
+  accountType: AccountType;
+  label: string;
+  description: string;
+  scope: string;
+};
+
 export type AccountShellPanel = {
   accountType: AccountType;
   label: string;
@@ -19,6 +26,13 @@ export type StatusPanel = {
   label: string;
   state: "loading" | "ready" | "waiting" | "empty" | "error" | "locked";
   detail: string;
+};
+
+export type RoleWorkspaceCopy = {
+  eyebrow: string;
+  title: string;
+  lead: string;
+  boundaryValue: string;
 };
 
 export const shellCopy = {
@@ -38,9 +52,125 @@ export const shellCopy = {
   accountSelectorLoading: "Запрашиваем список бизнесов",
   accountSelectorEmpty: "Сервер не вернул доступные бизнесы",
   accountTypeLabel: "Тип аккаунта выдаёт сервер",
+  authTitle: "Выбор серверного доступа",
+  authLead:
+    "Временное dev-окно авторизации. Кнопка создаёт серверную сессию, после чего интерфейс заново запрашивает /api/access/profile.",
+  authLoading: "Проверяем текущую server session.",
+  sessionError: "Не удалось обновить dev-сессию.",
+  changeAccess: "Сменить доступ",
   workspaceTitle: "Операционный контур",
   workspaceLead:
     "Каркас подготовлен для KPI, форм, подтверждений, уведомлений и администрирования без клиентских бизнес-фикстур.",
+};
+
+export const accountTypeLabels: Record<AccountType, string> = {
+  admin: "Администратор",
+  business_owner: "Владелец бизнеса",
+  worker: "Работник",
+};
+
+export const authOptions: AuthOption[] = [
+  {
+    accountType: "business_owner",
+    label: "Владелец бизнеса",
+    description: "Видит операционную статистику, очереди и бизнес-состояния.",
+    scope: "business access",
+  },
+  {
+    accountType: "worker",
+    label: "Работник",
+    description: "Видит только форму отправки данных и статус серверной записи.",
+    scope: "form access",
+  },
+  {
+    accountType: "admin",
+    label: "Администратор",
+    description: "Видит все рабочие зоны, логи, отладку и dev-состояния.",
+    scope: "platform access",
+  },
+];
+
+export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]> = {
+  admin: [
+    {
+      label: "Платформа",
+      description: "Все бизнес-контуры и доступы",
+      state: "active",
+    },
+    {
+      label: "Пользователи",
+      description: "Управление аккаунтами",
+      state: "pending",
+    },
+    {
+      label: "Логи",
+      description: "Технические события",
+      state: "pending",
+    },
+    {
+      label: "Отладка",
+      description: "Dev-функции сервера",
+      state: "pending",
+    },
+  ],
+  business_owner: [
+    {
+      label: "Обзор",
+      description: "Панель бизнеса после ответа сервера",
+      state: "active",
+    },
+    {
+      label: "Формы",
+      description: "Рабочие отправки и черновики",
+      state: "pending",
+    },
+    {
+      label: "Очередь",
+      description: "Подтверждения и отклонения",
+      state: "pending",
+    },
+    {
+      label: "Аудит",
+      description: "История действий и просмотров",
+      state: "locked",
+    },
+    {
+      label: "Настройки",
+      description: "Доступно только по правам сервера",
+      state: "locked",
+    },
+  ],
+  worker: [
+    {
+      label: "Форма",
+      description: "Отправка рабочих данных",
+      state: "active",
+    },
+  ],
+};
+
+export const roleWorkspaceCopy: Record<AccountType, RoleWorkspaceCopy> = {
+  admin: {
+    eyebrow: "platform control",
+    title: "Административная рабочая поверхность",
+    lead:
+      "Администратор видит все зоны продукта и технические dev-состояния, но реальные действия всё равно должны подтверждаться сервером.",
+    boundaryValue: "platform server",
+  },
+  business_owner: {
+    eyebrow: "business operations",
+    title: "Операционный контур владельца",
+    lead:
+      "Владелец видит текущий shell мониторинга бизнеса: серверные статусы, очереди, KPI-заготовки и контекст бизнес-аккаунта.",
+    boundaryValue: "business server",
+  },
+  worker: {
+    eyebrow: "data entry",
+    title: "Форма отправки данных",
+    lead:
+      "Работник видит только рабочую форму. Сохранение в базу будет серверным действием, когда появится production backend.",
+    boundaryValue: "submit server",
+  },
 };
 
 export const navigationItems: NavigationItem[] = [
