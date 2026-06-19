@@ -103,13 +103,15 @@ cp server/.env.example server/.env
 Текущий frontend опубликован на Vercel:
 
 - production domain: `https://smb-umber.vercel.app`;
-- deployment preview origin: `https://smb-37kao5m4x-artemi-z-s-projects.vercel.app`.
+- deployment preview origins: `https://smb-*-artemi-z-s-projects.vercel.app`, например `https://smb-14uw5huc0-artemi-z-s-projects.vercel.app`.
 
 В `server/.env` backend нужно разрешить эти origins:
 
 ```text
-CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 ```
+
+Backend понимает `*` только внутри hostname и возвращает конкретный browser origin, если он совпал с паттерном. Это нужно для новых Vercel preview deployments, у которых меняется часть домена.
 
 Ссылка вида `https://vercel.com/artemi-z-s-projects/...` — это dashboard Vercel, её в `CORS_ORIGIN` не добавлять.
 

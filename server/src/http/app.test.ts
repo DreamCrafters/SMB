@@ -9,7 +9,10 @@ import { createApiServer } from "./app.js";
 const config: ServerConfig = {
   port: 0,
   databaseUrl: "postgresql://unused",
-  corsOrigins: ["http://frontend.test"],
+  corsOrigins: [
+    "http://frontend.test",
+    "https://smb-*-artemi-z-s-projects.vercel.app",
+  ],
   runMigrationsOnStart: false,
 };
 
@@ -36,6 +39,29 @@ test("remote API returns an empty access profile without a dev session", async (
       "http://frontend.test",
     );
     assert.deepEqual(await response.json(), { profile: null });
+  });
+});
+
+test("remote API allows configured Vercel preview origin patterns", async () => {
+  await withApiServer(async (baseUrl) => {
+    const origin = "https://smb-14uw5huc0-artemi-z-s-projects.vercel.app";
+    const response = await fetch(`${baseUrl}/health`, {
+      headers: { Origin: origin },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), origin);
+  });
+});
+
+test("remote API does not allow unrelated Vercel origins", async () => {
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/health`, {
+      headers: { Origin: "https://other-project.vercel.app" },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), null);
   });
 });
 

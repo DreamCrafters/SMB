@@ -7,7 +7,7 @@ import type {
 } from "../contracts";
 import { accountCapabilities } from "../contracts/accounts.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
-import { resolveApiEndpoint } from "./remoteServer.js";
+import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
 
 export const ACCESS_PROFILE_ENDPOINT = "/api/access/profile";
 
@@ -43,6 +43,9 @@ export type AccessProfileLoadState =
 
 type RequestAccessProfileOptions = {
   endpoint?: string;
+  remoteBaseUrl?: string;
+  pageHostname?: string;
+  pageOrigin?: string;
   signal?: AbortSignal;
 };
 
@@ -52,9 +55,23 @@ type AccessProfilePayload = {
 
 export async function requestAccessProfile({
   endpoint,
+  remoteBaseUrl,
+  pageHostname,
+  pageOrigin,
   signal,
 }: RequestAccessProfileOptions = {}): Promise<AccessProfileResult> {
-  const requestEndpoint = endpoint ?? resolveApiEndpoint(ACCESS_PROFILE_ENDPOINT);
+  const remoteOptions = {
+    baseUrl: remoteBaseUrl,
+    pageHostname,
+    pageOrigin,
+  };
+  const requestEndpoint =
+    endpoint ??
+    resolveApiEndpoint(
+      ACCESS_PROFILE_ENDPOINT,
+      ACCESS_PROFILE_ENDPOINT,
+      remoteOptions,
+    );
 
   try {
     const response = await fetch(requestEndpoint, {
@@ -116,7 +133,10 @@ export async function requestAccessProfile({
 
     return {
       status: "error",
-      message: "Не удалось запросить access/profile.",
+      message: describeRemoteNetworkFailure(
+        "Не удалось запросить access/profile.",
+        remoteOptions,
+      ),
       code: "network_error",
     };
   }

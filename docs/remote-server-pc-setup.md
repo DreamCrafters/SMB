@@ -110,14 +110,16 @@ CORS_ORIGIN=https://app.example.com,http://SERVER_LAN_IP:5173
 Для текущего Vercel frontend используй origins сайта:
 
 ```text
-CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 ```
 
 Если нужно оставить локальный Vite и Vercel одновременно:
 
 ```text
-CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 ```
+
+Backend понимает `*` только внутри hostname, например `https://smb-*-artemi-z-s-projects.vercel.app`, и отдаёт конкретный origin запроса, если он совпал с паттерном. Это покрывает новые Vercel preview deployments с меняющейся частью домена.
 
 Ссылка `https://vercel.com/artemi-z-s-projects/...` открывает dashboard Vercel. Её не добавлять в `CORS_ORIGIN`, потому что браузер открывает сайт с `https://smb-umber.vercel.app` или preview hostname.
 
@@ -373,7 +375,7 @@ CORS_ORIGIN=https://app.example.com
 Для текущего Vercel frontend:
 
 ```text
-CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 ```
 
 До реализации production auth такой режим подходит только для закрытого тестового стенда, а не для реального продакшена.

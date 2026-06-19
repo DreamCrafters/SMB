@@ -68,17 +68,17 @@ cp server/.env.example server/.env
 ```bash
 PORT=3000
 DATABASE_URL=postgresql://smb_monitor:smb_monitor_dev_password@127.0.0.1:5432/smb_monitor
-CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 RUN_MIGRATIONS_ON_START=true
 ```
 
-Если frontend открыт с другого origin, добавь этот точный origin в `CORS_ORIGIN`. Для dev-доступа backend также принимает заголовок `X-SMB-Dev-Session`, он уже разрешён в CORS preflight.
+Если frontend открыт с другого origin, добавь этот точный origin в `CORS_ORIGIN`. Для Vercel preview можно использовать hostname-паттерн с `*`, например `https://smb-*-artemi-z-s-projects.vercel.app`. Backend возвращает конкретный origin запроса, если он совпал с паттерном. Для dev-доступа backend также принимает заголовок `X-SMB-Dev-Session`, он уже разрешён в CORS preflight.
 
 Текущие Vercel origins frontend:
 
 ```text
 https://smb-umber.vercel.app
-https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+https://smb-*-artemi-z-s-projects.vercel.app
 ```
 
 Vercel dashboard URL вида `https://vercel.com/artemi-z-s-projects/...` не является browser origin сайта и не нужен в `CORS_ORIGIN`.

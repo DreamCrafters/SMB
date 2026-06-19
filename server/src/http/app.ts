@@ -120,7 +120,7 @@ function applyCors(
 ) {
   const origin = req.headers.origin;
 
-  if (origin !== undefined && config.corsOrigins.includes(origin)) {
+  if (origin !== undefined && isCorsOriginAllowed(origin, config.corsOrigins)) {
     res.setHeader("access-control-allow-origin", origin);
     res.setHeader("access-control-allow-credentials", "true");
     res.setHeader("vary", "Origin");
@@ -131,6 +131,52 @@ function applyCors(
     "access-control-allow-headers",
     "Accept,Content-Type,X-SMB-Account-Id,X-SMB-Dev-Session",
   );
+}
+
+function isCorsOriginAllowed(origin: string, allowedOrigins: string[]) {
+  return allowedOrigins.some((allowedOrigin) =>
+    isCorsOriginMatch(origin, allowedOrigin),
+  );
+}
+
+function isCorsOriginMatch(origin: string, allowedOrigin: string) {
+  if (!allowedOrigin.includes("*")) {
+    return origin === allowedOrigin;
+  }
+
+  try {
+    const originUrl = new URL(origin);
+    const allowedUrl = new URL(allowedOrigin);
+
+    return (
+      originUrl.protocol === allowedUrl.protocol &&
+      originUrl.port === allowedUrl.port &&
+      originUrl.pathname === "/" &&
+      allowedUrl.pathname === "/" &&
+      originUrl.search.length === 0 &&
+      allowedUrl.search.length === 0 &&
+      originUrl.hash.length === 0 &&
+      allowedUrl.hash.length === 0 &&
+      isWildcardHostnameMatch(originUrl.hostname, allowedUrl.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isWildcardHostnameMatch(hostname: string, allowedHostname: string) {
+  const pattern = allowedHostname
+    .toLowerCase()
+    .split("*")
+    .map(escapeRegExp)
+    .join("[a-z0-9-]+");
+  const matcher = new RegExp(`^${pattern}$`);
+
+  return matcher.test(hostname.toLowerCase());
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function handleAccessProfile(

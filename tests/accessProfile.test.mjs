@@ -218,8 +218,15 @@ test("requestAccessProfile reports network failures", async () => {
     throw new TypeError("network unavailable");
   };
 
-  const result = await requestAccessProfile({ endpoint: "/api/access/profile" });
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    remoteBaseUrl: "https://smb-backend-api.com",
+    pageOrigin: "https://smb-14uw5huc0-artemi-z-s-projects.vercel.app",
+  });
 
   assert.equal(result.status, "error");
   assert.equal(result.code, "network_error");
+  assert.match(result.message, /https:\/\/smb-backend-api\.com\/health/);
+  assert.match(result.message, /smb-14uw5huc0-artemi-z-s-projects/);
+  assert.match(result.message, /CORS_ORIGIN/);
 });
