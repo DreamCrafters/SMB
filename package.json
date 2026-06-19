@@ -3,11 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "server"
+  ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev:web": "vite",
+    "dev:api": "npm --workspace server run dev",
+    "db:migrate": "npm --workspace server run db:migrate",
+    "build": "tsc --noEmit && vite build && npm --workspace server run build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit --pretty"
+    "test": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test tests/*.test.mjs && npm --workspace server test",
+    "test:web": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit --pretty && npm --workspace server run typecheck"
   },
   "dependencies": {
     "react": "^19.2.7",
