@@ -91,6 +91,16 @@ docker compose up -d postgres
 
 Данные PostgreSQL хранятся в Docker volume `smb_monitor_postgres_data`.
 
+В `docker-compose.yml` для контейнера включён `restart: unless-stopped`, поэтому Docker будет поднимать PostgreSQL снова после перезапуска Docker/ПК, пока контейнер не остановлен вручную.
+
+PostgreSQL опубликован только на локальном интерфейсе серверного ПК:
+
+```text
+127.0.0.1:5432
+```
+
+Не открывай порт `5432` в локальную сеть: frontend и другие ПК должны обращаться только к backend API.
+
 Перезапуск контейнера данные не удаляет:
 
 ```bash
@@ -138,6 +148,24 @@ curl -i http://127.0.0.1:3000/health
 ```json
 {"ok":true}
 ```
+
+## Постоянный запуск backend на Windows
+
+Для server-PC профиля без watch-режима используй скрипты:
+
+```powershell
+.\scripts\start-remote-server.ps1
+```
+
+Он запускает PostgreSQL, собирает backend и стартует API через `npm --workspace server start`. Лог пишется в `logs/remote-api.log`.
+
+Чтобы зарегистрировать автозапуск через Windows Task Scheduler:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\register-windows-startup-task.ps1
+```
+
+По умолчанию задача стартует при входе пользователя в Windows. Подробности по firewall, CORS и сетевому IP смотри в `docs/remote-server-pc-setup.md`.
 
 ## Запуск frontend
 
@@ -194,6 +222,7 @@ curl -i http://127.0.0.1:3000/api/dispatcher/submissions
 - `submittedByAccountId` временно берётся из заголовка `X-SMB-Account-Id` или dev-default `dev-dispatcher-account`.
 - Серверная проверка ролей и capabilities будет отдельным следующим шагом.
 - Нельзя считать frontend-gating защитой: защищённые действия должны проверяться backend.
+- Для remote/server-PC режима открывать в сеть только API-порт `3000`; PostgreSQL оставлять локальным для backend.
 - Не логировать payload с приватными данными, токены и секреты.
 
 ## Проверки
