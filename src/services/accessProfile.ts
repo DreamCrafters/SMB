@@ -6,6 +6,8 @@ import type {
   ServerUserProfile,
 } from "../contracts";
 import { accountCapabilities } from "../contracts/accounts.js";
+import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { resolveApiEndpoint } from "./remoteServer.js";
 
 export const ACCESS_PROFILE_ENDPOINT = "/api/access/profile";
 
@@ -49,15 +51,17 @@ type AccessProfilePayload = {
 };
 
 export async function requestAccessProfile({
-  endpoint = ACCESS_PROFILE_ENDPOINT,
+  endpoint,
   signal,
 }: RequestAccessProfileOptions = {}): Promise<AccessProfileResult> {
+  const requestEndpoint = endpoint ?? resolveApiEndpoint(ACCESS_PROFILE_ENDPOINT);
+
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(requestEndpoint, {
       method: "GET",
-      headers: {
+      headers: buildDevAccessHeaders({
         Accept: "application/json",
-      },
+      }),
       credentials: "include",
       signal,
     });
@@ -75,7 +79,7 @@ export async function requestAccessProfile({
     if (!response.ok) {
       return {
         status: "error",
-        message: readErrorMessage(payload, "Сервер отклонил access/profile."),
+        message: readAccessProfileErrorMessage(payload, response.status),
         code: readErrorCode(payload),
         statusCode: response.status,
       };
@@ -138,6 +142,19 @@ function readErrorMessage(payload: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function readAccessProfileErrorMessage(payload: unknown, statusCode: number) {
+  const message = readErrorMessage(payload, "Сервер отклонил access/profile.");
+
+  if (
+    statusCode === 404 &&
+    /page could not be found|endpoint not found|not found/i.test(message)
+  ) {
+    return "Не найден /api/access/profile. Если сайт открыт как удалённый frontend или static preview, укажите VITE_SMB_REMOTE_API_URL на backend API и перезапустите frontend.";
+  }
+
+  return message;
 }
 
 function readErrorCode(payload: unknown) {

@@ -25,6 +25,9 @@ Backend находится в этом же репозитории как npm wo
 Сервер реализует:
 
 - `GET /health` — проверка, что API запущен;
+- `GET /api/access/profile` — вернуть текущий временный dev-профиль доступа или пустой профиль;
+- `POST /api/dev/access-session` — создать временную dev-сессию выбранного типа аккаунта;
+- `DELETE /api/dev/access-session` — очистить временную dev-сессию;
 - `POST /api/dispatcher/submissions` — сохранить диспетчерскую отправку в PostgreSQL;
 - `GET /api/dispatcher/submissions` — вернуть последние диспетчерские отправки для вкладки владельца `Диспетчерская`.
 
@@ -65,9 +68,20 @@ cp server/.env.example server/.env
 ```bash
 PORT=3000
 DATABASE_URL=postgresql://smb_monitor:smb_monitor_dev_password@127.0.0.1:5432/smb_monitor
-CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173
+CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
 RUN_MIGRATIONS_ON_START=true
 ```
+
+Если frontend открыт с другого origin, добавь этот точный origin в `CORS_ORIGIN`. Для dev-доступа backend также принимает заголовок `X-SMB-Dev-Session`, он уже разрешён в CORS preflight.
+
+Текущие Vercel origins frontend:
+
+```text
+https://smb-umber.vercel.app
+https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+```
+
+Vercel dashboard URL вида `https://vercel.com/artemi-z-s-projects/...` не является browser origin сайта и не нужен в `CORS_ORIGIN`.
 
 Не коммитить реальные `.env` файлы.
 
@@ -149,6 +163,18 @@ curl -i http://127.0.0.1:3000/health
 {"ok":true}
 ```
 
+Проверка dev access/profile через backend:
+
+```bash
+curl -i http://127.0.0.1:3000/api/access/profile
+```
+
+Ожидаемый пустой ответ до выбора dev-доступа:
+
+```json
+{"profile":null}
+```
+
 ## Постоянный запуск backend на Windows
 
 Для server-PC профиля без watch-режима используй скрипты:
@@ -219,6 +245,7 @@ curl -i http://127.0.0.1:3000/api/dispatcher/submissions
 ## Важные ограничения текущего backend
 
 - Auth пока не production-ready.
+- `access/profile` и `dev/access-session` в backend пока являются только временным dev-контуром для тестового стенда.
 - `submittedByAccountId` временно берётся из заголовка `X-SMB-Account-Id` или dev-default `dev-dispatcher-account`.
 - Серверная проверка ролей и capabilities будет отдельным следующим шагом.
 - Нельзя считать frontend-gating защитой: защищённые действия должны проверяться backend.

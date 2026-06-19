@@ -61,6 +61,16 @@ export function buildRemoteEndpoint(
   };
 }
 
+export function resolveApiEndpoint(
+  path: string,
+  fallbackPath = path,
+  options: RemoteServerOptions = {},
+) {
+  const endpoint = buildRemoteEndpoint(path, options);
+
+  return endpoint.status === "configured" ? endpoint.endpoint : fallbackPath;
+}
+
 export function describeRemoteNetworkFailure(
   fallbackMessage: string,
   options: RemoteServerOptions = {},

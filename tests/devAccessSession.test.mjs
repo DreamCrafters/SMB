@@ -6,9 +6,15 @@ import {
 } from "../.test-build/src/services/devAccessSession.js";
 
 const originalFetch = globalThis.fetch;
+const originalWindow = globalThis.window;
 
 test.after(() => {
   globalThis.fetch = originalFetch;
+  globalThis.window = originalWindow;
+});
+
+test.afterEach(() => {
+  globalThis.window = originalWindow;
 });
 
 test("selectDevAccessSession posts selected account type to the server", async () => {
@@ -34,6 +40,66 @@ test("selectDevAccessSession posts selected account type to the server", async (
   assert.deepEqual(JSON.parse(request.init.body), {
     accountType: "business_owner",
   });
+});
+
+test("selectDevAccessSession stores returned dev session id", async () => {
+  let storedSessionId;
+
+  globalThis.window = {
+    sessionStorage: {
+      getItem: () => undefined,
+      setItem: (_key, value) => {
+        storedSessionId = value;
+      },
+      removeItem: () => undefined,
+    },
+  };
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true, sessionId: "dev-session-id" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  const result = await selectDevAccessSession("business_owner", {
+    endpoint: "/api/dev/access-session",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.sessionId, "dev-session-id");
+  assert.equal(storedSessionId, "dev-session-id");
+});
+
+test("clearDevAccessSession sends and clears stored dev session id", async () => {
+  let request;
+  let storedSessionId = "dev-session-id";
+
+  globalThis.window = {
+    sessionStorage: {
+      getItem: () => storedSessionId,
+      setItem: (_key, value) => {
+        storedSessionId = value;
+      },
+      removeItem: () => {
+        storedSessionId = undefined;
+      },
+    },
+  };
+  globalThis.fetch = async (endpoint, init) => {
+    request = { endpoint, init };
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await clearDevAccessSession({
+    endpoint: "/api/dev/access-session",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(request.init.headers["X-SMB-Dev-Session"], "dev-session-id");
+  assert.equal(storedSessionId, undefined);
 });
 
 test("selectDevAccessSession can request dispatcher access", async () => {

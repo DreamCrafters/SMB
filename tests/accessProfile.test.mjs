@@ -3,9 +3,15 @@ import test from "node:test";
 import { requestAccessProfile } from "../.test-build/src/services/accessProfile.js";
 
 const originalFetch = globalThis.fetch;
+const originalWindow = globalThis.window;
 
 test.after(() => {
   globalThis.fetch = originalFetch;
+  globalThis.window = originalWindow;
+});
+
+test.afterEach(() => {
+  globalThis.window = originalWindow;
 });
 
 test("requestAccessProfile returns empty when server profile is null", async () => {
@@ -19,6 +25,52 @@ test("requestAccessProfile returns empty when server profile is null", async () 
 
   assert.equal(result.status, "empty");
   assert.equal(result.statusCode, 200);
+});
+
+test("requestAccessProfile sends stored dev access session id", async () => {
+  let request;
+
+  globalThis.window = {
+    sessionStorage: {
+      getItem: () => "dev-session-id",
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    },
+  };
+  globalThis.fetch = async (endpoint, init) => {
+    request = { endpoint, init };
+
+    return new Response(JSON.stringify({ profile: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await requestAccessProfile({ endpoint: "/api/access/profile" });
+
+  assert.equal(result.status, "empty");
+  assert.equal(request.init.headers["X-SMB-Dev-Session"], "dev-session-id");
+});
+
+test("requestAccessProfile explains missing access profile endpoints", async () => {
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: "not_found",
+          message: "The page could not be found",
+        },
+      }),
+      {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+  const result = await requestAccessProfile({ endpoint: "/api/access/profile" });
+
+  assert.equal(result.status, "error");
+  assert.match(result.message, /VITE_SMB_REMOTE_API_URL/);
 });
 
 test("requestAccessProfile accepts a minimal valid server profile", async () => {

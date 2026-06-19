@@ -205,7 +205,7 @@ React-интерфейс может хранить результат запро
 - `POST /api/dev/access-session` — создаёт временную dev-сессию выбранного типа аккаунта;
 - `DELETE /api/dev/access-session` — очищает временную dev-сессию.
 
-Эти endpoints нужны, чтобы клиент проверял реальный HTTP boundary и показывал разные страницы ролей без локальной матрицы прав. Они не являются production backend, не содержат реальных бизнес-данных и не заменяют будущую серверную авторизацию.
+Если `VITE_SMB_REMOTE_API_URL` задан, клиент строит эти access/dev endpoints от remote backend base URL. Backend workspace `server/` тоже реализует `GET /api/access/profile`, `POST /api/dev/access-session` и `DELETE /api/dev/access-session`, чтобы удалённый frontend не обращался к `/api` хостинга страницы. Эти endpoints нужны, чтобы клиент проверял реальный HTTP boundary и показывал разные страницы ролей без локальной матрицы прав. Они не являются production auth, не содержат реальных бизнес-данных и не заменяют будущую серверную авторизацию.
 
 ## Текущие локальные серверы и хранение
 
@@ -243,6 +243,7 @@ React-интерфейс может хранить результат запро
 - читает настройки из `server/.env`;
 - подключается к PostgreSQL через `DATABASE_URL`;
 - применяет миграции, если `RUN_MIGRATIONS_ON_START=true`;
+- отдаёт временный dev access/profile для тестового стенда;
 - валидирует диспетчерские отправки в доменном слое;
 - сохраняет dispatcher submissions в PostgreSQL;
 - возвращает историю отправок для вкладки владельца `Диспетчерская`.
@@ -269,6 +270,9 @@ React-интерфейс может хранить результат запро
 
 Текущие remote endpoints:
 
+- `GET /api/access/profile` — возвращает временный dev-профиль доступа или `{"profile": null}`;
+- `POST /api/dev/access-session` — создаёт временную dev-сессию выбранного типа аккаунта;
+- `DELETE /api/dev/access-session` — очищает временную dev-сессию;
 - `POST /api/dispatcher/submissions` — сохраняет диспетчерскую отправку в БД;
 - `GET /api/dispatcher/submissions` — возвращает live-историю диспетчерских отправок для владельца.
 
