@@ -7,7 +7,7 @@
 ```text
 ПК с браузером и frontend
   -> http://SERVER_LAN_IP:3000
-  -> backend из server/
+  -> backend из server/ для access/profile, dev access и dispatcher submissions
   -> PostgreSQL в Docker volume smb_monitor_postgres_data
 ```
 
@@ -99,11 +99,27 @@ CORS_ORIGIN=http://FRONTEND_PC_IP:5173,http://127.0.0.1:5173,http://localhost:51
 
 В `CORS_ORIGIN` должен попасть точный origin из адресной строки браузера: схема, IP или домен и порт. Например, если сайт открыт как `http://192.168.0.25:5173/`, в backend env нужно добавить `http://192.168.0.25:5173` и перезапустить API.
 
+Backend разрешает dev-заголовок `X-SMB-Dev-Session`, который нужен удалённому frontend для временного выбора роли. Отдельно добавлять его в env не нужно.
+
 Если frontend будет открыт по домену, добавь домен:
 
 ```text
 CORS_ORIGIN=https://app.example.com,http://SERVER_LAN_IP:5173
 ```
+
+Для текущего Vercel frontend используй origins сайта:
+
+```text
+CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+```
+
+Если нужно оставить локальный Vite и Vercel одновременно:
+
+```text
+CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+```
+
+Ссылка `https://vercel.com/artemi-z-s-projects/...` открывает dashboard Vercel. Её не добавлять в `CORS_ORIGIN`, потому что браузер открывает сайт с `https://smb-umber.vercel.app` или preview hostname.
 
 Не коммить реальные `.env` файлы.
 
@@ -180,6 +196,18 @@ curl -i http://127.0.0.1:3000/health
 
 ```bash
 curl -i http://SERVER_LAN_IP:3000/health
+```
+
+Проверить, что remote backend отдаёт access/profile:
+
+```bash
+curl -i http://SERVER_LAN_IP:3000/api/access/profile
+```
+
+До выбора временного dev-доступа ожидается:
+
+```json
+{"profile":null}
 ```
 
 ## 6. Сделать запуск постоянным на Windows
@@ -334,10 +362,18 @@ curl -i http://SERVER_LAN_IP:3000/api/dispatcher/submissions
 VITE_SMB_REMOTE_API_URL=https://api.example.com
 ```
 
+Для Vercel deployment `VITE_SMB_REMOTE_API_URL` тоже должен быть HTTPS URL backend API. Значение `http://SERVER_LAN_IP:3000` подходит для локальной сети, но не для сайта, открытого с `https://smb-umber.vercel.app`.
+
 6. Добавь frontend origin в `server/.env`:
 
 ```text
 CORS_ORIGIN=https://app.example.com
+```
+
+Для текущего Vercel frontend:
+
+```text
+CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
 ```
 
 До реализации production auth такой режим подходит только для закрытого тестового стенда, а не для реального продакшена.
@@ -357,6 +393,15 @@ CORS_ORIGIN=https://app.example.com
 - не осталось ли в `.env` значение `http://127.0.0.1:3000`, если backend живёт на другом ПК;
 - перезапущен ли Vite после изменения `.env`;
 - доступен ли `GET /health` с frontend-ПК.
+
+### UI пишет `The page could not be found` на экране выбора доступа
+
+Это значит, что `/api/access/profile` ушёл не в SMB backend, а в хостинг frontend-страницы. Проверь:
+
+- в `.env` frontend задан `VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000`;
+- frontend был пересобран или Vite был перезапущен после изменения `.env`;
+- `curl -i http://SERVER_LAN_IP:3000/api/access/profile` возвращает JSON, а не страницу 404;
+- в `server/.env` `CORS_ORIGIN` содержит точный origin страницы.
 
 ### В браузере CORS error
 

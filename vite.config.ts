@@ -10,9 +10,7 @@ type MiddlewareRequest = Parameters<Connect.NextHandleFunction>[0];
 type MiddlewareResponse = Parameters<Connect.NextHandleFunction>[1];
 type NodeLikeMiddlewareRequest = MiddlewareRequest & {
   method?: string;
-  headers?: {
-    cookie?: string;
-  };
+  headers?: Record<string, string | string[] | undefined>;
   setEncoding: (encoding: string) => void;
   on: (
     eventName: "data" | "end" | "error",
@@ -27,6 +25,7 @@ type DevSession = {
 };
 
 const DEV_SESSION_COOKIE = "smb_dev_access_session";
+const DEV_SESSION_HEADER = "x-smb-dev-session";
 const DEV_BUSINESS_ID = "dev-business-boundary";
 const DEV_DEPARTMENT_ID = "dev-department-boundary";
 
@@ -78,7 +77,7 @@ function accessProfileApi(): Plugin {
       return;
     }
 
-    const sessionId = readCookie(getCookieHeader(req), DEV_SESSION_COOKIE);
+    const sessionId = readDevSessionId(req);
     const session = sessionId === undefined ? undefined : sessions.get(sessionId);
 
     if (session === undefined) {
@@ -116,7 +115,7 @@ async function handleDevSessionRequest(
   const method = getRequestMethod(req);
 
   if (method === "DELETE") {
-    const sessionId = readCookie(getCookieHeader(req), DEV_SESSION_COOKIE);
+    const sessionId = readDevSessionId(req);
 
     if (sessionId !== undefined) {
       sessions.delete(sessionId);
@@ -163,7 +162,7 @@ async function handleDevSessionRequest(
     "set-cookie",
     `${DEV_SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax`,
   );
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true, sessionId });
 }
 
 function buildDevProfile(
@@ -359,6 +358,21 @@ function getRequestMethod(req: MiddlewareRequest) {
 
 function getCookieHeader(req: MiddlewareRequest) {
   return (req as NodeLikeMiddlewareRequest).headers?.cookie;
+}
+
+function readDevSessionId(req: MiddlewareRequest) {
+  return (
+    readHeader(req, DEV_SESSION_HEADER) ??
+    readCookie(getCookieHeader(req), DEV_SESSION_COOKIE)
+  );
+}
+
+function readHeader(req: MiddlewareRequest, name: string) {
+  const header = (req as NodeLikeMiddlewareRequest).headers?.[name];
+  const value = Array.isArray(header) ? header[0] : header;
+  const trimmed = value?.trim();
+
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
 function readCookie(header: string | undefined, name: string) {

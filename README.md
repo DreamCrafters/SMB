@@ -53,8 +53,8 @@ http://127.0.0.1:5173/
 
 Сейчас в проекте есть два серверных слоя:
 
-- Vite dev/preview middleware в `vite.config.ts` — только для временной dev-авторизации и `access/profile`;
-- backend workspace `server/` — настоящий API для диспетчерских отправок с сохранением в PostgreSQL.
+- Vite dev/preview middleware в `vite.config.ts` — локальная временная dev-авторизация и `access/profile`;
+- backend workspace `server/` — remote API для временной dev-авторизации, `access/profile` и диспетчерских отправок с сохранением в PostgreSQL.
 
 Vite middleware обрабатывает:
 
@@ -65,10 +65,13 @@ Vite middleware обрабатывает:
 Backend `server/` обрабатывает:
 
 - `GET /health` — проверка API;
+- `GET /api/access/profile` — возвращает текущий dev-профиль доступа или пустой профиль;
+- `POST /api/dev/access-session` — временно выбирает тип аккаунта для dev-режима;
+- `DELETE /api/dev/access-session` — очищает выбранный dev-доступ;
 - `POST /api/dispatcher/submissions` — сохранение диспетчерской отправки в БД;
 - `GET /api/dispatcher/submissions` — история отправок для вкладки владельца `Диспетчерская`.
 
-Временная dev-сессия хранится в памяти процесса Vite. После рестарта Vite выбранный тип аккаунта сбросится. Диспетчерские отправки хранятся в PostgreSQL и переживают рестарт backend/контейнера, пока не удалён Docker volume.
+Если `VITE_SMB_REMOTE_API_URL` задан, frontend отправляет access/dev и dispatcher-запросы в этот backend API. Временная dev-сессия хранится в памяти процесса Vite или backend и сбрасывается после его рестарта. Диспетчерские отправки хранятся в PostgreSQL и переживают рестарт backend/контейнера, пока не удалён Docker volume.
 
 ## Подключение удалённого сервера и БД
 
@@ -94,6 +97,23 @@ cp server/.env.example server/.env
 
 Подробная инструкция: `docs/server-setup.md`.
 Если backend и БД запускаются на другом компьютере, смотри `docs/remote-server-pc-setup.md`.
+
+## Vercel preview
+
+Текущий frontend опубликован на Vercel:
+
+- production domain: `https://smb-umber.vercel.app`;
+- deployment preview origin: `https://smb-37kao5m4x-artemi-z-s-projects.vercel.app`.
+
+В `server/.env` backend нужно разрешить эти origins:
+
+```text
+CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+```
+
+Ссылка вида `https://vercel.com/artemi-z-s-projects/...` — это dashboard Vercel, её в `CORS_ORIGIN` не добавлять.
+
+В Vercel для frontend нужно задать `VITE_SMB_REMOTE_API_URL` как HTTPS base URL backend API. Сайт открыт по HTTPS, поэтому браузер не будет надёжно отправлять API-запросы на `http://SERVER_LAN_IP:3000` из Vercel deployment.
 
 ## Проверка API
 
