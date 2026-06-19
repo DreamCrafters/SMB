@@ -8,6 +8,7 @@ import type {
 } from "../contracts";
 import {
   buildRemoteEndpoint,
+  describeRemoteNetworkFailure,
   type RemoteServerErrorCode,
 } from "./remoteServer.js";
 
@@ -99,7 +100,10 @@ export async function submitDispatcherSubmission(
 
     return {
       status: "error",
-      message: "Не удалось отправить данные на удалённый сервер.",
+      message: describeRemoteNetworkFailure(
+        "Не удалось отправить данные на удалённый сервер.",
+        options,
+      ),
       code: "network_error",
     };
   }
@@ -163,7 +167,10 @@ export async function requestDispatcherFeed({
 
     return {
       status: "error",
-      message: "Не удалось запросить диспетчерскую историю.",
+      message: describeRemoteNetworkFailure(
+        "Не удалось запросить диспетчерскую историю.",
+        { baseUrl },
+      ),
       code: "network_error",
     };
   }

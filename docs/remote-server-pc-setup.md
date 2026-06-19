@@ -74,6 +74,8 @@ cp .env.example .env
 VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000
 ```
 
+Если браузер открывает сайт с другого ПК, не оставляй здесь `127.0.0.1` или `localhost`: для браузера это текущий ПК с сайтом, а не backend-сервер.
+
 Backend env:
 
 ```bash
@@ -94,6 +96,8 @@ RUN_MIGRATIONS_ON_START=true
 ```text
 CORS_ORIGIN=http://FRONTEND_PC_IP:5173,http://127.0.0.1:5173,http://localhost:5173,http://SERVER_LAN_IP:5173
 ```
+
+В `CORS_ORIGIN` должен попасть точный origin из адресной строки браузера: схема, IP или домен и порт. Например, если сайт открыт как `http://192.168.0.25:5173/`, в backend env нужно добавить `http://192.168.0.25:5173` и перезапустить API.
 
 Если frontend будет открыт по домену, добавь домен:
 
@@ -256,6 +260,12 @@ PostgreSQL `5432` не открывать в firewall для локальной 
 VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000
 ```
 
+Для backend на другом ПК значение `http://127.0.0.1:3000` не подходит: оно заставит браузер искать API на frontend-ПК. Сначала проверь с frontend-ПК:
+
+```bash
+curl -i http://SERVER_LAN_IP:3000/health
+```
+
 После изменения `.env` перезапусти Vite:
 
 ```bash
@@ -344,6 +354,7 @@ CORS_ORIGIN=https://app.example.com
 
 - есть ли `.env` на frontend-ПК;
 - указан ли `VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000`;
+- не осталось ли в `.env` значение `http://127.0.0.1:3000`, если backend живёт на другом ПК;
 - перезапущен ли Vite после изменения `.env`;
 - доступен ли `GET /health` с frontend-ПК.
 

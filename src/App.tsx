@@ -872,7 +872,9 @@ function buildRemoteServerStatusPanel(): StatusPanel {
     return {
       label: "Удалённая БД",
       state: "ready",
-      detail: "Remote API URL настроен.",
+      detail:
+        remoteServer.warning ??
+        "Remote API URL настроен. Доступность проверяется запросом к API.",
     };
   }
 
