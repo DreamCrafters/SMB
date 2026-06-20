@@ -31,6 +31,37 @@ const migrations: Migration[] = [
         on dispatcher_submissions (business_account_id, received_at desc);
     `,
   },
+  {
+    id: "002_dispatcher_submission_forms",
+    sql: `
+      alter table dispatcher_submissions
+        add column if not exists form_id text not null default 'equipment',
+        add column if not exists payload jsonb not null default '{}'::jsonb,
+        add column if not exists summary text not null default '';
+
+      update dispatcher_submissions
+      set
+        payload = jsonb_build_object(
+          'period', period,
+          'metricCode', metric_code,
+          'rawValue', raw_value,
+          'comment', coalesce(comment, '')
+        ),
+        summary = coalesce(
+          nullif(concat_ws(' · ', metric_code, raw_value), ''),
+          'Запись без краткого описания'
+        )
+      where payload = '{}'::jsonb
+        or summary = '';
+
+      update dispatcher_submissions
+      set summary = 'Запись без краткого описания'
+      where summary = '';
+
+      create index if not exists idx_dispatcher_submissions_form_received_at
+        on dispatcher_submissions (form_id, received_at desc);
+    `,
+  },
 ];
 
 export async function runMigrations(pool: PgPool) {

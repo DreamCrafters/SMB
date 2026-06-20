@@ -7,7 +7,7 @@
 ```text
 ПК с браузером и frontend
   -> http://SERVER_LAN_IP:3000
-  -> backend из server/ для access/profile, dev access и dispatcher submissions
+  -> backend из server/ для access/profile, dev access, dispatcher forms и dispatcher submissions
   -> PostgreSQL в Docker volume smb_monitor_postgres_data
 ```
 
@@ -99,7 +99,7 @@ CORS_ORIGIN=http://FRONTEND_PC_IP:5173,http://127.0.0.1:5173,http://localhost:51
 
 В `CORS_ORIGIN` должен попасть точный origin из адресной строки браузера: схема, IP или домен и порт. Например, если сайт открыт как `http://192.168.0.25:5173/`, в backend env нужно добавить `http://192.168.0.25:5173` и перезапустить API.
 
-Backend разрешает dev-заголовок `X-SMB-Dev-Session`, который нужен удалённому frontend для временного выбора роли. Отдельно добавлять его в env не нужно.
+Backend разрешает dev-заголовок `X-SMB-Dev-Session`, который нужен удалённому frontend для временного выбора роли и выхода из dev-аккаунта. CORS preflight для этого dev-контура разрешает `POST` и `DELETE`; отдельно добавлять методы или заголовок в env не нужно.
 
 Если frontend будет открыт по домену, добавь домен:
 
@@ -212,6 +212,12 @@ curl -i http://SERVER_LAN_IP:3000/api/access/profile
 {"profile":null}
 ```
 
+Проверить, что remote backend отдаёт диспетчерские формы:
+
+```bash
+curl -i http://SERVER_LAN_IP:3000/api/dispatcher/forms
+```
+
 ## 6. Сделать запуск постоянным на Windows
 
 В проекте есть скрипт постоянного запуска:
@@ -320,11 +326,11 @@ http://SERVER_LAN_IP:5173/
 2. На frontend-ПК в `.env` указан `VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000`.
 3. Frontend запущен заново после изменения `.env`.
 4. В браузере выбери профиль `Диспетчер`.
-5. Заполни диспетчерскую форму и отправь.
+5. Выбери одну из диспетчерских форм, заполни поля и отправь.
 6. Если сервер недоступен, интерфейс должен показать ошибку подключения.
 7. Если отправка успешна, выбери профиль `Владелец бизнеса`.
 8. Открой вкладку `Диспетчерская`.
-9. Отправленная запись должна прийти из backend/БД.
+9. Отправленная запись должна прийти из backend/БД, а фильтры и быстрые счётчики должны обновиться из live feed.
 
 ## 10. Проверить API вручную
 
@@ -336,10 +342,13 @@ curl -i \
   -H "X-SMB-Account-Id: dev-dispatcher-account" \
   -d '{
     "businessAccountId": "dev-business-boundary",
-    "period": "2026-06",
-    "metricCode": "dispatcher.metric",
-    "rawValue": "42",
-    "comment": "remote pc check"
+    "formId": "equipment",
+    "payload": {
+      "reportDate": "2026-06-18",
+      "reportMonth": "2026-06",
+      "equipment": "Пресс №1",
+      "productionTons": "42"
+    }
   }' \
   http://SERVER_LAN_IP:3000/api/dispatcher/submissions
 ```
@@ -348,6 +357,12 @@ curl -i \
 
 ```bash
 curl -i http://SERVER_LAN_IP:3000/api/dispatcher/submissions
+```
+
+Проверить историю с фильтрами:
+
+```bash
+curl -i "http://SERVER_LAN_IP:3000/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30"
 ```
 
 ## 11. Если сервер будет не в локальной сети

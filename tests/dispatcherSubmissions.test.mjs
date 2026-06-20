@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  requestDispatcherForms,
   requestDispatcherFeed,
   submitDispatcherSubmission,
 } from "../.test-build/src/services/dispatcherSubmissions.js";
@@ -17,15 +18,21 @@ test.after(() => {
 
 const draft = {
   businessAccountId: "business-id",
-  period: "2026-06",
-  metricCode: "dispatcher.metric",
-  rawValue: "42",
-  comment: "server validates this",
+  formId: "equipment",
+  payload: {
+    reportDate: "2026-06-18",
+    reportMonth: "2026-06",
+    equipment: "Пресс №1",
+  },
 };
 
 const submission = {
-  ...draft,
   id: "submission-id",
+  businessAccountId: "business-id",
+  formId: "equipment",
+  formTitle: "Оборудование",
+  payload: draft.payload,
+  summary: "Оборудование: Пресс №1 · Дата отчета: 2026-06-18",
   status: "received",
   submittedByAccountId: "dispatcher-access-id",
   submittedAt: "2026-06-18T00:00:00.000Z",
@@ -64,6 +71,47 @@ test("submitDispatcherSubmission reports not configured without remote URL", asy
 
   assert.equal(result.status, "error");
   assert.equal(result.code, "server_not_configured");
+});
+
+test("requestDispatcherForms reads server form definitions", async () => {
+  let request;
+
+  globalThis.fetch = async (endpoint, init) => {
+    request = { endpoint, init };
+
+    return new Response(
+      JSON.stringify({
+        forms: [
+          {
+            id: "equipment",
+            title: "Оборудование",
+            sheetName: "Оборудование",
+            fields: [
+              {
+                name: "reportDate",
+                label: "Дата отчета",
+                type: "date",
+                required: true,
+              },
+            ],
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  };
+
+  const result = await requestDispatcherForms({
+    baseUrl: "https://api.example.test",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.forms[0].id, "equipment");
+  assert.equal(request.endpoint, "https://api.example.test/api/dispatcher/forms");
+  assert.equal(request.init.method, "GET");
 });
 
 test("submitDispatcherSubmission posts draft to remote server", async () => {
@@ -114,6 +162,16 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
       JSON.stringify({
         submissions: [submission],
         receivedAt: "2026-06-18T00:00:02.000Z",
+        summary: {
+          total: 1,
+          byForm: [
+            {
+              formId: "equipment",
+              formTitle: "Оборудование",
+              count: 1,
+            },
+          ],
+        },
       }),
       {
         status: 200,
@@ -124,11 +182,17 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
 
   const result = await requestDispatcherFeed({
     baseUrl: "https://api.example.test",
+    formId: "equipment",
+    dateFrom: "2026-06-01",
+    dateTo: "2026-06-30",
   });
 
   assert.equal(result.status, "ready");
   assert.equal(result.submissions.length, 1);
-  assert.equal(request.endpoint, "https://api.example.test/api/dispatcher/submissions");
+  assert.equal(
+    request.endpoint,
+    "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30",
+  );
   assert.equal(request.init.method, "GET");
 });
 

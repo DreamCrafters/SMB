@@ -17,11 +17,28 @@ const config: ServerConfig = {
 };
 
 const dispatcherSubmissions: DispatcherSubmissionsRepository = {
-  async create() {
-    throw new Error("not needed in access profile tests");
+  async create(value, submittedByAccountId) {
+    return {
+      id: "submission-id",
+      businessAccountId: value.draft.businessAccountId,
+      formId: value.draft.formId,
+      formTitle: "Оборудование",
+      payload: value.draft.payload,
+      summary: value.summary,
+      status: "received",
+      submittedByAccountId,
+      submittedAt: "2026-06-18T00:00:00.000Z",
+      receivedAt: "2026-06-18T00:00:01.000Z",
+    };
   },
   async listLatest() {
     return [];
+  },
+  async readSummary() {
+    return {
+      total: 0,
+      byForm: [],
+    };
   },
 };
 
@@ -65,6 +82,33 @@ test("remote API does not allow unrelated Vercel origins", async () => {
   });
 });
 
+test("remote API allows dev access session DELETE preflight", async () => {
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dev/access-session`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://frontend.test",
+        "Access-Control-Request-Method": "DELETE",
+        "Access-Control-Request-Headers": "Accept,X-SMB-Dev-Session",
+      },
+    });
+
+    assert.equal(response.status, 204);
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      "http://frontend.test",
+    );
+    assert.match(
+      response.headers.get("access-control-allow-methods") ?? "",
+      /\bDELETE\b/,
+    );
+    assert.match(
+      response.headers.get("access-control-allow-headers") ?? "",
+      /\bX-SMB-Dev-Session\b/,
+    );
+  });
+});
+
 test("remote API creates and reads dev access sessions by header", async () => {
   await withApiServer(async (baseUrl) => {
     const sessionResponse = await fetch(`${baseUrl}/api/dev/access-session`, {
@@ -99,6 +143,60 @@ test("remote API creates and reads dev access sessions by header", async () => {
     assert.deepEqual(readProfileCapabilities(profilePayload), [
       "business.submit_dispatcher_forms",
     ]);
+  });
+});
+
+test("remote API returns dispatcher form definitions", async () => {
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/forms`);
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(Array.isArray(isRecord(payload) ? payload.forms : undefined), true);
+    assert.equal(
+      isRecord(payload) && Array.isArray(payload.forms)
+        ? payload.forms.some(
+            (form) => isRecord(form) && form.id === "equipment",
+          )
+        : false,
+      true,
+    );
+  });
+});
+
+test("remote API creates dispatcher submissions with form payload", async () => {
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-SMB-Account-Id": "dispatcher-account",
+      },
+      body: JSON.stringify({
+        businessAccountId: "business-id",
+        formId: "equipment",
+        payload: {
+          reportDate: "2026-06-18",
+          reportMonth: "2026-06",
+          equipment: "Пресс №1",
+        },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(
+      isRecord(payload) && isRecord(payload.submission)
+        ? payload.submission.formId
+        : undefined,
+      "equipment",
+    );
+    assert.equal(
+      isRecord(payload) && isRecord(payload.submission)
+        ? payload.submission.submittedByAccountId
+        : undefined,
+      "dispatcher-account",
+    );
   });
 });
 
