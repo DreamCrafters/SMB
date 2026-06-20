@@ -73,6 +73,36 @@ test("submitDispatcherSubmission reports not configured without remote URL", asy
   assert.equal(result.code, "server_not_configured");
 });
 
+test("dispatcher submissions can use local test storage without remote URL", async () => {
+  const storage = createMemoryStorage();
+  const formsResult = await requestDispatcherForms({
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+  const submitResult = await submitDispatcherSubmission(draft, {
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+  const feedResult = await requestDispatcherFeed({
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+
+  assert.equal(formsResult.status, "ready");
+  assert.equal(formsResult.source, "local_test");
+  assert.equal(formsResult.forms.length, 6);
+  assert.equal(submitResult.status, "ready");
+  assert.equal(submitResult.source, "local_test");
+  assert.match(submitResult.submission.id, /^local-/);
+  assert.equal(feedResult.status, "ready");
+  assert.equal(feedResult.source, "local_test");
+  assert.equal(feedResult.summary.total, 1);
+  assert.equal(feedResult.submissions[0].id, submitResult.submission.id);
+});
+
 test("requestDispatcherForms reads server form definitions", async () => {
   let request;
 
@@ -152,6 +182,22 @@ test("submitDispatcherSubmission reports network diagnostics on fetch failure", 
   assert.match(result.message, /CORS_ORIGIN/);
 });
 
+test("dispatcher forms use local test storage on network failure when enabled", async () => {
+  globalThis.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+
+  const result = await requestDispatcherForms({
+    baseUrl: "http://127.0.0.1:3000",
+    localFallback: true,
+    storage: createMemoryStorage(),
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.source, "local_test");
+  assert.equal(result.forms[0].id, "equipment");
+});
+
 test("requestDispatcherFeed reads live history from remote server", async () => {
   let request;
 
@@ -210,3 +256,16 @@ test("requestDispatcherFeed rejects unsupported remote payloads", async () => {
   assert.equal(result.status, "error");
   assert.equal(result.code, "invalid_response");
 });
+
+function createMemoryStorage() {
+  const values = new Map();
+
+  return {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+  };
+}

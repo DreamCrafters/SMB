@@ -46,6 +46,7 @@ type RequestAccessProfileOptions = {
   remoteBaseUrl?: string;
   pageHostname?: string;
   pageOrigin?: string;
+  localDevFallback?: boolean;
   signal?: AbortSignal;
 };
 
@@ -58,6 +59,7 @@ export async function requestAccessProfile({
   remoteBaseUrl,
   pageHostname,
   pageOrigin,
+  localDevFallback,
   signal,
 }: RequestAccessProfileOptions = {}): Promise<AccessProfileResult> {
   const remoteOptions = {
@@ -72,6 +74,11 @@ export async function requestAccessProfile({
       ACCESS_PROFILE_ENDPOINT,
       remoteOptions,
     );
+  const fallbackEndpoint =
+    endpoint === undefined &&
+    shouldUseLocalDevEndpointFallback(localDevFallback, requestEndpoint)
+      ? ACCESS_PROFILE_ENDPOINT
+      : undefined;
 
   try {
     const response = await fetch(requestEndpoint, {
@@ -131,6 +138,16 @@ export async function requestAccessProfile({
       };
     }
 
+    if (
+      fallbackEndpoint !== undefined &&
+      fallbackEndpoint !== requestEndpoint
+    ) {
+      return requestAccessProfile({
+        endpoint: fallbackEndpoint,
+        signal,
+      });
+    }
+
     return {
       status: "error",
       message: describeRemoteNetworkFailure(
@@ -140,6 +157,23 @@ export async function requestAccessProfile({
       code: "network_error",
     };
   }
+}
+
+function shouldUseLocalDevEndpointFallback(
+  localDevFallback: boolean | undefined,
+  requestEndpoint: string,
+) {
+  if (requestEndpoint === ACCESS_PROFILE_ENDPOINT) {
+    return false;
+  }
+
+  if (localDevFallback !== undefined) {
+    return localDevFallback;
+  }
+
+  const viteEnv = import.meta.env as ImportMetaEnv | undefined;
+
+  return viteEnv?.DEV === true;
 }
 
 async function readJson(response: Response): Promise<unknown> {

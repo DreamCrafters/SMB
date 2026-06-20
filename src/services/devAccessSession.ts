@@ -29,6 +29,8 @@ export type DevAccessSessionResult =
 
 type RequestDevAccessSessionOptions = {
   endpoint?: string;
+  remoteBaseUrl?: string;
+  localDevFallback?: boolean;
   signal?: AbortSignal;
 };
 
@@ -36,25 +38,50 @@ export async function selectDevAccessSession(
   accountType: AccountType,
   {
     endpoint,
+    remoteBaseUrl,
+    localDevFallback,
     signal,
   }: RequestDevAccessSessionOptions = {},
 ): Promise<DevAccessSessionResult> {
+  const requestEndpoint =
+    endpoint ??
+    resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT, DEV_ACCESS_SESSION_ENDPOINT, {
+      baseUrl: remoteBaseUrl,
+    });
+
   return requestDevAccessSession(
-    endpoint ?? resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT),
+    requestEndpoint,
     "POST",
     signal,
     { accountType },
+    endpoint === undefined &&
+      shouldUseLocalDevEndpointFallback(localDevFallback, requestEndpoint)
+      ? DEV_ACCESS_SESSION_ENDPOINT
+      : undefined,
   );
 }
 
 export async function clearDevAccessSession({
   endpoint,
+  remoteBaseUrl,
+  localDevFallback,
   signal,
 }: RequestDevAccessSessionOptions = {}): Promise<DevAccessSessionResult> {
+  const requestEndpoint =
+    endpoint ??
+    resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT, DEV_ACCESS_SESSION_ENDPOINT, {
+      baseUrl: remoteBaseUrl,
+    });
+
   return requestDevAccessSession(
-    endpoint ?? resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT),
+    requestEndpoint,
     "DELETE",
     signal,
+    undefined,
+    endpoint === undefined &&
+      shouldUseLocalDevEndpointFallback(localDevFallback, requestEndpoint)
+      ? DEV_ACCESS_SESSION_ENDPOINT
+      : undefined,
   );
 }
 
@@ -63,6 +90,7 @@ async function requestDevAccessSession(
   method: "POST" | "DELETE",
   signal?: AbortSignal,
   body?: unknown,
+  fallbackEndpoint?: string,
 ): Promise<DevAccessSessionResult> {
   try {
     const response = await fetch(endpoint, {
@@ -119,12 +147,38 @@ async function requestDevAccessSession(
       };
     }
 
+    if (fallbackEndpoint !== undefined && fallbackEndpoint !== endpoint) {
+      return requestDevAccessSession(
+        fallbackEndpoint,
+        method,
+        signal,
+        body,
+      );
+    }
+
     return {
       status: "error",
       message: "Не удалось обновить dev-сессию.",
       code: "network_error",
     };
   }
+}
+
+function shouldUseLocalDevEndpointFallback(
+  localDevFallback: boolean | undefined,
+  requestEndpoint: string,
+) {
+  if (requestEndpoint === DEV_ACCESS_SESSION_ENDPOINT) {
+    return false;
+  }
+
+  if (localDevFallback !== undefined) {
+    return localDevFallback;
+  }
+
+  const viteEnv = import.meta.env as ImportMetaEnv | undefined;
+
+  return viteEnv?.DEV === true;
 }
 
 async function readJson(response: Response): Promise<unknown> {

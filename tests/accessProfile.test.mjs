@@ -230,3 +230,29 @@ test("requestAccessProfile reports network failures", async () => {
   assert.match(result.message, /smb-14uw5huc0-artemi-z-s-projects/);
   assert.match(result.message, /CORS_ORIGIN/);
 });
+
+test("requestAccessProfile can fall back to the local dev endpoint", async () => {
+  const endpoints = [];
+
+  globalThis.fetch = async (endpoint) => {
+    endpoints.push(endpoint);
+
+    if (endpoints.length === 1) {
+      throw new TypeError("network unavailable");
+    }
+
+    return new Response(JSON.stringify({ profile: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await requestAccessProfile({
+    remoteBaseUrl: "http://127.0.0.1:3000",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "empty");
+  assert.equal(endpoints[0], "http://127.0.0.1:3000/api/access/profile");
+  assert.equal(endpoints[1], "/api/access/profile");
+});

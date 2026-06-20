@@ -15,7 +15,8 @@ export type RemoteServerErrorCode =
   | "server_not_configured"
   | "invalid_response"
   | "network_error"
-  | "access_denied";
+  | "access_denied"
+  | "server_error";
 
 type RemoteServerOptions = {
   baseUrl?: string;

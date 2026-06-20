@@ -553,6 +553,13 @@ p {
   overflow-wrap: anywhere;
 }
 
+.form-status-local {
+  margin-bottom: 0;
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .primary-button {
   min-height: 40px;
   padding: 9px 12px;
@@ -668,6 +675,10 @@ p {
   font-size: 13px;
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+.dispatcher-status-line-local {
+  color: var(--amber);
 }
 
 .dispatcher-feed-table {

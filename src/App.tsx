@@ -341,9 +341,7 @@ export default function App() {
     setIsDataEntrySubmitting(false);
 
     if (result.status === "ready") {
-      setDataEntryStatus(
-        `Сервер принял отправку ${result.submission.id}. История обновится у владельца через remote feed.`,
-      );
+      setDataEntryStatus(readSubmissionSuccessMessage(result));
       resetDispatcherForm(form, formDefinition.id);
       return;
     }
@@ -651,10 +649,14 @@ function DataEntryWorkspace({
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
   const currentForm = forms.find((form) => form.id === selectedFormId);
+  const isLocalTestMode =
+    dispatcherForms.status === "ready" && dispatcherForms.source === "local_test";
   const formsStatusMessage =
     dispatcherForms.status === "ready"
       ? "Сервер не вернул диспетчерские формы."
       : dispatcherForms.message;
+  const localTestModeMessage =
+    "Локальный тестовый режим: сервер не найден, формы и отправки сохраняются в этом браузере.";
 
   useEffect(() => {
     if (
@@ -676,6 +678,9 @@ function DataEntryWorkspace({
   if (currentForm === undefined) {
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
+        {isLocalTestMode ? (
+          <p className="form-status form-status-local">{localTestModeMessage}</p>
+        ) : null}
         <div className="dispatcher-form-choice" aria-label="Выбор формы">
           {forms.map((form) => (
             <button
@@ -699,6 +704,9 @@ function DataEntryWorkspace({
     <section className="data-entry-surface" aria-label={ariaLabel}>
       <form className="data-entry-form" onSubmit={onSubmit}>
         <input name="formId" type="hidden" value={currentForm.id} readOnly />
+        {isLocalTestMode ? (
+          <p className="form-status form-status-local">{localTestModeMessage}</p>
+        ) : null}
         <div className="dispatcher-form-toolbar">
           <strong>{currentForm.title}</strong>
           <button
@@ -872,6 +880,8 @@ function DispatcherFeedPanel({
     dispatcherFeed.status === "ready" ? dispatcherFeed.summary : undefined;
   const hasDateFilters =
     filters.dateFrom.length > 0 || filters.dateTo.length > 0;
+  const isLocalTestMode =
+    dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
 
   return (
     <section className="dispatcher-live-column" aria-label="Диспетчерская">
@@ -936,6 +946,12 @@ function DispatcherFeedPanel({
       )}
       {dispatcherForms.status === "error" ? (
         <p className="dispatcher-status-line">{dispatcherForms.message}</p>
+      ) : null}
+      {isLocalTestMode ? (
+        <p className="dispatcher-status-line dispatcher-status-line-local">
+          Локальный тестовый режим: история читается из localStorage этого
+          браузера.
+        </p>
       ) : null}
       {dispatcherFeed.status === "error" ? (
         <p className="dispatcher-status-line">{dispatcherFeed.message}</p>
@@ -1039,6 +1055,17 @@ function resetDispatcherForm(
   if (formIdControl instanceof HTMLSelectElement) {
     formIdControl.value = formId;
   }
+}
+
+function readSubmissionSuccessMessage(result: {
+  submission: DispatcherSubmission;
+  source?: "remote" | "local_test";
+}) {
+  if (result.source === "local_test") {
+    return `Сервер не найден. Отправка ${result.submission.id} сохранена локально для тестов в этом браузере.`;
+  }
+
+  return `Сервер принял отправку ${result.submission.id}. История обновится у владельца через remote feed.`;
 }
 
 function readInputType(field: DispatcherFormField) {
