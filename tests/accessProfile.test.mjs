@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { requestAccessProfile } from "../.test-build/src/services/accessProfile.js";
+import { createLocalDevAccessSession } from "../.test-build/src/services/localDevAccess.js";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
@@ -13,6 +14,20 @@ test.after(() => {
 test.afterEach(() => {
   globalThis.window = originalWindow;
 });
+
+function createMemoryStorage(initialValues = {}) {
+  const store = new Map(Object.entries(initialValues));
+
+  return {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key) => {
+      store.delete(key);
+    },
+  };
+}
 
 test("requestAccessProfile returns empty when server profile is null", async () => {
   globalThis.fetch = async () =>
@@ -71,6 +86,63 @@ test("requestAccessProfile explains missing access profile endpoints", async () 
 
   assert.equal(result.status, "error");
   assert.match(result.message, /VITE_SMB_REMOTE_API_URL/);
+});
+
+test("requestAccessProfile returns empty local state when the local profile endpoint is missing and no local session exists", async () => {
+  globalThis.window = {
+    sessionStorage: createMemoryStorage(),
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "The page could not be found",
+        },
+      }),
+      {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "empty");
+  assert.match(result.message, /Локальная тестовая dev-сессия/);
+});
+
+test("requestAccessProfile reads a client-local profile when the local profile endpoint is missing", async () => {
+  globalThis.window = {
+    sessionStorage: createMemoryStorage(),
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "The page could not be found",
+        },
+      }),
+      {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+  const sessionId = createLocalDevAccessSession("dispatcher");
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    localDevFallback: true,
+  });
+
+  assert.match(sessionId, /^local-dispatcher-/);
+  assert.equal(result.status, "ready");
+  assert.equal(result.profile.accountType, "dispatcher");
+  assert.deepEqual(result.profile.activeAccess.capabilities, [
+    "business.submit_dispatcher_forms",
+  ]);
 });
 
 test("requestAccessProfile accepts a minimal valid server profile", async () => {
@@ -218,8 +290,70 @@ test("requestAccessProfile reports network failures", async () => {
     throw new TypeError("network unavailable");
   };
 
-  const result = await requestAccessProfile({ endpoint: "/api/access/profile" });
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    remoteBaseUrl: "https://smb-backend-api.com",
+    pageOrigin: "https://smb-14uw5huc0-artemi-z-s-projects.vercel.app",
+  });
 
   assert.equal(result.status, "error");
   assert.equal(result.code, "network_error");
+  assert.match(result.message, /https:\/\/smb-backend-api\.com\/health/);
+  assert.match(result.message, /smb-14uw5huc0-artemi-z-s-projects/);
+  assert.match(result.message, /CORS_ORIGIN/);
+});
+
+test("requestAccessProfile can fall back to the local dev endpoint", async () => {
+  const endpoints = [];
+
+  globalThis.fetch = async (endpoint) => {
+    endpoints.push(endpoint);
+
+    if (endpoints.length === 1) {
+      throw new TypeError("network unavailable");
+    }
+
+    return new Response(JSON.stringify({ profile: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await requestAccessProfile({
+    remoteBaseUrl: "http://127.0.0.1:3000",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "empty");
+  assert.equal(endpoints[0], "http://127.0.0.1:3000/api/access/profile");
+  assert.equal(endpoints[1], "/api/access/profile");
+});
+
+test("requestAccessProfile falls back when the remote profile endpoint is missing", async () => {
+  const endpoints = [];
+
+  globalThis.fetch = async (endpoint) => {
+    endpoints.push(endpoint);
+
+    if (endpoints.length === 1) {
+      return new Response(JSON.stringify({ error: { message: "Not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ profile: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await requestAccessProfile({
+    remoteBaseUrl: "http://127.0.0.1:3000",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "empty");
+  assert.equal(endpoints[0], "http://127.0.0.1:3000/api/access/profile");
+  assert.equal(endpoints[1], "/api/access/profile");
 });

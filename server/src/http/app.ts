@@ -7,7 +7,14 @@ import {
   isAccountType,
 } from "../domain/devAccessProfile.js";
 import { validateDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
-import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
+import {
+  getPublicDispatcherForms,
+  isDispatcherFormId,
+} from "../domain/dispatcherForms.js";
+import type {
+  DispatcherFeedFilters,
+  DispatcherSubmissionsRepository,
+} from "../repositories/dispatcherSubmissionsRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -53,12 +60,42 @@ export function createApiServer({
         return;
       }
 
+      if (url.pathname === "/api/dispatcher/forms") {
+        if (req.method !== "GET") {
+          sendJson(res, 405, {
+            error: {
+              code: "access_denied",
+              message: "Only GET is supported for dispatcher forms.",
+            },
+          });
+          return;
+        }
+
+        sendJson(res, 200, { forms: getPublicDispatcherForms() });
+        return;
+      }
+
       if (url.pathname === "/api/dispatcher/submissions") {
         if (req.method === "GET") {
-          const submissions = await dispatcherSubmissions.listLatest();
+          const filters = readDispatcherFeedFilters(url);
+
+          if (!filters.ok) {
+            sendJson(res, 400, {
+              error: {
+                code: "invalid_response",
+                message: filters.errors.join(" "),
+              },
+            });
+            return;
+          }
+
+          const submissions = await dispatcherSubmissions.listLatest(filters.value);
+          const summary = await dispatcherSubmissions.readSummary(filters.value);
+
           sendJson(res, 200, {
             submissions,
             receivedAt: new Date().toISOString(),
+            summary,
           });
           return;
         }
@@ -78,7 +115,7 @@ export function createApiServer({
           }
 
           const submission = await dispatcherSubmissions.create(
-            validation.draft,
+            validation.value,
             readSubmittedByAccountId(req),
           );
 
@@ -120,17 +157,63 @@ function applyCors(
 ) {
   const origin = req.headers.origin;
 
-  if (origin !== undefined && config.corsOrigins.includes(origin)) {
+  if (origin !== undefined && isCorsOriginAllowed(origin, config.corsOrigins)) {
     res.setHeader("access-control-allow-origin", origin);
     res.setHeader("access-control-allow-credentials", "true");
     res.setHeader("vary", "Origin");
   }
 
-  res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
   res.setHeader(
     "access-control-allow-headers",
     "Accept,Content-Type,X-SMB-Account-Id,X-SMB-Dev-Session",
   );
+}
+
+function isCorsOriginAllowed(origin: string, allowedOrigins: string[]) {
+  return allowedOrigins.some((allowedOrigin) =>
+    isCorsOriginMatch(origin, allowedOrigin),
+  );
+}
+
+function isCorsOriginMatch(origin: string, allowedOrigin: string) {
+  if (!allowedOrigin.includes("*")) {
+    return origin === allowedOrigin;
+  }
+
+  try {
+    const originUrl = new URL(origin);
+    const allowedUrl = new URL(allowedOrigin);
+
+    return (
+      originUrl.protocol === allowedUrl.protocol &&
+      originUrl.port === allowedUrl.port &&
+      originUrl.pathname === "/" &&
+      allowedUrl.pathname === "/" &&
+      originUrl.search.length === 0 &&
+      allowedUrl.search.length === 0 &&
+      originUrl.hash.length === 0 &&
+      allowedUrl.hash.length === 0 &&
+      isWildcardHostnameMatch(originUrl.hostname, allowedUrl.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isWildcardHostnameMatch(hostname: string, allowedHostname: string) {
+  const pattern = allowedHostname
+    .toLowerCase()
+    .split("*")
+    .map(escapeRegExp)
+    .join("[a-z0-9-]+");
+  const matcher = new RegExp(`^${pattern}$`);
+
+  return matcher.test(hostname.toLowerCase());
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function handleAccessProfile(
@@ -262,6 +345,79 @@ function readSubmittedByAccountId(req: IncomingMessage) {
   return trimmed && trimmed.length > 0
     ? trimmed
     : "dev-dispatcher-account";
+}
+
+function readDispatcherFeedFilters(url: URL):
+  | {
+      ok: true;
+      value: DispatcherFeedFilters;
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  const errors: string[] = [];
+  const filters: DispatcherFeedFilters = {};
+  const formId = readOptionalQueryParam(url, "formId");
+  const dateFrom = readOptionalQueryParam(url, "dateFrom");
+  const dateTo = readOptionalQueryParam(url, "dateTo");
+  const limit = readOptionalQueryParam(url, "limit");
+
+  if (formId !== undefined) {
+    if (isDispatcherFormId(formId)) {
+      filters.formId = formId;
+    } else {
+      errors.push("formId must be a supported dispatcher form id.");
+    }
+  }
+
+  if (dateFrom !== undefined) {
+    if (isDateQueryValue(dateFrom)) {
+      filters.dateFrom = dateFrom;
+    } else {
+      errors.push("dateFrom must use YYYY-MM-DD format.");
+    }
+  }
+
+  if (dateTo !== undefined) {
+    if (isDateQueryValue(dateTo)) {
+      filters.dateTo = dateTo;
+    } else {
+      errors.push("dateTo must use YYYY-MM-DD format.");
+    }
+  }
+
+  if (limit !== undefined) {
+    const parsedLimit = Number(limit);
+
+    if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+      filters.limit = parsedLimit;
+    } else {
+      errors.push("limit must be a positive integer.");
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      errors,
+    };
+  }
+
+  return {
+    ok: true,
+    value: filters,
+  };
+}
+
+function readOptionalQueryParam(url: URL, name: string) {
+  const value = url.searchParams.get(name)?.trim();
+
+  return value === undefined || value.length === 0 ? undefined : value;
+}
+
+function isDateQueryValue(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function readDevSessionId(req: IncomingMessage) {

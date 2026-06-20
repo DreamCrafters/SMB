@@ -7,7 +7,8 @@ import type {
 } from "../contracts";
 import { accountCapabilities } from "../contracts/accounts.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
-import { resolveApiEndpoint } from "./remoteServer.js";
+import { readLocalDevAccessProfile } from "./localDevAccess.js";
+import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
 
 export const ACCESS_PROFILE_ENDPOINT = "/api/access/profile";
 
@@ -43,6 +44,10 @@ export type AccessProfileLoadState =
 
 type RequestAccessProfileOptions = {
   endpoint?: string;
+  remoteBaseUrl?: string;
+  pageHostname?: string;
+  pageOrigin?: string;
+  localDevFallback?: boolean;
   signal?: AbortSignal;
 };
 
@@ -52,9 +57,35 @@ type AccessProfilePayload = {
 
 export async function requestAccessProfile({
   endpoint,
+  remoteBaseUrl,
+  pageHostname,
+  pageOrigin,
+  localDevFallback,
   signal,
 }: RequestAccessProfileOptions = {}): Promise<AccessProfileResult> {
-  const requestEndpoint = endpoint ?? resolveApiEndpoint(ACCESS_PROFILE_ENDPOINT);
+  const remoteOptions = {
+    baseUrl: remoteBaseUrl,
+    pageHostname,
+    pageOrigin,
+  };
+  const requestEndpoint =
+    endpoint ??
+    resolveApiEndpoint(
+      ACCESS_PROFILE_ENDPOINT,
+      ACCESS_PROFILE_ENDPOINT,
+      remoteOptions,
+    );
+  const shouldUseClientLocalFallback = shouldUseClientLocalAccessProfileFallback(
+    localDevFallback,
+    endpoint,
+  );
+  const fallbackEndpoint =
+    shouldUseLocalDevEndpointFallback(
+      shouldUseClientLocalFallback,
+      requestEndpoint,
+    )
+      ? ACCESS_PROFILE_ENDPOINT
+      : undefined;
 
   try {
     const response = await fetch(requestEndpoint, {
@@ -77,6 +108,30 @@ export async function requestAccessProfile({
     const payload = await readJson(response);
 
     if (!response.ok) {
+      if (
+        fallbackEndpoint !== undefined &&
+        shouldRetryLocalDevEndpoint(
+          fallbackEndpoint,
+          requestEndpoint,
+          response.status,
+        )
+      ) {
+        return requestAccessProfile({
+          endpoint: fallbackEndpoint,
+          localDevFallback,
+          signal,
+        });
+      }
+
+      const clientLocalResult = readClientLocalAccessProfileFallback(
+        shouldUseClientLocalFallback,
+        response.status,
+      );
+
+      if (clientLocalResult !== undefined) {
+        return clientLocalResult;
+      }
+
       return {
         status: "error",
         message: readAccessProfileErrorMessage(payload, response.status),
@@ -100,6 +155,25 @@ export async function requestAccessProfile({
       };
     }
 
+    if (
+      fallbackEndpoint !== undefined &&
+      fallbackEndpoint !== requestEndpoint
+    ) {
+      return requestAccessProfile({
+        endpoint: fallbackEndpoint,
+        localDevFallback,
+        signal,
+      });
+    }
+
+    const clientLocalResult = readClientLocalAccessProfileFallback(
+      shouldUseClientLocalFallback,
+    );
+
+    if (clientLocalResult !== undefined) {
+      return clientLocalResult;
+    }
+
     return {
       status: "error",
       message: "Сервер вернул access/profile в неподдерживаемом формате.",
@@ -114,12 +188,111 @@ export async function requestAccessProfile({
       };
     }
 
+    if (
+      fallbackEndpoint !== undefined &&
+      fallbackEndpoint !== requestEndpoint
+    ) {
+      return requestAccessProfile({
+        endpoint: fallbackEndpoint,
+        localDevFallback,
+        signal,
+      });
+    }
+
+    const clientLocalResult = readClientLocalAccessProfileFallback(
+      shouldUseClientLocalFallback,
+    );
+
+    if (clientLocalResult !== undefined) {
+      return clientLocalResult;
+    }
+
     return {
       status: "error",
-      message: "Не удалось запросить access/profile.",
+      message: describeRemoteNetworkFailure(
+        "Не удалось запросить access/profile.",
+        remoteOptions,
+      ),
       code: "network_error",
     };
   }
+}
+
+function readClientLocalAccessProfileFallback(
+  shouldUseClientLocalFallback: boolean,
+  statusCode?: number,
+): AccessProfileResult | undefined {
+  if (!shouldUseClientLocalFallback) {
+    return undefined;
+  }
+
+  if (
+    statusCode !== undefined &&
+    statusCode !== 404 &&
+    statusCode !== 502 &&
+    statusCode !== 503 &&
+    statusCode !== 504
+  ) {
+    return undefined;
+  }
+
+  const profile = readLocalDevAccessProfile();
+
+  if (profile === null) {
+    return {
+      status: "empty",
+      message: "Локальная тестовая dev-сессия не выбрана.",
+      statusCode,
+    };
+  }
+
+  return {
+    status: "ready",
+    profile,
+  };
+}
+
+function shouldRetryLocalDevEndpoint(
+  fallbackEndpoint: string | undefined,
+  endpoint: string,
+  statusCode: number,
+) {
+  return (
+    fallbackEndpoint !== undefined &&
+    fallbackEndpoint !== endpoint &&
+    (statusCode === 404 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504)
+  );
+}
+
+function shouldUseLocalDevEndpointFallback(
+  shouldUseClientLocalFallback: boolean,
+  requestEndpoint: string,
+) {
+  if (requestEndpoint === ACCESS_PROFILE_ENDPOINT) {
+    return false;
+  }
+
+  return shouldUseClientLocalFallback;
+}
+
+function shouldUseClientLocalAccessProfileFallback(
+  localDevFallback: boolean | undefined,
+  endpoint: string | undefined,
+) {
+  if (localDevFallback !== undefined) {
+    return localDevFallback;
+  }
+
+  if (endpoint !== undefined) {
+    return false;
+  }
+
+  const viteEnv = import.meta.env as ImportMetaEnv | undefined;
+
+  return viteEnv?.DEV === true;
 }
 
 async function readJson(response: Response): Promise<unknown> {

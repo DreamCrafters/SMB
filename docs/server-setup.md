@@ -28,20 +28,22 @@ Backend находится в этом же репозитории как npm wo
 - `GET /api/access/profile` — вернуть текущий временный dev-профиль доступа или пустой профиль;
 - `POST /api/dev/access-session` — создать временную dev-сессию выбранного типа аккаунта;
 - `DELETE /api/dev/access-session` — очистить временную dev-сессию;
+- `GET /api/dispatcher/forms` — вернуть серверные определения 6 диспетчерских форм;
 - `POST /api/dispatcher/submissions` — сохранить диспетчерскую отправку в PostgreSQL;
-- `GET /api/dispatcher/submissions` — вернуть последние диспетчерские отправки для вкладки владельца `Диспетчерская`.
+- `GET /api/dispatcher/submissions` — вернуть последние диспетчерские отправки, фильтры и счётчики для вкладки владельца `Диспетчерская`.
 
 Сохраняемые данные:
 
 - `businessAccountId`;
-- `period`;
-- `metricCode`;
-- `rawValue`;
-- `comment`;
+- `formId`;
+- `payload`;
+- `summary`;
 - `status`;
 - `submittedByAccountId`;
 - `submittedAt`;
 - `receivedAt`.
+
+Старые колонки `period`, `metric_code`, `raw_value`, `comment` остаются в таблице для совместимости миграции, но новая рабочая модель пишет `form_id`, `payload` JSONB и `summary`.
 
 ## Локальные env-файлы
 
@@ -68,17 +70,17 @@ cp server/.env.example server/.env
 ```bash
 PORT=3000
 DATABASE_URL=postgresql://smb_monitor:smb_monitor_dev_password@127.0.0.1:5432/smb_monitor
-CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 RUN_MIGRATIONS_ON_START=true
 ```
 
-Если frontend открыт с другого origin, добавь этот точный origin в `CORS_ORIGIN`. Для dev-доступа backend также принимает заголовок `X-SMB-Dev-Session`, он уже разрешён в CORS preflight.
+Если frontend открыт с другого origin, добавь этот точный origin в `CORS_ORIGIN`. Для Vercel preview можно использовать hostname-паттерн с `*`, например `https://smb-*-artemi-z-s-projects.vercel.app`. Backend возвращает конкретный origin запроса, если он совпал с паттерном. Для dev-доступа backend также принимает заголовок `X-SMB-Dev-Session`, а CORS preflight разрешает `POST` и `DELETE` для создания и очистки временной dev-сессии.
 
 Текущие Vercel origins frontend:
 
 ```text
 https://smb-umber.vercel.app
-https://smb-37kao5m4x-artemi-z-s-projects.vercel.app
+https://smb-*-artemi-z-s-projects.vercel.app
 ```
 
 Vercel dashboard URL вида `https://vercel.com/artemi-z-s-projects/...` не является browser origin сайта и не нужен в `CORS_ORIGIN`.
@@ -175,6 +177,12 @@ curl -i http://127.0.0.1:3000/api/access/profile
 {"profile":null}
 ```
 
+Проверка списка диспетчерских форм:
+
+```bash
+curl -i http://127.0.0.1:3000/api/dispatcher/forms
+```
+
 ## Постоянный запуск backend на Windows
 
 Для server-PC профиля без watch-режима используй скрипты:
@@ -217,10 +225,13 @@ curl -i \
   -H "X-SMB-Account-Id: dev-dispatcher-account" \
   -d '{
     "businessAccountId": "dev-business-boundary",
-    "period": "2026-06",
-    "metricCode": "dispatcher.metric",
-    "rawValue": "42",
-    "comment": "manual check"
+    "formId": "equipment",
+    "payload": {
+      "reportDate": "2026-06-18",
+      "reportMonth": "2026-06",
+      "equipment": "Пресс №1",
+      "productionTons": "42"
+    }
   }' \
   http://127.0.0.1:3000/api/dispatcher/submissions
 ```
@@ -231,16 +242,34 @@ curl -i \
 curl -i http://127.0.0.1:3000/api/dispatcher/submissions
 ```
 
+Проверка истории с фильтрами:
+
+```bash
+curl -i "http://127.0.0.1:3000/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30"
+```
+
 ## Как проверить через UI
 
 1. Запустить PostgreSQL.
 2. Запустить backend.
 3. Запустить frontend.
 4. В браузере выбрать профиль `Диспетчер`.
-5. Заполнить форму и отправить.
+5. Выбрать одну из диспетчерских форм, заполнить поля и отправить.
 6. Сменить доступ на `Владелец бизнеса`.
 7. Открыть вкладку `Диспетчерская`.
-8. Запись должна появиться из backend/БД.
+8. Запись должна появиться из backend/БД; фильтры и быстрые счётчики должны обновиться из live feed.
+
+## Локальный тестовый fallback без backend
+
+Для быстрой проверки интерфейса диспетчерских форм можно запустить только frontend через `npm run dev:web -- --host 127.0.0.1`. Если backend не настроен или недоступен, Vite dev-режим использует локальный тестовый fallback:
+
+- временный dev-вход может вернуться к локальным Vite endpoints `/api/access/profile` и `/api/dev/access-session`, а если эти `/api` endpoints отсутствуют на static/frontend-хостинге — к клиентской тестовой dev-сессии в `sessionStorage`;
+- формы берутся из локальной тестовой копии 6 диспетчерских форм;
+- отправки сохраняются в `localStorage` текущего браузера;
+- вкладка владельца `Диспетчерская` читает эту же локальную историю и применяет фильтры;
+- интерфейс показывает, что это локальный тестовый режим.
+
+Это не production-auth, не production-хранение и не проверка PostgreSQL. Для реальных данных, работы с другого устройства и подготовки к арендованному серверу запускать backend и БД по основной инструкции.
 
 ## Важные ограничения текущего backend
 

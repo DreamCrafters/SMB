@@ -1,19 +1,38 @@
+import {
+  getDispatcherFormDefinition,
+  getDispatcherFormTitle,
+  isDispatcherFormId,
+  type DispatcherFormDefinition,
+  type DispatcherFormField,
+  type DispatcherFormId,
+} from "./dispatcherForms.js";
+
 export type DispatcherSubmissionStatus =
   | "received"
   | "queued"
   | "accepted"
   | "rejected";
 
+export type DispatcherSubmissionPayload = Record<string, string>;
+
 export type DispatcherSubmissionDraft = {
   businessAccountId: string;
-  period: string;
-  metricCode: string;
-  rawValue: string;
-  comment?: string;
+  formId: DispatcherFormId;
+  payload: DispatcherSubmissionPayload;
 };
 
-export type DispatcherSubmission = DispatcherSubmissionDraft & {
+export type ValidatedDispatcherSubmissionDraft = {
+  draft: DispatcherSubmissionDraft;
+  summary: string;
+};
+
+export type DispatcherSubmission = {
   id: string;
+  businessAccountId: string;
+  formId: DispatcherFormId;
+  formTitle: string;
+  payload: DispatcherSubmissionPayload;
+  summary: string;
   status: DispatcherSubmissionStatus;
   submittedByAccountId: string;
   submittedAt: string;
@@ -23,10 +42,9 @@ export type DispatcherSubmission = DispatcherSubmissionDraft & {
 export type DispatcherSubmissionRow = {
   id: string;
   business_account_id: string;
-  period: string;
-  metric_code: string;
-  raw_value: string;
-  comment: string | null;
+  form_id: string;
+  payload: unknown;
+  summary: string;
   status: DispatcherSubmissionStatus;
   submitted_by_account_id: string;
   submitted_at: Date | string;
@@ -36,17 +54,22 @@ export type DispatcherSubmissionRow = {
 export type ValidationResult =
   | {
       ok: true;
-      draft: DispatcherSubmissionDraft;
+      value: ValidatedDispatcherSubmissionDraft;
     }
   | {
       ok: false;
       errors: string[];
     };
 
-const periodPattern = /^\d{4}-\d{2}$/;
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const monthPattern = /^\d{4}-\d{2}$/;
+const dateTimeLocalPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const numberPattern = /^-?\d+(?:[,.]\d+)?$/;
+const defaultTextMaxLength = 240;
+const summaryFallback = "Запись без краткого описания";
 
 export function validateDispatcherSubmissionDraft(input: unknown): ValidationResult {
-  if (!isRecord(input)) {
+  if (!isRecord(input) || Array.isArray(input)) {
     return {
       ok: false,
       errors: ["Payload must be a JSON object."],
@@ -60,30 +83,29 @@ export function validateDispatcherSubmissionDraft(input: unknown): ValidationRes
     120,
     errors,
   );
-  const period = readRequiredString(input.period, "period", 20, errors);
-  const metricCode = readRequiredString(input.metricCode, "metricCode", 120, errors);
-  const rawValue = readRequiredString(input.rawValue, "rawValue", 120, errors);
-  const comment = readOptionalString(input.comment, "comment", 2_000, errors);
+  const formId = readFormId(input.formId, errors);
+  const form =
+    formId === undefined ? undefined : getDispatcherFormDefinition(formId);
+  const payload = readPayload(input.payload, form, errors);
 
-  if (period !== undefined && !periodPattern.test(period)) {
-    errors.push("period must use YYYY-MM format.");
-  }
-
-  if (errors.length > 0) {
+  if (errors.length > 0 || formId === undefined || form === undefined) {
     return {
       ok: false,
       errors,
     };
   }
 
+  const draft = {
+    businessAccountId: businessAccountId ?? "",
+    formId,
+    payload,
+  };
+
   return {
     ok: true,
-    draft: {
-      businessAccountId: businessAccountId ?? "",
-      period: period ?? "",
-      metricCode: metricCode ?? "",
-      rawValue: rawValue ?? "",
-      comment,
+    value: {
+      draft,
+      summary: buildDispatcherSubmissionSummary(form, payload),
     },
   };
 }
@@ -91,18 +113,212 @@ export function validateDispatcherSubmissionDraft(input: unknown): ValidationRes
 export function mapDispatcherSubmissionRow(
   row: DispatcherSubmissionRow,
 ): DispatcherSubmission {
+  const formId = isDispatcherFormId(row.form_id) ? row.form_id : "equipment";
+  const payload = readRowPayload(row.payload);
+  const form = getDispatcherFormDefinition(formId);
+  const summary =
+    row.summary.trim().length > 0
+      ? row.summary
+      : form === undefined
+        ? summaryFallback
+        : buildDispatcherSubmissionSummary(form, payload);
+
   return {
     id: row.id,
     businessAccountId: row.business_account_id,
-    period: row.period,
-    metricCode: row.metric_code,
-    rawValue: row.raw_value,
-    comment: row.comment ?? undefined,
+    formId,
+    formTitle: getDispatcherFormTitle(formId),
+    payload,
+    summary,
     status: row.status,
     submittedByAccountId: row.submitted_by_account_id,
     submittedAt: toIsoString(row.submitted_at),
     receivedAt: toIsoString(row.received_at),
   };
+}
+
+function readFormId(value: unknown, errors: string[]) {
+  if (!isDispatcherFormId(value)) {
+    errors.push("formId must be a supported dispatcher form id.");
+    return undefined;
+  }
+
+  return value;
+}
+
+function readPayload(
+  value: unknown,
+  form: DispatcherFormDefinition | undefined,
+  errors: string[],
+): DispatcherSubmissionPayload {
+  if (!isRecord(value) || Array.isArray(value)) {
+    errors.push("payload must be a JSON object.");
+    return {};
+  }
+
+  if (form === undefined) {
+    return {};
+  }
+
+  const allowedFieldNames = new Set(form.fields.map((field) => field.name));
+  const unknownFieldNames = Object.keys(value).filter(
+    (fieldName) => !allowedFieldNames.has(fieldName),
+  );
+
+  if (unknownFieldNames.length > 0) {
+    errors.push(`payload contains unsupported fields: ${unknownFieldNames.join(", ")}.`);
+  }
+
+  const payload: DispatcherSubmissionPayload = {};
+
+  for (const field of form.fields) {
+    const fieldValue = readFieldValue(value[field.name], field, errors);
+
+    if (fieldValue !== undefined) {
+      payload[field.name] = fieldValue;
+    }
+  }
+
+  return payload;
+}
+
+function readFieldValue(
+  value: unknown,
+  field: DispatcherFormField,
+  errors: string[],
+) {
+  if (value === undefined || value === null) {
+    if (field.required) {
+      errors.push(`${field.name} is required.`);
+    }
+
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    errors.push(`${field.name} must be a string.`);
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed.length === 0) {
+    if (field.required) {
+      errors.push(`${field.name} is required.`);
+    }
+
+    return undefined;
+  }
+
+  const normalized = normalizeFieldValue(trimmed, field);
+  const maxLength = field.maxLength ?? defaultTextMaxLength;
+
+  if (normalized.length > maxLength) {
+    errors.push(`${field.name} must be ${maxLength} characters or less.`);
+    return undefined;
+  }
+
+  if (field.type === "select") {
+    if (field.options === undefined || !field.options.includes(normalized)) {
+      errors.push(`${field.name} must be one of the supported options.`);
+      return undefined;
+    }
+  }
+
+  if (field.type === "date" && !datePattern.test(normalized)) {
+    errors.push(`${field.name} must use YYYY-MM-DD format.`);
+    return undefined;
+  }
+
+  if (field.type === "month" && !monthPattern.test(normalized)) {
+    errors.push(`${field.name} must use YYYY-MM format.`);
+    return undefined;
+  }
+
+  if (
+    field.type === "datetime-local" &&
+    !dateTimeLocalPattern.test(normalized)
+  ) {
+    errors.push(`${field.name} must use YYYY-MM-DDTHH:mm format.`);
+    return undefined;
+  }
+
+  if (field.type === "number" && !numberPattern.test(normalized)) {
+    errors.push(`${field.name} must be a number.`);
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function normalizeFieldValue(value: string, field: DispatcherFormField) {
+  if (field.type === "month") {
+    return normalizeMonthValue(value);
+  }
+
+  return value;
+}
+
+function normalizeMonthValue(value: string) {
+  const trimmed = value.trim();
+  const isoDateMatch = /^(\d{4})-(\d{1,2})-\d{1,2}$/.exec(trimmed);
+  const isoMonthMatch = /^(\d{4})-(\d{1,2})$/.exec(trimmed);
+  const monthYearMatch = /^(\d{1,2})[./-](\d{4})$/.exec(trimmed);
+  const yearMonthMatch = /^(\d{4})[./](\d{1,2})$/.exec(trimmed);
+  const match = isoDateMatch ?? isoMonthMatch ?? monthYearMatch ?? yearMonthMatch;
+
+  if (match === null) {
+    return trimmed;
+  }
+
+  const year =
+    match === monthYearMatch ? readYear(match[2]) : readYear(match[1]);
+  const month =
+    match === monthYearMatch ? readMonth(match[1]) : readMonth(match[2]);
+
+  if (year === undefined || month === undefined) {
+    return trimmed;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function readYear(value: string | undefined) {
+  return value !== undefined && /^\d{4}$/.test(value) ? value : undefined;
+}
+
+function readMonth(value: string | undefined) {
+  if (value === undefined || !/^\d{1,2}$/.test(value)) {
+    return undefined;
+  }
+
+  const month = Number(value);
+
+  return month >= 1 && month <= 12 ? month : undefined;
+}
+
+function buildDispatcherSubmissionSummary(
+  form: DispatcherFormDefinition,
+  payload: DispatcherSubmissionPayload,
+) {
+  const values = form.summaryFields
+    .map((fieldName) => {
+      const field = form.fields.find((item) => item.name === fieldName);
+      const value = payload[fieldName];
+
+      if (value === undefined) {
+        return undefined;
+      }
+
+      return field === undefined ? value : `${field.label}: ${value}`;
+    })
+    .filter((value): value is string => value !== undefined);
+
+  if (values.length === 0) {
+    return summaryFallback;
+  }
+
+  return values.join(" · ");
 }
 
 function readRequiredString(
@@ -131,33 +347,16 @@ function readRequiredString(
   return trimmed;
 }
 
-function readOptionalString(
-  value: unknown,
-  fieldName: string,
-  maxLength: number,
-  errors: string[],
-) {
-  if (value === undefined || value === null) {
-    return undefined;
+function readRowPayload(value: unknown): DispatcherSubmissionPayload {
+  if (!isRecord(value) || Array.isArray(value)) {
+    return {};
   }
 
-  if (typeof value !== "string") {
-    errors.push(`${fieldName} must be a string when provided.`);
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-
-  if (trimmed.length === 0) {
-    return undefined;
-  }
-
-  if (trimmed.length > maxLength) {
-    errors.push(`${fieldName} must be ${maxLength} characters or less.`);
-    return undefined;
-  }
-
-  return trimmed;
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 function toIsoString(value: Date | string) {

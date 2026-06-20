@@ -2,20 +2,19 @@ import { useEffect, useState, type FormEvent } from "react";
 import type {
   AccountCapability,
   AccountType,
+  DispatcherFormDefinition,
+  DispatcherFormField,
+  DispatcherFormId,
   DispatcherSubmission,
+  DispatcherSubmissionPayload,
   ServerUserProfile,
 } from "./contracts";
 import {
-  accountShellPanels,
   accountTypeLabels,
   authOptions,
   navigationItemsByAccountType,
-  roleWorkspaceCopy,
   shellCopy,
-  statusPanels,
-  type AccountShellPanel,
   type NavigationItem,
-  type StatusPanel,
 } from "./content";
 import {
   clearDevAccessSession,
@@ -27,11 +26,12 @@ import {
   type AccessProfileLoadState,
 } from "./services/accessProfile";
 import {
+  requestDispatcherForms,
   requestDispatcherFeed,
   submitDispatcherSubmission,
   type DispatcherFeedResult,
+  type DispatcherFormsResult,
 } from "./services/dispatcherSubmissions";
-import { getRemoteServerConnection } from "./services/remoteServer";
 
 type OwnerTab = "overview" | "dispatcher";
 
@@ -55,6 +55,19 @@ type DispatcherFeedLoadState =
     }
   | DispatcherFeedResult;
 
+type DispatcherFormsLoadState =
+  | {
+      status: "loading";
+      message: string;
+    }
+  | DispatcherFormsResult;
+
+type DispatcherFeedFilterState = {
+  formId: DispatcherFormId | "";
+  dateFrom: string;
+  dateTo: string;
+};
+
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
   message: "Запрашиваем серверный профиль доступа.",
@@ -69,24 +82,50 @@ const initialDispatcherFeedState: DispatcherFeedLoadState = {
   message: "Ожидаем профиль владельца для запроса диспетчерской истории.",
 };
 
-function stateLabel(state: NavigationItem["state"] | StatusPanel["state"]) {
-  switch (state) {
-    case "active":
-      return "готов";
-    case "loading":
-      return "загрузка";
-    case "ready":
-      return "получен";
-    case "pending":
-      return "ожидание";
-    case "locked":
-      return "сервер";
-    case "waiting":
-      return "запрос";
-    case "empty":
-      return "пусто";
-    case "error":
-      return "ошибка";
+const initialDispatcherFormsState: DispatcherFormsLoadState = {
+  status: "loading",
+  message: "Ожидаем профиль доступа для запроса диспетчерских форм.",
+};
+
+const initialDispatcherFeedFilters: DispatcherFeedFilterState = {
+  formId: "",
+  dateFrom: "",
+  dateTo: "",
+};
+
+const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
+const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
+
+function buildNavigationItems(
+  accountType: AccountType,
+  ownerTab: OwnerTab,
+): NavigationItem[] {
+  const navigationItems = navigationItemsByAccountType[accountType];
+
+  if (accountType !== "business_owner") {
+    return navigationItems;
+  }
+
+  return navigationItems
+    .filter((item) => getOwnerTabForNavigationItem(item) !== undefined)
+    .map((item) => {
+      const target = getOwnerTabForNavigationItem(item);
+
+      return {
+        ...item,
+        state: target === ownerTab ? "active" : "pending",
+      };
+    });
+}
+
+function getOwnerTabForNavigationItem(item: NavigationItem): OwnerTab | undefined {
+  switch (item.label) {
+    case "Обзор":
+      return "overview";
+    case "Диспетчерская":
+      return "dispatcher";
+    default:
+      return undefined;
   }
 }
 
@@ -98,15 +137,16 @@ export default function App() {
     initialSessionRequestState,
   );
   const [requestVersion, setRequestVersion] = useState(0);
-  const [dataEntryStatus, setDataEntryStatus] = useState(
-    "Серверная запись формы ещё не подключена.",
-  );
+  const [dataEntryStatus, setDataEntryStatus] = useState("");
   const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
   const [ownerTab, setOwnerTab] = useState<OwnerTab>("overview");
   const [dispatcherFeed, setDispatcherFeed] = useState<DispatcherFeedLoadState>(
     initialDispatcherFeedState,
   );
-  const [dispatcherFeedVersion, setDispatcherFeedVersion] = useState(0);
+  const [dispatcherForms, setDispatcherForms] =
+    useState<DispatcherFormsLoadState>(initialDispatcherFormsState);
+  const [dispatcherFeedFilters, setDispatcherFeedFilters] =
+    useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -116,7 +156,10 @@ export default function App() {
       message: "Запрашиваем серверный профиль доступа.",
     });
 
-    requestAccessProfile({ signal: controller.signal }).then((result) => {
+    requestAccessProfile({
+      localDevFallback: true,
+      signal: controller.signal,
+    }).then((result) => {
       if (!controller.signal.aborted) {
         setAccessProfile(result);
       }
@@ -136,6 +179,7 @@ export default function App() {
       return;
     }
 
+    const { formId, dateFrom, dateTo } = dispatcherFeedFilters;
     let isActive = true;
     let currentController: AbortController | undefined;
 
@@ -152,7 +196,13 @@ export default function App() {
             },
       );
 
-      requestDispatcherFeed({ signal: currentController.signal }).then((result) => {
+      requestDispatcherFeed({
+        signal: currentController.signal,
+        localFallback: true,
+        formId: formId === "" ? undefined : formId,
+        dateFrom: dateFrom.length > 0 ? dateFrom : undefined,
+        dateTo: dateTo.length > 0 ? dateTo : undefined,
+      }).then((result) => {
         if (isActive) {
           setDispatcherFeed(result);
         }
@@ -167,7 +217,44 @@ export default function App() {
       currentController?.abort();
       window.clearInterval(intervalId);
     };
-  }, [accessProfile, dispatcherFeedVersion]);
+  }, [
+    accessProfile,
+    dispatcherFeedFilters.dateFrom,
+    dispatcherFeedFilters.dateTo,
+    dispatcherFeedFilters.formId,
+  ]);
+
+  useEffect(() => {
+    if (
+      accessProfile.status !== "ready" ||
+      (!hasCapability(accessProfile.profile, "business.submit_dispatcher_forms") &&
+        !hasCapability(accessProfile.profile, "business.submit_forms") &&
+        !hasCapability(accessProfile.profile, "business.view_dispatcher_feed"))
+    ) {
+      setDispatcherForms(initialDispatcherFormsState);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setDispatcherForms({
+      status: "loading",
+      message: "Запрашиваем диспетчерские формы с удалённого сервера.",
+    });
+
+    requestDispatcherForms({
+      localFallback: true,
+      signal: controller.signal,
+    }).then((result) => {
+      if (!controller.signal.aborted) {
+        setDispatcherForms(result);
+      }
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [accessProfile]);
 
   async function handleSelectAccount(accountType: AccountType) {
     setSessionRequest({
@@ -175,7 +262,9 @@ export default function App() {
       accountType,
     });
 
-    const result = await selectDevAccessSession(accountType);
+    const result = await selectDevAccessSession(accountType, {
+      localDevFallback: true,
+    });
     handleSessionResult(result);
   }
 
@@ -184,7 +273,9 @@ export default function App() {
       status: "loading",
     });
 
-    const result = await clearDevAccessSession();
+    const result = await clearDevAccessSession({
+      localDevFallback: true,
+    });
     handleSessionResult(result);
   }
 
@@ -203,6 +294,15 @@ export default function App() {
 
   function handleRetryProfile() {
     setRequestVersion((version) => version + 1);
+  }
+
+  function handleDispatcherFeedFiltersChange(
+    patch: Partial<DispatcherFeedFilterState>,
+  ) {
+    setDispatcherFeedFilters((current) => ({
+      ...current,
+      ...patch,
+    }));
   }
 
   async function handleDataEntrySubmit(event: FormEvent<HTMLFormElement>) {
@@ -224,25 +324,41 @@ export default function App() {
     const form = event.currentTarget;
     const formData = new FormData(form);
     const businessAccountId = getActiveBusinessAccountId(accessProfile.profile);
+    const formId = String(formData.get("formId") ?? "");
+    const formDefinition =
+      dispatcherForms.status === "ready"
+        ? dispatcherForms.forms.find((item) => item.id === formId)
+        : undefined;
+
+    if (dispatcherForms.status !== "ready") {
+      setDataEntryStatus("Список диспетчерских форм ещё не получен от сервера.");
+      return;
+    }
+
+    if (formDefinition === undefined) {
+      setDataEntryStatus("Выбранная форма не найдена в серверном списке.");
+      return;
+    }
 
     setIsDataEntrySubmitting(true);
     setDataEntryStatus("Отправляем данные на удалённый сервер.");
 
-    const result = await submitDispatcherSubmission({
-      businessAccountId,
-      period: String(formData.get("period") ?? ""),
-      metricCode: String(formData.get("metricCode") ?? ""),
-      rawValue: String(formData.get("rawValue") ?? ""),
-      comment: readOptionalFormValue(formData.get("comment")),
-    });
+    const result = await submitDispatcherSubmission(
+      {
+        businessAccountId,
+        formId: formDefinition.id,
+        payload: readDispatcherSubmissionPayload(formData, formDefinition),
+      },
+      {
+        localFallback: true,
+      },
+    );
 
     setIsDataEntrySubmitting(false);
 
     if (result.status === "ready") {
-      setDataEntryStatus(
-        `Сервер принял отправку ${result.submission.id}. История обновится у владельца через remote feed.`,
-      );
-      form.reset();
+      setDataEntryStatus(readSubmissionSuccessMessage(result));
+      resetDispatcherForm(form, formDefinition.id);
       return;
     }
 
@@ -261,44 +377,32 @@ export default function App() {
   }
 
   const profile = accessProfile.profile;
-  const profileStatusPanel = buildProfileStatusPanel(accessProfile);
-  const visibleStatusPanels = [
-    profileStatusPanel,
-    buildRemoteServerStatusPanel(),
-    ...statusPanels.slice(1),
-  ];
-  const serverSummary = buildServerSummary(accessProfile);
 
   return (
     <main className="ops-shell">
-      <SideRail profile={profile} />
+      <SideRail
+        profile={profile}
+        onClearSession={handleClearSession}
+        isSessionLoading={sessionRequest.status === "loading"}
+        sessionError={
+          sessionRequest.status === "error" ? sessionRequest.message : undefined
+        }
+        ownerTab={ownerTab}
+        onOwnerTabChange={setOwnerTab}
+      />
 
       <section className="workspace" aria-label="Рабочая область">
-        <ServerStrip
-          accessProfile={accessProfile}
-          serverSummary={serverSummary}
-          visibleStatusPanels={visibleStatusPanels}
-          onRetry={handleRetryProfile}
-          onClearSession={handleClearSession}
-          isSessionLoading={sessionRequest.status === "loading"}
-        />
-
-        <CommandBar profile={profile} />
-
-        <WorkspaceIntro accountType={profile.accountType} />
-
         <RoleWorkspace
           profile={profile}
-          visibleStatusPanels={visibleStatusPanels}
           dataEntryStatus={dataEntryStatus}
           isDataEntrySubmitting={isDataEntrySubmitting}
           onDataEntrySubmit={handleDataEntrySubmit}
           ownerTab={ownerTab}
           dispatcherFeed={dispatcherFeed}
-          onOwnerTabChange={setOwnerTab}
-          onRefreshDispatcherFeed={() =>
-            setDispatcherFeedVersion((version) => version + 1)
-          }
+          dispatcherForms={dispatcherForms}
+          dispatcherFeedFilters={dispatcherFeedFilters}
+          onDispatcherFeedFiltersChange={handleDispatcherFeedFiltersChange}
+          onDataEntryStatusReset={() => setDataEntryStatus("")}
         />
       </section>
     </main>
@@ -380,8 +484,22 @@ function AuthScreen({
   );
 }
 
-function SideRail({ profile }: { profile: ServerUserProfile }) {
-  const navigationItems = navigationItemsByAccountType[profile.accountType];
+function SideRail({
+  profile,
+  onClearSession,
+  isSessionLoading,
+  sessionError,
+  ownerTab,
+  onOwnerTabChange,
+}: {
+  profile: ServerUserProfile;
+  onClearSession: () => void;
+  isSessionLoading: boolean;
+  sessionError?: string;
+  ownerTab: OwnerTab;
+  onOwnerTabChange: (tab: OwnerTab) => void;
+}) {
+  const navigationItems = buildNavigationItems(profile.accountType, ownerTab);
 
   return (
     <aside className="side-rail" aria-label="Основная навигация">
@@ -393,362 +511,480 @@ function SideRail({ profile }: { profile: ServerUserProfile }) {
         <h1>{shellCopy.productName}</h1>
       </div>
       <nav className="primary-nav">
-        {navigationItems.map((item) => (
-          <button
-            className={`nav-item nav-item-${item.state}`}
-            type="button"
-            aria-current={item.state === "active" ? "page" : undefined}
-            key={item.label}
-          >
-            <span>{item.label}</span>
-            <small>{item.description}</small>
-          </button>
-        ))}
+        {navigationItems.map((item) => {
+          const ownerTarget =
+            profile.accountType === "business_owner"
+              ? getOwnerTabForNavigationItem(item)
+              : undefined;
+
+          return (
+            <button
+              className={`nav-item nav-item-${item.state}`}
+              type="button"
+              aria-current={item.state === "active" ? "page" : undefined}
+              disabled={ownerTarget === undefined}
+              key={item.label}
+              onClick={() => {
+                if (ownerTarget !== undefined) {
+                  onOwnerTabChange(ownerTarget);
+                }
+              }}
+            >
+              <span>{item.label}</span>
+              <small>{item.description}</small>
+            </button>
+          );
+        })}
       </nav>
       <div className="rail-note">
         <span>доступ</span>
         <strong>{accountTypeLabels[profile.accountType]}</strong>
+        <button
+          className="rail-logout-button"
+          type="button"
+          disabled={isSessionLoading}
+          onClick={onClearSession}
+        >
+          {isSessionLoading ? "Выходим..." : "Выйти из аккаунта"}
+        </button>
+        {sessionError === undefined ? null : (
+          <small className="rail-session-error">{sessionError}</small>
+        )}
       </div>
     </aside>
   );
 }
 
-function ServerStrip({
-  accessProfile,
-  serverSummary,
-  visibleStatusPanels,
-  onRetry,
-  onClearSession,
-  isSessionLoading,
-}: {
-  accessProfile: AccessProfileLoadState;
-  serverSummary: { title: string; detail: string };
-  visibleStatusPanels: StatusPanel[];
-  onRetry: () => void;
-  onClearSession: () => void;
-  isSessionLoading: boolean;
-}) {
-  return (
-    <header className={`server-strip server-strip-${accessProfile.status}`}>
-      <div className="server-state">
-        <span
-          className={`status-dot status-dot-${accessProfile.status}`}
-          aria-hidden="true"
-        />
-        <div>
-          <strong>{serverSummary.title}</strong>
-          <p>{serverSummary.detail}</p>
-        </div>
-      </div>
-      <div className="server-actions" aria-label="Серверные границы">
-        {visibleStatusPanels.map((panel) => (
-          <StatusPill panel={panel} key={panel.label} />
-        ))}
-        <button
-          className="retry-button"
-          type="button"
-          disabled={accessProfile.status === "loading"}
-          onClick={onRetry}
-        >
-          Повторить
-        </button>
-        <button
-          className="retry-button"
-          type="button"
-          disabled={isSessionLoading}
-          onClick={onClearSession}
-        >
-          {shellCopy.changeAccess}
-        </button>
-      </div>
-    </header>
-  );
-}
-
-function CommandBar({ profile }: { profile: ServerUserProfile }) {
-  return (
-    <section className="command-bar" aria-label="Контекст аккаунта">
-      <div className="selector-block">
-        <span>{shellCopy.accountSelectorLabel}</span>
-        <strong>{buildAccountSelectorValue(profile)}</strong>
-      </div>
-      <div className="selector-block selector-block-muted">
-        <span>access/profile</span>
-        <strong>{accountTypeLabels[profile.accountType]}</strong>
-      </div>
-      <div className="segmented-control" aria-label="Типы аккаунта">
-        {accountShellPanels.map((panel) => (
-          <span
-            className={
-              panel.accountType === profile.accountType ? "segment-active" : ""
-            }
-            key={panel.accountType}
-          >
-            {accountTypeLabels[panel.accountType]}
-          </span>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function WorkspaceIntro({ accountType }: { accountType: AccountType }) {
-  const copy = roleWorkspaceCopy[accountType];
-
-  return (
-    <section className="workspace-intro">
-      <div>
-        <p className="eyebrow">{copy.eyebrow}</p>
-        <h2>{copy.title}</h2>
-        <p>{copy.lead}</p>
-      </div>
-      <div className="data-boundary">
-        <span>данные</span>
-        <strong>{copy.boundaryValue}</strong>
-      </div>
-    </section>
-  );
-}
-
 function RoleWorkspace({
   profile,
-  visibleStatusPanels,
   dataEntryStatus,
   isDataEntrySubmitting,
   onDataEntrySubmit,
   ownerTab,
   dispatcherFeed,
-  onOwnerTabChange,
-  onRefreshDispatcherFeed,
+  dispatcherForms,
+  dispatcherFeedFilters,
+  onDispatcherFeedFiltersChange,
+  onDataEntryStatusReset,
 }: {
   profile: ServerUserProfile;
-  visibleStatusPanels: StatusPanel[];
   dataEntryStatus: string;
   isDataEntrySubmitting: boolean;
   onDataEntrySubmit: (event: FormEvent<HTMLFormElement>) => void;
   ownerTab: OwnerTab;
   dispatcherFeed: DispatcherFeedLoadState;
-  onOwnerTabChange: (tab: OwnerTab) => void;
-  onRefreshDispatcherFeed: () => void;
+  dispatcherForms: DispatcherFormsLoadState;
+  dispatcherFeedFilters: DispatcherFeedFilterState;
+  onDispatcherFeedFiltersChange: (
+    patch: Partial<DispatcherFeedFilterState>,
+  ) => void;
+  onDataEntryStatusReset: () => void;
 }) {
   switch (profile.accountType) {
     case "admin":
-      return (
-        <AdminWorkspace
-          visibleStatusPanels={visibleStatusPanels}
-          profile={profile}
-        />
-      );
+      return <AdminWorkspace profile={profile} />;
     case "business_owner":
       return (
         <OwnerWorkspace
-          visibleStatusPanels={visibleStatusPanels}
           activeTab={ownerTab}
           dispatcherFeed={dispatcherFeed}
-          onTabChange={onOwnerTabChange}
-          onRefreshDispatcherFeed={onRefreshDispatcherFeed}
+          dispatcherForms={dispatcherForms}
+          dispatcherFeedFilters={dispatcherFeedFilters}
+          onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
         />
       );
     case "worker":
       return (
         <DataEntryWorkspace
-          title="Отправка данных"
-          meta="server write"
+          ariaLabel="Отправка данных"
           status={dataEntryStatus}
           isSubmitting={isDataEntrySubmitting}
           onSubmit={onDataEntrySubmit}
+          dispatcherForms={dispatcherForms}
+          onResetStatus={onDataEntryStatusReset}
         />
       );
     case "dispatcher":
       return (
         <DataEntryWorkspace
-          title="Диспетчерская отправка"
-          meta="remote DB"
+          ariaLabel="Диспетчерская отправка"
           status={dataEntryStatus}
           isSubmitting={isDataEntrySubmitting}
           onSubmit={onDataEntrySubmit}
+          dispatcherForms={dispatcherForms}
+          onResetStatus={onDataEntryStatusReset}
         />
       );
   }
 }
 
 function OwnerWorkspace({
-  visibleStatusPanels,
   activeTab,
   dispatcherFeed,
-  onTabChange,
-  onRefreshDispatcherFeed,
+  dispatcherForms,
+  dispatcherFeedFilters,
+  onDispatcherFeedFiltersChange,
 }: {
-  visibleStatusPanels: StatusPanel[];
   activeTab: OwnerTab;
   dispatcherFeed: DispatcherFeedLoadState;
-  onTabChange: (tab: OwnerTab) => void;
-  onRefreshDispatcherFeed: () => void;
+  dispatcherForms: DispatcherFormsLoadState;
+  dispatcherFeedFilters: DispatcherFeedFilterState;
+  onDispatcherFeedFiltersChange: (
+    patch: Partial<DispatcherFeedFilterState>,
+  ) => void;
 }) {
-  return (
-    <>
-      <StatusGrid visibleStatusPanels={visibleStatusPanels} />
-      <section className="owner-tabs" aria-label="Вкладки владельца">
-        <button
-          className={activeTab === "overview" ? "owner-tab-active" : ""}
-          type="button"
-          onClick={() => onTabChange("overview")}
-        >
-          Обзор
-        </button>
-        <button
-          className={activeTab === "dispatcher" ? "owner-tab-active" : ""}
-          type="button"
-          onClick={() => onTabChange("dispatcher")}
-        >
-          Диспетчерская
-        </button>
-      </section>
-      {activeTab === "overview" ? (
-        <OwnerOverviewBoard />
-      ) : (
-        <DispatcherFeedPanel
-          dispatcherFeed={dispatcherFeed}
-          onRefresh={onRefreshDispatcherFeed}
-        />
-      )}
-    </>
-  );
-}
+  if (activeTab === "overview") {
+    return <section className="owner-empty-view" aria-label="Обзор" />;
+  }
 
-function OwnerOverviewBoard() {
   return (
-    <section className="owner-board" aria-label="Панель владельца">
-      <article className="queue-panel">
-        <PanelHeading
-          label="очередь"
-          title="Подтверждения и формы"
-          meta="server response"
-        />
-        <div className="placeholder-table" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-        <p>
-          Реальные строки очереди появятся только после серверного ответа с
-          разрешёнными действиями.
-        </p>
-      </article>
-      <article className="analytics-panel">
-        <PanelHeading label="kpi" title="Аналитика" meta="empty state" />
-        <div className="chart-placeholder" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
-        <p>
-          Графики и показатели не рассчитываются на клиенте и ждут
-          backend-агрегаты.
-        </p>
-      </article>
-    </section>
+    <DispatcherFeedPanel
+      dispatcherFeed={dispatcherFeed}
+      dispatcherForms={dispatcherForms}
+      filters={dispatcherFeedFilters}
+      onFiltersChange={onDispatcherFeedFiltersChange}
+    />
   );
 }
 
 function DataEntryWorkspace({
-  title,
-  meta,
+  ariaLabel,
   status,
   isSubmitting,
   onSubmit,
+  dispatcherForms,
+  onResetStatus,
 }: {
-  title: string;
-  meta: string;
+  ariaLabel: string;
   status: string;
   isSubmitting: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  dispatcherForms: DispatcherFormsLoadState;
+  onResetStatus: () => void;
 }) {
-  return (
-    <section className="worker-workspace" aria-label="Рабочая форма">
-      <article className="data-entry-panel">
-        <PanelHeading label="форма" title={title} meta={meta} />
-        <form className="data-entry-form" onSubmit={onSubmit}>
-          <label>
-            <span>Период</span>
-            <input name="period" type="month" />
-          </label>
-          <label>
-            <span>Код показателя</span>
-            <input
-              name="metricCode"
-              placeholder="Проверяется удалённым сервером"
-            />
-          </label>
-          <label>
-            <span>Значение</span>
-            <input
-              name="rawValue"
-              inputMode="decimal"
-              placeholder="Будет сохранено сервером при подключённой БД"
-            />
-          </label>
-          <label>
-            <span>Комментарий</span>
-            <textarea
-              name="comment"
-              rows={5}
-              placeholder="Не сохраняется до подключения backend"
-            />
-          </label>
-          <div className="form-actions">
+  const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
+  const [selectedFormId, setSelectedFormId] = useState("");
+  const currentForm = forms.find((form) => form.id === selectedFormId);
+  const isLocalTestMode =
+    dispatcherForms.status === "ready" && dispatcherForms.source === "local_test";
+  const formsStatusMessage =
+    dispatcherForms.status === "ready"
+      ? "Сервер не вернул диспетчерские формы."
+      : dispatcherForms.message;
+  const localTestModeMessage =
+    "Локальный тестовый режим: сервер не найден, формы и отправки сохраняются в этом браузере.";
+
+  useEffect(() => {
+    if (
+      selectedFormId.length > 0 &&
+      !forms.some((form) => form.id === selectedFormId)
+    ) {
+      setSelectedFormId("");
+    }
+  }, [forms, selectedFormId]);
+
+  if (dispatcherForms.status !== "ready" || forms.length === 0) {
+    return (
+      <section className="data-entry-surface" aria-label={ariaLabel}>
+        <p className="form-status">{formsStatusMessage}</p>
+      </section>
+    );
+  }
+
+  if (currentForm === undefined) {
+    return (
+      <section className="data-entry-surface" aria-label={ariaLabel}>
+        {isLocalTestMode ? (
+          <p className="form-status form-status-local">{localTestModeMessage}</p>
+        ) : null}
+        <div className="dispatcher-form-choice" aria-label="Выбор формы">
+          {forms.map((form) => (
             <button
-              className="primary-button"
-              type="submit"
-              disabled={isSubmitting}
+              className="dispatcher-form-choice-button"
+              type="button"
+              key={form.id}
+              onClick={() => {
+                onResetStatus();
+                setSelectedFormId(form.id);
+              }}
             >
-              {isSubmitting ? "Отправка..." : "Отправить на сервер"}
+              <span>{form.title}</span>
             </button>
-            <p>{status}</p>
-          </div>
-        </form>
-      </article>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="data-entry-surface" aria-label={ariaLabel}>
+      <form className="data-entry-form" onSubmit={onSubmit}>
+        <input name="formId" type="hidden" value={currentForm.id} readOnly />
+        {isLocalTestMode ? (
+          <p className="form-status form-status-local">{localTestModeMessage}</p>
+        ) : null}
+        <div className="dispatcher-form-toolbar">
+          <strong>{currentForm.title}</strong>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => {
+              onResetStatus();
+              setSelectedFormId("");
+            }}
+          >
+            К выбору формы
+          </button>
+        </div>
+        <div className="dispatcher-form-fields">
+          {currentForm.fields.map((field) => (
+            <DispatcherFormFieldInput field={field} key={field.name} />
+          ))}
+        </div>
+        <div className="form-actions">
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Отправка..." : "Отправить на сервер"}
+          </button>
+          {status.length > 0 ? <p className="form-status">{status}</p> : null}
+        </div>
+      </form>
     </section>
+  );
+}
+
+function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
+  if (field.type === "textarea") {
+    return (
+      <label>
+        <span>{field.label}</span>
+        <textarea
+          name={field.name}
+          rows={4}
+          required={field.required}
+          maxLength={readInputMaxLength(field)}
+        />
+      </label>
+    );
+  }
+
+  if (field.type === "select") {
+    return (
+      <label>
+        <span>{field.label}</span>
+        <select name={field.name} required={field.required} defaultValue="">
+          <option value="">Не выбрано</option>
+          {(field.options ?? []).map((option) => (
+            <option value={option} key={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (field.type === "month") {
+    return <DispatcherMonthFieldInput field={field} />;
+  }
+
+  return (
+    <label>
+      <span>{field.label}</span>
+      <input
+        name={field.name}
+        type={readInputType(field)}
+        inputMode={readInputMode(field)}
+        pattern={readInputPattern(field)}
+        placeholder={readInputPlaceholder(field)}
+        maxLength={readInputMaxLength(field)}
+        required={field.required}
+        defaultValue={readInputDefaultValue(field)}
+      />
+    </label>
+  );
+}
+
+function DispatcherMonthFieldInput({ field }: { field: DispatcherFormField }) {
+  const [displayValue, setDisplayValue] = useState(() =>
+    formatCanonicalMonthForDisplay(getCurrentMonthValue()) ?? "",
+  );
+  const normalizedValue = normalizeMonthValue(displayValue);
+  const canonicalValue = isCanonicalMonthValue(normalizedValue)
+    ? normalizedValue
+    : "";
+
+  function handleDisplayChange(value: string) {
+    setDisplayValue(formatMonthDisplayInput(value));
+  }
+
+  function handleDisplayBlur() {
+    const formatted = formatCanonicalMonthForDisplay(normalizedValue);
+
+    if (formatted !== undefined) {
+      setDisplayValue(formatted);
+    }
+  }
+
+  function handleMonthStep(offset: number) {
+    const baseValue =
+      canonicalValue.length > 0 ? canonicalValue : getCurrentMonthValue();
+
+    setDisplayValue(
+      formatCanonicalMonthForDisplay(shiftMonthValue(baseValue, offset)) ?? "",
+    );
+  }
+
+  return (
+    <label className="month-input-label">
+      <span>{field.label}</span>
+      <input name={field.name} type="hidden" value={canonicalValue} readOnly />
+      <div className="month-input-control">
+        <button
+          className="month-step-button"
+          type="button"
+          aria-label="Предыдущий месяц"
+          title="Предыдущий месяц"
+          onClick={() => handleMonthStep(-1)}
+        >
+          {"<"}
+        </button>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern={monthDisplayInputPattern}
+          title={monthDisplayInputTitle}
+          placeholder="06.2026"
+          maxLength={7}
+          required={field.required}
+          value={displayValue}
+          onBlur={handleDisplayBlur}
+          onChange={(event) => handleDisplayChange(event.currentTarget.value)}
+        />
+        <button
+          className="month-step-button"
+          type="button"
+          aria-label="Следующий месяц"
+          title="Следующий месяц"
+          onClick={() => handleMonthStep(1)}
+        >
+          {">"}
+        </button>
+      </div>
+    </label>
   );
 }
 
 function DispatcherFeedPanel({
   dispatcherFeed,
-  onRefresh,
+  dispatcherForms,
+  filters,
+  onFiltersChange,
 }: {
   dispatcherFeed: DispatcherFeedLoadState;
-  onRefresh: () => void;
+  dispatcherForms: DispatcherFormsLoadState;
+  filters: DispatcherFeedFilterState;
+  onFiltersChange: (patch: Partial<DispatcherFeedFilterState>) => void;
 }) {
+  const submissions =
+    dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [];
+  const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
+  const summary =
+    dispatcherFeed.status === "ready" ? dispatcherFeed.summary : undefined;
+  const hasDateFilters =
+    filters.dateFrom.length > 0 || filters.dateTo.length > 0;
+  const isLocalTestMode =
+    dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
+
   return (
-    <section className="dispatcher-feed-panel" aria-label="Диспетчерская">
-      <PanelHeading
-        label="live"
-        title="Диспетчерская"
-        meta={dispatcherFeed.status === "ready" ? "remote DB" : "server state"}
-      />
-      <div className={`feed-state feed-state-${dispatcherFeed.status}`}>
-        <strong>{dispatcherFeedTitle(dispatcherFeed)}</strong>
-        <p>{dispatcherFeedMessage(dispatcherFeed)}</p>
-        <button className="retry-button" type="button" onClick={onRefresh}>
-          Обновить
+    <section className="dispatcher-live-column" aria-label="Диспетчерская">
+      <div className="dispatcher-feed-controls">
+        <label>
+          <span>Форма</span>
+          <select
+            value={filters.formId}
+            onChange={(event) =>
+              onFiltersChange({
+                formId: event.currentTarget.value as DispatcherFormId | "",
+              })
+            }
+            disabled={forms.length === 0}
+          >
+            <option value="">Все формы</option>
+            {forms.map((form) => (
+              <option value={form.id} key={form.id}>
+                {form.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>С даты</span>
+          <input
+            type="date"
+            value={filters.dateFrom}
+            onChange={(event) =>
+              onFiltersChange({ dateFrom: event.currentTarget.value })
+            }
+          />
+        </label>
+        <label>
+          <span>По дату</span>
+          <input
+            type="date"
+            value={filters.dateTo}
+            onChange={(event) =>
+              onFiltersChange({ dateTo: event.currentTarget.value })
+            }
+          />
+        </label>
+        <button
+          className="secondary-button dispatcher-clear-dates-button"
+          type="button"
+          disabled={!hasDateFilters}
+          onClick={() => onFiltersChange({ dateFrom: "", dateTo: "" })}
+        >
+          Очистить даты
         </button>
       </div>
-      {dispatcherFeed.status === "ready" &&
-      dispatcherFeed.submissions.length > 0 ? (
+      {summary === undefined ? null : (
+        <div className="dispatcher-summary-strip" aria-label="Сводка регистраций">
+          <span>Всего: {summary.total}</span>
+          {summary.byForm.map((item) => (
+            <span key={item.formId}>
+              {item.formTitle}: {item.count}
+            </span>
+          ))}
+        </div>
+      )}
+      {dispatcherForms.status === "error" ? (
+        <p className="dispatcher-status-line">{dispatcherForms.message}</p>
+      ) : null}
+      {isLocalTestMode ? (
+        <p className="dispatcher-status-line dispatcher-status-line-local">
+          Локальный тестовый режим: история читается из localStorage этого
+          браузера.
+        </p>
+      ) : null}
+      {dispatcherFeed.status === "error" ? (
+        <p className="dispatcher-status-line">{dispatcherFeed.message}</p>
+      ) : null}
+      {submissions.length > 0 ? (
         <div className="dispatcher-feed-table" role="table">
           <div className="dispatcher-feed-row dispatcher-feed-head" role="row">
             <span role="columnheader">Время</span>
-            <span role="columnheader">Период</span>
-            <span role="columnheader">Показатель</span>
-            <span role="columnheader">Значение</span>
+            <span role="columnheader">Форма</span>
+            <span role="columnheader">Регистрация</span>
+            <span role="columnheader">Данные</span>
             <span role="columnheader">Статус</span>
           </div>
-          {dispatcherFeed.submissions.map((submission) => (
+          {submissions.map((submission) => (
             <DispatcherFeedRow
               submission={submission}
+              forms={forms}
               key={submission.id}
             />
           ))}
@@ -760,189 +996,32 @@ function DispatcherFeedPanel({
 
 function DispatcherFeedRow({
   submission,
+  forms,
 }: {
   submission: DispatcherSubmission;
+  forms: DispatcherFormDefinition[];
 }) {
   return (
     <div className="dispatcher-feed-row" role="row">
-      <span role="cell">{submission.receivedAt}</span>
-      <span role="cell">{submission.period}</span>
-      <span role="cell">{submission.metricCode}</span>
-      <span role="cell">{submission.rawValue}</span>
+      <span role="cell">{formatDateTime(submission.receivedAt)}</span>
+      <span role="cell">{submission.formTitle}</span>
+      <span role="cell">{submission.summary}</span>
+      <span role="cell">{formatDispatcherPayload(submission, forms)}</span>
       <span role="cell">{submission.status}</span>
     </div>
   );
 }
 
-function AdminWorkspace({
-  visibleStatusPanels,
-  profile,
-}: {
-  visibleStatusPanels: StatusPanel[];
-  profile: ServerUserProfile;
-}) {
+function AdminWorkspace({ profile }: { profile: ServerUserProfile }) {
   return (
-    <>
-      <StatusGrid visibleStatusPanels={visibleStatusPanels} />
-      <section className="account-grid" aria-label="Рабочие области аккаунтов">
-        {accountShellPanels.map((panel) => (
-          <AccountPanel panel={panel} key={panel.accountType} />
-        ))}
-      </section>
-      <section className="admin-board" aria-label="Административные функции">
-        <article className="admin-tool-panel">
-          <PanelHeading label="логи" title="Серверные события" meta="dev" />
-          <div className="placeholder-table" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-          <p>
-            Логи должны приходить с сервера по отдельному endpoint и не
-            заменяются клиентскими сообщениями.
-          </p>
-        </article>
-        <article className="admin-tool-panel">
-          <PanelHeading label="debug" title="Отладочные функции" meta="admin" />
-          <ul className="capability-list">
-            {profile.activeAccess.capabilities.map((capability) => (
-              <li key={capability}>{capability}</li>
-            ))}
-          </ul>
-        </article>
-      </section>
-    </>
-  );
-}
-
-function StatusGrid({
-  visibleStatusPanels,
-}: {
-  visibleStatusPanels: StatusPanel[];
-}) {
-  return (
-    <section className="status-grid" aria-label="Панели статуса">
-      {visibleStatusPanels.map((panel) => (
-        <article
-          className={`status-card status-card-${panel.state}`}
-          key={panel.label}
-        >
-          <span>{stateLabel(panel.state)}</span>
-          <strong>{panel.label}</strong>
-          <p>{panel.detail}</p>
-        </article>
+    <section className="admin-data-table" aria-label="Серверные права">
+      {profile.activeAccess.capabilities.map((capability) => (
+        <div className="admin-data-row" key={capability}>
+          <span>{capability}</span>
+        </div>
       ))}
     </section>
   );
-}
-
-function buildProfileStatusPanel(profile: AccessProfileLoadState): StatusPanel {
-  switch (profile.status) {
-    case "loading":
-      return {
-        label: "Профиль доступа",
-        state: "loading",
-        detail: profile.message,
-      };
-    case "ready":
-      return {
-        label: "Профиль доступа",
-        state: "ready",
-        detail: "Ответ принят через client fetch-boundary.",
-      };
-    case "empty":
-      return {
-        label: "Профиль доступа",
-        state: "empty",
-        detail: profile.message,
-      };
-    case "error":
-      return {
-        label: "Профиль доступа",
-        state: "error",
-        detail: profile.message,
-      };
-  }
-}
-
-function buildRemoteServerStatusPanel(): StatusPanel {
-  const remoteServer = getRemoteServerConnection();
-
-  if (remoteServer.status === "configured") {
-    return {
-      label: "Удалённая БД",
-      state: "ready",
-      detail:
-        remoteServer.warning ??
-        "Remote API URL настроен. Доступность проверяется запросом к API.",
-    };
-  }
-
-  return {
-    label: "Удалённая БД",
-    state: "error",
-    detail: remoteServer.message,
-  };
-}
-
-function buildServerSummary(profile: AccessProfileLoadState) {
-  switch (profile.status) {
-    case "loading":
-      return {
-        title: shellCopy.accessProfileLoading,
-        detail: profile.message,
-      };
-    case "ready":
-      return {
-        title: shellCopy.accessProfileReady,
-        detail:
-          "Клиент отображает только разрешённые сервером поля и не сохраняет их как источник истины.",
-      };
-    case "empty":
-      return {
-        title: shellCopy.accessProfileEmpty,
-        detail: profile.message,
-      };
-    case "error":
-      return {
-        title: shellCopy.accessProfileError,
-        detail: profile.message,
-      };
-  }
-}
-
-function buildAccountSelectorValue(profile: ServerUserProfile) {
-  const businessCount = profile.businessAccounts.length;
-
-  if (businessCount === 0) {
-    return shellCopy.accountSelectorEmpty;
-  }
-
-  return `Получено с сервера: ${businessCount}`;
-}
-
-function dispatcherFeedTitle(feed: DispatcherFeedLoadState) {
-  switch (feed.status) {
-    case "loading":
-      return "Запрос live-истории";
-    case "ready":
-      return feed.submissions.length === 0
-        ? "Сервер вернул пустую историю"
-        : `Записей с сервера: ${feed.submissions.length}`;
-    case "error":
-      return "Диспетчерская недоступна";
-  }
-}
-
-function dispatcherFeedMessage(feed: DispatcherFeedLoadState) {
-  switch (feed.status) {
-    case "loading":
-      return feed.message;
-    case "ready":
-      return `Последнее обновление remote feed: ${feed.receivedAt}.`;
-    case "error":
-      return feed.message;
-  }
 }
 
 function hasCapability(
@@ -962,56 +1041,288 @@ function getActiveBusinessAccountId(profile: ServerUserProfile) {
   return profile.businessAccounts[0]?.id ?? "";
 }
 
+function readDispatcherSubmissionPayload(
+  formData: FormData,
+  formDefinition: DispatcherFormDefinition,
+): DispatcherSubmissionPayload {
+  const payload: DispatcherSubmissionPayload = {};
+
+  for (const field of formDefinition.fields) {
+    const value = readOptionalFormValue(formData.get(field.name));
+    const normalizedValue =
+      value === undefined ? undefined : normalizeFormValue(value, field);
+
+    if (normalizedValue !== undefined) {
+      payload[field.name] = normalizedValue;
+    }
+  }
+
+  return payload;
+}
+
+function resetDispatcherForm(
+  form: HTMLFormElement,
+  formId: DispatcherFormId,
+) {
+  form.reset();
+
+  const formIdControl = form.elements.namedItem("formId");
+
+  if (formIdControl instanceof HTMLSelectElement) {
+    formIdControl.value = formId;
+  }
+}
+
+function readSubmissionSuccessMessage(result: {
+  submission: DispatcherSubmission;
+  source?: "remote" | "local_test";
+}) {
+  if (result.source === "local_test") {
+    return `Сервер не найден. Отправка ${result.submission.id} сохранена локально для тестов в этом браузере.`;
+  }
+
+  return `Сервер принял отправку ${result.submission.id}. История обновится у владельца через remote feed.`;
+}
+
+function readInputType(field: DispatcherFormField) {
+  if (field.type === "number") {
+    return "text";
+  }
+
+  if (
+    field.type === "date" ||
+    field.type === "month" ||
+    field.type === "datetime-local"
+  ) {
+    return field.type;
+  }
+
+  return "text";
+}
+
+function readInputMode(field: DispatcherFormField) {
+  if (field.type === "number") {
+    return "decimal";
+  }
+
+  if (field.type === "month") {
+    return "numeric";
+  }
+
+  return undefined;
+}
+
+function readInputPattern(field: DispatcherFormField) {
+  if (field.type === "number") {
+    return "-?[0-9]+([,.][0-9]+)?";
+  }
+
+  if (field.type === "month") {
+    return "\\d{4}-\\d{1,2}|\\d{1,2}[./-]\\d{4}|\\d{4}[./]\\d{1,2}";
+  }
+
+  return undefined;
+}
+
+function readInputPlaceholder(field: DispatcherFormField) {
+  if (field.type === "month") {
+    return "2026-06";
+  }
+
+  if (field.type === "number") {
+    return "0";
+  }
+
+  return undefined;
+}
+
+function readInputMaxLength(field: DispatcherFormField) {
+  if (field.maxLength !== undefined) {
+    return field.maxLength;
+  }
+
+  if (field.type === "text") {
+    return 240;
+  }
+
+  if (field.type === "number") {
+    return 32;
+  }
+
+  if (field.type === "month") {
+    return 10;
+  }
+
+  return undefined;
+}
+
+function readInputDefaultValue(field: DispatcherFormField) {
+  if (field.type === "date") {
+    return getTodayDateValue();
+  }
+
+  if (field.type === "datetime-local") {
+    return getCurrentDateTimeLocalValue();
+  }
+
+  return undefined;
+}
+
+function normalizeFormValue(value: string, field: DispatcherFormField) {
+  if (field.type === "month") {
+    return normalizeMonthValue(value);
+  }
+
+  return value;
+}
+
+function normalizeMonthValue(value: string) {
+  const trimmed = value.trim();
+  const isoDateMatch = /^(\d{4})-(\d{1,2})-\d{1,2}$/.exec(trimmed);
+  const isoMonthMatch = /^(\d{4})-(\d{1,2})$/.exec(trimmed);
+  const monthYearMatch = /^(\d{1,2})[./-](\d{4})$/.exec(trimmed);
+  const yearMonthMatch = /^(\d{4})[./](\d{1,2})$/.exec(trimmed);
+  const match = isoDateMatch ?? isoMonthMatch ?? monthYearMatch ?? yearMonthMatch;
+
+  if (match === null) {
+    return trimmed;
+  }
+
+  const year =
+    match === monthYearMatch ? readMonthYearYear(match[2]) : readMonthYearYear(match[1]);
+  const month =
+    match === monthYearMatch ? readMonthYearMonth(match[1]) : readMonthYearMonth(match[2]);
+
+  if (year === undefined || month === undefined) {
+    return trimmed;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function formatMonthDisplayInput(value: string) {
+  const normalized = normalizeMonthValue(value);
+
+  if (isCanonicalMonthValue(normalized)) {
+    return formatCanonicalMonthForDisplay(normalized) ?? value;
+  }
+
+  const digits = value.replace(/\D/g, "").slice(0, 6);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+}
+
+function formatCanonicalMonthForDisplay(value: string) {
+  if (!isCanonicalMonthValue(value)) {
+    return undefined;
+  }
+
+  return `${value.slice(5, 7)}.${value.slice(0, 4)}`;
+}
+
+function shiftMonthValue(value: string, offset: number) {
+  const year = Number(value.slice(0, 4));
+  const monthIndex = Number(value.slice(5, 7)) - 1;
+  const date = new Date(year, monthIndex + offset, 1);
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getCurrentMonthValue() {
+  const date = new Date();
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function isCanonicalMonthValue(value: string) {
+  return /^\d{4}-\d{2}$/.test(value);
+}
+
+function getTodayDateValue() {
+  const date = new Date();
+
+  return formatDateInputValue(date);
+}
+
+function getCurrentDateTimeLocalValue() {
+  const date = new Date();
+
+  return `${formatDateInputValue(date)}T${formatTimeInputValue(date)}`;
+}
+
+function formatDateInputValue(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function formatTimeInputValue(date: Date) {
+  return [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+  ].join(":");
+}
+
+function readMonthYearYear(value: string | undefined) {
+  return value !== undefined && /^\d{4}$/.test(value) ? value : undefined;
+}
+
+function readMonthYearMonth(value: string | undefined) {
+  if (value === undefined || !/^\d{1,2}$/.test(value)) {
+    return undefined;
+  }
+
+  const month = Number(value);
+
+  return month >= 1 && month <= 12 ? month : undefined;
+}
+
+function formatDispatcherPayload(
+  submission: DispatcherSubmission,
+  forms: DispatcherFormDefinition[],
+) {
+  const form = forms.find((item) => item.id === submission.formId);
+
+  if (form === undefined) {
+    return Object.entries(submission.payload)
+      .map(([name, value]) => `${name}: ${value}`)
+      .join(" · ");
+  }
+
+  return form.fields
+    .map((field) => {
+      const value = submission.payload[field.name];
+
+      return value === undefined ? undefined : `${field.label}: ${value}`;
+    })
+    .filter((value): value is string => value !== undefined)
+    .join(" · ");
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function readOptionalFormValue(value: FormDataEntryValue | null) {
   const text = typeof value === "string" ? value.trim() : "";
 
   return text.length > 0 ? text : undefined;
-}
-
-function StatusPill({ panel }: { panel: StatusPanel }) {
-  return (
-    <span className={`status-pill status-pill-${panel.state}`}>
-      {stateLabel(panel.state)}
-    </span>
-  );
-}
-
-function AccountPanel({ panel }: { panel: AccountShellPanel }) {
-  return (
-    <article className={`account-panel account-${panel.accountType}`}>
-      <div className="account-head">
-        <div>
-          <span>{panel.scope}</span>
-          <strong>{panel.label}</strong>
-        </div>
-        <b>{panel.serverDependency}</b>
-      </div>
-      <p>{panel.emptyState}</p>
-      <ul>
-        {panel.availableAfterServer.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </article>
-  );
-}
-
-function PanelHeading({
-  label,
-  title,
-  meta,
-}: {
-  label: string;
-  title: string;
-  meta: string;
-}) {
-  return (
-    <div className="panel-heading">
-      <div>
-        <span>{label}</span>
-        <strong>{title}</strong>
-      </div>
-      <b>{meta}</b>
-    </div>
-  );
 }

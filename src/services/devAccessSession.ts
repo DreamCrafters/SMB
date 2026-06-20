@@ -7,6 +7,10 @@ import {
   clearStoredDevAccessSessionId,
   storeDevAccessSessionId,
 } from "./devAccessSessionStorage.js";
+import {
+  clearLocalDevAccessSession,
+  createLocalDevAccessSession,
+} from "./localDevAccess.js";
 import { resolveApiEndpoint } from "./remoteServer.js";
 
 export const DEV_ACCESS_SESSION_ENDPOINT = "/api/dev/access-session";
@@ -29,32 +33,77 @@ export type DevAccessSessionResult =
 
 type RequestDevAccessSessionOptions = {
   endpoint?: string;
+  remoteBaseUrl?: string;
+  localDevFallback?: boolean;
   signal?: AbortSignal;
+};
+
+type ClientLocalDevSessionFallback = {
+  enabled: boolean;
 };
 
 export async function selectDevAccessSession(
   accountType: AccountType,
   {
     endpoint,
+    remoteBaseUrl,
+    localDevFallback,
     signal,
   }: RequestDevAccessSessionOptions = {},
 ): Promise<DevAccessSessionResult> {
+  const requestEndpoint =
+    endpoint ??
+    resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT, DEV_ACCESS_SESSION_ENDPOINT, {
+      baseUrl: remoteBaseUrl,
+    });
+  const shouldUseClientLocalFallback = shouldUseClientLocalDevSessionFallback(
+    localDevFallback,
+    endpoint,
+  );
+
   return requestDevAccessSession(
-    endpoint ?? resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT),
+    requestEndpoint,
     "POST",
     signal,
     { accountType },
+    shouldUseLocalDevEndpointFallback(
+      shouldUseClientLocalFallback,
+      requestEndpoint,
+    )
+      ? DEV_ACCESS_SESSION_ENDPOINT
+      : undefined,
+    shouldUseClientLocalFallback ? { enabled: true } : undefined,
   );
 }
 
 export async function clearDevAccessSession({
   endpoint,
+  remoteBaseUrl,
+  localDevFallback,
   signal,
 }: RequestDevAccessSessionOptions = {}): Promise<DevAccessSessionResult> {
+  const requestEndpoint =
+    endpoint ??
+    resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT, DEV_ACCESS_SESSION_ENDPOINT, {
+      baseUrl: remoteBaseUrl,
+    });
+  const shouldUseClientLocalFallback = shouldUseClientLocalDevSessionFallback(
+    localDevFallback,
+    endpoint,
+  );
+
   return requestDevAccessSession(
-    endpoint ?? resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT),
+    requestEndpoint,
     "DELETE",
     signal,
+    undefined,
+    shouldUseLocalDevEndpointFallback(
+      shouldUseClientLocalFallback,
+      requestEndpoint,
+    )
+      ? DEV_ACCESS_SESSION_ENDPOINT
+      : undefined,
+    shouldUseClientLocalFallback ? { enabled: true } : undefined,
   );
 }
 
@@ -63,6 +112,8 @@ async function requestDevAccessSession(
   method: "POST" | "DELETE",
   signal?: AbortSignal,
   body?: unknown,
+  fallbackEndpoint?: string,
+  clientLocalFallback?: ClientLocalDevSessionFallback,
 ): Promise<DevAccessSessionResult> {
   try {
     const response = await fetch(endpoint, {
@@ -84,6 +135,31 @@ async function requestDevAccessSession(
     const payload = await readJson(response);
 
     if (!response.ok) {
+      if (
+        fallbackEndpoint !== undefined &&
+        shouldRetryLocalDevEndpoint(fallbackEndpoint, endpoint, response.status)
+      ) {
+        return requestDevAccessSession(
+          fallbackEndpoint,
+          method,
+          signal,
+          body,
+          undefined,
+          clientLocalFallback,
+        );
+      }
+
+      const clientLocalResult = readClientLocalDevSessionFallback(
+        method,
+        body,
+        clientLocalFallback,
+        response.status,
+      );
+
+      if (clientLocalResult !== undefined) {
+        return clientLocalResult;
+      }
+
       return {
         status: "error",
         message: readErrorMessage(payload, "Сервер отклонил dev-сессию."),
@@ -95,14 +171,38 @@ async function requestDevAccessSession(
     if (isReadyPayload(payload)) {
       if (method === "DELETE") {
         clearStoredDevAccessSessionId();
+        clearLocalDevAccessSession();
       } else {
         storeDevAccessSessionId(payload.sessionId);
+        clearLocalDevAccessSession();
       }
 
       return {
         status: "ready",
         sessionId: payload.sessionId,
       };
+    }
+
+    if (fallbackEndpoint !== undefined && fallbackEndpoint !== endpoint) {
+      return requestDevAccessSession(
+        fallbackEndpoint,
+        method,
+        signal,
+        body,
+        undefined,
+        clientLocalFallback,
+      );
+    }
+
+    const clientLocalResult = readClientLocalDevSessionFallback(
+      method,
+      body,
+      clientLocalFallback,
+      response.status,
+    );
+
+    if (clientLocalResult !== undefined) {
+      return clientLocalResult;
     }
 
     return {
@@ -119,12 +219,140 @@ async function requestDevAccessSession(
       };
     }
 
+    if (fallbackEndpoint !== undefined && fallbackEndpoint !== endpoint) {
+      return requestDevAccessSession(
+        fallbackEndpoint,
+        method,
+        signal,
+        body,
+        undefined,
+        clientLocalFallback,
+      );
+    }
+
+    const clientLocalResult = readClientLocalDevSessionFallback(
+      method,
+      body,
+      clientLocalFallback,
+    );
+
+    if (clientLocalResult !== undefined) {
+      return clientLocalResult;
+    }
+
     return {
       status: "error",
       message: "Не удалось обновить dev-сессию.",
       code: "network_error",
     };
   }
+}
+
+function readClientLocalDevSessionFallback(
+  method: "POST" | "DELETE",
+  body: unknown,
+  clientLocalFallback: ClientLocalDevSessionFallback | undefined,
+  statusCode?: number,
+): DevAccessSessionResult | undefined {
+  if (clientLocalFallback?.enabled !== true) {
+    return undefined;
+  }
+
+  if (
+    statusCode !== undefined &&
+    statusCode !== 404 &&
+    statusCode !== 502 &&
+    statusCode !== 503 &&
+    statusCode !== 504
+  ) {
+    return undefined;
+  }
+
+  clearStoredDevAccessSessionId();
+
+  if (method === "DELETE") {
+    clearLocalDevAccessSession();
+
+    return {
+      status: "ready",
+    };
+  }
+
+  const accountType = readAccountTypeFromRequestBody(body);
+
+  if (accountType === undefined) {
+    return {
+      status: "error",
+      message: "Нельзя создать локальную dev-сессию без типа доступа.",
+      code: "invalid_response",
+    };
+  }
+
+  const sessionId = createLocalDevAccessSession(accountType);
+
+  if (sessionId === undefined) {
+    return {
+      status: "error",
+      message: "Не удалось создать локальную тестовую dev-сессию.",
+      code: "network_error",
+    };
+  }
+
+  return {
+    status: "ready",
+    sessionId,
+  };
+}
+
+function shouldRetryLocalDevEndpoint(
+  fallbackEndpoint: string | undefined,
+  endpoint: string,
+  statusCode: number,
+) {
+  return (
+    fallbackEndpoint !== undefined &&
+    fallbackEndpoint !== endpoint &&
+    (statusCode === 404 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504)
+  );
+}
+
+function shouldUseLocalDevEndpointFallback(
+  shouldUseClientLocalFallback: boolean,
+  requestEndpoint: string,
+) {
+  if (requestEndpoint === DEV_ACCESS_SESSION_ENDPOINT) {
+    return false;
+  }
+
+  return shouldUseClientLocalFallback;
+}
+
+function shouldUseClientLocalDevSessionFallback(
+  localDevFallback: boolean | undefined,
+  endpoint: string | undefined,
+) {
+  if (localDevFallback !== undefined) {
+    return localDevFallback;
+  }
+
+  if (endpoint !== undefined) {
+    return false;
+  }
+
+  const viteEnv = import.meta.env as ImportMetaEnv | undefined;
+
+  return viteEnv?.DEV === true;
+}
+
+function readAccountTypeFromRequestBody(body: unknown): AccountType | undefined {
+  if (!isRecord(body) || !isAccountType(body.accountType)) {
+    return undefined;
+  }
+
+  return body.accountType;
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -179,6 +407,15 @@ function isAccountAccessErrorCode(value: unknown): value is AccountAccessErrorCo
     value === "account_disabled" ||
     value === "business_unavailable" ||
     value === "access_denied"
+  );
+}
+
+function isAccountType(value: unknown): value is AccountType {
+  return (
+    value === "admin" ||
+    value === "business_owner" ||
+    value === "worker" ||
+    value === "dispatcher"
   );
 }
 
