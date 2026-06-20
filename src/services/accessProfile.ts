@@ -7,6 +7,7 @@ import type {
 } from "../contracts";
 import { accountCapabilities } from "../contracts/accounts.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { readLocalDevAccessProfile } from "./localDevAccess.js";
 import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
 
 export const ACCESS_PROFILE_ENDPOINT = "/api/access/profile";
@@ -74,9 +75,15 @@ export async function requestAccessProfile({
       ACCESS_PROFILE_ENDPOINT,
       remoteOptions,
     );
+  const shouldUseClientLocalFallback = shouldUseClientLocalAccessProfileFallback(
+    localDevFallback,
+    endpoint,
+  );
   const fallbackEndpoint =
-    endpoint === undefined &&
-    shouldUseLocalDevEndpointFallback(localDevFallback, requestEndpoint)
+    shouldUseLocalDevEndpointFallback(
+      shouldUseClientLocalFallback,
+      requestEndpoint,
+    )
       ? ACCESS_PROFILE_ENDPOINT
       : undefined;
 
@@ -111,8 +118,18 @@ export async function requestAccessProfile({
       ) {
         return requestAccessProfile({
           endpoint: fallbackEndpoint,
+          localDevFallback,
           signal,
         });
+      }
+
+      const clientLocalResult = readClientLocalAccessProfileFallback(
+        shouldUseClientLocalFallback,
+        response.status,
+      );
+
+      if (clientLocalResult !== undefined) {
+        return clientLocalResult;
       }
 
       return {
@@ -144,8 +161,17 @@ export async function requestAccessProfile({
     ) {
       return requestAccessProfile({
         endpoint: fallbackEndpoint,
+        localDevFallback,
         signal,
       });
+    }
+
+    const clientLocalResult = readClientLocalAccessProfileFallback(
+      shouldUseClientLocalFallback,
+    );
+
+    if (clientLocalResult !== undefined) {
+      return clientLocalResult;
     }
 
     return {
@@ -168,8 +194,17 @@ export async function requestAccessProfile({
     ) {
       return requestAccessProfile({
         endpoint: fallbackEndpoint,
+        localDevFallback,
         signal,
       });
+    }
+
+    const clientLocalResult = readClientLocalAccessProfileFallback(
+      shouldUseClientLocalFallback,
+    );
+
+    if (clientLocalResult !== undefined) {
+      return clientLocalResult;
     }
 
     return {
@@ -181,6 +216,40 @@ export async function requestAccessProfile({
       code: "network_error",
     };
   }
+}
+
+function readClientLocalAccessProfileFallback(
+  shouldUseClientLocalFallback: boolean,
+  statusCode?: number,
+): AccessProfileResult | undefined {
+  if (!shouldUseClientLocalFallback) {
+    return undefined;
+  }
+
+  if (
+    statusCode !== undefined &&
+    statusCode !== 404 &&
+    statusCode !== 502 &&
+    statusCode !== 503 &&
+    statusCode !== 504
+  ) {
+    return undefined;
+  }
+
+  const profile = readLocalDevAccessProfile();
+
+  if (profile === null) {
+    return {
+      status: "empty",
+      message: "Локальная тестовая dev-сессия не выбрана.",
+      statusCode,
+    };
+  }
+
+  return {
+    status: "ready",
+    profile,
+  };
 }
 
 function shouldRetryLocalDevEndpoint(
@@ -199,15 +268,26 @@ function shouldRetryLocalDevEndpoint(
 }
 
 function shouldUseLocalDevEndpointFallback(
-  localDevFallback: boolean | undefined,
+  shouldUseClientLocalFallback: boolean,
   requestEndpoint: string,
 ) {
   if (requestEndpoint === ACCESS_PROFILE_ENDPOINT) {
     return false;
   }
 
+  return shouldUseClientLocalFallback;
+}
+
+function shouldUseClientLocalAccessProfileFallback(
+  localDevFallback: boolean | undefined,
+  endpoint: string | undefined,
+) {
   if (localDevFallback !== undefined) {
     return localDevFallback;
+  }
+
+  if (endpoint !== undefined) {
+    return false;
   }
 
   const viteEnv = import.meta.env as ImportMetaEnv | undefined;

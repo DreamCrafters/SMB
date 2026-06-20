@@ -17,6 +17,20 @@ test.afterEach(() => {
   globalThis.window = originalWindow;
 });
 
+function createMemoryStorage(initialValues = {}) {
+  const store = new Map(Object.entries(initialValues));
+
+  return {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key) => {
+      store.delete(key);
+    },
+  };
+}
+
 test("selectDevAccessSession posts selected account type to the server", async () => {
   let request;
 
@@ -126,6 +140,39 @@ test("selectDevAccessSession falls back when the remote dev endpoint is missing"
   assert.equal(endpoints[1], "/api/dev/access-session");
 });
 
+test("selectDevAccessSession creates a client-local session when the local dev endpoint is missing", async () => {
+  const storage = createMemoryStorage();
+
+  globalThis.window = {
+    sessionStorage: storage,
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "The page could not be found",
+        },
+      }),
+      {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+  const result = await selectDevAccessSession("dispatcher", {
+    endpoint: "/api/dev/access-session",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.match(result.sessionId, /^local-dispatcher-/);
+  assert.equal(storage.getItem("smb.devAccessSessionId"), null);
+  assert.match(
+    storage.getItem("smb.localDevAccessSession.v1"),
+    /"accountType":"dispatcher"/,
+  );
+});
+
 test("clearDevAccessSession sends and clears stored dev session id", async () => {
   let request;
   let storedSessionId = "dev-session-id";
@@ -157,6 +204,40 @@ test("clearDevAccessSession sends and clears stored dev session id", async () =>
   assert.equal(result.status, "ready");
   assert.equal(request.init.headers["X-SMB-Dev-Session"], "dev-session-id");
   assert.equal(storedSessionId, undefined);
+});
+
+test("clearDevAccessSession clears a client-local session when the local dev endpoint is missing", async () => {
+  const storage = createMemoryStorage({
+    "smb.localDevAccessSession.v1": JSON.stringify({
+      sessionId: "local-dispatcher-session",
+      accountType: "dispatcher",
+      createdAt: "2026-06-20T00:00:00.000Z",
+    }),
+  });
+
+  globalThis.window = {
+    sessionStorage: storage,
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "The page could not be found",
+        },
+      }),
+      {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+  const result = await clearDevAccessSession({
+    endpoint: "/api/dev/access-session",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(storage.getItem("smb.localDevAccessSession.v1"), null);
 });
 
 test("selectDevAccessSession can request dispatcher access", async () => {
