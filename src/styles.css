@@ -483,6 +483,28 @@ p {
   gap: var(--density-3);
 }
 
+.month-input-control {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  gap: var(--density-1);
+}
+
+.month-step-button {
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.month-step-button:hover,
+.month-step-button:focus-visible {
+  border-color: var(--blue-gray);
+  outline: 2px solid var(--blue-gray-soft);
+}
+
 .data-entry-form label span {
   color: var(--muted);
   font-size: 11px;
@@ -570,6 +592,11 @@ p {
   outline: 2px solid var(--blue-gray-soft);
 }
 
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .dispatcher-live-column {
   display: grid;
   align-content: start;
@@ -578,7 +605,7 @@ p {
 
 .dispatcher-feed-controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(150px, 0.5fr));
+  grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(150px, 0.5fr)) max-content;
   gap: var(--density-2);
   align-items: end;
 }
@@ -611,6 +638,11 @@ p {
 .dispatcher-feed-controls select:focus {
   border-color: var(--blue-gray);
   outline: 2px solid var(--blue-gray-soft);
+}
+
+.dispatcher-clear-dates-button {
+  min-height: 38px;
+  white-space: nowrap;
 }
 
 .dispatcher-summary-strip {

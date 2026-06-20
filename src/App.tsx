@@ -93,6 +93,9 @@ const initialDispatcherFeedFilters: DispatcherFeedFilterState = {
   dateTo: "",
 };
 
+const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
+const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
+
 function buildNavigationItems(
   accountType: AccountType,
   ownerTab: OwnerTab,
@@ -734,7 +737,12 @@ function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
     return (
       <label>
         <span>{field.label}</span>
-        <textarea name={field.name} rows={4} required={field.required} />
+        <textarea
+          name={field.name}
+          rows={4}
+          required={field.required}
+          maxLength={readInputMaxLength(field)}
+        />
       </label>
     );
   }
@@ -755,15 +763,93 @@ function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
     );
   }
 
+  if (field.type === "month") {
+    return <DispatcherMonthFieldInput field={field} />;
+  }
+
   return (
     <label>
       <span>{field.label}</span>
       <input
         name={field.name}
         type={readInputType(field)}
-        inputMode={field.type === "number" ? "decimal" : undefined}
+        inputMode={readInputMode(field)}
+        pattern={readInputPattern(field)}
+        placeholder={readInputPlaceholder(field)}
+        maxLength={readInputMaxLength(field)}
         required={field.required}
+        defaultValue={readInputDefaultValue(field)}
       />
+    </label>
+  );
+}
+
+function DispatcherMonthFieldInput({ field }: { field: DispatcherFormField }) {
+  const [displayValue, setDisplayValue] = useState(() =>
+    formatCanonicalMonthForDisplay(getCurrentMonthValue()) ?? "",
+  );
+  const normalizedValue = normalizeMonthValue(displayValue);
+  const canonicalValue = isCanonicalMonthValue(normalizedValue)
+    ? normalizedValue
+    : "";
+
+  function handleDisplayChange(value: string) {
+    setDisplayValue(formatMonthDisplayInput(value));
+  }
+
+  function handleDisplayBlur() {
+    const formatted = formatCanonicalMonthForDisplay(normalizedValue);
+
+    if (formatted !== undefined) {
+      setDisplayValue(formatted);
+    }
+  }
+
+  function handleMonthStep(offset: number) {
+    const baseValue =
+      canonicalValue.length > 0 ? canonicalValue : getCurrentMonthValue();
+
+    setDisplayValue(
+      formatCanonicalMonthForDisplay(shiftMonthValue(baseValue, offset)) ?? "",
+    );
+  }
+
+  return (
+    <label className="month-input-label">
+      <span>{field.label}</span>
+      <input name={field.name} type="hidden" value={canonicalValue} readOnly />
+      <div className="month-input-control">
+        <button
+          className="month-step-button"
+          type="button"
+          aria-label="Предыдущий месяц"
+          title="Предыдущий месяц"
+          onClick={() => handleMonthStep(-1)}
+        >
+          {"<"}
+        </button>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern={monthDisplayInputPattern}
+          title={monthDisplayInputTitle}
+          placeholder="06.2026"
+          maxLength={7}
+          required={field.required}
+          value={displayValue}
+          onBlur={handleDisplayBlur}
+          onChange={(event) => handleDisplayChange(event.currentTarget.value)}
+        />
+        <button
+          className="month-step-button"
+          type="button"
+          aria-label="Следующий месяц"
+          title="Следующий месяц"
+          onClick={() => handleMonthStep(1)}
+        >
+          {">"}
+        </button>
+      </div>
     </label>
   );
 }
@@ -784,6 +870,8 @@ function DispatcherFeedPanel({
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const summary =
     dispatcherFeed.status === "ready" ? dispatcherFeed.summary : undefined;
+  const hasDateFilters =
+    filters.dateFrom.length > 0 || filters.dateTo.length > 0;
 
   return (
     <section className="dispatcher-live-column" aria-label="Диспетчерская">
@@ -827,6 +915,14 @@ function DispatcherFeedPanel({
             }
           />
         </label>
+        <button
+          className="secondary-button dispatcher-clear-dates-button"
+          type="button"
+          disabled={!hasDateFilters}
+          onClick={() => onFiltersChange({ dateFrom: "", dateTo: "" })}
+        >
+          Очистить даты
+        </button>
       </div>
       {summary === undefined ? null : (
         <div className="dispatcher-summary-strip" aria-label="Сводка регистраций">
@@ -921,9 +1017,11 @@ function readDispatcherSubmissionPayload(
 
   for (const field of formDefinition.fields) {
     const value = readOptionalFormValue(formData.get(field.name));
+    const normalizedValue =
+      value === undefined ? undefined : normalizeFormValue(value, field);
 
-    if (value !== undefined) {
-      payload[field.name] = value;
+    if (normalizedValue !== undefined) {
+      payload[field.name] = normalizedValue;
     }
   }
 
@@ -957,6 +1055,189 @@ function readInputType(field: DispatcherFormField) {
   }
 
   return "text";
+}
+
+function readInputMode(field: DispatcherFormField) {
+  if (field.type === "number") {
+    return "decimal";
+  }
+
+  if (field.type === "month") {
+    return "numeric";
+  }
+
+  return undefined;
+}
+
+function readInputPattern(field: DispatcherFormField) {
+  if (field.type === "number") {
+    return "-?[0-9]+([,.][0-9]+)?";
+  }
+
+  if (field.type === "month") {
+    return "\\d{4}-\\d{1,2}|\\d{1,2}[./-]\\d{4}|\\d{4}[./]\\d{1,2}";
+  }
+
+  return undefined;
+}
+
+function readInputPlaceholder(field: DispatcherFormField) {
+  if (field.type === "month") {
+    return "2026-06";
+  }
+
+  if (field.type === "number") {
+    return "0";
+  }
+
+  return undefined;
+}
+
+function readInputMaxLength(field: DispatcherFormField) {
+  if (field.maxLength !== undefined) {
+    return field.maxLength;
+  }
+
+  if (field.type === "text") {
+    return 240;
+  }
+
+  if (field.type === "number") {
+    return 32;
+  }
+
+  if (field.type === "month") {
+    return 10;
+  }
+
+  return undefined;
+}
+
+function readInputDefaultValue(field: DispatcherFormField) {
+  if (field.type === "date") {
+    return getTodayDateValue();
+  }
+
+  if (field.type === "datetime-local") {
+    return getCurrentDateTimeLocalValue();
+  }
+
+  return undefined;
+}
+
+function normalizeFormValue(value: string, field: DispatcherFormField) {
+  if (field.type === "month") {
+    return normalizeMonthValue(value);
+  }
+
+  return value;
+}
+
+function normalizeMonthValue(value: string) {
+  const trimmed = value.trim();
+  const isoDateMatch = /^(\d{4})-(\d{1,2})-\d{1,2}$/.exec(trimmed);
+  const isoMonthMatch = /^(\d{4})-(\d{1,2})$/.exec(trimmed);
+  const monthYearMatch = /^(\d{1,2})[./-](\d{4})$/.exec(trimmed);
+  const yearMonthMatch = /^(\d{4})[./](\d{1,2})$/.exec(trimmed);
+  const match = isoDateMatch ?? isoMonthMatch ?? monthYearMatch ?? yearMonthMatch;
+
+  if (match === null) {
+    return trimmed;
+  }
+
+  const year =
+    match === monthYearMatch ? readMonthYearYear(match[2]) : readMonthYearYear(match[1]);
+  const month =
+    match === monthYearMatch ? readMonthYearMonth(match[1]) : readMonthYearMonth(match[2]);
+
+  if (year === undefined || month === undefined) {
+    return trimmed;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function formatMonthDisplayInput(value: string) {
+  const normalized = normalizeMonthValue(value);
+
+  if (isCanonicalMonthValue(normalized)) {
+    return formatCanonicalMonthForDisplay(normalized) ?? value;
+  }
+
+  const digits = value.replace(/\D/g, "").slice(0, 6);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+}
+
+function formatCanonicalMonthForDisplay(value: string) {
+  if (!isCanonicalMonthValue(value)) {
+    return undefined;
+  }
+
+  return `${value.slice(5, 7)}.${value.slice(0, 4)}`;
+}
+
+function shiftMonthValue(value: string, offset: number) {
+  const year = Number(value.slice(0, 4));
+  const monthIndex = Number(value.slice(5, 7)) - 1;
+  const date = new Date(year, monthIndex + offset, 1);
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getCurrentMonthValue() {
+  const date = new Date();
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function isCanonicalMonthValue(value: string) {
+  return /^\d{4}-\d{2}$/.test(value);
+}
+
+function getTodayDateValue() {
+  const date = new Date();
+
+  return formatDateInputValue(date);
+}
+
+function getCurrentDateTimeLocalValue() {
+  const date = new Date();
+
+  return `${formatDateInputValue(date)}T${formatTimeInputValue(date)}`;
+}
+
+function formatDateInputValue(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function formatTimeInputValue(date: Date) {
+  return [
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+  ].join(":");
+}
+
+function readMonthYearYear(value: string | undefined) {
+  return value !== undefined && /^\d{4}$/.test(value) ? value : undefined;
+}
+
+function readMonthYearMonth(value: string | undefined) {
+  if (value === undefined || !/^\d{1,2}$/.test(value)) {
+    return undefined;
+  }
+
+  const month = Number(value);
+
+  return month >= 1 && month <= 12 ? month : undefined;
 }
 
 function formatDispatcherPayload(

@@ -40,6 +40,7 @@ export type DispatcherFormField = {
   type: DispatcherFormFieldType;
   required: boolean;
   options?: string[];
+  maxLength?: number;
 };
 
 export type DispatcherFormDefinition = {

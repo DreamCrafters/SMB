@@ -11,7 +11,7 @@ test("validateDispatcherSubmissionDraft accepts and trims a known form payload",
     formId: "equipment",
     payload: {
       reportDate: " 2026-06-18 ",
-      reportMonth: "2026-06",
+      reportMonth: "06.2026",
       equipment: "Пресс №1",
       productionTons: " 42,5 ",
       note: "",
@@ -42,7 +42,7 @@ test("validateDispatcherSubmissionDraft rejects malformed form payloads", () => 
     formId: "equipment",
     payload: {
       reportDate: "June",
-      reportMonth: "2026/06",
+      reportMonth: "2026/13",
       equipment: "Неизвестное оборудование",
       productionTons: "много",
       extraField: "not allowed",

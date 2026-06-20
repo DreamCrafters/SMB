@@ -210,44 +210,91 @@ function readFieldValue(
     return undefined;
   }
 
+  const normalized = normalizeFieldValue(trimmed, field);
   const maxLength = field.maxLength ?? defaultTextMaxLength;
 
-  if (trimmed.length > maxLength) {
+  if (normalized.length > maxLength) {
     errors.push(`${field.name} must be ${maxLength} characters or less.`);
     return undefined;
   }
 
   if (field.type === "select") {
-    if (field.options === undefined || !field.options.includes(trimmed)) {
+    if (field.options === undefined || !field.options.includes(normalized)) {
       errors.push(`${field.name} must be one of the supported options.`);
       return undefined;
     }
   }
 
-  if (field.type === "date" && !datePattern.test(trimmed)) {
+  if (field.type === "date" && !datePattern.test(normalized)) {
     errors.push(`${field.name} must use YYYY-MM-DD format.`);
     return undefined;
   }
 
-  if (field.type === "month" && !monthPattern.test(trimmed)) {
+  if (field.type === "month" && !monthPattern.test(normalized)) {
     errors.push(`${field.name} must use YYYY-MM format.`);
     return undefined;
   }
 
   if (
     field.type === "datetime-local" &&
-    !dateTimeLocalPattern.test(trimmed)
+    !dateTimeLocalPattern.test(normalized)
   ) {
     errors.push(`${field.name} must use YYYY-MM-DDTHH:mm format.`);
     return undefined;
   }
 
-  if (field.type === "number" && !numberPattern.test(trimmed)) {
+  if (field.type === "number" && !numberPattern.test(normalized)) {
     errors.push(`${field.name} must be a number.`);
     return undefined;
   }
 
-  return trimmed;
+  return normalized;
+}
+
+function normalizeFieldValue(value: string, field: DispatcherFormField) {
+  if (field.type === "month") {
+    return normalizeMonthValue(value);
+  }
+
+  return value;
+}
+
+function normalizeMonthValue(value: string) {
+  const trimmed = value.trim();
+  const isoDateMatch = /^(\d{4})-(\d{1,2})-\d{1,2}$/.exec(trimmed);
+  const isoMonthMatch = /^(\d{4})-(\d{1,2})$/.exec(trimmed);
+  const monthYearMatch = /^(\d{1,2})[./-](\d{4})$/.exec(trimmed);
+  const yearMonthMatch = /^(\d{4})[./](\d{1,2})$/.exec(trimmed);
+  const match = isoDateMatch ?? isoMonthMatch ?? monthYearMatch ?? yearMonthMatch;
+
+  if (match === null) {
+    return trimmed;
+  }
+
+  const year =
+    match === monthYearMatch ? readYear(match[2]) : readYear(match[1]);
+  const month =
+    match === monthYearMatch ? readMonth(match[1]) : readMonth(match[2]);
+
+  if (year === undefined || month === undefined) {
+    return trimmed;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function readYear(value: string | undefined) {
+  return value !== undefined && /^\d{4}$/.test(value) ? value : undefined;
+}
+
+function readMonth(value: string | undefined) {
+  if (value === undefined || !/^\d{1,2}$/.test(value)) {
+    return undefined;
+  }
+
+  const month = Number(value);
+
+  return month >= 1 && month <= 12 ? month : undefined;
 }
 
 function buildDispatcherSubmissionSummary(
