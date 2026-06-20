@@ -96,6 +96,36 @@ test("selectDevAccessSession can fall back to the local dev endpoint", async () 
   assert.equal(endpoints[1], "/api/dev/access-session");
 });
 
+test("selectDevAccessSession falls back when the remote dev endpoint is missing", async () => {
+  const endpoints = [];
+
+  globalThis.fetch = async (endpoint) => {
+    endpoints.push(endpoint);
+
+    if (endpoints.length === 1) {
+      return new Response(JSON.stringify({ error: { message: "Not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ ok: true, sessionId: "local-session" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await selectDevAccessSession("dispatcher", {
+    remoteBaseUrl: "http://127.0.0.1:3000",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.sessionId, "local-session");
+  assert.equal(endpoints[0], "http://127.0.0.1:3000/api/dev/access-session");
+  assert.equal(endpoints[1], "/api/dev/access-session");
+});
+
 test("clearDevAccessSession sends and clears stored dev session id", async () => {
   let request;
   let storedSessionId = "dev-session-id";

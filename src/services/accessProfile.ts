@@ -101,6 +101,20 @@ export async function requestAccessProfile({
     const payload = await readJson(response);
 
     if (!response.ok) {
+      if (
+        fallbackEndpoint !== undefined &&
+        shouldRetryLocalDevEndpoint(
+          fallbackEndpoint,
+          requestEndpoint,
+          response.status,
+        )
+      ) {
+        return requestAccessProfile({
+          endpoint: fallbackEndpoint,
+          signal,
+        });
+      }
+
       return {
         status: "error",
         message: readAccessProfileErrorMessage(payload, response.status),
@@ -122,6 +136,16 @@ export async function requestAccessProfile({
         status: "ready",
         profile: payload.profile,
       };
+    }
+
+    if (
+      fallbackEndpoint !== undefined &&
+      fallbackEndpoint !== requestEndpoint
+    ) {
+      return requestAccessProfile({
+        endpoint: fallbackEndpoint,
+        signal,
+      });
     }
 
     return {
@@ -157,6 +181,21 @@ export async function requestAccessProfile({
       code: "network_error",
     };
   }
+}
+
+function shouldRetryLocalDevEndpoint(
+  fallbackEndpoint: string | undefined,
+  endpoint: string,
+  statusCode: number,
+) {
+  return (
+    fallbackEndpoint !== undefined &&
+    fallbackEndpoint !== endpoint &&
+    (statusCode === 404 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504)
+  );
 }
 
 function shouldUseLocalDevEndpointFallback(

@@ -112,6 +112,18 @@ async function requestDevAccessSession(
     const payload = await readJson(response);
 
     if (!response.ok) {
+      if (
+        fallbackEndpoint !== undefined &&
+        shouldRetryLocalDevEndpoint(fallbackEndpoint, endpoint, response.status)
+      ) {
+        return requestDevAccessSession(
+          fallbackEndpoint,
+          method,
+          signal,
+          body,
+        );
+      }
+
       return {
         status: "error",
         message: readErrorMessage(payload, "Сервер отклонил dev-сессию."),
@@ -131,6 +143,15 @@ async function requestDevAccessSession(
         status: "ready",
         sessionId: payload.sessionId,
       };
+    }
+
+    if (fallbackEndpoint !== undefined && fallbackEndpoint !== endpoint) {
+      return requestDevAccessSession(
+        fallbackEndpoint,
+        method,
+        signal,
+        body,
+      );
     }
 
     return {
@@ -162,6 +183,21 @@ async function requestDevAccessSession(
       code: "network_error",
     };
   }
+}
+
+function shouldRetryLocalDevEndpoint(
+  fallbackEndpoint: string | undefined,
+  endpoint: string,
+  statusCode: number,
+) {
+  return (
+    fallbackEndpoint !== undefined &&
+    fallbackEndpoint !== endpoint &&
+    (statusCode === 404 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504)
+  );
 }
 
 function shouldUseLocalDevEndpointFallback(

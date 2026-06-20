@@ -156,7 +156,10 @@ export default function App() {
       message: "Запрашиваем серверный профиль доступа.",
     });
 
-    requestAccessProfile({ signal: controller.signal }).then((result) => {
+    requestAccessProfile({
+      localDevFallback: true,
+      signal: controller.signal,
+    }).then((result) => {
       if (!controller.signal.aborted) {
         setAccessProfile(result);
       }
@@ -195,6 +198,7 @@ export default function App() {
 
       requestDispatcherFeed({
         signal: currentController.signal,
+        localFallback: true,
         formId: formId === "" ? undefined : formId,
         dateFrom: dateFrom.length > 0 ? dateFrom : undefined,
         dateTo: dateTo.length > 0 ? dateTo : undefined,
@@ -238,7 +242,10 @@ export default function App() {
       message: "Запрашиваем диспетчерские формы с удалённого сервера.",
     });
 
-    requestDispatcherForms({ signal: controller.signal }).then((result) => {
+    requestDispatcherForms({
+      localFallback: true,
+      signal: controller.signal,
+    }).then((result) => {
       if (!controller.signal.aborted) {
         setDispatcherForms(result);
       }
@@ -255,7 +262,9 @@ export default function App() {
       accountType,
     });
 
-    const result = await selectDevAccessSession(accountType);
+    const result = await selectDevAccessSession(accountType, {
+      localDevFallback: true,
+    });
     handleSessionResult(result);
   }
 
@@ -264,7 +273,9 @@ export default function App() {
       status: "loading",
     });
 
-    const result = await clearDevAccessSession();
+    const result = await clearDevAccessSession({
+      localDevFallback: true,
+    });
     handleSessionResult(result);
   }
 
@@ -332,11 +343,16 @@ export default function App() {
     setIsDataEntrySubmitting(true);
     setDataEntryStatus("Отправляем данные на удалённый сервер.");
 
-    const result = await submitDispatcherSubmission({
-      businessAccountId,
-      formId: formDefinition.id,
-      payload: readDispatcherSubmissionPayload(formData, formDefinition),
-    });
+    const result = await submitDispatcherSubmission(
+      {
+        businessAccountId,
+        formId: formDefinition.id,
+        payload: readDispatcherSubmissionPayload(formData, formDefinition),
+      },
+      {
+        localFallback: true,
+      },
+    );
 
     setIsDataEntrySubmitting(false);
 

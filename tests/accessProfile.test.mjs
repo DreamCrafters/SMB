@@ -256,3 +256,32 @@ test("requestAccessProfile can fall back to the local dev endpoint", async () =>
   assert.equal(endpoints[0], "http://127.0.0.1:3000/api/access/profile");
   assert.equal(endpoints[1], "/api/access/profile");
 });
+
+test("requestAccessProfile falls back when the remote profile endpoint is missing", async () => {
+  const endpoints = [];
+
+  globalThis.fetch = async (endpoint) => {
+    endpoints.push(endpoint);
+
+    if (endpoints.length === 1) {
+      return new Response(JSON.stringify({ error: { message: "Not found" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ profile: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await requestAccessProfile({
+    remoteBaseUrl: "http://127.0.0.1:3000",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "empty");
+  assert.equal(endpoints[0], "http://127.0.0.1:3000/api/access/profile");
+  assert.equal(endpoints[1], "/api/access/profile");
+});
