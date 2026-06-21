@@ -64,7 +64,7 @@ export type ValidationResult =
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const monthPattern = /^\d{4}-\d{2}$/;
 const dateTimeLocalPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
-const numberPattern = /^-?\d+(?:[,.]\d+)?$/;
+const numberPattern = /^\d+(?:\.\d+)?$/;
 const defaultTextMaxLength = 240;
 const summaryFallback = "Запись без краткого описания";
 
@@ -256,7 +256,34 @@ function normalizeFieldValue(value: string, field: DispatcherFormField) {
     return normalizeMonthValue(value);
   }
 
+  if (field.type === "number") {
+    return normalizeNumberValue(value);
+  }
+
   return value;
+}
+
+function normalizeNumberValue(value: string) {
+  if (!/\d/.test(value)) {
+    return "";
+  }
+
+  let result = "";
+  let hasDecimalSeparator = false;
+
+  for (const character of value.replace(/,/g, ".")) {
+    if (character >= "0" && character <= "9") {
+      result += character;
+      continue;
+    }
+
+    if (character === "." && !hasDecimalSeparator) {
+      hasDecimalSeparator = true;
+      result += result.length === 0 ? "0." : ".";
+    }
+  }
+
+  return result.endsWith(".") ? result.slice(0, -1) : result;
 }
 
 function normalizeMonthValue(value: string) {

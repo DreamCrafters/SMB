@@ -32,6 +32,12 @@ import {
   type DispatcherFeedResult,
   type DispatcherFormsResult,
 } from "./services/dispatcherSubmissions";
+import {
+  decimalNumberInputPattern,
+  decimalNumberInputTitle,
+  normalizeDecimalNumberForPayload,
+  normalizeDecimalNumberInput,
+} from "./services/dispatcherFormInput";
 
 type OwnerTab = "overview" | "dispatcher";
 
@@ -799,10 +805,24 @@ function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
         type={readInputType(field)}
         inputMode={readInputMode(field)}
         pattern={readInputPattern(field)}
+        title={readInputTitle(field)}
         placeholder={readInputPlaceholder(field)}
         maxLength={readInputMaxLength(field)}
         required={field.required}
         defaultValue={readInputDefaultValue(field)}
+        onChange={(event) => {
+          if (field.type === "number") {
+            event.currentTarget.value = normalizeDecimalNumberInput(
+              event.currentTarget.value,
+            );
+          }
+        }}
+        onBlur={(event) => {
+          if (field.type === "number") {
+            event.currentTarget.value =
+              normalizeDecimalNumberForPayload(event.currentTarget.value) ?? "";
+          }
+        }}
       />
     </label>
   );
@@ -1052,7 +1072,7 @@ function readDispatcherSubmissionPayload(
     const normalizedValue =
       value === undefined ? undefined : normalizeFormValue(value, field);
 
-    if (normalizedValue !== undefined) {
+    if (normalizedValue !== undefined && normalizedValue.length > 0) {
       payload[field.name] = normalizedValue;
     }
   }
@@ -1114,11 +1134,19 @@ function readInputMode(field: DispatcherFormField) {
 
 function readInputPattern(field: DispatcherFormField) {
   if (field.type === "number") {
-    return "-?[0-9]+([,.][0-9]+)?";
+    return decimalNumberInputPattern;
   }
 
   if (field.type === "month") {
     return "\\d{4}-\\d{1,2}|\\d{1,2}[./-]\\d{4}|\\d{4}[./]\\d{1,2}";
+  }
+
+  return undefined;
+}
+
+function readInputTitle(field: DispatcherFormField) {
+  if (field.type === "number") {
+    return decimalNumberInputTitle;
   }
 
   return undefined;
@@ -1171,6 +1199,14 @@ function readInputDefaultValue(field: DispatcherFormField) {
 function normalizeFormValue(value: string, field: DispatcherFormField) {
   if (field.type === "month") {
     return normalizeMonthValue(value);
+  }
+
+  if (field.type === "number") {
+    const normalized = normalizeDecimalNumberForPayload(value);
+
+    return normalized === undefined || normalized.length === 0
+      ? undefined
+      : normalized;
   }
 
   return value;

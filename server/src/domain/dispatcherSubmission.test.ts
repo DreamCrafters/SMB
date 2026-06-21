@@ -28,7 +28,7 @@ test("validateDispatcherSubmissionDraft accepts and trims a known form payload",
         reportDate: "2026-06-18",
         reportMonth: "2026-06",
         equipment: "Пресс №1",
-        productionTons: "42,5",
+        productionTons: "42.5",
       },
     });
     assert.match(result.value.summary, /Пресс №1/);
