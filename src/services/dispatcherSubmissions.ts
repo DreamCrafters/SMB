@@ -34,6 +34,7 @@ const dispatcherFormIds: readonly DispatcherFormId[] = [
 const dispatcherFieldTypes: readonly DispatcherFormFieldType[] = [
   "text",
   "number",
+  "integer",
   "date",
   "month",
   "datetime-local",
@@ -123,12 +124,24 @@ const localEquipmentOptions = [
 ];
 
 const localDowntimeReasonOptions = [
-  "Резерв",
   "Замена марки/формы",
   "Простой по мех. эл. части",
+  "Резерв",
 ];
 
-const localSeverityOptions = ["Низкий", "Средний", "Высокий"];
+const localIncidentTypeOptions = [
+  "Травма",
+  "Поломка оборудования по эл. части",
+  "Поломка оборудования по мех. части",
+  "Утечка данных",
+  "Пожар",
+  "Разлив химикатов",
+  "Нарушение безопасности",
+  "Микротравма",
+  "Нарушение регламента",
+];
+
+const localCriticalityOptions = ["Высокий", "Средний", "Низкий"];
 
 function buildLocalGasForm(
   id: "gas_oc" | "gas_cosh",
@@ -218,12 +231,6 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
         required: true,
       },
       {
-        name: "reportMonth",
-        label: "Месяц отчета",
-        type: "month",
-        required: true,
-      },
-      {
         name: "equipment",
         label: "Оборудование",
         type: "select",
@@ -246,7 +253,7 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
       {
         name: "downtimeHours",
         label: "Время простоя, часов",
-        type: "number",
+        type: "integer",
         required: false,
       },
       {
@@ -262,25 +269,26 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
     id: "incident",
     title: "Инцидент",
     sheetName: "Инциденты",
-    summaryFields: ["place", "incidentType", "severity"],
+    summaryFields: ["incidentNumber", "location", "incidentType", "criticality"],
     fields: [
       {
-        name: "happenedAt",
-        label: "Дата и время",
+        name: "datetime",
+        label: "Дата и время инцидента",
         type: "datetime-local",
         required: true,
       },
       {
-        name: "place",
-        label: "Место",
+        name: "location",
+        label: "Место (цех/участок)",
         type: "text",
         required: true,
       },
       {
         name: "incidentType",
-        label: "Тип",
-        type: "text",
+        label: "Тип инцидента",
+        type: "select",
         required: true,
+        options: localIncidentTypeOptions,
       },
       {
         name: "description",
@@ -290,30 +298,23 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
         maxLength: 2_000,
       },
       {
-        name: "severity",
-        label: "Крит.",
+        name: "criticality",
+        label: "Критичность",
         type: "select",
         required: true,
-        options: localSeverityOptions,
+        options: localCriticalityOptions,
       },
       {
-        name: "registrar",
+        name: "responsible",
         label: "Ответственный за регистрацию",
         type: "text",
         required: true,
       },
       {
-        name: "operationalMeasures",
-        label: "Меры оперативные",
+        name: "immediateActions",
+        label: "Оперативные меры",
         type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "note",
-        label: "Примечание",
-        type: "textarea",
-        required: false,
+        required: true,
         maxLength: 2_000,
       },
     ],
@@ -322,7 +323,7 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
     id: "incident_close",
     title: "Закрытие инцидента",
     sheetName: "Инциденты",
-    summaryFields: ["incidentNumber", "closedAt", "closingResponsible"],
+    summaryFields: ["incidentNumber", "closureDateTime", "approvedBy"],
     fields: [
       {
         name: "incidentNumber",
@@ -331,46 +332,39 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
         required: true,
       },
       {
-        name: "closedAt",
+        name: "rootCauses",
+        label: "Корневые причины",
+        type: "textarea",
+        required: true,
+        maxLength: 2_000,
+      },
+      {
+        name: "preventiveMeasures",
+        label: "Предотвращающие меры",
+        type: "textarea",
+        required: true,
+        maxLength: 2_000,
+      },
+      {
+        name: "closureDateTime",
         label: "Дата и время закрытия",
         type: "datetime-local",
         required: true,
       },
       {
-        name: "cause",
-        label: "Причины",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "closeMeasures",
-        label: "Меры после закрытия",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "expenses",
-        label: "Расходы на инцидент",
+        name: "costs",
+        label: "Затраты (убытки), руб",
         type: "number",
         required: false,
       },
       {
-        name: "closingResponsible",
-        label: "Ответственный о внесении записи о закрытии",
+        name: "approvedBy",
+        label: "Кто утвердил закрытие",
         type: "text",
         required: true,
       },
       {
-        name: "closeRecord",
-        label: "Запись о закрытии",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "note",
+        name: "closureNote",
         label: "Примечание",
         type: "textarea",
         required: false,
@@ -382,16 +376,10 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
     id: "visitor",
     title: "Посетитель",
     sheetName: "Посетители",
-    summaryFields: ["visitorName", "organization", "host"],
+    summaryFields: ["fio", "organization", "whom"],
     fields: [
       {
-        name: "entryAt",
-        label: "Дата время",
-        type: "datetime-local",
-        required: true,
-      },
-      {
-        name: "visitorName",
+        name: "fio",
         label: "ФИО посетителя",
         type: "text",
         required: true,
@@ -409,22 +397,15 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
         required: false,
       },
       {
-        name: "visitPurpose",
+        name: "purpose",
         label: "Цель визита",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "host",
-        label: "Кого посещает",
         type: "text",
         required: false,
       },
       {
-        name: "exitAt",
-        label: "Дата время выхода",
-        type: "datetime-local",
+        name: "whom",
+        label: "Кого посещает",
+        type: "text",
         required: false,
       },
       {
@@ -704,19 +685,31 @@ function saveLocalDispatcherSubmission(
   }
 
   const receivedAt = new Date().toISOString();
+  const existingSubmissions = readLocalDispatcherSubmissions(storage);
+  const scriptPayload = applyLocalDispatcherFormScriptRules(
+    form,
+    draft.payload,
+    existingSubmissions,
+    new Date(receivedAt),
+  );
+
+  if (scriptPayload.status === "error") {
+    return scriptPayload;
+  }
+
   const submission: DispatcherSubmission = {
     id: buildLocalSubmissionId(receivedAt),
     businessAccountId: draft.businessAccountId,
     formId: draft.formId,
     formTitle: form.title,
-    payload: draft.payload,
-    summary: buildLocalSubmissionSummary(form, draft.payload),
+    payload: scriptPayload.payload,
+    summary: buildLocalSubmissionSummary(form, scriptPayload.payload),
     status: "received",
     submittedByAccountId: "local-test-dispatcher",
     submittedAt: receivedAt,
     receivedAt,
   };
-  const submissions = [submission, ...readLocalDispatcherSubmissions(storage)];
+  const submissions = [submission, ...existingSubmissions];
 
   try {
     storage.setItem(
@@ -837,6 +830,114 @@ function buildLocalSubmissionId(receivedAt: string) {
   return `local-${receivedAt.replace(/\D/g, "").slice(0, 14)}-${entropy}`;
 }
 
+function applyLocalDispatcherFormScriptRules(
+  form: LocalDispatcherFormDefinition,
+  payload: DispatcherSubmissionPayload,
+  existingSubmissions: DispatcherSubmission[],
+  receivedAt: Date,
+):
+  | {
+      status: "ready";
+      payload: DispatcherSubmissionPayload;
+    }
+  | DispatcherRemoteErrorState {
+  const nextPayload = { ...payload };
+
+  if (form.id === "equipment") {
+    const hasReportData = [
+      nextPayload.productionTons,
+      nextPayload.downtimeReason,
+      nextPayload.downtimeHours,
+      nextPayload.note,
+    ].some((value) => value !== undefined && value.trim().length > 0);
+
+    if (!hasReportData) {
+      return {
+        status: "error",
+        message:
+          "Заполните выработку, причину простоя, время простоя или примечание.",
+        code: "invalid_response",
+      };
+    }
+
+    if (nextPayload.reportDate !== undefined) {
+      nextPayload.reportMonth = nextPayload.reportDate.slice(0, 7);
+      nextPayload.reportDate = formatLocalScriptDate(nextPayload.reportDate);
+    }
+  }
+
+  if (form.id === "incident") {
+    if (nextPayload.datetime !== undefined) {
+      nextPayload.datetime = formatLocalScriptDateTime(nextPayload.datetime);
+    }
+
+    nextPayload.incidentNumber = readNextLocalIncidentNumber(
+      existingSubmissions,
+      receivedAt,
+    );
+    nextPayload.incidentStatus = "Новый";
+  }
+
+  if (form.id === "incident_close") {
+    if (nextPayload.closureDateTime !== undefined) {
+      nextPayload.closureDateTime = formatLocalScriptDateTime(
+        nextPayload.closureDateTime,
+      );
+    }
+
+    nextPayload.costs = nextPayload.costs ?? "0";
+    nextPayload.incidentStatus = "Закрыт";
+
+    if (
+      nextPayload.closureDateTime !== undefined &&
+      nextPayload.approvedBy !== undefined
+    ) {
+      const note =
+        nextPayload.closureNote === undefined
+          ? ""
+          : ` (${nextPayload.closureNote})`;
+      nextPayload.closeRecord = `Закрыт ${nextPayload.closureDateTime}, утвердил ${nextPayload.approvedBy}${note}`;
+    }
+  }
+
+  if (form.id === "visitor") {
+    nextPayload.entryAt = formatLocalScriptDateTimeFromDate(receivedAt);
+  }
+
+  return {
+    status: "ready",
+    payload: nextPayload,
+  };
+}
+
+function readNextLocalIncidentNumber(
+  submissions: DispatcherSubmission[],
+  receivedAt: Date,
+) {
+  const year = String(receivedAt.getFullYear());
+  let maxSuffix = 0;
+
+  for (const submission of submissions) {
+    const value = submission.payload.incidentNumber;
+
+    if (
+      submission.formId !== "incident" ||
+      value === undefined ||
+      !value.startsWith(`INC-${year}-`)
+    ) {
+      continue;
+    }
+
+    const suffix = Number(value.slice(`INC-${year}-`.length));
+
+    if (Number.isInteger(suffix) && suffix > maxSuffix) {
+      maxSuffix = suffix;
+    }
+  }
+
+  return `INC-${year}-${maxSuffix + 1}`;
+}
+
 function buildLocalSubmissionSummary(
   form: LocalDispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
@@ -855,6 +956,34 @@ function buildLocalSubmissionSummary(
     .filter((value): value is string => value !== undefined);
 
   return values.length === 0 ? localSummaryFallback : values.join(" · ");
+}
+
+function formatLocalScriptDate(value: string) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (parts === null) {
+    return value;
+  }
+
+  return `${parts[3]}.${parts[2]}.${parts[1]}`;
+}
+
+function formatLocalScriptDateTime(value: string) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+
+  if (parts === null) {
+    return value;
+  }
+
+  return `${parts[3]}.${parts[2]}.${parts[1]} ${parts[4]}:${parts[5]}`;
+}
+
+function formatLocalScriptDateTimeFromDate(value: Date) {
+  return `${String(value.getDate()).padStart(2, "0")}.${String(
+    value.getMonth() + 1,
+  ).padStart(2, "0")}.${value.getFullYear()} ${String(
+    value.getHours(),
+  ).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
 }
 
 function matchesLocalDispatcherFilters(

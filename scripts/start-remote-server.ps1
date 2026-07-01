@@ -43,8 +43,8 @@ try {
   Write-LogLine "Waiting for Docker engine."
   Wait-DockerEngine
 
-  Write-LogLine "Starting PostgreSQL container."
-  docker compose up -d postgres *>> $apiLog
+  Write-LogLine "Starting MariaDB container."
+  docker compose up -d mariadb *>> $apiLog
 
   Write-LogLine "Building backend API."
   npm.cmd --workspace server run build *>> $apiLog

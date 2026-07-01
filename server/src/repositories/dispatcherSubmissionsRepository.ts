@@ -1,5 +1,8 @@
-import type { PgPool } from "../db/pool.js";
+import { randomUUID } from "node:crypto";
+import type { RowDataPacket } from "mysql2/promise";
+import type { DatabasePool } from "../db/pool.js";
 import {
+  buildDispatcherSubmissionSummary,
   mapDispatcherSubmissionRow,
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
@@ -8,6 +11,7 @@ import {
 } from "../domain/dispatcherSubmission.js";
 import {
   dispatcherForms,
+  getDispatcherFormDefinition,
   getDispatcherFormTitle,
   isDispatcherFormId,
   type DispatcherFormId,
@@ -33,8 +37,14 @@ export type DispatcherFeedSummary = {
 
 type CountRow = {
   form_id: string;
-  count: string;
-};
+  count: number | string;
+} & RowDataPacket;
+
+type IncidentNumberRow = {
+  incident_number: string | null;
+} & RowDataPacket;
+
+type DispatcherSubmissionDbRow = DispatcherSubmissionRow & RowDataPacket;
 
 type WhereClause = {
   sql: string;
@@ -51,15 +61,23 @@ export type DispatcherSubmissionsRepository = {
 };
 
 export function createDispatcherSubmissionsRepository(
-  pool: PgPool,
+  pool: DatabasePool,
 ): DispatcherSubmissionsRepository {
   return {
     async create(value, submittedByAccountId) {
-      const { draft, summary } = value;
+      const draft = await applyPersistenceDefaults(value.draft, pool);
+      const form = getDispatcherFormDefinition(draft.formId);
+      const summary =
+        form === undefined
+          ? value.summary
+          : buildDispatcherSubmissionSummary(form, draft.payload);
       const legacyValues = buildLegacyValues(draft.payload, draft.formId, summary);
-      const result = await pool.query<DispatcherSubmissionRow>(
+      const id = randomUUID();
+
+      await pool.query(
         `
           insert into dispatcher_submissions (
+            id,
             business_account_id,
             period,
             metric_code,
@@ -71,19 +89,10 @@ export function createDispatcherSubmissionsRepository(
             status,
             submitted_by_account_id
           )
-          values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, 'received', $9)
-          returning
-            id,
-            business_account_id,
-            form_id,
-            payload,
-            summary,
-            status,
-            submitted_by_account_id,
-            submitted_at,
-            received_at
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
         `,
         [
+          id,
           draft.businessAccountId,
           legacyValues.period,
           legacyValues.metricCode,
@@ -95,8 +104,25 @@ export function createDispatcherSubmissionsRepository(
           submittedByAccountId,
         ],
       );
+      const [rows] = await pool.query<DispatcherSubmissionDbRow[]>(
+        `
+          select
+            id,
+            business_account_id,
+            form_id,
+            payload,
+            summary,
+            status,
+            submitted_by_account_id,
+            submitted_at,
+            received_at
+          from dispatcher_submissions
+          where id = ?
+        `,
+        [id],
+      );
 
-      const row = result.rows[0];
+      const row = rows[0];
 
       if (row === undefined) {
         throw new Error("Dispatcher submission was not returned by database.");
@@ -108,7 +134,7 @@ export function createDispatcherSubmissionsRepository(
     async listLatest(filters = {}) {
       const safeLimit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
       const where = buildWhereClause(filters);
-      const result = await pool.query<DispatcherSubmissionRow>(
+      const [rows] = await pool.query<DispatcherSubmissionDbRow[]>(
         `
           select
             id,
@@ -123,19 +149,19 @@ export function createDispatcherSubmissionsRepository(
           from dispatcher_submissions
           ${where.sql}
           order by received_at desc
-          limit $${where.values.length + 1}
+          limit ?
         `,
         [...where.values, safeLimit],
       );
 
-      return result.rows.map(mapDispatcherSubmissionRow);
+      return rows.map(mapDispatcherSubmissionRow);
     },
 
     async readSummary(filters = {}) {
       const where = buildWhereClause(filters);
-      const result = await pool.query<CountRow>(
+      const [rows] = await pool.query<CountRow[]>(
         `
-          select form_id, count(*)::text as count
+          select form_id, count(*) as count
           from dispatcher_submissions
           ${where.sql}
           group by form_id
@@ -144,7 +170,7 @@ export function createDispatcherSubmissionsRepository(
       );
       const countByForm = new Map<DispatcherFormId, number>();
 
-      for (const row of result.rows) {
+      for (const row of rows) {
         const formId = isDispatcherFormId(row.form_id) ? row.form_id : "equipment";
         countByForm.set(formId, (countByForm.get(formId) ?? 0) + Number(row.count));
       }
@@ -162,23 +188,80 @@ export function createDispatcherSubmissionsRepository(
   };
 }
 
+async function applyPersistenceDefaults(
+  draft: ValidatedDispatcherSubmissionDraft["draft"],
+  pool: DatabasePool,
+) {
+  if (
+    draft.formId !== "incident" ||
+    draft.payload.incidentNumber !== undefined
+  ) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    payload: {
+      ...draft.payload,
+      incidentNumber: await readNextIncidentNumber(
+        draft.businessAccountId,
+        pool,
+      ),
+    },
+  };
+}
+
+async function readNextIncidentNumber(
+  businessAccountId: string,
+  pool: DatabasePool,
+) {
+  const year = String(new Date().getFullYear());
+  const [rows] = await pool.query<IncidentNumberRow[]>(
+    `
+      select json_unquote(json_extract(payload, '$.incidentNumber')) as incident_number
+      from dispatcher_submissions
+      where business_account_id = ?
+        and form_id = 'incident'
+        and json_unquote(json_extract(payload, '$.incidentNumber')) like ?
+    `,
+    [businessAccountId, `INC-${year}-%`],
+  );
+  let maxSuffix = 0;
+
+  for (const row of rows) {
+    const value = row.incident_number;
+
+    if (value === null || !value.startsWith(`INC-${year}-`)) {
+      continue;
+    }
+
+    const suffix = Number(value.slice(`INC-${year}-`.length));
+
+    if (Number.isInteger(suffix) && suffix > maxSuffix) {
+      maxSuffix = suffix;
+    }
+  }
+
+  return `INC-${year}-${maxSuffix + 1}`;
+}
+
 function buildWhereClause(filters: DispatcherFeedFilters): WhereClause {
   const clauses: string[] = [];
   const values: unknown[] = [];
 
   if (filters.formId !== undefined) {
     values.push(filters.formId);
-    clauses.push(`form_id = $${values.length}`);
+    clauses.push("form_id = ?");
   }
 
   if (filters.dateFrom !== undefined) {
     values.push(filters.dateFrom);
-    clauses.push(`received_at >= $${values.length}::date`);
+    clauses.push("received_at >= cast(? as datetime)");
   }
 
   if (filters.dateTo !== undefined) {
     values.push(filters.dateTo);
-    clauses.push(`received_at < ($${values.length}::date + interval '1 day')`);
+    clauses.push("received_at < date_add(cast(? as date), interval 1 day)");
   }
 
   return {
@@ -204,18 +287,31 @@ function readLegacyPeriod(payload: DispatcherSubmissionPayload) {
   return (
     payload.reportMonth ??
     payload.monthYear ??
-    readMonthFromDate(payload.reportDate) ??
-    readMonthFromDate(payload.date) ??
-    readMonthFromDate(payload.happenedAt) ??
-    readMonthFromDate(payload.entryAt) ??
+    readMonthFromPayloadDate(payload.reportDate) ??
+    readMonthFromPayloadDate(payload.date) ??
+    readMonthFromPayloadDate(payload.datetime) ??
+    readMonthFromPayloadDate(payload.closureDateTime) ??
+    readMonthFromPayloadDate(payload.entryAt) ??
     new Date().toISOString().slice(0, 7)
   );
 }
 
-function readMonthFromDate(value: string | undefined) {
+function readMonthFromPayloadDate(value: string | undefined) {
   if (value === undefined || value.length < 7) {
     return undefined;
   }
 
-  return value.slice(0, 7);
+  const isoMatch = /^(\d{4})-(\d{2})/.exec(value);
+
+  if (isoMatch !== null) {
+    return `${isoMatch[1]}-${isoMatch[2]}`;
+  }
+
+  const scriptMatch = /^\d{2}\.(\d{2})\.(\d{4})/.exec(value);
+
+  if (scriptMatch !== null) {
+    return `${scriptMatch[2]}-${scriptMatch[1]}`;
+  }
+
+  return undefined;
 }

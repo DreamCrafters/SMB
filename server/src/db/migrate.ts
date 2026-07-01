@@ -1,9 +1,9 @@
 import { readServerConfig } from "../config/env.js";
 import { runMigrations } from "./migrations.js";
-import { createPgPool } from "./pool.js";
+import { createDatabasePool } from "./pool.js";
 
 const config = readServerConfig();
-const pool = createPgPool(config.databaseUrl);
+const pool = createDatabasePool(config.databaseUrl);
 
 try {
   await runMigrations(pool);

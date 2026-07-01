@@ -1,11 +1,11 @@
 import { readServerConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
-import { createPgPool } from "./db/pool.js";
+import { createDatabasePool } from "./db/pool.js";
 import { createApiServer } from "./http/app.js";
 import { createDispatcherSubmissionsRepository } from "./repositories/dispatcherSubmissionsRepository.js";
 
 const config = readServerConfig();
-const pool = createPgPool(config.databaseUrl);
+const pool = createDatabasePool(config.databaseUrl);
 
 if (config.runMigrationsOnStart) {
   await runMigrations(pool);

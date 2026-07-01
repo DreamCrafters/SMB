@@ -1,6 +1,8 @@
 export const decimalNumberInputPattern = "[0-9]+([.][0-9]*)?";
 export const decimalNumberInputTitle =
   "Введите целое или дробное число. Запятая автоматически заменяется на точку.";
+export const integerInputPattern = "[0-9]+";
+export const integerInputTitle = "Введите целое число.";
 
 export function normalizeDecimalNumberInput(value: string) {
   let result = "";
@@ -32,4 +34,16 @@ export function normalizeDecimalNumberForPayload(value: string) {
     : normalized;
 
   return finalized.length > 0 ? finalized : undefined;
+}
+
+export function normalizeIntegerInput(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  return digits.length > 0 ? String(parseInt(digits, 10)) : "";
+}
+
+export function normalizeIntegerForPayload(value: string) {
+  const normalized = normalizeIntegerInput(value);
+
+  return normalized.length > 0 ? normalized : undefined;
 }

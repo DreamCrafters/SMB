@@ -65,6 +65,7 @@ const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const monthPattern = /^\d{4}-\d{2}$/;
 const dateTimeLocalPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const numberPattern = /^\d+(?:\.\d+)?$/;
+const integerPattern = /^\d+$/;
 const defaultTextMaxLength = 240;
 const summaryFallback = "Запись без краткого описания";
 
@@ -86,7 +87,11 @@ export function validateDispatcherSubmissionDraft(input: unknown): ValidationRes
   const formId = readFormId(input.formId, errors);
   const form =
     formId === undefined ? undefined : getDispatcherFormDefinition(formId);
-  const payload = readPayload(input.payload, form, errors);
+  const rawPayload = readPayload(input.payload, form, errors);
+  const payload =
+    form === undefined
+      ? rawPayload
+      : applyDispatcherFormScriptRules(form, rawPayload, errors);
 
   if (errors.length > 0 || formId === undefined || form === undefined) {
     return {
@@ -182,6 +187,70 @@ function readPayload(
   return payload;
 }
 
+function applyDispatcherFormScriptRules(
+  form: DispatcherFormDefinition,
+  payload: DispatcherSubmissionPayload,
+  errors: string[],
+): DispatcherSubmissionPayload {
+  const nextPayload = { ...payload };
+
+  if (form.id === "equipment") {
+    const hasReportData = [
+      nextPayload.productionTons,
+      nextPayload.downtimeReason,
+      nextPayload.downtimeHours,
+      nextPayload.note,
+    ].some((value) => value !== undefined && value.trim().length > 0);
+
+    if (!hasReportData) {
+      errors.push(
+        "equipment report requires production, downtime reason, downtime hours, or note.",
+      );
+    }
+
+    if (nextPayload.reportDate !== undefined) {
+      nextPayload.reportMonth = nextPayload.reportDate.slice(0, 7);
+      nextPayload.reportDate = formatScriptDate(nextPayload.reportDate);
+    }
+  }
+
+  if (form.id === "incident") {
+    if (nextPayload.datetime !== undefined) {
+      nextPayload.datetime = formatScriptDateTime(nextPayload.datetime);
+    }
+
+    nextPayload.incidentStatus = "Новый";
+  }
+
+  if (form.id === "incident_close") {
+    if (nextPayload.closureDateTime !== undefined) {
+      nextPayload.closureDateTime = formatScriptDateTime(
+        nextPayload.closureDateTime,
+      );
+    }
+
+    nextPayload.costs = nextPayload.costs ?? "0";
+    nextPayload.incidentStatus = "Закрыт";
+
+    if (
+      nextPayload.closureDateTime !== undefined &&
+      nextPayload.approvedBy !== undefined
+    ) {
+      const note =
+        nextPayload.closureNote === undefined
+          ? ""
+          : ` (${nextPayload.closureNote})`;
+      nextPayload.closeRecord = `Закрыт ${nextPayload.closureDateTime}, утвердил ${nextPayload.approvedBy}${note}`;
+    }
+  }
+
+  if (form.id === "visitor") {
+    nextPayload.entryAt = formatScriptDateTimeFromDate(new Date());
+  }
+
+  return nextPayload;
+}
+
 function readFieldValue(
   value: unknown,
   field: DispatcherFormField,
@@ -218,6 +287,16 @@ function readFieldValue(
     return undefined;
   }
 
+  if (normalized.length === 0) {
+    if (field.required) {
+      errors.push(`${field.name} is required.`);
+    } else if (field.type === "number") {
+      errors.push(`${field.name} must be a number.`);
+    }
+
+    return undefined;
+  }
+
   if (field.type === "select") {
     if (field.options === undefined || !field.options.includes(normalized)) {
       errors.push(`${field.name} must be one of the supported options.`);
@@ -248,6 +327,11 @@ function readFieldValue(
     return undefined;
   }
 
+  if (field.type === "integer" && !integerPattern.test(normalized)) {
+    errors.push(`${field.name} must be an integer.`);
+    return undefined;
+  }
+
   return normalized;
 }
 
@@ -258,6 +342,10 @@ function normalizeFieldValue(value: string, field: DispatcherFormField) {
 
   if (field.type === "number") {
     return normalizeNumberValue(value);
+  }
+
+  if (field.type === "integer") {
+    return normalizeIntegerValue(value);
   }
 
   return value;
@@ -284,6 +372,12 @@ function normalizeNumberValue(value: string) {
   }
 
   return result.endsWith(".") ? result.slice(0, -1) : result;
+}
+
+function normalizeIntegerValue(value: string) {
+  const digits = value.replace(/\D/g, "");
+
+  return digits.length > 0 ? String(parseInt(digits, 10)) : "";
 }
 
 function normalizeMonthValue(value: string) {
@@ -324,7 +418,7 @@ function readMonth(value: string | undefined) {
   return month >= 1 && month <= 12 ? month : undefined;
 }
 
-function buildDispatcherSubmissionSummary(
+export function buildDispatcherSubmissionSummary(
   form: DispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
 ) {
@@ -346,6 +440,34 @@ function buildDispatcherSubmissionSummary(
   }
 
   return values.join(" · ");
+}
+
+function formatScriptDate(value: string) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (parts === null) {
+    return value;
+  }
+
+  return `${parts[3]}.${parts[2]}.${parts[1]}`;
+}
+
+function formatScriptDateTime(value: string) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+
+  if (parts === null) {
+    return value;
+  }
+
+  return `${parts[3]}.${parts[2]}.${parts[1]} ${parts[4]}:${parts[5]}`;
+}
+
+function formatScriptDateTimeFromDate(value: Date) {
+  return `${String(value.getDate()).padStart(2, "0")}.${String(
+    value.getMonth() + 1,
+  ).padStart(2, "0")}.${value.getFullYear()} ${String(
+    value.getHours(),
+  ).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
 }
 
 function readRequiredString(
@@ -375,6 +497,14 @@ function readRequiredString(
 }
 
 function readRowPayload(value: unknown): DispatcherSubmissionPayload {
+  if (typeof value === "string") {
+    try {
+      return readRowPayload(JSON.parse(value) as unknown);
+    } catch {
+      return {};
+    }
+  }
+
   if (!isRecord(value) || Array.isArray(value)) {
     return {};
   }
@@ -387,7 +517,15 @@ function readRowPayload(value: unknown): DispatcherSubmissionPayload {
 }
 
 function toIsoString(value: Date | string) {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  const timestamp = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)
+    ? `${value.replace(" ", "T")}Z`
+    : value;
+
+  return new Date(timestamp).toISOString();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

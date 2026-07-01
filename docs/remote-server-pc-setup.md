@@ -1,194 +1,132 @@
-# Постоянный удалённый сервер на ПК
+# Удалённый backend на Windows-ПК или VPS
 
-Эта инструкция описывает сценарий, где этот или другой Windows-ПК работает как постоянный backend-сервер SMB Monitor: frontend открывается в браузере, а backend API и PostgreSQL живут на серверном ПК в локальной сети.
-
-## Схема
+Короткая инструкция для сценария: frontend открыт в браузере, backend API работает на другом Windows-ПК или VPS, MariaDB/MySQL живёт рядом с backend в Docker или доступна как внешняя managed DB.
 
 ```text
-ПК с браузером и frontend
-  -> http://SERVER_LAN_IP:3000
-  -> backend из server/ для access/profile, dev access, dispatcher forms и dispatcher submissions
-  -> PostgreSQL в Docker volume smb_monitor_postgres_data
+frontend -> http://SERVER_LAN_IP:3000 -> backend server/ -> MariaDB/MySQL
 ```
 
-Frontend не подключается к PostgreSQL напрямую. Он отправляет запросы только в backend API, а backend валидирует данные и пишет их в БД.
+Открывать наружу нужно только backend API `3000`. MariaDB `3306` не открывать: в `docker-compose.yml` она привязана к `127.0.0.1:3306`.
 
-## Что понадобится на серверном ПК
+## Что нужно
 
-- Node.js 20 или новее;
-- npm;
-- Git;
-- Docker Desktop или Docker Engine;
-- стабильный локальный IP для серверного ПК;
-- открытый входящий TCP-порт `3000` для backend API;
-- автозапуск Docker Desktop после входа в Windows, если используется Docker Desktop.
+- Windows-ПК или VPS, который будет сервером.
+- Node.js 20+.
+- Git.
+- Docker Desktop или Docker Engine.
+- Стабильный IP серверного ПК в локальной сети или публичный IP VPS.
+- Доступ сервера к Git-репозиторию проекта.
 
-PostgreSQL-порт `5432` не нужно открывать наружу для других компьютеров. В текущем `docker-compose.yml` PostgreSQL опубликован только на `127.0.0.1:5432`, поэтому БД доступна backend-серверу локально и не является сетевой точкой входа.
+Дальше замени:
 
-## 1. Закрепить IP серверного ПК
+- `SERVER_LAN_IP` на IP серверного ПК или VPS, например `192.168.0.103`;
+- `FRONTEND_ORIGIN` на origin сайта из браузера, например `http://192.168.0.25:5173`;
+- `<repo-url>` на URL репозитория.
 
-Для постоянного сервера IP не должен случайно меняться. Предпочтительный вариант — сделать DHCP reservation в роутере для Ethernet/Wi-Fi MAC-адреса серверного ПК.
+## 1. Подготовить доступ к Git
 
-Узнать текущий IPv4 на Windows:
+Если репозиторий публичный:
 
 ```powershell
-ipconfig
+git clone <repo-url> C:\SMB
+cd C:\SMB
+git config pull.ff only
 ```
 
-Нужен адрес вида:
+Если репозиторий приватный, лучше использовать read-only deploy key. На сервере:
 
-```text
-192.168.0.103
+```powershell
+ssh-keygen -t ed25519 -C "smb-monitor-server"
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub
 ```
 
-Дальше в инструкции он называется `SERVER_LAN_IP`.
+Владелец сервера присылает тебе только публичный `.pub` ключ. Ты добавляешь его в GitHub/GitLab как read-only deploy key, после этого владелец сервера клонирует:
 
-## 2. Получить код проекта на серверном ПК
-
-Если проект уже в Git:
-
-```bash
-git clone <repo-url> SMB
-cd SMB
+```powershell
+git clone git@github.com:OWNER/REPO.git C:\SMB
+cd C:\SMB
+git config pull.ff only
 ```
 
-Если репозиторий пока не опубликован, перенеси папку проекта на серверный ПК без `node_modules`, `dist`, `.env` и приватных файлов.
+Не передавать приватный ключ и не коммитить токены.
 
-Установить зависимости:
+## 2. Настроить backend env
 
-```bash
-npm install
+На сервере:
+
+```powershell
+cd C:\SMB
+Copy-Item server\.env.example server\.env
+notepad server\.env
 ```
 
-## 3. Настроить env для серверного ПК
-
-Frontend env:
-
-```bash
-cp .env.example .env
-```
-
-В `.env` укажи backend на серверном ПК:
-
-```text
-VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000
-```
-
-Если браузер открывает сайт с другого ПК, не оставляй здесь `127.0.0.1` или `localhost`: для браузера это текущий ПК с сайтом, а не backend-сервер.
-
-Backend env:
-
-```bash
-cp server/.env.example server/.env
-```
-
-В `server/.env`:
+Минимальное содержимое `server\.env`:
 
 ```text
 PORT=3000
-DATABASE_URL=postgresql://smb_monitor:smb_monitor_dev_password@127.0.0.1:5432/smb_monitor
-CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,http://SERVER_LAN_IP:5173
+DATABASE_URL=mysql://smb_monitor:smb_monitor_dev_password@127.0.0.1:3306/smb_monitor
+CORS_ORIGIN=FRONTEND_ORIGIN,http://127.0.0.1:5173,http://localhost:5173
 RUN_MIGRATIONS_ON_START=true
 ```
 
-Если frontend запускается на другом ПК, добавь origin того ПК:
+Для внешней MariaDB/MySQL вместо локального Docker-контейнера укажи:
 
 ```text
-CORS_ORIGIN=http://FRONTEND_PC_IP:5173,http://127.0.0.1:5173,http://localhost:5173,http://SERVER_LAN_IP:5173
+DATABASE_URL=mysql://DB_USER:DB_PASSWORD@DB_HOST:3306/DB_NAME
 ```
 
-В `CORS_ORIGIN` должен попасть точный origin из адресной строки браузера: схема, IP или домен и порт. Например, если сайт открыт как `http://192.168.0.25:5173/`, в backend env нужно добавить `http://192.168.0.25:5173` и перезапустить API.
+Если в пароле есть спецсимволы вроде `@`, `/`, `:` или `#`, их нужно URL-encoded записать в `DATABASE_URL`.
 
-Backend разрешает dev-заголовок `X-SMB-Dev-Session`, который нужен удалённому frontend для временного выбора роли и выхода из dev-аккаунта. CORS preflight для этого dev-контура разрешает `POST` и `DELETE`; отдельно добавлять методы или заголовок в env не нужно.
-
-Если frontend будет открыт по домену, добавь домен:
-
-```text
-CORS_ORIGIN=https://app.example.com,http://SERVER_LAN_IP:5173
-```
-
-Для текущего Vercel frontend используй origins сайта:
+Если frontend на Vercel, используй:
 
 ```text
 CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 ```
 
-Если нужно оставить локальный Vite и Vercel одновременно:
+Если нужен и Vercel, и локальный Vite, перечисли все origins через запятую. В `CORS_ORIGIN` добавляется именно browser origin сайта, не dashboard URL Vercel.
 
-```text
-CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
-```
+## 3. Установить зависимости и поднять БД
 
-Backend понимает `*` только внутри hostname, например `https://smb-*-artemi-z-s-projects.vercel.app`, и отдаёт конкретный origin запроса, если он совпал с паттерном. Это покрывает новые Vercel preview deployments с меняющейся частью домена.
+На сервере:
 
-Ссылка `https://vercel.com/artemi-z-s-projects/...` открывает dashboard Vercel. Её не добавлять в `CORS_ORIGIN`, потому что браузер открывает сайт с `https://smb-umber.vercel.app` или preview hostname.
-
-Не коммить реальные `.env` файлы.
-
-## 4. Запустить PostgreSQL
-
-Из корня проекта:
-
-```bash
-docker compose up -d postgres
-```
-
-Проверить состояние:
-
-```bash
+```powershell
+cd C:\SMB
+npm install
+docker compose up -d mariadb
 docker compose ps
+npm run db:migrate
+npm --workspace server run build
 ```
 
-Данные PostgreSQL хранятся в Docker volume:
+Если используется внешняя MariaDB/MySQL из хостинга, строка `docker compose up -d mariadb` не нужна: backend подключится к БД из `DATABASE_URL`.
 
-```text
-smb_monitor_postgres_data
-```
+Данные MariaDB хранятся в Docker volume `smb_monitor_mariadb_data`.
 
-Контейнер имеет `restart: unless-stopped`, поэтому Docker будет поднимать его снова после перезапуска Docker/ПК, пока контейнер не остановлен вручную.
+Не выполнять при обычных обновлениях:
 
-Обычный перезапуск данные не удаляет:
-
-```bash
-docker compose restart postgres
-```
-
-Данные будут удалены только командой с удалением volume:
-
-```bash
+```powershell
 docker compose down -v
 ```
 
-Эту команду нельзя выполнять, если нужно сохранить БД.
+Эта команда удалит БД.
 
-## 5. Проверить backend вручную
+## 4. Проверить backend вручную
 
-Для разового стабильного запуска без watch-режима:
+На сервере:
 
-```bash
-npm --workspace server run build
+```powershell
 npm --workspace server start
 ```
 
-Если в `server/.env` стоит:
+В другом окне PowerShell на сервере:
 
-```text
-RUN_MIGRATIONS_ON_START=true
+```powershell
+curl.exe -i http://127.0.0.1:3000/health
+curl.exe -i http://127.0.0.1:3000/api/access/profile
+curl.exe -i http://127.0.0.1:3000/api/dispatcher/forms
 ```
 
-сервер применит миграции при старте. Миграции также можно запустить вручную:
-
-```bash
-npm run db:migrate
-```
-
-На серверном ПК:
-
-```bash
-curl -i http://127.0.0.1:3000/health
-```
-
-Ожидаемый ответ:
+Ожидаемый health:
 
 ```json
 {"ok":true}
@@ -200,79 +138,38 @@ curl -i http://127.0.0.1:3000/health
 curl -i http://SERVER_LAN_IP:3000/health
 ```
 
-Проверить, что remote backend отдаёт access/profile:
+Если с сервера работает, а с другого ПК нет, открой firewall из шага 6.
 
-```bash
-curl -i http://SERVER_LAN_IP:3000/api/access/profile
-```
+## 5. Сделать backend постоянным
 
-До выбора временного dev-доступа ожидается:
+Останови ручной `npm --workspace server start` через `Ctrl+C`.
 
-```json
-{"profile":null}
-```
-
-Проверить, что remote backend отдаёт диспетчерские формы:
-
-```bash
-curl -i http://SERVER_LAN_IP:3000/api/dispatcher/forms
-```
-
-## 6. Сделать запуск постоянным на Windows
-
-В проекте есть скрипт постоянного запуска:
+Зарегистрируй Windows Task Scheduler:
 
 ```powershell
-.\scripts\start-remote-server.ps1
-```
-
-Он:
-
-- ждёт доступности Docker engine;
-- запускает PostgreSQL через `docker compose up -d postgres`;
-- собирает backend API;
-- запускает `npm --workspace server start`;
-- пишет лог в `logs/remote-api.log`.
-
-Зарегистрировать задачу Windows Task Scheduler:
-
-```powershell
+cd C:\SMB
 powershell -ExecutionPolicy Bypass -File .\scripts\register-windows-startup-task.ps1
-```
-
-По умолчанию задача стартует при входе пользователя в Windows (`AtLogOn`). Это лучший режим для Docker Desktop, потому что Docker Desktop обычно запускается в пользовательской сессии.
-
-Если сервер должен стартовать до входа пользователя, можно зарегистрировать `AtStartup`, но это требует подходящей системной установки Docker и обычно административных прав:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\register-windows-startup-task.ps1 -Trigger AtStartup
-```
-
-Проверить задачу:
-
-```powershell
-Get-ScheduledTask -TaskName "SMB Monitor Remote Server"
-```
-
-Запустить задачу вручную:
-
-```powershell
 Start-ScheduledTask -TaskName "SMB Monitor Remote Server"
+Start-Sleep -Seconds 5
+curl.exe -i http://127.0.0.1:3000/health
 ```
 
-Удалить задачу:
+Задача запускает `scripts\start-remote-server.ps1`: ждёт Docker, поднимает MariaDB, собирает backend и стартует API. Лог:
 
 ```powershell
+Get-Content .\logs\remote-api.log -Tail 80
+```
+
+Команды управления:
+
+```powershell
+Stop-ScheduledTask -TaskName "SMB Monitor Remote Server"
+Start-ScheduledTask -TaskName "SMB Monitor Remote Server"
+Get-ScheduledTask -TaskName "SMB Monitor Remote Server"
 Unregister-ScheduledTask -TaskName "SMB Monitor Remote Server" -Confirm:$false
 ```
 
-## 7. Открыть firewall для API
-
-Для локальной сети достаточно открыть только backend API:
-
-```text
-TCP 3000
-```
+## 6. Открыть firewall
 
 PowerShell от имени администратора:
 
@@ -280,251 +177,20 @@ PowerShell от имени администратора:
 New-NetFirewallRule -DisplayName "SMB Monitor API 3000" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000
 ```
 
-Или через `netsh`:
+Открывать только `3000`. MariaDB/MySQL `3306` не открывать, если не принято отдельное решение про внешний DB-доступ.
 
-```powershell
-netsh advfirewall firewall add rule name="SMB Monitor API 3000" dir=in action=allow protocol=TCP localport=3000
-```
-
-PostgreSQL `5432` не открывать в firewall для локальной сети и интернета.
-
-## 8. Настроить frontend
-
-На ПК, где запускается frontend, в `.env`:
-
-```text
-VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000
-```
-
-Для backend на другом ПК значение `http://127.0.0.1:3000` не подходит: оно заставит браузер искать API на frontend-ПК. Сначала проверь с frontend-ПК:
+Проверка с другого ПК:
 
 ```bash
 curl -i http://SERVER_LAN_IP:3000/health
 ```
 
-После изменения `.env` перезапусти Vite:
+## 7. Настроить frontend
+
+На ПК, где запускается frontend:
 
 ```bash
-npm run dev:web -- --host 127.0.0.1
-```
-
-Если frontend должен открываться с других устройств, запускай Vite на сетевом интерфейсе:
-
-```bash
-npm run dev:web -- --host 0.0.0.0
-```
-
-Тогда браузер на другом ПК открывает:
-
-```text
-http://SERVER_LAN_IP:5173/
-```
-
-## 9. Проверить сценарий через UI
-
-1. На серверном ПК запущены PostgreSQL и backend.
-2. На frontend-ПК в `.env` указан `VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000`.
-3. Frontend запущен заново после изменения `.env`.
-4. В браузере выбери профиль `Диспетчер`.
-5. Выбери одну из диспетчерских форм, заполни поля и отправь.
-6. Если сервер недоступен, интерфейс должен показать ошибку подключения.
-7. Если отправка успешна, выбери профиль `Владелец бизнеса`.
-8. Открой вкладку `Диспетчерская`.
-9. Отправленная запись должна прийти из backend/БД, а фильтры и быстрые счётчики должны обновиться из live feed.
-
-## 10. Проверить API вручную
-
-С frontend-ПК можно отправить тестовый запрос:
-
-```bash
-curl -i \
-  -H "Content-Type: application/json" \
-  -H "X-SMB-Account-Id: dev-dispatcher-account" \
-  -d '{
-    "businessAccountId": "dev-business-boundary",
-    "formId": "equipment",
-    "payload": {
-      "reportDate": "2026-06-18",
-      "reportMonth": "2026-06",
-      "equipment": "Пресс №1",
-      "productionTons": "42"
-    }
-  }' \
-  http://SERVER_LAN_IP:3000/api/dispatcher/submissions
-```
-
-Проверить историю:
-
-```bash
-curl -i http://SERVER_LAN_IP:3000/api/dispatcher/submissions
-```
-
-Проверить историю с фильтрами:
-
-```bash
-curl -i "http://SERVER_LAN_IP:3000/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30"
-```
-
-## 11. Если сервер будет не в локальной сети
-
-Если backend находится на VPS или удалённом ПК через интернет:
-
-1. Подними backend и PostgreSQL на сервере.
-2. Закрой прямой доступ к PostgreSQL.
-3. Настрой reverse proxy, например Nginx или Caddy.
-4. Выпусти HTTPS-сертификат.
-5. Укажи в frontend:
-
-```text
-VITE_SMB_REMOTE_API_URL=https://api.example.com
-```
-
-Для Vercel deployment `VITE_SMB_REMOTE_API_URL` тоже должен быть HTTPS URL backend API. Значение `http://SERVER_LAN_IP:3000` подходит для локальной сети, но не для сайта, открытого с `https://smb-umber.vercel.app`.
-
-6. Добавь frontend origin в `server/.env`:
-
-```text
-CORS_ORIGIN=https://app.example.com
-```
-
-Для текущего Vercel frontend:
-
-```text
-CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
-```
-
-До реализации production auth такой режим подходит только для закрытого тестового стенда, а не для реального продакшена.
-
-## 12. Частые проблемы
-
-### `curl http://127.0.0.1:3000/health` работает на серверном ПК, но не работает с другого ПК
-
-Причина обычно в firewall, неверном IP или сетевой изоляции устройств. Открой TCP `3000` и проверь, что оба устройства в одной сети.
-
-### UI пишет, что сервер не подключён
-
-Проверь:
-
-- есть ли `.env` на frontend-ПК;
-- указан ли `VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000`;
-- не осталось ли в `.env` значение `http://127.0.0.1:3000`, если backend живёт на другом ПК;
-- перезапущен ли Vite после изменения `.env`;
-- доступен ли `GET /health` с frontend-ПК.
-
-### UI пишет `The page could not be found` на экране выбора доступа
-
-Это значит, что `/api/access/profile` ушёл не в SMB backend, а в хостинг frontend-страницы. Проверь:
-
-- в `.env` frontend задан `VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000`;
-- frontend был пересобран или Vite был перезапущен после изменения `.env`;
-- `curl -i http://SERVER_LAN_IP:3000/api/access/profile` возвращает JSON, а не страницу 404;
-- в `server/.env` `CORS_ORIGIN` содержит точный origin страницы.
-
-### В браузере CORS error
-
-Добавь адрес frontend в `CORS_ORIGIN` в `server/.env` и перезапусти backend.
-
-Пример:
-
-```text
-CORS_ORIGIN=http://192.168.0.25:5173,http://127.0.0.1:5173,http://localhost:5173
-```
-
-### Backend не подключается к БД
-
-Проверь:
-
-- запущен ли контейнер PostgreSQL;
-- совпадает ли `DATABASE_URL` с настройками `docker-compose.yml`;
-- не занят ли порт `5432`;
-- применились ли миграции.
-
-Команды:
-
-```bash
-docker compose ps
-npm run db:migrate
-```
-
-### Задача Windows запускается, но API не отвечает
-
-Проверь лог:
-
-```powershell
-Get-Content .\logs\remote-api.log -Tail 80
-```
-
-Частые причины:
-
-- не установлен Node.js/npm;
-- не установлен или не запущен Docker Desktop;
-- не выполнен `npm install`;
-- порт `3000` занят другим процессом;
-- `server/.env` отсутствует или содержит неверный `DATABASE_URL`.
-
-### PowerShell не видит `node` или `npm`
-
-Проверь, установлен ли Node.js в стандартную папку:
-
-```powershell
-Test-Path "C:\Program Files\nodejs\node.exe"
-```
-
-Если файл есть, но команды не работают, добавь Node.js в User PATH и открой новое окно PowerShell:
-
-```powershell
-[Environment]::SetEnvironmentVariable(
-  "Path",
-  [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Program Files\nodejs",
-  "User"
-)
-```
-
-Если `npm` блокируется сообщением про `npm.ps1` и execution policy, можно использовать `npm.cmd`:
-
-```powershell
-npm.cmd --version
-```
-
-Или разрешить локальные PowerShell-скрипты для текущего пользователя:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
-
-### Данные пропали после перезапуска
-
-Обычный перезапуск не удаляет данные. Проверь, не выполнялась ли команда:
-
-```bash
-docker compose down -v
-```
-
-Она удаляет Docker volume с БД.
-
-## 13. Минимальный чеклист постоянного server-PC
-
-На серверном ПК:
-
-```bash
-npm install
-cp server/.env.example server/.env
-docker compose up -d postgres
-npm --workspace server run build
-npm --workspace server start
-curl -i http://127.0.0.1:3000/health
-```
-
-Для постоянного Windows-запуска:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\register-windows-startup-task.ps1
-New-NetFirewallRule -DisplayName "SMB Monitor API 3000" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000
-```
-
-На frontend-ПК:
-
-```bash
+cd /path/to/SMB
 cp .env.example .env
 ```
 
@@ -534,9 +200,143 @@ cp .env.example .env
 VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000
 ```
 
-Проверка:
+Для backend на другом ПК нельзя оставлять `http://127.0.0.1:3000`: браузер будет искать API на frontend-ПК.
+
+Перезапусти frontend:
+
+```bash
+npm run dev:web -- --host 127.0.0.1
+```
+
+Если frontend должен открываться с других устройств:
+
+```bash
+npm run dev:web -- --host 0.0.0.0
+```
+
+Если frontend задеплоен на Vercel, `VITE_SMB_REMOTE_API_URL` должен быть HTTPS URL backend, например:
+
+```text
+VITE_SMB_REMOTE_API_URL=https://api.example.com
+```
+
+Сайт на `https://smb-umber.vercel.app` не должен ходить в `http://SERVER_LAN_IP:3000`: для браузера это небезопасный mixed content.
+
+## 8. Проверить через UI
+
+1. На сервере работает Task Scheduler задача `SMB Monitor Remote Server`.
+2. С frontend-ПК открывается `http://SERVER_LAN_IP:3000/health`.
+3. В frontend `.env` указан `VITE_SMB_REMOTE_API_URL=http://SERVER_LAN_IP:3000`.
+4. Frontend перезапущен после изменения `.env`.
+5. В UI выбери `Диспетчер`, отправь любую диспетчерскую форму.
+6. Перейди в `Владелец бизнеса` -> `Диспетчерская`.
+7. Запись должна прийти из backend/БД.
+
+## 9. Как обновлять сервер через Git
+
+Если сервер не твой, одного `git push` недостаточно: на сервере кто-то должен запустить команды обновления. Без SSH/RDP это делает владелец сервера или заранее настроенная автоматизация.
+
+Перед тем как просить владельца обновить сервер, у себя:
+
+```bash
+npm test
+npm run typecheck
+npm run build
+git status
+git add <changed-files>
+git commit -m "Update backend"
+git push origin main
+```
+
+Владелец сервера после твоего push запускает:
+
+```powershell
+cd C:\SMB
+Stop-ScheduledTask -TaskName "SMB Monitor Remote Server" -ErrorAction SilentlyContinue
+git fetch --prune
+git pull --ff-only
+npm install
+docker compose up -d mariadb
+npm run db:migrate
+npm --workspace server run build
+Start-ScheduledTask -TaskName "SMB Monitor Remote Server"
+Start-Sleep -Seconds 5
+curl.exe -i http://127.0.0.1:3000/health
+```
+
+Если backend использует внешнюю MariaDB/MySQL, строку `docker compose up -d mariadb` при обновлении тоже пропусти.
+
+С другого ПК:
 
 ```bash
 curl -i http://SERVER_LAN_IP:3000/health
-npm run dev:web -- --host 127.0.0.1
+curl -i http://SERVER_LAN_IP:3000/api/access/profile
 ```
+
+Если менялись `server/.env.example`, `CORS_ORIGIN`, порт, домен или `DATABASE_URL`, отдельно напиши владельцу, что именно вручную поменять в `server\.env`. Реальные `.env` через Git не обновляются.
+
+Авто-pull по расписанию можно настраивать только на закрытом тестовом стенде. Для реального production сначала нужны production auth, нормальный deploy pipeline, rollback и проверка миграций.
+
+## 10. Если backend не в локальной сети
+
+Для VPS или удалённого сервера через интернет:
+
+1. Подними backend и MariaDB как выше или укажи внешний MariaDB/MySQL `DATABASE_URL`.
+2. Не открывай MariaDB/MySQL наружу без IP allowlist/firewall.
+3. Настрой HTTPS reverse proxy на backend `127.0.0.1:3000`, например Nginx или Caddy.
+4. Во frontend укажи:
+
+```text
+VITE_SMB_REMOTE_API_URL=https://api.example.com
+```
+
+5. В `server\.env` добавь frontend origin:
+
+```text
+CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
+```
+
+До production auth это только закрытый тестовый стенд.
+
+## 11. Быстрая диагностика
+
+Проверить backend на сервере:
+
+```powershell
+curl.exe -i http://127.0.0.1:3000/health
+Get-Content .\logs\remote-api.log -Tail 80
+docker compose ps
+```
+
+Проверить firewall/IP с другого ПК:
+
+```bash
+curl -i http://SERVER_LAN_IP:3000/health
+```
+
+Если CORS error в браузере:
+
+1. Скопируй origin сайта из адресной строки.
+2. Добавь его в `CORS_ORIGIN` в `server\.env`.
+3. Перезапусти backend:
+
+```powershell
+Stop-ScheduledTask -TaskName "SMB Monitor Remote Server"
+Start-ScheduledTask -TaskName "SMB Monitor Remote Server"
+```
+
+Если порт `3000` занят:
+
+```powershell
+Get-NetTCPConnection -LocalPort 3000 -State Listen | Select-Object -ExpandProperty OwningProcess -Unique
+```
+
+Завершать процесс через `Stop-Process -Id <PID> -Force` только если владелец сервера уверен, что это старый SMB Monitor API.
+
+Если данные пропали, проверить, не запускали ли:
+
+```powershell
+docker compose down -v
+```
+
+Эта команда удаляет Docker volume `smb_monitor_mariadb_data`.

@@ -8,7 +8,7 @@ import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
   port: 0,
-  databaseUrl: "postgresql://unused",
+  databaseUrl: "mysql://unused:unused@127.0.0.1:3306/unused",
   corsOrigins: [
     "http://frontend.test",
     "https://smb-*-artemi-z-s-projects.vercel.app",
@@ -177,8 +177,8 @@ test("remote API creates dispatcher submissions with form payload", async () => 
         formId: "equipment",
         payload: {
           reportDate: "2026-06-18",
-          reportMonth: "2026-06",
           equipment: "Пресс №1",
+          productionTons: "42",
         },
       }),
     });

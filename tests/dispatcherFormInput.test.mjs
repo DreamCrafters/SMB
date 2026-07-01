@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  normalizeIntegerForPayload,
+  normalizeIntegerInput,
   normalizeDecimalNumberForPayload,
   normalizeDecimalNumberInput,
 } from "../.test-build/src/services/dispatcherFormInput.js";
@@ -19,4 +21,10 @@ test("normalizeDecimalNumberForPayload finalizes decimal input for submit", () =
   assert.equal(normalizeDecimalNumberForPayload("12.50"), "12.50");
   assert.equal(normalizeDecimalNumberForPayload(" 12,5 кг "), "12.5");
   assert.equal(normalizeDecimalNumberForPayload(","), undefined);
+});
+
+test("normalizeIntegerInput matches the equipment downtime script behavior", () => {
+  assert.equal(normalizeIntegerInput(" 03 часа "), "3");
+  assert.equal(normalizeIntegerInput("1.5"), "15");
+  assert.equal(normalizeIntegerForPayload("abc"), undefined);
 });

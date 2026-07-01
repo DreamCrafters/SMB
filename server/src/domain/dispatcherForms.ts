@@ -9,6 +9,7 @@ export type DispatcherFormId =
 export type DispatcherFormFieldType =
   | "text"
   | "number"
+  | "integer"
   | "date"
   | "month"
   | "datetime-local"
@@ -57,12 +58,24 @@ const equipmentOptions = [
 ] as const;
 
 const downtimeReasonOptions = [
-  "Резерв",
   "Замена марки/формы",
   "Простой по мех. эл. части",
+  "Резерв",
 ] as const;
 
-const severityOptions = ["Низкий", "Средний", "Высокий"] as const;
+const incidentTypeOptions = [
+  "Травма",
+  "Поломка оборудования по эл. части",
+  "Поломка оборудования по мех. части",
+  "Утечка данных",
+  "Пожар",
+  "Разлив химикатов",
+  "Нарушение безопасности",
+  "Микротравма",
+  "Нарушение регламента",
+] as const;
+
+const criticalityOptions = ["Высокий", "Средний", "Низкий"] as const;
 
 function buildGasForm(
   id: "gas_oc" | "gas_cosh",
@@ -152,12 +165,6 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
         required: true,
       },
       {
-        name: "reportMonth",
-        label: "Месяц отчета",
-        type: "month",
-        required: true,
-      },
-      {
         name: "equipment",
         label: "Оборудование",
         type: "select",
@@ -180,7 +187,7 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
       {
         name: "downtimeHours",
         label: "Время простоя, часов",
-        type: "number",
+        type: "integer",
         required: false,
       },
       {
@@ -196,25 +203,26 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
     id: "incident",
     title: "Инцидент",
     sheetName: "Инциденты",
-    summaryFields: ["place", "incidentType", "severity"],
+    summaryFields: ["incidentNumber", "location", "incidentType", "criticality"],
     fields: [
       {
-        name: "happenedAt",
-        label: "Дата и время",
+        name: "datetime",
+        label: "Дата и время инцидента",
         type: "datetime-local",
         required: true,
       },
       {
-        name: "place",
-        label: "Место",
+        name: "location",
+        label: "Место (цех/участок)",
         type: "text",
         required: true,
       },
       {
         name: "incidentType",
-        label: "Тип",
-        type: "text",
+        label: "Тип инцидента",
+        type: "select",
         required: true,
+        options: incidentTypeOptions,
       },
       {
         name: "description",
@@ -224,30 +232,23 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
         maxLength: 2_000,
       },
       {
-        name: "severity",
-        label: "Крит.",
+        name: "criticality",
+        label: "Критичность",
         type: "select",
         required: true,
-        options: severityOptions,
+        options: criticalityOptions,
       },
       {
-        name: "registrar",
+        name: "responsible",
         label: "Ответственный за регистрацию",
         type: "text",
         required: true,
       },
       {
-        name: "operationalMeasures",
-        label: "Меры оперативные",
+        name: "immediateActions",
+        label: "Оперативные меры",
         type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "note",
-        label: "Примечание",
-        type: "textarea",
-        required: false,
+        required: true,
         maxLength: 2_000,
       },
     ],
@@ -256,7 +257,7 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
     id: "incident_close",
     title: "Закрытие инцидента",
     sheetName: "Инциденты",
-    summaryFields: ["incidentNumber", "closedAt", "closingResponsible"],
+    summaryFields: ["incidentNumber", "closureDateTime", "approvedBy"],
     fields: [
       {
         name: "incidentNumber",
@@ -265,46 +266,39 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
         required: true,
       },
       {
-        name: "closedAt",
+        name: "rootCauses",
+        label: "Корневые причины",
+        type: "textarea",
+        required: true,
+        maxLength: 2_000,
+      },
+      {
+        name: "preventiveMeasures",
+        label: "Предотвращающие меры",
+        type: "textarea",
+        required: true,
+        maxLength: 2_000,
+      },
+      {
+        name: "closureDateTime",
         label: "Дата и время закрытия",
         type: "datetime-local",
         required: true,
       },
       {
-        name: "cause",
-        label: "Причины",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "closeMeasures",
-        label: "Меры после закрытия",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "expenses",
-        label: "Расходы на инцидент",
+        name: "costs",
+        label: "Затраты (убытки), руб",
         type: "number",
         required: false,
       },
       {
-        name: "closingResponsible",
-        label: "Ответственный о внесении записи о закрытии",
+        name: "approvedBy",
+        label: "Кто утвердил закрытие",
         type: "text",
         required: true,
       },
       {
-        name: "closeRecord",
-        label: "Запись о закрытии",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "note",
+        name: "closureNote",
         label: "Примечание",
         type: "textarea",
         required: false,
@@ -316,16 +310,10 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
     id: "visitor",
     title: "Посетитель",
     sheetName: "Посетители",
-    summaryFields: ["visitorName", "organization", "host"],
+    summaryFields: ["fio", "organization", "whom"],
     fields: [
       {
-        name: "entryAt",
-        label: "Дата время",
-        type: "datetime-local",
-        required: true,
-      },
-      {
-        name: "visitorName",
+        name: "fio",
         label: "ФИО посетителя",
         type: "text",
         required: true,
@@ -343,22 +331,15 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
         required: false,
       },
       {
-        name: "visitPurpose",
+        name: "purpose",
         label: "Цель визита",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
-      },
-      {
-        name: "host",
-        label: "Кого посещает",
         type: "text",
         required: false,
       },
       {
-        name: "exitAt",
-        label: "Дата время выхода",
-        type: "datetime-local",
+        name: "whom",
+        label: "Кого посещает",
+        type: "text",
         required: false,
       },
       {

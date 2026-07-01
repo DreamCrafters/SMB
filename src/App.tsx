@@ -35,9 +35,18 @@ import {
 import {
   decimalNumberInputPattern,
   decimalNumberInputTitle,
+  integerInputPattern,
+  integerInputTitle,
   normalizeDecimalNumberForPayload,
   normalizeDecimalNumberInput,
+  normalizeIntegerForPayload,
+  normalizeIntegerInput,
 } from "./services/dispatcherFormInput";
+import {
+  canRequestDispatcherForms,
+  canSubmitDispatcherForms,
+  hasCapability,
+} from "./services/accessGuards";
 
 type OwnerTab = "overview" | "dispatcher";
 
@@ -233,9 +242,7 @@ export default function App() {
   useEffect(() => {
     if (
       accessProfile.status !== "ready" ||
-      (!hasCapability(accessProfile.profile, "business.submit_dispatcher_forms") &&
-        !hasCapability(accessProfile.profile, "business.submit_forms") &&
-        !hasCapability(accessProfile.profile, "business.view_dispatcher_feed"))
+      !canRequestDispatcherForms(accessProfile.profile)
     ) {
       setDispatcherForms(initialDispatcherFormsState);
       return;
@@ -320,10 +327,11 @@ export default function App() {
     }
 
     if (
-      !hasCapability(accessProfile.profile, "business.submit_dispatcher_forms") &&
-      !hasCapability(accessProfile.profile, "business.submit_forms")
+      !canSubmitDispatcherForms(accessProfile.profile)
     ) {
-      setDataEntryStatus("Серверный профиль не разрешает отправку формы.");
+      setDataEntryStatus(
+        "Серверный профиль не разрешает отправку диспетчерской формы.",
+      );
       return;
     }
 
@@ -600,16 +608,7 @@ function RoleWorkspace({
         />
       );
     case "worker":
-      return (
-        <DataEntryWorkspace
-          ariaLabel="Отправка данных"
-          status={dataEntryStatus}
-          isSubmitting={isDataEntrySubmitting}
-          onSubmit={onDataEntrySubmit}
-          dispatcherForms={dispatcherForms}
-          onResetStatus={onDataEntryStatusReset}
-        />
-      );
+      return <WorkerWorkspace />;
     case "dispatcher":
       return (
         <DataEntryWorkspace
@@ -651,6 +650,10 @@ function OwnerWorkspace({
       onFiltersChange={onDispatcherFeedFiltersChange}
     />
   );
+}
+
+function WorkerWorkspace() {
+  return <section className="owner-empty-view" aria-label="Рабочие данные" />;
 }
 
 function DataEntryWorkspace({
@@ -816,11 +819,22 @@ function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
               event.currentTarget.value,
             );
           }
+
+          if (field.type === "integer") {
+            event.currentTarget.value = normalizeIntegerInput(
+              event.currentTarget.value,
+            );
+          }
         }}
         onBlur={(event) => {
           if (field.type === "number") {
             event.currentTarget.value =
               normalizeDecimalNumberForPayload(event.currentTarget.value) ?? "";
+          }
+
+          if (field.type === "integer") {
+            event.currentTarget.value =
+              normalizeIntegerForPayload(event.currentTarget.value) ?? "";
           }
         }}
       />
@@ -1044,13 +1058,6 @@ function AdminWorkspace({ profile }: { profile: ServerUserProfile }) {
   );
 }
 
-function hasCapability(
-  profile: ServerUserProfile,
-  capability: AccountCapability,
-) {
-  return profile.activeAccess.capabilities.includes(capability);
-}
-
 function getActiveBusinessAccountId(profile: ServerUserProfile) {
   const scope = profile.activeAccess.scope;
 
@@ -1105,7 +1112,7 @@ function readSubmissionSuccessMessage(result: {
 }
 
 function readInputType(field: DispatcherFormField) {
-  if (field.type === "number") {
+  if (field.type === "number" || field.type === "integer") {
     return "text";
   }
 
@@ -1125,7 +1132,7 @@ function readInputMode(field: DispatcherFormField) {
     return "decimal";
   }
 
-  if (field.type === "month") {
+  if (field.type === "integer" || field.type === "month") {
     return "numeric";
   }
 
@@ -1135,6 +1142,10 @@ function readInputMode(field: DispatcherFormField) {
 function readInputPattern(field: DispatcherFormField) {
   if (field.type === "number") {
     return decimalNumberInputPattern;
+  }
+
+  if (field.type === "integer") {
+    return integerInputPattern;
   }
 
   if (field.type === "month") {
@@ -1149,6 +1160,10 @@ function readInputTitle(field: DispatcherFormField) {
     return decimalNumberInputTitle;
   }
 
+  if (field.type === "integer") {
+    return integerInputTitle;
+  }
+
   return undefined;
 }
 
@@ -1157,7 +1172,7 @@ function readInputPlaceholder(field: DispatcherFormField) {
     return "2026-06";
   }
 
-  if (field.type === "number") {
+  if (field.type === "number" || field.type === "integer") {
     return "0";
   }
 
@@ -1173,7 +1188,7 @@ function readInputMaxLength(field: DispatcherFormField) {
     return 240;
   }
 
-  if (field.type === "number") {
+  if (field.type === "number" || field.type === "integer") {
     return 32;
   }
 
@@ -1207,6 +1222,10 @@ function normalizeFormValue(value: string, field: DispatcherFormField) {
     return normalized === undefined || normalized.length === 0
       ? undefined
       : normalized;
+  }
+
+  if (field.type === "integer") {
+    return normalizeIntegerForPayload(value);
   }
 
   return value;

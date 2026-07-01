@@ -34,7 +34,7 @@ Register-ScheduledTask `
   -Action $action `
   -Trigger $taskTrigger `
   -Settings $settings `
-  -Description "Starts SMB Monitor PostgreSQL and backend API from $projectRoot." `
+  -Description "Starts SMB Monitor MariaDB and backend API from $projectRoot." `
   -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName' with trigger '$Trigger'."

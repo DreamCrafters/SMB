@@ -81,8 +81,8 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
   ],
   worker: [
     {
-      label: "Форма",
-      description: "Отправка рабочих данных",
+      label: "Работа",
+      description: "Рабочие формы отдельно",
       state: "active",
     },
   ],

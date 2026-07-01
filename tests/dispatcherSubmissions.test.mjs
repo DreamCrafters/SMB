@@ -21,8 +21,8 @@ const draft = {
   formId: "equipment",
   payload: {
     reportDate: "2026-06-18",
-    reportMonth: "2026-06",
     equipment: "Пресс №1",
+    productionTons: "42",
   },
 };
 

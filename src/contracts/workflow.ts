@@ -28,6 +28,7 @@ export type DispatcherFormId =
 export type DispatcherFormFieldType =
   | "text"
   | "number"
+  | "integer"
   | "date"
   | "month"
   | "datetime-local"

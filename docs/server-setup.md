@@ -1,10 +1,10 @@
 # Серверная часть SMB Monitor
 
-Этот файл описывает текущую backend-часть проекта: где лежит код, как запустить PostgreSQL, как применить миграции, как подключить frontend и что уже сохраняется в БД.
+Этот файл описывает текущую backend-часть проекта: где лежит код, как запустить MariaDB/MySQL, как применить миграции, как подключить frontend и что уже сохраняется в БД.
 
 Для короткого запуска уже настроенного локального сервера смотри `docs/local-server-run.md`.
 
-Для запуска backend и PostgreSQL на другом компьютере смотри отдельную инструкцию: `docs/remote-server-pc-setup.md`.
+Для запуска backend и MariaDB/MySQL на другом компьютере смотри отдельную инструкцию: `docs/remote-server-pc-setup.md`.
 
 ## Структура
 
@@ -12,7 +12,7 @@
 server/
   src/
     config/      # чтение env-настроек
-    db/          # PostgreSQL pool и миграции
+    db/          # MariaDB/MySQL pool и миграции
     domain/      # валидация и преобразование данных
     http/        # HTTP API
     repositories/# запросы к БД
@@ -29,8 +29,10 @@ Backend находится в этом же репозитории как npm wo
 - `POST /api/dev/access-session` — создать временную dev-сессию выбранного типа аккаунта;
 - `DELETE /api/dev/access-session` — очистить временную dev-сессию;
 - `GET /api/dispatcher/forms` — вернуть серверные определения 6 диспетчерских форм;
-- `POST /api/dispatcher/submissions` — сохранить диспетчерскую отправку в PostgreSQL;
+- `POST /api/dispatcher/submissions` — сохранить диспетчерскую отправку в MariaDB/MySQL;
 - `GET /api/dispatcher/submissions` — вернуть последние диспетчерские отправки, фильтры и счётчики для вкладки владельца `Диспетчерская`.
+
+Для анкет из переданных Apps Script backend повторяет основные правила исходных скриптов: оборудование не принимает пустую строку отчёта и выводит месяц из даты, инцидент использует исходные списки типов/критичности и получает серверный номер `INC-год-номер`, закрытие инцидента требует поля закрытия, посетитель получает время входа на сервере.
 
 Сохраняемые данные:
 
@@ -43,7 +45,7 @@ Backend находится в этом же репозитории как npm wo
 - `submittedAt`;
 - `receivedAt`.
 
-Старые колонки `period`, `metric_code`, `raw_value`, `comment` остаются в таблице для совместимости миграции, но новая рабочая модель пишет `form_id`, `payload` JSONB и `summary`.
+Старые колонки `period`, `metric_code`, `raw_value`, `comment` остаются в таблице для совместимости миграции, но новая рабочая модель пишет `form_id`, `payload` JSON и `summary`.
 
 ## Локальные env-файлы
 
@@ -69,10 +71,18 @@ cp server/.env.example server/.env
 
 ```bash
 PORT=3000
-DATABASE_URL=postgresql://smb_monitor:smb_monitor_dev_password@127.0.0.1:5432/smb_monitor
+DATABASE_URL=mysql://smb_monitor:smb_monitor_dev_password@127.0.0.1:3306/smb_monitor
 CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.vercel.app
 RUN_MIGRATIONS_ON_START=true
 ```
+
+Для внешней MariaDB/MySQL, например БД хостинга, `DATABASE_URL` меняется на:
+
+```text
+DATABASE_URL=mysql://DB_USER:DB_PASSWORD@DB_HOST:3306/DB_NAME
+```
+
+Если в пароле есть спецсимволы вроде `@`, `/`, `:` или `#`, их нужно URL-encoded записать в `DATABASE_URL`.
 
 Если frontend открыт с другого origin, добавь этот точный origin в `CORS_ORIGIN`. Для Vercel preview можно использовать hostname-паттерн с `*`, например `https://smb-*-artemi-z-s-projects.vercel.app`. Backend возвращает конкретный origin запроса, если он совпал с паттерном. Для dev-доступа backend также принимает заголовок `X-SMB-Dev-Session`, а CORS preflight разрешает `POST` и `DELETE` для создания и очистки временной dev-сессии.
 
@@ -97,30 +107,30 @@ npm install
 
 Это установит зависимости frontend и `server/` workspace.
 
-## Запуск PostgreSQL
+## Запуск MariaDB/MySQL
 
 Нужен Docker.
 
 ```bash
-docker compose up -d postgres
+docker compose up -d mariadb
 ```
 
-Данные PostgreSQL хранятся в Docker volume `smb_monitor_postgres_data`.
+Данные MariaDB хранятся в Docker volume `smb_monitor_mariadb_data`.
 
-В `docker-compose.yml` для контейнера включён `restart: unless-stopped`, поэтому Docker будет поднимать PostgreSQL снова после перезапуска Docker/ПК, пока контейнер не остановлен вручную.
+В `docker-compose.yml` для контейнера включён `restart: unless-stopped`, поэтому Docker будет поднимать MariaDB снова после перезапуска Docker/ПК, пока контейнер не остановлен вручную.
 
-PostgreSQL опубликован только на локальном интерфейсе серверного ПК:
+MariaDB опубликована только на локальном интерфейсе серверного ПК:
 
 ```text
-127.0.0.1:5432
+127.0.0.1:3306
 ```
 
-Не открывай порт `5432` в локальную сеть: frontend и другие ПК должны обращаться только к backend API.
+Не открывай порт `3306` в локальную сеть: frontend и другие ПК должны обращаться только к backend API.
 
 Перезапуск контейнера данные не удаляет:
 
 ```bash
-docker compose restart postgres
+docker compose restart mariadb
 ```
 
 Удалит данные только команда с `-v`:
@@ -191,7 +201,7 @@ curl -i http://127.0.0.1:3000/api/dispatcher/forms
 .\scripts\start-remote-server.ps1
 ```
 
-Он запускает PostgreSQL, собирает backend и стартует API через `npm --workspace server start`. Лог пишется в `logs/remote-api.log`.
+Он запускает MariaDB, собирает backend и стартует API через `npm --workspace server start`. Лог пишется в `logs/remote-api.log`.
 
 Чтобы зарегистрировать автозапуск через Windows Task Scheduler:
 
@@ -228,7 +238,6 @@ curl -i \
     "formId": "equipment",
     "payload": {
       "reportDate": "2026-06-18",
-      "reportMonth": "2026-06",
       "equipment": "Пресс №1",
       "productionTons": "42"
     }
@@ -250,7 +259,7 @@ curl -i "http://127.0.0.1:3000/api/dispatcher/submissions?formId=equipment&dateF
 
 ## Как проверить через UI
 
-1. Запустить PostgreSQL.
+1. Запустить MariaDB.
 2. Запустить backend.
 3. Запустить frontend.
 4. В браузере выбрать профиль `Диспетчер`.
@@ -269,7 +278,7 @@ curl -i "http://127.0.0.1:3000/api/dispatcher/submissions?formId=equipment&dateF
 - вкладка владельца `Диспетчерская` читает эту же локальную историю и применяет фильтры;
 - интерфейс показывает, что это локальный тестовый режим.
 
-Это не production-auth, не production-хранение и не проверка PostgreSQL. Для реальных данных, работы с другого устройства и подготовки к арендованному серверу запускать backend и БД по основной инструкции.
+Это не production-auth, не production-хранение и не проверка MariaDB/MySQL. Для реальных данных, работы с другого устройства и подготовки к арендованному серверу запускать backend и БД по основной инструкции.
 
 ## Важные ограничения текущего backend
 
@@ -278,7 +287,7 @@ curl -i "http://127.0.0.1:3000/api/dispatcher/submissions?formId=equipment&dateF
 - `submittedByAccountId` временно берётся из заголовка `X-SMB-Account-Id` или dev-default `dev-dispatcher-account`.
 - Серверная проверка ролей и capabilities будет отдельным следующим шагом.
 - Нельзя считать frontend-gating защитой: защищённые действия должны проверяться backend.
-- Для remote/server-PC режима открывать в сеть только API-порт `3000`; PostgreSQL оставлять локальным для backend.
+- Для remote/server-PC режима открывать в сеть только API-порт `3000`; MariaDB/MySQL оставлять локальной для backend или доступной только по разрешённому приватному/hosting IP.
 - Не логировать payload с приватными данными, токены и секреты.
 
 ## Проверки

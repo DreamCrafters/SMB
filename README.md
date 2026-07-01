@@ -17,7 +17,7 @@
 - TypeScript
 - CSS
 - Node.js backend
-- PostgreSQL
+- MariaDB/MySQL
 
 ## Локальный запуск
 
@@ -25,10 +25,10 @@
 npm install
 ```
 
-Запусти PostgreSQL:
+Запусти MariaDB:
 
 ```bash
-docker compose up -d postgres
+docker compose up -d mariadb
 ```
 
 Запусти backend:
@@ -54,7 +54,7 @@ http://127.0.0.1:5173/
 Сейчас в проекте есть два серверных слоя:
 
 - Vite dev/preview middleware в `vite.config.ts` — локальная временная dev-авторизация и `access/profile`;
-- backend workspace `server/` — remote API для временной dev-авторизации, `access/profile` и диспетчерских отправок с сохранением в PostgreSQL.
+- backend workspace `server/` — remote API для временной dev-авторизации, `access/profile` и диспетчерских отправок с сохранением в MariaDB/MySQL.
 
 Vite middleware обрабатывает:
 
@@ -71,11 +71,11 @@ Backend `server/` обрабатывает:
 - `POST /api/dispatcher/submissions` — сохранение диспетчерской отправки в БД;
 - `GET /api/dispatcher/submissions` — история отправок для вкладки владельца `Диспетчерская`.
 
-Если `VITE_SMB_REMOTE_API_URL` задан, frontend отправляет access/dev и dispatcher-запросы в этот backend API. Временная dev-сессия хранится в памяти процесса Vite или backend и сбрасывается после его рестарта. Диспетчерские отправки хранятся в PostgreSQL и переживают рестарт backend/контейнера, пока не удалён Docker volume.
+Если `VITE_SMB_REMOTE_API_URL` задан, frontend отправляет access/dev и dispatcher-запросы в этот backend API. Временная dev-сессия хранится в памяти процесса Vite или backend и сбрасывается после его рестарта. Диспетчерские отправки хранятся в MariaDB/MySQL и переживают рестарт backend/контейнера, пока не удалён Docker volume или внешняя БД.
 
 ## Подключение удалённого сервера и БД
 
-Frontend не подключается к БД напрямую. Он обращается к backend API, который пишет данные в PostgreSQL и отдаёт разрешённые ответы frontend-клиенту.
+Frontend не подключается к БД напрямую. Он обращается к backend API, который пишет данные в MariaDB/MySQL и отдаёт разрешённые ответы frontend-клиенту.
 
 Создай локальный frontend `.env` по примеру `.env.example`:
 

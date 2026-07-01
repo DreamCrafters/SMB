@@ -1,21 +1,26 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: smb-monitor-postgres
+  mariadb:
+    image: mariadb:10.11
+    container_name: smb-monitor-mariadb
     restart: unless-stopped
     environment:
-      POSTGRES_DB: smb_monitor
-      POSTGRES_USER: smb_monitor
-      POSTGRES_PASSWORD: smb_monitor_dev_password
+      MARIADB_DATABASE: smb_monitor
+      MARIADB_USER: smb_monitor
+      MARIADB_PASSWORD: smb_monitor_dev_password
+      MARIADB_ROOT_PASSWORD: smb_monitor_root_password
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:3306:3306"
     volumes:
-      - smb_monitor_postgres_data:/var/lib/postgresql/data
+      - smb_monitor_mariadb_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U smb_monitor -d smb_monitor"]
+      test:
+        [
+          "CMD-SHELL",
+          "mariadb-admin ping -h 127.0.0.1 -usmb_monitor -psmb_monitor_dev_password --silent",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  smb_monitor_postgres_data:
+  smb_monitor_mariadb_data:
