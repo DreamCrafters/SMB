@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import {
+  buildDispatcherSubmissionDedupeKey,
   buildDispatcherSubmissionSummary,
   mapDispatcherSubmissionRow,
   type DispatcherSubmission,
@@ -72,6 +73,7 @@ export function createDispatcherSubmissionsRepository(
           ? value.summary
           : buildDispatcherSubmissionSummary(form, draft.payload);
       const legacyValues = buildLegacyValues(draft.payload, draft.formId, summary);
+      const dedupeKey = buildDispatcherSubmissionDedupeKey(draft);
       const id = randomUUID();
 
       await pool.query(
@@ -86,10 +88,23 @@ export function createDispatcherSubmissionsRepository(
             form_id,
             payload,
             summary,
+            dedupe_key,
             status,
             submitted_by_account_id
           )
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
+          on duplicate key update
+            period = values(period),
+            metric_code = values(metric_code),
+            raw_value = values(raw_value),
+            comment = values(comment),
+            form_id = values(form_id),
+            payload = values(payload),
+            summary = values(summary),
+            status = 'received',
+            submitted_by_account_id = values(submitted_by_account_id),
+            submitted_at = current_timestamp(3),
+            received_at = current_timestamp(3)
         `,
         [
           id,
@@ -101,6 +116,7 @@ export function createDispatcherSubmissionsRepository(
           draft.formId,
           JSON.stringify(draft.payload),
           summary,
+          dedupeKey,
           submittedByAccountId,
         ],
       );
@@ -117,9 +133,9 @@ export function createDispatcherSubmissionsRepository(
             submitted_at,
             received_at
           from dispatcher_submissions
-          where id = ?
+          where ${dedupeKey === null ? "id" : "dedupe_key"} = ?
         `,
-        [id],
+        [dedupeKey ?? id],
       );
 
       const row = rows[0];

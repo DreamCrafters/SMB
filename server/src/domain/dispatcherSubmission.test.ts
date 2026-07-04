@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildDispatcherSubmissionDedupeKey,
   mapDispatcherSubmissionRow,
   validateDispatcherSubmissionDraft,
 } from "./dispatcherSubmission.js";
@@ -95,6 +96,43 @@ test("validateDispatcherSubmissionDraft rejects empty equipment reports", () => 
 
   if (!result.ok) {
     assert.match(result.errors.join(" "), /equipment report/);
+  }
+});
+
+test("buildDispatcherSubmissionDedupeKey scopes equipment reports by business, date, and equipment", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      productionTons: "42",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    assert.equal(
+      buildDispatcherSubmissionDedupeKey(result.value.draft),
+      "equipment:business-id:18.06.2026:Пресс №1",
+    );
+  }
+});
+
+test("buildDispatcherSubmissionDedupeKey leaves non-equipment submissions append-only", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "visitor",
+    payload: {
+      fio: "Visitor Name",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    assert.equal(buildDispatcherSubmissionDedupeKey(result.value.draft), null);
   }
 });
 

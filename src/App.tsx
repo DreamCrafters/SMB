@@ -43,6 +43,17 @@ import {
   normalizeIntegerInput,
 } from "./services/dispatcherFormInput";
 import {
+  buildEquipmentCompletionMap,
+  buildEquipmentFormPayload,
+  formatReportDateForDisplay,
+  readEquipmentDraftPayload,
+  readEquipmentOptions,
+  readLastEquipmentOption,
+  writeEquipmentDraftPayload,
+  writeLastEquipmentOption,
+  type DispatcherEquipmentDraftStorage,
+} from "./services/dispatcherEquipmentReports";
+import {
   canRequestDispatcherForms,
   canSubmitDispatcherForms,
   hasCapability,
@@ -160,6 +171,7 @@ export default function App() {
   );
   const [dispatcherForms, setDispatcherForms] =
     useState<DispatcherFormsLoadState>(initialDispatcherFormsState);
+  const [dispatcherSubmissionVersion, setDispatcherSubmissionVersion] = useState(0);
   const [dispatcherFeedFilters, setDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
 
@@ -372,7 +384,12 @@ export default function App() {
 
     if (result.status === "ready") {
       setDataEntryStatus(readSubmissionSuccessMessage(result));
-      resetDispatcherForm(form, formDefinition.id);
+      setDispatcherSubmissionVersion((version) => version + 1);
+
+      if (formDefinition.id !== "equipment") {
+        resetDispatcherForm(form, formDefinition.id);
+      }
+
       return;
     }
 
@@ -414,6 +431,7 @@ export default function App() {
           ownerTab={ownerTab}
           dispatcherFeed={dispatcherFeed}
           dispatcherForms={dispatcherForms}
+          dispatcherSubmissionVersion={dispatcherSubmissionVersion}
           dispatcherFeedFilters={dispatcherFeedFilters}
           onDispatcherFeedFiltersChange={handleDispatcherFeedFiltersChange}
           onDataEntryStatusReset={() => setDataEntryStatus("")}
@@ -577,6 +595,7 @@ function RoleWorkspace({
   ownerTab,
   dispatcherFeed,
   dispatcherForms,
+  dispatcherSubmissionVersion,
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
   onDataEntryStatusReset,
@@ -588,6 +607,7 @@ function RoleWorkspace({
   ownerTab: OwnerTab;
   dispatcherFeed: DispatcherFeedLoadState;
   dispatcherForms: DispatcherFormsLoadState;
+  dispatcherSubmissionVersion: number;
   dispatcherFeedFilters: DispatcherFeedFilterState;
   onDispatcherFeedFiltersChange: (
     patch: Partial<DispatcherFeedFilterState>,
@@ -617,6 +637,8 @@ function RoleWorkspace({
           isSubmitting={isDataEntrySubmitting}
           onSubmit={onDataEntrySubmit}
           dispatcherForms={dispatcherForms}
+          businessAccountId={getActiveBusinessAccountId(profile)}
+          refreshVersion={dispatcherSubmissionVersion}
           onResetStatus={onDataEntryStatusReset}
         />
       );
@@ -662,6 +684,8 @@ function DataEntryWorkspace({
   isSubmitting,
   onSubmit,
   dispatcherForms,
+  businessAccountId,
+  refreshVersion,
   onResetStatus,
 }: {
   ariaLabel: string;
@@ -669,6 +693,8 @@ function DataEntryWorkspace({
   isSubmitting: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   dispatcherForms: DispatcherFormsLoadState;
+  businessAccountId: string;
+  refreshVersion: number;
   onResetStatus: () => void;
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
@@ -745,23 +771,347 @@ function DataEntryWorkspace({
             К выбору формы
           </button>
         </div>
-        <div className="dispatcher-form-fields">
-          {currentForm.fields.map((field) => (
-            <DispatcherFormFieldInput field={field} key={field.name} />
-          ))}
-        </div>
-        <div className="form-actions">
-          <button
-            className="primary-button"
-            type="submit"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Отправка..." : "Отправить на сервер"}
-          </button>
-          {status.length > 0 ? <p className="form-status">{status}</p> : null}
-        </div>
+        {currentForm.id === "equipment" ? (
+          <DispatcherEquipmentFormBody
+            businessAccountId={businessAccountId}
+            form={currentForm}
+            isSubmitting={isSubmitting}
+            refreshVersion={refreshVersion}
+            status={status}
+            onResetStatus={onResetStatus}
+          />
+        ) : (
+          <>
+            <div className="dispatcher-form-fields">
+              {currentForm.fields.map((field) => (
+                <DispatcherFormFieldInput field={field} key={field.name} />
+              ))}
+            </div>
+            <div className="form-actions">
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Отправка..." : "Отправить на сервер"}
+              </button>
+              {status.length > 0 ? <p className="form-status">{status}</p> : null}
+            </div>
+          </>
+        )}
       </form>
     </section>
+  );
+}
+
+function DispatcherEquipmentFormBody({
+  businessAccountId,
+  form,
+  isSubmitting,
+  refreshVersion,
+  status,
+  onResetStatus,
+}: {
+  businessAccountId: string;
+  form: DispatcherFormDefinition;
+  isSubmitting: boolean;
+  refreshVersion: number;
+  status: string;
+  onResetStatus: () => void;
+}) {
+  const equipmentOptions = readEquipmentOptions(form);
+  const [payload, setPayload] = useState(() =>
+    buildInitialEquipmentFormPayload(form, businessAccountId, equipmentOptions),
+  );
+  const [equipmentFeed, setEquipmentFeed] = useState<DispatcherFeedLoadState>({
+    status: "loading",
+    message: "Запрашиваем отметки оборудования.",
+  });
+  const selectedEquipment = payload.equipment ?? "";
+  const reportDate = payload.reportDate ?? getTodayDateValue();
+  const equipmentSubmissions =
+    equipmentFeed.status === "ready" ? equipmentFeed.submissions : [];
+  const completionMap = buildEquipmentCompletionMap(
+    equipmentSubmissions,
+    reportDate,
+  );
+  const doneCount = equipmentOptions.filter((equipment) =>
+    completionMap.has(equipment),
+  ).length;
+  const selectedSubmission =
+    selectedEquipment.length === 0
+      ? undefined
+      : completionMap.get(selectedEquipment);
+  const isLocalEquipmentFeed =
+    equipmentFeed.status === "ready" && equipmentFeed.source === "local_test";
+
+  useEffect(() => {
+    setPayload(
+      buildInitialEquipmentFormPayload(form, businessAccountId, equipmentOptions),
+    );
+  }, [businessAccountId, form, equipmentOptions]);
+
+  useEffect(() => {
+    let isActive = true;
+    let currentController: AbortController | undefined;
+
+    function loadEquipmentFeed() {
+      currentController?.abort();
+      currentController = new AbortController();
+
+      setEquipmentFeed((current) =>
+        current.status === "ready"
+          ? current
+          : {
+              status: "loading",
+              message: "Запрашиваем отметки оборудования.",
+            },
+      );
+
+      requestDispatcherFeed({
+        formId: "equipment",
+        limit: 500,
+        localFallback: true,
+        signal: currentController.signal,
+      }).then((result) => {
+        if (isActive) {
+          setEquipmentFeed(result);
+        }
+      });
+    }
+
+    loadEquipmentFeed();
+    const intervalId = window.setInterval(loadEquipmentFeed, 10_000);
+
+    return () => {
+      isActive = false;
+      currentController?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [refreshVersion]);
+
+  function handleEquipmentChange(equipment: string) {
+    const storage = readBrowserEquipmentDraftStorage();
+    const savedDraft =
+      equipment.length === 0
+        ? {}
+        : readEquipmentDraftPayload({
+            businessAccountId,
+            equipment,
+            form,
+            storage,
+          });
+
+    if (equipment.length > 0) {
+      writeLastEquipmentOption({
+        businessAccountId,
+        equipment,
+        storage,
+      });
+    }
+
+    setPayload(
+      buildEquipmentFormPayload({
+        equipment,
+        form,
+        savedDraft,
+        todayDate: getTodayDateValue(),
+      }),
+    );
+    onResetStatus();
+  }
+
+  function handleFieldChange(field: DispatcherFormField, value: string) {
+    const nextValue = normalizeControlledFieldInput(value, field);
+
+    updateEquipmentPayload(field, nextValue);
+  }
+
+  function handleFieldBlur(field: DispatcherFormField) {
+    const currentValue = payload[field.name] ?? "";
+    const nextValue =
+      field.type === "number"
+        ? normalizeDecimalNumberForPayload(currentValue) ?? ""
+        : field.type === "integer"
+          ? normalizeIntegerForPayload(currentValue) ?? ""
+          : currentValue;
+
+    updateEquipmentPayload(field, nextValue);
+  }
+
+  function updateEquipmentPayload(field: DispatcherFormField, value: string) {
+    setPayload((current) => {
+      const nextPayload = {
+        ...current,
+        [field.name]: value,
+      };
+      const equipment = nextPayload.equipment ?? "";
+
+      if (field.name !== "reportDate" && equipment.length > 0) {
+        writeEquipmentDraftPayload({
+          businessAccountId,
+          equipment,
+          form,
+          payload: nextPayload,
+          storage: readBrowserEquipmentDraftStorage(),
+        });
+      }
+
+      return nextPayload;
+    });
+
+    onResetStatus();
+  }
+
+  return (
+    <>
+      <div className="equipment-progress-panel" aria-label="Отметки оборудования">
+        <div className="equipment-progress-header">
+          <strong>
+            Отмечено за {formatReportDateForDisplay(reportDate)}: {doneCount}/
+            {equipmentOptions.length}
+          </strong>
+          <span>
+            {selectedSubmission === undefined
+              ? "Текущая запись будет создана"
+              : "Повторная отправка обновит запись"}
+          </span>
+        </div>
+        <div className="equipment-status-grid">
+          {equipmentOptions.map((equipment) => {
+            const submission = completionMap.get(equipment);
+            const isComplete = submission !== undefined;
+            const isActive = equipment === selectedEquipment;
+
+            return (
+              <button
+                className={[
+                  "equipment-status-button",
+                  isComplete ? "is-complete" : "",
+                  isActive ? "is-active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                type="button"
+                aria-pressed={isActive}
+                key={equipment}
+                onClick={() => handleEquipmentChange(equipment)}
+              >
+                <span>{equipment}</span>
+                <small>
+                  {submission === undefined
+                    ? "нет записи"
+                    : `заполнено ${formatDateTime(submission.receivedAt)}`}
+                </small>
+              </button>
+            );
+          })}
+        </div>
+        {equipmentFeed.status === "error" ? (
+          <p className="form-status">{equipmentFeed.message}</p>
+        ) : null}
+        {isLocalEquipmentFeed ? (
+          <p className="form-status form-status-local">
+            Отметки оборудования читаются из локального тестового хранилища.
+          </p>
+        ) : null}
+      </div>
+      <div className="dispatcher-form-fields">
+        {form.fields.map((field) => (
+          <DispatcherControlledFormFieldInput
+            field={field}
+            key={field.name}
+            value={payload[field.name] ?? ""}
+            onBlur={handleFieldBlur}
+            onChange={
+              field.name === "equipment"
+                ? handleEquipmentChange
+                : (value) => handleFieldChange(field, value)
+            }
+          />
+        ))}
+      </div>
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={isSubmitting}>
+          {isSubmitting
+            ? "Отправка..."
+            : selectedSubmission === undefined
+              ? "Отправить на сервер"
+              : "Обновить запись"}
+        </button>
+        {status.length > 0 ? <p className="form-status">{status}</p> : null}
+      </div>
+    </>
+  );
+}
+
+function DispatcherControlledFormFieldInput({
+  field,
+  value,
+  onBlur,
+  onChange,
+}: {
+  field: DispatcherFormField;
+  value: string;
+  onBlur: (field: DispatcherFormField) => void;
+  onChange: (value: string) => void;
+}) {
+  if (field.type === "textarea") {
+    return (
+      <label>
+        <span>{field.label}</span>
+        <textarea
+          name={field.name}
+          rows={4}
+          required={field.required}
+          maxLength={readInputMaxLength(field)}
+          value={value}
+          onBlur={() => onBlur(field)}
+          onChange={(event) => onChange(event.currentTarget.value)}
+        />
+      </label>
+    );
+  }
+
+  if (field.type === "select") {
+    return (
+      <label>
+        <span>{field.label}</span>
+        <select
+          name={field.name}
+          required={field.required}
+          value={value}
+          onBlur={() => onBlur(field)}
+          onChange={(event) => onChange(event.currentTarget.value)}
+        >
+          <option value="">Не выбрано</option>
+          {(field.options ?? []).map((option) => (
+            <option value={option} key={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  return (
+    <label>
+      <span>{field.label}</span>
+      <input
+        name={field.name}
+        type={readInputType(field)}
+        inputMode={readInputMode(field)}
+        pattern={readInputPattern(field)}
+        title={readInputTitle(field)}
+        placeholder={readInputPlaceholder(field)}
+        maxLength={readInputMaxLength(field)}
+        required={field.required}
+        value={value}
+        onBlur={() => onBlur(field)}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    </label>
   );
 }
 
@@ -1209,6 +1559,58 @@ function readInputDefaultValue(field: DispatcherFormField) {
   }
 
   return undefined;
+}
+
+function buildInitialEquipmentFormPayload(
+  form: DispatcherFormDefinition,
+  businessAccountId: string,
+  equipmentOptions: readonly string[],
+) {
+  const storage = readBrowserEquipmentDraftStorage();
+  const equipment =
+    readLastEquipmentOption({
+      businessAccountId,
+      equipmentOptions,
+      storage,
+    }) ?? "";
+  const savedDraft =
+    equipment.length === 0
+      ? {}
+      : readEquipmentDraftPayload({
+          businessAccountId,
+          equipment,
+          form,
+          storage,
+        });
+
+  return buildEquipmentFormPayload({
+    equipment,
+    form,
+    savedDraft,
+    todayDate: getTodayDateValue(),
+  });
+}
+
+function normalizeControlledFieldInput(value: string, field: DispatcherFormField) {
+  if (field.type === "number") {
+    return normalizeDecimalNumberInput(value);
+  }
+
+  if (field.type === "integer") {
+    return normalizeIntegerInput(value);
+  }
+
+  return value;
+}
+
+function readBrowserEquipmentDraftStorage():
+  | DispatcherEquipmentDraftStorage
+  | undefined {
+  try {
+    return typeof window === "undefined" ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeFormValue(value: string, field: DispatcherFormField) {

@@ -85,6 +85,7 @@ export type DispatcherFeedFilters = {
   formId?: DispatcherFormId;
   dateFrom?: string;
   dateTo?: string;
+  limit?: number;
 };
 
 type DispatcherRemoteOptions = {
@@ -573,12 +574,13 @@ export async function requestDispatcherFeed({
   formId,
   dateFrom,
   dateTo,
+  limit,
 }: DispatcherRemoteOptions & DispatcherFeedFilters = {}): Promise<DispatcherFeedResult> {
   const endpoint = buildRemoteEndpoint(DISPATCHER_SUBMISSIONS_PATH, { baseUrl });
 
   if (endpoint.status === "missing") {
     if (shouldUseLocalDispatcherFallback({ localFallback, storage })) {
-      return requestLocalDispatcherFeed({ formId, dateFrom, dateTo, storage });
+      return requestLocalDispatcherFeed({ formId, dateFrom, dateTo, limit, storage });
     }
 
     return {
@@ -592,6 +594,7 @@ export async function requestDispatcherFeed({
     formId,
     dateFrom,
     dateTo,
+    limit,
   });
 
   try {
@@ -638,7 +641,7 @@ export async function requestDispatcherFeed({
     }
 
     if (shouldUseLocalDispatcherFallback({ localFallback, storage })) {
-      return requestLocalDispatcherFeed({ formId, dateFrom, dateTo, storage });
+      return requestLocalDispatcherFeed({ formId, dateFrom, dateTo, limit, storage });
     }
 
     return {
@@ -698,7 +701,13 @@ function saveLocalDispatcherSubmission(
   }
 
   const submission: DispatcherSubmission = {
-    id: buildLocalSubmissionId(receivedAt),
+    id:
+      readLocalEquipmentSubmissionDuplicate(
+        existingSubmissions,
+        draft.businessAccountId,
+        draft.formId,
+        scriptPayload.payload,
+      )?.id ?? buildLocalSubmissionId(receivedAt),
     businessAccountId: draft.businessAccountId,
     formId: draft.formId,
     formTitle: form.title,
@@ -709,7 +718,25 @@ function saveLocalDispatcherSubmission(
     submittedAt: receivedAt,
     receivedAt,
   };
-  const submissions = [submission, ...existingSubmissions];
+  const dedupeKey = buildLocalDispatcherSubmissionDedupeKey(
+    draft.businessAccountId,
+    draft.formId,
+    scriptPayload.payload,
+  );
+  const submissions =
+    dedupeKey === null
+      ? [submission, ...existingSubmissions]
+      : [
+          submission,
+          ...existingSubmissions.filter(
+            (item) =>
+              buildLocalDispatcherSubmissionDedupeKey(
+                item.businessAccountId,
+                item.formId,
+                item.payload,
+              ) !== dedupeKey,
+          ),
+        ];
 
   try {
     storage.setItem(
@@ -736,6 +763,7 @@ function requestLocalDispatcherFeed({
   formId,
   dateFrom,
   dateTo,
+  limit,
   storage,
 }: DispatcherFeedFilters & Pick<DispatcherRemoteOptions, "storage">): DispatcherFeedResult {
   const localStorage = readLocalDispatcherStorage({ storage });
@@ -753,7 +781,8 @@ function requestLocalDispatcherFeed({
     .filter((submission) =>
       matchesLocalDispatcherFilters(submission, { formId, dateFrom, dateTo }),
     )
-    .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt));
+    .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
+    .slice(0, readSafeLocalFeedLimit(limit));
 
   return {
     status: "ready",
@@ -828,6 +857,56 @@ function buildLocalSubmissionId(receivedAt: string) {
   const entropy = Math.random().toString(36).slice(2, 8);
 
   return `local-${receivedAt.replace(/\D/g, "").slice(0, 14)}-${entropy}`;
+}
+
+function readLocalEquipmentSubmissionDuplicate(
+  submissions: DispatcherSubmission[],
+  businessAccountId: string,
+  formId: DispatcherFormId,
+  payload: DispatcherSubmissionPayload,
+) {
+  const dedupeKey = buildLocalDispatcherSubmissionDedupeKey(
+    businessAccountId,
+    formId,
+    payload,
+  );
+
+  if (dedupeKey === null) {
+    return undefined;
+  }
+
+  return submissions.find(
+    (submission) =>
+      buildLocalDispatcherSubmissionDedupeKey(
+        submission.businessAccountId,
+        submission.formId,
+        submission.payload,
+      ) === dedupeKey,
+  );
+}
+
+function buildLocalDispatcherSubmissionDedupeKey(
+  businessAccountId: string,
+  formId: DispatcherFormId,
+  payload: DispatcherSubmissionPayload,
+) {
+  if (formId !== "equipment") {
+    return null;
+  }
+
+  const reportDate = payload.reportDate?.trim();
+  const equipment = payload.equipment?.trim();
+
+  if (
+    reportDate === undefined ||
+    reportDate.length === 0 ||
+    equipment === undefined ||
+    equipment.length === 0
+  ) {
+    return null;
+  }
+
+  return `equipment:${businessAccountId}:${reportDate}:${equipment}`;
 }
 
 function applyLocalDispatcherFormScriptRules(
@@ -1031,6 +1110,10 @@ function buildLocalDispatcherSummary(
   };
 }
 
+function readSafeLocalFeedLimit(limit: number | undefined) {
+  return Math.min(Math.max(limit ?? 100, 1), 500);
+}
+
 async function readJson(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
 
@@ -1058,6 +1141,10 @@ function buildFeedEndpoint(endpoint: string, filters: DispatcherFeedFilters) {
 
   if (filters.dateTo !== undefined) {
     url.searchParams.set("dateTo", filters.dateTo);
+  }
+
+  if (filters.limit !== undefined) {
+    url.searchParams.set("limit", String(filters.limit));
   }
 
   return url.toString();

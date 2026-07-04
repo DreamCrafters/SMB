@@ -483,6 +483,85 @@ p {
   gap: var(--density-3);
 }
 
+.equipment-progress-panel {
+  display: grid;
+  gap: var(--density-2);
+  padding: var(--density-3) 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.equipment-progress-header {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.equipment-progress-header strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.equipment-progress-header span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.equipment-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--density-1);
+}
+
+.equipment-status-button {
+  display: grid;
+  gap: 3px;
+  min-height: 54px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-left: 5px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--surface-raised);
+  text-align: left;
+}
+
+.equipment-status-button:hover,
+.equipment-status-button:focus-visible {
+  border-color: var(--blue-gray);
+  border-left-color: var(--blue-gray);
+  outline: 2px solid var(--blue-gray-soft);
+}
+
+.equipment-status-button.is-complete {
+  border-left-color: var(--emerald);
+  background: var(--emerald-soft);
+}
+
+.equipment-status-button.is-active {
+  border-color: var(--nav);
+  outline: 2px solid var(--blue-gray-soft);
+}
+
+.equipment-status-button span {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.equipment-status-button small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .month-input-control {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) 38px;

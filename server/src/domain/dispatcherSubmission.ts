@@ -142,6 +142,28 @@ export function mapDispatcherSubmissionRow(
   };
 }
 
+export function buildDispatcherSubmissionDedupeKey(
+  draft: DispatcherSubmissionDraft,
+) {
+  if (draft.formId !== "equipment") {
+    return null;
+  }
+
+  const reportDate = draft.payload.reportDate?.trim();
+  const equipment = draft.payload.equipment?.trim();
+
+  if (
+    reportDate === undefined ||
+    reportDate.length === 0 ||
+    equipment === undefined ||
+    equipment.length === 0
+  ) {
+    return null;
+  }
+
+  return `equipment:${draft.businessAccountId}:${reportDate}:${equipment}`;
+}
+
 function readFormId(value: unknown, errors: string[]) {
   if (!isDispatcherFormId(value)) {
     errors.push("formId must be a supported dispatcher form id.");

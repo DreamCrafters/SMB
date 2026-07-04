@@ -103,6 +103,41 @@ test("dispatcher submissions can use local test storage without remote URL", asy
   assert.equal(feedResult.submissions[0].id, submitResult.submission.id);
 });
 
+test("local equipment submissions overwrite the same report date and equipment", async () => {
+  const storage = createMemoryStorage();
+  const firstSubmitResult = await submitDispatcherSubmission(draft, {
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+  const secondSubmitResult = await submitDispatcherSubmission(
+    {
+      ...draft,
+      payload: {
+        ...draft.payload,
+        productionTons: "43",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+  const feedResult = await requestDispatcherFeed({
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+
+  assert.equal(firstSubmitResult.status, "ready");
+  assert.equal(secondSubmitResult.status, "ready");
+  assert.equal(feedResult.status, "ready");
+  assert.equal(secondSubmitResult.submission.id, firstSubmitResult.submission.id);
+  assert.equal(feedResult.summary.total, 1);
+  assert.equal(feedResult.submissions[0].payload.productionTons, "43");
+});
+
 test("requestDispatcherForms reads server form definitions", async () => {
   let request;
 
@@ -231,13 +266,14 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
     formId: "equipment",
     dateFrom: "2026-06-01",
     dateTo: "2026-06-30",
+    limit: 500,
   });
 
   assert.equal(result.status, "ready");
   assert.equal(result.submissions.length, 1);
   assert.equal(
     request.endpoint,
-    "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30",
+    "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&limit=500",
   );
   assert.equal(request.init.method, "GET");
 });

@@ -35,6 +35,51 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "002_equipment_submission_dedupe_key",
+    statements: [
+      `
+      alter table dispatcher_submissions
+        add column dedupe_key varchar(512) null after summary;
+      `,
+      `
+      update dispatcher_submissions as submission
+      join (
+        select
+          id,
+          case
+            when row_number() over (
+              partition by
+                business_account_id,
+                json_unquote(json_extract(payload, '$.reportDate')),
+                json_unquote(json_extract(payload, '$.equipment'))
+              order by received_at desc, id desc
+            ) = 1
+            then concat(
+              'equipment:',
+              business_account_id,
+              ':',
+              json_unquote(json_extract(payload, '$.reportDate')),
+              ':',
+              json_unquote(json_extract(payload, '$.equipment'))
+            )
+            else null
+          end as next_dedupe_key
+        from dispatcher_submissions
+        where form_id = 'equipment'
+          and json_unquote(json_extract(payload, '$.reportDate')) is not null
+          and json_unquote(json_extract(payload, '$.reportDate')) <> ''
+          and json_unquote(json_extract(payload, '$.equipment')) is not null
+          and json_unquote(json_extract(payload, '$.equipment')) <> ''
+      ) as ranked on ranked.id = submission.id
+      set submission.dedupe_key = ranked.next_dedupe_key;
+      `,
+      `
+      alter table dispatcher_submissions
+        add unique key uniq_dispatcher_submissions_dedupe_key (dedupe_key);
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {
