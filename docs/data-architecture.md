@@ -276,6 +276,8 @@ React-интерфейс может хранить результат запро
 
 В remote/server-PC/VPS режиме наружу открывается только backend API. MariaDB/MySQL должна оставаться доступной локально для backend-сервера, например через `127.0.0.1:3306` в `docker-compose.yml`, либо через явно разрешённый IP при использовании внешней managed DB.
 
+Текущая выбранная managed DB на Jino для SMB — `j53403317_bot1` с прикладным пользователем `j53403317_robot`. При запуске backend из файлов Jino используется DB host `localhost` или Unix socket `/var/lib/mysql/mysql.sock`; при проверке с локального компьютера или VPS используется внешний host `mysql.584e7697571.hosting.myjino.ru` и IP allowlist в панели Jino.
+
 Настройка подключения:
 
 - переменная окружения frontend: `VITE_SMB_REMOTE_API_URL`;

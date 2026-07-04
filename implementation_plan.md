@@ -35,6 +35,7 @@ SMB Monitor — платформа для мониторинга ключевы�
 - [x] Если удалённый сервер не подключён или недоступен, временный dev-вход возвращается к локальным Vite endpoints, а если `/api` хостинга отсутствует — к клиентской тестовой dev-сессии в `sessionStorage`; диспетчерские формы, отправка и live-история переходят в явно помеченный локальный тестовый `localStorage` fallback. Этот режим нужен только для проверки интерфейса и не заменяет backend.
 - [x] Backend workspace `server/` создан в этом репозитории: Node.js + TypeScript API, MariaDB/MySQL, миграция `dispatcher_submissions`, endpoints `POST/GET /api/dispatcher/submissions`.
 - [x] Локальная MariaDB подключена через `docker-compose.yml`; данные dispatcher submissions хранятся в Docker volume и переживают рестарт контейнера.
+- [x] Для Jino выбрана managed MariaDB `j53403317_bot1` с прикладным пользователем `j53403317_robot`; миграции `schema_migrations` и `dispatcher_submissions` применены к этой БД.
 - [x] Инструкция по серверной части создана в `docs/server-setup.md`.
 - [x] Локальные env-файлы `.env` и `server/.env` подготовлены для запуска backend на `127.0.0.1:3000`.
 - [x] Короткая инструкция запуска локального сервера создана в `docs/local-server-run.md`, указывает запуск из корня проекта и уточняет проверку установленного и запущенного Docker Desktop.
@@ -42,6 +43,8 @@ SMB Monitor — платформа для мониторинга ключевы�
 - [x] Remote-инструкция расширена для чужого server-PC/VPS: добавлен handoff владельцу сервера, read-only Git-доступ и repeatable update-runbook через `git pull --ff-only` без удаления DB volume.
 - [x] `docs/remote-server-pc-setup.md` сжата до короткого конкретного runbook: первичная настройка, env, постоянный запуск, frontend, Git-обновление и минимальная диагностика.
 - [x] Подготовлен постоянный Windows server-PC профиль: MariaDB запускается с `restart: unless-stopped`, порт БД опубликован только на `127.0.0.1`, добавлены PowerShell-скрипты запуска и регистрации в Task Scheduler.
+- [x] Deployment-договорённость обновлена: frontend и backend код хранятся в `~/domains/smb.aonmou.ru/app` на Jino, собранная статика публикуется в `public_html`; для запуска backend на самом Jino нужен Node.js/web-app runtime, а не только PHP-интерпретатор.
+- [x] Backend `DATABASE_URL` поддерживает Jino Unix socket через `socketPath`, чтобы managed MariaDB могла подключаться как локальная `localhost`-БД, если TCP `127.0.0.1:3306` отклоняет пользователя.
 - [x] Runtime whitelist capabilities добавлен: клиент отклоняет неизвестные capability из server profile.
 - [x] Добавлены тесты `requestAccessProfile`, dev access session, dispatcher remote boundary и server-domain validation через `npm test`.
 - [x] Диагностика remote API усилена: при сетевом/CORS-сбое диспетчерской отправки UI показывает проверку `/health`, точный browser origin для `CORS_ORIGIN` и предупреждение про `127.0.0.1` при frontend с другого ПК.

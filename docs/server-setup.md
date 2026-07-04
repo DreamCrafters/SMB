@@ -82,6 +82,23 @@ RUN_MIGRATIONS_ON_START=true
 DATABASE_URL=mysql://DB_USER:DB_PASSWORD@DB_HOST:3306/DB_NAME
 ```
 
+Текущая выбранная Jino-БД для SMB:
+
+```text
+DB_NAME=j53403317_bot1
+DB_USER=j53403317_robot
+DB_HOST_ON_JINO=localhost
+DB_HOST_EXTERNAL=mysql.584e7697571.hosting.myjino.ru
+```
+
+Если backend запускается на самом Jino-хостинге, в `DATABASE_URL` использовать `localhost`. Если backend или миграции запускаются с другого компьютера/VPS, использовать внешний host и заранее открыть доступ по IP в панели Jino.
+
+Если Jino отклоняет TCP-подключение как `user@127.0.0.1`, используй Unix socket из панели Jino. `socketPath` записывается URL-encoded:
+
+```text
+DATABASE_URL=mysql://j53403317_robot:<url-encoded-password>@localhost/j53403317_bot1?socketPath=%2Fvar%2Flib%2Fmysql%2Fmysql.sock
+```
+
 Если в пароле есть спецсимволы вроде `@`, `/`, `:` или `#`, их нужно URL-encoded записать в `DATABASE_URL`.
 
 Если frontend открыт с другого origin, добавь этот точный origin в `CORS_ORIGIN`. Для Vercel preview можно использовать hostname-паттерн с `*`, например `https://smb-*-artemi-z-s-projects.vercel.app`. Backend возвращает конкретный origin запроса, если он совпал с паттерном. Для dev-доступа backend также принимает заголовок `X-SMB-Dev-Session`, а CORS preflight разрешает `POST` и `DELETE` для создания и очистки временной dev-сессии.

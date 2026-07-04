@@ -75,6 +75,23 @@ RUN_MIGRATIONS_ON_START=true
 DATABASE_URL=mysql://DB_USER:DB_PASSWORD@DB_HOST:3306/DB_NAME
 ```
 
+Для текущей Jino-БД SMB:
+
+```text
+DB_NAME=j53403317_bot1
+DB_USER=j53403317_robot
+DB_HOST_ON_JINO=localhost
+DB_HOST_EXTERNAL=mysql.584e7697571.hosting.myjino.ru
+```
+
+Если backend запускается из файлов Jino-хостинга, используй host `localhost`. Если Jino отклоняет TCP-подключение как `user@127.0.0.1`, используй Unix socket из панели Jino:
+
+```text
+DATABASE_URL=mysql://j53403317_robot:<url-encoded-password>@localhost/j53403317_bot1?socketPath=%2Fvar%2Flib%2Fmysql%2Fmysql.sock
+```
+
+Если backend запускается с VPS или локального компьютера, используй внешний host и добавь публичный IP этой машины в MySQL-доступ по IP в панели Jino.
+
 Если в пароле есть спецсимволы вроде `@`, `/`, `:` или `#`, их нужно URL-encoded записать в `DATABASE_URL`.
 
 Если frontend на Vercel, используй:
@@ -297,6 +314,29 @@ CORS_ORIGIN=https://smb-umber.vercel.app,https://smb-*-artemi-z-s-projects.verce
 ```
 
 До production auth это только закрытый тестовый стенд.
+
+## 10a. Если код лежит в файлах Jino
+
+Текущий договорённый путь для домена `smb.aonmou.ru`: исходники frontend и backend хранятся в `~/domains/smb.aonmou.ru/app`, собранная статика публикуется в `~/domains/smb.aonmou.ru/public_html`, Node entrypoint домена лежит в `~/domains/smb.aonmou.ru/app.js`.
+
+Важное различие:
+
+- файлы можно загрузить через Git или SFTP/FTPS/FTP в папку `app`;
+- frontend после `npm run build` можно публиковать как статические файлы;
+- backend `server/` заработает на Jino только если для хостинга включён Node.js/web-app runtime, а не только PHP-интерпретатор;
+- для backend на самом Jino в `server/.env` нужен DB host `localhost` или `socketPath`, потому что MySQL находится на том же хостинге;
+- внешний host `mysql.584e7697571.hosting.myjino.ru` нужен для локальных проверок или VPS.
+
+Минимальный `server/.env` на Jino без раскрытия пароля:
+
+```text
+PORT=3000
+DATABASE_URL=mysql://j53403317_robot:<url-encoded-password>@localhost/j53403317_bot1?socketPath=%2Fvar%2Flib%2Fmysql%2Fmysql.sock
+CORS_ORIGIN=https://smb.aonmou.ru,http://smb.aonmou.ru,http://127.0.0.1:5173,http://localhost:5173
+RUN_MIGRATIONS_ON_START=true
+```
+
+Если в панели Jino виден только PHP/PHP 7.4 и нет настройки Node.js/web-app, backend API там не стартует. В этом случае можно держать frontend в файлах Jino, а backend запускать на VPS или другом Node-сервере.
 
 ## 11. Быстрая диагностика
 

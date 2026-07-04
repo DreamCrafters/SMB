@@ -58,6 +58,8 @@
 - Для действий, которые должны сохраняться в удалённой БД, использовать remote API boundary; исключение допустимо только для явно тестового fallback: временная dev-сессия в `sessionStorage` для входа в интерфейс и диспетчерские отправки в `localStorage`, когда сервер или `/api` хостинга не настроены или недоступны. Такой режим должен быть визуально помечен как локальный тестовый, не считаться production-хранением/auth и сопровождаться тестами/документацией.
 - Постоянное хранение реализовывать через backend workspace `server/` и MariaDB/MySQL; изменения схемы делать через миграции, а не ручные ad-hoc SQL правки в коде обработчиков.
 - В remote/server-PC/VPS режиме открывать в сеть только backend API; MariaDB/MySQL держать доступной только локально для backend или по явно разрешённому IP, не публиковать порт `3306` наружу без отдельного осознанного решения.
+- Текущий Jino deployment-контекст: публичный домен `smb.aonmou.ru`, исходники frontend/backend лежат в `~/domains/smb.aonmou.ru/app`, собранная статика публикуется в `~/domains/smb.aonmou.ru/public_html`, Node entrypoint домена — `~/domains/smb.aonmou.ru/app.js`.
+- Рабочая Jino managed DB — `j53403317_bot1` с пользователем `j53403317_robot`; при запуске backend на Jino использовать DB host `localhost`, а если TCP-подключение даёт `user@127.0.0.1` access denied, подключать backend через `socketPath=/var/lib/mysql/mysql.sock` в `DATABASE_URL`; при внешней проверке/VPS использовать `mysql.584e7697571.hosting.myjino.ru` с IP allowlist.
 - Визуальный стиль проекта: Industrial Finance Operations — светлый stone-gray рабочий интерфейс с blue-gray навигацией, compact density, server/status strip, очередями, таблицами и строгими статусными цветами.
 
 ## Проверки
