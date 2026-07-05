@@ -143,7 +143,7 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
   },
   {
     id: "incident",
-    title: "Инцидент",
+    title: "Открытие инцидента",
     sheetName: "Инциденты",
     summaryFields: ["incidentNumber", "location", "incidentType", "criticality"],
     fields: [
@@ -300,29 +300,10 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
     summaryFields: ["fio", "organization"],
     fields: [
       {
-        name: "fio",
-        label: "ФИО посетителя",
+        name: "visitorEntryId",
+        label: "Посетитель",
         type: "text",
         required: true,
-      },
-      {
-        name: "organization",
-        label: "Организация",
-        type: "text",
-        required: false,
-      },
-      {
-        name: "whom",
-        label: "Кого посещал",
-        type: "text",
-        required: false,
-      },
-      {
-        name: "note",
-        label: "Примечание",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
       },
     ],
   },

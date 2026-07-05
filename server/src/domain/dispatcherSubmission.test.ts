@@ -195,8 +195,7 @@ test("validateDispatcherSubmissionDraft stamps visitor exit time", () => {
     businessAccountId: "business-id",
     formId: "visitor_exit",
     payload: {
-      fio: "Visitor Name",
-      organization: "External Org",
+      visitorEntryId: "visitor-entry-id",
     },
   });
 

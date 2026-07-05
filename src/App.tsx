@@ -59,6 +59,14 @@ import {
   canSubmitDispatcherForms,
   hasCapability,
 } from "./services/accessGuards";
+import {
+  buildEquipmentSummaryRows,
+  buildIncidentSummaryRows,
+  buildOpenVisitorOptions,
+  buildVisitorVisitRows,
+  readDispatcherGroupFormIds,
+  type DispatcherFeedGroup,
+} from "./services/dispatcherFeedViews";
 
 type OwnerTab = "overview" | "dispatcher";
 
@@ -90,9 +98,10 @@ type DispatcherFormsLoadState =
   | DispatcherFormsResult;
 
 type DispatcherFeedFilterState = {
-  formId: DispatcherFormId | "";
+  group: DispatcherFeedGroup;
   dateFrom: string;
   dateTo: string;
+  visitorDate: string;
 };
 
 type DispatcherFormChoiceGroupId = "equipment" | "incidents" | "visitors";
@@ -124,9 +133,10 @@ const initialDispatcherFormsState: DispatcherFormsLoadState = {
 };
 
 const initialDispatcherFeedFilters: DispatcherFeedFilterState = {
-  formId: "",
+  group: "equipment",
   dateFrom: "",
   dateTo: "",
+  visitorDate: getTodayDateValue(),
 };
 
 const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
@@ -216,7 +226,6 @@ export default function App() {
       return;
     }
 
-    const { formId, dateFrom, dateTo } = dispatcherFeedFilters;
     let isActive = true;
     let currentController: AbortController | undefined;
 
@@ -236,9 +245,7 @@ export default function App() {
       requestDispatcherFeed({
         signal: currentController.signal,
         localFallback: true,
-        formId: formId === "" ? undefined : formId,
-        dateFrom: dateFrom.length > 0 ? dateFrom : undefined,
-        dateTo: dateTo.length > 0 ? dateTo : undefined,
+        limit: 500,
       }).then((result) => {
         if (isActive) {
           setDispatcherFeed(result);
@@ -256,9 +263,7 @@ export default function App() {
     };
   }, [
     accessProfile,
-    dispatcherFeedFilters.dateFrom,
-    dispatcherFeedFilters.dateTo,
-    dispatcherFeedFilters.formId,
+    dispatcherSubmissionVersion,
   ]);
 
   useEffect(() => {
@@ -855,6 +860,13 @@ function DataEntryWorkspace({
             status={status}
             onResetStatus={onResetStatus}
           />
+        ) : currentForm.id === "visitor_exit" ? (
+          <DispatcherVisitorExitFormBody
+            businessAccountId={businessAccountId}
+            isSubmitting={isSubmitting}
+            refreshVersion={refreshVersion}
+            status={status}
+          />
         ) : (
           <>
             <div className="dispatcher-form-fields">
@@ -876,6 +888,111 @@ function DataEntryWorkspace({
         )}
       </form>
     </section>
+  );
+}
+
+function DispatcherVisitorExitFormBody({
+  businessAccountId,
+  isSubmitting,
+  refreshVersion,
+  status,
+}: {
+  businessAccountId: string;
+  isSubmitting: boolean;
+  refreshVersion: number;
+  status: string;
+}) {
+  const [visitorFeed, setVisitorFeed] = useState<DispatcherFeedLoadState>({
+    status: "loading",
+    message: "Запрашиваем посетителей без отметки выхода.",
+  });
+  const submissions =
+    visitorFeed.status === "ready" ? visitorFeed.submissions : [];
+  const openVisitors = buildOpenVisitorOptions(submissions, businessAccountId);
+  const isLocalVisitorFeed =
+    visitorFeed.status === "ready" && visitorFeed.source === "local_test";
+
+  useEffect(() => {
+    let isActive = true;
+    let currentController: AbortController | undefined;
+
+    function loadVisitorFeed() {
+      currentController?.abort();
+      currentController = new AbortController();
+
+      setVisitorFeed((current) =>
+        current.status === "ready"
+          ? current
+          : {
+              status: "loading",
+              message: "Запрашиваем посетителей без отметки выхода.",
+            },
+      );
+
+      requestDispatcherFeed({
+        limit: 500,
+        localFallback: true,
+        signal: currentController.signal,
+      }).then((result) => {
+        if (isActive) {
+          setVisitorFeed(result);
+        }
+      });
+    }
+
+    loadVisitorFeed();
+    const intervalId = window.setInterval(loadVisitorFeed, 10_000);
+
+    return () => {
+      isActive = false;
+      currentController?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [refreshVersion]);
+
+  return (
+    <>
+      <div className="dispatcher-form-fields dispatcher-form-fields-single">
+        <label>
+          <span>Посетитель</span>
+          <select
+            name="visitorEntryId"
+            required
+            defaultValue=""
+            disabled={openVisitors.length === 0}
+          >
+            <option value="">
+              {openVisitors.length === 0
+                ? "Нет посетителей без отметки выхода"
+                : "Выберите посетителя"}
+            </option>
+            {openVisitors.map((visitor) => (
+              <option value={visitor.entryId} key={visitor.entryId}>
+                {visitor.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {visitorFeed.status === "error" ? (
+        <p className="form-status">{visitorFeed.message}</p>
+      ) : null}
+      {isLocalVisitorFeed ? (
+        <p className="form-status form-status-local">
+          Список открытых посетителей читается из локального тестового хранилища.
+        </p>
+      ) : null}
+      <div className="form-actions">
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={isSubmitting || openVisitors.length === 0}
+        >
+          {isSubmitting ? "Отправка..." : "Отметить выход"}
+        </button>
+        {status.length > 0 ? <p className="form-status">{status}</p> : null}
+      </div>
+    </>
   );
 }
 
@@ -1350,75 +1467,104 @@ function DispatcherFeedPanel({
 }) {
   const submissions =
     dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [];
-  const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
-  const summary =
-    dispatcherFeed.status === "ready" ? dispatcherFeed.summary : undefined;
+  const selectedGroupFormIds = readDispatcherGroupFormIds(filters.group);
+  const selectedGroupSubmissions = submissions.filter((submission) =>
+    selectedGroupFormIds.includes(submission.formId),
+  );
   const hasDateFilters =
-    filters.dateFrom.length > 0 || filters.dateTo.length > 0;
+    filters.group === "visitors"
+      ? filters.visitorDate.length > 0
+      : filters.dateFrom.length > 0 || filters.dateTo.length > 0;
   const isLocalTestMode =
     dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
+  const equipmentRows = buildEquipmentSummaryRows(submissions, {
+    dateFrom: filters.dateFrom.length > 0 ? filters.dateFrom : undefined,
+    dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
+  });
+  const incidentRows = buildIncidentSummaryRows(submissions, {
+    dateFrom: filters.dateFrom.length > 0 ? filters.dateFrom : undefined,
+    dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
+  });
+  const visitorRows = buildVisitorVisitRows(submissions, filters.visitorDate);
 
   return (
     <section className="dispatcher-live-column" aria-label="Диспетчерская">
       <div className="dispatcher-feed-controls">
-        <label>
-          <span>Форма</span>
-          <select
-            value={filters.formId}
-            onChange={(event) =>
-              onFiltersChange({
-                formId: event.currentTarget.value as DispatcherFormId | "",
-              })
-            }
-            disabled={forms.length === 0}
-          >
-            <option value="">Все формы</option>
-            {forms.map((form) => (
-              <option value={form.id} key={form.id}>
-                {form.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>С даты</span>
-          <input
-            type="date"
-            value={filters.dateFrom}
-            onChange={(event) =>
-              onFiltersChange({ dateFrom: event.currentTarget.value })
-            }
-          />
-        </label>
-        <label>
-          <span>По дату</span>
-          <input
-            type="date"
-            value={filters.dateTo}
-            onChange={(event) =>
-              onFiltersChange({ dateTo: event.currentTarget.value })
-            }
-          />
-        </label>
+        <div className="dispatcher-feed-group-tabs" aria-label="Раздел данных">
+          {[
+            ["equipment", "Оборудование"],
+            ["incidents", "Инциденты"],
+            ["visitors", "Посетители"],
+          ].map(([group, label]) => (
+            <button
+              className={`dispatcher-feed-group-button ${
+                filters.group === group ? "is-active" : ""
+              }`}
+              type="button"
+              aria-pressed={filters.group === group}
+              key={group}
+              onClick={() =>
+                onFiltersChange({ group: group as DispatcherFeedGroup })
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {filters.group === "visitors" ? (
+          <label>
+            <span>День</span>
+            <input
+              type="date"
+              value={filters.visitorDate}
+              onChange={(event) =>
+                onFiltersChange({ visitorDate: event.currentTarget.value })
+              }
+            />
+          </label>
+        ) : (
+          <>
+            <label>
+              <span>С даты</span>
+              <input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(event) =>
+                  onFiltersChange({ dateFrom: event.currentTarget.value })
+                }
+              />
+            </label>
+            <label>
+              <span>По дату</span>
+              <input
+                type="date"
+                value={filters.dateTo}
+                onChange={(event) =>
+                  onFiltersChange({ dateTo: event.currentTarget.value })
+                }
+              />
+            </label>
+          </>
+        )}
         <button
           className="secondary-button dispatcher-clear-dates-button"
           type="button"
           disabled={!hasDateFilters}
-          onClick={() => onFiltersChange({ dateFrom: "", dateTo: "" })}
+          onClick={() =>
+            filters.group === "visitors"
+              ? onFiltersChange({ visitorDate: getTodayDateValue() })
+              : onFiltersChange({ dateFrom: "", dateTo: "" })
+          }
         >
-          Очистить даты
+          {filters.group === "visitors" ? "Сегодня" : "Очистить даты"}
         </button>
       </div>
-      {summary === undefined ? null : (
+      {dispatcherFeed.status === "ready" ? (
         <div className="dispatcher-summary-strip" aria-label="Сводка регистраций">
-          <span>Всего: {summary.total}</span>
-          {summary.byForm.map((item) => (
-            <span key={item.formId}>
-              {item.formTitle}: {item.count}
-            </span>
-          ))}
+          <span>Записей в разделе: {selectedGroupSubmissions.length}</span>
+          <span>Обновлено: {formatDateTime(dispatcherFeed.receivedAt)}</span>
         </div>
-      )}
+      ) : null}
       {dispatcherForms.status === "error" ? (
         <p className="dispatcher-status-line">{dispatcherForms.message}</p>
       ) : null}
@@ -1431,42 +1577,118 @@ function DispatcherFeedPanel({
       {dispatcherFeed.status === "error" ? (
         <p className="dispatcher-status-line">{dispatcherFeed.message}</p>
       ) : null}
-      {submissions.length > 0 ? (
-        <div className="dispatcher-feed-table" role="table">
-          <div className="dispatcher-feed-row dispatcher-feed-head" role="row">
-            <span role="columnheader">Время</span>
-            <span role="columnheader">Форма</span>
-            <span role="columnheader">Регистрация</span>
-            <span role="columnheader">Данные</span>
-            <span role="columnheader">Статус</span>
-          </div>
-          {submissions.map((submission) => (
-            <DispatcherFeedRow
-              submission={submission}
-              forms={forms}
-              key={submission.id}
-            />
-          ))}
-        </div>
+      {filters.group === "equipment" ? (
+        <EquipmentSummaryTable rows={equipmentRows} />
+      ) : null}
+      {filters.group === "incidents" ? (
+        <IncidentSummaryTable rows={incidentRows} />
+      ) : null}
+      {filters.group === "visitors" ? (
+        <VisitorSummaryTable rows={visitorRows} />
       ) : null}
     </section>
   );
 }
 
-function DispatcherFeedRow({
-  submission,
-  forms,
-}: {
-  submission: DispatcherSubmission;
-  forms: DispatcherFormDefinition[];
-}) {
+function EquipmentSummaryTable({ rows }: { rows: ReturnType<typeof buildEquipmentSummaryRows> }) {
+  if (rows.length === 0) {
+    return <p className="dispatcher-status-line">Нет данных по оборудованию.</p>;
+  }
+
   return (
-    <div className="dispatcher-feed-row" role="row">
-      <span role="cell">{formatDateTime(submission.receivedAt)}</span>
-      <span role="cell">{submission.formTitle}</span>
-      <span role="cell">{submission.summary}</span>
-      <span role="cell">{formatDispatcherPayload(submission, forms)}</span>
-      <span role="cell">{submission.status}</span>
+    <div className="dispatcher-feed-table" role="table">
+      <div className="dispatcher-feed-row dispatcher-feed-row-equipment dispatcher-feed-head" role="row">
+        <span role="columnheader">Оборудование</span>
+        <span role="columnheader">Выработка</span>
+        <span role="columnheader">Простой</span>
+        <span role="columnheader">Причины простоя</span>
+      </div>
+      {rows.map((row) => (
+        <div
+          className="dispatcher-feed-row dispatcher-feed-row-equipment"
+          role="row"
+          key={row.equipment}
+        >
+          <span role="cell">{row.equipment}</span>
+          <span role="cell">{formatNumber(row.productionTons)} т</span>
+          <span role="cell">{formatNumber(row.downtimeHours)} ч</span>
+          <span role="cell">
+            {row.downtimeReasons.length === 0
+              ? "Нет отмеченных причин"
+              : row.downtimeReasons
+                  .map((item) => `${item.reason}: ${formatNumber(item.hours)} ч`)
+                  .join(" · ")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IncidentSummaryTable({ rows }: { rows: ReturnType<typeof buildIncidentSummaryRows> }) {
+  if (rows.length === 0) {
+    return <p className="dispatcher-status-line">Нет инцидентов для выбранного периода.</p>;
+  }
+
+  return (
+    <div className="dispatcher-feed-table" role="table">
+      <div className="dispatcher-feed-row dispatcher-feed-row-incidents dispatcher-feed-head" role="row">
+        <span role="columnheader">№</span>
+        <span role="columnheader">Статус</span>
+        <span role="columnheader">Открыт</span>
+        <span role="columnheader">Закрыт</span>
+        <span role="columnheader">Описание</span>
+      </div>
+      {rows.map((row) => (
+        <div
+          className="dispatcher-feed-row dispatcher-feed-row-incidents"
+          role="row"
+          key={row.incidentNumber}
+        >
+          <span role="cell">{row.incidentNumber}</span>
+          <span role="cell">
+            {row.status === "closed" ? "Закрыт" : "Открыт"}
+          </span>
+          <span role="cell">{row.openedAt}</span>
+          <span role="cell">{row.closedAt ?? "Ещё не закрыт"}</span>
+          <span role="cell">
+            {[row.location, row.incidentType, row.criticality, row.description]
+              .filter((value): value is string => value !== undefined)
+              .join(" · ")}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VisitorSummaryTable({ rows }: { rows: ReturnType<typeof buildVisitorVisitRows> }) {
+  if (rows.length === 0) {
+    return <p className="dispatcher-status-line">Нет входов посетителей за выбранный день.</p>;
+  }
+
+  return (
+    <div className="dispatcher-feed-table" role="table">
+      <div className="dispatcher-feed-row dispatcher-feed-row-visitors dispatcher-feed-head" role="row">
+        <span role="columnheader">Посетитель</span>
+        <span role="columnheader">Организация</span>
+        <span role="columnheader">Кого посещает</span>
+        <span role="columnheader">Вход</span>
+        <span role="columnheader">Выход</span>
+      </div>
+      {rows.map((row) => (
+        <div
+          className="dispatcher-feed-row dispatcher-feed-row-visitors"
+          role="row"
+          key={row.entryId}
+        >
+          <span role="cell">{row.fio}</span>
+          <span role="cell">{row.organization ?? "Не указана"}</span>
+          <span role="cell">{row.whom ?? "Не указано"}</span>
+          <span role="cell">{row.entryAt}</span>
+          <span role="cell">{row.exitAt ?? "Время выхода не отмечено"}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1851,6 +2073,12 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 function readOptionalFormValue(value: FormDataEntryValue | null) {

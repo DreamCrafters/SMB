@@ -19,6 +19,10 @@ import {
   type RemoteServerErrorCode,
 } from "./remoteServer.js";
 import { validateDispatcherPayloadForSubmit } from "./dispatcherPayloadValidation.js";
+import {
+  findOpenVisitorByEntryId,
+  findOpenVisitorByEntryPayload,
+} from "./dispatcherFeedViews.js";
 
 const DISPATCHER_FORMS_PATH = "/api/dispatcher/forms";
 const DISPATCHER_SUBMISSIONS_PATH = "/api/dispatcher/submissions";
@@ -196,7 +200,7 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
   },
   {
     id: "incident",
-    title: "Инцидент",
+    title: "Открытие инцидента",
     sheetName: "Инциденты",
     summaryFields: ["incidentNumber", "location", "incidentType", "criticality"],
     fields: [
@@ -353,29 +357,10 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
     summaryFields: ["fio", "organization"],
     fields: [
       {
-        name: "fio",
-        label: "ФИО посетителя",
+        name: "visitorEntryId",
+        label: "Посетитель",
         type: "text",
         required: true,
-      },
-      {
-        name: "organization",
-        label: "Организация",
-        type: "text",
-        required: false,
-      },
-      {
-        name: "whom",
-        label: "Кого посещал",
-        type: "text",
-        required: false,
-      },
-      {
-        name: "note",
-        label: "Примечание",
-        type: "textarea",
-        required: false,
-        maxLength: 2_000,
       },
     ],
   },
@@ -651,6 +636,7 @@ function saveLocalDispatcherSubmission(
   const scriptPayload = applyLocalDispatcherFormScriptRules(
     form,
     draft.payload,
+    draft.businessAccountId,
     existingSubmissions,
     new Date(receivedAt),
   );
@@ -871,6 +857,7 @@ function buildLocalDispatcherSubmissionDedupeKey(
 function applyLocalDispatcherFormScriptRules(
   form: LocalDispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
+  businessAccountId: string,
   existingSubmissions: DispatcherSubmission[],
   receivedAt: Date,
 ):
@@ -948,10 +935,48 @@ function applyLocalDispatcherFormScriptRules(
     }
   }
 
-  if (form.id === "visitor" || form.id === "visitor_exit") {
-    const timestampField = form.id === "visitor" ? "entryAt" : "exitAt";
+  if (form.id === "visitor") {
+    const duplicate = findOpenVisitorByEntryPayload(
+      existingSubmissions,
+      nextPayload,
+      businessAccountId,
+    );
 
-    nextPayload[timestampField] = formatLocalScriptDateTimeFromDate(receivedAt);
+    if (duplicate !== undefined) {
+      return {
+        status: "error",
+        message:
+          "Этот посетитель уже вошёл и пока не имеет отметки выхода.",
+        code: "invalid_response",
+      };
+    }
+
+    nextPayload.entryAt = formatLocalScriptDateTimeFromDate(receivedAt);
+  }
+
+  if (form.id === "visitor_exit") {
+    const openVisitor = findOpenVisitorByEntryId(
+      existingSubmissions,
+      nextPayload.visitorEntryId,
+      businessAccountId,
+    );
+
+    if (openVisitor === undefined) {
+      return {
+        status: "error",
+        message: "Выберите посетителя, который вошёл и ещё не вышел.",
+        code: "invalid_response",
+      };
+    }
+
+    nextPayload.fio = openVisitor.submission.payload.fio ?? "";
+    nextPayload.organization = openVisitor.submission.payload.organization ?? "";
+    nextPayload.position = openVisitor.submission.payload.position ?? "";
+    nextPayload.purpose = openVisitor.submission.payload.purpose ?? "";
+    nextPayload.whom = openVisitor.submission.payload.whom ?? "";
+    nextPayload.entryAt =
+      openVisitor.submission.payload.entryAt ?? openVisitor.submission.receivedAt;
+    nextPayload.exitAt = formatLocalScriptDateTimeFromDate(receivedAt);
   }
 
   return {

@@ -106,12 +106,12 @@ test("dispatcher submissions can use local test storage without remote URL", asy
   assert.equal(feedResult.submissions[0].id, submitResult.submission.id);
 });
 
-test("local visitor exit submissions stamp exit time", async () => {
+test("local visitor exit submissions use an open visitor entry", async () => {
   const storage = createMemoryStorage();
-  const submitResult = await submitDispatcherSubmission(
+  const entryResult = await submitDispatcherSubmission(
     {
       businessAccountId: "business-id",
-      formId: "visitor_exit",
+      formId: "visitor",
       payload: {
         fio: "Visitor Name",
         organization: "External Org",
@@ -124,11 +124,84 @@ test("local visitor exit submissions stamp exit time", async () => {
     },
   );
 
+  assert.equal(entryResult.status, "ready");
+
+  const submitResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "visitor_exit",
+      payload: {
+        visitorEntryId: entryResult.submission.id,
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+
   assert.equal(submitResult.status, "ready");
+  assert.equal(submitResult.submission.payload.fio, "Visitor Name");
+  assert.equal(submitResult.submission.payload.organization, "External Org");
   assert.match(
     submitResult.submission.payload.exitAt,
     /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/,
   );
+});
+
+test("local visitor submissions reject duplicate open entries and unknown exits", async () => {
+  const storage = createMemoryStorage();
+  const entryResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "visitor",
+      payload: {
+        fio: "Visitor Name",
+        organization: "External Org",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+  const duplicateEntryResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "visitor",
+      payload: {
+        fio: "Visitor Name",
+        organization: "External Org",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+  const unknownExitResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "visitor_exit",
+      payload: {
+        visitorEntryId: "missing-entry",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+
+  assert.equal(entryResult.status, "ready");
+  assert.equal(duplicateEntryResult.status, "error");
+  assert.match(duplicateEntryResult.message, /уже вошёл/);
+  assert.equal(unknownExitResult.status, "error");
+  assert.match(unknownExitResult.message, /Выберите посетителя/);
 });
 
 test("local equipment submissions overwrite the same report date and equipment", async () => {

@@ -4,6 +4,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import type { ServerConfig } from "../config/env.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
+import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -40,6 +41,23 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
       byForm: [],
     };
   },
+};
+
+const openVisitorSubmission = {
+  id: "visitor-entry-id",
+  businessAccountId: "business-id",
+  formId: "visitor" as const,
+  formTitle: "Вход посетителя",
+  payload: {
+    fio: "Visitor Name",
+    organization: "External Org",
+    entryAt: "18.06.2026 10:30",
+  },
+  summary: "Visitor Name",
+  status: "received" as const,
+  submittedByAccountId: "dispatcher-account",
+  submittedAt: "2026-06-18T00:00:00.000Z",
+  receivedAt: "2026-06-18T00:00:01.000Z",
 };
 
 test("remote API returns an empty access profile without a dev session", async () => {
@@ -200,8 +218,73 @@ test("remote API creates dispatcher submissions with form payload", async () => 
   });
 });
 
-async function withApiServer(callback: (baseUrl: string) => Promise<void>) {
-  const server = createApiServer({ config, dispatcherSubmissions });
+test("remote API rejects visitor entry when the visitor is already inside", async () => {
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        businessAccountId: "business-id",
+        formId: "visitor",
+        payload: {
+          fio: "Visitor Name",
+          organization: "External Org",
+        },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.match(
+      isRecord(payload) && isRecord(payload.error)
+        ? String(payload.error.message)
+        : "",
+      /already inside/,
+    );
+  }, buildRepositoryWithHistory([openVisitorSubmission]));
+});
+
+test("remote API enriches visitor exit from an open visitor entry", async () => {
+  let createdPayload: Record<string, string> | undefined;
+  const repository = buildRepositoryWithHistory([openVisitorSubmission], (value) => {
+    createdPayload = value.draft.payload;
+  });
+
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        businessAccountId: "business-id",
+        formId: "visitor_exit",
+        payload: {
+          visitorEntryId: "visitor-entry-id",
+        },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(
+      isRecord(payload) && isRecord(payload.submission)
+        ? payload.submission.formId
+        : undefined,
+      "visitor_exit",
+    );
+    assert.equal(createdPayload?.fio, "Visitor Name");
+    assert.equal(createdPayload?.organization, "External Org");
+  }, repository);
+});
+
+async function withApiServer(
+  callback: (baseUrl: string) => Promise<void>,
+  repository = dispatcherSubmissions,
+) {
+  const server = createApiServer({ config, dispatcherSubmissions: repository });
 
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -214,6 +297,39 @@ async function withApiServer(callback: (baseUrl: string) => Promise<void>) {
     server.close();
     await once(server, "close");
   }
+}
+
+function buildRepositoryWithHistory(
+  history: Awaited<ReturnType<DispatcherSubmissionsRepository["listLatest"]>>,
+  onCreate?: (value: ValidatedDispatcherSubmissionDraft) => void,
+): DispatcherSubmissionsRepository {
+  return {
+    async create(value, submittedByAccountId) {
+      onCreate?.(value);
+
+      return {
+        id: "submission-id",
+        businessAccountId: value.draft.businessAccountId,
+        formId: value.draft.formId,
+        formTitle: value.draft.formId,
+        payload: value.draft.payload,
+        summary: value.summary,
+        status: "received",
+        submittedByAccountId,
+        submittedAt: "2026-06-18T00:00:00.000Z",
+        receivedAt: "2026-06-18T00:00:01.000Z",
+      };
+    },
+    async listLatest() {
+      return history;
+    },
+    async readSummary() {
+      return {
+        total: history.length,
+        byForm: [],
+      };
+    },
+  };
 }
 
 function readProfileAccountType(payload: unknown) {

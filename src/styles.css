@@ -536,6 +536,10 @@ p {
   gap: var(--density-3);
 }
 
+.dispatcher-form-fields-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .equipment-progress-panel {
   display: grid;
   gap: var(--density-2);
@@ -744,9 +748,38 @@ p {
 
 .dispatcher-feed-controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(150px, 0.5fr)) max-content;
+  grid-template-columns: minmax(260px, 1.2fr) repeat(2, minmax(150px, 0.5fr)) max-content;
   gap: var(--density-2);
   align-items: end;
+}
+
+.dispatcher-feed-group-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--density-1);
+}
+
+.dispatcher-feed-group-button {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.dispatcher-feed-group-button:hover,
+.dispatcher-feed-group-button:focus-visible {
+  border-color: var(--blue-gray);
+  outline: 2px solid var(--blue-gray-soft);
+}
+
+.dispatcher-feed-group-button.is-active {
+  border-color: var(--nav);
+  color: #ffffff;
+  background: var(--nav);
 }
 
 .dispatcher-feed-controls label {
@@ -826,6 +859,18 @@ p {
   grid-template-columns: minmax(150px, 0.7fr) minmax(140px, 0.7fr) minmax(220px, 1fr) minmax(360px, 1.6fr) minmax(110px, 0.5fr);
   min-width: 980px;
   border-top: 1px solid var(--line);
+}
+
+.dispatcher-feed-row-equipment {
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, 0.55fr) minmax(130px, 0.55fr) minmax(360px, 1.6fr);
+}
+
+.dispatcher-feed-row-incidents {
+  grid-template-columns: minmax(120px, 0.55fr) minmax(100px, 0.45fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(420px, 1.8fr);
+}
+
+.dispatcher-feed-row-visitors {
+  grid-template-columns: minmax(180px, 0.9fr) minmax(180px, 0.9fr) minmax(180px, 0.9fr) minmax(150px, 0.7fr) minmax(170px, 0.8fr);
 }
 
 .dispatcher-feed-row:first-child {
@@ -936,6 +981,10 @@ p {
   .dispatcher-form-choice,
   .dispatcher-form-fields,
   .dispatcher-feed-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .dispatcher-feed-group-tabs {
     grid-template-columns: 1fr;
   }
 

@@ -7,6 +7,7 @@ import {
   isAccountType,
 } from "../domain/devAccessProfile.js";
 import { validateDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
+import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
   getPublicDispatcherForms,
   isDispatcherFormId,
@@ -114,8 +115,24 @@ export function createApiServer({
             return;
           }
 
-          const submission = await dispatcherSubmissions.create(
+          const history = await dispatcherSubmissions.listLatest({ limit: 500 });
+          const visitorStateValidation = applyVisitorStateRules(
             validation.value,
+            history,
+          );
+
+          if (!visitorStateValidation.ok) {
+            sendJson(res, 400, {
+              error: {
+                code: "invalid_response",
+                message: visitorStateValidation.errors.join(" "),
+              },
+            });
+            return;
+          }
+
+          const submission = await dispatcherSubmissions.create(
+            visitorStateValidation.value,
             readSubmittedByAccountId(req),
           );
 
