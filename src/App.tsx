@@ -32,6 +32,7 @@ import {
   type DispatcherFeedResult,
   type DispatcherFormsResult,
 } from "./services/dispatcherSubmissions";
+import { validateDispatcherPayloadForSubmit } from "./services/dispatcherPayloadValidation";
 import {
   decimalNumberInputPattern,
   decimalNumberInputTitle,
@@ -92,6 +93,15 @@ type DispatcherFeedFilterState = {
   formId: DispatcherFormId | "";
   dateFrom: string;
   dateTo: string;
+};
+
+type DispatcherFormChoiceGroupId = "equipment" | "incidents" | "visitors";
+
+type DispatcherFormChoiceGroup = {
+  id: DispatcherFormChoiceGroupId;
+  title: string;
+  description: string;
+  forms: DispatcherFormDefinition[];
 };
 
 const initialAccessProfileState: AccessProfileLoadState = {
@@ -366,6 +376,17 @@ export default function App() {
       return;
     }
 
+    const payload = readDispatcherSubmissionPayload(formData, formDefinition);
+    const validationMessage = validateDispatcherPayloadForSubmit(
+      formDefinition,
+      payload,
+    );
+
+    if (validationMessage !== undefined) {
+      setDataEntryStatus(validationMessage);
+      return;
+    }
+
     setIsDataEntrySubmitting(true);
     setDataEntryStatus("Отправляем данные на удалённый сервер.");
 
@@ -373,7 +394,7 @@ export default function App() {
       {
         businessAccountId,
         formId: formDefinition.id,
-        payload: readDispatcherSubmissionPayload(formData, formDefinition),
+        payload,
       },
       {
         localFallback: true,
@@ -678,6 +699,42 @@ function WorkerWorkspace() {
   return <section className="owner-empty-view" aria-label="Рабочие данные" />;
 }
 
+function readDispatcherFormChoiceGroups(
+  forms: DispatcherFormDefinition[],
+): DispatcherFormChoiceGroup[] {
+  const groups: DispatcherFormChoiceGroup[] = [
+    {
+      id: "equipment",
+      title: "Оборудование",
+      description: "Ежедневная отметка",
+      forms: readDispatcherFormsByIds(forms, ["equipment"]),
+    },
+    {
+      id: "incidents",
+      title: "Инциденты",
+      description: "Регистрация и закрытие",
+      forms: readDispatcherFormsByIds(forms, ["incident", "incident_close"]),
+    },
+    {
+      id: "visitors",
+      title: "Посетители",
+      description: "Вход и выход",
+      forms: readDispatcherFormsByIds(forms, ["visitor", "visitor_exit"]),
+    },
+  ];
+
+  return groups.filter((group) => group.forms.length > 0);
+}
+
+function readDispatcherFormsByIds(
+  forms: DispatcherFormDefinition[],
+  formIds: readonly DispatcherFormId[],
+) {
+  return formIds
+    .map((formId) => forms.find((form) => form.id === formId))
+    .filter((form): form is DispatcherFormDefinition => form !== undefined);
+}
+
 function DataEntryWorkspace({
   ariaLabel,
   status,
@@ -727,24 +784,42 @@ function DataEntryWorkspace({
   }
 
   if (currentForm === undefined) {
+    const choiceGroups = readDispatcherFormChoiceGroups(forms);
+
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
         {isLocalTestMode ? (
           <p className="form-status form-status-local">{localTestModeMessage}</p>
         ) : null}
         <div className="dispatcher-form-choice" aria-label="Выбор формы">
-          {forms.map((form) => (
-            <button
-              className="dispatcher-form-choice-button"
-              type="button"
-              key={form.id}
-              onClick={() => {
-                onResetStatus();
-                setSelectedFormId(form.id);
-              }}
+          {choiceGroups.map((group) => (
+            <section
+              className={`dispatcher-form-choice-group dispatcher-form-choice-group-${group.id}`}
+              aria-labelledby={`dispatcher-form-choice-${group.id}`}
+              key={group.id}
             >
-              <span>{form.title}</span>
-            </button>
+              <div className="dispatcher-form-choice-group-header">
+                <span id={`dispatcher-form-choice-${group.id}`}>
+                  {group.title}
+                </span>
+                <small>{group.description}</small>
+              </div>
+              <div className="dispatcher-form-choice-buttons">
+                {group.forms.map((form) => (
+                  <button
+                    className="dispatcher-form-choice-button"
+                    type="button"
+                    key={form.id}
+                    onClick={() => {
+                      onResetStatus();
+                      setSelectedFormId(form.id);
+                    }}
+                  >
+                    <span>{form.title}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       </section>

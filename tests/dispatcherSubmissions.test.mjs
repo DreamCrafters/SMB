@@ -93,7 +93,10 @@ test("dispatcher submissions can use local test storage without remote URL", asy
 
   assert.equal(formsResult.status, "ready");
   assert.equal(formsResult.source, "local_test");
-  assert.equal(formsResult.forms.length, 6);
+  assert.equal(formsResult.forms.length, 5);
+  assert.equal(formsResult.forms.some((form) => form.id === "visitor_exit"), true);
+  assert.equal(formsResult.forms.some((form) => form.id === "gas_oc"), false);
+  assert.equal(formsResult.forms.some((form) => form.id === "gas_cosh"), false);
   assert.equal(submitResult.status, "ready");
   assert.equal(submitResult.source, "local_test");
   assert.match(submitResult.submission.id, /^local-/);
@@ -101,6 +104,31 @@ test("dispatcher submissions can use local test storage without remote URL", asy
   assert.equal(feedResult.source, "local_test");
   assert.equal(feedResult.summary.total, 1);
   assert.equal(feedResult.submissions[0].id, submitResult.submission.id);
+});
+
+test("local visitor exit submissions stamp exit time", async () => {
+  const storage = createMemoryStorage();
+  const submitResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "visitor_exit",
+      payload: {
+        fio: "Visitor Name",
+        organization: "External Org",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+
+  assert.equal(submitResult.status, "ready");
+  assert.match(
+    submitResult.submission.payload.exitAt,
+    /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/,
+  );
 });
 
 test("local equipment submissions overwrite the same report date and equipment", async () => {
@@ -136,6 +164,52 @@ test("local equipment submissions overwrite the same report date and equipment",
   assert.equal(secondSubmitResult.submission.id, firstSubmitResult.submission.id);
   assert.equal(feedResult.summary.total, 1);
   assert.equal(feedResult.submissions[0].payload.productionTons, "43");
+});
+
+test("local equipment submissions reject downtime reason without positive hours", async () => {
+  const result = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "equipment",
+      payload: {
+        reportDate: "2026-06-18",
+        equipment: "Пресс №1",
+        downtimeReason: "Резерв",
+        downtimeHours: "0",
+        productionTons: "10",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage: createMemoryStorage(),
+    },
+  );
+
+  assert.equal(result.status, "error");
+  assert.match(result.message, /время простоя больше 0/);
+});
+
+test("local equipment submissions reject short downtime without production", async () => {
+  const result = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "equipment",
+      payload: {
+        reportDate: "2026-06-18",
+        equipment: "Пресс №1",
+        downtimeHours: "7",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage: createMemoryStorage(),
+    },
+  );
+
+  assert.equal(result.status, "error");
+  assert.match(result.message, /выработка должна быть больше 0/);
 });
 
 test("requestDispatcherForms reads server form definitions", async () => {

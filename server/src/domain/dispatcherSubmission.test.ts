@@ -99,6 +99,60 @@ test("validateDispatcherSubmissionDraft rejects empty equipment reports", () => 
   }
 });
 
+test("validateDispatcherSubmissionDraft rejects downtime reason without positive hours", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      downtimeReason: "Резерв",
+      downtimeHours: "0",
+      productionTons: "10",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /downtime hours/);
+  }
+});
+
+test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without production", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      downtimeHours: "7",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /production/);
+  }
+});
+
+test("validateDispatcherSubmissionDraft accepts productive downtime under 8 hours", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      downtimeReason: "Резерв",
+      downtimeHours: "7",
+      productionTons: "1",
+    },
+  });
+
+  assert.equal(result.ok, true);
+});
+
 test("buildDispatcherSubmissionDedupeKey scopes equipment reports by business, date, and equipment", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",
@@ -136,6 +190,42 @@ test("buildDispatcherSubmissionDedupeKey leaves non-equipment submissions append
   }
 });
 
+test("validateDispatcherSubmissionDraft stamps visitor exit time", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "visitor_exit",
+    payload: {
+      fio: "Visitor Name",
+      organization: "External Org",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    assert.match(
+      result.value.draft.payload.exitAt,
+      /^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/,
+    );
+  }
+});
+
+test("validateDispatcherSubmissionDraft rejects legacy gas forms as inactive", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "gas_oc",
+    payload: {
+      date: "2026-06-18",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /active dispatcher form/);
+  }
+});
+
 test("mapDispatcherSubmissionRow returns the frontend contract shape", () => {
   const result = mapDispatcherSubmissionRow({
     id: "submission-id",
@@ -157,7 +247,7 @@ test("mapDispatcherSubmissionRow returns the frontend contract shape", () => {
     id: "submission-id",
     businessAccountId: "business-id",
     formId: "visitor",
-    formTitle: "Посетитель",
+    formTitle: "Вход посетителя",
     payload: {
       entryAt: "18.06.2026 10:30",
       fio: "Visitor Name",

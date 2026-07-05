@@ -18,6 +18,7 @@ import {
   describeRemoteNetworkFailure,
   type RemoteServerErrorCode,
 } from "./remoteServer.js";
+import { validateDispatcherPayloadForSubmit } from "./dispatcherPayloadValidation.js";
 
 const DISPATCHER_FORMS_PATH = "/api/dispatcher/forms";
 const DISPATCHER_SUBMISSIONS_PATH = "/api/dispatcher/submissions";
@@ -27,6 +28,7 @@ const dispatcherFormIds: readonly DispatcherFormId[] = [
   "incident",
   "incident_close",
   "visitor",
+  "visitor_exit",
   "gas_oc",
   "gas_cosh",
 ];
@@ -126,7 +128,7 @@ const localEquipmentOptions = [
 
 const localDowntimeReasonOptions = [
   "Замена марки/формы",
-  "Простой по мех. эл. части",
+  "Простой по мех, эл. части",
   "Резерв",
 ];
 
@@ -143,80 +145,6 @@ const localIncidentTypeOptions = [
 ];
 
 const localCriticalityOptions = ["Высокий", "Средний", "Низкий"];
-
-function buildLocalGasForm(
-  id: "gas_oc" | "gas_cosh",
-  title: "Газ ОЦ" | "Газ ЦОШ",
-): LocalDispatcherFormDefinition {
-  return {
-    id,
-    title,
-    sheetName: title,
-    summaryFields: ["date", "meterReading", "dailyConsumption"],
-    fields: [
-      {
-        name: "date",
-        label: "Дата",
-        type: "date",
-        required: true,
-      },
-      {
-        name: "meterReading",
-        label: "Показание счетчика ГРП 1 (ОЦ+Котельная)",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyConsumption",
-        label: "Расход за сутки, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthlyConsumption",
-        label: "Расход с начала месяца, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyLimit",
-        label: "Лимит суточный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyUnderuse",
-        label: "Недобор газа суточный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthlyUnderuse",
-        label: "Недобор газа месячный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyOveruse",
-        label: "Перебор газа суточный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthlyOveruse",
-        label: "Перебор газа месячный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthYear",
-        label: "Месяц год",
-        type: "month",
-        required: true,
-      },
-    ],
-  };
-}
 
 const localDispatcherForms: LocalDispatcherFormDefinition[] = [
   {
@@ -375,7 +303,7 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
   },
   {
     id: "visitor",
-    title: "Посетитель",
+    title: "Вход посетителя",
     sheetName: "Посетители",
     summaryFields: ["fio", "organization", "whom"],
     fields: [
@@ -418,8 +346,39 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
       },
     ],
   },
-  buildLocalGasForm("gas_oc", "Газ ОЦ"),
-  buildLocalGasForm("gas_cosh", "Газ ЦОШ"),
+  {
+    id: "visitor_exit",
+    title: "Выход посетителя",
+    sheetName: "Посетители",
+    summaryFields: ["fio", "organization"],
+    fields: [
+      {
+        name: "fio",
+        label: "ФИО посетителя",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "organization",
+        label: "Организация",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "whom",
+        label: "Кого посещал",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "note",
+        label: "Примечание",
+        type: "textarea",
+        required: false,
+        maxLength: 2_000,
+      },
+    ],
+  },
 ];
 
 export async function requestDispatcherForms({
@@ -939,6 +898,16 @@ function applyLocalDispatcherFormScriptRules(
       };
     }
 
+    const validationMessage = validateDispatcherPayloadForSubmit(form, nextPayload);
+
+    if (validationMessage !== undefined) {
+      return {
+        status: "error",
+        message: validationMessage,
+        code: "invalid_response",
+      };
+    }
+
     if (nextPayload.reportDate !== undefined) {
       nextPayload.reportMonth = nextPayload.reportDate.slice(0, 7);
       nextPayload.reportDate = formatLocalScriptDate(nextPayload.reportDate);
@@ -979,8 +948,10 @@ function applyLocalDispatcherFormScriptRules(
     }
   }
 
-  if (form.id === "visitor") {
-    nextPayload.entryAt = formatLocalScriptDateTimeFromDate(receivedAt);
+  if (form.id === "visitor" || form.id === "visitor_exit") {
+    const timestampField = form.id === "visitor" ? "entryAt" : "exitAt";
+
+    nextPayload[timestampField] = formatLocalScriptDateTimeFromDate(receivedAt);
   }
 
   return {

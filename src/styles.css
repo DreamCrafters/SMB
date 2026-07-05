@@ -415,7 +415,7 @@ p {
 
 .data-entry-surface {
   display: grid;
-  width: min(100%, 780px);
+  width: min(100%, 920px);
 }
 
 .data-entry-form {
@@ -431,8 +431,60 @@ p {
 .dispatcher-form-choice {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--density-4);
+  width: 100%;
+}
+
+.dispatcher-form-choice-group {
+  --choice-accent: var(--blue-gray);
+  --choice-soft: var(--blue-gray-soft);
+  display: grid;
   gap: var(--density-2);
-  width: min(100%, 680px);
+  align-content: start;
+  padding-top: var(--density-2);
+  border-top: 5px solid var(--choice-accent);
+}
+
+.dispatcher-form-choice-group-equipment {
+  --choice-accent: var(--blue-gray);
+  --choice-soft: var(--blue-gray-soft);
+  grid-column: 1 / -1;
+}
+
+.dispatcher-form-choice-group-incidents {
+  --choice-accent: var(--brick);
+  --choice-soft: var(--brick-soft);
+}
+
+.dispatcher-form-choice-group-visitors {
+  --choice-accent: var(--emerald);
+  --choice-soft: var(--emerald-soft);
+}
+
+.dispatcher-form-choice-group-header {
+  display: grid;
+  gap: 2px;
+}
+
+.dispatcher-form-choice-group-header span {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.dispatcher-form-choice-group-header small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.dispatcher-form-choice-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--density-2);
 }
 
 .dispatcher-form-choice-button {
@@ -441,6 +493,7 @@ p {
   min-height: 74px;
   padding: 14px 16px;
   border: 1px solid var(--line-strong);
+  border-left: 5px solid var(--choice-accent);
   border-radius: var(--radius);
   color: var(--ink);
   background: var(--surface-raised);
@@ -449,8 +502,8 @@ p {
 
 .dispatcher-form-choice-button:hover,
 .dispatcher-form-choice-button:focus-visible {
-  border-color: var(--blue-gray);
-  outline: 2px solid var(--blue-gray-soft);
+  border-color: var(--choice-accent);
+  outline: 2px solid var(--choice-soft);
 }
 
 .dispatcher-form-choice-button span {

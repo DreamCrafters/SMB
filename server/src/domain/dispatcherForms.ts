@@ -3,6 +3,7 @@ export type DispatcherFormId =
   | "incident"
   | "incident_close"
   | "visitor"
+  | "visitor_exit"
   | "gas_oc"
   | "gas_cosh";
 
@@ -59,7 +60,7 @@ const equipmentOptions = [
 
 const downtimeReasonOptions = [
   "Замена марки/формы",
-  "Простой по мех. эл. части",
+  "Простой по мех, эл. части",
   "Резерв",
 ] as const;
 
@@ -77,79 +78,20 @@ const incidentTypeOptions = [
 
 const criticalityOptions = ["Высокий", "Средний", "Низкий"] as const;
 
-function buildGasForm(
-  id: "gas_oc" | "gas_cosh",
-  title: "Газ ОЦ" | "Газ ЦОШ",
-): DispatcherFormDefinition {
-  return {
-    id,
-    title,
-    sheetName: title,
-    summaryFields: ["date", "meterReading", "dailyConsumption"],
-    fields: [
-      {
-        name: "date",
-        label: "Дата",
-        type: "date",
-        required: true,
-      },
-      {
-        name: "meterReading",
-        label: "Показание счетчика ГРП 1 (ОЦ+Котельная)",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyConsumption",
-        label: "Расход за сутки, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthlyConsumption",
-        label: "Расход с начала месяца, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyLimit",
-        label: "Лимит суточный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyUnderuse",
-        label: "Недобор газа суточный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthlyUnderuse",
-        label: "Недобор газа месячный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "dailyOveruse",
-        label: "Перебор газа суточный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthlyOveruse",
-        label: "Перебор газа месячный, м3",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "monthYear",
-        label: "Месяц год",
-        type: "month",
-        required: true,
-      },
-    ],
-  };
-}
+const knownDispatcherFormIds = [
+  "equipment",
+  "incident",
+  "incident_close",
+  "visitor",
+  "visitor_exit",
+  "gas_oc",
+  "gas_cosh",
+] as const satisfies readonly DispatcherFormId[];
+
+const legacyDispatcherFormTitles: Partial<Record<DispatcherFormId, string>> = {
+  gas_oc: "Газ ОЦ",
+  gas_cosh: "Газ ЦОШ",
+};
 
 export const dispatcherForms: readonly DispatcherFormDefinition[] = [
   {
@@ -308,7 +250,7 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
   },
   {
     id: "visitor",
-    title: "Посетитель",
+    title: "Вход посетителя",
     sheetName: "Посетители",
     summaryFields: ["fio", "organization", "whom"],
     fields: [
@@ -351,8 +293,39 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
       },
     ],
   },
-  buildGasForm("gas_oc", "Газ ОЦ"),
-  buildGasForm("gas_cosh", "Газ ЦОШ"),
+  {
+    id: "visitor_exit",
+    title: "Выход посетителя",
+    sheetName: "Посетители",
+    summaryFields: ["fio", "organization"],
+    fields: [
+      {
+        name: "fio",
+        label: "ФИО посетителя",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "organization",
+        label: "Организация",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "whom",
+        label: "Кого посещал",
+        type: "text",
+        required: false,
+      },
+      {
+        name: "note",
+        label: "Примечание",
+        type: "textarea",
+        required: false,
+        maxLength: 2_000,
+      },
+    ],
+  },
 ];
 
 export function getDispatcherFormDefinition(formId: string) {
@@ -360,13 +333,17 @@ export function getDispatcherFormDefinition(formId: string) {
 }
 
 export function getDispatcherFormTitle(formId: string) {
-  return getDispatcherFormDefinition(formId)?.title ?? formId;
+  return (
+    getDispatcherFormDefinition(formId)?.title ??
+    legacyDispatcherFormTitles[formId as DispatcherFormId] ??
+    formId
+  );
 }
 
 export function isDispatcherFormId(value: unknown): value is DispatcherFormId {
   return (
     typeof value === "string" &&
-    dispatcherForms.some((form) => form.id === value)
+    knownDispatcherFormIds.includes(value as DispatcherFormId)
   );
 }
 

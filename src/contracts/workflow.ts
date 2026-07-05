@@ -22,6 +22,7 @@ export type DispatcherFormId =
   | "incident"
   | "incident_close"
   | "visitor"
+  | "visitor_exit"
   | "gas_oc"
   | "gas_cosh";
 

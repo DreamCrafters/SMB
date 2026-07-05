@@ -87,6 +87,11 @@ export function validateDispatcherSubmissionDraft(input: unknown): ValidationRes
   const formId = readFormId(input.formId, errors);
   const form =
     formId === undefined ? undefined : getDispatcherFormDefinition(formId);
+
+  if (formId !== undefined && form === undefined) {
+    errors.push("formId must be an active dispatcher form id.");
+  }
+
   const rawPayload = readPayload(input.payload, form, errors);
   const payload =
     form === undefined
@@ -230,6 +235,28 @@ function applyDispatcherFormScriptRules(
       );
     }
 
+    const downtimeReason = nextPayload.downtimeReason?.trim() ?? "";
+    const downtimeHours = readPayloadNumber(nextPayload.downtimeHours);
+
+    if (
+      downtimeReason.length > 0 &&
+      (downtimeHours === undefined || downtimeHours <= 0)
+    ) {
+      errors.push(
+        "equipment downtime hours must be greater than zero when downtime reason is selected.",
+      );
+    }
+
+    if (downtimeHours !== undefined && downtimeHours < 8) {
+      const productionTons = readPayloadNumber(nextPayload.productionTons);
+
+      if (productionTons === undefined || productionTons <= 0) {
+        errors.push(
+          "equipment production must be greater than zero when downtime is less than 8 hours.",
+        );
+      }
+    }
+
     if (nextPayload.reportDate !== undefined) {
       nextPayload.reportMonth = nextPayload.reportDate.slice(0, 7);
       nextPayload.reportDate = formatScriptDate(nextPayload.reportDate);
@@ -266,8 +293,10 @@ function applyDispatcherFormScriptRules(
     }
   }
 
-  if (form.id === "visitor") {
-    nextPayload.entryAt = formatScriptDateTimeFromDate(new Date());
+  if (form.id === "visitor" || form.id === "visitor_exit") {
+    const timestampField = form.id === "visitor" ? "entryAt" : "exitAt";
+
+    nextPayload[timestampField] = formatScriptDateTimeFromDate(new Date());
   }
 
   return nextPayload;
@@ -424,6 +453,16 @@ function normalizeMonthValue(value: string) {
   }
 
   return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function readPayloadNumber(value: string | undefined) {
+  if (value === undefined || value.trim().length === 0) {
+    return undefined;
+  }
+
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
 function readYear(value: string | undefined) {
