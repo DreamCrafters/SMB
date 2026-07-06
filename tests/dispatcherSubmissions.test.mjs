@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   requestDispatcherForms,
   requestDispatcherFeed,
+  submitDispatcherEquipmentReport,
   submitDispatcherSubmission,
 } from "../.test-build/src/services/dispatcherSubmissions.js";
 import {
@@ -283,6 +284,106 @@ test("local equipment submissions reject short downtime without production", asy
 
   assert.equal(result.status, "error");
   assert.match(result.message, /выработка должна быть больше 0/);
+});
+
+test("submitDispatcherEquipmentReport posts a batch to remote server", async () => {
+  let request;
+
+  globalThis.fetch = async (endpoint, init) => {
+    request = { endpoint, init };
+
+    return new Response(
+      JSON.stringify({
+        submissions: [
+          submission,
+          {
+            ...submission,
+            id: "submission-id-2",
+            payload: {
+              ...submission.payload,
+              equipment: "Пресс №2",
+              productionTons: "12",
+            },
+          },
+        ],
+        reportStatus: "created",
+      }),
+      {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  };
+
+  const value = {
+    businessAccountId: "business-id",
+    items: [
+      draft.payload,
+      {
+        reportDate: "2026-06-18",
+        equipment: "Пресс №2",
+        productionTons: "12",
+      },
+    ],
+  };
+  const result = await submitDispatcherEquipmentReport(value, {
+    baseUrl: "https://api.example.test/",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.submissions.length, 2);
+  assert.equal(result.reportStatus, "created");
+  assert.equal(
+    request.endpoint,
+    "https://api.example.test/api/dispatcher/equipment-report",
+  );
+  assert.equal(request.init.method, "POST");
+  assert.equal(request.init.credentials, "include");
+  assert.deepEqual(JSON.parse(request.init.body), value);
+});
+
+test("local equipment reports update existing daily equipment rows", async () => {
+  const storage = createMemoryStorage();
+  const firstResult = await submitDispatcherEquipmentReport(
+    {
+      businessAccountId: "business-id",
+      items: [draft.payload],
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+  const secondResult = await submitDispatcherEquipmentReport(
+    {
+      businessAccountId: "business-id",
+      items: [
+        {
+          ...draft.payload,
+          productionTons: "44",
+        },
+      ],
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+  const feedResult = await requestDispatcherFeed({
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+
+  assert.equal(firstResult.status, "ready");
+  assert.equal(firstResult.reportStatus, "created");
+  assert.equal(secondResult.status, "ready");
+  assert.equal(secondResult.reportStatus, "updated");
+  assert.equal(feedResult.status, "ready");
+  assert.equal(feedResult.summary.total, 1);
+  assert.equal(feedResult.submissions[0].payload.productionTons, "44");
 });
 
 test("requestDispatcherForms reads server form definitions", async () => {

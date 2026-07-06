@@ -28,6 +28,7 @@ import {
 import {
   requestDispatcherForms,
   requestDispatcherFeed,
+  submitDispatcherEquipmentReport,
   submitDispatcherSubmission,
   type DispatcherFeedResult,
   type DispatcherFormsResult,
@@ -46,6 +47,7 @@ import {
 import {
   buildEquipmentCompletionMap,
   buildEquipmentFormPayload,
+  buildEquipmentReportPayloads,
   formatReportDateForDisplay,
   readEquipmentDraftPayload,
   readEquipmentOptions,
@@ -382,6 +384,61 @@ export default function App() {
     }
 
     const payload = readDispatcherSubmissionPayload(formData, formDefinition);
+
+    if (formDefinition.id === "equipment") {
+      const equipmentReportPayloads = buildEquipmentReportPayloads({
+        businessAccountId,
+        currentPayload: payload,
+        equipmentOptions: readEquipmentOptions(formDefinition),
+        form: formDefinition,
+        reportDate: payload.reportDate ?? getTodayDateValue(),
+        storage: readBrowserEquipmentDraftStorage(),
+      });
+
+      if (equipmentReportPayloads.length === 0) {
+        setDataEntryStatus("Заполните хотя бы одну позицию оборудования.");
+        return;
+      }
+
+      for (const equipmentPayload of equipmentReportPayloads) {
+        const validationMessage = validateDispatcherPayloadForSubmit(
+          formDefinition,
+          equipmentPayload,
+        );
+
+        if (validationMessage !== undefined) {
+          setDataEntryStatus(
+            `${equipmentPayload.equipment ?? "Оборудование"}: ${validationMessage}`,
+          );
+          return;
+        }
+      }
+
+      setIsDataEntrySubmitting(true);
+      setDataEntryStatus("Сохраняем дневной отчёт оборудования.");
+
+      const result = await submitDispatcherEquipmentReport(
+        {
+          businessAccountId,
+          items: equipmentReportPayloads,
+        },
+        {
+          localFallback: true,
+        },
+      );
+
+      setIsDataEntrySubmitting(false);
+
+      if (result.status === "ready") {
+        setDataEntryStatus(readEquipmentReportSuccessMessage(result));
+        setDispatcherSubmissionVersion((version) => version + 1);
+        return;
+      }
+
+      setDataEntryStatus(result.message);
+      return;
+    }
+
     const validationMessage = validateDispatcherPayloadForSubmit(
       formDefinition,
       payload,
@@ -411,10 +468,7 @@ export default function App() {
     if (result.status === "ready") {
       setDataEntryStatus(readSubmissionSuccessMessage(result));
       setDispatcherSubmissionVersion((version) => version + 1);
-
-      if (formDefinition.id !== "equipment") {
-        resetDispatcherForm(form, formDefinition.id);
-      }
+      resetDispatcherForm(form, formDefinition.id);
 
       return;
     }
@@ -1050,6 +1104,14 @@ function DispatcherEquipmentFormBody({
     selectedEquipment.length === 0
       ? undefined
       : completionMap.get(selectedEquipment);
+  const draftReportPayloads = buildEquipmentReportPayloads({
+    businessAccountId,
+    currentPayload: payload,
+    equipmentOptions,
+    form,
+    reportDate,
+    storage: readBrowserEquipmentDraftStorage(),
+  });
   const isLocalEquipmentFeed =
     equipmentFeed.status === "ready" && equipmentFeed.source === "local_test";
 
@@ -1176,13 +1238,11 @@ function DispatcherEquipmentFormBody({
       <div className="equipment-progress-panel" aria-label="Отметки оборудования">
         <div className="equipment-progress-header">
           <strong>
-            Отмечено за {formatReportDateForDisplay(reportDate)}: {doneCount}/
-            {equipmentOptions.length}
+            Заполнено в форме за {formatReportDateForDisplay(reportDate)}:{" "}
+            {draftReportPayloads.length}/{equipmentOptions.length}
           </strong>
           <span>
-            {selectedSubmission === undefined
-              ? "Текущая запись будет создана"
-              : "Повторная отправка обновит запись"}
+            Сохранено на сервере: {doneCount}/{equipmentOptions.length}
           </span>
         </div>
         <div className="equipment-status-grid">
@@ -1243,9 +1303,9 @@ function DispatcherEquipmentFormBody({
         <button className="primary-button" type="submit" disabled={isSubmitting}>
           {isSubmitting
             ? "Отправка..."
-            : selectedSubmission === undefined
-              ? "Отправить на сервер"
-              : "Обновить запись"}
+            : selectedSubmission === undefined && doneCount === 0
+              ? "Записать отчёт"
+              : "Внести изменения в отчёт"}
         </button>
         {status.length > 0 ? <p className="form-status">{status}</p> : null}
       </div>
@@ -1780,6 +1840,24 @@ function readSubmissionSuccessMessage(result: {
   }
 
   return `Сервер принял отправку ${result.submission.id}. История обновится у владельца через remote feed.`;
+}
+
+function readEquipmentReportSuccessMessage(result: {
+  submissions: DispatcherSubmission[];
+  reportStatus: "created" | "updated";
+  source?: "remote" | "local_test";
+}) {
+  const prefix =
+    result.reportStatus === "updated"
+      ? "Отчёт оборудования изменён"
+      : "Отчёт оборудования записан";
+  const suffix = `${result.submissions.length} позиций.`;
+
+  if (result.source === "local_test") {
+    return `Сервер не найден. ${prefix}: ${suffix} Записи сохранены локально для тестов в этом браузере.`;
+  }
+
+  return `${prefix}: ${suffix} История обновится у владельца через remote feed.`;
 }
 
 function readInputType(field: DispatcherFormField) {

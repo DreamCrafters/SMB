@@ -7,6 +7,7 @@ import type {
   DispatcherFormFieldType,
   DispatcherFormId,
   DispatcherFormsResponse,
+  DispatcherEquipmentReportResponse,
   DispatcherSubmission,
   DispatcherSubmissionDraft,
   DispatcherSubmissionPayload,
@@ -26,6 +27,7 @@ import {
 
 const DISPATCHER_FORMS_PATH = "/api/dispatcher/forms";
 const DISPATCHER_SUBMISSIONS_PATH = "/api/dispatcher/submissions";
+const DISPATCHER_EQUIPMENT_REPORT_PATH = "/api/dispatcher/equipment-report";
 
 const dispatcherFormIds: readonly DispatcherFormId[] = [
   "equipment",
@@ -60,6 +62,13 @@ export type DispatcherSubmissionReadyState = {
   source?: "remote" | "local_test";
 };
 
+export type DispatcherEquipmentReportReadyState = {
+  status: "ready";
+  submissions: DispatcherSubmission[];
+  reportStatus: "created" | "updated";
+  source?: "remote" | "local_test";
+};
+
 export type DispatcherFeedReadyState = {
   status: "ready";
   submissions: DispatcherSubmission[];
@@ -81,6 +90,10 @@ export type DispatcherFormsResult =
 
 export type DispatcherSubmissionResult =
   | DispatcherSubmissionReadyState
+  | DispatcherRemoteErrorState;
+
+export type DispatcherEquipmentReportResult =
+  | DispatcherEquipmentReportReadyState
   | DispatcherRemoteErrorState;
 
 export type DispatcherFeedResult =
@@ -510,6 +523,86 @@ export async function submitDispatcherSubmission(
   }
 }
 
+export async function submitDispatcherEquipmentReport(
+  value: {
+    businessAccountId: string;
+    items: DispatcherSubmissionPayload[];
+  },
+  options: DispatcherRemoteOptions = {},
+): Promise<DispatcherEquipmentReportResult> {
+  const endpoint = buildRemoteEndpoint(DISPATCHER_EQUIPMENT_REPORT_PATH, options);
+
+  if (endpoint.status === "missing") {
+    if (shouldUseLocalDispatcherFallback(options)) {
+      return saveLocalDispatcherEquipmentReport(value, options);
+    }
+
+    return {
+      status: "error",
+      message: endpoint.message,
+      code: "server_not_configured",
+    };
+  }
+
+  try {
+    const response = await fetch(endpoint.endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      signal: options.signal,
+      body: JSON.stringify(value),
+    });
+
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Сервер отклонил отчёт оборудования.",
+      );
+    }
+
+    if (isDispatcherEquipmentReportResponse(payload)) {
+      return {
+        status: "ready",
+        submissions: payload.submissions,
+        reportStatus: payload.reportStatus,
+      };
+    }
+
+    return {
+      status: "error",
+      message: "Сервер вернул отчёт оборудования в неподдерживаемом формате.",
+      code: "invalid_response",
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        status: "error",
+        message: "Запрос отчёта оборудования отменён.",
+      };
+    }
+
+    if (shouldUseLocalDispatcherFallback(options)) {
+      return saveLocalDispatcherEquipmentReport(value, options);
+    }
+
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось отправить отчёт оборудования на удалённый сервер.",
+        options,
+      ),
+      code: "network_error",
+    };
+  }
+}
+
 export async function requestDispatcherFeed({
   baseUrl,
   signal,
@@ -597,6 +690,68 @@ export async function requestDispatcherFeed({
       code: "network_error",
     };
   }
+}
+
+function saveLocalDispatcherEquipmentReport(
+  value: {
+    businessAccountId: string;
+    items: DispatcherSubmissionPayload[];
+  },
+  options: Pick<DispatcherRemoteOptions, "storage">,
+): DispatcherEquipmentReportResult {
+  if (value.items.length === 0) {
+    return {
+      status: "error",
+      message: "Заполните хотя бы одну позицию оборудования.",
+      code: "invalid_response",
+    };
+  }
+
+  const storage = readLocalDispatcherStorage(options);
+  const existingSubmissions =
+    storage === undefined ? [] : readLocalDispatcherSubmissions(storage);
+  const reportStatus = value.items.some((payload) =>
+    existingSubmissions.some(
+      (submission) =>
+        buildLocalDispatcherSubmissionDedupeKey(
+          submission.businessAccountId,
+          submission.formId,
+          submission.payload,
+        ) ===
+        buildLocalDispatcherSubmissionDedupeKey(
+          value.businessAccountId,
+          "equipment",
+          payload,
+        ),
+    ),
+  )
+    ? "updated"
+    : "created";
+  const submissions: DispatcherSubmission[] = [];
+
+  for (const payload of value.items) {
+    const result = saveLocalDispatcherSubmission(
+      {
+        businessAccountId: value.businessAccountId,
+        formId: "equipment",
+        payload,
+      },
+      options,
+    );
+
+    if (result.status === "error") {
+      return result;
+    }
+
+    submissions.push(result.submission);
+  }
+
+  return {
+    status: "ready",
+    submissions,
+    reportStatus,
+    source: "local_test",
+  };
 }
 
 function requestLocalDispatcherForms(): DispatcherFormsReadyState {
@@ -841,17 +996,19 @@ function buildLocalDispatcherSubmissionDedupeKey(
 
   const reportDate = payload.reportDate?.trim();
   const equipment = payload.equipment?.trim();
+  const normalizedReportDate =
+    reportDate === undefined ? undefined : formatLocalScriptDate(reportDate);
 
   if (
-    reportDate === undefined ||
-    reportDate.length === 0 ||
+    normalizedReportDate === undefined ||
+    normalizedReportDate.length === 0 ||
     equipment === undefined ||
     equipment.length === 0
   ) {
     return null;
   }
 
-  return `equipment:${businessAccountId}:${reportDate}:${equipment}`;
+  return `equipment:${businessAccountId}:${normalizedReportDate}:${equipment}`;
 }
 
 function applyLocalDispatcherFormScriptRules(
@@ -1203,6 +1360,17 @@ function isDispatcherSubmissionResponse(
   value: unknown,
 ): value is DispatcherSubmissionResponse {
   return isRecord(value) && isDispatcherSubmission(value.submission);
+}
+
+function isDispatcherEquipmentReportResponse(
+  value: unknown,
+): value is DispatcherEquipmentReportResponse {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.submissions) &&
+    value.submissions.every(isDispatcherSubmission) &&
+    (value.reportStatus === "created" || value.reportStatus === "updated")
+  );
 }
 
 function isDispatcherFeedResponse(value: unknown): value is DispatcherFeedResponse {

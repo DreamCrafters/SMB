@@ -154,6 +154,26 @@ test("validateDispatcherSubmissionDraft accepts productive downtime under 8 hour
   assert.equal(result.ok, true);
 });
 
+test("validateDispatcherSubmissionDraft rejects downtime over 8 hours", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      downtimeReason: "Резерв",
+      downtimeHours: "9",
+      productionTons: "1",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /8 hours or less/);
+  }
+});
+
 test("buildDispatcherSubmissionDedupeKey scopes equipment reports by business, date, and equipment", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",

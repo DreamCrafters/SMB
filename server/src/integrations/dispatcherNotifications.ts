@@ -10,6 +10,8 @@ export type NotificationRecipientGroups = {
   electricalDowntime: string[];
 };
 
+export type EquipmentReportNotificationStatus = "created" | "updated";
+
 export function readDispatcherNotificationRecipients(
   submission: DispatcherSubmission,
   recipients: NotificationRecipientGroups,
@@ -20,6 +22,26 @@ export function readDispatcherNotificationRecipients(
 
   const values = [...recipients.incidentAndEquipment];
   const notificationText = readSpecializedNotificationText(submission);
+
+  if (isMechanicalDowntimeReason(notificationText)) {
+    values.push(...recipients.mechanicalDowntime);
+  }
+
+  if (isElectricalDowntimeReason(notificationText)) {
+    values.push(...recipients.electricalDowntime);
+  }
+
+  return dedupeValues(values);
+}
+
+export function readEquipmentReportNotificationRecipients(
+  submissions: readonly DispatcherSubmission[],
+  recipients: NotificationRecipientGroups,
+) {
+  const values = [...recipients.incidentAndEquipment];
+  const notificationText = submissions
+    .map(readSpecializedNotificationText)
+    .join(" ");
 
   if (isMechanicalDowntimeReason(notificationText)) {
     values.push(...recipients.mechanicalDowntime);
@@ -57,9 +79,32 @@ export function buildDispatcherNotificationSubject(
   return `${prefix}${submission.formTitle}`;
 }
 
+export function buildEquipmentReportNotificationSubject(
+  submissions: readonly DispatcherSubmission[],
+  subjectPrefix: string,
+  status: EquipmentReportNotificationStatus,
+) {
+  const prefix = subjectPrefix.length > 0 ? `[${subjectPrefix}] ` : "";
+  const reportDate = readEquipmentReportDate(submissions);
+
+  return `${prefix}${
+    status === "updated"
+      ? "Отчет по оборудованию изменен"
+      : "Отчет по оборудованию"
+  }${reportDate.length === 0 ? "" : ` за ${reportDate}`}`;
+}
+
 export function buildDispatcherNotificationText(
   submission: DispatcherSubmission,
 ) {
+  if (submission.formId === "incident") {
+    return buildIncidentOpeningNotificationText(submission);
+  }
+
+  if (submission.formId === "incident_close") {
+    return buildIncidentClosureNotificationText(submission);
+  }
+
   const form = getDispatcherFormDefinition(submission.formId);
   const payloadLines = Object.entries(submission.payload).map(([key, value]) => {
     const field = form?.fields.find((item) => item.name === key);
@@ -77,6 +122,31 @@ export function buildDispatcherNotificationText(
     "Данные:",
     ...payloadLines,
   ].join("\n");
+}
+
+export function buildEquipmentReportNotificationText(
+  submissions: readonly DispatcherSubmission[],
+  status: EquipmentReportNotificationStatus,
+) {
+  const reportDate = readEquipmentReportDate(submissions);
+  const header =
+    status === "updated"
+      ? "Отчет по оборудованию изменен!"
+      : "Отчет по оборудованию!";
+  const lines = [
+    header,
+    ...(reportDate.length === 0 ? [] : [`Дата отчета: ${reportDate}`]),
+    `Позиций в отчете: ${submissions.length}`,
+    "",
+    ...submissions
+      .slice()
+      .sort((left, right) =>
+        readEquipmentName(left).localeCompare(readEquipmentName(right), "ru"),
+      )
+      .flatMap((submission) => buildEquipmentReportLines(submission)),
+  ];
+
+  return lines.join("\n");
 }
 
 function isIncidentForm(formId: DispatcherSubmission["formId"]) {
@@ -112,6 +182,73 @@ function readIncidentNumber(submission: DispatcherSubmission) {
   return incidentNumber === undefined || incidentNumber.length === 0
     ? submission.id
     : incidentNumber;
+}
+
+function buildIncidentOpeningNotificationText(submission: DispatcherSubmission) {
+  return [
+    "Новый инцидент!",
+    `Дата и время инцидента: ${readPayloadValue(submission, "datetime")}`,
+    `Место (цех/участок): ${readPayloadValue(submission, "location")}`,
+    `Тип инцидента: ${readPayloadValue(submission, "incidentType")}`,
+    `Описание: ${readPayloadValue(submission, "description")}`,
+    `Критичность: ${readPayloadValue(submission, "criticality")}`,
+    `Ответственный за регистрацию: ${readPayloadValue(submission, "responsible")}`,
+    `Оперативные меры: ${readPayloadValue(submission, "immediateActions")}`,
+    `Статус: ${readPayloadValue(submission, "incidentStatus")}`,
+    `Номер инцидента: ${readIncidentNumber(submission)}`,
+  ].join("\n");
+}
+
+function buildIncidentClosureNotificationText(submission: DispatcherSubmission) {
+  return [
+    "Инцидент закрыт!",
+    `Номер инцидента: ${readIncidentNumber(submission)}`,
+    `Корневые причины: ${readPayloadValue(submission, "rootCauses")}`,
+    `Предотвращающие меры: ${readPayloadValue(submission, "preventiveMeasures")}`,
+    `Дата и время закрытия: ${readPayloadValue(submission, "closureDateTime")}`,
+    `Затраты (убытки), руб: ${readPayloadValue(submission, "costs")}`,
+    `Кто утвердил закрытие: ${readPayloadValue(submission, "approvedBy")}`,
+    `Примечание: ${readPayloadValue(submission, "closureNote")}`,
+    `Статус: ${readPayloadValue(submission, "incidentStatus")}`,
+  ].join("\n");
+}
+
+function buildEquipmentReportLines(submission: DispatcherSubmission) {
+  const lines = [
+    `${readEquipmentName(submission)}:`,
+    `Выработка, тонн: ${readPayloadValue(submission, "productionTons", "0")}`,
+    `Время простоя, часов: ${readPayloadValue(submission, "downtimeHours", "0")}`,
+  ];
+  const downtimeReason = submission.payload.downtimeReason?.trim();
+  const note = submission.payload.note?.trim();
+
+  if (downtimeReason !== undefined && downtimeReason.length > 0) {
+    lines.push(`Причина простоя: ${downtimeReason}`);
+  }
+
+  if (note !== undefined && note.length > 0) {
+    lines.push(`Примечание: ${note}`);
+  }
+
+  return [...lines, ""];
+}
+
+function readEquipmentReportDate(submissions: readonly DispatcherSubmission[]) {
+  return submissions[0]?.payload.reportDate?.trim() ?? "";
+}
+
+function readEquipmentName(submission: DispatcherSubmission) {
+  return submission.payload.equipment?.trim() ?? "Оборудование";
+}
+
+function readPayloadValue(
+  submission: DispatcherSubmission,
+  fieldName: string,
+  fallback = "",
+) {
+  const value = submission.payload[fieldName]?.trim();
+
+  return value === undefined || value.length === 0 ? fallback : value;
 }
 
 function readFieldLabel(field: DispatcherFormField | undefined, fallback: string) {

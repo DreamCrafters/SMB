@@ -80,6 +80,27 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "003_equipment_report_revisions",
+    statements: [
+      `
+      create table if not exists dispatcher_equipment_report_revisions (
+        id char(36) not null primary key,
+        business_account_id varchar(120) not null,
+        report_date varchar(20) not null,
+        revision_status varchar(40) not null,
+        payload json not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_equipment_report_revisions_business_date (
+          business_account_id,
+          report_date,
+          created_at
+        )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

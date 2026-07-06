@@ -81,6 +81,11 @@ export type DispatcherSubmissionResponse = {
   submission: DispatcherSubmission;
 };
 
+export type DispatcherEquipmentReportResponse = {
+  submissions: DispatcherSubmission[];
+  reportStatus: "created" | "updated";
+};
+
 export type DispatcherFeedSummaryItem = {
   formId: DispatcherFormId;
   formTitle: string;

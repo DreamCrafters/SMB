@@ -64,6 +64,9 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
       receivedAt: "2026-06-18T00:00:01.000Z",
     };
   },
+  async recordEquipmentReportRevision() {
+    // The default test repository does not need revision assertions.
+  },
   async listLatest() {
     return [];
   },
@@ -337,7 +340,7 @@ test("remote API creates dispatcher submissions with form payload", async () => 
   });
 });
 
-test("remote API notifies recipients after successful dispatcher submission", async () => {
+test("remote API notifies recipients after successful incident submission", async () => {
   let notifiedSubmissionId: string | undefined;
   let notifiedRecipients: NotificationRecipients | undefined;
   let maxNotifiedSubmissionId: string | undefined;
@@ -365,11 +368,17 @@ test("remote API notifies recipients after successful dispatcher submission", as
       notifiedSubmissionId = submission.id;
       notifiedRecipients = recipients;
     },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
+    },
   };
   const maxNotificationService: MaxNotificationService = {
     async sendDispatcherSubmissionNotification(submission, recipients) {
       maxNotifiedSubmissionId = submission.id;
       maxNotifiedRecipients = recipients;
+    },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
     },
   };
 
@@ -382,11 +391,15 @@ test("remote API notifies recipients after successful dispatcher submission", as
         },
         body: JSON.stringify({
           businessAccountId: "business-id",
-          formId: "equipment",
+          formId: "incident",
           payload: {
-            reportDate: "2026-06-18",
-            equipment: "Пресс №1",
-            productionTons: "42",
+            datetime: "2026-06-18T10:30",
+            location: "Цех №1",
+            incidentType: "Поломка оборудования по мех. части",
+            description: "Поломка",
+            criticality: "Средний",
+            responsible: "Диспетчер",
+            immediateActions: "Остановили участок",
           },
         }),
       });
@@ -410,6 +423,163 @@ test("remote API notifies recipients after successful dispatcher submission", as
     emailNotificationService,
     maxNotificationService,
   );
+});
+
+test("remote API sends one notification for a batched equipment report", async () => {
+  let notifiedCount = 0;
+  let notifiedStatus: "created" | "updated" | undefined;
+  let maxNotifiedCount = 0;
+  let maxNotifiedStatus: "created" | "updated" | undefined;
+  const referenceDataSource: DispatcherReferenceDataSource = {
+    async read() {
+      return {
+        incidentLocationOptions: [],
+        incidentResponsibleOptions: [],
+        notificationRecipients: {
+          incidentAndEquipment: ["common@example.com"],
+          mechanicalDowntime: ["mechanic@example.com"],
+          electricalDowntime: [],
+        },
+        maxNotificationRecipients: {
+          incidentAndEquipment: ["1001"],
+          mechanicalDowntime: ["2001"],
+          electricalDowntime: [],
+        },
+      };
+    },
+  };
+  const emailNotificationService: EmailNotificationService = {
+    async sendDispatcherSubmissionNotification() {
+      throw new Error("Unexpected single submission notification.");
+    },
+    async sendEquipmentReportNotification(submissions, _recipients, status) {
+      notifiedCount = submissions.length;
+      notifiedStatus = status;
+    },
+  };
+  const maxNotificationService: MaxNotificationService = {
+    async sendDispatcherSubmissionNotification() {
+      throw new Error("Unexpected single submission notification.");
+    },
+    async sendEquipmentReportNotification(submissions, _recipients, status) {
+      maxNotifiedCount = submissions.length;
+      maxNotifiedStatus = status;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/dispatcher/equipment-report`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            businessAccountId: "business-id",
+            items: [
+              {
+                reportDate: "2026-06-18",
+                equipment: "Пресс №1",
+                productionTons: "42",
+              },
+              {
+                reportDate: "2026-06-18",
+                equipment: "Пресс №2",
+                productionTons: "12",
+                downtimeReason: "Простой по мех, эл. части",
+                downtimeHours: "8",
+              },
+            ],
+          }),
+        },
+      );
+      const payload = await response.json();
+
+      assert.equal(response.status, 201);
+      assert.equal(
+        isRecord(payload) && Array.isArray(payload.submissions)
+          ? payload.submissions.length
+          : undefined,
+        2,
+      );
+      assert.equal(
+        isRecord(payload) ? payload.reportStatus : undefined,
+        "created",
+      );
+      assert.equal(notifiedCount, 2);
+      assert.equal(notifiedStatus, "created");
+      assert.equal(maxNotifiedCount, 2);
+      assert.equal(maxNotifiedStatus, "created");
+    },
+    dispatcherSubmissions,
+    referenceDataSource,
+    emailNotificationService,
+    maxNotificationService,
+  );
+});
+
+test("remote API records a revision when a batched equipment report changes", async () => {
+  let revision:
+    | Parameters<
+        DispatcherSubmissionsRepository["recordEquipmentReportRevision"]
+      >[0]
+    | undefined;
+  const repository = buildRepositoryWithHistory(
+    [
+      {
+        id: "existing-submission-id",
+        businessAccountId: "business-id",
+        formId: "equipment",
+        formTitle: "Оборудование",
+        payload: {
+          reportDate: "18.06.2026",
+          equipment: "Пресс №1",
+          productionTons: "40",
+        },
+        summary: "Оборудование: Пресс №1",
+        status: "received",
+        submittedByAccountId: "dispatcher-access-id",
+        submittedAt: "2026-06-18T00:00:00.000Z",
+        receivedAt: "2026-06-18T00:00:01.000Z",
+      },
+    ],
+    undefined,
+    (value) => {
+      revision = value;
+    },
+  );
+
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/equipment-report`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-SMB-Account-Id": "dispatcher-access-id",
+      },
+      body: JSON.stringify({
+        businessAccountId: "business-id",
+        items: [
+          {
+            reportDate: "2026-06-18",
+            equipment: "Пресс №1",
+            productionTons: "42",
+          },
+        ],
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(isRecord(payload) ? payload.reportStatus : undefined, "updated");
+    assert.equal(revision?.businessAccountId, "business-id");
+    assert.equal(revision?.reportDate, "18.06.2026");
+    assert.equal(revision?.status, "updated");
+    assert.equal(revision?.submittedByAccountId, "dispatcher-access-id");
+    assert.equal(revision?.submissions.length, 1);
+    assert.equal(revision?.submissions[0].payload.productionTons, "42");
+  }, repository);
 });
 
 test("remote API rejects visitor entry when the visitor is already inside", async () => {
@@ -505,6 +675,11 @@ async function withApiServer(
 function buildRepositoryWithHistory(
   history: Awaited<ReturnType<DispatcherSubmissionsRepository["listLatest"]>>,
   onCreate?: (value: ValidatedDispatcherSubmissionDraft) => void,
+  onRevision?: (
+    value: Parameters<
+      DispatcherSubmissionsRepository["recordEquipmentReportRevision"]
+    >[0],
+  ) => void,
 ): DispatcherSubmissionsRepository {
   return {
     async create(value, submittedByAccountId) {
@@ -522,6 +697,9 @@ function buildRepositoryWithHistory(
         submittedAt: "2026-06-18T00:00:00.000Z",
         receivedAt: "2026-06-18T00:00:01.000Z",
       };
+    },
+    async recordEquipmentReportRevision(value) {
+      onRevision?.(value);
     },
     async listLatest() {
       return history;

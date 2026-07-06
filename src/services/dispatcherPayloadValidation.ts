@@ -7,6 +7,8 @@ export const equipmentDowntimeReasonRequiresHoursMessage =
   "Укажите время простоя больше 0 часов, если выбрана причина простоя.";
 export const equipmentDowntimeRequiresProductionMessage =
   "Если простой меньше 8 часов, выработка должна быть больше 0.";
+export const equipmentDowntimeMaxHoursMessage =
+  "Простой за смену не может быть больше 8 часов.";
 export const visitorExitRequiresEntryMessage =
   "Выберите посетителя, который вошёл и ещё не вышел.";
 
@@ -40,6 +42,10 @@ export function validateEquipmentPayloadForSubmit(
     (downtimeHours === undefined || downtimeHours <= 0)
   ) {
     return equipmentDowntimeReasonRequiresHoursMessage;
+  }
+
+  if (downtimeHours !== undefined && downtimeHours > 8) {
+    return equipmentDowntimeMaxHoursMessage;
   }
 
   if (downtimeHours !== undefined && downtimeHours < 8) {

@@ -247,6 +247,10 @@ function applyDispatcherFormScriptRules(
       );
     }
 
+    if (downtimeHours !== undefined && downtimeHours > 8) {
+      errors.push("equipment downtime hours must be 8 hours or less.");
+    }
+
     if (downtimeHours !== undefined && downtimeHours < 8) {
       const productionTons = readPayloadNumber(nextPayload.productionTons);
 

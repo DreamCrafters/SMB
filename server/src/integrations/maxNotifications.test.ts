@@ -63,7 +63,14 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   await service.sendDispatcherSubmissionNotification(
     buildSubmission("incident", {
       incidentNumber: "INC-2026-1",
+      datetime: "06.07.2026 21:51",
       location: "Цех №1",
+      incidentType: "Травма",
+      description: "Описание",
+      criticality: "Средний",
+      responsible: "Соколова Т.В.",
+      immediateActions: "Оперативные меры",
+      incidentStatus: "Новый",
     }),
     recipients,
   );
@@ -84,17 +91,16 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   );
   assert.deepEqual(JSON.parse(String(sent[0]?.init?.body)), {
     text: [
-      "[SMB Monitor] Открытие инцидента INC-2026-1",
-      "",
-      "Форма: incident",
-      "Статус: received",
-      "Бизнес-аккаунт: business-id",
-      "Кратко: submission summary",
-      "Получено: 2026-07-06T00:00:01.000Z",
-      "",
-      "Данные:",
-      "incidentNumber: INC-2026-1",
+      "Новый инцидент!",
+      "Дата и время инцидента: 06.07.2026 21:51",
       "Место (цех/участок): Цех №1",
+      "Тип инцидента: Травма",
+      "Описание: Описание",
+      "Критичность: Средний",
+      "Ответственный за регистрацию: Соколова Т.В.",
+      "Оперативные меры: Оперативные меры",
+      "Статус: Новый",
+      "Номер инцидента: INC-2026-1",
     ].join("\n"),
     notify: true,
   });
@@ -236,6 +242,57 @@ test("createMaxNotificationService sends MAX requests with configured CA certifi
       ca: "trusted-ca-pem",
     },
   ]);
+});
+
+test("createMaxNotificationService sends equipment report as one message", async () => {
+  const sent: { url: string; body: string }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "chat_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
+
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await service.sendEquipmentReportNotification(
+    [
+      buildSubmission("equipment", {
+        reportDate: "06.07.2026",
+        equipment: "Пресс №1",
+        productionTons: "12",
+      }),
+      buildSubmission("equipment", {
+        reportDate: "06.07.2026",
+        equipment: "Пресс №2",
+        productionTons: "0",
+        downtimeReason: "Простой по мех. и эл. части",
+        downtimeHours: "8",
+      }),
+    ],
+    recipients,
+    "updated",
+  );
+
+  assert.deepEqual(sent.map((item) => item.url), [
+    "https://platform-api2.max.ru/messages?chat_id=-1001",
+    "https://platform-api2.max.ru/messages?chat_id=2001",
+    "https://platform-api2.max.ru/messages?chat_id=3001",
+  ]);
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Отчет по оборудованию изменен!/,
+  );
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Пресс №1/);
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Пресс №2/);
 });
 
 function buildSubmission(

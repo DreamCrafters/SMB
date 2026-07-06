@@ -137,6 +137,50 @@ export function buildEquipmentFormPayload({
   return payload;
 }
 
+export function buildEquipmentReportPayloads({
+  businessAccountId,
+  currentPayload,
+  equipmentOptions,
+  form,
+  reportDate,
+  storage,
+}: {
+  businessAccountId: string;
+  currentPayload: DispatcherSubmissionPayload;
+  equipmentOptions: readonly string[];
+  form: DispatcherFormDefinition;
+  reportDate: string;
+  storage: DispatcherEquipmentDraftStorage | undefined;
+}) {
+  const state = readEquipmentDraftState(storage, businessAccountId);
+  const payloads: DispatcherSubmissionPayload[] = [];
+
+  for (const equipment of equipmentOptions) {
+    const savedDraft =
+      equipment === currentPayload.equipment
+        ? {
+            ...state.draftsByEquipment[equipment],
+            ...cleanEquipmentDraftPayload(currentPayload, form),
+          }
+        : state.draftsByEquipment[equipment];
+
+    if (savedDraft === undefined || !hasEquipmentReportData(savedDraft)) {
+      continue;
+    }
+
+    payloads.push(
+      buildEquipmentFormPayload({
+        equipment,
+        form,
+        savedDraft,
+        todayDate: reportDate,
+      }),
+    );
+  }
+
+  return payloads;
+}
+
 export function buildEquipmentCompletionMap(
   submissions: readonly DispatcherSubmission[],
   reportDate: string,
@@ -173,6 +217,15 @@ export function buildEquipmentCompletionMap(
   }
 
   return completionMap;
+}
+
+export function hasEquipmentReportData(payload: DispatcherSubmissionPayload) {
+  return [
+    payload.productionTons,
+    payload.downtimeReason,
+    payload.downtimeHours,
+    payload.note,
+  ].some((value) => value !== undefined && value.trim().length > 0);
 }
 
 export function formatReportDateForPayload(value: string) {

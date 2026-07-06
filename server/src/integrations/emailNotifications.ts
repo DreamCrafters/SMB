@@ -2,9 +2,13 @@ import nodemailer from "nodemailer";
 import type { EmailNotificationConfig } from "../config/env.js";
 import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
 import {
+  buildEquipmentReportNotificationSubject,
+  buildEquipmentReportNotificationText,
   buildDispatcherNotificationSubject,
   buildDispatcherNotificationText,
+  readEquipmentReportNotificationRecipients,
   readDispatcherNotificationRecipients,
+  type EquipmentReportNotificationStatus,
 } from "./dispatcherNotifications.js";
 import type { NotificationRecipients } from "./googleSheetsReference.js";
 
@@ -19,6 +23,11 @@ export type EmailNotificationService = {
   sendDispatcherSubmissionNotification: (
     submission: DispatcherSubmission,
     recipients: NotificationRecipients,
+  ) => Promise<void>;
+  sendEquipmentReportNotification: (
+    submissions: readonly DispatcherSubmission[],
+    recipients: NotificationRecipients,
+    status: EquipmentReportNotificationStatus,
   ) => Promise<void>;
 };
 
@@ -35,6 +44,9 @@ export function createEmailNotificationService(
       async sendDispatcherSubmissionNotification() {
         // Email notifications are intentionally disabled by env.
       },
+      async sendEquipmentReportNotification() {
+        // Email notifications are intentionally disabled by env.
+      },
     };
   }
 
@@ -47,6 +59,21 @@ export function createEmailNotificationService(
         recipients,
         config.from,
         config.subjectPrefix,
+      );
+
+      if (message === undefined) {
+        return;
+      }
+
+      await sendMail(message);
+    },
+    async sendEquipmentReportNotification(submissions, recipients, status) {
+      const message = buildEquipmentReportEmail(
+        submissions,
+        recipients,
+        config.from,
+        config.subjectPrefix,
+        status,
       );
 
       if (message === undefined) {
@@ -75,6 +102,35 @@ export function buildDispatcherSubmissionEmail(
     to,
     subject: buildDispatcherNotificationSubject(submission, subjectPrefix),
     text: buildDispatcherNotificationText(submission),
+  };
+}
+
+export function buildEquipmentReportEmail(
+  submissions: readonly DispatcherSubmission[],
+  recipients: NotificationRecipients,
+  from: string,
+  subjectPrefix = "SMB Monitor",
+  status: EquipmentReportNotificationStatus = "created",
+): EmailMessage | undefined {
+  if (submissions.length === 0) {
+    return undefined;
+  }
+
+  const to = readEquipmentReportNotificationRecipients(submissions, recipients);
+
+  if (to.length === 0) {
+    return undefined;
+  }
+
+  return {
+    from,
+    to,
+    subject: buildEquipmentReportNotificationSubject(
+      submissions,
+      subjectPrefix,
+      status,
+    ),
+    text: buildEquipmentReportNotificationText(submissions, status),
   };
 }
 

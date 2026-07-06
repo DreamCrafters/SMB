@@ -36,6 +36,14 @@ export type DispatcherFeedSummary = {
   byForm: DispatcherFeedSummaryItem[];
 };
 
+export type EquipmentReportRevisionDraft = {
+  businessAccountId: string;
+  reportDate: string;
+  status: "updated";
+  submissions: readonly DispatcherSubmission[];
+  submittedByAccountId: string;
+};
+
 type CountRow = {
   form_id: string;
   count: number | string;
@@ -57,6 +65,9 @@ export type DispatcherSubmissionsRepository = {
     value: ValidatedDispatcherSubmissionDraft,
     submittedByAccountId: string,
   ) => Promise<DispatcherSubmission>;
+  recordEquipmentReportRevision: (
+    value: EquipmentReportRevisionDraft,
+  ) => Promise<void>;
   listLatest: (filters?: DispatcherFeedFilters) => Promise<DispatcherSubmission[]>;
   readSummary: (filters?: DispatcherFeedFilters) => Promise<DispatcherFeedSummary>;
 };
@@ -145,6 +156,38 @@ export function createDispatcherSubmissionsRepository(
       }
 
       return mapDispatcherSubmissionRow(row);
+    },
+
+    async recordEquipmentReportRevision(value) {
+      await pool.query(
+        `
+          insert into dispatcher_equipment_report_revisions (
+            id,
+            business_account_id,
+            report_date,
+            revision_status,
+            payload,
+            submitted_by_account_id
+          )
+          values (?, ?, ?, ?, ?, ?)
+        `,
+        [
+          randomUUID(),
+          value.businessAccountId,
+          value.reportDate,
+          value.status,
+          JSON.stringify({
+            submissions: value.submissions.map((submission) => ({
+              id: submission.id,
+              formId: submission.formId,
+              payload: submission.payload,
+              summary: submission.summary,
+              receivedAt: submission.receivedAt,
+            })),
+          }),
+          value.submittedByAccountId,
+        ],
+      );
     },
 
     async listLatest(filters = {}) {

@@ -3,9 +3,11 @@ import { request as httpsRequest } from "node:https";
 import type { MaxNotificationConfig } from "../config/env.js";
 import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
 import {
-  buildDispatcherNotificationSubject,
+  buildEquipmentReportNotificationText,
   buildDispatcherNotificationText,
+  readEquipmentReportNotificationRecipients,
   readDispatcherNotificationRecipients,
+  type EquipmentReportNotificationStatus,
 } from "./dispatcherNotifications.js";
 import type { MaxNotificationRecipients } from "./googleSheetsReference.js";
 
@@ -13,6 +15,11 @@ export type MaxNotificationService = {
   sendDispatcherSubmissionNotification: (
     submission: DispatcherSubmission,
     recipients: MaxNotificationRecipients,
+  ) => Promise<void>;
+  sendEquipmentReportNotification: (
+    submissions: readonly DispatcherSubmission[],
+    recipients: MaxNotificationRecipients,
+    status: EquipmentReportNotificationStatus,
   ) => Promise<void>;
 };
 
@@ -50,6 +57,9 @@ export function createMaxNotificationService(
       async sendDispatcherSubmissionNotification() {
         // MAX notifications are intentionally disabled by env.
       },
+      async sendEquipmentReportNotification() {
+        // MAX notifications are intentionally disabled by env.
+      },
     };
   }
 
@@ -83,16 +93,7 @@ export function createMaxNotificationService(
         return;
       }
 
-      const text = trimMaxMessageText(
-        [
-          buildDispatcherNotificationSubject(
-            submission,
-            config.subjectPrefix,
-          ),
-          "",
-          buildDispatcherNotificationText(submission),
-        ].join("\n"),
-      );
+      const text = trimMaxMessageText(buildDispatcherNotificationText(submission));
       const caCertificate = await caCertificatePromise;
 
       await Promise.all(
@@ -102,6 +103,39 @@ export function createMaxNotificationService(
       );
       console.info("dispatcher_notifications.max_sent", {
         formId: submission.formId,
+        recipientIdType: config.recipientIdType,
+        recipientCount: userIds.length,
+      });
+    },
+    async sendEquipmentReportNotification(submissions, recipients, status) {
+      if (submissions.length === 0) {
+        return;
+      }
+
+      const userIds = readEquipmentReportNotificationRecipients(
+        submissions,
+        recipients,
+      );
+
+      if (userIds.length === 0) {
+        console.warn("dispatcher_notifications.max_no_recipients", {
+          formId: "equipment",
+        });
+        return;
+      }
+
+      const text = trimMaxMessageText(
+        buildEquipmentReportNotificationText(submissions, status),
+      );
+      const caCertificate = await caCertificatePromise;
+
+      await Promise.all(
+        userIds.map((userId) =>
+          sendMaxMessage(httpClient, config, userId, text, caCertificate),
+        ),
+      );
+      console.info("dispatcher_notifications.max_sent", {
+        formId: "equipment",
         recipientIdType: config.recipientIdType,
         recipientCount: userIds.length,
       });

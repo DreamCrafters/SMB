@@ -6,7 +6,12 @@ import {
   type DevAccessSession,
   isAccountType,
 } from "../domain/devAccessProfile.js";
-import { validateDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
+import {
+  buildDispatcherSubmissionDedupeKey,
+  validateDispatcherSubmissionDraft,
+  type DispatcherSubmission,
+  type ValidatedDispatcherSubmissionDraft,
+} from "../domain/dispatcherSubmission.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
   getPublicDispatcherForms,
@@ -39,7 +44,7 @@ type AppDependencies = {
 
 type JsonPayload = Record<string, unknown> | unknown[];
 
-const maxBodyBytes = 20_000;
+const maxBodyBytes = 100_000;
 const devSessionCookie = "smb_dev_access_session";
 const devSessionHeader = "x-smb-dev-session";
 
@@ -102,6 +107,75 @@ export function createApiServer({
             incidentResponsibleOptions:
               referenceData.incidentResponsibleOptions,
           }),
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/dispatcher/equipment-report") {
+        if (req.method !== "POST") {
+          sendJson(res, 405, {
+            error: {
+              code: "access_denied",
+              message: "Only POST is supported for dispatcher equipment reports.",
+            },
+          });
+          return;
+        }
+
+        const payload = await readJsonBody(req);
+        const validation = validateDispatcherEquipmentReportRequest(payload);
+
+        if (!validation.ok) {
+          sendJson(res, 400, {
+            error: {
+              code: "invalid_response",
+              message: validation.errors.join(" "),
+            },
+          });
+          return;
+        }
+
+        const history = await dispatcherSubmissions.listLatest({
+          formId: "equipment",
+          limit: 500,
+        });
+        const reportStatus = readEquipmentReportStatus(
+          validation.value,
+          history,
+        );
+        const submittedByAccountId = readSubmittedByAccountId(req);
+        const submissions: DispatcherSubmission[] = [];
+
+        for (const item of validation.value.items) {
+          submissions.push(
+            await dispatcherSubmissions.create(
+              item,
+              submittedByAccountId,
+            ),
+          );
+        }
+
+        if (reportStatus === "updated") {
+          await dispatcherSubmissions.recordEquipmentReportRevision({
+            businessAccountId: validation.value.businessAccountId,
+            reportDate: readEquipmentReportDate(submissions),
+            status: reportStatus,
+            submissions,
+            submittedByAccountId,
+          });
+        }
+
+        await notifyDispatcherEquipmentReport(
+          submissions,
+          reportStatus,
+          referenceDataSource,
+          emailNotificationService,
+          maxNotificationService,
+        );
+
+        sendJson(res, 201, {
+          submissions,
+          reportStatus,
         });
         return;
       }
@@ -204,12 +278,143 @@ export function createApiServer({
   });
 }
 
+type EquipmentReportValidationResult =
+  | {
+      ok: true;
+      value: {
+        businessAccountId: string;
+        items: ValidatedDispatcherSubmissionDraft[];
+      };
+    }
+  | {
+      ok: false;
+      errors: string[];
+    };
+
+function validateDispatcherEquipmentReportRequest(
+  input: unknown,
+): EquipmentReportValidationResult {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  const businessAccountId =
+    typeof input.businessAccountId === "string"
+      ? input.businessAccountId.trim()
+      : "";
+  const errors: string[] = [];
+
+  if (businessAccountId.length === 0) {
+    errors.push("businessAccountId is required.");
+  }
+
+  if (!Array.isArray(input.items) || input.items.length === 0) {
+    errors.push("items must contain at least one equipment report.");
+  }
+
+  if (Array.isArray(input.items) && input.items.length > 50) {
+    errors.push("items must contain 50 equipment reports or less.");
+  }
+
+  const items: ValidatedDispatcherSubmissionDraft[] = [];
+
+  if (Array.isArray(input.items)) {
+    input.items.forEach((payload, index) => {
+      const validation = validateDispatcherSubmissionDraft({
+        businessAccountId,
+        formId: "equipment",
+        payload,
+      });
+
+      if (!validation.ok) {
+        errors.push(
+          `items[${index}] is invalid: ${validation.errors.join(" ")}`,
+        );
+        return;
+      }
+
+      items.push(validation.value);
+    });
+  }
+
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      errors,
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      businessAccountId,
+      items,
+    },
+  };
+}
+
+function readEquipmentReportStatus(
+  report: {
+    items: ValidatedDispatcherSubmissionDraft[];
+  },
+  history: readonly DispatcherSubmission[],
+): "created" | "updated" {
+  const existingKeys = new Set(
+    history
+      .map((submission) =>
+        buildEquipmentSubmissionKey(
+          submission.businessAccountId,
+          submission.payload.reportDate,
+          submission.payload.equipment,
+        ),
+      )
+      .filter((value): value is string => value !== undefined),
+  );
+
+  return report.items.some((item) =>
+    existingKeys.has(buildDispatcherSubmissionDedupeKey(item.draft) ?? ""),
+  )
+    ? "updated"
+    : "created";
+}
+
+function buildEquipmentSubmissionKey(
+  businessAccountId: string,
+  reportDate: string | undefined,
+  equipment: string | undefined,
+) {
+  const trimmedReportDate = reportDate?.trim();
+  const trimmedEquipment = equipment?.trim();
+
+  if (
+    trimmedReportDate === undefined ||
+    trimmedReportDate.length === 0 ||
+    trimmedEquipment === undefined ||
+    trimmedEquipment.length === 0
+  ) {
+    return undefined;
+  }
+
+  return `equipment:${businessAccountId}:${trimmedReportDate}:${trimmedEquipment}`;
+}
+
+function readEquipmentReportDate(submissions: readonly DispatcherSubmission[]) {
+  return submissions[0]?.payload.reportDate?.trim() ?? "";
+}
+
 async function notifyDispatcherSubmission(
   submission: Awaited<ReturnType<DispatcherSubmissionsRepository["create"]>>,
   referenceDataSource: DispatcherReferenceDataSource,
   emailNotificationService: EmailNotificationService,
   maxNotificationService: MaxNotificationService,
 ) {
+  if (submission.formId === "equipment") {
+    return;
+  }
+
   try {
     const referenceData = await referenceDataSource.read();
 
@@ -222,6 +427,33 @@ async function notifyDispatcherSubmission(
       maxNotificationService,
       submission,
       referenceData.maxNotificationRecipients,
+    );
+  } catch (error) {
+    console.warn("dispatcher_notifications.reference_data_failed", error);
+  }
+}
+
+async function notifyDispatcherEquipmentReport(
+  submissions: readonly DispatcherSubmission[],
+  reportStatus: "created" | "updated",
+  referenceDataSource: DispatcherReferenceDataSource,
+  emailNotificationService: EmailNotificationService,
+  maxNotificationService: MaxNotificationService,
+) {
+  try {
+    const referenceData = await referenceDataSource.read();
+
+    await notifyEquipmentReportByEmail(
+      emailNotificationService,
+      submissions,
+      referenceData.notificationRecipients,
+      reportStatus,
+    );
+    await notifyEquipmentReportByMax(
+      maxNotificationService,
+      submissions,
+      referenceData.maxNotificationRecipients,
+      reportStatus,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.reference_data_failed", error);
@@ -245,6 +477,25 @@ async function notifyByEmail(
   }
 }
 
+async function notifyEquipmentReportByEmail(
+  emailNotificationService: EmailNotificationService,
+  submissions: readonly DispatcherSubmission[],
+  recipients: Parameters<
+    EmailNotificationService["sendEquipmentReportNotification"]
+  >[1],
+  reportStatus: "created" | "updated",
+) {
+  try {
+    await emailNotificationService.sendEquipmentReportNotification(
+      submissions,
+      recipients,
+      reportStatus,
+    );
+  } catch (error) {
+    console.warn("dispatcher_notifications.email_send_failed", error);
+  }
+}
+
 async function notifyByMax(
   maxNotificationService: MaxNotificationService,
   submission: Awaited<ReturnType<DispatcherSubmissionsRepository["create"]>>,
@@ -256,6 +507,25 @@ async function notifyByMax(
     await maxNotificationService.sendDispatcherSubmissionNotification(
       submission,
       recipients,
+    );
+  } catch (error) {
+    console.warn("dispatcher_notifications.max_send_failed", error);
+  }
+}
+
+async function notifyEquipmentReportByMax(
+  maxNotificationService: MaxNotificationService,
+  submissions: readonly DispatcherSubmission[],
+  recipients: Parameters<
+    MaxNotificationService["sendEquipmentReportNotification"]
+  >[1],
+  reportStatus: "created" | "updated",
+) {
+  try {
+    await maxNotificationService.sendEquipmentReportNotification(
+      submissions,
+      recipients,
+      reportStatus,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.max_send_failed", error);

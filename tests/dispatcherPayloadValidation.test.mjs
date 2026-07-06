@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  equipmentDowntimeMaxHoursMessage,
   equipmentDowntimeReasonRequiresHoursMessage,
   equipmentDowntimeRequiresProductionMessage,
   visitorExitRequiresEntryMessage,
@@ -57,6 +58,17 @@ test("equipment payload validation accepts productive short downtime", () => {
       productionTons: "1",
     }),
     undefined,
+  );
+});
+
+test("equipment payload validation rejects downtime over 8 hours", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(equipmentForm, {
+      downtimeReason: "Резерв",
+      downtimeHours: "9",
+      productionTons: "1",
+    }),
+    equipmentDowntimeMaxHoursMessage,
   );
 });
 

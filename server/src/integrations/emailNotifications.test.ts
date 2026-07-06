@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildEquipmentReportEmail,
   buildDispatcherSubmissionEmail,
   createEmailNotificationService,
   type EmailMessage,
@@ -96,6 +97,45 @@ test("buildDispatcherSubmissionEmail adds mechanical and electrical recipients f
     "electric@example.com",
   ]);
   assert.equal(message?.subject, "[SMB Monitor] Отчет по оборудованию: Пресс №1");
+});
+
+test("buildEquipmentReportEmail sends one message with all equipment rows", () => {
+  const message = buildEquipmentReportEmail(
+    [
+      buildSubmission("equipment", {
+        reportDate: "06.07.2026",
+        equipment: "Пресс №1",
+        productionTons: "42",
+      }),
+      buildSubmission("equipment", {
+        reportDate: "06.07.2026",
+        equipment: "Пресс №2",
+        downtimeReason: "Простой по мех, эл. части",
+        downtimeHours: "8",
+      }),
+    ],
+    {
+      incidentAndEquipment: ["common@example.com", "mechanic@example.com"],
+      mechanicalDowntime: ["mechanic@example.com"],
+      electricalDowntime: ["electric@example.com"],
+    },
+    "noreply@example.com",
+    "SMB Monitor",
+    "updated",
+  );
+
+  assert.deepEqual(message?.to, [
+    "common@example.com",
+    "mechanic@example.com",
+    "electric@example.com",
+  ]);
+  assert.equal(
+    message?.subject,
+    "[SMB Monitor] Отчет по оборудованию изменен за 06.07.2026",
+  );
+  assert.match(message?.text ?? "", /Отчет по оборудованию изменен!/);
+  assert.match(message?.text ?? "", /Пресс №1/);
+  assert.match(message?.text ?? "", /Пресс №2/);
 });
 
 test("buildDispatcherSubmissionEmail skips unsupported dispatcher forms", () => {
