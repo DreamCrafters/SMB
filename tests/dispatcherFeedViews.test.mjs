@@ -111,6 +111,28 @@ test("visitor helpers list open visitors and daily visits", () => {
   assert.equal(rows[1].exitAt, undefined);
 });
 
+test("visitor helpers close entries when exit has the same received timestamp", () => {
+  const entry = buildSubmission("visit-1", "visitor", {
+    fio: "Иван Иванов",
+    organization: "ООО Ромашка",
+    entryAt: "04.07.2026 09:10",
+  });
+  const exit = buildSubmission("visit-exit-1", "visitor_exit", {
+    visitorEntryId: "visit-1",
+    fio: "Иван Иванов",
+    organization: "ООО Ромашка",
+    exitAt: "04.07.2026 09:15",
+  });
+  const submissions = [exit, entry];
+
+  assert.deepEqual(buildOpenVisitorOptions(submissions), []);
+
+  const rows = buildVisitorVisitRows(submissions, "2026-07-04");
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].exitAt, "04.07.2026 09:15");
+});
+
 function buildSubmission(id, formId, payload) {
   return {
     id,

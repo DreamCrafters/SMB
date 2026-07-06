@@ -7,16 +7,26 @@ export const equipmentDowntimeReasonRequiresHoursMessage =
   "Укажите время простоя больше 0 часов, если выбрана причина простоя.";
 export const equipmentDowntimeRequiresProductionMessage =
   "Если простой меньше 8 часов, выработка должна быть больше 0.";
+export const visitorExitRequiresEntryMessage =
+  "Выберите посетителя, который вошёл и ещё не вышел.";
 
 export function validateDispatcherPayloadForSubmit(
   form: DispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
 ) {
-  if (form.id !== "equipment") {
-    return undefined;
+  if (form.id === "equipment") {
+    return validateEquipmentPayloadForSubmit(payload);
   }
 
-  return validateEquipmentPayloadForSubmit(payload);
+  if (
+    form.id === "visitor_exit" &&
+    (payload.visitorEntryId === undefined ||
+      payload.visitorEntryId.trim().length === 0)
+  ) {
+    return visitorExitRequiresEntryMessage;
+  }
+
+  return undefined;
 }
 
 export function validateEquipmentPayloadForSubmit(

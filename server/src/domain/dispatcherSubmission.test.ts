@@ -5,6 +5,7 @@ import {
   mapDispatcherSubmissionRow,
   validateDispatcherSubmissionDraft,
 } from "./dispatcherSubmission.js";
+import { applyVisitorStateRules } from "./dispatcherVisitorState.js";
 
 test("validateDispatcherSubmissionDraft accepts and trims a known form payload", () => {
   const result = validateDispatcherSubmissionDraft({
@@ -209,6 +210,37 @@ test("validateDispatcherSubmissionDraft stamps visitor exit time", () => {
   }
 });
 
+test("visitor state rules close same-timestamp entries before duplicate checks", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "visitor",
+    payload: {
+      fio: "Visitor Name",
+      organization: "External Org",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    const stateResult = applyVisitorStateRules(result.value, [
+      buildDispatcherSubmission("visitor-exit-id", "visitor_exit", {
+        visitorEntryId: "visitor-entry-id",
+        fio: "Visitor Name",
+        organization: "External Org",
+        exitAt: "18.06.2026 10:45",
+      }),
+      buildDispatcherSubmission("visitor-entry-id", "visitor", {
+        fio: "Visitor Name",
+        organization: "External Org",
+        entryAt: "18.06.2026 10:30",
+      }),
+    ]);
+
+    assert.equal(stateResult.ok, true);
+  }
+});
+
 test("validateDispatcherSubmissionDraft rejects legacy gas forms as inactive", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",
@@ -283,3 +315,22 @@ test("mapDispatcherSubmissionRow reads MariaDB JSON payload strings", () => {
   assert.equal(result.submittedAt, "2026-06-18T00:00:00.000Z");
   assert.equal(result.receivedAt, "2026-06-18T00:00:01.000Z");
 });
+
+function buildDispatcherSubmission(
+  id: string,
+  formId: "visitor" | "visitor_exit",
+  payload: Record<string, string>,
+) {
+  return {
+    id,
+    businessAccountId: "business-id",
+    formId,
+    formTitle: formId,
+    payload,
+    summary: id,
+    status: "received" as const,
+    submittedByAccountId: "dispatcher-account",
+    submittedAt: "2026-06-18T00:00:00.000Z",
+    receivedAt: "2026-06-18T00:00:01.000Z",
+  };
+}

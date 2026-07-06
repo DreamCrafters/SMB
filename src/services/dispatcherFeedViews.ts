@@ -429,7 +429,26 @@ function compareSubmissionsAscending(
   left: DispatcherSubmission,
   right: DispatcherSubmission,
 ) {
-  return readTimestamp(left.receivedAt) - readTimestamp(right.receivedAt);
+  const timestampDelta =
+    readTimestamp(left.receivedAt) - readTimestamp(right.receivedAt);
+
+  if (timestampDelta !== 0) {
+    return timestampDelta;
+  }
+
+  return readVisitorLifecycleRank(left) - readVisitorLifecycleRank(right);
+}
+
+function readVisitorLifecycleRank(submission: DispatcherSubmission) {
+  if (submission.formId === "visitor") {
+    return 0;
+  }
+
+  if (submission.formId === "visitor_exit") {
+    return 1;
+  }
+
+  return 0;
 }
 
 function readTimestamp(value: string) {

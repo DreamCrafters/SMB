@@ -1742,6 +1742,14 @@ function readDispatcherSubmissionPayload(
     }
   }
 
+  if (formDefinition.id === "visitor_exit") {
+    const visitorEntryId = readOptionalFormValue(formData.get("visitorEntryId"));
+
+    if (visitorEntryId !== undefined && visitorEntryId.length > 0) {
+      payload.visitorEntryId = visitorEntryId;
+    }
+  }
+
   return payload;
 }
 

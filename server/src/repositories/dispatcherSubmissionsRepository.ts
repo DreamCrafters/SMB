@@ -164,7 +164,7 @@ export function createDispatcherSubmissionsRepository(
             received_at
           from dispatcher_submissions
           ${where.sql}
-          order by received_at desc
+          order by received_at desc, submitted_at desc, id desc
           limit ?
         `,
         [...where.values, safeLimit],
