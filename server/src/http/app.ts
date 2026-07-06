@@ -20,11 +20,16 @@ import {
   createGoogleSheetsReferenceDataSource,
   type DispatcherReferenceDataSource,
 } from "../integrations/googleSheetsReference.js";
+import {
+  createEmailNotificationService,
+  type EmailNotificationService,
+} from "../integrations/emailNotifications.js";
 
 type AppDependencies = {
   config: ServerConfig;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   referenceDataSource?: DispatcherReferenceDataSource;
+  emailNotificationService?: EmailNotificationService;
 };
 
 type JsonPayload = Record<string, unknown> | unknown[];
@@ -38,6 +43,9 @@ export function createApiServer({
   dispatcherSubmissions,
   referenceDataSource = createGoogleSheetsReferenceDataSource(
     config.googleSheetsReference,
+  ),
+  emailNotificationService = createEmailNotificationService(
+    config.emailNotifications,
   ),
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
@@ -152,6 +160,12 @@ export function createApiServer({
             readSubmittedByAccountId(req),
           );
 
+          await notifyDispatcherSubmission(
+            submission,
+            referenceDataSource,
+            emailNotificationService,
+          );
+
           sendJson(res, 201, { submission });
           return;
         }
@@ -181,6 +195,23 @@ export function createApiServer({
       });
     }
   });
+}
+
+async function notifyDispatcherSubmission(
+  submission: Awaited<ReturnType<DispatcherSubmissionsRepository["create"]>>,
+  referenceDataSource: DispatcherReferenceDataSource,
+  emailNotificationService: EmailNotificationService,
+) {
+  try {
+    const referenceData = await referenceDataSource.read();
+
+    await emailNotificationService.sendDispatcherSubmissionNotification(
+      submission,
+      referenceData.notificationRecipients,
+    );
+  } catch (error) {
+    console.warn("dispatcher_notifications.email_send_failed", error);
+  }
 }
 
 function applyCors(

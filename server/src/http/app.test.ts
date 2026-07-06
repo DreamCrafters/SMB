@@ -5,7 +5,11 @@ import type { AddressInfo } from "node:net";
 import type { ServerConfig } from "../config/env.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
-import type { DispatcherReferenceDataSource } from "../integrations/googleSheetsReference.js";
+import type {
+  DispatcherReferenceDataSource,
+  NotificationRecipients,
+} from "../integrations/googleSheetsReference.js";
+import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -20,8 +24,18 @@ const config: ServerConfig = {
     url: "https://docs.google.com/spreadsheets/d/test/edit?gid=0#gid=0",
     responsibleColumn: "Ответственный за регистрацию",
     locationColumn: "Места (цех/участок)",
+    notificationEmailColumns: [
+      "Адресаты по инцидентам и оборуджованию (емейлы)",
+    ],
     cacheTtlMs: 300_000,
     authMode: "public_csv",
+  },
+  emailNotifications: {
+    enabled: false,
+    from: "",
+    subjectPrefix: "SMB Monitor",
+    smtpPort: 587,
+    smtpSecure: false,
   },
 };
 
@@ -56,6 +70,11 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
     return {
       incidentLocationOptions: [],
       incidentResponsibleOptions: [],
+      notificationRecipients: {
+        incidentAndEquipment: [],
+        mechanicalDowntime: [],
+        electricalDowntime: [],
+      },
     };
   },
 };
@@ -207,6 +226,11 @@ test("remote API enriches incident location and responsible options from referen
       return {
         incidentLocationOptions: ["Цех №1", "Участок №2"],
         incidentResponsibleOptions: ["Иван Иванов", "Пётр Петров"],
+        notificationRecipients: {
+          incidentAndEquipment: [],
+          mechanicalDowntime: [],
+          electricalDowntime: [],
+        },
       };
     },
   };
@@ -293,6 +317,61 @@ test("remote API creates dispatcher submissions with form payload", async () => 
   });
 });
 
+test("remote API notifies recipients after successful dispatcher submission", async () => {
+  let notifiedSubmissionId: string | undefined;
+  let notifiedRecipients: NotificationRecipients | undefined;
+  const referenceDataSource: DispatcherReferenceDataSource = {
+    async read() {
+      return {
+        incidentLocationOptions: [],
+        incidentResponsibleOptions: [],
+        notificationRecipients: {
+          incidentAndEquipment: ["common@example.com"],
+          mechanicalDowntime: ["mechanic@example.com"],
+          electricalDowntime: [],
+        },
+      };
+    },
+  };
+  const emailNotificationService: EmailNotificationService = {
+    async sendDispatcherSubmissionNotification(submission, recipients) {
+      notifiedSubmissionId = submission.id;
+      notifiedRecipients = recipients;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          businessAccountId: "business-id",
+          formId: "equipment",
+          payload: {
+            reportDate: "2026-06-18",
+            equipment: "Пресс №1",
+            productionTons: "42",
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      assert.equal(notifiedSubmissionId, "submission-id");
+      assert.deepEqual(notifiedRecipients, {
+        incidentAndEquipment: ["common@example.com"],
+        mechanicalDowntime: ["mechanic@example.com"],
+        electricalDowntime: [],
+      });
+    },
+    dispatcherSubmissions,
+    referenceDataSource,
+    emailNotificationService,
+  );
+});
+
 test("remote API rejects visitor entry when the visitor is already inside", async () => {
   await withApiServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
@@ -359,11 +438,13 @@ async function withApiServer(
   callback: (baseUrl: string) => Promise<void>,
   repository = dispatcherSubmissions,
   referenceDataSource: DispatcherReferenceDataSource = emptyReferenceDataSource,
+  emailNotificationService?: EmailNotificationService,
 ) {
   const server = createApiServer({
     config,
     dispatcherSubmissions: repository,
     referenceDataSource,
+    emailNotificationService,
   });
 
   server.listen(0, "127.0.0.1");

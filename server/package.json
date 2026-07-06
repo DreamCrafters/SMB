@@ -13,10 +13,12 @@
   },
   "dependencies": {
     "dotenv": "^17.2.3",
-    "mysql2": "^3.22.5"
+    "mysql2": "^3.22.5",
+    "nodemailer": "^9.0.3"
   },
   "devDependencies": {
     "@types/node": "^20.19.25",
+    "@types/nodemailer": "^8.0.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }

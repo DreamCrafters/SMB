@@ -5,6 +5,13 @@ import type { GoogleSheetsReferenceConfig } from "../config/env.js";
 export type DispatcherReferenceData = {
   incidentLocationOptions: string[];
   incidentResponsibleOptions: string[];
+  notificationRecipients: NotificationRecipients;
+};
+
+export type NotificationRecipients = {
+  incidentAndEquipment: string[];
+  mechanicalDowntime: string[];
+  electricalDowntime: string[];
 };
 
 export type DispatcherReferenceDataSource = {
@@ -50,10 +57,20 @@ type GoogleSheetMetadata = {
 const emptyReferenceData: DispatcherReferenceData = {
   incidentLocationOptions: [],
   incidentResponsibleOptions: [],
+  notificationRecipients: {
+    incidentAndEquipment: [],
+    mechanicalDowntime: [],
+    electricalDowntime: [],
+  },
 };
 const googleSheetsReadonlyScope =
   "https://www.googleapis.com/auth/spreadsheets.readonly";
 const defaultGoogleTokenUri = "https://oauth2.googleapis.com/token";
+const notificationRecipientRanges = {
+  incidentAndEquipment: [{ startRow: 2, endRow: 20 }],
+  mechanicalDowntime: [{ startRow: 22, endRow: 25 }],
+  electricalDowntime: [{ startRow: 27, endRow: 30 }],
+} as const;
 
 export function createGoogleSheetsReferenceDataSource(
   config: GoogleSheetsReferenceConfig,
@@ -84,6 +101,10 @@ export function createGoogleSheetsReferenceDataSource(
           incidentResponsibleOptions: readColumnOptionsFromRows(
             rows,
             config.responsibleColumn,
+          ),
+          notificationRecipients: readNotificationRecipientsFromRows(
+            rows,
+            config.notificationEmailColumns,
           ),
         };
       } catch (error) {
@@ -339,6 +360,13 @@ export function readColumnOptionsFromCsv(csv: string, columnLabel: string) {
   return readColumnOptionsFromRows(parseCsvRows(csv), columnLabel);
 }
 
+export function readNotificationRecipientsFromCsv(
+  csv: string,
+  columnLabels: readonly string[],
+) {
+  return readNotificationRecipientsFromRows(parseCsvRows(csv), columnLabels);
+}
+
 export function readColumnOptionsFromRows(
   rows: string[][],
   columnLabel: string,
@@ -373,6 +401,78 @@ export function readColumnOptionsFromRows(
   }
 
   return options;
+}
+
+export function readNotificationRecipientsFromRows(
+  rows: string[][],
+  columnLabels: readonly string[],
+): NotificationRecipients {
+  return {
+    incidentAndEquipment: readEmailsFromColumnRows(
+      rows,
+      columnLabels,
+      notificationRecipientRanges.incidentAndEquipment,
+    ),
+    mechanicalDowntime: readEmailsFromColumnRows(
+      rows,
+      columnLabels,
+      notificationRecipientRanges.mechanicalDowntime,
+    ),
+    electricalDowntime: readEmailsFromColumnRows(
+      rows,
+      columnLabels,
+      notificationRecipientRanges.electricalDowntime,
+    ),
+  };
+}
+
+function readEmailsFromColumnRows(
+  rows: string[][],
+  columnLabels: readonly string[],
+  ranges: readonly { startRow: number; endRow: number }[],
+) {
+  const normalizedColumnLabels = new Set(columnLabels.map(normalizeHeader));
+  const columnIndexes = new Set<number>();
+
+  for (const row of rows) {
+    for (const [columnIndex, cell] of row.entries()) {
+      if (normalizedColumnLabels.has(normalizeHeader(cell))) {
+        columnIndexes.add(columnIndex);
+      }
+    }
+  }
+
+  const recipients: string[] = [];
+  const seen = new Set<string>();
+
+  for (const columnIndex of columnIndexes) {
+    for (const range of ranges) {
+      for (
+        let rowNumber = range.startRow;
+        rowNumber <= range.endRow;
+        rowNumber += 1
+      ) {
+        const cell = rows[rowNumber - 1]?.[columnIndex] ?? "";
+
+        for (const email of readEmailAddressesFromCell(cell)) {
+          const normalizedEmail = email.toLocaleLowerCase("en-US");
+
+          if (seen.has(normalizedEmail)) {
+            continue;
+          }
+
+          seen.add(normalizedEmail);
+          recipients.push(email);
+        }
+      }
+    }
+  }
+
+  return recipients;
+}
+
+function readEmailAddressesFromCell(value: string) {
+  return value.match(/[^\s,;<>]+@[^\s,;<>]+\.[^\s,;<>]+/gu) ?? [];
 }
 
 function normalizeGoogleValuesRows(values: unknown) {

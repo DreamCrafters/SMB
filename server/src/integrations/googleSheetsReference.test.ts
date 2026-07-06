@@ -5,6 +5,7 @@ import {
   buildGoogleSheetsCsvUrl,
   createGoogleSheetsReferenceDataSource,
   readColumnOptionsFromCsv,
+  readNotificationRecipientsFromCsv,
 } from "./googleSheetsReference.js";
 
 test("buildGoogleSheetsCsvUrl converts regular sheet links to csv export links", () => {
@@ -46,6 +47,53 @@ test("readColumnOptionsFromCsv reads location options from a separate column", (
   ]);
 });
 
+test("readNotificationRecipientsFromCsv reads email recipients by fixed sheet rows", () => {
+  const rows = Array.from({ length: 30 }, () => [""]);
+
+  rows[0] = ["Адресаты по инцидентам и оборуджованию (емейлы)"];
+  rows[1] = ["common@example.com"];
+  rows[19] = ["common-last@example.com"];
+  rows[20] = ["outside@example.com"];
+  rows[21] = ["mechanic@example.com"];
+  rows[24] = ["mechanic-last@example.com; common@example.com"];
+  rows[26] = ["electric@example.com"];
+  rows[29] = ["electric-last@example.com"];
+
+  assert.deepEqual(
+    readNotificationRecipientsFromCsv(
+      rows.map((row) => row.join(",")).join("\n"),
+      [
+        "Адресаты по инцидентам и оборуджованию (емейлы)",
+        "Адресаты по инцидентам и оборудованию (емейлы)",
+      ],
+    ),
+    {
+      incidentAndEquipment: ["common@example.com", "common-last@example.com"],
+      mechanicalDowntime: [
+        "mechanic@example.com",
+        "mechanic-last@example.com",
+        "common@example.com",
+      ],
+      electricalDowntime: ["electric@example.com", "electric-last@example.com"],
+    },
+  );
+});
+
+test("readNotificationRecipientsFromCsv accepts corrected equipment header spelling", () => {
+  const csv = [
+    "Адресаты по инцидентам и оборудованию (емейлы)",
+    "common@example.com",
+  ].join("\n");
+
+  assert.deepEqual(
+    readNotificationRecipientsFromCsv(csv, [
+      "Адресаты по инцидентам и оборуджованию (емейлы)",
+      "Адресаты по инцидентам и оборудованию (емейлы)",
+    ]).incidentAndEquipment,
+    ["common@example.com"],
+  );
+});
+
 test("google sheets reference source refetches options when cache ttl is zero", async () => {
   let fetchCount = 0;
   const source = createGoogleSheetsReferenceDataSource(
@@ -53,6 +101,9 @@ test("google sheets reference source refetches options when cache ttl is zero", 
       url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=0#gid=0",
       responsibleColumn: "Ответственный за регистрацию",
       locationColumn: "Места (цех/участок)",
+      notificationEmailColumns: [
+        "Адресаты по инцидентам и оборуджованию (емейлы)",
+      ],
       cacheTtlMs: 0,
       authMode: "public_csv",
     },
@@ -87,6 +138,9 @@ test("google sheets reference source caches fetched responsible options", async 
       url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=0#gid=0",
       responsibleColumn: "Ответственный за регистрацию",
       locationColumn: "Места (цех/участок)",
+      notificationEmailColumns: [
+        "Адресаты по инцидентам и оборуджованию (емейлы)",
+      ],
       cacheTtlMs: 60_000,
       authMode: "public_csv",
     },
@@ -124,12 +178,30 @@ test("google sheets reference source reads private sheets with service account",
     type: "pkcs8",
     format: "pem",
   });
+  const sheetValues = Array.from({ length: 30 }, () => ["", "", ""]);
+
+  sheetValues[0] = [
+    "Места (цех/участок)",
+    "Ответственный за регистрацию",
+    "Адресаты по инцидентам и оборуджованию (емейлы)",
+  ];
+  sheetValues[1] = ["Цех №1", "Иван Иванов", "common@example.com"];
+  sheetValues[2] = ["Участок №2", "Пётр Петров", ""];
+  sheetValues[3] = ["", "", ""];
+  sheetValues[4] = ["", "Ответственный за регистрацию", ""];
+  sheetValues[5] = ["", "Мария Сидорова", ""];
+  sheetValues[21] = ["", "", "mechanic@example.com"];
+  sheetValues[26] = ["", "", "electric@example.com"];
+
   const requests: string[] = [];
   const source = createGoogleSheetsReferenceDataSource(
     {
       url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=981703922#gid=981703922",
       responsibleColumn: "Ответственный за регистрацию",
       locationColumn: "Места (цех/участок)",
+      notificationEmailColumns: [
+        "Адресаты по инцидентам и оборуджованию (емейлы)",
+      ],
       cacheTtlMs: 60_000,
       authMode: "service_account",
       serviceAccountKeyFile: "/private/google-service-account.json",
@@ -195,14 +267,7 @@ test("google sheets reference source reads private sheets with service account",
       ) {
         return new Response(
           JSON.stringify({
-            values: [
-              ["Места (цех/участок)", "Ответственный за регистрацию"],
-              ["Цех №1", "Иван Иванов"],
-              ["Участок №2", "Пётр Петров"],
-              ["", ""],
-              ["Ответственный за регистрацию"],
-              ["Мария Сидорова"],
-            ],
+            values: sheetValues,
           }),
           {
             status: 200,
@@ -239,6 +304,11 @@ test("google sheets reference source reads private sheets with service account",
     "Цех №1",
     "Участок №2",
   ]);
+  assert.deepEqual((await source.read()).notificationRecipients, {
+    incidentAndEquipment: ["common@example.com"],
+    mechanicalDowntime: ["mechanic@example.com"],
+    electricalDowntime: ["electric@example.com"],
+  });
   assert.deepEqual(requests, [
     "https://oauth2.googleapis.com/token",
     "https://sheets.googleapis.com/v4/spreadsheets/sheet-id?fields=sheets%28properties%28sheetId%2Ctitle%29%29",
