@@ -32,12 +32,27 @@ test("readColumnOptionsFromCsv reads responsible options under the requested hea
   );
 });
 
+test("readColumnOptionsFromCsv reads location options from a separate column", () => {
+  const csv = [
+    "Места (цех/участок),,Ответственный за регистрацию:",
+    "Цех №1,,Иван Иванов",
+    "Участок №2,,Пётр Петров",
+    ",,",
+  ].join("\n");
+
+  assert.deepEqual(readColumnOptionsFromCsv(csv, "Места (цех/участок)"), [
+    "Цех №1",
+    "Участок №2",
+  ]);
+});
+
 test("google sheets reference source refetches options when cache ttl is zero", async () => {
   let fetchCount = 0;
   const source = createGoogleSheetsReferenceDataSource(
     {
       url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=0#gid=0",
       responsibleColumn: "Ответственный за регистрацию",
+      locationColumn: "Места (цех/участок)",
       cacheTtlMs: 0,
       authMode: "public_csv",
     },
@@ -71,6 +86,7 @@ test("google sheets reference source caches fetched responsible options", async 
     {
       url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=0#gid=0",
       responsibleColumn: "Ответственный за регистрацию",
+      locationColumn: "Места (цех/участок)",
       cacheTtlMs: 60_000,
       authMode: "public_csv",
     },
@@ -113,6 +129,7 @@ test("google sheets reference source reads private sheets with service account",
     {
       url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=981703922#gid=981703922",
       responsibleColumn: "Ответственный за регистрацию",
+      locationColumn: "Места (цех/участок)",
       cacheTtlMs: 60_000,
       authMode: "service_account",
       serviceAccountKeyFile: "/private/google-service-account.json",
@@ -179,9 +196,9 @@ test("google sheets reference source reads private sheets with service account",
         return new Response(
           JSON.stringify({
             values: [
-              ["Другая таблица", "Ответственный за регистрацию"],
-              ["Значение", "Иван Иванов"],
-              ["", "Пётр Петров"],
+              ["Места (цех/участок)", "Ответственный за регистрацию"],
+              ["Цех №1", "Иван Иванов"],
+              ["Участок №2", "Пётр Петров"],
               ["", ""],
               ["Ответственный за регистрацию"],
               ["Мария Сидорова"],
@@ -217,6 +234,10 @@ test("google sheets reference source reads private sheets with service account",
     "Иван Иванов",
     "Пётр Петров",
     "Мария Сидорова",
+  ]);
+  assert.deepEqual((await source.read()).incidentLocationOptions, [
+    "Цех №1",
+    "Участок №2",
   ]);
   assert.deepEqual(requests, [
     "https://oauth2.googleapis.com/token",

@@ -40,6 +40,7 @@ export type PublicDispatcherFormDefinition = Omit<
 >;
 
 export type PublicDispatcherFormOptions = {
+  incidentLocationOptions?: readonly string[];
   incidentResponsibleOptions?: readonly string[];
 };
 
@@ -348,6 +349,19 @@ function readPublicDispatcherFormField(
   field: DispatcherFormField,
   options: PublicDispatcherFormOptions,
 ) {
+  if (
+    formId === "incident" &&
+    field.name === "location" &&
+    options.incidentLocationOptions !== undefined &&
+    options.incidentLocationOptions.length > 0
+  ) {
+    return {
+      ...field,
+      type: "select" as const,
+      options: options.incidentLocationOptions,
+    };
+  }
+
   if (
     formId === "incident" &&
     field.name === "responsible" &&

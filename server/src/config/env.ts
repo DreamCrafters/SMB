@@ -15,6 +15,7 @@ export type ServerConfig = {
 export type GoogleSheetsReferenceConfig = {
   url: string;
   responsibleColumn: string;
+  locationColumn: string;
   cacheTtlMs: number;
   authMode: GoogleSheetsAuthMode;
   serviceAccountKeyFile?: string;
@@ -25,6 +26,7 @@ export type GoogleSheetsAuthMode = "public_csv" | "service_account";
 const defaultGoogleSheetsReferenceUrl =
   "https://docs.google.com/spreadsheets/d/1JYz_03AW4j9VXNfdNSBFfdFyxq0Dun_0QnYGvVesGyg/edit?gid=981703922#gid=981703922";
 const defaultResponsibleColumn = "Ответственный за регистрацию";
+const defaultLocationColumn = "Места (цех/участок)";
 const defaultGoogleSheetsCacheTtlMs = 0;
 
 export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -42,6 +44,9 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       responsibleColumn:
         readOptional(env.GOOGLE_SHEETS_RESPONSIBLE_COLUMN) ??
         defaultResponsibleColumn,
+      locationColumn:
+        readOptional(env.GOOGLE_SHEETS_INCIDENT_LOCATION_COLUMN) ??
+        defaultLocationColumn,
       cacheTtlMs: readNonNegativeInteger(
         env.GOOGLE_SHEETS_CACHE_TTL_MS,
         defaultGoogleSheetsCacheTtlMs,

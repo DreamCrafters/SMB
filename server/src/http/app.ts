@@ -84,6 +84,7 @@ export function createApiServer({
 
         sendJson(res, 200, {
           forms: getPublicDispatcherForms({
+            incidentLocationOptions: referenceData.incidentLocationOptions,
             incidentResponsibleOptions:
               referenceData.incidentResponsibleOptions,
           }),

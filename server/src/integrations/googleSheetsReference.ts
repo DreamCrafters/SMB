@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { GoogleSheetsReferenceConfig } from "../config/env.js";
 
 export type DispatcherReferenceData = {
+  incidentLocationOptions: string[];
   incidentResponsibleOptions: string[];
 };
 
@@ -47,6 +48,7 @@ type GoogleSheetMetadata = {
 };
 
 const emptyReferenceData: DispatcherReferenceData = {
+  incidentLocationOptions: [],
   incidentResponsibleOptions: [],
 };
 const googleSheetsReadonlyScope =
@@ -75,6 +77,10 @@ export function createGoogleSheetsReferenceDataSource(
       try {
         const rows = await readGoogleSheetsRows(config, fetchImpl, readTextFile, now);
         cachedData = {
+          incidentLocationOptions: readColumnOptionsFromRows(
+            rows,
+            config.locationColumn,
+          ),
           incidentResponsibleOptions: readColumnOptionsFromRows(
             rows,
             config.responsibleColumn,

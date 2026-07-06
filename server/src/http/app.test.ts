@@ -19,6 +19,7 @@ const config: ServerConfig = {
   googleSheetsReference: {
     url: "https://docs.google.com/spreadsheets/d/test/edit?gid=0#gid=0",
     responsibleColumn: "Ответственный за регистрацию",
+    locationColumn: "Места (цех/участок)",
     cacheTtlMs: 300_000,
     authMode: "public_csv",
   },
@@ -53,6 +54,7 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
 const emptyReferenceDataSource: DispatcherReferenceDataSource = {
   async read() {
     return {
+      incidentLocationOptions: [],
       incidentResponsibleOptions: [],
     };
   },
@@ -199,10 +201,11 @@ test("remote API returns dispatcher form definitions", async () => {
   });
 });
 
-test("remote API enriches incident responsible options from reference data", async () => {
+test("remote API enriches incident location and responsible options from reference data", async () => {
   const referenceDataSource: DispatcherReferenceDataSource = {
     async read() {
       return {
+        incidentLocationOptions: ["Цех №1", "Участок №2"],
         incidentResponsibleOptions: ["Иван Иванов", "Пётр Петров"],
       };
     },
@@ -218,6 +221,12 @@ test("remote API enriches incident responsible options from reference data", asy
               (form) => isRecord(form) && form.id === "incident",
             )
           : undefined;
+      const locationField =
+        isRecord(incidentForm) && Array.isArray(incidentForm.fields)
+          ? incidentForm.fields.find(
+              (field) => isRecord(field) && field.name === "location",
+            )
+          : undefined;
       const responsibleField =
         isRecord(incidentForm) && Array.isArray(incidentForm.fields)
           ? incidentForm.fields.find(
@@ -226,6 +235,14 @@ test("remote API enriches incident responsible options from reference data", asy
           : undefined;
 
       assert.equal(response.status, 200);
+      assert.equal(
+        isRecord(locationField) ? locationField.type : undefined,
+        "select",
+      );
+      assert.deepEqual(
+        isRecord(locationField) ? locationField.options : undefined,
+        ["Цех №1", "Участок №2"],
+      );
       assert.equal(
         isRecord(responsibleField) ? responsibleField.type : undefined,
         "select",
