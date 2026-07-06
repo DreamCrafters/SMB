@@ -1,45 +1,78 @@
-# Быстрый запуск локального сервера
+# Локальный запуск SMB Monitor
 
-Этот файл только про запуск уже настроенного локального режима.
+Короткая инструкция для запуска проекта на этом компьютере.
 
-## Требование
+## Один раз
 
-На macOS для команды `docker compose` нужен установленный и запущенный Docker Desktop.
-
-Проверка:
+Из корня проекта:
 
 ```bash
-docker --version
-docker compose version
-docker info
+cd /Users/artemiz/WebProjects/SMB
+npm install
 ```
 
-Если терминал отвечает `zsh: command not found: docker`, установить Docker Desktop, запустить `/Applications/Docker.app`, дождаться запуска Docker и открыть новый терминал.
+Проверить frontend env:
 
-Если `docker info` или `docker compose up` отвечает `failed to connect to the docker API` или `docker.sock: no such file or directory`, Docker CLI уже установлен, но Docker Desktop ещё не запущен. Запустить его и дождаться статуса running:
+```bash
+cat .env
+```
+
+Для локального запуска там должно быть:
+
+```text
+VITE_SMB_REMOTE_API_URL=http://127.0.0.1:3000
+```
+
+Проверить backend env:
+
+```bash
+cat server/.env
+```
+
+Для локального Docker там должно быть:
+
+```text
+PORT=3000
+DATABASE_URL=mysql://smb_monitor:smb_monitor_dev_password@127.0.0.1:3306/smb_monitor
+CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174
+RUN_MIGRATIONS_ON_START=true
+```
+
+## Локальный Docker для БД
+
+Запустить Docker Desktop:
 
 ```bash
 open -a Docker
 docker info
 ```
 
-## 0. Перейти в папку проекта
-
-Все команды ниже выполнять из корня проекта, где лежит `docker-compose.yml`.
-
-```bash
-cd /Users/artemiz/WebProjects/SMB
-```
-
-## 1. Запустить MariaDB
+Запустить MariaDB:
 
 ```bash
 docker compose up -d mariadb
+docker compose ps mariadb
 ```
 
-## 2. Запустить backend
+Если первый pull `mariadb:10.11` зависает на Docker credentials, скачать образ через временный пустой Docker config:
 
-В отдельном терминале:
+```bash
+TMP_DOCKER_CONFIG=$(mktemp -d)
+DOCKER_CONFIG="$TMP_DOCKER_CONFIG" docker pull mariadb:10.11
+docker compose up -d mariadb
+```
+
+Остановить БД без удаления данных:
+
+```bash
+docker compose stop mariadb
+```
+
+Не использовать `docker compose down -v`, если нужно сохранить локальные данные.
+
+## Локальный сервер
+
+Терминал 1: backend API.
 
 ```bash
 npm run dev:api
@@ -51,38 +84,24 @@ npm run dev:api
 curl -i http://127.0.0.1:3000/health
 ```
 
-## 3. Запустить frontend
-
-В ещё одном терминале:
+Терминал 2: frontend.
 
 ```bash
 npm run dev:web -- --host 127.0.0.1
 ```
 
-Открыть:
+Открыть URL из вывода Vite. Обычно:
 
 ```text
 http://127.0.0.1:5173/
 ```
 
-## Быстрый UI-тест без backend
-
-Если нужно только проверить заполнение диспетчерских форм, можно запустить один frontend:
-
-```bash
-npm run dev:web -- --host 127.0.0.1
-```
-
-В Vite dev-режиме, если backend не найден, временный dev-вход возвращается к локальным Vite endpoints. Если страница открыта из static/frontend-хостинга и `/api` тоже отдаёт 404, вход временно создаёт клиентскую тестовую dev-сессию в `sessionStorage`. Диспетчерские формы и отправки в таком тестовом режиме работают через локальный `localStorage` текущего браузера. Интерфейс помечает такой режим как локальный тестовый. Для проверки реального хранения, live feed между устройствами и подготовки к серверу всё равно запускать MariaDB и backend по шагам выше.
-
 ## Остановка
 
 Backend и frontend остановить через `Ctrl+C` в их терминалах.
 
-MariaDB можно оставить запущенной. Если нужно остановить контейнер без удаления данных:
+MariaDB можно оставить запущенной или остановить:
 
 ```bash
 docker compose stop mariadb
 ```
-
-Не использовать `docker compose down -v`, если нужно сохранить данные.

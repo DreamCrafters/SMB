@@ -425,6 +425,8 @@ p {
 
 .data-entry-form label {
   display: grid;
+  align-self: start;
+  align-content: start;
   gap: 7px;
 }
 
@@ -533,11 +535,16 @@ p {
 .dispatcher-form-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: var(--density-3);
 }
 
 .dispatcher-form-fields-single {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.dispatcher-form-field-large {
+  grid-column: 1 / -1;
 }
 
 .equipment-progress-panel {
@@ -661,7 +668,13 @@ p {
   font: inherit;
 }
 
+.data-entry-form input,
+.data-entry-form select {
+  height: 42px;
+}
+
 .data-entry-form textarea {
+  min-height: 96px;
   resize: vertical;
 }
 

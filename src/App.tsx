@@ -740,6 +740,15 @@ function readDispatcherFormsByIds(
     .filter((form): form is DispatcherFormDefinition => form !== undefined);
 }
 
+function readDispatcherFieldsByVisualSize(
+  fields: readonly DispatcherFormField[],
+) {
+  return [
+    ...fields.filter((field) => field.type !== "textarea"),
+    ...fields.filter((field) => field.type === "textarea"),
+  ];
+}
+
 function DataEntryWorkspace({
   ariaLabel,
   status,
@@ -870,9 +879,11 @@ function DataEntryWorkspace({
         ) : (
           <>
             <div className="dispatcher-form-fields">
-              {currentForm.fields.map((field) => (
-                <DispatcherFormFieldInput field={field} key={field.name} />
-              ))}
+              {readDispatcherFieldsByVisualSize(currentForm.fields).map(
+                (field) => (
+                  <DispatcherFormFieldInput field={field} key={field.name} />
+                ),
+              )}
             </div>
             <div className="form-actions">
               <button
@@ -963,7 +974,7 @@ function DispatcherVisitorExitFormBody({
           >
             <option value="">
               {openVisitors.length === 0
-                ? "Нет посетителей без отметки выхода"
+                ? "Нет вошедших посетителей"
                 : "Выберите посетителя"}
             </option>
             {openVisitors.map((visitor) => (
@@ -1209,7 +1220,7 @@ function DispatcherEquipmentFormBody({
         ) : null}
       </div>
       <div className="dispatcher-form-fields">
-        {form.fields.map((field) => (
+        {readDispatcherFieldsByVisualSize(form.fields).map((field) => (
           <DispatcherControlledFormFieldInput
             field={field}
             key={field.name}
@@ -1250,7 +1261,7 @@ function DispatcherControlledFormFieldInput({
 }) {
   if (field.type === "textarea") {
     return (
-      <label>
+      <label className="dispatcher-form-field-large">
         <span>{field.label}</span>
         <textarea
           name={field.name}
@@ -1310,7 +1321,7 @@ function DispatcherControlledFormFieldInput({
 function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
   if (field.type === "textarea") {
     return (
-      <label>
+      <label className="dispatcher-form-field-large">
         <span>{field.label}</span>
         <textarea
           name={field.name}
