@@ -110,17 +110,14 @@ function readNotificationRecipients(
   }
 
   const emails = [...recipients.incidentAndEquipment];
+  const notificationText = readSpecializedNotificationText(submission);
 
-  if (submission.formId === "equipment") {
-    const downtimeReason = submission.payload.downtimeReason ?? "";
+  if (isMechanicalDowntimeReason(notificationText)) {
+    emails.push(...recipients.mechanicalDowntime);
+  }
 
-    if (isMechanicalDowntimeReason(downtimeReason)) {
-      emails.push(...recipients.mechanicalDowntime);
-    }
-
-    if (isElectricalDowntimeReason(downtimeReason)) {
-      emails.push(...recipients.electricalDowntime);
-    }
+  if (isElectricalDowntimeReason(notificationText)) {
+    emails.push(...recipients.electricalDowntime);
   }
 
   return dedupeEmails(emails);
@@ -136,6 +133,21 @@ function isMechanicalDowntimeReason(value: string) {
 
 function isElectricalDowntimeReason(value: string) {
   return normalizeRussianText(value).includes("эл");
+}
+
+function readSpecializedNotificationText(submission: DispatcherSubmission) {
+  return [
+    submission.payload.downtimeReason,
+    submission.payload.incidentType,
+    submission.payload.description,
+    submission.payload.rootCauses,
+    submission.payload.preventiveMeasures,
+    submission.payload.note,
+    submission.payload.closureNote,
+    submission.summary,
+  ]
+    .filter((value): value is string => value !== undefined)
+    .join(" ");
 }
 
 function buildNotificationSubject(

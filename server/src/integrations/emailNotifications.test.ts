@@ -31,6 +31,34 @@ test("buildDispatcherSubmissionEmail sends incident openings to common recipient
   assert.match(message?.text ?? "", /Место \(цех\/участок\): Цех №1/);
 });
 
+test("buildDispatcherSubmissionEmail adds mechanical recipients for mechanical incidents", () => {
+  const message = buildDispatcherSubmissionEmail(
+    buildSubmission("incident", {
+      incidentNumber: "INC-2026-1",
+      incidentType: "Поломка оборудования по мех. части",
+    }),
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+  );
+
+  assert.deepEqual(message?.to, ["common@example.com", "mechanic@example.com"]);
+});
+
+test("buildDispatcherSubmissionEmail adds electrical recipients for electrical incidents", () => {
+  const message = buildDispatcherSubmissionEmail(
+    buildSubmission("incident", {
+      incidentNumber: "INC-2026-2",
+      incidentType: "Поломка оборудования по эл. части",
+    }),
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+  );
+
+  assert.deepEqual(message?.to, ["common@example.com", "electric@example.com"]);
+});
+
 test("buildDispatcherSubmissionEmail sends incident closures to common recipients", () => {
   const message = buildDispatcherSubmissionEmail(
     buildSubmission("incident_close", {
