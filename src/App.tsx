@@ -48,11 +48,12 @@ import {
   buildEquipmentCompletionMap,
   buildEquipmentFormPayload,
   buildEquipmentReportPayloads,
-  buildEquipmentSwitchPayload,
   formatReportDateForDisplay,
+  hasEquipmentReportData,
   readEquipmentDraftPayload,
   readEquipmentOptions,
   readLastEquipmentOption,
+  writeEquipmentReportEntryPayload,
   writeEquipmentDraftPayload,
   writeLastEquipmentOption,
   type DispatcherEquipmentDraftStorage,
@@ -389,7 +390,6 @@ export default function App() {
     if (formDefinition.id === "equipment") {
       const equipmentReportPayloads = buildEquipmentReportPayloads({
         businessAccountId,
-        currentPayload: payload,
         equipmentOptions: readEquipmentOptions(formDefinition),
         form: formDefinition,
         reportDate: payload.reportDate ?? getTodayDateValue(),
@@ -397,7 +397,7 @@ export default function App() {
       });
 
       if (equipmentReportPayloads.length === 0) {
-        setDataEntryStatus("Заполните хотя бы одну позицию оборудования.");
+        setDataEntryStatus("Сначала внесите хотя бы одну позицию оборудования.");
         return;
       }
 
@@ -1086,6 +1086,8 @@ function DispatcherEquipmentFormBody({
   const [payload, setPayload] = useState(() =>
     buildInitialEquipmentFormPayload(form, businessAccountId, equipmentOptions),
   );
+  const [, setReportDraftVersion] = useState(0);
+  const [equipmentLocalStatus, setEquipmentLocalStatus] = useState("");
   const [equipmentFeed, setEquipmentFeed] = useState<DispatcherFeedLoadState>({
     status: "loading",
     message: "Запрашиваем отметки оборудования.",
@@ -1101,18 +1103,18 @@ function DispatcherEquipmentFormBody({
   const doneCount = equipmentOptions.filter((equipment) =>
     completionMap.has(equipment),
   ).length;
-  const selectedSubmission =
-    selectedEquipment.length === 0
-      ? undefined
-      : completionMap.get(selectedEquipment);
-  const draftReportPayloads = buildEquipmentReportPayloads({
+  const reportPayloads = buildEquipmentReportPayloads({
     businessAccountId,
-    currentPayload: payload,
     equipmentOptions,
     form,
     reportDate,
     storage: readBrowserEquipmentDraftStorage(),
   });
+  const reportEquipmentNames = new Set(
+    reportPayloads
+      .map((item) => item.equipment?.trim())
+      .filter((item): item is string => item !== undefined && item.length > 0),
+  );
   const isLocalEquipmentFeed =
     equipmentFeed.status === "ready" && equipmentFeed.source === "local_test";
 
@@ -1120,6 +1122,8 @@ function DispatcherEquipmentFormBody({
     setPayload(
       buildInitialEquipmentFormPayload(form, businessAccountId, equipmentOptions),
     );
+    setReportDraftVersion((version) => version + 1);
+    setEquipmentLocalStatus("");
   }, [businessAccountId, form, equipmentOptions]);
 
   useEffect(() => {
@@ -1173,7 +1177,6 @@ function DispatcherEquipmentFormBody({
     }
 
     setPayload((currentPayload) => {
-      const currentEquipment = currentPayload.equipment ?? "";
       const targetSavedDraft =
         equipment.length === 0
           ? {}
@@ -1183,36 +1186,15 @@ function DispatcherEquipmentFormBody({
               form,
               storage,
             });
-      const nextPayload = buildEquipmentSwitchPayload({
+
+      return buildEquipmentFormPayload({
         equipment,
         form,
-        previousPayload: currentPayload,
-        targetSavedDraft,
-        todayDate: getTodayDateValue(),
+        savedDraft: targetSavedDraft,
+        todayDate: currentPayload.reportDate ?? getTodayDateValue(),
       });
-
-      if (currentEquipment.length > 0) {
-        writeEquipmentDraftPayload({
-          businessAccountId,
-          equipment: currentEquipment,
-          form,
-          payload: currentPayload,
-          storage,
-        });
-      }
-
-      if (equipment.length > 0) {
-        writeEquipmentDraftPayload({
-          businessAccountId,
-          equipment,
-          form,
-          payload: nextPayload,
-          storage,
-        });
-      }
-
-      return nextPayload;
     });
+    setEquipmentLocalStatus("");
     onResetStatus();
   }
 
@@ -1258,13 +1240,60 @@ function DispatcherEquipmentFormBody({
     onResetStatus();
   }
 
+  function handleAddEquipmentEntry() {
+    const equipment = payload.equipment ?? "";
+
+    if (equipment.length === 0) {
+      setEquipmentLocalStatus("Выберите оборудование.");
+      onResetStatus();
+      return;
+    }
+
+    if (!hasEquipmentReportData(payload)) {
+      setEquipmentLocalStatus("Заполните данные по выбранному оборудованию.");
+      onResetStatus();
+      return;
+    }
+
+    const validationMessage = validateDispatcherPayloadForSubmit(form, payload);
+
+    if (validationMessage !== undefined) {
+      setEquipmentLocalStatus(validationMessage);
+      onResetStatus();
+      return;
+    }
+
+    writeEquipmentDraftPayload({
+      businessAccountId,
+      equipment,
+      form,
+      payload,
+      storage: readBrowserEquipmentDraftStorage(),
+    });
+    const isWritten = writeEquipmentReportEntryPayload({
+      businessAccountId,
+      equipment,
+      form,
+      payload,
+      storage: readBrowserEquipmentDraftStorage(),
+    });
+
+    setEquipmentLocalStatus(
+      isWritten
+        ? `Данные для ${equipment} внесены в дневной отчёт.`
+        : "Не удалось сохранить данные в браузере.",
+    );
+    setReportDraftVersion((version) => version + 1);
+    onResetStatus();
+  }
+
   return (
     <>
       <div className="equipment-progress-panel" aria-label="Отметки оборудования">
         <div className="equipment-progress-header">
           <strong>
-            Заполнено в форме за {formatReportDateForDisplay(reportDate)}:{" "}
-            {draftReportPayloads.length}/{equipmentOptions.length}
+            Внесено в отчёт за {formatReportDateForDisplay(reportDate)}:{" "}
+            {reportPayloads.length}/{equipmentOptions.length}
           </strong>
           <span>
             Сохранено на сервере: {doneCount}/{equipmentOptions.length}
@@ -1275,6 +1304,14 @@ function DispatcherEquipmentFormBody({
             const submission = completionMap.get(equipment);
             const isComplete = submission !== undefined;
             const isActive = equipment === selectedEquipment;
+            const isInReport = reportEquipmentNames.has(equipment);
+            const draftPayload = readEquipmentDraftPayload({
+              businessAccountId,
+              equipment,
+              form,
+              storage: readBrowserEquipmentDraftStorage(),
+            });
+            const hasDraft = hasEquipmentReportData(draftPayload);
 
             return (
               <button
@@ -1292,9 +1329,15 @@ function DispatcherEquipmentFormBody({
               >
                 <span>{equipment}</span>
                 <small>
-                  {submission === undefined
-                    ? "нет записи"
-                    : `заполнено ${formatDateTime(submission.receivedAt)}`}
+                  {isInReport
+                    ? submission === undefined
+                      ? "внесено в отчёт"
+                      : `в отчёте, на сервере ${formatDateTime(submission.receivedAt)}`
+                    : submission !== undefined
+                      ? `на сервере ${formatDateTime(submission.receivedAt)}`
+                      : hasDraft
+                        ? "черновик"
+                        : "нет данных"}
                 </small>
               </button>
             );
@@ -1325,14 +1368,22 @@ function DispatcherEquipmentFormBody({
         ))}
       </div>
       <div className="form-actions">
-        <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting
-            ? "Отправка..."
-            : selectedSubmission === undefined && doneCount === 0
-              ? "Записать отчёт"
-              : "Внести изменения в отчёт"}
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={isSubmitting}
+          onClick={handleAddEquipmentEntry}
+        >
+          Внести данные
         </button>
-        {status.length > 0 ? <p className="form-status">{status}</p> : null}
+        <button className="primary-button" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Отправка..." : "Отправить"}
+        </button>
+        {status.length > 0 || equipmentLocalStatus.length > 0 ? (
+          <p className="form-status">
+            {status.length > 0 ? status : equipmentLocalStatus}
+          </p>
+        ) : null}
       </div>
     </>
   );

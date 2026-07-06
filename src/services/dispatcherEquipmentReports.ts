@@ -12,6 +12,7 @@ export type DispatcherEquipmentDraftStorage = Pick<
 type EquipmentDraftState = {
   lastEquipment?: string;
   draftsByEquipment: Record<string, DispatcherSubmissionPayload>;
+  reportPayloadsByEquipment: Record<string, DispatcherSubmissionPayload>;
 };
 
 const draftStorageKeyPrefix = "smb-monitor.dispatcher-equipment-drafts.v1";
@@ -107,6 +108,35 @@ export function writeEquipmentDraftPayload({
   });
 }
 
+export function writeEquipmentReportEntryPayload({
+  businessAccountId,
+  equipment,
+  form,
+  payload,
+  storage,
+}: {
+  businessAccountId: string;
+  equipment: string;
+  form: DispatcherFormDefinition;
+  payload: DispatcherSubmissionPayload;
+  storage: DispatcherEquipmentDraftStorage | undefined;
+}) {
+  if (equipment.length === 0) {
+    return false;
+  }
+
+  const state = readEquipmentDraftState(storage, businessAccountId);
+
+  return writeEquipmentDraftState(storage, businessAccountId, {
+    ...state,
+    lastEquipment: equipment,
+    reportPayloadsByEquipment: {
+      ...state.reportPayloadsByEquipment,
+      [equipment]: cleanEquipmentDraftPayload(payload, form),
+    },
+  });
+}
+
 export function buildEquipmentFormPayload({
   equipment,
   form,
@@ -137,39 +167,14 @@ export function buildEquipmentFormPayload({
   return payload;
 }
 
-export function buildEquipmentSwitchPayload({
-  equipment,
-  form,
-  previousPayload,
-  targetSavedDraft,
-  todayDate,
-}: {
-  equipment: string;
-  form: DispatcherFormDefinition;
-  previousPayload: DispatcherSubmissionPayload;
-  targetSavedDraft: DispatcherSubmissionPayload;
-  todayDate: string;
-}) {
-  return buildEquipmentFormPayload({
-    equipment,
-    form,
-    savedDraft: hasEquipmentReportData(previousPayload)
-      ? previousPayload
-      : targetSavedDraft,
-    todayDate: previousPayload.reportDate ?? todayDate,
-  });
-}
-
 export function buildEquipmentReportPayloads({
   businessAccountId,
-  currentPayload,
   equipmentOptions,
   form,
   reportDate,
   storage,
 }: {
   businessAccountId: string;
-  currentPayload: DispatcherSubmissionPayload;
   equipmentOptions: readonly string[];
   form: DispatcherFormDefinition;
   reportDate: string;
@@ -179,13 +184,7 @@ export function buildEquipmentReportPayloads({
   const payloads: DispatcherSubmissionPayload[] = [];
 
   for (const equipment of equipmentOptions) {
-    const savedDraft =
-      equipment === currentPayload.equipment
-        ? {
-            ...state.draftsByEquipment[equipment],
-            ...cleanEquipmentDraftPayload(currentPayload, form),
-          }
-        : state.draftsByEquipment[equipment];
+    const savedDraft = state.reportPayloadsByEquipment[equipment];
 
     if (savedDraft === undefined || !hasEquipmentReportData(savedDraft)) {
       continue;
@@ -318,6 +317,9 @@ function parseEquipmentDraftState(value: unknown): EquipmentDraftState {
     lastEquipment:
       typeof value.lastEquipment === "string" ? value.lastEquipment : undefined,
     draftsByEquipment: readDraftsByEquipment(value.draftsByEquipment),
+    reportPayloadsByEquipment: readDraftsByEquipment(
+      value.reportPayloadsByEquipment,
+    ),
   };
 }
 
@@ -387,6 +389,7 @@ function buildEquipmentDraftStorageKey(businessAccountId: string) {
 function createEmptyEquipmentDraftState(): EquipmentDraftState {
   return {
     draftsByEquipment: {},
+    reportPayloadsByEquipment: {},
   };
 }
 
