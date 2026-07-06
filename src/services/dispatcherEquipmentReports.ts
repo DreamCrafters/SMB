@@ -137,6 +137,29 @@ export function buildEquipmentFormPayload({
   return payload;
 }
 
+export function buildEquipmentSwitchPayload({
+  equipment,
+  form,
+  previousPayload,
+  targetSavedDraft,
+  todayDate,
+}: {
+  equipment: string;
+  form: DispatcherFormDefinition;
+  previousPayload: DispatcherSubmissionPayload;
+  targetSavedDraft: DispatcherSubmissionPayload;
+  todayDate: string;
+}) {
+  return buildEquipmentFormPayload({
+    equipment,
+    form,
+    savedDraft: hasEquipmentReportData(previousPayload)
+      ? previousPayload
+      : targetSavedDraft,
+    todayDate: previousPayload.reportDate ?? todayDate,
+  });
+}
+
 export function buildEquipmentReportPayloads({
   businessAccountId,
   currentPayload,

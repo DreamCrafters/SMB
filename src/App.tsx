@@ -48,6 +48,7 @@ import {
   buildEquipmentCompletionMap,
   buildEquipmentFormPayload,
   buildEquipmentReportPayloads,
+  buildEquipmentSwitchPayload,
   formatReportDateForDisplay,
   readEquipmentDraftPayload,
   readEquipmentOptions,
@@ -1162,15 +1163,6 @@ function DispatcherEquipmentFormBody({
 
   function handleEquipmentChange(equipment: string) {
     const storage = readBrowserEquipmentDraftStorage();
-    const savedDraft =
-      equipment.length === 0
-        ? {}
-        : readEquipmentDraftPayload({
-            businessAccountId,
-            equipment,
-            form,
-            storage,
-          });
 
     if (equipment.length > 0) {
       writeLastEquipmentOption({
@@ -1180,14 +1172,47 @@ function DispatcherEquipmentFormBody({
       });
     }
 
-    setPayload(
-      buildEquipmentFormPayload({
+    setPayload((currentPayload) => {
+      const currentEquipment = currentPayload.equipment ?? "";
+      const targetSavedDraft =
+        equipment.length === 0
+          ? {}
+          : readEquipmentDraftPayload({
+              businessAccountId,
+              equipment,
+              form,
+              storage,
+            });
+      const nextPayload = buildEquipmentSwitchPayload({
         equipment,
         form,
-        savedDraft,
+        previousPayload: currentPayload,
+        targetSavedDraft,
         todayDate: getTodayDateValue(),
-      }),
-    );
+      });
+
+      if (currentEquipment.length > 0) {
+        writeEquipmentDraftPayload({
+          businessAccountId,
+          equipment: currentEquipment,
+          form,
+          payload: currentPayload,
+          storage,
+        });
+      }
+
+      if (equipment.length > 0) {
+        writeEquipmentDraftPayload({
+          businessAccountId,
+          equipment,
+          form,
+          payload: nextPayload,
+          storage,
+        });
+      }
+
+      return nextPayload;
+    });
     onResetStatus();
   }
 

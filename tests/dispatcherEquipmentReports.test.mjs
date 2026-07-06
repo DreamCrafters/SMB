@@ -4,6 +4,7 @@ import {
   buildEquipmentCompletionMap,
   buildEquipmentFormPayload,
   formatReportDateForPayload,
+  buildEquipmentSwitchPayload,
   readEquipmentDraftPayload,
   readEquipmentOptions,
   readLastEquipmentOption,
@@ -112,6 +113,50 @@ test("equipment draft storage remembers the last selected valid equipment", () =
     }),
     undefined,
   );
+});
+
+test("equipment switch payload keeps previous values except equipment name", () => {
+  const payload = buildEquipmentSwitchPayload({
+    equipment: "Пресс №2",
+    form: equipmentForm,
+    previousPayload: {
+      reportDate: "2026-07-05",
+      equipment: "Пресс №1",
+      productionTons: "42",
+      note: "Повторить для следующего",
+    },
+    targetSavedDraft: {
+      productionTons: "7",
+      note: "Старый черновик",
+    },
+    todayDate: "2026-07-06",
+  });
+
+  assert.equal(payload.reportDate, "2026-07-05");
+  assert.equal(payload.equipment, "Пресс №2");
+  assert.equal(payload.productionTons, "42");
+  assert.equal(payload.note, "Повторить для следующего");
+});
+
+test("equipment switch payload falls back to target draft when previous values are empty", () => {
+  const payload = buildEquipmentSwitchPayload({
+    equipment: "Пресс №2",
+    form: equipmentForm,
+    previousPayload: {
+      reportDate: "2026-07-05",
+      equipment: "Пресс №1",
+    },
+    targetSavedDraft: {
+      productionTons: "7",
+      note: "Старый черновик",
+    },
+    todayDate: "2026-07-06",
+  });
+
+  assert.equal(payload.reportDate, "2026-07-05");
+  assert.equal(payload.equipment, "Пресс №2");
+  assert.equal(payload.productionTons, "7");
+  assert.equal(payload.note, "Старый черновик");
 });
 
 test("equipment completion map matches report date payloads and keeps the latest submission", () => {
