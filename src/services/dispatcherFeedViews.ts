@@ -268,8 +268,9 @@ export function buildVisitorVisitRows(
 export function buildOpenVisitorOptions(
   submissions: DispatcherSubmission[],
   businessAccountId?: string,
+  entryDate?: string,
 ): OpenVisitorOption[] {
-  return buildOpenVisitorEntries(submissions, businessAccountId)
+  return buildOpenVisitorEntries(submissions, businessAccountId, entryDate)
     .map(({ submission }) => ({
       entryId: submission.id,
       label: formatOpenVisitorLabel(submission.payload),
@@ -297,12 +298,13 @@ export function findOpenVisitorByEntryId(
   submissions: DispatcherSubmission[],
   visitorEntryId: string | undefined,
   businessAccountId?: string,
+  entryDate?: string,
 ) {
   if (visitorEntryId === undefined || visitorEntryId.trim().length === 0) {
     return undefined;
   }
 
-  return buildOpenVisitorEntries(submissions, businessAccountId).find(
+  return buildOpenVisitorEntries(submissions, businessAccountId, entryDate).find(
     (entry) => entry.submission.id === visitorEntryId,
   );
 }
@@ -310,6 +312,7 @@ export function findOpenVisitorByEntryId(
 function buildOpenVisitorEntries(
   submissions: DispatcherSubmission[],
   businessAccountId?: string,
+  entryDate?: string,
 ): OpenVisitorEntry[] {
   const openEntries: OpenVisitorEntry[] = [];
 
@@ -322,10 +325,19 @@ function buildOpenVisitorEntries(
     .filter((item) => item.formId === "visitor" || item.formId === "visitor_exit")
     .sort(compareSubmissionsAscending)) {
     if (submission.formId === "visitor") {
+      const visitorEntryAt = submission.payload.entryAt ?? submission.receivedAt;
+
+      if (
+        entryDate !== undefined &&
+        readPayloadDate(visitorEntryAt) !== entryDate
+      ) {
+        continue;
+      }
+
       openEntries.push({
         submission,
         key: buildVisitorKey(submission.payload),
-        entryAt: submission.payload.entryAt ?? submission.receivedAt,
+        entryAt: visitorEntryAt,
       });
       continue;
     }

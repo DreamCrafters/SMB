@@ -959,6 +959,7 @@ function applyLocalDispatcherFormScriptRules(
       existingSubmissions,
       nextPayload.visitorEntryId,
       businessAccountId,
+      formatLocalDateValueFromDate(receivedAt),
     );
 
     if (openVisitor === undefined) {
@@ -1059,6 +1060,13 @@ function formatLocalScriptDateTimeFromDate(value: Date) {
   ).padStart(2, "0")}.${value.getFullYear()} ${String(
     value.getHours(),
   ).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatLocalDateValueFromDate(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 function matchesLocalDispatcherFilters(

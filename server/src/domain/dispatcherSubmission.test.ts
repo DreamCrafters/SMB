@@ -241,6 +241,46 @@ test("visitor state rules close same-timestamp entries before duplicate checks",
   }
 });
 
+test("visitor state rules allow exit only for entries from today", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "visitor_exit",
+    payload: {
+      visitorEntryId: "visitor-entry-id",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    const yesterdayResult = applyVisitorStateRules(
+      result.value,
+      [
+        buildDispatcherSubmission("visitor-entry-id", "visitor", {
+          fio: "Visitor Name",
+          organization: "External Org",
+          entryAt: "17.06.2026 10:30",
+        }),
+      ],
+      new Date("2026-06-18T12:00:00.000Z"),
+    );
+    const todayResult = applyVisitorStateRules(
+      result.value,
+      [
+        buildDispatcherSubmission("visitor-entry-id", "visitor", {
+          fio: "Visitor Name",
+          organization: "External Org",
+          entryAt: "18.06.2026 10:30",
+        }),
+      ],
+      new Date("2026-06-18T12:00:00.000Z"),
+    );
+
+    assert.equal(yesterdayResult.ok, false);
+    assert.equal(todayResult.ok, true);
+  }
+});
+
 test("validateDispatcherSubmissionDraft rejects legacy gas forms as inactive", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",

@@ -43,6 +43,8 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
   },
 };
 
+const today = new Date();
+
 const openVisitorSubmission = {
   id: "visitor-entry-id",
   businessAccountId: "business-id",
@@ -51,13 +53,13 @@ const openVisitorSubmission = {
   payload: {
     fio: "Visitor Name",
     organization: "External Org",
-    entryAt: "18.06.2026 10:30",
+    entryAt: formatScriptDateTime(today),
   },
   summary: "Visitor Name",
   status: "received" as const,
   submittedByAccountId: "dispatcher-account",
-  submittedAt: "2026-06-18T00:00:00.000Z",
-  receivedAt: "2026-06-18T00:00:01.000Z",
+  submittedAt: today.toISOString(),
+  receivedAt: today.toISOString(),
 };
 
 test("remote API returns an empty access profile without a dev session", async () => {
@@ -359,4 +361,12 @@ function readProfileCapabilities(payload: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function formatScriptDateTime(value: Date) {
+  return `${String(value.getDate()).padStart(2, "0")}.${String(
+    value.getMonth() + 1,
+  ).padStart(2, "0")}.${value.getFullYear()} ${String(
+    value.getHours(),
+  ).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
 }

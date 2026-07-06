@@ -919,7 +919,12 @@ function DispatcherVisitorExitFormBody({
   });
   const submissions =
     visitorFeed.status === "ready" ? visitorFeed.submissions : [];
-  const openVisitors = buildOpenVisitorOptions(submissions, businessAccountId);
+  const todayDate = getTodayDateValue();
+  const openVisitors = buildOpenVisitorOptions(
+    submissions,
+    businessAccountId,
+    todayDate,
+  );
   const isLocalVisitorFeed =
     visitorFeed.status === "ready" && visitorFeed.source === "local_test";
 
@@ -974,7 +979,7 @@ function DispatcherVisitorExitFormBody({
           >
             <option value="">
               {openVisitors.length === 0
-                ? "Нет вошедших посетителей"
+                ? "Сегодня нет вошедших посетителей"
                 : "Выберите посетителя"}
             </option>
             {openVisitors.map((visitor) => (

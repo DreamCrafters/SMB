@@ -133,6 +133,26 @@ test("visitor helpers close entries when exit has the same received timestamp", 
   assert.equal(rows[0].exitAt, "04.07.2026 09:15");
 });
 
+test("visitor open options can be limited to entries from one day", () => {
+  const submissions = [
+    buildSubmission("visit-today", "visitor", {
+      fio: "Сегодняшний посетитель",
+      entryAt: "04.07.2026 09:10",
+    }),
+    buildSubmission("visit-yesterday", "visitor", {
+      fio: "Вчерашний посетитель",
+      entryAt: "03.07.2026 16:40",
+    }),
+  ];
+
+  assert.deepEqual(
+    buildOpenVisitorOptions(submissions, undefined, "2026-07-04").map(
+      (visitor) => visitor.fio,
+    ),
+    ["Сегодняшний посетитель"],
+  );
+});
+
 function buildSubmission(id, formId, payload) {
   return {
     id,
