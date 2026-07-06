@@ -16,10 +16,15 @@ import type {
   DispatcherFeedFilters,
   DispatcherSubmissionsRepository,
 } from "../repositories/dispatcherSubmissionsRepository.js";
+import {
+  createGoogleSheetsReferenceDataSource,
+  type DispatcherReferenceDataSource,
+} from "../integrations/googleSheetsReference.js";
 
 type AppDependencies = {
   config: ServerConfig;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
+  referenceDataSource?: DispatcherReferenceDataSource;
 };
 
 type JsonPayload = Record<string, unknown> | unknown[];
@@ -31,6 +36,9 @@ const devSessionHeader = "x-smb-dev-session";
 export function createApiServer({
   config,
   dispatcherSubmissions,
+  referenceDataSource = createGoogleSheetsReferenceDataSource(
+    config.googleSheetsReference,
+  ),
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
 
@@ -72,7 +80,14 @@ export function createApiServer({
           return;
         }
 
-        sendJson(res, 200, { forms: getPublicDispatcherForms() });
+        const referenceData = await referenceDataSource.read();
+
+        sendJson(res, 200, {
+          forms: getPublicDispatcherForms({
+            incidentResponsibleOptions:
+              referenceData.incidentResponsibleOptions,
+          }),
+        });
         return;
       }
 

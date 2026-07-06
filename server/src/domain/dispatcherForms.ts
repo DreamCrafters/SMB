@@ -39,6 +39,10 @@ export type PublicDispatcherFormDefinition = Omit<
   "summaryFields"
 >;
 
+export type PublicDispatcherFormOptions = {
+  incidentResponsibleOptions?: readonly string[];
+};
+
 const equipmentOptions = [
   "Пресс №1",
   "Пресс №2",
@@ -328,6 +332,34 @@ export function isDispatcherFormId(value: unknown): value is DispatcherFormId {
   );
 }
 
-export function getPublicDispatcherForms(): PublicDispatcherFormDefinition[] {
-  return dispatcherForms.map(({ summaryFields: _summaryFields, ...form }) => form);
+export function getPublicDispatcherForms(
+  options: PublicDispatcherFormOptions = {},
+): PublicDispatcherFormDefinition[] {
+  return dispatcherForms.map(({ summaryFields: _summaryFields, ...form }) => ({
+    ...form,
+    fields: form.fields.map((field) =>
+      readPublicDispatcherFormField(form.id, field, options),
+    ),
+  }));
+}
+
+function readPublicDispatcherFormField(
+  formId: DispatcherFormId,
+  field: DispatcherFormField,
+  options: PublicDispatcherFormOptions,
+) {
+  if (
+    formId === "incident" &&
+    field.name === "responsible" &&
+    options.incidentResponsibleOptions !== undefined &&
+    options.incidentResponsibleOptions.length > 0
+  ) {
+    return {
+      ...field,
+      type: "select" as const,
+      options: options.incidentResponsibleOptions,
+    };
+  }
+
+  return field;
 }

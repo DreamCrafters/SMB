@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import type { ServerConfig } from "../config/env.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
+import type { DispatcherReferenceDataSource } from "../integrations/googleSheetsReference.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -15,6 +16,12 @@ const config: ServerConfig = {
     "https://smb-*-artemi-z-s-projects.vercel.app",
   ],
   runMigrationsOnStart: false,
+  googleSheetsReference: {
+    url: "https://docs.google.com/spreadsheets/d/test/edit?gid=0#gid=0",
+    responsibleColumn: "Ответственный за регистрацию",
+    cacheTtlMs: 300_000,
+    authMode: "public_csv",
+  },
 };
 
 const dispatcherSubmissions: DispatcherSubmissionsRepository = {
@@ -39,6 +46,14 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
     return {
       total: 0,
       byForm: [],
+    };
+  },
+};
+
+const emptyReferenceDataSource: DispatcherReferenceDataSource = {
+  async read() {
+    return {
+      incidentResponsibleOptions: [],
     };
   },
 };
@@ -184,6 +199,47 @@ test("remote API returns dispatcher form definitions", async () => {
   });
 });
 
+test("remote API enriches incident responsible options from reference data", async () => {
+  const referenceDataSource: DispatcherReferenceDataSource = {
+    async read() {
+      return {
+        incidentResponsibleOptions: ["Иван Иванов", "Пётр Петров"],
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/dispatcher/forms`);
+      const payload = await response.json();
+      const incidentForm =
+        isRecord(payload) && Array.isArray(payload.forms)
+          ? payload.forms.find(
+              (form) => isRecord(form) && form.id === "incident",
+            )
+          : undefined;
+      const responsibleField =
+        isRecord(incidentForm) && Array.isArray(incidentForm.fields)
+          ? incidentForm.fields.find(
+              (field) => isRecord(field) && field.name === "responsible",
+            )
+          : undefined;
+
+      assert.equal(response.status, 200);
+      assert.equal(
+        isRecord(responsibleField) ? responsibleField.type : undefined,
+        "select",
+      );
+      assert.deepEqual(
+        isRecord(responsibleField) ? responsibleField.options : undefined,
+        ["Иван Иванов", "Пётр Петров"],
+      );
+    },
+    dispatcherSubmissions,
+    referenceDataSource,
+  );
+});
+
 test("remote API creates dispatcher submissions with form payload", async () => {
   await withApiServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
@@ -285,8 +341,13 @@ test("remote API enriches visitor exit from an open visitor entry", async () => 
 async function withApiServer(
   callback: (baseUrl: string) => Promise<void>,
   repository = dispatcherSubmissions,
+  referenceDataSource: DispatcherReferenceDataSource = emptyReferenceDataSource,
 ) {
-  const server = createApiServer({ config, dispatcherSubmissions: repository });
+  const server = createApiServer({
+    config,
+    dispatcherSubmissions: repository,
+    referenceDataSource,
+  });
 
   server.listen(0, "127.0.0.1");
   await once(server, "listening");

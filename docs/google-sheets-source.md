@@ -1,0 +1,134 @@
+# Google Sheets как источник справочников
+
+Сейчас backend читает Google Sheets для поля диспетчерской формы:
+
+- форма: `Открытие инцидента`
+- поле: `Ответственный за регистрацию`
+- колонка в таблице: `Ответственный за регистрацию`
+
+Текущая ссылка по умолчанию:
+
+```text
+https://docs.google.com/spreadsheets/d/1JYz_03AW4j9VXNfdNSBFfdFyxq0Dun_0QnYGvVesGyg/edit?gid=981703922#gid=981703922
+```
+
+Backend умеет читать Google Sheets двумя способами:
+
+- `public_csv` — обычная Google Sheets ссылка превращается в CSV-export ссылку; таблица должна быть публично читаемой.
+- `service_account` — таблица остаётся закрытой, а backend читает её через Google Sheets API от имени service account.
+
+## Требования к структуре таблицы
+
+1. В нужном листе должна быть колонка с заголовком `Ответственный за регистрацию`.
+2. Значения должны идти под этим заголовком до первой пустой строки.
+3. Если в одном листе несколько таблиц, backend ищет все колонки с таким заголовком и объединяет найденные значения без дублей.
+4. Двоеточие в конце заголовка допустимо: `Ответственный за регистрацию:` и `Ответственный за регистрацию` считаются одним заголовком.
+
+## Закрытая таблица через service account
+
+Этот режим нужен для production: таблица остаётся `Restricted`, но доступ получает конкретный серверный робот.
+
+1. В Google Cloud должен быть создан service account.
+2. В Google Sheets таблице нужно нажать `Share` и выдать этому service account права `Viewer`.
+3. JSON-ключ service account должен лежать на Jino вне `public_html`:
+
+```text
+~/domains/smb.aonmou.ru/app/secrets/google-service-account.json
+```
+
+4. Права на Jino:
+
+```bash
+chmod 700 ~/domains/smb.aonmou.ru/app/secrets
+chmod 600 ~/domains/smb.aonmou.ru/app/secrets/google-service-account.json
+```
+
+5. В `server/.env` включить service account:
+
+```text
+GOOGLE_SHEETS_AUTH=service_account
+GOOGLE_SERVICE_ACCOUNT_KEY_FILE=/home/users/j/j53403317/domains/smb.aonmou.ru/app/secrets/google-service-account.json
+GOOGLE_SHEETS_REFERENCE_URL=https://docs.google.com/spreadsheets/d/1JYz_03AW4j9VXNfdNSBFfdFyxq0Dun_0QnYGvVesGyg/edit?gid=981703922#gid=981703922
+GOOGLE_SHEETS_RESPONSIBLE_COLUMN=Ответственный за регистрацию
+GOOGLE_SHEETS_CACHE_TTL_MS=0
+```
+
+`GOOGLE_SHEETS_CACHE_TTL_MS=0` отключает backend-кеш: при каждом обновлении страницы frontend заново запрашивает `/api/dispatcher/forms`, а backend заново читает Google Sheets.
+
+6. Перезапустить Node-приложение:
+
+```bash
+cd ~/domains/smb.aonmou.ru
+mkdir -p tmp
+touch tmp/restart.txt
+```
+
+## Публичная таблица через CSV
+
+Этот режим проще, но таблица должна открываться без входа в Google.
+
+В `server/.env`:
+
+```text
+GOOGLE_SHEETS_AUTH=public_csv
+GOOGLE_SHEETS_REFERENCE_URL=https://docs.google.com/spreadsheets/d/1JYz_03AW4j9VXNfdNSBFfdFyxq0Dun_0QnYGvVesGyg/edit?gid=981703922#gid=981703922
+GOOGLE_SHEETS_RESPONSIBLE_COLUMN=Ответственный за регистрацию
+GOOGLE_SHEETS_CACHE_TTL_MS=0
+```
+
+Если список на сайте не появляется в `public_csv`, сначала проверь доступ: CSV-export ссылка должна открываться в инкогнито без Google login.
+
+## Как поменять таблицу или лист
+
+1. Открой нужную Google Sheets таблицу.
+2. Перейди на нужный лист внутри таблицы.
+3. Скопируй URL из браузера. В нём важны:
+   - id таблицы после `/d/`
+   - `gid` нужного листа
+4. На сервере открой env backend:
+
+```bash
+cd ~/domains/smb.aonmou.ru/app
+vi server/.env
+```
+
+5. Замени `GOOGLE_SHEETS_REFERENCE_URL`:
+
+```text
+GOOGLE_SHEETS_REFERENCE_URL=https://docs.google.com/spreadsheets/d/НОВЫЙ_ID/edit?gid=НОВЫЙ_GID#gid=НОВЫЙ_GID
+```
+
+6. Если меняется только лист внутри той же таблицы, меняется только `gid`.
+7. Перезапусти Node-приложение:
+
+```bash
+cd ~/domains/smb.aonmou.ru
+mkdir -p tmp
+touch tmp/restart.txt
+```
+
+## Как проверить
+
+После перезапуска:
+
+```bash
+curl -i https://smb.aonmou.ru/api/dispatcher/forms
+```
+
+В ответе у поля `responsible` формы `incident` должен быть:
+
+```json
+{
+  "name": "responsible",
+  "type": "select",
+  "options": ["..."]
+}
+```
+
+Если `type` остался `text`, backend не смог прочитать Google Sheets или не нашёл колонку.
+
+## Что происходит со старыми данными
+
+Справочник влияет только на новые варианты выбора в форме. Уже отправленные регистрации хранят выбранное текстовое значение в payload отправки, поэтому удаление человека из Google Sheets не удаляет его из старой аналитики и истории.
+
+Для будущих столбцов нужно использовать тот же подход: новые формы получают актуальные варианты из Google Sheets, а отправленные записи продолжают хранить выбранное значение отдельно от текущего справочника.
