@@ -707,6 +707,16 @@ function saveLocalDispatcherEquipmentReport(
     };
   }
 
+  const completenessMessage = validateCompleteLocalEquipmentReport(value.items);
+
+  if (completenessMessage !== undefined) {
+    return {
+      status: "error",
+      message: completenessMessage,
+      code: "invalid_response",
+    };
+  }
+
   const storage = readLocalDispatcherStorage(options);
   const existingSubmissions =
     storage === undefined ? [] : readLocalDispatcherSubmissions(storage);
@@ -752,6 +762,37 @@ function saveLocalDispatcherEquipmentReport(
     reportStatus,
     source: "local_test",
   };
+}
+
+function validateCompleteLocalEquipmentReport(
+  items: readonly DispatcherSubmissionPayload[],
+) {
+  const submittedEquipment = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const item of items) {
+    const equipment = item.equipment?.trim() ?? "";
+
+    if (submittedEquipment.has(equipment)) {
+      duplicates.add(equipment);
+    }
+
+    submittedEquipment.add(equipment);
+  }
+
+  const missingEquipment = localEquipmentOptions.filter(
+    (equipment) => !submittedEquipment.has(equipment),
+  );
+
+  if (duplicates.size > 0) {
+    return `Отчёт оборудования содержит дубли: ${[...duplicates].join(", ")}.`;
+  }
+
+  if (missingEquipment.length > 0) {
+    return `Внесите данные по всем позициям оборудования. Не заполнено: ${missingEquipment.join(", ")}.`;
+  }
+
+  return undefined;
 }
 
 function requestLocalDispatcherForms(): DispatcherFormsReadyState {

@@ -134,8 +134,15 @@ test("buildEquipmentReportEmail sends one message with all equipment rows", () =
     "[SMB Monitor] Отчет по оборудованию изменен за 06.07.2026",
   );
   assert.match(message?.text ?? "", /Отчет по оборудованию изменен!/);
-  assert.match(message?.text ?? "", /Пресс №1/);
-  assert.match(message?.text ?? "", /Пресс №2/);
+  assert.match(message?.text ?? "", /Позиций в отчете: 2/);
+  assert.match(
+    message?.text ?? "",
+    /Пресс №1: выработка 42 т; простой 0 ч/,
+  );
+  assert.match(
+    message?.text ?? "",
+    /Пресс №2: выработка 0 т; простой 8 ч; причина: Простой по мех, эл\. части/,
+  );
 });
 
 test("buildDispatcherSubmissionEmail skips unsupported dispatcher forms", () => {

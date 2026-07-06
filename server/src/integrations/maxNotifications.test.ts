@@ -291,8 +291,15 @@ test("createMaxNotificationService sends equipment report as one message", async
     JSON.parse(sent[0]?.body ?? "{}").text,
     /Отчет по оборудованию изменен!/,
   );
-  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Пресс №1/);
-  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Пресс №2/);
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Позиций в отчете: 2/);
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Пресс №1: выработка 12 т; простой 0 ч/,
+  );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Пресс №2: выработка 0 т; простой 8 ч; причина: Простой по мех\. и эл\. части/,
+  );
 });
 
 function buildSubmission(

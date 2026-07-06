@@ -388,16 +388,19 @@ export default function App() {
     const payload = readDispatcherSubmissionPayload(formData, formDefinition);
 
     if (formDefinition.id === "equipment") {
+      const equipmentOptions = readEquipmentOptions(formDefinition);
       const equipmentReportPayloads = buildEquipmentReportPayloads({
         businessAccountId,
-        equipmentOptions: readEquipmentOptions(formDefinition),
+        equipmentOptions,
         form: formDefinition,
         reportDate: payload.reportDate ?? getTodayDateValue(),
         storage: readBrowserEquipmentDraftStorage(),
       });
 
-      if (equipmentReportPayloads.length === 0) {
-        setDataEntryStatus("Сначала внесите хотя бы одну позицию оборудования.");
+      if (equipmentReportPayloads.length !== equipmentOptions.length) {
+        setDataEntryStatus(
+          `Внесите данные по всем позициям оборудования: ${equipmentReportPayloads.length}/${equipmentOptions.length}.`,
+        );
         return;
       }
 
@@ -1115,6 +1118,12 @@ function DispatcherEquipmentFormBody({
       .map((item) => item.equipment?.trim())
       .filter((item): item is string => item !== undefined && item.length > 0),
   );
+  const missingReportEquipmentCount = Math.max(
+    equipmentOptions.length - reportPayloads.length,
+    0,
+  );
+  const isEquipmentReportComplete =
+    equipmentOptions.length > 0 && missingReportEquipmentCount === 0;
   const isLocalEquipmentFeed =
     equipmentFeed.status === "ready" && equipmentFeed.source === "local_test";
 
@@ -1376,7 +1385,16 @@ function DispatcherEquipmentFormBody({
         >
           Внести данные
         </button>
-        <button className="primary-button" type="submit" disabled={isSubmitting}>
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={isSubmitting || !isEquipmentReportComplete}
+          title={
+            isEquipmentReportComplete
+              ? "Отправить дневной отчёт оборудования"
+              : `Осталось внести позиций: ${missingReportEquipmentCount}`
+          }
+        >
           {isSubmitting ? "Отправка..." : "Отправить"}
         </button>
         {status.length > 0 || equipmentLocalStatus.length > 0 ? (

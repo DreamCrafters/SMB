@@ -14,6 +14,7 @@ import {
 } from "../domain/dispatcherSubmission.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
+  getDispatcherFormDefinition,
   getPublicDispatcherForms,
   isDispatcherFormId,
 } from "../domain/dispatcherForms.js";
@@ -340,6 +341,8 @@ function validateDispatcherEquipmentReportRequest(
     });
   }
 
+  validateCompleteEquipmentReportItems(items, errors);
+
   if (errors.length > 0) {
     return {
       ok: false,
@@ -354,6 +357,51 @@ function validateDispatcherEquipmentReportRequest(
       items,
     },
   };
+}
+
+function validateCompleteEquipmentReportItems(
+  items: readonly ValidatedDispatcherSubmissionDraft[],
+  errors: string[],
+) {
+  if (items.length === 0) {
+    return;
+  }
+
+  const requiredEquipment = readEquipmentOptions();
+  const submittedEquipment = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const item of items) {
+    const equipment = item.draft.payload.equipment?.trim() ?? "";
+
+    if (submittedEquipment.has(equipment)) {
+      duplicates.add(equipment);
+    }
+
+    submittedEquipment.add(equipment);
+  }
+
+  const missingEquipment = requiredEquipment.filter(
+    (equipment) => !submittedEquipment.has(equipment),
+  );
+
+  if (duplicates.size > 0) {
+    errors.push(`equipment report contains duplicates: ${[...duplicates].join(", ")}.`);
+  }
+
+  if (missingEquipment.length > 0) {
+    errors.push(
+      `equipment report must include all equipment. Missing: ${missingEquipment.join(", ")}.`,
+    );
+  }
+}
+
+function readEquipmentOptions() {
+  return (
+    getDispatcherFormDefinition("equipment")?.fields.find(
+      (field) => field.name === "equipment",
+    )?.options ?? []
+  );
 }
 
 function readEquipmentReportStatus(

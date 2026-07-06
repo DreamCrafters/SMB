@@ -214,23 +214,23 @@ function buildIncidentClosureNotificationText(submission: DispatcherSubmission) 
 }
 
 function buildEquipmentReportLines(submission: DispatcherSubmission) {
-  const lines = [
-    `${readEquipmentName(submission)}:`,
-    `Выработка, тонн: ${readPayloadValue(submission, "productionTons", "0")}`,
-    `Время простоя, часов: ${readPayloadValue(submission, "downtimeHours", "0")}`,
-  ];
+  let line = `${readEquipmentName(submission)}: выработка ${readPayloadValue(
+    submission,
+    "productionTons",
+    "0",
+  )} т; простой ${readPayloadValue(submission, "downtimeHours", "0")} ч`;
   const downtimeReason = submission.payload.downtimeReason?.trim();
   const note = submission.payload.note?.trim();
 
   if (downtimeReason !== undefined && downtimeReason.length > 0) {
-    lines.push(`Причина простоя: ${downtimeReason}`);
+    line += `; причина: ${downtimeReason}`;
   }
 
   if (note !== undefined && note.length > 0) {
-    lines.push(`Примечание: ${note}`);
+    line += `; примечание: ${note}`;
   }
 
-  return [...lines, ""];
+  return [line];
 }
 
 function readEquipmentReportDate(submissions: readonly DispatcherSubmission[]) {

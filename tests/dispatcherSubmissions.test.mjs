@@ -344,10 +344,11 @@ test("submitDispatcherEquipmentReport posts a batch to remote server", async () 
 
 test("local equipment reports update existing daily equipment rows", async () => {
   const storage = createMemoryStorage();
+  const items = await readLocalEquipmentReportItems(storage);
   const firstResult = await submitDispatcherEquipmentReport(
     {
       businessAccountId: "business-id",
-      items: [draft.payload],
+      items,
     },
     {
       baseUrl: "",
@@ -358,12 +359,14 @@ test("local equipment reports update existing daily equipment rows", async () =>
   const secondResult = await submitDispatcherEquipmentReport(
     {
       businessAccountId: "business-id",
-      items: [
-        {
-          ...draft.payload,
-          productionTons: "44",
-        },
-      ],
+      items: items.map((payload) =>
+        payload.equipment === "Пресс №1"
+          ? {
+              ...payload,
+              productionTons: "44",
+            }
+          : payload,
+      ),
     },
     {
       baseUrl: "",
@@ -382,8 +385,13 @@ test("local equipment reports update existing daily equipment rows", async () =>
   assert.equal(secondResult.status, "ready");
   assert.equal(secondResult.reportStatus, "updated");
   assert.equal(feedResult.status, "ready");
-  assert.equal(feedResult.summary.total, 1);
-  assert.equal(feedResult.submissions[0].payload.productionTons, "44");
+  assert.equal(feedResult.summary.total, items.length);
+  assert.equal(
+    feedResult.submissions.find(
+      (item) => item.payload.equipment === "Пресс №1",
+    )?.payload.productionTons,
+    "44",
+  );
 });
 
 test("requestDispatcherForms reads server form definitions", async () => {
@@ -540,6 +548,29 @@ test("requestDispatcherFeed rejects unsupported remote payloads", async () => {
   assert.equal(result.status, "error");
   assert.equal(result.code, "invalid_response");
 });
+
+async function readLocalEquipmentReportItems(storage) {
+  const formsResult = await requestDispatcherForms({
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+
+  if (formsResult.status !== "ready") {
+    throw new Error("Local dispatcher forms were not available.");
+  }
+
+  const equipmentForm = formsResult.forms.find((form) => form.id === "equipment");
+  const equipmentOptions =
+    equipmentForm?.fields.find((field) => field.name === "equipment")?.options ??
+    [];
+
+  return equipmentOptions.map((equipment, index) => ({
+    reportDate: "2026-06-18",
+    equipment,
+    productionTons: equipment === "Пресс №1" ? "42" : String(index + 1),
+  }));
+}
 
 function createMemoryStorage() {
   const values = new Map();

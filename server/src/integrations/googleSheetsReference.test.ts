@@ -103,9 +103,9 @@ test("readMaxNotificationRecipientsFromCsv reads user ids by fixed sheet rows", 
   rows[19] = ["1002"];
   rows[20] = ["9999"];
   rows[21] = ["-2001"];
-  rows[24] = ["2002; 1001"];
+  rows[24] = ["2002; 1001 f9LHodD0cOJwrdHG4d5xGHHA_YApMSDjZqdl9XWi254KXj5l7FpPTzckMHPiYpT44QhdBAiL3gX5vPW90RIX"];
   rows[26] = ["3001"];
-  rows[29] = ["3002"];
+  rows[29] = ["3002 | el_extra_chat_42"];
 
   assert.deepEqual(
     readMaxNotificationRecipientsFromCsv(
@@ -117,8 +117,13 @@ test("readMaxNotificationRecipientsFromCsv reads user ids by fixed sheet rows", 
     ),
     {
       incidentAndEquipment: ["1001", "1002"],
-      mechanicalDowntime: ["-2001", "2002", "1001"],
-      electricalDowntime: ["3001", "3002"],
+      mechanicalDowntime: [
+        "-2001",
+        "2002",
+        "1001",
+        "f9LHodD0cOJwrdHG4d5xGHHA_YApMSDjZqdl9XWi254KXj5l7FpPTzckMHPiYpT44QhdBAiL3gX5vPW90RIX",
+      ],
+      electricalDowntime: ["3001", "3002", "el_extra_chat_42"],
     },
   );
 });

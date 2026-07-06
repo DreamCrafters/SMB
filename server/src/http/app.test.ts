@@ -11,6 +11,7 @@ import type {
 } from "../integrations/googleSheetsReference.js";
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import type { MaxNotificationService } from "../integrations/maxNotifications.js";
+import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -96,6 +97,22 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
     };
   },
 };
+
+const equipmentOptions =
+  getDispatcherFormDefinition("equipment")?.fields.find(
+    (field) => field.name === "equipment",
+  )?.options ?? [];
+
+function buildCompleteEquipmentReport(
+  overrides: Record<string, Record<string, string>> = {},
+) {
+  return equipmentOptions.map((equipment, index) => ({
+    reportDate: "2026-06-18",
+    equipment,
+    productionTons: String(index + 1),
+    ...overrides[equipment],
+  }));
+}
 
 const today = new Date();
 
@@ -425,7 +442,7 @@ test("remote API notifies recipients after successful incident submission", asyn
   );
 });
 
-test("remote API sends one notification for a batched equipment report", async () => {
+test("remote API sends one notification for a complete batched equipment report", async () => {
   let notifiedCount = 0;
   let notifiedStatus: "created" | "updated" | undefined;
   let maxNotifiedCount = 0;
@@ -478,20 +495,16 @@ test("remote API sends one notification for a batched equipment report", async (
           },
           body: JSON.stringify({
             businessAccountId: "business-id",
-            items: [
-              {
-                reportDate: "2026-06-18",
-                equipment: "Пресс №1",
+            items: buildCompleteEquipmentReport({
+              "Пресс №1": {
                 productionTons: "42",
               },
-              {
-                reportDate: "2026-06-18",
-                equipment: "Пресс №2",
+              "Пресс №2": {
                 productionTons: "12",
                 downtimeReason: "Простой по мех, эл. части",
                 downtimeHours: "8",
               },
-            ],
+            }),
           }),
         },
       );
@@ -502,15 +515,15 @@ test("remote API sends one notification for a batched equipment report", async (
         isRecord(payload) && Array.isArray(payload.submissions)
           ? payload.submissions.length
           : undefined,
-        2,
+        equipmentOptions.length,
       );
       assert.equal(
         isRecord(payload) ? payload.reportStatus : undefined,
         "created",
       );
-      assert.equal(notifiedCount, 2);
+      assert.equal(notifiedCount, equipmentOptions.length);
       assert.equal(notifiedStatus, "created");
-      assert.equal(maxNotifiedCount, 2);
+      assert.equal(maxNotifiedCount, equipmentOptions.length);
       assert.equal(maxNotifiedStatus, "created");
     },
     dispatcherSubmissions,
@@ -518,6 +531,36 @@ test("remote API sends one notification for a batched equipment report", async (
     emailNotificationService,
     maxNotificationService,
   );
+});
+
+test("remote API rejects incomplete equipment reports", async () => {
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/equipment-report`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        businessAccountId: "business-id",
+        items: [
+          {
+            reportDate: "2026-06-18",
+            equipment: "Пресс №1",
+            productionTons: "42",
+          },
+        ],
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.match(
+      isRecord(payload) && isRecord(payload.error)
+        ? String(payload.error.message)
+        : "",
+      /must include all equipment/,
+    );
+  });
 });
 
 test("remote API records a revision when a batched equipment report changes", async () => {
@@ -560,13 +603,11 @@ test("remote API records a revision when a batched equipment report changes", as
       },
       body: JSON.stringify({
         businessAccountId: "business-id",
-        items: [
-          {
-            reportDate: "2026-06-18",
-            equipment: "Пресс №1",
+        items: buildCompleteEquipmentReport({
+          "Пресс №1": {
             productionTons: "42",
           },
-        ],
+        }),
       }),
     });
     const payload = await response.json();
@@ -577,7 +618,7 @@ test("remote API records a revision when a batched equipment report changes", as
     assert.equal(revision?.reportDate, "18.06.2026");
     assert.equal(revision?.status, "updated");
     assert.equal(revision?.submittedByAccountId, "dispatcher-access-id");
-    assert.equal(revision?.submissions.length, 1);
+    assert.equal(revision?.submissions.length, equipmentOptions.length);
     assert.equal(revision?.submissions[0].payload.productionTons, "42");
   }, repository);
 });

@@ -558,7 +558,27 @@ function readMaxUserIdsFromColumnRows(
 }
 
 function readMaxUserIdsFromCell(value: string) {
-  return value.match(/-?\d+/gu) ?? [];
+  return value
+    .split(/[\s,;|]+/u)
+    .map(normalizeMaxRecipientId)
+    .filter((userId): userId is string => userId !== undefined);
+}
+
+function normalizeMaxRecipientId(value: string) {
+  const userId = value
+    .trim()
+    .replace(/^[<"'([{]+/u, "")
+    .replace(/[>"')\]}.,:]+$/u, "");
+
+  if (
+    userId.length === 0 ||
+    !/\d/u.test(userId) ||
+    !/^-?[a-zA-Z0-9_][a-zA-Z0-9_-]*$/u.test(userId)
+  ) {
+    return undefined;
+  }
+
+  return userId;
 }
 
 function normalizeGoogleValuesRows(values: unknown) {
