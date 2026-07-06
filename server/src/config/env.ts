@@ -11,6 +11,7 @@ export type ServerConfig = {
   runMigrationsOnStart: boolean;
   googleSheetsReference: GoogleSheetsReferenceConfig;
   emailNotifications: EmailNotificationConfig;
+  maxNotifications: MaxNotificationConfig;
 };
 
 export type GoogleSheetsReferenceConfig = {
@@ -18,6 +19,7 @@ export type GoogleSheetsReferenceConfig = {
   responsibleColumn: string;
   locationColumn: string;
   notificationEmailColumns: readonly string[];
+  maxUserIdColumns: readonly string[];
   cacheTtlMs: number;
   authMode: GoogleSheetsAuthMode;
   serviceAccountKeyFile?: string;
@@ -36,6 +38,15 @@ export type EmailNotificationConfig = {
   smtpPass?: string;
 };
 
+export type MaxNotificationConfig = {
+  enabled: boolean;
+  botToken?: string;
+  apiBaseUrl: string;
+  recipientIdType: "user_id" | "chat_id";
+  subjectPrefix: string;
+  caCertFile?: string;
+};
+
 const defaultGoogleSheetsReferenceUrl =
   "https://docs.google.com/spreadsheets/d/1JYz_03AW4j9VXNfdNSBFfdFyxq0Dun_0QnYGvVesGyg/edit?gid=981703922#gid=981703922";
 const defaultResponsibleColumn = "Ответственный за регистрацию";
@@ -44,8 +55,16 @@ const defaultNotificationEmailColumns = [
   "Адресаты по инцидентам и оборуджованию (емейлы)",
   "Адресаты по инцидентам и оборудованию (емейлы)",
 ] as const;
+const defaultMaxUserIdColumns = [
+  "Чаты пользователей",
+  "ТОКЕН МАКС и Чаты пользователей",
+  "Адресаты по инцидентам и оборуджованию (MAX ID)",
+  "Адресаты по инцидентам и оборудованию (MAX ID)",
+] as const;
 const defaultGoogleSheetsCacheTtlMs = 0;
 const defaultEmailSubjectPrefix = "SMB Monitor";
+const defaultMaxApiBaseUrl = "https://platform-api2.max.ru";
+const defaultMaxSubjectPrefix = "SMB Monitor";
 
 export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const databaseUrl = readRequired(env, "DATABASE_URL");
@@ -69,6 +88,10 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
         readList(env.GOOGLE_SHEETS_NOTIFICATION_EMAILS_COLUMN).length > 0
           ? readList(env.GOOGLE_SHEETS_NOTIFICATION_EMAILS_COLUMN)
           : defaultNotificationEmailColumns,
+      maxUserIdColumns:
+        readList(env.GOOGLE_SHEETS_MAX_USER_IDS_COLUMN).length > 0
+          ? readList(env.GOOGLE_SHEETS_MAX_USER_IDS_COLUMN)
+          : defaultMaxUserIdColumns,
       cacheTtlMs: readNonNegativeInteger(
         env.GOOGLE_SHEETS_CACHE_TTL_MS,
         defaultGoogleSheetsCacheTtlMs,
@@ -77,6 +100,7 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       serviceAccountKeyFile: readOptional(env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE),
     },
     emailNotifications: readEmailNotificationConfig(env),
+    maxNotifications: readMaxNotificationConfig(env),
   };
 }
 
@@ -182,6 +206,46 @@ function readEmailNotificationConfig(env: NodeJS.ProcessEnv): EmailNotificationC
     smtpUser,
     smtpPass,
   };
+}
+
+function readMaxNotificationConfig(env: NodeJS.ProcessEnv): MaxNotificationConfig {
+  const enabled = env.MAX_NOTIFICATIONS_ENABLED === "true";
+  const botToken = readOptional(env.MAX_BOT_TOKEN);
+
+  if (enabled && botToken === undefined) {
+    throw new Error("MAX_BOT_TOKEN is required when MAX_NOTIFICATIONS_ENABLED=true.");
+  }
+
+  return {
+    enabled,
+    botToken,
+    apiBaseUrl: readUrl(
+      readOptional(env.MAX_API_BASE_URL) ?? defaultMaxApiBaseUrl,
+      "MAX_API_BASE_URL",
+    ),
+    recipientIdType: readMaxRecipientIdType(env.MAX_RECIPIENT_ID_TYPE),
+    subjectPrefix:
+      readOptional(env.MAX_SUBJECT_PREFIX) ?? defaultMaxSubjectPrefix,
+    caCertFile: readOptional(env.MAX_CA_CERT_FILE),
+  };
+}
+
+function readMaxRecipientIdType(value: string | undefined) {
+  const recipientIdType = readOptional(value) ?? "user_id";
+
+  if (recipientIdType === "user_id" || recipientIdType === "chat_id") {
+    return recipientIdType;
+  }
+
+  throw new Error("MAX_RECIPIENT_ID_TYPE must be user_id or chat_id.");
+}
+
+function readUrl(value: string, key: string) {
+  try {
+    return new URL(value).toString().replace(/\/$/u, "");
+  } catch {
+    throw new Error(`${key} must be a valid URL.`);
+  }
 }
 
 function readList(value: string | undefined) {

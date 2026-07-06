@@ -1,18 +1,18 @@
 import { createSign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { GoogleSheetsReferenceConfig } from "../config/env.js";
+import type { NotificationRecipientGroups } from "./dispatcherNotifications.js";
 
 export type DispatcherReferenceData = {
   incidentLocationOptions: string[];
   incidentResponsibleOptions: string[];
   notificationRecipients: NotificationRecipients;
+  maxNotificationRecipients: MaxNotificationRecipients;
 };
 
-export type NotificationRecipients = {
-  incidentAndEquipment: string[];
-  mechanicalDowntime: string[];
-  electricalDowntime: string[];
-};
+export type NotificationRecipients = NotificationRecipientGroups;
+
+export type MaxNotificationRecipients = NotificationRecipientGroups;
 
 export type DispatcherReferenceDataSource = {
   read: () => Promise<DispatcherReferenceData>;
@@ -62,6 +62,11 @@ const emptyReferenceData: DispatcherReferenceData = {
     mechanicalDowntime: [],
     electricalDowntime: [],
   },
+  maxNotificationRecipients: {
+    incidentAndEquipment: [],
+    mechanicalDowntime: [],
+    electricalDowntime: [],
+  },
 };
 const googleSheetsReadonlyScope =
   "https://www.googleapis.com/auth/spreadsheets.readonly";
@@ -105,6 +110,10 @@ export function createGoogleSheetsReferenceDataSource(
           notificationRecipients: readNotificationRecipientsFromRows(
             rows,
             config.notificationEmailColumns,
+          ),
+          maxNotificationRecipients: readMaxNotificationRecipientsFromRows(
+            rows,
+            config.maxUserIdColumns,
           ),
         };
       } catch (error) {
@@ -367,6 +376,13 @@ export function readNotificationRecipientsFromCsv(
   return readNotificationRecipientsFromRows(parseCsvRows(csv), columnLabels);
 }
 
+export function readMaxNotificationRecipientsFromCsv(
+  csv: string,
+  columnLabels: readonly string[],
+) {
+  return readMaxNotificationRecipientsFromRows(parseCsvRows(csv), columnLabels);
+}
+
 export function readColumnOptionsFromRows(
   rows: string[][],
   columnLabel: string,
@@ -426,6 +442,29 @@ export function readNotificationRecipientsFromRows(
   };
 }
 
+export function readMaxNotificationRecipientsFromRows(
+  rows: string[][],
+  columnLabels: readonly string[],
+): MaxNotificationRecipients {
+  return {
+    incidentAndEquipment: readMaxUserIdsFromColumnRows(
+      rows,
+      columnLabels,
+      notificationRecipientRanges.incidentAndEquipment,
+    ),
+    mechanicalDowntime: readMaxUserIdsFromColumnRows(
+      rows,
+      columnLabels,
+      notificationRecipientRanges.mechanicalDowntime,
+    ),
+    electricalDowntime: readMaxUserIdsFromColumnRows(
+      rows,
+      columnLabels,
+      notificationRecipientRanges.electricalDowntime,
+    ),
+  };
+}
+
 function readEmailsFromColumnRows(
   rows: string[][],
   columnLabels: readonly string[],
@@ -473,6 +512,53 @@ function readEmailsFromColumnRows(
 
 function readEmailAddressesFromCell(value: string) {
   return value.match(/[^\s,;<>]+@[^\s,;<>]+\.[^\s,;<>]+/gu) ?? [];
+}
+
+function readMaxUserIdsFromColumnRows(
+  rows: string[][],
+  columnLabels: readonly string[],
+  ranges: readonly { startRow: number; endRow: number }[],
+) {
+  const normalizedColumnLabels = new Set(columnLabels.map(normalizeHeader));
+  const columnIndexes = new Set<number>();
+
+  for (const row of rows) {
+    for (const [columnIndex, cell] of row.entries()) {
+      if (normalizedColumnLabels.has(normalizeHeader(cell))) {
+        columnIndexes.add(columnIndex);
+      }
+    }
+  }
+
+  const recipients: string[] = [];
+  const seen = new Set<string>();
+
+  for (const columnIndex of columnIndexes) {
+    for (const range of ranges) {
+      for (
+        let rowNumber = range.startRow;
+        rowNumber <= range.endRow;
+        rowNumber += 1
+      ) {
+        const cell = rows[rowNumber - 1]?.[columnIndex] ?? "";
+
+        for (const userId of readMaxUserIdsFromCell(cell)) {
+          if (seen.has(userId)) {
+            continue;
+          }
+
+          seen.add(userId);
+          recipients.push(userId);
+        }
+      }
+    }
+  }
+
+  return recipients;
+}
+
+function readMaxUserIdsFromCell(value: string) {
+  return value.match(/-?\d+/gu) ?? [];
 }
 
 function normalizeGoogleValuesRows(values: unknown) {

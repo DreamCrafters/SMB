@@ -5,6 +5,7 @@ import {
   buildGoogleSheetsCsvUrl,
   createGoogleSheetsReferenceDataSource,
   readColumnOptionsFromCsv,
+  readMaxNotificationRecipientsFromCsv,
   readNotificationRecipientsFromCsv,
 } from "./googleSheetsReference.js";
 
@@ -94,6 +95,49 @@ test("readNotificationRecipientsFromCsv accepts corrected equipment header spell
   );
 });
 
+test("readMaxNotificationRecipientsFromCsv reads user ids by fixed sheet rows", () => {
+  const rows = Array.from({ length: 30 }, () => [""]);
+
+  rows[0] = ["Чаты пользователей"];
+  rows[1] = ["1001"];
+  rows[19] = ["1002"];
+  rows[20] = ["9999"];
+  rows[21] = ["-2001"];
+  rows[24] = ["2002; 1001"];
+  rows[26] = ["3001"];
+  rows[29] = ["3002"];
+
+  assert.deepEqual(
+    readMaxNotificationRecipientsFromCsv(
+      rows.map((row) => row.join(",")).join("\n"),
+      [
+        "Чаты пользователей",
+        "ТОКЕН МАКС и Чаты пользователей",
+      ],
+    ),
+    {
+      incidentAndEquipment: ["1001", "1002"],
+      mechanicalDowntime: ["-2001", "2002", "1001"],
+      electricalDowntime: ["3001", "3002"],
+    },
+  );
+});
+
+test("readMaxNotificationRecipientsFromCsv accepts combined MAX table header", () => {
+  const csv = [
+    "ТОКЕН МАКС и Чаты пользователей",
+    "1001",
+  ].join("\n");
+
+  assert.deepEqual(
+    readMaxNotificationRecipientsFromCsv(csv, [
+      "Чаты пользователей",
+      "ТОКЕН МАКС и Чаты пользователей",
+    ]).incidentAndEquipment,
+    ["1001"],
+  );
+});
+
 test("google sheets reference source refetches options when cache ttl is zero", async () => {
   let fetchCount = 0;
   const source = createGoogleSheetsReferenceDataSource(
@@ -103,6 +147,9 @@ test("google sheets reference source refetches options when cache ttl is zero", 
       locationColumn: "Места (цех/участок)",
       notificationEmailColumns: [
         "Адресаты по инцидентам и оборуджованию (емейлы)",
+      ],
+      maxUserIdColumns: [
+        "Чаты пользователей",
       ],
       cacheTtlMs: 0,
       authMode: "public_csv",
@@ -140,6 +187,9 @@ test("google sheets reference source caches fetched responsible options", async 
       locationColumn: "Места (цех/участок)",
       notificationEmailColumns: [
         "Адресаты по инцидентам и оборуджованию (емейлы)",
+      ],
+      maxUserIdColumns: [
+        "Чаты пользователей",
       ],
       cacheTtlMs: 60_000,
       authMode: "public_csv",
@@ -184,14 +234,15 @@ test("google sheets reference source reads private sheets with service account",
     "Места (цех/участок)",
     "Ответственный за регистрацию",
     "Адресаты по инцидентам и оборуджованию (емейлы)",
+    "Чаты пользователей",
   ];
-  sheetValues[1] = ["Цех №1", "Иван Иванов", "common@example.com"];
-  sheetValues[2] = ["Участок №2", "Пётр Петров", ""];
-  sheetValues[3] = ["", "", ""];
-  sheetValues[4] = ["", "Ответственный за регистрацию", ""];
-  sheetValues[5] = ["", "Мария Сидорова", ""];
-  sheetValues[21] = ["", "", "mechanic@example.com"];
-  sheetValues[26] = ["", "", "electric@example.com"];
+  sheetValues[1] = ["Цех №1", "Иван Иванов", "common@example.com", "1001"];
+  sheetValues[2] = ["Участок №2", "Пётр Петров", "", ""];
+  sheetValues[3] = ["", "", "", ""];
+  sheetValues[4] = ["", "Ответственный за регистрацию", "", ""];
+  sheetValues[5] = ["", "Мария Сидорова", "", ""];
+  sheetValues[21] = ["", "", "mechanic@example.com", "2001"];
+  sheetValues[26] = ["", "", "electric@example.com", "3001"];
 
   const requests: string[] = [];
   const source = createGoogleSheetsReferenceDataSource(
@@ -201,6 +252,9 @@ test("google sheets reference source reads private sheets with service account",
       locationColumn: "Места (цех/участок)",
       notificationEmailColumns: [
         "Адресаты по инцидентам и оборуджованию (емейлы)",
+      ],
+      maxUserIdColumns: [
+        "Чаты пользователей",
       ],
       cacheTtlMs: 60_000,
       authMode: "service_account",
@@ -308,6 +362,11 @@ test("google sheets reference source reads private sheets with service account",
     incidentAndEquipment: ["common@example.com"],
     mechanicalDowntime: ["mechanic@example.com"],
     electricalDowntime: ["electric@example.com"],
+  });
+  assert.deepEqual((await source.read()).maxNotificationRecipients, {
+    incidentAndEquipment: ["1001"],
+    mechanicalDowntime: ["2001"],
+    electricalDowntime: ["3001"],
   });
   assert.deepEqual(requests, [
     "https://oauth2.googleapis.com/token",

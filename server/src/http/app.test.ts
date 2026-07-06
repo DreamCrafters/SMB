@@ -10,6 +10,7 @@ import type {
   NotificationRecipients,
 } from "../integrations/googleSheetsReference.js";
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
+import type { MaxNotificationService } from "../integrations/maxNotifications.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -27,6 +28,9 @@ const config: ServerConfig = {
     notificationEmailColumns: [
       "Адресаты по инцидентам и оборуджованию (емейлы)",
     ],
+    maxUserIdColumns: [
+      "Чаты пользователей",
+    ],
     cacheTtlMs: 300_000,
     authMode: "public_csv",
   },
@@ -36,6 +40,12 @@ const config: ServerConfig = {
     subjectPrefix: "SMB Monitor",
     smtpPort: 587,
     smtpSecure: false,
+  },
+  maxNotifications: {
+    enabled: false,
+    apiBaseUrl: "https://platform-api2.max.ru",
+    recipientIdType: "user_id",
+    subjectPrefix: "SMB Monitor",
   },
 };
 
@@ -71,6 +81,11 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
       incidentLocationOptions: [],
       incidentResponsibleOptions: [],
       notificationRecipients: {
+        incidentAndEquipment: [],
+        mechanicalDowntime: [],
+        electricalDowntime: [],
+      },
+      maxNotificationRecipients: {
         incidentAndEquipment: [],
         mechanicalDowntime: [],
         electricalDowntime: [],
@@ -231,6 +246,11 @@ test("remote API enriches incident location and responsible options from referen
           mechanicalDowntime: [],
           electricalDowntime: [],
         },
+        maxNotificationRecipients: {
+          incidentAndEquipment: [],
+          mechanicalDowntime: [],
+          electricalDowntime: [],
+        },
       };
     },
   };
@@ -320,6 +340,8 @@ test("remote API creates dispatcher submissions with form payload", async () => 
 test("remote API notifies recipients after successful dispatcher submission", async () => {
   let notifiedSubmissionId: string | undefined;
   let notifiedRecipients: NotificationRecipients | undefined;
+  let maxNotifiedSubmissionId: string | undefined;
+  let maxNotifiedRecipients: NotificationRecipients | undefined;
   const referenceDataSource: DispatcherReferenceDataSource = {
     async read() {
       return {
@@ -330,6 +352,11 @@ test("remote API notifies recipients after successful dispatcher submission", as
           mechanicalDowntime: ["mechanic@example.com"],
           electricalDowntime: [],
         },
+        maxNotificationRecipients: {
+          incidentAndEquipment: ["1001"],
+          mechanicalDowntime: ["2001"],
+          electricalDowntime: [],
+        },
       };
     },
   };
@@ -337,6 +364,12 @@ test("remote API notifies recipients after successful dispatcher submission", as
     async sendDispatcherSubmissionNotification(submission, recipients) {
       notifiedSubmissionId = submission.id;
       notifiedRecipients = recipients;
+    },
+  };
+  const maxNotificationService: MaxNotificationService = {
+    async sendDispatcherSubmissionNotification(submission, recipients) {
+      maxNotifiedSubmissionId = submission.id;
+      maxNotifiedRecipients = recipients;
     },
   };
 
@@ -365,10 +398,17 @@ test("remote API notifies recipients after successful dispatcher submission", as
         mechanicalDowntime: ["mechanic@example.com"],
         electricalDowntime: [],
       });
+      assert.equal(maxNotifiedSubmissionId, "submission-id");
+      assert.deepEqual(maxNotifiedRecipients, {
+        incidentAndEquipment: ["1001"],
+        mechanicalDowntime: ["2001"],
+        electricalDowntime: [],
+      });
     },
     dispatcherSubmissions,
     referenceDataSource,
     emailNotificationService,
+    maxNotificationService,
   );
 });
 
@@ -439,12 +479,14 @@ async function withApiServer(
   repository = dispatcherSubmissions,
   referenceDataSource: DispatcherReferenceDataSource = emptyReferenceDataSource,
   emailNotificationService?: EmailNotificationService,
+  maxNotificationService?: MaxNotificationService,
 ) {
   const server = createApiServer({
     config,
     dispatcherSubmissions: repository,
     referenceDataSource,
     emailNotificationService,
+    maxNotificationService,
   });
 
   server.listen(0, "127.0.0.1");

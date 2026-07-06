@@ -24,12 +24,17 @@ import {
   createEmailNotificationService,
   type EmailNotificationService,
 } from "../integrations/emailNotifications.js";
+import {
+  createMaxNotificationService,
+  type MaxNotificationService,
+} from "../integrations/maxNotifications.js";
 
 type AppDependencies = {
   config: ServerConfig;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   referenceDataSource?: DispatcherReferenceDataSource;
   emailNotificationService?: EmailNotificationService;
+  maxNotificationService?: MaxNotificationService;
 };
 
 type JsonPayload = Record<string, unknown> | unknown[];
@@ -47,6 +52,7 @@ export function createApiServer({
   emailNotificationService = createEmailNotificationService(
     config.emailNotifications,
   ),
+  maxNotificationService = createMaxNotificationService(config.maxNotifications),
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
 
@@ -164,6 +170,7 @@ export function createApiServer({
             submission,
             referenceDataSource,
             emailNotificationService,
+            maxNotificationService,
           );
 
           sendJson(res, 201, { submission });
@@ -201,16 +208,57 @@ async function notifyDispatcherSubmission(
   submission: Awaited<ReturnType<DispatcherSubmissionsRepository["create"]>>,
   referenceDataSource: DispatcherReferenceDataSource,
   emailNotificationService: EmailNotificationService,
+  maxNotificationService: MaxNotificationService,
 ) {
   try {
     const referenceData = await referenceDataSource.read();
 
-    await emailNotificationService.sendDispatcherSubmissionNotification(
+    await notifyByEmail(
+      emailNotificationService,
       submission,
       referenceData.notificationRecipients,
     );
+    await notifyByMax(
+      maxNotificationService,
+      submission,
+      referenceData.maxNotificationRecipients,
+    );
+  } catch (error) {
+    console.warn("dispatcher_notifications.reference_data_failed", error);
+  }
+}
+
+async function notifyByEmail(
+  emailNotificationService: EmailNotificationService,
+  submission: Awaited<ReturnType<DispatcherSubmissionsRepository["create"]>>,
+  recipients: Parameters<
+    EmailNotificationService["sendDispatcherSubmissionNotification"]
+  >[1],
+) {
+  try {
+    await emailNotificationService.sendDispatcherSubmissionNotification(
+      submission,
+      recipients,
+    );
   } catch (error) {
     console.warn("dispatcher_notifications.email_send_failed", error);
+  }
+}
+
+async function notifyByMax(
+  maxNotificationService: MaxNotificationService,
+  submission: Awaited<ReturnType<DispatcherSubmissionsRepository["create"]>>,
+  recipients: Parameters<
+    MaxNotificationService["sendDispatcherSubmissionNotification"]
+  >[1],
+) {
+  try {
+    await maxNotificationService.sendDispatcherSubmissionNotification(
+      submission,
+      recipients,
+    );
+  } catch (error) {
+    console.warn("dispatcher_notifications.max_send_failed", error);
   }
 }
 
