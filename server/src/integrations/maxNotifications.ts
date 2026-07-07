@@ -233,7 +233,9 @@ function isMaxNotifiableSubmission(submission: DispatcherSubmission) {
   return (
     submission.formId === "equipment" ||
     submission.formId === "incident" ||
-    submission.formId === "incident_close"
+    submission.formId === "incident_close" ||
+    submission.formId === "visitor" ||
+    submission.formId === "visitor_exit"
   );
 }
 

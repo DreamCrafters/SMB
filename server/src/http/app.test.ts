@@ -32,6 +32,12 @@ const config: ServerConfig = {
     maxUserIdColumns: [
       "Чаты пользователей",
     ],
+    visitorNotificationEmailColumns: [
+      "Адресаты по посетителям (емейлы)",
+    ],
+    visitorMaxUserIdColumns: [
+      "Адресаты по посетителям (МАКС)",
+    ],
     cacheTtlMs: 300_000,
     authMode: "public_csv",
   },
@@ -88,11 +94,13 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
         incidentAndEquipment: [],
         mechanicalDowntime: [],
         electricalDowntime: [],
+        visitors: [],
       },
       maxNotificationRecipients: {
         incidentAndEquipment: [],
         mechanicalDowntime: [],
         electricalDowntime: [],
+        visitors: [],
       },
     };
   },
@@ -265,11 +273,13 @@ test("remote API enriches incident location and responsible options from referen
           incidentAndEquipment: [],
           mechanicalDowntime: [],
           electricalDowntime: [],
+          visitors: [],
         },
         maxNotificationRecipients: {
           incidentAndEquipment: [],
           mechanicalDowntime: [],
           electricalDowntime: [],
+          visitors: [],
         },
       };
     },
@@ -371,11 +381,13 @@ test("remote API notifies recipients after successful incident submission", asyn
           incidentAndEquipment: ["common@example.com"],
           mechanicalDowntime: ["mechanic@example.com"],
           electricalDowntime: [],
+          visitors: [],
         },
         maxNotificationRecipients: {
           incidentAndEquipment: ["1001"],
           mechanicalDowntime: ["2001"],
           electricalDowntime: [],
+          visitors: [],
         },
       };
     },
@@ -427,12 +439,99 @@ test("remote API notifies recipients after successful incident submission", asyn
         incidentAndEquipment: ["common@example.com"],
         mechanicalDowntime: ["mechanic@example.com"],
         electricalDowntime: [],
+        visitors: [],
       });
       assert.equal(maxNotifiedSubmissionId, "submission-id");
       assert.deepEqual(maxNotifiedRecipients, {
         incidentAndEquipment: ["1001"],
         mechanicalDowntime: ["2001"],
         electricalDowntime: [],
+        visitors: [],
+      });
+    },
+    dispatcherSubmissions,
+    referenceDataSource,
+    emailNotificationService,
+    maxNotificationService,
+  );
+});
+
+test("remote API notifies visitor recipients after successful visitor submission", async () => {
+  let notifiedSubmissionId: string | undefined;
+  let notifiedRecipients: NotificationRecipients | undefined;
+  let maxNotifiedSubmissionId: string | undefined;
+  let maxNotifiedRecipients: NotificationRecipients | undefined;
+  const referenceDataSource: DispatcherReferenceDataSource = {
+    async read() {
+      return {
+        incidentLocationOptions: [],
+        incidentResponsibleOptions: [],
+        notificationRecipients: {
+          incidentAndEquipment: [],
+          mechanicalDowntime: [],
+          electricalDowntime: [],
+          visitors: ["visitors@example.com"],
+        },
+        maxNotificationRecipients: {
+          incidentAndEquipment: [],
+          mechanicalDowntime: [],
+          electricalDowntime: [],
+          visitors: ["4001"],
+        },
+      };
+    },
+  };
+  const emailNotificationService: EmailNotificationService = {
+    async sendDispatcherSubmissionNotification(submission, recipients) {
+      notifiedSubmissionId = submission.id;
+      notifiedRecipients = recipients;
+    },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
+    },
+  };
+  const maxNotificationService: MaxNotificationService = {
+    async sendDispatcherSubmissionNotification(submission, recipients) {
+      maxNotifiedSubmissionId = submission.id;
+      maxNotifiedRecipients = recipients;
+    },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          businessAccountId: "business-id",
+          formId: "visitor",
+          payload: {
+            fio: "Иван Иванов",
+            organization: "ООО Ромашка",
+            whom: "Склад",
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      assert.equal(notifiedSubmissionId, "submission-id");
+      assert.deepEqual(notifiedRecipients, {
+        incidentAndEquipment: [],
+        mechanicalDowntime: [],
+        electricalDowntime: [],
+        visitors: ["visitors@example.com"],
+      });
+      assert.equal(maxNotifiedSubmissionId, "submission-id");
+      assert.deepEqual(maxNotifiedRecipients, {
+        incidentAndEquipment: [],
+        mechanicalDowntime: [],
+        electricalDowntime: [],
+        visitors: ["4001"],
       });
     },
     dispatcherSubmissions,
@@ -456,11 +555,13 @@ test("remote API sends one notification for a complete batched equipment report"
           incidentAndEquipment: ["common@example.com"],
           mechanicalDowntime: ["mechanic@example.com"],
           electricalDowntime: [],
+          visitors: [],
         },
         maxNotificationRecipients: {
           incidentAndEquipment: ["1001"],
           mechanicalDowntime: ["2001"],
           electricalDowntime: [],
+          visitors: [],
         },
       };
     },

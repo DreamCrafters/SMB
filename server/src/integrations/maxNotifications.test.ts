@@ -8,6 +8,7 @@ const recipients: MaxNotificationRecipients = {
   incidentAndEquipment: ["-1001"],
   mechanicalDowntime: ["2001"],
   electricalDowntime: ["3001"],
+  visitors: ["4001"],
 };
 
 test("createMaxNotificationService does not send when disabled", async () => {
@@ -135,6 +136,7 @@ test("createMaxNotificationService adds specialized recipients", async () => {
       incidentAndEquipment: ["1001", "2001"],
       mechanicalDowntime: ["2001"],
       electricalDowntime: ["3001"],
+      visitors: [],
     },
   );
 
@@ -200,6 +202,47 @@ test("createMaxNotificationService can send to chat_id", async () => {
   assert.deepEqual(sentUrls, [
     "https://platform-api2.max.ru/messages?chat_id=-1001",
   ]);
+});
+
+test("createMaxNotificationService sends visitor notifications to visitor chat ids", async () => {
+  const sent: { url: string; body: string }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "chat_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
+
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await service.sendDispatcherSubmissionNotification(
+    buildSubmission("visitor_exit", {
+      visitorEntryId: "visitor-entry-id",
+      fio: "Иван Иванов",
+      organization: "ООО Ромашка",
+      whom: "Склад",
+      entryAt: "06.07.2026 09:10",
+      exitAt: "06.07.2026 12:40",
+    }),
+    recipients,
+  );
+
+  assert.deepEqual(sent.map((item) => item.url), [
+    "https://platform-api2.max.ru/messages?chat_id=4001",
+  ]);
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Посетитель вышел!/);
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Время выхода: 06\.07\.2026 12:40/,
+  );
 });
 
 test("createMaxNotificationService sends MAX requests with configured CA certificate", async () => {

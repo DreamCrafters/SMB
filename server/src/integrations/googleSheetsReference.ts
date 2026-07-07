@@ -61,11 +61,13 @@ const emptyReferenceData: DispatcherReferenceData = {
     incidentAndEquipment: [],
     mechanicalDowntime: [],
     electricalDowntime: [],
+    visitors: [],
   },
   maxNotificationRecipients: {
     incidentAndEquipment: [],
     mechanicalDowntime: [],
     electricalDowntime: [],
+    visitors: [],
   },
 };
 const googleSheetsReadonlyScope =
@@ -75,6 +77,7 @@ const notificationRecipientRanges = {
   incidentAndEquipment: [{ startRow: 2, endRow: 20 }],
   mechanicalDowntime: [{ startRow: 22, endRow: 25 }],
   electricalDowntime: [{ startRow: 27, endRow: 30 }],
+  visitors: [{ startRow: 2, endRow: 20 }],
 } as const;
 
 export function createGoogleSheetsReferenceDataSource(
@@ -110,10 +113,12 @@ export function createGoogleSheetsReferenceDataSource(
           notificationRecipients: readNotificationRecipientsFromRows(
             rows,
             config.notificationEmailColumns,
+            config.visitorNotificationEmailColumns,
           ),
           maxNotificationRecipients: readMaxNotificationRecipientsFromRows(
             rows,
             config.maxUserIdColumns,
+            config.visitorMaxUserIdColumns,
           ),
         };
       } catch (error) {
@@ -372,15 +377,25 @@ export function readColumnOptionsFromCsv(csv: string, columnLabel: string) {
 export function readNotificationRecipientsFromCsv(
   csv: string,
   columnLabels: readonly string[],
+  visitorColumnLabels: readonly string[] = [],
 ) {
-  return readNotificationRecipientsFromRows(parseCsvRows(csv), columnLabels);
+  return readNotificationRecipientsFromRows(
+    parseCsvRows(csv),
+    columnLabels,
+    visitorColumnLabels,
+  );
 }
 
 export function readMaxNotificationRecipientsFromCsv(
   csv: string,
   columnLabels: readonly string[],
+  visitorColumnLabels: readonly string[] = [],
 ) {
-  return readMaxNotificationRecipientsFromRows(parseCsvRows(csv), columnLabels);
+  return readMaxNotificationRecipientsFromRows(
+    parseCsvRows(csv),
+    columnLabels,
+    visitorColumnLabels,
+  );
 }
 
 export function readColumnOptionsFromRows(
@@ -422,6 +437,7 @@ export function readColumnOptionsFromRows(
 export function readNotificationRecipientsFromRows(
   rows: string[][],
   columnLabels: readonly string[],
+  visitorColumnLabels: readonly string[] = [],
 ): NotificationRecipients {
   return {
     incidentAndEquipment: readEmailsFromColumnRows(
@@ -439,12 +455,18 @@ export function readNotificationRecipientsFromRows(
       columnLabels,
       notificationRecipientRanges.electricalDowntime,
     ),
+    visitors: readEmailsFromColumnRows(
+      rows,
+      visitorColumnLabels,
+      notificationRecipientRanges.visitors,
+    ),
   };
 }
 
 export function readMaxNotificationRecipientsFromRows(
   rows: string[][],
   columnLabels: readonly string[],
+  visitorColumnLabels: readonly string[] = [],
 ): MaxNotificationRecipients {
   return {
     incidentAndEquipment: readMaxUserIdsFromColumnRows(
@@ -461,6 +483,11 @@ export function readMaxNotificationRecipientsFromRows(
       rows,
       columnLabels,
       notificationRecipientRanges.electricalDowntime,
+    ),
+    visitors: readMaxUserIdsFromColumnRows(
+      rows,
+      visitorColumnLabels,
+      notificationRecipientRanges.visitors,
     ),
   };
 }

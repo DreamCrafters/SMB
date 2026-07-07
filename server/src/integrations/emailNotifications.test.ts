@@ -13,6 +13,7 @@ const recipients: NotificationRecipients = {
   incidentAndEquipment: ["common@example.com"],
   mechanicalDowntime: ["mechanic@example.com"],
   electricalDowntime: ["electric@example.com"],
+  visitors: ["visitors@example.com"],
 };
 
 test("buildDispatcherSubmissionEmail sends incident openings to common recipients", () => {
@@ -86,6 +87,7 @@ test("buildDispatcherSubmissionEmail adds mechanical and electrical recipients f
       incidentAndEquipment: ["common@example.com", "mechanic@example.com"],
       mechanicalDowntime: ["mechanic@example.com"],
       electricalDowntime: ["electric@example.com"],
+      visitors: [],
     },
     "noreply@example.com",
     "SMB Monitor",
@@ -118,6 +120,7 @@ test("buildEquipmentReportEmail sends one message with all equipment rows", () =
       incidentAndEquipment: ["common@example.com", "mechanic@example.com"],
       mechanicalDowntime: ["mechanic@example.com"],
       electricalDowntime: ["electric@example.com"],
+      visitors: [],
     },
     "noreply@example.com",
     "SMB Monitor",
@@ -145,17 +148,48 @@ test("buildEquipmentReportEmail sends one message with all equipment rows", () =
   );
 });
 
-test("buildDispatcherSubmissionEmail skips unsupported dispatcher forms", () => {
+test("buildDispatcherSubmissionEmail sends visitor entry to visitor recipients", () => {
   const message = buildDispatcherSubmissionEmail(
     buildSubmission("visitor", {
-      fio: "Visitor",
+      fio: "Иван Иванов",
+      position: "Инженер",
+      organization: "ООО Ромашка",
+      purpose: "Проверка",
+      whom: "Склад",
+      entryAt: "06.07.2026 09:10",
     }),
     recipients,
     "noreply@example.com",
     "SMB Monitor",
   );
 
-  assert.equal(message, undefined);
+  assert.deepEqual(message?.to, ["visitors@example.com"]);
+  assert.equal(message?.subject, "[SMB Monitor] Вход посетителя: Иван Иванов");
+  assert.match(message?.text ?? "", /Посетитель вошел!/);
+  assert.match(message?.text ?? "", /Кого посещает: Склад/);
+  assert.match(message?.text ?? "", /Время входа: 06\.07\.2026 09:10/);
+});
+
+test("buildDispatcherSubmissionEmail sends visitor exit to visitor recipients", () => {
+  const message = buildDispatcherSubmissionEmail(
+    buildSubmission("visitor_exit", {
+      visitorEntryId: "visitor-entry-id",
+      fio: "Иван Иванов",
+      organization: "ООО Ромашка",
+      whom: "Склад",
+      entryAt: "06.07.2026 09:10",
+      exitAt: "06.07.2026 12:40",
+    }),
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+  );
+
+  assert.deepEqual(message?.to, ["visitors@example.com"]);
+  assert.equal(message?.subject, "[SMB Monitor] Выход посетителя: Иван Иванов");
+  assert.match(message?.text ?? "", /Посетитель вышел!/);
+  assert.match(message?.text ?? "", /Кого посещал: Склад/);
+  assert.match(message?.text ?? "", /Время выхода: 06\.07\.2026 12:40/);
 });
 
 test("createEmailNotificationService does not send when disabled", async () => {

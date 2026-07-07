@@ -8,6 +8,7 @@ export type NotificationRecipientGroups = {
   incidentAndEquipment: string[];
   mechanicalDowntime: string[];
   electricalDowntime: string[];
+  visitors: string[];
 };
 
 export type EquipmentReportNotificationStatus = "created" | "updated";
@@ -16,6 +17,10 @@ export function readDispatcherNotificationRecipients(
   submission: DispatcherSubmission,
   recipients: NotificationRecipientGroups,
 ) {
+  if (isVisitorForm(submission.formId)) {
+    return dedupeValues(recipients.visitors);
+  }
+
   if (submission.formId !== "equipment" && !isIncidentForm(submission.formId)) {
     return [];
   }
@@ -76,6 +81,14 @@ export function buildDispatcherNotificationSubject(
     }`;
   }
 
+  if (submission.formId === "visitor") {
+    return `${prefix}Вход посетителя${readVisitorNameSuffix(submission)}`;
+  }
+
+  if (submission.formId === "visitor_exit") {
+    return `${prefix}Выход посетителя${readVisitorNameSuffix(submission)}`;
+  }
+
   return `${prefix}${submission.formTitle}`;
 }
 
@@ -103,6 +116,14 @@ export function buildDispatcherNotificationText(
 
   if (submission.formId === "incident_close") {
     return buildIncidentClosureNotificationText(submission);
+  }
+
+  if (submission.formId === "visitor") {
+    return buildVisitorEntryNotificationText(submission);
+  }
+
+  if (submission.formId === "visitor_exit") {
+    return buildVisitorExitNotificationText(submission);
   }
 
   const form = getDispatcherFormDefinition(submission.formId);
@@ -151,6 +172,10 @@ export function buildEquipmentReportNotificationText(
 
 function isIncidentForm(formId: DispatcherSubmission["formId"]) {
   return formId === "incident" || formId === "incident_close";
+}
+
+function isVisitorForm(formId: DispatcherSubmission["formId"]) {
+  return formId === "visitor" || formId === "visitor_exit";
 }
 
 function isMechanicalDowntimeReason(value: string) {
@@ -233,6 +258,36 @@ function buildEquipmentReportLines(submission: DispatcherSubmission) {
   return [line];
 }
 
+function buildVisitorEntryNotificationText(submission: DispatcherSubmission) {
+  return [
+    "Посетитель вошел!",
+    `ФИО посетителя: ${readPayloadValue(submission, "fio")}`,
+    ...buildOptionalPayloadLine(submission, "position", "Должность"),
+    ...buildOptionalPayloadLine(submission, "organization", "Организация"),
+    ...buildOptionalPayloadLine(submission, "purpose", "Цель визита"),
+    ...buildOptionalPayloadLine(submission, "whom", "Кого посещает"),
+    `Время входа: ${readPayloadValue(submission, "entryAt", submission.receivedAt)}`,
+    ...buildOptionalPayloadLine(submission, "note", "Примечание"),
+  ].join("\n");
+}
+
+function buildVisitorExitNotificationText(submission: DispatcherSubmission) {
+  return [
+    "Посетитель вышел!",
+    `ФИО посетителя: ${readPayloadValue(submission, "fio")}`,
+    ...buildOptionalPayloadLine(submission, "position", "Должность"),
+    ...buildOptionalPayloadLine(submission, "organization", "Организация"),
+    ...buildOptionalPayloadLine(submission, "purpose", "Цель визита"),
+    ...buildOptionalPayloadLine(submission, "whom", "Кого посещал"),
+    `Время входа: ${readPayloadValue(submission, "entryAt")}`,
+    `Время выхода: ${readPayloadValue(
+      submission,
+      "exitAt",
+      submission.receivedAt,
+    )}`,
+  ].join("\n");
+}
+
 function readEquipmentReportDate(submissions: readonly DispatcherSubmission[]) {
   return submissions[0]?.payload.reportDate?.trim() ?? "";
 }
@@ -249,6 +304,22 @@ function readPayloadValue(
   const value = submission.payload[fieldName]?.trim();
 
   return value === undefined || value.length === 0 ? fallback : value;
+}
+
+function buildOptionalPayloadLine(
+  submission: DispatcherSubmission,
+  fieldName: string,
+  label: string,
+) {
+  const value = readPayloadValue(submission, fieldName);
+
+  return value.length === 0 ? [] : [`${label}: ${value}`];
+}
+
+function readVisitorNameSuffix(submission: DispatcherSubmission) {
+  const fio = readPayloadValue(submission, "fio");
+
+  return fio.length === 0 ? "" : `: ${fio}`;
 }
 
 function readFieldLabel(field: DispatcherFormField | undefined, fallback: string) {

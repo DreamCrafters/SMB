@@ -49,16 +49,19 @@ test("readColumnOptionsFromCsv reads location options from a separate column", (
 });
 
 test("readNotificationRecipientsFromCsv reads email recipients by fixed sheet rows", () => {
-  const rows = Array.from({ length: 30 }, () => [""]);
+  const rows = Array.from({ length: 30 }, () => ["", ""]);
 
-  rows[0] = ["Адресаты по инцидентам и оборуджованию (емейлы)"];
-  rows[1] = ["common@example.com"];
-  rows[19] = ["common-last@example.com"];
-  rows[20] = ["outside@example.com"];
-  rows[21] = ["mechanic@example.com"];
-  rows[24] = ["mechanic-last@example.com; common@example.com"];
-  rows[26] = ["electric@example.com"];
-  rows[29] = ["electric-last@example.com"];
+  rows[0] = [
+    "Адресаты по инцидентам и оборуджованию (емейлы)",
+    "Адресаты по посетителям (емейлы)",
+  ];
+  rows[1] = ["common@example.com", "visitor@example.com"];
+  rows[19] = ["common-last@example.com", "visitor-last@example.com"];
+  rows[20] = ["outside@example.com", "visitor-outside@example.com"];
+  rows[21] = ["mechanic@example.com", ""];
+  rows[24] = ["mechanic-last@example.com; common@example.com", ""];
+  rows[26] = ["electric@example.com", ""];
+  rows[29] = ["electric-last@example.com", ""];
 
   assert.deepEqual(
     readNotificationRecipientsFromCsv(
@@ -67,6 +70,7 @@ test("readNotificationRecipientsFromCsv reads email recipients by fixed sheet ro
         "Адресаты по инцидентам и оборуджованию (емейлы)",
         "Адресаты по инцидентам и оборудованию (емейлы)",
       ],
+      ["Адресаты по посетителям (емейлы)"],
     ),
     {
       incidentAndEquipment: ["common@example.com", "common-last@example.com"],
@@ -76,6 +80,7 @@ test("readNotificationRecipientsFromCsv reads email recipients by fixed sheet ro
         "common@example.com",
       ],
       electricalDowntime: ["electric@example.com", "electric-last@example.com"],
+      visitors: ["visitor@example.com", "visitor-last@example.com"],
     },
   );
 });
@@ -96,16 +101,19 @@ test("readNotificationRecipientsFromCsv accepts corrected equipment header spell
 });
 
 test("readMaxNotificationRecipientsFromCsv reads user ids by fixed sheet rows", () => {
-  const rows = Array.from({ length: 30 }, () => [""]);
+  const rows = Array.from({ length: 30 }, () => ["", ""]);
 
-  rows[0] = ["Чаты пользователей"];
-  rows[1] = ["1001"];
-  rows[19] = ["1002"];
-  rows[20] = ["9999"];
-  rows[21] = ["-2001"];
-  rows[24] = ["2002; 1001 f9LHodD0cOJwrdHG4d5xGHHA_YApMSDjZqdl9XWi254KXj5l7FpPTzckMHPiYpT44QhdBAiL3gX5vPW90RIX"];
-  rows[26] = ["3001"];
-  rows[29] = ["3002 | el_extra_chat_42"];
+  rows[0] = ["Чаты пользователей", "Адресаты по посетителям (МАКС)"];
+  rows[1] = ["1001", "4001"];
+  rows[19] = ["1002", "4002 visitor_extra_chat_42"];
+  rows[20] = ["9999", "4999"];
+  rows[21] = ["-2001", ""];
+  rows[24] = [
+    "2002; 1001 f9LHodD0cOJwrdHG4d5xGHHA_YApMSDjZqdl9XWi254KXj5l7FpPTzckMHPiYpT44QhdBAiL3gX5vPW90RIX",
+    "",
+  ];
+  rows[26] = ["3001", ""];
+  rows[29] = ["3002 | el_extra_chat_42", ""];
 
   assert.deepEqual(
     readMaxNotificationRecipientsFromCsv(
@@ -114,6 +122,7 @@ test("readMaxNotificationRecipientsFromCsv reads user ids by fixed sheet rows", 
         "Чаты пользователей",
         "ТОКЕН МАКС и Чаты пользователей",
       ],
+      ["Адресаты по посетителям (МАКС)"],
     ),
     {
       incidentAndEquipment: ["1001", "1002"],
@@ -124,6 +133,7 @@ test("readMaxNotificationRecipientsFromCsv reads user ids by fixed sheet rows", 
         "f9LHodD0cOJwrdHG4d5xGHHA_YApMSDjZqdl9XWi254KXj5l7FpPTzckMHPiYpT44QhdBAiL3gX5vPW90RIX",
       ],
       electricalDowntime: ["3001", "3002", "el_extra_chat_42"],
+      visitors: ["4001", "4002", "visitor_extra_chat_42"],
     },
   );
 });
@@ -155,6 +165,12 @@ test("google sheets reference source refetches options when cache ttl is zero", 
       ],
       maxUserIdColumns: [
         "Чаты пользователей",
+      ],
+      visitorNotificationEmailColumns: [
+        "Адресаты по посетителям (емейлы)",
+      ],
+      visitorMaxUserIdColumns: [
+        "Адресаты по посетителям (МАКС)",
       ],
       cacheTtlMs: 0,
       authMode: "public_csv",
@@ -196,6 +212,12 @@ test("google sheets reference source caches fetched responsible options", async 
       maxUserIdColumns: [
         "Чаты пользователей",
       ],
+      visitorNotificationEmailColumns: [
+        "Адресаты по посетителям (емейлы)",
+      ],
+      visitorMaxUserIdColumns: [
+        "Адресаты по посетителям (МАКС)",
+      ],
       cacheTtlMs: 60_000,
       authMode: "public_csv",
     },
@@ -233,21 +255,30 @@ test("google sheets reference source reads private sheets with service account",
     type: "pkcs8",
     format: "pem",
   });
-  const sheetValues = Array.from({ length: 30 }, () => ["", "", ""]);
+  const sheetValues = Array.from({ length: 30 }, () => ["", "", "", "", ""]);
 
   sheetValues[0] = [
     "Места (цех/участок)",
     "Ответственный за регистрацию",
     "Адресаты по инцидентам и оборуджованию (емейлы)",
     "Чаты пользователей",
+    "Адресаты по посетителям (емейлы)",
+    "Адресаты по посетителям (МАКС)",
   ];
-  sheetValues[1] = ["Цех №1", "Иван Иванов", "common@example.com", "1001"];
-  sheetValues[2] = ["Участок №2", "Пётр Петров", "", ""];
-  sheetValues[3] = ["", "", "", ""];
-  sheetValues[4] = ["", "Ответственный за регистрацию", "", ""];
-  sheetValues[5] = ["", "Мария Сидорова", "", ""];
-  sheetValues[21] = ["", "", "mechanic@example.com", "2001"];
-  sheetValues[26] = ["", "", "electric@example.com", "3001"];
+  sheetValues[1] = [
+    "Цех №1",
+    "Иван Иванов",
+    "common@example.com",
+    "1001",
+    "visitor@example.com",
+    "4001",
+  ];
+  sheetValues[2] = ["Участок №2", "Пётр Петров", "", "", "", ""];
+  sheetValues[3] = ["", "", "", "", "", ""];
+  sheetValues[4] = ["", "Ответственный за регистрацию", "", "", "", ""];
+  sheetValues[5] = ["", "Мария Сидорова", "", "", "", ""];
+  sheetValues[21] = ["", "", "mechanic@example.com", "2001", "", ""];
+  sheetValues[26] = ["", "", "electric@example.com", "3001", "", ""];
 
   const requests: string[] = [];
   const source = createGoogleSheetsReferenceDataSource(
@@ -260,6 +291,12 @@ test("google sheets reference source reads private sheets with service account",
       ],
       maxUserIdColumns: [
         "Чаты пользователей",
+      ],
+      visitorNotificationEmailColumns: [
+        "Адресаты по посетителям (емейлы)",
+      ],
+      visitorMaxUserIdColumns: [
+        "Адресаты по посетителям (МАКС)",
       ],
       cacheTtlMs: 60_000,
       authMode: "service_account",
@@ -367,11 +404,13 @@ test("google sheets reference source reads private sheets with service account",
     incidentAndEquipment: ["common@example.com"],
     mechanicalDowntime: ["mechanic@example.com"],
     electricalDowntime: ["electric@example.com"],
+    visitors: ["visitor@example.com"],
   });
   assert.deepEqual((await source.read()).maxNotificationRecipients, {
     incidentAndEquipment: ["1001"],
     mechanicalDowntime: ["2001"],
     electricalDowntime: ["3001"],
+    visitors: ["4001"],
   });
   assert.deepEqual(requests, [
     "https://oauth2.googleapis.com/token",

@@ -20,6 +20,8 @@ export type GoogleSheetsReferenceConfig = {
   locationColumn: string;
   notificationEmailColumns: readonly string[];
   maxUserIdColumns: readonly string[];
+  visitorNotificationEmailColumns: readonly string[];
+  visitorMaxUserIdColumns: readonly string[];
   cacheTtlMs: number;
   authMode: GoogleSheetsAuthMode;
   serviceAccountKeyFile?: string;
@@ -61,6 +63,12 @@ const defaultMaxUserIdColumns = [
   "Адресаты по инцидентам и оборуджованию (MAX ID)",
   "Адресаты по инцидентам и оборудованию (MAX ID)",
 ] as const;
+const defaultVisitorNotificationEmailColumns = [
+  "Адресаты по посетителям (емейлы)",
+] as const;
+const defaultVisitorMaxUserIdColumns = [
+  "Адресаты по посетителям (МАКС)",
+] as const;
 const defaultGoogleSheetsCacheTtlMs = 0;
 const defaultEmailSubjectPrefix = "SMB Monitor";
 const defaultMaxApiBaseUrl = "https://platform-api2.max.ru";
@@ -92,6 +100,14 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
         readList(env.GOOGLE_SHEETS_MAX_USER_IDS_COLUMN).length > 0
           ? readList(env.GOOGLE_SHEETS_MAX_USER_IDS_COLUMN)
           : defaultMaxUserIdColumns,
+      visitorNotificationEmailColumns:
+        readList(env.GOOGLE_SHEETS_VISITOR_NOTIFICATION_EMAILS_COLUMN).length > 0
+          ? readList(env.GOOGLE_SHEETS_VISITOR_NOTIFICATION_EMAILS_COLUMN)
+          : defaultVisitorNotificationEmailColumns,
+      visitorMaxUserIdColumns:
+        readList(env.GOOGLE_SHEETS_VISITOR_MAX_USER_IDS_COLUMN).length > 0
+          ? readList(env.GOOGLE_SHEETS_VISITOR_MAX_USER_IDS_COLUMN)
+          : defaultVisitorMaxUserIdColumns,
       cacheTtlMs: readNonNegativeInteger(
         env.GOOGLE_SHEETS_CACHE_TTL_MS,
         defaultGoogleSheetsCacheTtlMs,
