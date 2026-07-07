@@ -2759,9 +2759,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
     setDeleteCandidate(undefined);
     setEditor({
       row,
-      values: {
-        ...row.values,
-      },
+      values: readInitialAdminDatabaseEditorValues(row, selectedTable),
     });
   }
 
@@ -2895,7 +2893,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
           />
 
           {selectedTable !== undefined && editor !== undefined ? (
-            <AdminDatabaseEditor
+            <AdminDatabaseEditorModal
               table={selectedTable}
               editor={editor}
               isMutating={isMutating}
@@ -3010,22 +3008,30 @@ function AdminDatabaseRowsTable({
           <thead>
             <tr>
               {rowsState.table.columns.map((column) => (
-                <th scope="col" key={column.name}>
+                <th
+                  className={readDatabaseCellClassName(column)}
+                  scope="col"
+                  key={column.name}
+                >
                   {column.name}
                 </th>
               ))}
-              <th scope="col">Действия</th>
+              <th className="admin-db-actions-column" scope="col">Действия</th>
             </tr>
           </thead>
           <tbody>
             {rowsState.rows.map((row) => (
               <tr key={formatPrimaryKey(row)}>
                 {rowsState.table.columns.map((column) => (
-                  <td title={row.values[column.name] ?? "NULL"} key={column.name}>
+                  <td
+                    className={readDatabaseCellClassName(column)}
+                    title={row.values[column.name] ?? "NULL"}
+                    key={column.name}
+                  >
                     {formatDatabaseCellValue(row.values[column.name])}
                   </td>
                 ))}
-                <td>
+                <td className="admin-db-actions-column">
                   <div className="admin-db-actions">
                     <button
                       className="secondary-button"
@@ -3054,7 +3060,7 @@ function AdminDatabaseRowsTable({
   );
 }
 
-function AdminDatabaseEditor({
+function AdminDatabaseEditorModal({
   table,
   editor,
   isMutating,
@@ -3073,80 +3079,109 @@ function AdminDatabaseEditor({
   onValueChange: (columnName: string, value: AdminDatabaseCellValue) => void;
 }) {
   const editableColumns = table.columns.filter((column) => !column.primaryKey);
+  const editorTitleId = "admin-db-editor-title";
 
   return (
-    <section className="admin-db-editor" aria-label="Редактирование строки">
-      <div className="admin-db-editor-header">
-        <span>Строка {formatPrimaryKey(editor.row)}</span>
-        <div className="admin-db-actions">
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={isMutating}
-            onClick={onCancel}
-          >
-            Отмена
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            disabled={isMutating || editableColumns.length === 0}
-            onClick={onSave}
-          >
-            Сохранить
-          </button>
+    <div
+      className="admin-db-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !isMutating) {
+          onCancel();
+        }
+      }}
+    >
+      <section
+        aria-labelledby={editorTitleId}
+        aria-modal="true"
+        className="admin-db-editor"
+        role="dialog"
+      >
+        <div className="admin-db-editor-header">
+          <div>
+            <span id={editorTitleId}>Редактирование строки</span>
+            <strong>{table.name}</strong>
+            <small>{formatPrimaryKey(editor.row)}</small>
+          </div>
+          <div className="admin-db-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={isMutating}
+              onClick={onCancel}
+            >
+              Отмена
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={isMutating || editableColumns.length === 0}
+              onClick={onSave}
+            >
+              Сохранить
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="admin-db-editor-grid">
-        {editableColumns.map((column) => {
-          const value = editor.values[column.name] ?? "";
-          const isNull = editor.values[column.name] === null;
+        <div className="admin-db-editor-grid">
+          {table.columns.map((column) => {
+            const value = editor.values[column.name] ?? "";
+            const isNull = editor.values[column.name] === null;
+            const isReadonly = column.primaryKey;
+            const inputId = `admin-db-editor-${column.name}`;
 
-          return (
-            <label className="admin-db-editor-field" key={column.name}>
-              <span>
-                {column.name}
-                <small>{column.columnType}</small>
-              </span>
-              {isMultilineDatabaseColumn(column) ? (
-                <textarea
-                  rows={4}
-                  disabled={isNull}
-                  value={value}
-                  onChange={(event) =>
-                    onValueChange(column.name, event.currentTarget.value)
-                  }
-                />
-              ) : (
-                <input
-                  type="text"
-                  disabled={isNull}
-                  value={value}
-                  onChange={(event) =>
-                    onValueChange(column.name, event.currentTarget.value)
-                  }
-                />
-              )}
-              {column.nullable ? (
-                <label className="admin-db-null-toggle">
-                  <input
-                    type="checkbox"
-                    checked={isNull}
+            return (
+              <div className="admin-db-editor-field" key={column.name}>
+                <label htmlFor={inputId}>
+                  <span>
+                    {column.name}
+                    {column.primaryKey ? <em>primary key</em> : null}
+                  </span>
+                  <small>{column.columnType}</small>
+                </label>
+                {isMultilineDatabaseColumn(column) ? (
+                  <textarea
+                    id={inputId}
+                    rows={5}
+                    readOnly={isReadonly}
+                    disabled={isNull}
+                    value={value}
                     onChange={(event) =>
-                      onValueChange(
-                        column.name,
-                        event.currentTarget.checked ? null : "",
-                      )
+                      onValueChange(column.name, event.currentTarget.value)
                     }
                   />
-                  <span>NULL</span>
-                </label>
-              ) : null}
-            </label>
-          );
-        })}
-      </div>
-    </section>
+                ) : (
+                  <input
+                    id={inputId}
+                    type="text"
+                    readOnly={isReadonly}
+                    disabled={isNull}
+                    value={value}
+                    onChange={(event) =>
+                      onValueChange(column.name, event.currentTarget.value)
+                    }
+                  />
+                )}
+                {column.nullable && !column.primaryKey ? (
+                  <label className="admin-db-null-toggle">
+                    <input
+                      type="checkbox"
+                      checked={isNull}
+                      onChange={(event) =>
+                        onValueChange(
+                          column.name,
+                          event.currentTarget.checked ? null : "",
+                        )
+                      }
+                    />
+                    <span>NULL</span>
+                  </label>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -3286,6 +3321,63 @@ function formatDatabaseCellValue(value: AdminDatabaseCellValue | undefined) {
   return normalized.length > 140
     ? `${normalized.slice(0, 137)}...`
     : normalized;
+}
+
+function readDatabaseCellClassName(column: AdminDatabaseColumn) {
+  const normalizedName = column.name.toLowerCase();
+
+  if (
+    column.dataType === "json" ||
+    column.dataType.endsWith("text") ||
+    normalizedName.includes("payload") ||
+    normalizedName.includes("summary") ||
+    normalizedName.includes("raw_value")
+  ) {
+    return "admin-db-cell admin-db-cell-wide";
+  }
+
+  if (
+    normalizedName === "id" ||
+    normalizedName.endsWith("_id") ||
+    normalizedName.includes("uuid")
+  ) {
+    return "admin-db-cell admin-db-cell-id";
+  }
+
+  if (
+    column.dataType.includes("date") ||
+    column.dataType.includes("time") ||
+    normalizedName.includes("_at")
+  ) {
+    return "admin-db-cell admin-db-cell-date";
+  }
+
+  return "admin-db-cell";
+}
+
+function readInitialAdminDatabaseEditorValues(
+  row: AdminDatabaseRow,
+  table: AdminDatabaseTable | undefined,
+) {
+  const values = {
+    ...row.values,
+  };
+
+  for (const column of table?.columns ?? []) {
+    const value = values[column.name];
+
+    if (column.dataType !== "json" || value === null || value === undefined) {
+      continue;
+    }
+
+    try {
+      values[column.name] = JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      // Keep the original server value if it is not valid JSON text.
+    }
+  }
+
+  return values;
 }
 
 function isMultilineDatabaseColumn(column: AdminDatabaseColumn) {

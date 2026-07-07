@@ -1131,9 +1131,10 @@ p {
 
 .admin-db-layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: var(--density-4);
   align-items: start;
+  width: 100%;
 }
 
 .admin-db-sidebar {
@@ -1198,24 +1199,28 @@ p {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-raised);
+  box-shadow: inset 0 -1px 0 var(--line);
 }
 
 .admin-db-data-table {
-  width: 100%;
-  min-width: 960px;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
 }
 
 .admin-db-data-table th,
 .admin-db-data-table td {
-  max-width: 280px;
   padding: 9px 10px;
   border-bottom: 1px solid var(--line);
   color: var(--text);
   font-size: 12px;
   text-align: left;
   vertical-align: top;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .admin-db-data-table th {
@@ -1224,6 +1229,41 @@ p {
   font-size: 11px;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.admin-db-cell {
+  min-width: 132px;
+  max-width: 240px;
+}
+
+.admin-db-cell-id {
+  min-width: 210px;
+  max-width: 260px;
+}
+
+.admin-db-cell-wide {
+  min-width: 300px;
+  max-width: 420px;
+}
+
+.admin-db-cell-date {
+  min-width: 170px;
+  max-width: 190px;
+}
+
+.admin-db-actions-column {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  min-width: 134px;
+  width: 134px;
+  background: var(--surface-raised);
+  box-shadow: -1px 0 0 var(--line);
+}
+
+.admin-db-data-table th.admin-db-actions-column {
+  z-index: 2;
+  background: var(--surface-subtle);
 }
 
 .admin-db-data-table tr:last-child td {
@@ -1244,7 +1284,6 @@ p {
   flex-wrap: wrap;
 }
 
-.admin-db-editor,
 .admin-db-danger-panel {
   display: grid;
   gap: var(--density-3);
@@ -1259,6 +1298,29 @@ p {
   font-weight: 900;
 }
 
+.admin-db-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--density-5);
+  background: rgba(23, 27, 28, 0.42);
+}
+
+.admin-db-editor {
+  display: grid;
+  gap: var(--density-4);
+  width: min(100%, 1120px);
+  max-height: min(86vh, 860px);
+  overflow: auto;
+  padding: var(--density-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
 .admin-db-editor-header {
   display: flex;
   gap: var(--density-2);
@@ -1266,10 +1328,24 @@ p {
   justify-content: space-between;
 }
 
-.admin-db-editor-header span {
+.admin-db-editor-header > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-db-editor-header span,
+.admin-db-editor-header strong {
   color: var(--ink);
   font-size: 13px;
   font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.admin-db-editor-header small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
   overflow-wrap: anywhere;
 }
 
@@ -1285,13 +1361,30 @@ p {
   align-content: start;
 }
 
-.admin-db-editor-field span {
+.admin-db-editor-field label {
   display: grid;
   gap: 2px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.admin-db-editor-field span {
+  display: flex;
+  gap: var(--density-1);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admin-db-editor-field em {
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--blue-gray);
+  background: var(--blue-gray-soft);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
 }
 
 .admin-db-editor-field small {
@@ -1330,6 +1423,13 @@ p {
   background: var(--surface-subtle);
 }
 
+.admin-db-editor-field input[readonly],
+.admin-db-editor-field textarea[readonly] {
+  border-color: var(--line);
+  color: var(--muted);
+  background: var(--surface-subtle);
+}
+
 .admin-db-null-toggle {
   display: flex;
   gap: var(--density-1);
@@ -1342,6 +1442,17 @@ p {
 .admin-db-null-toggle input {
   width: 16px;
   min-height: 16px;
+}
+
+.admin-db-actions-column .admin-db-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--density-1);
+}
+
+.admin-db-actions-column .secondary-button {
+  width: 100%;
+  white-space: nowrap;
 }
 
 @media (max-width: 1180px) {
