@@ -5,9 +5,11 @@ import {
   buildEquipmentFormPayload,
   buildEquipmentReportPayloads,
   formatReportDateForPayload,
+  isEquipmentReportEntryDirty,
   readEquipmentDraftPayload,
   readEquipmentOptions,
   readLastEquipmentOption,
+  readEquipmentReportEntryPayload,
   writeEquipmentDraftPayload,
   writeEquipmentReportEntryPayload,
   writeLastEquipmentOption,
@@ -154,6 +156,81 @@ test("equipment report payloads only include explicitly added entries", () => {
   assert.equal(payloads[0].reportDate, "2026-07-06");
   assert.equal(payloads[0].equipment, "Пресс №2");
   assert.equal(payloads[0].productionTons, "7");
+});
+
+test("equipment report entries stay stable while edited drafts become dirty", () => {
+  const storage = createMemoryStorage();
+
+  writeEquipmentReportEntryPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    payload: {
+      equipment: "Пресс №1",
+      productionTons: "7",
+      note: "Внесено в отчет",
+    },
+    storage,
+  });
+  writeEquipmentDraftPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    payload: {
+      equipment: "Пресс №1",
+      productionTons: "8",
+      note: "Исправленный черновик",
+    },
+    storage,
+  });
+
+  const reportPayload = readEquipmentReportEntryPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    storage,
+  });
+  const draftPayload = readEquipmentDraftPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    storage,
+  });
+
+  assert.deepEqual(reportPayload, {
+    productionTons: "7",
+    note: "Внесено в отчет",
+  });
+  assert.equal(
+    isEquipmentReportEntryDirty({
+      currentPayload: draftPayload,
+      form: equipmentForm,
+      reportPayload,
+    }),
+    true,
+  );
+
+  writeEquipmentReportEntryPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    payload: draftPayload,
+    storage,
+  });
+
+  assert.equal(
+    isEquipmentReportEntryDirty({
+      currentPayload: draftPayload,
+      form: equipmentForm,
+      reportPayload: readEquipmentReportEntryPayload({
+        businessAccountId: "business-id",
+        equipment: "Пресс №1",
+        form: equipmentForm,
+        storage,
+      }),
+    }),
+    false,
+  );
 });
 
 test("equipment completion map matches report date payloads and keeps the latest submission", () => {

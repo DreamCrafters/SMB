@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   AccountCapability,
   AccountType,
@@ -50,9 +50,11 @@ import {
   buildEquipmentReportPayloads,
   formatReportDateForDisplay,
   hasEquipmentReportData,
+  isEquipmentReportEntryDirty,
   readEquipmentDraftPayload,
   readEquipmentOptions,
   readLastEquipmentOption,
+  readEquipmentReportEntryPayload,
   writeEquipmentReportEntryPayload,
   writeEquipmentDraftPayload,
   writeLastEquipmentOption,
@@ -828,6 +830,7 @@ function DataEntryWorkspace({
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
+  const formLeaveGuardRef = useRef<(() => boolean) | undefined>(undefined);
   const currentForm = forms.find((form) => form.id === selectedFormId);
   const isLocalTestMode =
     dispatcherForms.status === "ready" && dispatcherForms.source === "local_test";
@@ -843,9 +846,20 @@ function DataEntryWorkspace({
       selectedFormId.length > 0 &&
       !forms.some((form) => form.id === selectedFormId)
     ) {
+      formLeaveGuardRef.current = undefined;
       setSelectedFormId("");
     }
   }, [forms, selectedFormId]);
+
+  function handleSelectForm(formId: string) {
+    if (formLeaveGuardRef.current !== undefined && !formLeaveGuardRef.current()) {
+      return;
+    }
+
+    formLeaveGuardRef.current = undefined;
+    onResetStatus();
+    setSelectedFormId(formId);
+  }
 
   if (dispatcherForms.status !== "ready" || forms.length === 0) {
     return (
@@ -882,10 +896,7 @@ function DataEntryWorkspace({
                     className="dispatcher-form-choice-button"
                     type="button"
                     key={form.id}
-                    onClick={() => {
-                      onResetStatus();
-                      setSelectedFormId(form.id);
-                    }}
+                    onClick={() => handleSelectForm(form.id)}
                   >
                     <span>{form.title}</span>
                   </button>
@@ -910,10 +921,7 @@ function DataEntryWorkspace({
           <button
             className="secondary-button"
             type="button"
-            onClick={() => {
-              onResetStatus();
-              setSelectedFormId("");
-            }}
+            onClick={() => handleSelectForm("")}
           >
             К выбору формы
           </button>
@@ -925,6 +933,9 @@ function DataEntryWorkspace({
             isSubmitting={isSubmitting}
             refreshVersion={refreshVersion}
             status={status}
+            onLeaveGuardChange={(guard) => {
+              formLeaveGuardRef.current = guard;
+            }}
             onResetStatus={onResetStatus}
           />
         ) : currentForm.id === "visitor_exit" ? (
@@ -1076,6 +1087,7 @@ function DispatcherEquipmentFormBody({
   isSubmitting,
   refreshVersion,
   status,
+  onLeaveGuardChange,
   onResetStatus,
 }: {
   businessAccountId: string;
@@ -1083,6 +1095,7 @@ function DispatcherEquipmentFormBody({
   isSubmitting: boolean;
   refreshVersion: number;
   status: string;
+  onLeaveGuardChange: (guard: (() => boolean) | undefined) => void;
   onResetStatus: () => void;
 }) {
   const equipmentOptions = readEquipmentOptions(form);
@@ -1126,6 +1139,25 @@ function DispatcherEquipmentFormBody({
     equipmentOptions.length > 0 && missingReportEquipmentCount === 0;
   const isLocalEquipmentFeed =
     equipmentFeed.status === "ready" && equipmentFeed.source === "local_test";
+  const selectedReportPayload =
+    selectedEquipment.length === 0
+      ? {}
+      : readEquipmentReportEntryPayload({
+          businessAccountId,
+          equipment: selectedEquipment,
+          form,
+          storage: readBrowserEquipmentDraftStorage(),
+        });
+  const isSelectedEquipmentDirty =
+    selectedEquipment.length > 0 &&
+    isEquipmentReportEntryDirty({
+      currentPayload: payload,
+      form,
+      reportPayload: selectedReportPayload,
+    });
+  const addEquipmentEntryButtonLabel = isSelectedEquipmentDirty
+    ? "Обновить данные"
+    : "Внести данные";
 
   useEffect(() => {
     setPayload(
@@ -1134,6 +1166,23 @@ function DispatcherEquipmentFormBody({
     setReportDraftVersion((version) => version + 1);
     setEquipmentLocalStatus("");
   }, [businessAccountId, form, equipmentOptions]);
+
+  useEffect(() => {
+    if (!isSelectedEquipmentDirty || typeof window === "undefined") {
+      return undefined;
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isSelectedEquipmentDirty]);
 
   useEffect(() => {
     let isActive = true;
@@ -1174,8 +1223,51 @@ function DispatcherEquipmentFormBody({
     };
   }, [refreshVersion]);
 
+  useEffect(() => {
+    onLeaveGuardChange(
+      isSelectedEquipmentDirty ? handleDirtyEquipmentLeave : undefined,
+    );
+
+    return () => {
+      onLeaveGuardChange(undefined);
+    };
+  }, [isSelectedEquipmentDirty, onLeaveGuardChange, payload, selectedEquipment]);
+
+  function handleDirtyEquipmentLeave() {
+    if (!isSelectedEquipmentDirty) {
+      return true;
+    }
+
+    const storage = readBrowserEquipmentDraftStorage();
+    const shouldSaveBeforeSwitch =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(
+            [
+              `Есть несохранённые изменения по «${selectedEquipment}».`,
+              "OK — сохранить изменения в дневной отчёт.",
+              "Отмена — откатить поля к последнему внесённому состоянию.",
+            ].join("\n"),
+          );
+
+    if (shouldSaveBeforeSwitch) {
+      return saveEquipmentEntry(payload);
+    }
+
+    rollbackEquipmentEntryDraft(selectedEquipment, storage);
+    return true;
+  }
+
   function handleEquipmentChange(equipment: string) {
     const storage = readBrowserEquipmentDraftStorage();
+
+    if (equipment === selectedEquipment) {
+      return;
+    }
+
+    if (!handleDirtyEquipmentLeave()) {
+      return;
+    }
 
     if (equipment.length > 0) {
       writeLastEquipmentOption({
@@ -1186,21 +1278,10 @@ function DispatcherEquipmentFormBody({
     }
 
     setPayload((currentPayload) => {
-      const targetSavedDraft =
-        equipment.length === 0
-          ? {}
-          : readEquipmentDraftPayload({
-              businessAccountId,
-              equipment,
-              form,
-              storage,
-            });
-
-      return buildEquipmentFormPayload({
+      return readEquipmentPayloadForSelection({
         equipment,
-        form,
-        savedDraft: targetSavedDraft,
         todayDate: currentPayload.reportDate ?? getTodayDateValue(),
+        storage,
       });
     });
     setEquipmentLocalStatus("");
@@ -1249,26 +1330,68 @@ function DispatcherEquipmentFormBody({
     onResetStatus();
   }
 
-  function handleAddEquipmentEntry() {
-    const equipment = payload.equipment ?? "";
+  function readEquipmentPayloadForSelection({
+    equipment,
+    storage,
+    todayDate,
+  }: {
+    equipment: string;
+    storage: DispatcherEquipmentDraftStorage | undefined;
+    todayDate: string;
+  }) {
+    const reportPayload =
+      equipment.length === 0
+        ? {}
+        : readEquipmentReportEntryPayload({
+            businessAccountId,
+            equipment,
+            form,
+            storage,
+          });
+    const draftPayload =
+      equipment.length === 0
+        ? {}
+        : readEquipmentDraftPayload({
+            businessAccountId,
+            equipment,
+            form,
+            storage,
+          });
+    const savedDraft =
+      hasEquipmentReportData(reportPayload) &&
+      (!hasEquipmentReportData(draftPayload) ||
+        !isEquipmentReportEntryDirty({
+          currentPayload: draftPayload,
+          form,
+          reportPayload,
+        }))
+        ? reportPayload
+        : draftPayload;
 
+    return buildEquipmentFormPayload({
+      equipment,
+      form,
+      savedDraft,
+      todayDate,
+    });
+  }
+
+  function rollbackEquipmentEntryDraft(
+    equipment: string,
+    storage: DispatcherEquipmentDraftStorage | undefined,
+  ) {
     if (equipment.length === 0) {
-      setEquipmentLocalStatus("Выберите оборудование.");
-      onResetStatus();
       return;
     }
 
-    if (!hasEquipmentReportData(payload)) {
-      setEquipmentLocalStatus("Заполните данные по выбранному оборудованию.");
-      onResetStatus();
-      return;
-    }
+    const reportPayload = readEquipmentReportEntryPayload({
+      businessAccountId,
+      equipment,
+      form,
+      storage,
+    });
 
-    const validationMessage = validateDispatcherPayloadForSubmit(form, payload);
-
-    if (validationMessage !== undefined) {
-      setEquipmentLocalStatus(validationMessage);
-      onResetStatus();
+    if (!hasEquipmentReportData(reportPayload)) {
       return;
     }
 
@@ -1276,24 +1399,78 @@ function DispatcherEquipmentFormBody({
       businessAccountId,
       equipment,
       form,
-      payload,
-      storage: readBrowserEquipmentDraftStorage(),
+      payload: reportPayload,
+      storage,
+    });
+    setReportDraftVersion((version) => version + 1);
+  }
+
+  function saveEquipmentEntry(entryPayload: DispatcherSubmissionPayload) {
+    const equipment = entryPayload.equipment ?? "";
+
+    if (equipment.length === 0) {
+      setEquipmentLocalStatus("Выберите оборудование.");
+      onResetStatus();
+      return false;
+    }
+
+    if (!hasEquipmentReportData(entryPayload)) {
+      setEquipmentLocalStatus("Заполните данные по выбранному оборудованию.");
+      onResetStatus();
+      return false;
+    }
+
+    const validationMessage = validateDispatcherPayloadForSubmit(
+      form,
+      entryPayload,
+    );
+
+    if (validationMessage !== undefined) {
+      setEquipmentLocalStatus(validationMessage);
+      onResetStatus();
+      return false;
+    }
+
+    const storage = readBrowserEquipmentDraftStorage();
+    const hadReportEntry = hasEquipmentReportData(
+      readEquipmentReportEntryPayload({
+        businessAccountId,
+        equipment,
+        form,
+        storage,
+      }),
+    );
+
+    writeEquipmentDraftPayload({
+      businessAccountId,
+      equipment,
+      form,
+      payload: entryPayload,
+      storage,
     });
     const isWritten = writeEquipmentReportEntryPayload({
       businessAccountId,
       equipment,
       form,
-      payload,
-      storage: readBrowserEquipmentDraftStorage(),
+      payload: entryPayload,
+      storage,
     });
 
     setEquipmentLocalStatus(
       isWritten
-        ? `Данные для ${equipment} внесены в дневной отчёт.`
+        ? `Данные для ${equipment} ${
+            hadReportEntry ? "обновлены" : "внесены"
+          } в дневном отчёте.`
         : "Не удалось сохранить данные в браузере.",
     );
     setReportDraftVersion((version) => version + 1);
     onResetStatus();
+
+    return isWritten;
+  }
+
+  function handleAddEquipmentEntry() {
+    saveEquipmentEntry(payload);
   }
 
   return (
@@ -1314,6 +1491,12 @@ function DispatcherEquipmentFormBody({
             const isComplete = submission !== undefined;
             const isActive = equipment === selectedEquipment;
             const isInReport = reportEquipmentNames.has(equipment);
+            const reportEntryPayload = readEquipmentReportEntryPayload({
+              businessAccountId,
+              equipment,
+              form,
+              storage: readBrowserEquipmentDraftStorage(),
+            });
             const draftPayload = readEquipmentDraftPayload({
               businessAccountId,
               equipment,
@@ -1321,6 +1504,13 @@ function DispatcherEquipmentFormBody({
               storage: readBrowserEquipmentDraftStorage(),
             });
             const hasDraft = hasEquipmentReportData(draftPayload);
+            const isDirty =
+              isInReport &&
+              isEquipmentReportEntryDirty({
+                currentPayload: isActive ? payload : draftPayload,
+                form,
+                reportPayload: reportEntryPayload,
+              });
 
             return (
               <button
@@ -1328,6 +1518,7 @@ function DispatcherEquipmentFormBody({
                   "equipment-status-button",
                   isInReport && !isComplete ? "is-in-report" : "",
                   isComplete ? "is-complete" : "",
+                  isDirty ? "is-dirty" : "",
                   isActive ? "is-active" : "",
                 ]
                   .filter(Boolean)
@@ -1337,9 +1528,21 @@ function DispatcherEquipmentFormBody({
                 key={equipment}
                 onClick={() => handleEquipmentChange(equipment)}
               >
-                <span>{equipment}</span>
+                <span>
+                  {equipment}
+                  {isDirty ? (
+                    <strong
+                      aria-label="Есть несохранённые изменения"
+                      className="equipment-dirty-mark"
+                    >
+                      *
+                    </strong>
+                  ) : null}
+                </span>
                 <small>
-                  {isInReport
+                  {isDirty
+                    ? "есть несохранённые правки"
+                    : isInReport
                     ? submission === undefined
                       ? "внесено в отчёт"
                       : `в отчёте, на сервере ${formatDateTime(submission.receivedAt)}`
@@ -1384,7 +1587,7 @@ function DispatcherEquipmentFormBody({
           disabled={isSubmitting}
           onClick={handleAddEquipmentEntry}
         >
-          Внести данные
+          {addEquipmentEntryButtonLabel}
         </button>
         <button
           className="primary-button"
@@ -2067,7 +2270,16 @@ function buildInitialEquipmentFormPayload(
       equipmentOptions,
       storage,
     }) ?? "";
-  const savedDraft =
+  const reportPayload =
+    equipment.length === 0
+      ? {}
+      : readEquipmentReportEntryPayload({
+          businessAccountId,
+          equipment,
+          form,
+          storage,
+        });
+  const draftPayload =
     equipment.length === 0
       ? {}
       : readEquipmentDraftPayload({
@@ -2076,6 +2288,16 @@ function buildInitialEquipmentFormPayload(
           form,
           storage,
         });
+  const savedDraft =
+    hasEquipmentReportData(reportPayload) &&
+    (!hasEquipmentReportData(draftPayload) ||
+      !isEquipmentReportEntryDirty({
+        currentPayload: draftPayload,
+        form,
+        reportPayload,
+      }))
+      ? reportPayload
+      : draftPayload;
 
   return buildEquipmentFormPayload({
     equipment,

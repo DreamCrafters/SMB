@@ -79,6 +79,25 @@ export function readEquipmentDraftPayload({
     : cleanEquipmentDraftPayload(draft, form);
 }
 
+export function readEquipmentReportEntryPayload({
+  businessAccountId,
+  equipment,
+  form,
+  storage,
+}: {
+  businessAccountId: string;
+  equipment: string;
+  form: DispatcherFormDefinition;
+  storage: DispatcherEquipmentDraftStorage | undefined;
+}) {
+  const payload = readEquipmentDraftState(storage, businessAccountId)
+    .reportPayloadsByEquipment[equipment];
+
+  return payload === undefined
+    ? {}
+    : cleanEquipmentDraftPayload(payload, form);
+}
+
 export function writeEquipmentDraftPayload({
   businessAccountId,
   equipment,
@@ -248,6 +267,38 @@ export function hasEquipmentReportData(payload: DispatcherSubmissionPayload) {
     payload.downtimeHours,
     payload.note,
   ].some((value) => value !== undefined && value.trim().length > 0);
+}
+
+export function isEquipmentReportEntryDirty({
+  currentPayload,
+  form,
+  reportPayload,
+}: {
+  currentPayload: DispatcherSubmissionPayload;
+  form: DispatcherFormDefinition;
+  reportPayload: DispatcherSubmissionPayload;
+}) {
+  if (!hasEquipmentReportData(reportPayload)) {
+    return false;
+  }
+
+  const currentCleanPayload = cleanEquipmentDraftPayload(currentPayload, form);
+  const reportCleanPayload = cleanEquipmentDraftPayload(reportPayload, form);
+
+  for (const field of form.fields) {
+    if (field.name === "equipment" || dateFieldNames.has(field.name)) {
+      continue;
+    }
+
+    if (
+      (currentCleanPayload[field.name] ?? "") !==
+      (reportCleanPayload[field.name] ?? "")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function formatReportDateForPayload(value: string) {

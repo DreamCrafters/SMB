@@ -611,6 +611,12 @@ p {
   background: var(--amber-soft);
 }
 
+.equipment-status-button.is-dirty {
+  border-color: var(--brick);
+  border-left-color: var(--brick);
+  background: var(--brick-soft);
+}
+
 .equipment-status-button.is-active {
   border-color: var(--nav);
   outline: 2px solid var(--blue-gray-soft);
@@ -634,6 +640,17 @@ p {
 
 .equipment-status-button.is-in-report small {
   color: var(--amber);
+}
+
+.equipment-status-button.is-dirty small,
+.equipment-dirty-mark {
+  color: var(--brick);
+}
+
+.equipment-dirty-mark {
+  padding-left: 3px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .month-input-control {
