@@ -2,6 +2,7 @@ import { readServerConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
 import { createDatabasePool } from "./db/pool.js";
 import { createApiServer } from "./http/app.js";
+import { createAdminDatabaseRepository } from "./repositories/adminDatabaseRepository.js";
 import { createDispatcherSubmissionsRepository } from "./repositories/dispatcherSubmissionsRepository.js";
 
 const config = readServerConfig();
@@ -13,6 +14,7 @@ if (config.runMigrationsOnStart) {
 
 const server = createApiServer({
   config,
+  adminDatabase: createAdminDatabaseRepository(pool),
   dispatcherSubmissions: createDispatcherSubmissionsRepository(pool),
 });
 

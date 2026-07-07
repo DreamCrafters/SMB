@@ -23,6 +23,10 @@ import type {
   DispatcherFeedFilters,
   DispatcherSubmissionsRepository,
 } from "../repositories/dispatcherSubmissionsRepository.js";
+import type {
+  AdminDatabaseRepository,
+  AdminDatabaseCellValue,
+} from "../repositories/adminDatabaseRepository.js";
 import {
   createGoogleSheetsReferenceDataSource,
   type DispatcherReferenceDataSource,
@@ -39,6 +43,7 @@ import {
 type AppDependencies = {
   config: ServerConfig;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
+  adminDatabase?: AdminDatabaseRepository;
   referenceDataSource?: DispatcherReferenceDataSource;
   emailNotificationService?: EmailNotificationService;
   maxNotificationService?: MaxNotificationService;
@@ -53,6 +58,7 @@ const devSessionHeader = "x-smb-dev-session";
 export function createApiServer({
   config,
   dispatcherSubmissions,
+  adminDatabase,
   referenceDataSource = createGoogleSheetsReferenceDataSource(
     config.googleSheetsReference,
   ),
@@ -87,6 +93,20 @@ export function createApiServer({
 
       if (url.pathname === "/api/dev/access-session") {
         await handleDevAccessSession(req, res, devSessions);
+        return;
+      }
+
+      if (
+        url.pathname === "/api/admin/database" ||
+        url.pathname.startsWith("/api/admin/database/tables/")
+      ) {
+        await handleAdminDatabaseRequest({
+          req,
+          res,
+          url,
+          devSessions,
+          adminDatabase,
+        });
         return;
       }
 
@@ -307,6 +327,298 @@ type EquipmentReportValidationResult =
       ok: false;
       errors: string[];
     };
+
+async function handleAdminDatabaseRequest({
+  req,
+  res,
+  url,
+  devSessions,
+  adminDatabase,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  devSessions: Map<string, DevAccessSession>;
+  adminDatabase: AdminDatabaseRepository | undefined;
+}) {
+  if (!hasAdminDatabaseAccess(req, devSessions)) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Admin database access is required.",
+      },
+    });
+    return;
+  }
+
+  if (adminDatabase === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Admin database repository is not configured.",
+      },
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/admin/database") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Only GET is supported for admin database tables.",
+        },
+      });
+      return;
+    }
+
+    try {
+      sendJson(res, 200, {
+        tables: await adminDatabase.listTables(),
+      });
+    } catch (error) {
+      sendAdminDatabaseError(res, error);
+    }
+
+    return;
+  }
+
+  const route = readAdminDatabaseRowsRoute(url);
+
+  if (route === undefined) {
+    sendJson(res, 404, {
+      error: {
+        code: "not_found",
+        message: "Admin database endpoint not found.",
+      },
+    });
+    return;
+  }
+
+  try {
+    if (req.method === "GET") {
+      const pagination = readAdminDatabasePagination(url);
+
+      if (!pagination.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: pagination.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      sendJson(
+        res,
+        200,
+        await adminDatabase.listRows(route.tableName, pagination.value),
+      );
+      return;
+    }
+
+    if (req.method === "PATCH") {
+      const payload = await readJsonBody(req);
+      const validation = readAdminDatabaseMutationPayload(payload);
+
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      await adminDatabase.updateRow({
+        tableName: route.tableName,
+        primaryKey: validation.value.primaryKey,
+        values: validation.value.values,
+      });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "DELETE") {
+      const payload = await readJsonBody(req);
+      const validation = readAdminDatabaseMutationPayload(payload);
+
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      await adminDatabase.deleteRow({
+        tableName: route.tableName,
+        primaryKey: validation.value.primaryKey,
+      });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only GET, PATCH and DELETE are supported for admin database rows.",
+      },
+    });
+  } catch (error) {
+    sendAdminDatabaseError(res, error);
+  }
+}
+
+function hasAdminDatabaseAccess(
+  req: IncomingMessage,
+  devSessions: Map<string, DevAccessSession>,
+) {
+  const sessionId = readDevSessionId(req);
+  const session = sessionId === undefined ? undefined : devSessions.get(sessionId);
+
+  if (session === undefined) {
+    return false;
+  }
+
+  return buildDevProfile(
+    session.accountType,
+    session.createdAt,
+  ).activeAccess.capabilities.includes("platform.manage_analytics_database");
+}
+
+function readAdminDatabaseRowsRoute(url: URL) {
+  const match = /^\/api\/admin\/database\/tables\/([^/]+)\/rows$/.exec(
+    url.pathname,
+  );
+
+  if (match === null) {
+    return undefined;
+  }
+
+  return {
+    tableName: decodeURIComponent(match[1]),
+  };
+}
+
+function readAdminDatabasePagination(url: URL):
+  | {
+      ok: true;
+      value: {
+        limit?: number;
+        offset?: number;
+      };
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  const errors: string[] = [];
+  const limit = readOptionalQueryParam(url, "limit");
+  const offset = readOptionalQueryParam(url, "offset");
+  const value: {
+    limit?: number;
+    offset?: number;
+  } = {};
+
+  if (limit !== undefined) {
+    const parsedLimit = Number(limit);
+
+    if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+      value.limit = parsedLimit;
+    } else {
+      errors.push("limit must be a positive integer.");
+    }
+  }
+
+  if (offset !== undefined) {
+    const parsedOffset = Number(offset);
+
+    if (Number.isInteger(parsedOffset) && parsedOffset >= 0) {
+      value.offset = parsedOffset;
+    } else {
+      errors.push("offset must be a non-negative integer.");
+    }
+  }
+
+  return errors.length === 0 ? { ok: true, value } : { ok: false, errors };
+}
+
+function readAdminDatabaseMutationPayload(input: unknown):
+  | {
+      ok: true;
+      value: {
+        primaryKey: Record<string, AdminDatabaseCellValue>;
+        values: Record<string, AdminDatabaseCellValue>;
+      };
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  const errors: string[] = [];
+
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  const primaryKey = readAdminDatabaseValueMap(input.primaryKey, "primaryKey", errors);
+  const values = readAdminDatabaseValueMap(input.values, "values", errors);
+
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      errors,
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      primaryKey,
+      values,
+    },
+  };
+}
+
+function readAdminDatabaseValueMap(
+  value: unknown,
+  fieldName: string,
+  errors: string[],
+) {
+  if (!isRecord(value) || Array.isArray(value)) {
+    errors.push(`${fieldName} must be an object.`);
+    return {};
+  }
+
+  const entries: [string, AdminDatabaseCellValue][] = [];
+
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (rawValue === null || typeof rawValue === "string") {
+      entries.push([key, rawValue]);
+      continue;
+    }
+
+    errors.push(`${fieldName}.${key} must be a string or null.`);
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function sendAdminDatabaseError(res: ServerResponse, error: unknown) {
+  sendJson(res, 400, {
+    error: {
+      code: "invalid_response",
+      message: error instanceof Error ? error.message : "Admin database request failed.",
+    },
+  });
+}
 
 function validateDispatcherEquipmentReportRequest(
   input: unknown,
@@ -609,7 +921,7 @@ function applyCors(
     res.setHeader("vary", "Origin");
   }
 
-  res.setHeader("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader(
     "access-control-allow-headers",
     "Accept,Content-Type,X-SMB-Account-Id,X-SMB-Dev-Session",

@@ -2,6 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   AccountCapability,
   AccountType,
+  AdminDatabaseCellValue,
+  AdminDatabaseColumn,
+  AdminDatabaseRow,
+  AdminDatabaseTable,
   DispatcherFormDefinition,
   DispatcherFormField,
   DispatcherFormId,
@@ -62,9 +66,18 @@ import {
 } from "./services/dispatcherEquipmentReports";
 import {
   canRequestDispatcherForms,
+  canManageAnalyticsDatabase,
   canSubmitDispatcherForms,
   hasCapability,
 } from "./services/accessGuards";
+import {
+  deleteAdminDatabaseRow,
+  requestAdminDatabaseRows,
+  requestAdminDatabaseTables,
+  updateAdminDatabaseRow,
+  type AdminDatabaseRowsResult,
+  type AdminDatabaseTablesResult,
+} from "./services/adminDatabase";
 import {
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
@@ -76,6 +89,7 @@ import {
 } from "./services/dispatcherFeedViews";
 
 type OwnerTab = "overview" | "dispatcher";
+type AdminTab = "account_preview" | "database";
 
 type SessionRequestState =
   | {
@@ -103,6 +117,20 @@ type DispatcherFormsLoadState =
       message: string;
     }
   | DispatcherFormsResult;
+
+type AdminDatabaseTablesLoadState =
+  | {
+      status: "loading";
+      message: string;
+    }
+  | AdminDatabaseTablesResult;
+
+type AdminDatabaseRowsLoadState =
+  | {
+      status: "idle" | "loading";
+      message: string;
+    }
+  | AdminDatabaseRowsResult;
 
 type DispatcherFeedFilterState = {
   group: DispatcherFeedGroup;
@@ -154,8 +182,22 @@ const monthDisplayInputTitle = "Введите месяц в формате ММ
 function buildNavigationItems(
   accountType: AccountType,
   ownerTab: OwnerTab,
+  adminTab: AdminTab,
 ): NavigationItem[] {
   const navigationItems = navigationItemsByAccountType[accountType];
+
+  if (accountType === "admin") {
+    return navigationItems
+      .filter((item) => getAdminTabForNavigationItem(item) !== undefined)
+      .map((item) => {
+        const target = getAdminTabForNavigationItem(item);
+
+        return {
+          ...item,
+          state: target === adminTab ? "active" : "pending",
+        };
+      });
+  }
 
   if (accountType !== "business_owner") {
     return navigationItems;
@@ -184,6 +226,17 @@ function getOwnerTabForNavigationItem(item: NavigationItem): OwnerTab | undefine
   }
 }
 
+function getAdminTabForNavigationItem(item: NavigationItem): AdminTab | undefined {
+  switch (item.label) {
+    case "Просмотр аккаунта":
+      return "account_preview";
+    case "БД":
+      return "database";
+    default:
+      return undefined;
+  }
+}
+
 export default function App() {
   const [accessProfile, setAccessProfile] = useState<AccessProfileLoadState>(
     initialAccessProfileState,
@@ -195,6 +248,7 @@ export default function App() {
   const [dataEntryStatus, setDataEntryStatus] = useState("");
   const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
   const [ownerTab, setOwnerTab] = useState<OwnerTab>("overview");
+  const [adminTab, setAdminTab] = useState<AdminTab>("account_preview");
   const [dispatcherFeed, setDispatcherFeed] = useState<DispatcherFeedLoadState>(
     initialDispatcherFeedState,
   );
@@ -509,6 +563,8 @@ export default function App() {
         }
         ownerTab={ownerTab}
         onOwnerTabChange={setOwnerTab}
+        adminTab={adminTab}
+        onAdminTabChange={setAdminTab}
       />
 
       <section className="workspace" aria-label="Рабочая область">
@@ -518,6 +574,7 @@ export default function App() {
           isDataEntrySubmitting={isDataEntrySubmitting}
           onDataEntrySubmit={handleDataEntrySubmit}
           ownerTab={ownerTab}
+          adminTab={adminTab}
           dispatcherFeed={dispatcherFeed}
           dispatcherForms={dispatcherForms}
           dispatcherSubmissionVersion={dispatcherSubmissionVersion}
@@ -612,6 +669,8 @@ function SideRail({
   sessionError,
   ownerTab,
   onOwnerTabChange,
+  adminTab,
+  onAdminTabChange,
 }: {
   profile: ServerUserProfile;
   onClearSession: () => void;
@@ -619,8 +678,14 @@ function SideRail({
   sessionError?: string;
   ownerTab: OwnerTab;
   onOwnerTabChange: (tab: OwnerTab) => void;
+  adminTab: AdminTab;
+  onAdminTabChange: (tab: AdminTab) => void;
 }) {
-  const navigationItems = buildNavigationItems(profile.accountType, ownerTab);
+  const navigationItems = buildNavigationItems(
+    profile.accountType,
+    ownerTab,
+    adminTab,
+  );
 
   return (
     <aside className="side-rail" aria-label="Основная навигация">
@@ -637,17 +702,24 @@ function SideRail({
             profile.accountType === "business_owner"
               ? getOwnerTabForNavigationItem(item)
               : undefined;
+          const adminTarget =
+            profile.accountType === "admin"
+              ? getAdminTabForNavigationItem(item)
+              : undefined;
 
           return (
             <button
               className={`nav-item nav-item-${item.state}`}
               type="button"
               aria-current={item.state === "active" ? "page" : undefined}
-              disabled={ownerTarget === undefined}
+              disabled={ownerTarget === undefined && adminTarget === undefined}
               key={item.label}
               onClick={() => {
                 if (ownerTarget !== undefined) {
                   onOwnerTabChange(ownerTarget);
+                }
+                if (adminTarget !== undefined) {
+                  onAdminTabChange(adminTarget);
                 }
               }}
             >
@@ -682,6 +754,7 @@ function RoleWorkspace({
   isDataEntrySubmitting,
   onDataEntrySubmit,
   ownerTab,
+  adminTab,
   dispatcherFeed,
   dispatcherForms,
   dispatcherSubmissionVersion,
@@ -694,6 +767,7 @@ function RoleWorkspace({
   isDataEntrySubmitting: boolean;
   onDataEntrySubmit: (event: FormEvent<HTMLFormElement>) => void;
   ownerTab: OwnerTab;
+  adminTab: AdminTab;
   dispatcherFeed: DispatcherFeedLoadState;
   dispatcherForms: DispatcherFormsLoadState;
   dispatcherSubmissionVersion: number;
@@ -705,7 +779,17 @@ function RoleWorkspace({
 }) {
   switch (profile.accountType) {
     case "admin":
-      return <AdminWorkspace profile={profile} />;
+      return (
+        <AdminWorkspace
+          profile={profile}
+          activeTab={adminTab}
+          dispatcherFeed={dispatcherFeed}
+          dispatcherForms={dispatcherForms}
+          dispatcherFeedFilters={dispatcherFeedFilters}
+          dispatcherSubmissionVersion={dispatcherSubmissionVersion}
+          onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
+        />
+      );
     case "business_owner":
       return (
         <OwnerWorkspace
@@ -2237,7 +2321,677 @@ function VisitorSummaryTable({ rows }: { rows: ReturnType<typeof buildVisitorVis
   );
 }
 
-function AdminWorkspace({ profile }: { profile: ServerUserProfile }) {
+function AdminWorkspace({
+  profile,
+  activeTab,
+  dispatcherFeed,
+  dispatcherForms,
+  dispatcherFeedFilters,
+  dispatcherSubmissionVersion,
+  onDispatcherFeedFiltersChange,
+}: {
+  profile: ServerUserProfile;
+  activeTab: AdminTab;
+  dispatcherFeed: DispatcherFeedLoadState;
+  dispatcherForms: DispatcherFormsLoadState;
+  dispatcherFeedFilters: DispatcherFeedFilterState;
+  dispatcherSubmissionVersion: number;
+  onDispatcherFeedFiltersChange: (
+    patch: Partial<DispatcherFeedFilterState>,
+  ) => void;
+}) {
+  if (activeTab === "database") {
+    return <AdminDatabaseWorkspace profile={profile} />;
+  }
+
+  return (
+    <AdminAccountPreviewWorkspace
+      profile={profile}
+      dispatcherFeed={dispatcherFeed}
+      dispatcherForms={dispatcherForms}
+      dispatcherFeedFilters={dispatcherFeedFilters}
+      dispatcherSubmissionVersion={dispatcherSubmissionVersion}
+      onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
+    />
+  );
+}
+
+function AdminAccountPreviewWorkspace({
+  profile,
+  dispatcherFeed,
+  dispatcherForms,
+  dispatcherFeedFilters,
+  dispatcherSubmissionVersion,
+  onDispatcherFeedFiltersChange,
+}: {
+  profile: ServerUserProfile;
+  dispatcherFeed: DispatcherFeedLoadState;
+  dispatcherForms: DispatcherFormsLoadState;
+  dispatcherFeedFilters: DispatcherFeedFilterState;
+  dispatcherSubmissionVersion: number;
+  onDispatcherFeedFiltersChange: (
+    patch: Partial<DispatcherFeedFilterState>,
+  ) => void;
+}) {
+  const [previewAccountType, setPreviewAccountType] =
+    useState<AccountType>("business_owner");
+  const [previewStatus, setPreviewStatus] = useState("");
+  const previewProfile = buildAdminPreviewProfile(previewAccountType, profile);
+
+  useEffect(() => {
+    setPreviewStatus("");
+  }, [previewAccountType]);
+
+  function handlePreviewSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPreviewStatus("Режим просмотра аккаунта: отправка отключена.");
+  }
+
+  return (
+    <section className="admin-workspace" aria-label="Просмотр аккаунта">
+      <div className="admin-account-switcher" aria-label="Тип аккаунта">
+        {authOptions.map((option) => (
+          <button
+            className={`admin-account-button ${
+              previewAccountType === option.accountType ? "is-active" : ""
+            }`}
+            type="button"
+            aria-pressed={previewAccountType === option.accountType}
+            key={option.accountType}
+            onClick={() => setPreviewAccountType(option.accountType)}
+          >
+            <span>{option.label}</span>
+            <small>{option.scope}</small>
+          </button>
+        ))}
+      </div>
+
+      <div className="admin-preview-header">
+        <span>{accountTypeLabels[previewProfile.accountType]}</span>
+        <strong>{previewProfile.activeAccess.displayName}</strong>
+      </div>
+
+      <div className="admin-preview-shell">
+        <AdminPreviewRoleWorkspace
+          profile={previewProfile}
+          dispatcherFeed={dispatcherFeed}
+          dispatcherForms={dispatcherForms}
+          dispatcherFeedFilters={dispatcherFeedFilters}
+          dispatcherSubmissionVersion={dispatcherSubmissionVersion}
+          previewStatus={previewStatus}
+          onPreviewSubmit={handlePreviewSubmit}
+          onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
+          onPreviewStatusReset={() => setPreviewStatus("")}
+        />
+      </div>
+    </section>
+  );
+}
+
+function AdminPreviewRoleWorkspace({
+  profile,
+  dispatcherFeed,
+  dispatcherForms,
+  dispatcherFeedFilters,
+  dispatcherSubmissionVersion,
+  previewStatus,
+  onPreviewSubmit,
+  onDispatcherFeedFiltersChange,
+  onPreviewStatusReset,
+}: {
+  profile: ServerUserProfile;
+  dispatcherFeed: DispatcherFeedLoadState;
+  dispatcherForms: DispatcherFormsLoadState;
+  dispatcherFeedFilters: DispatcherFeedFilterState;
+  dispatcherSubmissionVersion: number;
+  previewStatus: string;
+  onPreviewSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDispatcherFeedFiltersChange: (
+    patch: Partial<DispatcherFeedFilterState>,
+  ) => void;
+  onPreviewStatusReset: () => void;
+}) {
+  switch (profile.accountType) {
+    case "admin":
+      return <AdminCapabilitiesTable profile={profile} />;
+    case "business_owner":
+      return (
+        <OwnerWorkspace
+          activeTab="dispatcher"
+          dispatcherFeed={dispatcherFeed}
+          dispatcherForms={dispatcherForms}
+          dispatcherFeedFilters={dispatcherFeedFilters}
+          onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
+        />
+      );
+    case "worker":
+      return <WorkerWorkspace />;
+    case "dispatcher":
+      return (
+        <DataEntryWorkspace
+          ariaLabel="Просмотр диспетчерской отправки"
+          status={previewStatus}
+          isSubmitting={false}
+          onSubmit={onPreviewSubmit}
+          dispatcherForms={dispatcherForms}
+          businessAccountId={getActiveBusinessAccountId(profile)}
+          refreshVersion={dispatcherSubmissionVersion}
+          onResetStatus={onPreviewStatusReset}
+        />
+      );
+  }
+}
+
+function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
+  const canManageDatabase = canManageAnalyticsDatabase(profile);
+  const [tablesState, setTablesState] = useState<AdminDatabaseTablesLoadState>({
+    status: "loading",
+    message: "Запрашиваем таблицы БД.",
+  });
+  const [rowsState, setRowsState] = useState<AdminDatabaseRowsLoadState>({
+    status: "idle",
+    message: "Выберите таблицу.",
+  });
+  const [selectedTableName, setSelectedTableName] = useState("");
+  const [rowsOffset, setRowsOffset] = useState(0);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [editor, setEditor] = useState<
+    | {
+        row: AdminDatabaseRow;
+        values: Record<string, AdminDatabaseCellValue>;
+      }
+    | undefined
+  >(undefined);
+  const [deleteCandidate, setDeleteCandidate] =
+    useState<AdminDatabaseRow | undefined>(undefined);
+  const [mutationStatus, setMutationStatus] = useState("");
+  const [isMutating, setIsMutating] = useState(false);
+
+  useEffect(() => {
+    if (!canManageDatabase) {
+      setTablesState({
+        status: "error",
+        message: "Серверный профиль не разрешает управление БД.",
+        code: "access_denied",
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setTablesState({
+      status: "loading",
+      message: "Запрашиваем таблицы БД.",
+    });
+
+    requestAdminDatabaseTables({
+      signal: controller.signal,
+    }).then((result) => {
+      if (!controller.signal.aborted) {
+        setTablesState(result);
+      }
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [canManageDatabase]);
+
+  useEffect(() => {
+    if (tablesState.status !== "ready") {
+      return;
+    }
+
+    const tables = tablesState.tables;
+
+    if (tables.length === 0) {
+      setSelectedTableName("");
+      return;
+    }
+
+    if (!tables.some((table) => table.name === selectedTableName)) {
+      setSelectedTableName(tables[0].name);
+    }
+  }, [selectedTableName, tablesState]);
+
+  useEffect(() => {
+    setRowsOffset(0);
+  }, [selectedTableName]);
+
+  useEffect(() => {
+    if (!canManageDatabase || selectedTableName.length === 0) {
+      setRowsState({
+        status: "idle",
+        message: "Выберите таблицу.",
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setRowsState({
+      status: "loading",
+      message: "Запрашиваем строки таблицы.",
+    });
+    setEditor(undefined);
+    setDeleteCandidate(undefined);
+
+    requestAdminDatabaseRows(selectedTableName, {
+      limit: 100,
+      offset: rowsOffset,
+      signal: controller.signal,
+    }).then((result) => {
+      if (!controller.signal.aborted) {
+        setRowsState(result);
+      }
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [canManageDatabase, selectedTableName, rowsOffset, refreshVersion]);
+
+  const tables = tablesState.status === "ready" ? tablesState.tables : [];
+  const selectedTable =
+    rowsState.status === "ready" ? rowsState.table : undefined;
+
+  function handleStartEdit(row: AdminDatabaseRow) {
+    setMutationStatus("");
+    setDeleteCandidate(undefined);
+    setEditor({
+      row,
+      values: {
+        ...row.values,
+      },
+    });
+  }
+
+  function handleEditValue(
+    columnName: string,
+    value: AdminDatabaseCellValue,
+  ) {
+    setEditor((current) =>
+      current === undefined
+        ? current
+        : {
+            ...current,
+            values: {
+              ...current.values,
+              [columnName]: value,
+            },
+          },
+    );
+  }
+
+  async function handleSaveEdit() {
+    if (editor === undefined || selectedTableName.length === 0) {
+      return;
+    }
+
+    setIsMutating(true);
+    setMutationStatus("Сохраняем строку БД.");
+
+    const result = await updateAdminDatabaseRow(selectedTableName, {
+      primaryKey: editor.row.primaryKey,
+      values: editor.values,
+    });
+
+    setIsMutating(false);
+
+    if (result.status === "ready") {
+      setMutationStatus("Строка БД обновлена.");
+      setEditor(undefined);
+      setRefreshVersion((version) => version + 1);
+      return;
+    }
+
+    setMutationStatus(result.message);
+  }
+
+  function handleStartDelete(row: AdminDatabaseRow) {
+    setMutationStatus("");
+    setEditor(undefined);
+    setDeleteCandidate(row);
+  }
+
+  async function handleConfirmDelete() {
+    if (deleteCandidate === undefined || selectedTableName.length === 0) {
+      return;
+    }
+
+    setIsMutating(true);
+    setMutationStatus("Удаляем строку БД.");
+
+    const result = await deleteAdminDatabaseRow(selectedTableName, {
+      primaryKey: deleteCandidate.primaryKey,
+    });
+
+    setIsMutating(false);
+
+    if (result.status === "ready") {
+      setMutationStatus("Строка БД удалена.");
+      setDeleteCandidate(undefined);
+      setRefreshVersion((version) => version + 1);
+      return;
+    }
+
+    setMutationStatus(result.message);
+  }
+
+  if (!canManageDatabase) {
+    return (
+      <section className="admin-workspace" aria-label="БД">
+        <p className="dispatcher-status-line">
+          Серверный профиль не разрешает управление БД.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="admin-workspace" aria-label="БД">
+      <div className="admin-db-layout">
+        <aside className="admin-db-sidebar" aria-label="Таблицы БД">
+          {tablesState.status === "loading" ? (
+            <p>{tablesState.message}</p>
+          ) : null}
+          {tablesState.status === "error" ? (
+            <p className="dispatcher-status-line">{tablesState.message}</p>
+          ) : null}
+          {tables.map((table) => (
+            <button
+              className={`admin-db-table-button ${
+                table.name === selectedTableName ? "is-active" : ""
+              }`}
+              type="button"
+              aria-pressed={table.name === selectedTableName}
+              key={table.name}
+              onClick={() => setSelectedTableName(table.name)}
+            >
+              <span>{table.name}</span>
+              <small>{formatTableRowCount(table.rowCount)}</small>
+            </button>
+          ))}
+        </aside>
+
+        <div className="admin-db-main">
+          <AdminDatabaseRowsTable
+            rowsState={rowsState}
+            onEdit={handleStartEdit}
+            onDelete={handleStartDelete}
+            onNextPage={() =>
+              setRowsOffset((current) =>
+                rowsState.status === "ready"
+                  ? current + rowsState.limit
+                  : current,
+              )
+            }
+            onPreviousPage={() =>
+              setRowsOffset((current) =>
+                rowsState.status === "ready"
+                  ? Math.max(current - rowsState.limit, 0)
+                  : current,
+              )
+            }
+          />
+
+          {selectedTable !== undefined && editor !== undefined ? (
+            <AdminDatabaseEditor
+              table={selectedTable}
+              editor={editor}
+              isMutating={isMutating}
+              onCancel={() => setEditor(undefined)}
+              onSave={handleSaveEdit}
+              onValueChange={handleEditValue}
+            />
+          ) : null}
+
+          {deleteCandidate !== undefined ? (
+            <div className="admin-db-danger-panel" role="alert">
+              <span>Удалить строку {formatPrimaryKey(deleteCandidate)}?</span>
+              <div className="admin-db-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={isMutating}
+                  onClick={() => setDeleteCandidate(undefined)}
+                >
+                  Отмена
+                </button>
+                <button
+                  className="secondary-button secondary-button-danger"
+                  type="button"
+                  disabled={isMutating}
+                  onClick={handleConfirmDelete}
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {mutationStatus.length > 0 ? (
+            <p className="dispatcher-status-line">{mutationStatus}</p>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdminDatabaseRowsTable({
+  rowsState,
+  onEdit,
+  onDelete,
+  onNextPage,
+  onPreviousPage,
+}: {
+  rowsState: AdminDatabaseRowsLoadState;
+  onEdit: (row: AdminDatabaseRow) => void;
+  onDelete: (row: AdminDatabaseRow) => void;
+  onNextPage: () => void;
+  onPreviousPage: () => void;
+}) {
+  if (rowsState.status !== "ready") {
+    return <p className="dispatcher-status-line">{rowsState.message}</p>;
+  }
+
+  if (rowsState.rows.length === 0) {
+    return (
+      <div className="admin-db-meta">
+        <span>{rowsState.table.name}</span>
+        <strong>{rowsState.offset === 0 ? "Строк нет" : "Страницы дальше нет"}</strong>
+        {rowsState.offset > 0 ? (
+          <div className="admin-db-pager">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onPreviousPage}
+            >
+              Назад
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const hasPreviousPage = rowsState.offset > 0;
+  const hasNextPage =
+    rowsState.rows.length === rowsState.limit &&
+    (rowsState.table.rowCount === null ||
+      rowsState.offset + rowsState.rows.length < rowsState.table.rowCount);
+
+  return (
+    <>
+      <div className="admin-db-meta">
+        <span>{rowsState.table.name}</span>
+        <strong>{formatRowsPage(rowsState)}</strong>
+        <div className="admin-db-pager">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!hasPreviousPage}
+            onClick={onPreviousPage}
+          >
+            Назад
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!hasNextPage}
+            onClick={onNextPage}
+          >
+            Дальше
+          </button>
+        </div>
+      </div>
+      <div className="admin-db-table-scroll">
+        <table className="admin-db-data-table">
+          <thead>
+            <tr>
+              {rowsState.table.columns.map((column) => (
+                <th scope="col" key={column.name}>
+                  {column.name}
+                </th>
+              ))}
+              <th scope="col">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rowsState.rows.map((row) => (
+              <tr key={formatPrimaryKey(row)}>
+                {rowsState.table.columns.map((column) => (
+                  <td title={row.values[column.name] ?? "NULL"} key={column.name}>
+                    {formatDatabaseCellValue(row.values[column.name])}
+                  </td>
+                ))}
+                <td>
+                  <div className="admin-db-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={rowsState.table.primaryKey.length === 0}
+                      onClick={() => onEdit(row)}
+                    >
+                      Править
+                    </button>
+                    <button
+                      className="secondary-button secondary-button-danger"
+                      type="button"
+                      disabled={rowsState.table.primaryKey.length === 0}
+                      onClick={() => onDelete(row)}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function AdminDatabaseEditor({
+  table,
+  editor,
+  isMutating,
+  onCancel,
+  onSave,
+  onValueChange,
+}: {
+  table: AdminDatabaseTable;
+  editor: {
+    row: AdminDatabaseRow;
+    values: Record<string, AdminDatabaseCellValue>;
+  };
+  isMutating: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+  onValueChange: (columnName: string, value: AdminDatabaseCellValue) => void;
+}) {
+  const editableColumns = table.columns.filter((column) => !column.primaryKey);
+
+  return (
+    <section className="admin-db-editor" aria-label="Редактирование строки">
+      <div className="admin-db-editor-header">
+        <span>Строка {formatPrimaryKey(editor.row)}</span>
+        <div className="admin-db-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={isMutating}
+            onClick={onCancel}
+          >
+            Отмена
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={isMutating || editableColumns.length === 0}
+            onClick={onSave}
+          >
+            Сохранить
+          </button>
+        </div>
+      </div>
+      <div className="admin-db-editor-grid">
+        {editableColumns.map((column) => {
+          const value = editor.values[column.name] ?? "";
+          const isNull = editor.values[column.name] === null;
+
+          return (
+            <label className="admin-db-editor-field" key={column.name}>
+              <span>
+                {column.name}
+                <small>{column.columnType}</small>
+              </span>
+              {isMultilineDatabaseColumn(column) ? (
+                <textarea
+                  rows={4}
+                  disabled={isNull}
+                  value={value}
+                  onChange={(event) =>
+                    onValueChange(column.name, event.currentTarget.value)
+                  }
+                />
+              ) : (
+                <input
+                  type="text"
+                  disabled={isNull}
+                  value={value}
+                  onChange={(event) =>
+                    onValueChange(column.name, event.currentTarget.value)
+                  }
+                />
+              )}
+              {column.nullable ? (
+                <label className="admin-db-null-toggle">
+                  <input
+                    type="checkbox"
+                    checked={isNull}
+                    onChange={(event) =>
+                      onValueChange(
+                        column.name,
+                        event.currentTarget.checked ? null : "",
+                      )
+                    }
+                  />
+                  <span>NULL</span>
+                </label>
+              ) : null}
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function AdminCapabilitiesTable({ profile }: { profile: ServerUserProfile }) {
   return (
     <section className="admin-data-table" aria-label="Серверные права">
       {profile.activeAccess.capabilities.map((capability) => (
@@ -2246,6 +3000,140 @@ function AdminWorkspace({ profile }: { profile: ServerUserProfile }) {
         </div>
       ))}
     </section>
+  );
+}
+
+const adminPreviewCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
+  admin: [
+    "platform.manage_business_accounts",
+    "platform.manage_users",
+    "platform.manage_access",
+    "platform.manage_analytics_database",
+    "platform.manage_integrations",
+    "platform.view_audit",
+    "platform.view_logs",
+    "platform.use_debug_tools",
+    "business.view_all_statistics",
+    "business.view_department_statistics",
+    "business.view_notifications",
+    "business.submit_forms",
+    "business.submit_dispatcher_forms",
+    "business.view_dispatcher_feed",
+    "business.view_own_submissions",
+  ],
+  business_owner: [
+    "business.view_all_statistics",
+    "business.view_department_statistics",
+    "business.view_notifications",
+    "business.view_dispatcher_feed",
+  ],
+  worker: [
+    "business.submit_forms",
+    "business.view_notifications",
+    "business.view_own_submissions",
+  ],
+  dispatcher: ["business.submit_dispatcher_forms"],
+};
+
+function buildAdminPreviewProfile(
+  accountType: AccountType,
+  adminProfile: ServerUserProfile,
+): ServerUserProfile {
+  if (accountType === "admin") {
+    return adminProfile;
+  }
+
+  const businessAccount =
+    adminProfile.businessAccounts[0] ?? {
+      id: "admin-preview-business",
+      displayName: "Admin preview business",
+      status: "active" as const,
+    };
+  const department =
+    adminProfile.departments.find(
+      (item) => item.businessAccountId === businessAccount.id,
+    ) ?? {
+      id: "admin-preview-department",
+      businessAccountId: businessAccount.id,
+      displayName: "Admin preview department",
+      structureMode: adminProfile.organizationStructureMode,
+    };
+  const scope =
+    accountType === "business_owner"
+      ? {
+          kind: "business" as const,
+          businessAccountId: businessAccount.id,
+        }
+      : {
+          kind: "department" as const,
+          businessAccountId: businessAccount.id,
+          departmentId: department.id,
+        };
+
+  return {
+    userId: `admin-preview-${accountType}`,
+    displayName: accountTypeLabels[accountType],
+    accountType,
+    activeAccess: {
+      accountId: `admin-preview-access-${accountType}`,
+      accountType,
+      displayName: `${accountTypeLabels[accountType]} preview`,
+      scope,
+      capabilities: [...adminPreviewCapabilitiesByType[accountType]],
+      issuedAt: adminProfile.activeAccess.issuedAt,
+    },
+    businessAccounts: [businessAccount],
+    departments: accountType === "business_owner" ? [] : [department],
+    organizationStructureMode: adminProfile.organizationStructureMode,
+    receivedAt: adminProfile.receivedAt,
+  };
+}
+
+function formatTableRowCount(rowCount: number | null) {
+  return rowCount === null ? "строк: неизвестно" : `${rowCount} строк`;
+}
+
+function formatRowsPage(rowsState: Extract<AdminDatabaseRowsLoadState, { status: "ready" }>) {
+  const firstRowNumber = rowsState.offset + 1;
+  const lastRowNumber = rowsState.offset + rowsState.rows.length;
+  const total = rowsState.table.rowCount ?? "неизвестно";
+
+  return `Показано ${firstRowNumber}-${lastRowNumber} из ${total}`;
+}
+
+function formatPrimaryKey(row: AdminDatabaseRow) {
+  const entries = Object.entries(row.primaryKey);
+
+  if (entries.length === 0) {
+    return "без primary key";
+  }
+
+  return entries
+    .map(([name, value]) => `${name}=${value ?? "NULL"}`)
+    .join(", ");
+}
+
+function formatDatabaseCellValue(value: AdminDatabaseCellValue | undefined) {
+  if (value === null || value === undefined) {
+    return "NULL";
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  return normalized.length > 140
+    ? `${normalized.slice(0, 137)}...`
+    : normalized;
+}
+
+function isMultilineDatabaseColumn(column: AdminDatabaseColumn) {
+  return (
+    column.dataType === "json" ||
+    column.dataType.endsWith("text") ||
+    column.columnType.length > 80
   );
 }
 

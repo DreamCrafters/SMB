@@ -4,6 +4,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import type { ServerConfig } from "../config/env.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
+import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
 import type {
   DispatcherReferenceDataSource,
@@ -82,6 +83,62 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
       total: 0,
       byForm: [],
     };
+  },
+};
+
+const adminDatabaseTable = {
+  name: "dispatcher_submissions",
+  rowCount: 1,
+  primaryKey: ["id"],
+  columns: [
+    {
+      name: "id",
+      dataType: "varchar",
+      columnType: "varchar(64)",
+      nullable: false,
+      primaryKey: true,
+      defaultValue: null,
+      extra: "",
+    },
+    {
+      name: "summary",
+      dataType: "text",
+      columnType: "text",
+      nullable: true,
+      primaryKey: false,
+      defaultValue: null,
+      extra: "",
+    },
+  ],
+};
+
+const adminDatabase: AdminDatabaseRepository = {
+  async listTables() {
+    return [adminDatabaseTable];
+  },
+  async listRows() {
+    return {
+      table: adminDatabaseTable,
+      rows: [
+        {
+          primaryKey: {
+            id: "row-id",
+          },
+          values: {
+            id: "row-id",
+            summary: "saved",
+          },
+        },
+      ],
+      limit: 100,
+      offset: 0,
+    };
+  },
+  async updateRow() {
+    // The default test repository does not need mutation assertions.
+  },
+  async deleteRow() {
+    // The default test repository does not need mutation assertions.
   },
 };
 
@@ -261,6 +318,128 @@ test("remote API creates and reads dev access sessions by header", async () => {
     assert.deepEqual(readProfileCapabilities(profilePayload), [
       "business.submit_dispatcher_forms",
     ]);
+  });
+});
+
+test("admin database API rejects non-admin dev sessions", async () => {
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "dispatcher");
+    const response = await fetch(`${baseUrl}/api/admin/database`, {
+      headers: {
+        "X-SMB-Dev-Session": sessionId,
+      },
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 403);
+    assert.equal(
+      isRecord(payload) && isRecord(payload.error)
+        ? payload.error.code
+        : undefined,
+      "access_denied",
+    );
+  });
+});
+
+test("admin database API lists tables for admin dev sessions", async () => {
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/database`, {
+      headers: {
+        "X-SMB-Dev-Session": sessionId,
+      },
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      isRecord(payload) &&
+        Array.isArray(payload.tables) &&
+        isRecord(payload.tables[0])
+        ? payload.tables[0].name
+        : undefined,
+      "dispatcher_submissions",
+    );
+  });
+});
+
+test("admin database API forwards update and delete mutations for admin sessions", async () => {
+  let updatePayload:
+    | Parameters<AdminDatabaseRepository["updateRow"]>[0]
+    | undefined;
+  let deletePayload:
+    | Parameters<AdminDatabaseRepository["deleteRow"]>[0]
+    | undefined;
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async updateRow(value) {
+      updatePayload = value;
+    },
+    async deleteRow(value) {
+      deletePayload = value;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
+      };
+      const updateResponse = await fetch(
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            primaryKey: {
+              id: "row-id",
+            },
+            values: {
+              summary: "updated",
+            },
+          }),
+        },
+      );
+      const deleteResponse = await fetch(
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`,
+        {
+          method: "DELETE",
+          headers,
+          body: JSON.stringify({
+            primaryKey: {
+              id: "row-id",
+            },
+            values: {},
+          }),
+        },
+      );
+
+      assert.equal(updateResponse.status, 200);
+      assert.equal(deleteResponse.status, 200);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+  );
+
+  assert.deepEqual(updatePayload, {
+    tableName: "dispatcher_submissions",
+    primaryKey: {
+      id: "row-id",
+    },
+    values: {
+      summary: "updated",
+    },
+  });
+  assert.deepEqual(deletePayload, {
+    tableName: "dispatcher_submissions",
+    primaryKey: {
+      id: "row-id",
+    },
   });
 });
 
@@ -892,10 +1071,12 @@ async function withApiServer(
   referenceDataSource: DispatcherReferenceDataSource = emptyReferenceDataSource,
   emailNotificationService?: EmailNotificationService,
   maxNotificationService?: MaxNotificationService,
+  adminDatabaseRepository: AdminDatabaseRepository = adminDatabase,
 ) {
   const server = createApiServer({
     config,
     dispatcherSubmissions: repository,
+    adminDatabase: adminDatabaseRepository,
     referenceDataSource,
     emailNotificationService,
     maxNotificationService,
@@ -953,6 +1134,26 @@ function buildRepositoryWithHistory(
       };
     },
   };
+}
+
+async function createDevSession(
+  baseUrl: string,
+  accountType: "admin" | "business_owner" | "worker" | "dispatcher",
+) {
+  const response = await fetch(`${baseUrl}/api/dev/access-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ accountType }),
+  });
+  const payload = await response.json();
+
+  if (!isRecord(payload) || typeof payload.sessionId !== "string") {
+    throw new Error("Expected dev access session id.");
+  }
+
+  return payload.sessionId;
 }
 
 function readProfileAccountType(payload: unknown) {

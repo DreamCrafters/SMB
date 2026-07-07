@@ -54,7 +54,7 @@ export const authOptions: AuthOption[] = [
   {
     accountType: "admin",
     label: "Администратор",
-    description: "Видит серверные права текущего профиля доступа.",
+    description: "Просматривает рабочие кабинеты и серверные таблицы БД.",
     scope: "platform access",
   },
 ];
@@ -62,9 +62,14 @@ export const authOptions: AuthOption[] = [
 export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]> = {
   admin: [
     {
-      label: "Права",
-      description: "Серверный профиль доступа",
+      label: "Просмотр аккаунта",
+      description: "Режимы рабочих кабинетов",
       state: "active",
+    },
+    {
+      label: "БД",
+      description: "Таблицы и строки сервера",
+      state: "pending",
     },
   ],
   business_owner: [

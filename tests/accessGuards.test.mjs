@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canManageAnalyticsDatabase,
   canRequestDispatcherForms,
   canSubmitDispatcherForms,
 } from "../.test-build/src/services/accessGuards.js";
@@ -52,4 +53,16 @@ test("owner feed capability can request dispatcher forms for labels only", () =>
 
   assert.equal(canRequestDispatcherForms(profile), true);
   assert.equal(canSubmitDispatcherForms(profile), false);
+});
+
+test("only analytics database capability grants admin database access", () => {
+  const adminProfile = buildProfile("admin", [
+    "platform.manage_analytics_database",
+  ]);
+  const ownerProfile = buildProfile("business_owner", [
+    "business.view_dispatcher_feed",
+  ]);
+
+  assert.equal(canManageAnalyticsDatabase(adminProfile), true);
+  assert.equal(canManageAnalyticsDatabase(ownerProfile), false);
 });

@@ -17,3 +17,7 @@ export function canRequestDispatcherForms(profile: ServerUserProfile) {
 export function canSubmitDispatcherForms(profile: ServerUserProfile) {
   return hasCapability(profile, "business.submit_dispatcher_forms");
 }
+
+export function canManageAnalyticsDatabase(profile: ServerUserProfile) {
+  return hasCapability(profile, "platform.manage_analytics_database");
+}
