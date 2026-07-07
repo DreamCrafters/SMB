@@ -119,6 +119,8 @@ type DispatcherFormChoiceGroup = {
   forms: DispatcherFormDefinition[];
 };
 
+type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
+
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
   message: "Запрашиваем серверный профиль доступа.",
@@ -830,7 +832,7 @@ function DataEntryWorkspace({
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
-  const formLeaveGuardRef = useRef<(() => boolean) | undefined>(undefined);
+  const formLeaveGuardRef = useRef<FormLeaveGuard | undefined>(undefined);
   const currentForm = forms.find((form) => form.id === selectedFormId);
   const isLocalTestMode =
     dispatcherForms.status === "ready" && dispatcherForms.source === "local_test";
@@ -852,13 +854,20 @@ function DataEntryWorkspace({
   }, [forms, selectedFormId]);
 
   function handleSelectForm(formId: string) {
-    if (formLeaveGuardRef.current !== undefined && !formLeaveGuardRef.current()) {
+    const continueSelection = () => {
+      formLeaveGuardRef.current = undefined;
+      onResetStatus();
+      setSelectedFormId(formId);
+    };
+
+    if (
+      formLeaveGuardRef.current !== undefined &&
+      !formLeaveGuardRef.current(continueSelection)
+    ) {
       return;
     }
 
-    formLeaveGuardRef.current = undefined;
-    onResetStatus();
-    setSelectedFormId(formId);
+    continueSelection();
   }
 
   if (dispatcherForms.status !== "ready" || forms.length === 0) {
@@ -1095,7 +1104,7 @@ function DispatcherEquipmentFormBody({
   isSubmitting: boolean;
   refreshVersion: number;
   status: string;
-  onLeaveGuardChange: (guard: (() => boolean) | undefined) => void;
+  onLeaveGuardChange: (guard: FormLeaveGuard | undefined) => void;
   onResetStatus: () => void;
 }) {
   const equipmentOptions = readEquipmentOptions(form);
@@ -1104,6 +1113,13 @@ function DispatcherEquipmentFormBody({
   );
   const [, setReportDraftVersion] = useState(0);
   const [equipmentLocalStatus, setEquipmentLocalStatus] = useState("");
+  const [equipmentUnsavedPrompt, setEquipmentUnsavedPrompt] = useState<
+    | {
+        equipment: string;
+        onDiscard: () => void;
+      }
+    | undefined
+  >(undefined);
   const [equipmentFeed, setEquipmentFeed] = useState<DispatcherFeedLoadState>({
     status: "loading",
     message: "Запрашиваем отметки оборудования.",
@@ -1233,41 +1249,41 @@ function DispatcherEquipmentFormBody({
     };
   }, [isSelectedEquipmentDirty, onLeaveGuardChange, payload, selectedEquipment]);
 
-  function handleDirtyEquipmentLeave() {
+  function handleDirtyEquipmentLeave(continueAfterDiscard: () => void) {
     if (!isSelectedEquipmentDirty) {
       return true;
     }
 
     const storage = readBrowserEquipmentDraftStorage();
-    const shouldSaveBeforeSwitch =
-      typeof window === "undefined"
-        ? true
-        : window.confirm(
-            [
-              `Есть несохранённые изменения по «${selectedEquipment}».`,
-              "OK — сохранить изменения в дневной отчёт.",
-              "Отмена — откатить поля к последнему внесённому состоянию.",
-            ].join("\n"),
-          );
+    const dirtyEquipment = selectedEquipment;
 
-    if (shouldSaveBeforeSwitch) {
-      return saveEquipmentEntry(payload);
-    }
+    setEquipmentUnsavedPrompt({
+      equipment: dirtyEquipment,
+      onDiscard: () => {
+        rollbackEquipmentEntryDraft(dirtyEquipment, storage);
+        setEquipmentUnsavedPrompt(undefined);
+        continueAfterDiscard();
+      },
+    });
+    onResetStatus();
 
-    rollbackEquipmentEntryDraft(selectedEquipment, storage);
-    return true;
+    return false;
   }
 
   function handleEquipmentChange(equipment: string) {
-    const storage = readBrowserEquipmentDraftStorage();
-
     if (equipment === selectedEquipment) {
       return;
     }
 
-    if (!handleDirtyEquipmentLeave()) {
+    if (!handleDirtyEquipmentLeave(() => applyEquipmentChange(equipment))) {
       return;
     }
+
+    applyEquipmentChange(equipment);
+  }
+
+  function applyEquipmentChange(equipment: string) {
+    const storage = readBrowserEquipmentDraftStorage();
 
     if (equipment.length > 0) {
       writeLastEquipmentOption({
@@ -1285,6 +1301,7 @@ function DispatcherEquipmentFormBody({
       });
     });
     setEquipmentLocalStatus("");
+    setEquipmentUnsavedPrompt(undefined);
     onResetStatus();
   }
 
@@ -1470,7 +1487,9 @@ function DispatcherEquipmentFormBody({
   }
 
   function handleAddEquipmentEntry() {
-    saveEquipmentEntry(payload);
+    if (saveEquipmentEntry(payload)) {
+      setEquipmentUnsavedPrompt(undefined);
+    }
   }
 
   return (
@@ -1565,6 +1584,31 @@ function DispatcherEquipmentFormBody({
           </p>
         ) : null}
       </div>
+      {equipmentUnsavedPrompt !== undefined ? (
+        <div
+          aria-live="polite"
+          className="equipment-unsaved-alert"
+          role="status"
+        >
+          <span>{equipmentUnsavedPrompt.equipment}: правки не сохранены.</span>
+          <div className="equipment-unsaved-actions">
+            <button
+              className="secondary-button secondary-button-danger"
+              type="button"
+              onClick={equipmentUnsavedPrompt.onDiscard}
+            >
+              Сбросить
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setEquipmentUnsavedPrompt(undefined)}
+            >
+              Остаться
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="dispatcher-form-fields">
         {readDispatcherFieldsByVisualSize(form.fields).map((field) => (
           <DispatcherControlledFormFieldInput

@@ -780,6 +780,38 @@ p {
   opacity: 0.55;
 }
 
+.secondary-button-danger {
+  border-color: var(--brick);
+  color: var(--brick);
+}
+
+.secondary-button-danger:hover,
+.secondary-button-danger:focus-visible {
+  border-color: var(--brick);
+  outline-color: var(--brick-soft);
+}
+
+.equipment-unsaved-alert {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--brick);
+  border-radius: var(--radius);
+  color: var(--brick);
+  background: var(--brick-soft);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.equipment-unsaved-actions {
+  display: flex;
+  gap: var(--density-1);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .dispatcher-live-column {
   display: grid;
   align-content: start;
