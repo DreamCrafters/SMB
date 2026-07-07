@@ -836,10 +836,19 @@ test("remote API rejects incident close when the incident is not open", async ()
   }, buildRepositoryWithHistory([]));
 });
 
-test("remote API accepts incident close for an open incident", async () => {
+test("remote API accepts incident close for an earlier-day open incident", async () => {
   let createdPayload: Record<string, string> | undefined;
+  const earlierOpenIncidentSubmission = {
+    ...openIncidentSubmission,
+    payload: {
+      ...openIncidentSubmission.payload,
+      datetime: "04.07.2026 10:00",
+    },
+    submittedAt: "2026-07-04T05:00:00.000Z",
+    receivedAt: "2026-07-04T05:00:00.000Z",
+  };
   const repository = buildRepositoryWithHistory(
-    [openIncidentSubmission],
+    [earlierOpenIncidentSubmission],
     (value) => {
       createdPayload = value.draft.payload;
     },
@@ -858,7 +867,7 @@ test("remote API accepts incident close for an open incident", async () => {
           incidentNumber: "INC-2026-1",
           rootCauses: "Root cause",
           preventiveMeasures: "Preventive measures",
-          closureDateTime: "2026-06-18T12:00",
+          closureDateTime: "2026-07-07T12:00",
           approvedBy: "Approver",
         },
       }),

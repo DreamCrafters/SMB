@@ -302,7 +302,7 @@ test("visitor state rules allow exit only for entries from today", () => {
   }
 });
 
-test("incident state rules allow closure only for open incidents", () => {
+test("incident state rules allow closure of earlier-day open incidents only", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",
     formId: "incident_close",
@@ -320,7 +320,7 @@ test("incident state rules allow closure only for open incidents", () => {
   if (result.ok) {
     const opening = buildDispatcherSubmission("incident-id", "incident", {
       incidentNumber: "INC-2026-1",
-      datetime: "18.06.2026 10:30",
+      datetime: "17.06.2026 10:30",
     });
     const closure = buildDispatcherSubmission("incident-close-id", "incident_close", {
       incidentNumber: "INC-2026-1",
