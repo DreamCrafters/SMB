@@ -875,7 +875,11 @@ function SideRail({
           disabled={isSessionLoading}
           onClick={onClearSession}
         >
-          {isSessionLoading ? "Выходим..." : "Выйти из аккаунта"}
+          {isAdminPreviewMode
+            ? "Выйти из превью мода"
+            : isSessionLoading
+              ? "Выходим..."
+              : "Выйти из аккаунта"}
         </button>
         {sessionError === undefined ? null : (
           <small className="rail-session-error">{sessionError}</small>
