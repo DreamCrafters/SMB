@@ -999,12 +999,6 @@ p {
   outline: 2px solid var(--blue-gray-soft);
 }
 
-.admin-account-button.is-active {
-  border-color: var(--nav);
-  border-left-color: var(--nav);
-  background: var(--blue-gray-soft);
-}
-
 .admin-account-button span {
   color: var(--ink);
   font-size: 14px;
@@ -1020,7 +1014,6 @@ p {
   text-transform: uppercase;
 }
 
-.admin-preview-header,
 .admin-db-meta {
   display: flex;
   gap: var(--density-2);
@@ -1032,7 +1025,6 @@ p {
   border-bottom: 1px solid var(--line);
 }
 
-.admin-preview-header span,
 .admin-db-meta span {
   color: var(--muted);
   font-size: 11px;
@@ -1040,92 +1032,10 @@ p {
   text-transform: uppercase;
 }
 
-.admin-preview-header strong,
 .admin-db-meta strong {
   color: var(--ink);
   font-size: 13px;
   font-weight: 900;
-  overflow-wrap: anywhere;
-}
-
-.admin-preview-shell {
-  display: grid;
-  align-content: start;
-  gap: var(--density-3);
-}
-
-.admin-preview-role-nav {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, max-content));
-  gap: var(--density-2);
-  align-items: start;
-}
-
-.admin-preview-role-nav-button {
-  display: grid;
-  gap: 3px;
-  min-width: 170px;
-  min-height: 50px;
-  padding: 9px 11px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  color: var(--text);
-  background: var(--surface-raised);
-  text-align: left;
-}
-
-.admin-preview-role-nav-button:hover,
-.admin-preview-role-nav-button:focus-visible {
-  border-color: var(--blue-gray);
-  outline: 2px solid var(--blue-gray-soft);
-}
-
-.admin-preview-role-nav-button.is-active {
-  border-color: var(--nav);
-  color: #ffffff;
-  background: var(--nav);
-}
-
-.admin-preview-role-nav-button span {
-  font-size: 13px;
-  font-weight: 900;
-  line-height: 1.2;
-}
-
-.admin-preview-role-nav-button small {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.25;
-}
-
-.admin-preview-role-nav-button.is-active small {
-  color: var(--nav-muted);
-}
-
-.admin-preview-shell .data-entry-surface {
-  width: min(100%, 920px);
-}
-
-.admin-data-table {
-  display: grid;
-  width: min(100%, 820px);
-  border-top: 1px solid var(--line);
-}
-
-.admin-data-row {
-  display: grid;
-  min-height: 38px;
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-}
-
-.admin-data-row span {
-  padding: 9px 0;
-  color: var(--text);
-  font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -1528,7 +1438,6 @@ p {
   .dispatcher-form-fields,
   .dispatcher-feed-controls,
   .admin-account-switcher,
-  .admin-preview-role-nav,
   .admin-db-sidebar,
   .admin-db-editor-grid {
     grid-template-columns: 1fr;
@@ -1544,7 +1453,6 @@ p {
 
   .auth-status,
   .form-actions,
-  .admin-preview-header,
   .admin-db-meta,
   .admin-db-editor-header {
     display: grid;

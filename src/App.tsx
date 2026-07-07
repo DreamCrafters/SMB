@@ -90,7 +90,7 @@ import {
 
 type OwnerTab = "overview" | "dispatcher";
 type AdminTab = "account_preview" | "database";
-type AdminPreviewAdminTab = "capabilities" | "database";
+type AdminViewableAccountType = Exclude<AccountType, "admin">;
 
 type DataEntrySubmitStateControls = {
   setStatus: (message: string) => void;
@@ -261,6 +261,16 @@ export default function App() {
   const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
   const [ownerTab, setOwnerTab] = useState<OwnerTab>("overview");
   const [adminTab, setAdminTab] = useState<AdminTab>("account_preview");
+  const [adminViewedAccountType, setAdminViewedAccountType] =
+    useState<AdminViewableAccountType>();
+  const [adminViewedOwnerTab, setAdminViewedOwnerTab] =
+    useState<OwnerTab>("overview");
+  const [adminViewedDataEntryStatus, setAdminViewedDataEntryStatus] =
+    useState("");
+  const [
+    isAdminViewedDataEntrySubmitting,
+    setIsAdminViewedDataEntrySubmitting,
+  ] = useState(false);
   const [dispatcherFeed, setDispatcherFeed] = useState<DispatcherFeedLoadState>(
     initialDispatcherFeedState,
   );
@@ -268,6 +278,8 @@ export default function App() {
     useState<DispatcherFormsLoadState>(initialDispatcherFormsState);
   const [dispatcherSubmissionVersion, setDispatcherSubmissionVersion] = useState(0);
   const [dispatcherFeedFilters, setDispatcherFeedFilters] =
+    useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
+  const [adminViewedDispatcherFeedFilters, setAdminViewedDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
 
   useEffect(() => {
@@ -371,6 +383,16 @@ export default function App() {
     };
   }, [accessProfile]);
 
+  useEffect(() => {
+    if (
+      accessProfile.status !== "ready" ||
+      accessProfile.profile.accountType !== "admin" ||
+      adminTab !== "account_preview"
+    ) {
+      setAdminViewedAccountType(undefined);
+    }
+  }, [accessProfile, adminTab]);
+
   async function handleSelectAccount(accountType: AccountType) {
     setSessionRequest({
       status: "loading",
@@ -418,6 +440,29 @@ export default function App() {
       ...current,
       ...patch,
     }));
+  }
+
+  function handleAdminViewedDispatcherFeedFiltersChange(
+    patch: Partial<DispatcherFeedFilterState>,
+  ) {
+    setAdminViewedDispatcherFeedFilters((current) => ({
+      ...current,
+      ...patch,
+    }));
+  }
+
+  function handleStartAdminAccountView(accountType: AdminViewableAccountType) {
+    setAdminViewedAccountType(accountType);
+    setAdminViewedOwnerTab("overview");
+    setAdminViewedDataEntryStatus("");
+    setIsAdminViewedDataEntrySubmitting(false);
+    setAdminViewedDispatcherFeedFilters(initialDispatcherFeedFilters);
+  }
+
+  function handleStopAdminAccountView() {
+    setAdminViewedAccountType(undefined);
+    setAdminViewedDataEntryStatus("");
+    setIsAdminViewedDataEntrySubmitting(false);
   }
 
   async function handleDataEntrySubmit(
@@ -574,36 +619,92 @@ export default function App() {
   }
 
   const profile = accessProfile.profile;
+  const viewedProfile =
+    profile.accountType === "admin" &&
+    adminTab === "account_preview" &&
+    adminViewedAccountType !== undefined
+      ? buildAdminPreviewProfile(adminViewedAccountType, profile)
+      : undefined;
+  const visibleProfile = viewedProfile ?? profile;
+  const visibleOwnerTab =
+    viewedProfile?.accountType === "business_owner" ? adminViewedOwnerTab : ownerTab;
+  const visibleDispatcherFeedFilters =
+    viewedProfile === undefined
+      ? dispatcherFeedFilters
+      : adminViewedDispatcherFeedFilters;
+  const visibleDataEntryStatus =
+    viewedProfile?.accountType === "dispatcher"
+      ? adminViewedDataEntryStatus
+      : dataEntryStatus;
+  const isVisibleDataEntrySubmitting =
+    viewedProfile?.accountType === "dispatcher"
+      ? isAdminViewedDataEntrySubmitting
+      : isDataEntrySubmitting;
+
+  const handleVisibleDataEntrySubmit: DataEntrySubmitHandler = (
+    event,
+    actingProfile,
+    controls,
+  ) => {
+    if (viewedProfile !== undefined) {
+      handleDataEntrySubmit(event, viewedProfile, {
+        setStatus: setAdminViewedDataEntryStatus,
+        setIsSubmitting: setIsAdminViewedDataEntrySubmitting,
+      });
+      return;
+    }
+
+    handleDataEntrySubmit(event, actingProfile, controls);
+  };
 
   return (
     <main className="ops-shell">
       <SideRail
-        profile={profile}
-        onClearSession={handleClearSession}
-        isSessionLoading={sessionRequest.status === "loading"}
-        sessionError={
-          sessionRequest.status === "error" ? sessionRequest.message : undefined
+        profile={visibleProfile}
+        onClearSession={
+          viewedProfile === undefined ? handleClearSession : handleStopAdminAccountView
         }
-        ownerTab={ownerTab}
-        onOwnerTabChange={setOwnerTab}
+        isSessionLoading={
+          viewedProfile === undefined && sessionRequest.status === "loading"
+        }
+        sessionError={
+          viewedProfile === undefined && sessionRequest.status === "error"
+            ? sessionRequest.message
+            : undefined
+        }
+        ownerTab={visibleOwnerTab}
+        onOwnerTabChange={
+          viewedProfile?.accountType === "business_owner"
+            ? setAdminViewedOwnerTab
+            : setOwnerTab
+        }
         adminTab={adminTab}
         onAdminTabChange={setAdminTab}
       />
 
       <section className="workspace" aria-label="Рабочая область">
         <RoleWorkspace
-          profile={profile}
-          dataEntryStatus={dataEntryStatus}
-          isDataEntrySubmitting={isDataEntrySubmitting}
-          onDataEntrySubmit={handleDataEntrySubmit}
-          ownerTab={ownerTab}
+          profile={visibleProfile}
+          dataEntryStatus={visibleDataEntryStatus}
+          isDataEntrySubmitting={isVisibleDataEntrySubmitting}
+          onDataEntrySubmit={handleVisibleDataEntrySubmit}
+          ownerTab={visibleOwnerTab}
           adminTab={adminTab}
           dispatcherFeed={dispatcherFeed}
           dispatcherForms={dispatcherForms}
           dispatcherSubmissionVersion={dispatcherSubmissionVersion}
-          dispatcherFeedFilters={dispatcherFeedFilters}
-          onDispatcherFeedFiltersChange={handleDispatcherFeedFiltersChange}
-          onDataEntryStatusReset={() => setDataEntryStatus("")}
+          dispatcherFeedFilters={visibleDispatcherFeedFilters}
+          onDispatcherFeedFiltersChange={
+            viewedProfile === undefined
+              ? handleDispatcherFeedFiltersChange
+              : handleAdminViewedDispatcherFeedFiltersChange
+          }
+          onDataEntryStatusReset={
+            viewedProfile?.accountType === "dispatcher"
+              ? () => setAdminViewedDataEntryStatus("")
+              : () => setDataEntryStatus("")
+          }
+          onSelectAdminAccountView={handleStartAdminAccountView}
         />
       </section>
     </main>
@@ -784,6 +885,7 @@ function RoleWorkspace({
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
   onDataEntryStatusReset,
+  onSelectAdminAccountView,
 }: {
   profile: ServerUserProfile;
   dataEntryStatus: string;
@@ -799,6 +901,7 @@ function RoleWorkspace({
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
   onDataEntryStatusReset: () => void;
+  onSelectAdminAccountView: (accountType: AdminViewableAccountType) => void;
 }) {
   switch (profile.accountType) {
     case "admin":
@@ -806,12 +909,7 @@ function RoleWorkspace({
         <AdminWorkspace
           profile={profile}
           activeTab={adminTab}
-          dispatcherFeed={dispatcherFeed}
-          dispatcherForms={dispatcherForms}
-          dispatcherFeedFilters={dispatcherFeedFilters}
-          dispatcherSubmissionVersion={dispatcherSubmissionVersion}
-          onDataEntrySubmit={onDataEntrySubmit}
-          onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
+          onSelectAccountView={onSelectAdminAccountView}
         />
       );
     case "business_owner":
@@ -2348,296 +2446,48 @@ function VisitorSummaryTable({ rows }: { rows: ReturnType<typeof buildVisitorVis
 function AdminWorkspace({
   profile,
   activeTab,
-  dispatcherFeed,
-  dispatcherForms,
-  dispatcherFeedFilters,
-  dispatcherSubmissionVersion,
-  onDataEntrySubmit,
-  onDispatcherFeedFiltersChange,
+  onSelectAccountView,
 }: {
   profile: ServerUserProfile;
   activeTab: AdminTab;
-  dispatcherFeed: DispatcherFeedLoadState;
-  dispatcherForms: DispatcherFormsLoadState;
-  dispatcherFeedFilters: DispatcherFeedFilterState;
-  dispatcherSubmissionVersion: number;
-  onDataEntrySubmit: DataEntrySubmitHandler;
-  onDispatcherFeedFiltersChange: (
-    patch: Partial<DispatcherFeedFilterState>,
-  ) => void;
+  onSelectAccountView: (accountType: AdminViewableAccountType) => void;
 }) {
   if (activeTab === "database") {
     return <AdminDatabaseWorkspace profile={profile} />;
   }
 
-  return (
-    <AdminAccountPreviewWorkspace
-      profile={profile}
-      dispatcherFeed={dispatcherFeed}
-      dispatcherForms={dispatcherForms}
-      dispatcherFeedFilters={dispatcherFeedFilters}
-      dispatcherSubmissionVersion={dispatcherSubmissionVersion}
-      onDataEntrySubmit={onDataEntrySubmit}
-      onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
-    />
-  );
+  return <AdminAccountPreviewWorkspace onSelectAccountView={onSelectAccountView} />;
 }
 
 function AdminAccountPreviewWorkspace({
-  profile,
-  dispatcherFeed,
-  dispatcherForms,
-  dispatcherFeedFilters,
-  dispatcherSubmissionVersion,
-  onDataEntrySubmit,
-  onDispatcherFeedFiltersChange,
+  onSelectAccountView,
 }: {
-  profile: ServerUserProfile;
-  dispatcherFeed: DispatcherFeedLoadState;
-  dispatcherForms: DispatcherFormsLoadState;
-  dispatcherFeedFilters: DispatcherFeedFilterState;
-  dispatcherSubmissionVersion: number;
-  onDataEntrySubmit: DataEntrySubmitHandler;
-  onDispatcherFeedFiltersChange: (
-    patch: Partial<DispatcherFeedFilterState>,
-  ) => void;
+  onSelectAccountView: (accountType: AdminViewableAccountType) => void;
 }) {
-  const [previewAccountType, setPreviewAccountType] =
-    useState<AccountType>("business_owner");
-  const [previewStatus, setPreviewStatus] = useState("");
-  const [isPreviewSubmitting, setIsPreviewSubmitting] = useState(false);
-  const [previewOwnerTab, setPreviewOwnerTab] = useState<OwnerTab>("overview");
-  const [previewAdminTab, setPreviewAdminTab] =
-    useState<AdminPreviewAdminTab>("capabilities");
-  const [previewDispatcherFeedFilters, setPreviewDispatcherFeedFilters] =
-    useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
-  const previewProfile = buildAdminPreviewProfile(previewAccountType, profile);
-
-  useEffect(() => {
-    setPreviewStatus("");
-    setIsPreviewSubmitting(false);
-    setPreviewOwnerTab("overview");
-    setPreviewAdminTab("capabilities");
-  }, [previewAccountType]);
-
-  function handlePreviewDispatcherFeedFiltersChange(
-    patch: Partial<DispatcherFeedFilterState>,
-  ) {
-    setPreviewDispatcherFeedFilters((current) => ({
-      ...current,
-      ...patch,
-    }));
-  }
-
   return (
     <section className="admin-workspace" aria-label="Просмотр аккаунта">
       <div className="admin-account-switcher" aria-label="Тип аккаунта">
-        {authOptions.map((option) => (
-          <button
-            className={`admin-account-button ${
-              previewAccountType === option.accountType ? "is-active" : ""
-            }`}
-            type="button"
-            aria-pressed={previewAccountType === option.accountType}
-            key={option.accountType}
-            onClick={() => setPreviewAccountType(option.accountType)}
-          >
-            <span>{option.label}</span>
-            <small>{option.scope}</small>
-          </button>
-        ))}
-      </div>
+        {authOptions.map((option) => {
+          const accountType = option.accountType;
 
-      <div className="admin-preview-header">
-        <span>{accountTypeLabels[previewProfile.accountType]}</span>
-        <strong>{previewProfile.activeAccess.displayName}</strong>
-      </div>
+          if (accountType === "admin") {
+            return null;
+          }
 
-      <AdminAccountPreviewNavigation
-        profile={previewProfile}
-        ownerTab={previewOwnerTab}
-        adminTab={previewAdminTab}
-        onOwnerTabChange={setPreviewOwnerTab}
-        onAdminTabChange={setPreviewAdminTab}
-      />
-
-      <div className="admin-preview-shell">
-        <AdminPreviewRoleWorkspace
-          profile={previewProfile}
-          dispatcherFeed={dispatcherFeed}
-          dispatcherForms={dispatcherForms}
-          dispatcherFeedFilters={
-            previewProfile.accountType === "business_owner"
-              ? previewDispatcherFeedFilters
-              : dispatcherFeedFilters
-          }
-          dispatcherSubmissionVersion={dispatcherSubmissionVersion}
-          ownerTab={previewOwnerTab}
-          adminTab={previewAdminTab}
-          previewStatus={previewStatus}
-          isPreviewSubmitting={isPreviewSubmitting}
-          onPreviewSubmit={(event) =>
-            onDataEntrySubmit(event, previewProfile, {
-              setStatus: setPreviewStatus,
-              setIsSubmitting: setIsPreviewSubmitting,
-            })
-          }
-          onDispatcherFeedFiltersChange={
-            previewProfile.accountType === "business_owner"
-              ? handlePreviewDispatcherFeedFiltersChange
-              : onDispatcherFeedFiltersChange
-          }
-          onPreviewStatusReset={() => setPreviewStatus("")}
-        />
+          return (
+            <button
+              className="admin-account-button"
+              type="button"
+              key={option.accountType}
+              onClick={() => onSelectAccountView(accountType)}
+            >
+              <span>{option.label}</span>
+              <small>{option.scope}</small>
+            </button>
+          );
+        })}
       </div>
     </section>
-  );
-}
-
-function AdminPreviewRoleWorkspace({
-  profile,
-  dispatcherFeed,
-  dispatcherForms,
-  dispatcherFeedFilters,
-  dispatcherSubmissionVersion,
-  ownerTab,
-  adminTab,
-  previewStatus,
-  isPreviewSubmitting,
-  onPreviewSubmit,
-  onDispatcherFeedFiltersChange,
-  onPreviewStatusReset,
-}: {
-  profile: ServerUserProfile;
-  dispatcherFeed: DispatcherFeedLoadState;
-  dispatcherForms: DispatcherFormsLoadState;
-  dispatcherFeedFilters: DispatcherFeedFilterState;
-  dispatcherSubmissionVersion: number;
-  ownerTab: OwnerTab;
-  adminTab: AdminPreviewAdminTab;
-  previewStatus: string;
-  isPreviewSubmitting: boolean;
-  onPreviewSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onDispatcherFeedFiltersChange: (
-    patch: Partial<DispatcherFeedFilterState>,
-  ) => void;
-  onPreviewStatusReset: () => void;
-}) {
-  switch (profile.accountType) {
-    case "admin":
-      return adminTab === "database" ? (
-        <AdminDatabaseWorkspace profile={profile} />
-      ) : (
-        <AdminCapabilitiesTable profile={profile} />
-      );
-    case "business_owner":
-      return (
-        <OwnerWorkspace
-          activeTab={ownerTab}
-          dispatcherFeed={dispatcherFeed}
-          dispatcherForms={dispatcherForms}
-          dispatcherFeedFilters={dispatcherFeedFilters}
-          onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
-        />
-      );
-    case "worker":
-      return <WorkerWorkspace />;
-    case "dispatcher":
-      return (
-        <DataEntryWorkspace
-          ariaLabel="Диспетчерская отправка"
-          status={previewStatus}
-          isSubmitting={isPreviewSubmitting}
-          onSubmit={onPreviewSubmit}
-          dispatcherForms={dispatcherForms}
-          businessAccountId={getActiveBusinessAccountId(profile)}
-          refreshVersion={dispatcherSubmissionVersion}
-          onResetStatus={onPreviewStatusReset}
-        />
-      );
-  }
-}
-
-function AdminAccountPreviewNavigation({
-  profile,
-  ownerTab,
-  adminTab,
-  onOwnerTabChange,
-  onAdminTabChange,
-}: {
-  profile: ServerUserProfile;
-  ownerTab: OwnerTab;
-  adminTab: AdminPreviewAdminTab;
-  onOwnerTabChange: (tab: OwnerTab) => void;
-  onAdminTabChange: (tab: AdminPreviewAdminTab) => void;
-}) {
-  if (profile.accountType === "admin") {
-    return (
-      <nav className="admin-preview-role-nav" aria-label="Функции аккаунта">
-        {[
-          {
-            label: "Права",
-            description: "Server capabilities",
-            target: "capabilities" as const,
-          },
-          {
-            label: "БД",
-            description: "Таблицы и строки сервера",
-            target: "database" as const,
-          },
-        ].map((item) => (
-          <button
-            className={`admin-preview-role-nav-button ${
-              adminTab === item.target ? "is-active" : ""
-            }`}
-            type="button"
-            aria-pressed={adminTab === item.target}
-            key={item.target}
-            onClick={() => onAdminTabChange(item.target)}
-          >
-            <span>{item.label}</span>
-            <small>{item.description}</small>
-          </button>
-        ))}
-      </nav>
-    );
-  }
-
-  const navigationItems = buildNavigationItems(
-    profile.accountType,
-    ownerTab,
-    "account_preview",
-  );
-
-  return (
-    <nav className="admin-preview-role-nav" aria-label="Функции аккаунта">
-      {navigationItems.map((item) => {
-        const ownerTarget =
-          profile.accountType === "business_owner"
-            ? getOwnerTabForNavigationItem(item)
-            : undefined;
-
-        return (
-          <button
-            className={`admin-preview-role-nav-button ${
-              item.state === "active" ? "is-active" : ""
-            }`}
-            type="button"
-            aria-pressed={item.state === "active"}
-            disabled={profile.accountType === "business_owner" && ownerTarget === undefined}
-            key={item.label}
-            onClick={() => {
-              if (ownerTarget !== undefined) {
-                onOwnerTabChange(ownerTarget);
-              }
-            }}
-          >
-            <span>{item.label}</span>
-            <small>{item.description}</small>
-          </button>
-        );
-      })}
-    </nav>
   );
 }
 
@@ -3185,36 +3035,10 @@ function AdminDatabaseEditorModal({
   );
 }
 
-function AdminCapabilitiesTable({ profile }: { profile: ServerUserProfile }) {
-  return (
-    <section className="admin-data-table" aria-label="Серверные права">
-      {profile.activeAccess.capabilities.map((capability) => (
-        <div className="admin-data-row" key={capability}>
-          <span>{capability}</span>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-const adminPreviewCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
-  admin: [
-    "platform.manage_business_accounts",
-    "platform.manage_users",
-    "platform.manage_access",
-    "platform.manage_analytics_database",
-    "platform.manage_integrations",
-    "platform.view_audit",
-    "platform.view_logs",
-    "platform.use_debug_tools",
-    "business.view_all_statistics",
-    "business.view_department_statistics",
-    "business.view_notifications",
-    "business.submit_forms",
-    "business.submit_dispatcher_forms",
-    "business.view_dispatcher_feed",
-    "business.view_own_submissions",
-  ],
+const adminPreviewCapabilitiesByType: Record<
+  AdminViewableAccountType,
+  AccountCapability[]
+> = {
   business_owner: [
     "business.view_all_statistics",
     "business.view_department_statistics",
@@ -3230,13 +3054,9 @@ const adminPreviewCapabilitiesByType: Record<AccountType, AccountCapability[]> =
 };
 
 function buildAdminPreviewProfile(
-  accountType: AccountType,
+  accountType: AdminViewableAccountType,
   adminProfile: ServerUserProfile,
 ): ServerUserProfile {
-  if (accountType === "admin") {
-    return adminProfile;
-  }
-
   const businessAccount =
     adminProfile.businessAccounts[0] ?? {
       id: "admin-preview-business",
