@@ -118,6 +118,10 @@ export function buildDispatcherNotificationText(
     return buildIncidentClosureNotificationText(submission);
   }
 
+  if (submission.formId === "equipment") {
+    return buildEquipmentReportNotificationText([submission], "created");
+  }
+
   if (submission.formId === "visitor") {
     return buildVisitorEntryNotificationText(submission);
   }

@@ -108,7 +108,7 @@ test("createMaxNotificationService sends incident openings to user ids", async (
 });
 
 test("createMaxNotificationService adds specialized recipients", async () => {
-  const sentUrls: string[] = [];
+  const sent: { url: string; body: string }[] = [];
   const service = createMaxNotificationService(
     {
       enabled: true,
@@ -118,8 +118,8 @@ test("createMaxNotificationService adds specialized recipients", async () => {
       subjectPrefix: "SMB Monitor",
     },
     {
-      async fetchImpl(input) {
-        sentUrls.push(String(input));
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
 
         return new Response(null, { status: 200 });
       },
@@ -140,11 +140,20 @@ test("createMaxNotificationService adds specialized recipients", async () => {
     },
   );
 
-  assert.deepEqual(sentUrls, [
+  assert.deepEqual(sent.map((item) => item.url), [
     "https://platform-api2.max.ru/messages?user_id=1001",
     "https://platform-api2.max.ru/messages?user_id=2001",
     "https://platform-api2.max.ru/messages?user_id=3001",
   ]);
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Отчет по оборудованию!/,
+  );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Пресс №1: выработка 0 т; простой 8 ч; причина: Простой по мех\. и эл\. части/,
+  );
+  assert.doesNotMatch(JSON.parse(sent[0]?.body ?? "{}").text, /^Форма:/m);
 });
 
 test("createMaxNotificationService rejects when MAX responds with an error", async () => {

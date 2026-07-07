@@ -99,6 +99,12 @@ test("buildDispatcherSubmissionEmail adds mechanical and electrical recipients f
     "electric@example.com",
   ]);
   assert.equal(message?.subject, "[SMB Monitor] Отчет по оборудованию: Пресс №1");
+  assert.match(message?.text ?? "", /Отчет по оборудованию!/);
+  assert.match(
+    message?.text ?? "",
+    /Пресс №1: выработка 0 т; простой 8 ч; причина: Простой по мех, эл\. части/,
+  );
+  assert.doesNotMatch(message?.text ?? "", /^Форма:/m);
 });
 
 test("buildEquipmentReportEmail sends one message with all equipment rows", () => {
