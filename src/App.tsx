@@ -1326,6 +1326,7 @@ function DispatcherEquipmentFormBody({
               <button
                 className={[
                   "equipment-status-button",
+                  isInReport && !isComplete ? "is-in-report" : "",
                   isComplete ? "is-complete" : "",
                   isActive ? "is-active" : "",
                 ]

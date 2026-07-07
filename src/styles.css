@@ -605,6 +605,12 @@ p {
   background: var(--emerald-soft);
 }
 
+.equipment-status-button.is-in-report {
+  border-color: var(--amber);
+  border-left-color: var(--amber);
+  background: var(--amber-soft);
+}
+
 .equipment-status-button.is-active {
   border-color: var(--nav);
   outline: 2px solid var(--blue-gray-soft);
@@ -624,6 +630,10 @@ p {
   font-weight: 800;
   line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+.equipment-status-button.is-in-report small {
+  color: var(--amber);
 }
 
 .month-input-control {
