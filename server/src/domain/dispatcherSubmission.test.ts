@@ -5,6 +5,7 @@ import {
   mapDispatcherSubmissionRow,
   validateDispatcherSubmissionDraft,
 } from "./dispatcherSubmission.js";
+import { applyIncidentStateRules } from "./dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "./dispatcherVisitorState.js";
 
 test("validateDispatcherSubmissionDraft accepts and trims a known form payload", () => {
@@ -301,6 +302,40 @@ test("visitor state rules allow exit only for entries from today", () => {
   }
 });
 
+test("incident state rules allow closure only for open incidents", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "incident_close",
+    payload: {
+      incidentNumber: "INC-2026-1",
+      rootCauses: "Root cause",
+      preventiveMeasures: "Preventive measures",
+      closureDateTime: "2026-06-18T12:00",
+      approvedBy: "Approver",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    const opening = buildDispatcherSubmission("incident-id", "incident", {
+      incidentNumber: "INC-2026-1",
+      datetime: "18.06.2026 10:30",
+    });
+    const closure = buildDispatcherSubmission("incident-close-id", "incident_close", {
+      incidentNumber: "INC-2026-1",
+      closureDateTime: "18.06.2026 11:30",
+    });
+
+    assert.equal(applyIncidentStateRules(result.value, []).ok, false);
+    assert.equal(applyIncidentStateRules(result.value, [opening]).ok, true);
+    assert.equal(
+      applyIncidentStateRules(result.value, [opening, closure]).ok,
+      false,
+    );
+  }
+});
+
 test("validateDispatcherSubmissionDraft rejects legacy gas forms as inactive", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",
@@ -378,7 +413,7 @@ test("mapDispatcherSubmissionRow reads MariaDB JSON payload strings", () => {
 
 function buildDispatcherSubmission(
   id: string,
-  formId: "visitor" | "visitor_exit",
+  formId: "incident" | "incident_close" | "visitor" | "visitor_exit",
   payload: Record<string, string>,
 ) {
   return {

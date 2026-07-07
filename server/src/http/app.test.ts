@@ -141,6 +141,25 @@ const openVisitorSubmission = {
   receivedAt: today.toISOString(),
 };
 
+const openIncidentSubmission = {
+  id: "incident-id",
+  businessAccountId: "business-id",
+  formId: "incident" as const,
+  formTitle: "Открытие инцидента",
+  payload: {
+    incidentNumber: "INC-2026-1",
+    datetime: formatScriptDateTime(today),
+    location: "Цех 1",
+    incidentType: "Травма",
+    criticality: "Высокий",
+  },
+  summary: "INC-2026-1",
+  status: "received" as const,
+  submittedByAccountId: "dispatcher-account",
+  submittedAt: today.toISOString(),
+  receivedAt: today.toISOString(),
+};
+
 test("remote API returns an empty access profile without a dev session", async () => {
   await withApiServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/access/profile`, {
@@ -783,6 +802,78 @@ test("remote API enriches visitor exit from an open visitor entry", async () => 
     );
     assert.equal(createdPayload?.fio, "Visitor Name");
     assert.equal(createdPayload?.organization, "External Org");
+  }, repository);
+});
+
+test("remote API rejects incident close when the incident is not open", async () => {
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        businessAccountId: "business-id",
+        formId: "incident_close",
+        payload: {
+          incidentNumber: "INC-2026-404",
+          rootCauses: "Root cause",
+          preventiveMeasures: "Preventive measures",
+          closureDateTime: "2026-06-18T12:00",
+          approvedBy: "Approver",
+        },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.match(
+      isRecord(payload) && isRecord(payload.error)
+        ? String(payload.error.message)
+        : "",
+      /open incident/,
+    );
+  }, buildRepositoryWithHistory([]));
+});
+
+test("remote API accepts incident close for an open incident", async () => {
+  let createdPayload: Record<string, string> | undefined;
+  const repository = buildRepositoryWithHistory(
+    [openIncidentSubmission],
+    (value) => {
+      createdPayload = value.draft.payload;
+    },
+  );
+
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        businessAccountId: "business-id",
+        formId: "incident_close",
+        payload: {
+          incidentNumber: "INC-2026-1",
+          rootCauses: "Root cause",
+          preventiveMeasures: "Preventive measures",
+          closureDateTime: "2026-06-18T12:00",
+          approvedBy: "Approver",
+        },
+      }),
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(
+      isRecord(payload) && isRecord(payload.submission)
+        ? payload.submission.formId
+        : undefined,
+      "incident_close",
+    );
+    assert.equal(createdPayload?.incidentNumber, "INC-2026-1");
+    assert.equal(createdPayload?.incidentStatus, "Закрыт");
   }, repository);
 });
 

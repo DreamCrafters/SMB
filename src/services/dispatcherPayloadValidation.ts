@@ -11,6 +11,8 @@ export const equipmentDowntimeMaxHoursMessage =
   "Простой за смену не может быть больше 8 часов.";
 export const visitorExitRequiresEntryMessage =
   "Выберите посетителя, который вошёл и ещё не вышел.";
+export const incidentCloseRequiresOpenIncidentMessage =
+  "Выберите незакрытый инцидент.";
 
 export function validateDispatcherPayloadForSubmit(
   form: DispatcherFormDefinition,
@@ -18,6 +20,14 @@ export function validateDispatcherPayloadForSubmit(
 ) {
   if (form.id === "equipment") {
     return validateEquipmentPayloadForSubmit(payload);
+  }
+
+  if (
+    form.id === "incident_close" &&
+    (payload.incidentNumber === undefined ||
+      payload.incidentNumber.trim().length === 0)
+  ) {
+    return incidentCloseRequiresOpenIncidentMessage;
   }
 
   if (

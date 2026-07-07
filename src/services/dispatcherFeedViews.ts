@@ -28,6 +28,15 @@ export type IncidentSummaryRow = {
   approvedBy?: string;
 };
 
+export type OpenIncidentOption = {
+  incidentNumber: string;
+  label: string;
+  openedAt: string;
+  location?: string;
+  incidentType?: string;
+  criticality?: string;
+};
+
 export type VisitorVisitRow = {
   entryId: string;
   fio: string;
@@ -55,6 +64,12 @@ export type OpenVisitorEntry = {
   submission: DispatcherSubmission;
   key: string;
   entryAt: string;
+};
+
+type OpenIncidentEntry = {
+  submission: DispatcherSubmission;
+  incidentNumber: string;
+  openedAt: string;
 };
 
 export function readDispatcherGroupFormIds(
@@ -282,6 +297,38 @@ export function buildOpenVisitorOptions(
     .sort((left, right) => right.entryAt.localeCompare(left.entryAt));
 }
 
+export function buildOpenIncidentOptions(
+  submissions: DispatcherSubmission[],
+  businessAccountId?: string,
+): OpenIncidentOption[] {
+  return buildOpenIncidentEntries(submissions, businessAccountId)
+    .map(({ submission, incidentNumber, openedAt }) => ({
+      incidentNumber,
+      label: formatOpenIncidentLabel(submission.payload, incidentNumber, openedAt),
+      openedAt,
+      location: submission.payload.location,
+      incidentType: submission.payload.incidentType,
+      criticality: submission.payload.criticality,
+    }))
+    .sort((left, right) => right.openedAt.localeCompare(left.openedAt));
+}
+
+export function findOpenIncidentByNumber(
+  submissions: DispatcherSubmission[],
+  incidentNumber: string | undefined,
+  businessAccountId?: string,
+) {
+  const trimmedNumber = incidentNumber?.trim();
+
+  if (trimmedNumber === undefined || trimmedNumber.length === 0) {
+    return undefined;
+  }
+
+  return buildOpenIncidentEntries(submissions, businessAccountId).find(
+    (entry) => entry.incidentNumber === trimmedNumber,
+  );
+}
+
 export function findOpenVisitorByEntryPayload(
   submissions: DispatcherSubmission[],
   payload: DispatcherSubmissionPayload,
@@ -358,6 +405,49 @@ function buildOpenVisitorEntries(
   return openEntries;
 }
 
+function buildOpenIncidentEntries(
+  submissions: DispatcherSubmission[],
+  businessAccountId?: string,
+): OpenIncidentEntry[] {
+  const openEntries: OpenIncidentEntry[] = [];
+
+  for (const submission of submissions
+    .filter(
+      (item) =>
+        businessAccountId === undefined ||
+        item.businessAccountId === businessAccountId,
+    )
+    .filter((item) => item.formId === "incident" || item.formId === "incident_close")
+    .sort(compareSubmissionsAscending)) {
+    if (submission.formId === "incident") {
+      const incidentNumber = readIncidentNumber(submission);
+
+      openEntries.push({
+        submission,
+        incidentNumber,
+        openedAt: submission.payload.datetime ?? submission.receivedAt,
+      });
+      continue;
+    }
+
+    const incidentNumber = submission.payload.incidentNumber?.trim();
+
+    if (incidentNumber === undefined || incidentNumber.length === 0) {
+      continue;
+    }
+
+    const index = openEntries.findIndex(
+      (entry) => entry.incidentNumber === incidentNumber,
+    );
+
+    if (index >= 0) {
+      openEntries.splice(index, 1);
+    }
+  }
+
+  return openEntries;
+}
+
 function formatOpenVisitorLabel(payload: DispatcherSubmissionPayload) {
   const parts = [
     payload.fio,
@@ -366,6 +456,26 @@ function formatOpenVisitorLabel(payload: DispatcherSubmissionPayload) {
   ].filter((value): value is string => value !== undefined && value.length > 0);
 
   return parts.join(" · ");
+}
+
+function formatOpenIncidentLabel(
+  payload: DispatcherSubmissionPayload,
+  incidentNumber: string,
+  openedAt: string,
+) {
+  const parts = [
+    incidentNumber,
+    payload.location,
+    payload.incidentType,
+    payload.criticality,
+    `открыт ${openedAt}`,
+  ].filter((value): value is string => value !== undefined && value.length > 0);
+
+  return parts.join(" · ");
+}
+
+function readIncidentNumber(submission: DispatcherSubmission) {
+  return submission.payload.incidentNumber?.trim() || submission.id;
 }
 
 function buildVisitorKey(payload: DispatcherSubmissionPayload) {
@@ -452,6 +562,14 @@ function compareSubmissionsAscending(
 }
 
 function readVisitorLifecycleRank(submission: DispatcherSubmission) {
+  if (submission.formId === "incident") {
+    return 0;
+  }
+
+  if (submission.formId === "incident_close") {
+    return 1;
+  }
+
   if (submission.formId === "visitor") {
     return 0;
   }

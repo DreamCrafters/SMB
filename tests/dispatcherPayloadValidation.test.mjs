@@ -4,6 +4,7 @@ import {
   equipmentDowntimeMaxHoursMessage,
   equipmentDowntimeReasonRequiresHoursMessage,
   equipmentDowntimeRequiresProductionMessage,
+  incidentCloseRequiresOpenIncidentMessage,
   visitorExitRequiresEntryMessage,
   validateDispatcherPayloadForSubmit,
 } from "../.test-build/src/services/dispatcherPayloadValidation.js";
@@ -26,6 +27,13 @@ const visitorExitForm = {
   id: "visitor_exit",
   title: "Выход посетителя",
   sheetName: "Посетители",
+  fields: [],
+};
+
+const incidentCloseForm = {
+  id: "incident_close",
+  title: "Закрытие инцидента",
+  sheetName: "Инциденты",
   fields: [],
 };
 
@@ -90,6 +98,19 @@ test("visitor exit validation requires an open visitor entry id", () => {
   assert.equal(
     validateDispatcherPayloadForSubmit(visitorExitForm, {
       visitorEntryId: "visitor-entry-id",
+    }),
+    undefined,
+  );
+});
+
+test("incident close validation requires an open incident number", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(incidentCloseForm, {}),
+    incidentCloseRequiresOpenIncidentMessage,
+  );
+  assert.equal(
+    validateDispatcherPayloadForSubmit(incidentCloseForm, {
+      incidentNumber: "INC-2026-1",
     }),
     undefined,
   );

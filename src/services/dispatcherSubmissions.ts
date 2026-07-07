@@ -21,6 +21,7 @@ import {
 } from "./remoteServer.js";
 import { validateDispatcherPayloadForSubmit } from "./dispatcherPayloadValidation.js";
 import {
+  findOpenIncidentByNumber,
   findOpenVisitorByEntryId,
   findOpenVisitorByEntryPayload,
 } from "./dispatcherFeedViews.js";
@@ -1112,6 +1113,20 @@ function applyLocalDispatcherFormScriptRules(
   }
 
   if (form.id === "incident_close") {
+    const openIncident = findOpenIncidentByNumber(
+      existingSubmissions,
+      nextPayload.incidentNumber,
+      businessAccountId,
+    );
+
+    if (openIncident === undefined) {
+      return {
+        status: "error",
+        message: "Выберите незакрытый инцидент.",
+        code: "invalid_response",
+      };
+    }
+
     if (nextPayload.closureDateTime !== undefined) {
       nextPayload.closureDateTime = formatLocalScriptDateTime(
         nextPayload.closureDateTime,

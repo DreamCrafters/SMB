@@ -68,6 +68,7 @@ import {
 import {
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
+  buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   buildVisitorVisitRows,
   readDispatcherGroupFormIds,
@@ -954,6 +955,14 @@ function DataEntryWorkspace({
             refreshVersion={refreshVersion}
             status={status}
           />
+        ) : currentForm.id === "incident_close" ? (
+          <DispatcherIncidentCloseFormBody
+            businessAccountId={businessAccountId}
+            form={currentForm}
+            isSubmitting={isSubmitting}
+            refreshVersion={refreshVersion}
+            status={status}
+          />
         ) : (
           <>
             <div className="dispatcher-form-fields">
@@ -977,6 +986,123 @@ function DataEntryWorkspace({
         )}
       </form>
     </section>
+  );
+}
+
+function DispatcherIncidentCloseFormBody({
+  businessAccountId,
+  form,
+  isSubmitting,
+  refreshVersion,
+  status,
+}: {
+  businessAccountId: string;
+  form: DispatcherFormDefinition;
+  isSubmitting: boolean;
+  refreshVersion: number;
+  status: string;
+}) {
+  const [incidentFeed, setIncidentFeed] = useState<DispatcherFeedLoadState>({
+    status: "loading",
+    message: "Запрашиваем незакрытые инциденты.",
+  });
+  const submissions =
+    incidentFeed.status === "ready" ? incidentFeed.submissions : [];
+  const openIncidents = buildOpenIncidentOptions(submissions, businessAccountId);
+  const isLocalIncidentFeed =
+    incidentFeed.status === "ready" && incidentFeed.source === "local_test";
+  const closeFields = readDispatcherFieldsByVisualSize(
+    form.fields.filter((field) => field.name !== "incidentNumber"),
+  );
+
+  useEffect(() => {
+    let isActive = true;
+    let currentController: AbortController | undefined;
+
+    function loadIncidentFeed() {
+      currentController?.abort();
+      currentController = new AbortController();
+
+      setIncidentFeed((current) =>
+        current.status === "ready"
+          ? current
+          : {
+              status: "loading",
+              message: "Запрашиваем незакрытые инциденты.",
+            },
+      );
+
+      requestDispatcherFeed({
+        limit: 500,
+        localFallback: true,
+        signal: currentController.signal,
+      }).then((result) => {
+        if (isActive) {
+          setIncidentFeed(result);
+        }
+      });
+    }
+
+    loadIncidentFeed();
+    const intervalId = window.setInterval(loadIncidentFeed, 10_000);
+
+    return () => {
+      isActive = false;
+      currentController?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [refreshVersion]);
+
+  return (
+    <>
+      <div className="dispatcher-form-fields">
+        <label>
+          <span>Незакрытый инцидент</span>
+          <select
+            name="incidentNumber"
+            required
+            defaultValue=""
+            disabled={openIncidents.length === 0}
+          >
+            <option value="">
+              {openIncidents.length === 0
+                ? "Нет незакрытых инцидентов"
+                : "Выберите инцидент"}
+            </option>
+            {openIncidents.map((incident) => (
+              <option
+                value={incident.incidentNumber}
+                key={incident.incidentNumber}
+              >
+                {incident.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {closeFields.map((field) => (
+          <DispatcherFormFieldInput field={field} key={field.name} />
+        ))}
+      </div>
+      {incidentFeed.status === "error" ? (
+        <p className="form-status">{incidentFeed.message}</p>
+      ) : null}
+      {isLocalIncidentFeed ? (
+        <p className="form-status form-status-local">
+          Список незакрытых инцидентов читается из локального тестового
+          хранилища.
+        </p>
+      ) : null}
+      <div className="form-actions">
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={isSubmitting || openIncidents.length === 0}
+        >
+          {isSubmitting ? "Отправка..." : "Закрыть инцидент"}
+        </button>
+        {status.length > 0 ? <p className="form-status">{status}</p> : null}
+      </div>
+    </>
   );
 }
 

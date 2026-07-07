@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
+  buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   buildVisitorVisitRows,
 } from "../.test-build/src/services/dispatcherFeedViews.js";
@@ -76,6 +77,47 @@ test("buildIncidentSummaryRows keeps incidents not closed before range start", (
     ["INC-2026-1"],
   );
   assert.equal(rows[0].status, "closed");
+});
+
+test("incident helpers list only unclosed incidents", () => {
+  const submissions = [
+    buildSubmission("inc-1", "incident", {
+      incidentNumber: "INC-2026-1",
+      datetime: "04.07.2026 09:10",
+      location: "Цех 1",
+      incidentType: "Поломка оборудования по мех. части",
+    }),
+    buildSubmission("close-1", "incident_close", {
+      incidentNumber: "INC-2026-1",
+      closureDateTime: "04.07.2026 12:00",
+    }),
+    buildSubmission("inc-2", "incident", {
+      incidentNumber: "INC-2026-2",
+      datetime: "04.07.2026 13:00",
+      criticality: "Высокий",
+    }),
+    buildSubmission("inc-old", "incident", {
+      incidentNumber: "INC-2026-OLD",
+      datetime: "03.07.2026 18:00",
+      location: "Цех 2",
+    }),
+    {
+      ...buildSubmission("inc-other", "incident", {
+        incidentNumber: "INC-2026-OTHER",
+      }),
+      businessAccountId: "other-business",
+    },
+  ];
+
+  const options = buildOpenIncidentOptions(submissions, "business-id");
+
+  assert.deepEqual(
+    options.map((incident) => incident.incidentNumber),
+    ["INC-2026-2", "INC-2026-OLD"],
+  );
+  assert.match(options[0].label, /INC-2026-2/);
+  assert.match(options[0].label, /Высокий/);
+  assert.match(options[1].label, /INC-2026-OLD/);
 });
 
 test("visitor helpers list open visitors and daily visits", () => {

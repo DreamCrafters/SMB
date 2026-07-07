@@ -12,6 +12,7 @@ import {
   type DispatcherSubmission,
   type ValidatedDispatcherSubmissionDraft,
 } from "../domain/dispatcherSubmission.js";
+import { applyIncidentStateRules } from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
   getDispatcherFormDefinition,
@@ -221,8 +222,23 @@ export function createApiServer({
           }
 
           const history = await dispatcherSubmissions.listLatest({ limit: 500 });
-          const visitorStateValidation = applyVisitorStateRules(
+          const incidentStateValidation = applyIncidentStateRules(
             validation.value,
+            history,
+          );
+
+          if (!incidentStateValidation.ok) {
+            sendJson(res, 400, {
+              error: {
+                code: "invalid_response",
+                message: incidentStateValidation.errors.join(" "),
+              },
+            });
+            return;
+          }
+
+          const visitorStateValidation = applyVisitorStateRules(
+            incidentStateValidation.value,
             history,
           );
 

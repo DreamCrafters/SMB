@@ -205,6 +205,78 @@ test("local visitor submissions reject duplicate open entries and unknown exits"
   assert.match(unknownExitResult.message, /Выберите посетителя/);
 });
 
+test("local incident close submissions can close an earlier-day open incident", async () => {
+  const storage = createMemoryStorage();
+  const incidentResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "incident",
+      payload: {
+        datetime: "2026-07-04T10:00",
+        location: "Цех 1",
+        incidentType: "Травма",
+        description: "Описание",
+        criticality: "Высокий",
+        responsible: "Ответственный",
+        immediateActions: "Остановили участок",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+
+  assert.equal(incidentResult.status, "ready");
+
+  const incidentNumber = incidentResult.submission.payload.incidentNumber;
+
+  assert.equal(typeof incidentNumber, "string");
+
+  const closeResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "incident_close",
+      payload: {
+        incidentNumber,
+        rootCauses: "Корневая причина",
+        preventiveMeasures: "Профилактика",
+        closureDateTime: "2026-07-05T12:00",
+        approvedBy: "Начальник",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+  const duplicateCloseResult = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "incident_close",
+      payload: {
+        incidentNumber,
+        rootCauses: "Повтор",
+        preventiveMeasures: "Повтор",
+        closureDateTime: "2026-07-06T13:00",
+        approvedBy: "Начальник",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage,
+    },
+  );
+
+  assert.equal(closeResult.status, "ready");
+  assert.equal(closeResult.submission.payload.incidentNumber, incidentNumber);
+  assert.equal(duplicateCloseResult.status, "error");
+  assert.match(duplicateCloseResult.message, /незакрытый инцидент/);
+});
+
 test("local equipment submissions overwrite the same report date and equipment", async () => {
   const storage = createMemoryStorage();
   const firstSubmitResult = await submitDispatcherSubmission(draft, {
