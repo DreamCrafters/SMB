@@ -625,6 +625,7 @@ export default function App() {
     adminViewedAccountType !== undefined
       ? buildAdminPreviewProfile(adminViewedAccountType, profile)
       : undefined;
+  const isAdminPreviewMode = viewedProfile !== undefined;
   const visibleProfile = viewedProfile ?? profile;
   const visibleOwnerTab =
     viewedProfile?.accountType === "business_owner" ? adminViewedOwnerTab : ownerTab;
@@ -658,7 +659,14 @@ export default function App() {
   };
 
   return (
-    <main className="ops-shell">
+    <main
+      className={`ops-shell ${isAdminPreviewMode ? "ops-shell-admin-preview" : ""}`}
+    >
+      {isAdminPreviewMode ? (
+        <div className="admin-preview-mode-badge" role="status">
+          АДМИН ПРЕВЬЮ МОД
+        </div>
+      ) : null}
       <SideRail
         profile={visibleProfile}
         onClearSession={
