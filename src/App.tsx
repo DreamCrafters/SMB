@@ -662,13 +662,9 @@ export default function App() {
     <main
       className={`ops-shell ${isAdminPreviewMode ? "ops-shell-admin-preview" : ""}`}
     >
-      {isAdminPreviewMode ? (
-        <div className="admin-preview-mode-badge" role="status">
-          АДМИН ПРЕВЬЮ МОД
-        </div>
-      ) : null}
       <SideRail
         profile={visibleProfile}
+        isAdminPreviewMode={isAdminPreviewMode}
         onClearSession={
           viewedProfile === undefined ? handleClearSession : handleStopAdminAccountView
         }
@@ -796,6 +792,7 @@ function AuthScreen({
 
 function SideRail({
   profile,
+  isAdminPreviewMode,
   onClearSession,
   isSessionLoading,
   sessionError,
@@ -805,6 +802,7 @@ function SideRail({
   onAdminTabChange,
 }: {
   profile: ServerUserProfile;
+  isAdminPreviewMode: boolean;
   onClearSession: () => void;
   isSessionLoading: boolean;
   sessionError?: string;
@@ -821,8 +819,15 @@ function SideRail({
 
   return (
     <aside className="side-rail" aria-label="Основная навигация">
-      <div className="brand-mark" aria-hidden="true">
-        SM
+      <div className="rail-brand-row">
+        <div className="brand-mark" aria-hidden="true">
+          SM
+        </div>
+        {isAdminPreviewMode ? (
+          <div className="admin-preview-mode-badge" role="status">
+            АДМИН ПРЕВЬЮ МОД
+          </div>
+        ) : null}
       </div>
       <div>
         <p className="eyebrow">платформа</p>
