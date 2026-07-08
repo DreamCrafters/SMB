@@ -63,6 +63,7 @@ test("equipment draft storage keeps field values but does not keep report dates"
         productionTons: "42",
         note: "Тест",
       },
+      reportDate: "2026-07-03",
       storage,
     }),
     true,
@@ -72,6 +73,14 @@ test("equipment draft storage keeps field values but does not keep report dates"
     businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
+    reportDate: "2026-07-03",
+    storage,
+  });
+  const otherDateDraft = readEquipmentDraftPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    reportDate: "2026-07-04",
     storage,
   });
   const payload = buildEquipmentFormPayload({
@@ -85,6 +94,7 @@ test("equipment draft storage keeps field values but does not keep report dates"
     productionTons: "42",
     note: "Тест",
   });
+  assert.deepEqual(otherDateDraft, {});
   assert.equal(payload.reportDate, "2026-07-04");
   assert.equal(payload.equipment, "Пресс №1");
   assert.equal(payload.productionTons, "42");
@@ -130,6 +140,7 @@ test("equipment report payloads only include explicitly added entries", () => {
       productionTons: "42",
       note: "Автосохраненный черновик",
     },
+    reportDate: "2026-07-06",
     storage,
   });
   writeEquipmentReportEntryPayload({
@@ -141,6 +152,7 @@ test("equipment report payloads only include explicitly added entries", () => {
       productionTons: "7",
       note: "Внесено в отчет",
     },
+    reportDate: "2026-07-06",
     storage,
   });
 
@@ -156,6 +168,16 @@ test("equipment report payloads only include explicitly added entries", () => {
   assert.equal(payloads[0].reportDate, "2026-07-06");
   assert.equal(payloads[0].equipment, "Пресс №2");
   assert.equal(payloads[0].productionTons, "7");
+
+  const otherDatePayloads = buildEquipmentReportPayloads({
+    businessAccountId: "business-id",
+    equipmentOptions: readEquipmentOptions(equipmentForm),
+    form: equipmentForm,
+    reportDate: "2026-07-07",
+    storage,
+  });
+
+  assert.equal(otherDatePayloads.length, 0);
 });
 
 test("equipment report entries stay stable while edited drafts become dirty", () => {
@@ -170,6 +192,7 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
       productionTons: "7",
       note: "Внесено в отчет",
     },
+    reportDate: "2026-07-06",
     storage,
   });
   writeEquipmentDraftPayload({
@@ -181,6 +204,7 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
       productionTons: "8",
       note: "Исправленный черновик",
     },
+    reportDate: "2026-07-06",
     storage,
   });
 
@@ -188,12 +212,14 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
     businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
+    reportDate: "2026-07-06",
     storage,
   });
   const draftPayload = readEquipmentDraftPayload({
     businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
+    reportDate: "2026-07-06",
     storage,
   });
 
@@ -215,6 +241,7 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
     equipment: "Пресс №1",
     form: equipmentForm,
     payload: draftPayload,
+    reportDate: "2026-07-06",
     storage,
   });
 
@@ -226,6 +253,7 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
         businessAccountId: "business-id",
         equipment: "Пресс №1",
         form: equipmentForm,
+        reportDate: "2026-07-06",
         storage,
       }),
     }),

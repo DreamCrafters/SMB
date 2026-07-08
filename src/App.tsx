@@ -1475,6 +1475,10 @@ function DispatcherEquipmentFormBody({
   });
   const selectedEquipment = payload.equipment ?? "";
   const reportDate = payload.reportDate ?? getTodayDateValue();
+  const reportDateField = form.fields.find((field) => field.name === "reportDate");
+  const equipmentFields = readDispatcherFieldsByVisualSize(
+    form.fields.filter((field) => field.name !== "reportDate"),
+  );
   const equipmentSubmissions =
     equipmentFeed.status === "ready" ? equipmentFeed.submissions : [];
   const completionMap = buildEquipmentCompletionMap(
@@ -1511,14 +1515,23 @@ function DispatcherEquipmentFormBody({
           businessAccountId,
           equipment: selectedEquipment,
           form,
+          reportDate,
           storage: readBrowserEquipmentDraftStorage(),
         });
+  const selectedServerSubmission =
+    selectedEquipment.length === 0
+      ? undefined
+      : completionMap.get(selectedEquipment);
+  const selectedSavedPayload = hasEquipmentReportData(selectedReportPayload)
+    ? selectedReportPayload
+    : (selectedServerSubmission?.payload ?? {});
   const isSelectedEquipmentDirty =
     selectedEquipment.length > 0 &&
+    hasEquipmentReportData(selectedSavedPayload) &&
     isEquipmentReportEntryDirty({
       currentPayload: payload,
       form,
-      reportPayload: selectedReportPayload,
+      reportPayload: selectedSavedPayload,
     });
   const addEquipmentEntryButtonLabel = isSelectedEquipmentDirty
     ? "Обновить данные"
@@ -1589,6 +1602,62 @@ function DispatcherEquipmentFormBody({
   }, [refreshVersion]);
 
   useEffect(() => {
+    if (
+      equipmentFeed.status !== "ready" ||
+      selectedEquipment.length === 0 ||
+      selectedServerSubmission === undefined
+    ) {
+      return;
+    }
+
+    const storage = readBrowserEquipmentDraftStorage();
+    const localReportPayload = readEquipmentReportEntryPayload({
+      businessAccountId,
+      equipment: selectedEquipment,
+      form,
+      reportDate,
+      storage,
+    });
+    const draftPayload = readEquipmentDraftPayload({
+      businessAccountId,
+      equipment: selectedEquipment,
+      form,
+      reportDate,
+      storage,
+    });
+
+    if (
+      hasEquipmentReportData(localReportPayload) ||
+      hasEquipmentReportData(draftPayload)
+    ) {
+      return;
+    }
+
+    setPayload((currentPayload) => {
+      if (
+        currentPayload.equipment !== selectedEquipment ||
+        currentPayload.reportDate !== reportDate
+      ) {
+        return currentPayload;
+      }
+
+      return buildEquipmentFormPayload({
+        equipment: selectedEquipment,
+        form,
+        savedDraft: selectedServerSubmission.payload,
+        todayDate: reportDate,
+      });
+    });
+  }, [
+    businessAccountId,
+    equipmentFeed.status,
+    form,
+    reportDate,
+    selectedEquipment,
+    selectedServerSubmission,
+  ]);
+
+  useEffect(() => {
     onLeaveGuardChange(
       isSelectedEquipmentDirty ? handleDirtyEquipmentLeave : undefined,
     );
@@ -1605,11 +1674,18 @@ function DispatcherEquipmentFormBody({
 
     const storage = readBrowserEquipmentDraftStorage();
     const dirtyEquipment = selectedEquipment;
+    const dirtyReportDate = reportDate;
+    const dirtyServerSubmission = selectedServerSubmission;
 
     setEquipmentUnsavedPrompt({
       equipment: dirtyEquipment,
       onDiscard: () => {
-        rollbackEquipmentEntryDraft(dirtyEquipment, storage);
+        rollbackEquipmentEntryDraft({
+          equipment: dirtyEquipment,
+          reportDate: dirtyReportDate,
+          serverSubmission: dirtyServerSubmission,
+          storage,
+        });
         setEquipmentUnsavedPrompt(undefined);
         continueAfterDiscard();
       },
@@ -1645,10 +1721,46 @@ function DispatcherEquipmentFormBody({
     setPayload((currentPayload) => {
       return readEquipmentPayloadForSelection({
         equipment,
-        todayDate: currentPayload.reportDate ?? getTodayDateValue(),
+        reportDate: currentPayload.reportDate ?? getTodayDateValue(),
+        serverSubmission: completionMap.get(equipment),
         storage,
       });
     });
+    setEquipmentLocalStatus("");
+    setEquipmentUnsavedPrompt(undefined);
+    onResetStatus();
+  }
+
+  function handleReportDateChange(value: string) {
+    if (value === reportDate) {
+      return;
+    }
+
+    if (!handleDirtyEquipmentLeave(() => applyReportDateChange(value))) {
+      return;
+    }
+
+    applyReportDateChange(value);
+  }
+
+  function applyReportDateChange(nextReportDate: string) {
+    const storage = readBrowserEquipmentDraftStorage();
+
+    setPayload((currentPayload) => {
+      const equipment = currentPayload.equipment ?? "";
+      const nextCompletionMap = buildEquipmentCompletionMap(
+        equipmentSubmissions,
+        nextReportDate,
+      );
+
+      return readEquipmentPayloadForSelection({
+        equipment,
+        reportDate: nextReportDate,
+        serverSubmission: nextCompletionMap.get(equipment),
+        storage,
+      });
+    });
+    setReportDraftVersion((version) => version + 1);
     setEquipmentLocalStatus("");
     setEquipmentUnsavedPrompt(undefined);
     onResetStatus();
@@ -1686,6 +1798,7 @@ function DispatcherEquipmentFormBody({
           equipment,
           form,
           payload: nextPayload,
+          reportDate: nextPayload.reportDate ?? reportDate,
           storage: readBrowserEquipmentDraftStorage(),
         });
       }
@@ -1698,12 +1811,14 @@ function DispatcherEquipmentFormBody({
 
   function readEquipmentPayloadForSelection({
     equipment,
+    reportDate,
+    serverSubmission,
     storage,
-    todayDate,
   }: {
     equipment: string;
+    reportDate: string;
+    serverSubmission: DispatcherSubmission | undefined;
     storage: DispatcherEquipmentDraftStorage | undefined;
-    todayDate: string;
   }) {
     const reportPayload =
       equipment.length === 0
@@ -1712,6 +1827,7 @@ function DispatcherEquipmentFormBody({
             businessAccountId,
             equipment,
             form,
+            reportDate,
             storage,
           });
     const draftPayload =
@@ -1721,31 +1837,42 @@ function DispatcherEquipmentFormBody({
             businessAccountId,
             equipment,
             form,
+            reportDate,
             storage,
           });
+    const savedReportPayload = hasEquipmentReportData(reportPayload)
+      ? reportPayload
+      : (serverSubmission?.payload ?? {});
     const savedDraft =
-      hasEquipmentReportData(reportPayload) &&
+      hasEquipmentReportData(savedReportPayload) &&
       (!hasEquipmentReportData(draftPayload) ||
         !isEquipmentReportEntryDirty({
           currentPayload: draftPayload,
           form,
-          reportPayload,
+          reportPayload: savedReportPayload,
         }))
-        ? reportPayload
+        ? savedReportPayload
         : draftPayload;
 
     return buildEquipmentFormPayload({
       equipment,
       form,
       savedDraft,
-      todayDate,
+      todayDate: reportDate,
     });
   }
 
-  function rollbackEquipmentEntryDraft(
-    equipment: string,
-    storage: DispatcherEquipmentDraftStorage | undefined,
-  ) {
+  function rollbackEquipmentEntryDraft({
+    equipment,
+    reportDate,
+    serverSubmission,
+    storage,
+  }: {
+    equipment: string;
+    reportDate: string;
+    serverSubmission: DispatcherSubmission | undefined;
+    storage: DispatcherEquipmentDraftStorage | undefined;
+  }) {
     if (equipment.length === 0) {
       return;
     }
@@ -1754,10 +1881,14 @@ function DispatcherEquipmentFormBody({
       businessAccountId,
       equipment,
       form,
+      reportDate,
       storage,
     });
+    const savedPayload = hasEquipmentReportData(reportPayload)
+      ? reportPayload
+      : (serverSubmission?.payload ?? {});
 
-    if (!hasEquipmentReportData(reportPayload)) {
+    if (!hasEquipmentReportData(savedPayload)) {
       return;
     }
 
@@ -1765,7 +1896,8 @@ function DispatcherEquipmentFormBody({
       businessAccountId,
       equipment,
       form,
-      payload: reportPayload,
+      payload: savedPayload,
+      reportDate,
       storage,
     });
     setReportDraftVersion((version) => version + 1);
@@ -1798,20 +1930,27 @@ function DispatcherEquipmentFormBody({
     }
 
     const storage = readBrowserEquipmentDraftStorage();
-    const hadReportEntry = hasEquipmentReportData(
-      readEquipmentReportEntryPayload({
-        businessAccountId,
+    const entryReportDate = entryPayload.reportDate ?? reportDate;
+    const hadReportEntry =
+      hasEquipmentReportData(
+        readEquipmentReportEntryPayload({
+          businessAccountId,
+          equipment,
+          form,
+          reportDate: entryReportDate,
+          storage,
+        }),
+      ) ||
+      buildEquipmentCompletionMap(equipmentSubmissions, entryReportDate).has(
         equipment,
-        form,
-        storage,
-      }),
-    );
+      );
 
     writeEquipmentDraftPayload({
       businessAccountId,
       equipment,
       form,
       payload: entryPayload,
+      reportDate: entryReportDate,
       storage,
     });
     const isWritten = writeEquipmentReportEntryPayload({
@@ -1819,6 +1958,7 @@ function DispatcherEquipmentFormBody({
       equipment,
       form,
       payload: entryPayload,
+      reportDate: entryReportDate,
       storage,
     });
 
@@ -1843,6 +1983,24 @@ function DispatcherEquipmentFormBody({
 
   return (
     <>
+      {reportDateField === undefined ? (
+        <input name="reportDate" type="hidden" value={reportDate} readOnly />
+      ) : (
+        <div className="equipment-report-settings">
+          <label className="equipment-report-date-field">
+            <span>{reportDateField.label}</span>
+            <input
+              name={reportDateField.name}
+              type="date"
+              required={reportDateField.required}
+              value={reportDate}
+              onChange={(event) =>
+                handleReportDateChange(event.currentTarget.value)
+              }
+            />
+          </label>
+        </div>
+      )}
       <div className="equipment-progress-panel" aria-label="Отметки оборудования">
         <div className="equipment-progress-header">
           <strong>
@@ -1863,21 +2021,26 @@ function DispatcherEquipmentFormBody({
               businessAccountId,
               equipment,
               form,
+              reportDate,
               storage: readBrowserEquipmentDraftStorage(),
             });
             const draftPayload = readEquipmentDraftPayload({
               businessAccountId,
               equipment,
               form,
+              reportDate,
               storage: readBrowserEquipmentDraftStorage(),
             });
             const hasDraft = hasEquipmentReportData(draftPayload);
+            const savedPayload = hasEquipmentReportData(reportEntryPayload)
+              ? reportEntryPayload
+              : (submission?.payload ?? {});
             const isDirty =
-              isInReport &&
+              hasEquipmentReportData(savedPayload) &&
               isEquipmentReportEntryDirty({
                 currentPayload: isActive ? payload : draftPayload,
                 form,
-                reportPayload: reportEntryPayload,
+                reportPayload: savedPayload,
               });
 
             return (
@@ -1959,7 +2122,7 @@ function DispatcherEquipmentFormBody({
         </div>
       ) : null}
       <div className="dispatcher-form-fields">
-        {readDispatcherFieldsByVisualSize(form.fields).map((field) => (
+        {equipmentFields.map((field) => (
           <DispatcherControlledFormFieldInput
             field={field}
             key={field.name}
@@ -3410,6 +3573,7 @@ function buildInitialEquipmentFormPayload(
   equipmentOptions: readonly string[],
 ) {
   const storage = readBrowserEquipmentDraftStorage();
+  const reportDate = getTodayDateValue();
   const equipment =
     readLastEquipmentOption({
       businessAccountId,
@@ -3423,6 +3587,7 @@ function buildInitialEquipmentFormPayload(
           businessAccountId,
           equipment,
           form,
+          reportDate,
           storage,
         });
   const draftPayload =
@@ -3432,6 +3597,7 @@ function buildInitialEquipmentFormPayload(
           businessAccountId,
           equipment,
           form,
+          reportDate,
           storage,
         });
   const savedDraft =
@@ -3449,7 +3615,7 @@ function buildInitialEquipmentFormPayload(
     equipment,
     form,
     savedDraft,
-    todayDate: getTodayDateValue(),
+    todayDate: reportDate,
   });
 }
 

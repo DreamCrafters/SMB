@@ -11,8 +11,14 @@ export type DispatcherEquipmentDraftStorage = Pick<
 
 type EquipmentDraftState = {
   lastEquipment?: string;
-  draftsByEquipment: Record<string, DispatcherSubmissionPayload>;
-  reportPayloadsByEquipment: Record<string, DispatcherSubmissionPayload>;
+  draftsByReportDate: Record<
+    string,
+    Record<string, DispatcherSubmissionPayload>
+  >;
+  reportPayloadsByReportDate: Record<
+    string,
+    Record<string, DispatcherSubmissionPayload>
+  >;
 };
 
 const draftStorageKeyPrefix = "smb-monitor.dispatcher-equipment-drafts.v1";
@@ -64,15 +70,20 @@ export function readEquipmentDraftPayload({
   businessAccountId,
   equipment,
   form,
+  reportDate,
   storage,
 }: {
   businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
+  reportDate: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
-  const draft = readEquipmentDraftState(storage, businessAccountId)
-    .draftsByEquipment[equipment];
+  const draft = readDateScopedEquipmentPayload(
+    readEquipmentDraftState(storage, businessAccountId).draftsByReportDate,
+    reportDate,
+    equipment,
+  );
 
   return draft === undefined
     ? {}
@@ -83,15 +94,21 @@ export function readEquipmentReportEntryPayload({
   businessAccountId,
   equipment,
   form,
+  reportDate,
   storage,
 }: {
   businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
+  reportDate: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
-  const payload = readEquipmentDraftState(storage, businessAccountId)
-    .reportPayloadsByEquipment[equipment];
+  const payload = readDateScopedEquipmentPayload(
+    readEquipmentDraftState(storage, businessAccountId)
+      .reportPayloadsByReportDate,
+    reportDate,
+    equipment,
+  );
 
   return payload === undefined
     ? {}
@@ -103,26 +120,34 @@ export function writeEquipmentDraftPayload({
   equipment,
   form,
   payload,
+  reportDate,
   storage,
 }: {
   businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
   payload: DispatcherSubmissionPayload;
+  reportDate: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
-  if (equipment.length === 0) {
+  const reportDateKey = readReportDateStorageKey(reportDate);
+
+  if (equipment.length === 0 || reportDateKey.length === 0) {
     return false;
   }
 
   const state = readEquipmentDraftState(storage, businessAccountId);
+  const currentDrafts = state.draftsByReportDate[reportDateKey] ?? {};
 
   return writeEquipmentDraftState(storage, businessAccountId, {
     ...state,
     lastEquipment: equipment,
-    draftsByEquipment: {
-      ...state.draftsByEquipment,
-      [equipment]: cleanEquipmentDraftPayload(payload, form),
+    draftsByReportDate: {
+      ...state.draftsByReportDate,
+      [reportDateKey]: {
+        ...currentDrafts,
+        [equipment]: cleanEquipmentDraftPayload(payload, form),
+      },
     },
   });
 }
@@ -132,26 +157,35 @@ export function writeEquipmentReportEntryPayload({
   equipment,
   form,
   payload,
+  reportDate,
   storage,
 }: {
   businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
   payload: DispatcherSubmissionPayload;
+  reportDate: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
-  if (equipment.length === 0) {
+  const reportDateKey = readReportDateStorageKey(reportDate);
+
+  if (equipment.length === 0 || reportDateKey.length === 0) {
     return false;
   }
 
   const state = readEquipmentDraftState(storage, businessAccountId);
+  const currentReportPayloads =
+    state.reportPayloadsByReportDate[reportDateKey] ?? {};
 
   return writeEquipmentDraftState(storage, businessAccountId, {
     ...state,
     lastEquipment: equipment,
-    reportPayloadsByEquipment: {
-      ...state.reportPayloadsByEquipment,
-      [equipment]: cleanEquipmentDraftPayload(payload, form),
+    reportPayloadsByReportDate: {
+      ...state.reportPayloadsByReportDate,
+      [reportDateKey]: {
+        ...currentReportPayloads,
+        [equipment]: cleanEquipmentDraftPayload(payload, form),
+      },
     },
   });
 }
@@ -200,10 +234,12 @@ export function buildEquipmentReportPayloads({
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
   const state = readEquipmentDraftState(storage, businessAccountId);
+  const reportPayloadsByEquipment =
+    state.reportPayloadsByReportDate[readReportDateStorageKey(reportDate)] ?? {};
   const payloads: DispatcherSubmissionPayload[] = [];
 
   for (const equipment of equipmentOptions) {
-    const savedDraft = state.reportPayloadsByEquipment[equipment];
+    const savedDraft = reportPayloadsByEquipment[equipment];
 
     if (savedDraft === undefined || !hasEquipmentReportData(savedDraft)) {
       continue;
@@ -364,14 +400,79 @@ function parseEquipmentDraftState(value: unknown): EquipmentDraftState {
     return createEmptyEquipmentDraftState();
   }
 
+  const todayDateKey = readCurrentReportDateStorageKey();
+  const draftsByReportDate = readDraftsByReportDate(value.draftsByReportDate);
+  const reportPayloadsByReportDate = readDraftsByReportDate(
+    value.reportPayloadsByReportDate,
+  );
+  const legacyDraftsByEquipment = readDraftsByEquipment(
+    value.draftsByEquipment,
+  );
+  const legacyReportPayloadsByEquipment = readDraftsByEquipment(
+    value.reportPayloadsByEquipment,
+  );
+
+  if (
+    Object.keys(legacyDraftsByEquipment).length > 0 &&
+    draftsByReportDate[todayDateKey] === undefined
+  ) {
+    draftsByReportDate[todayDateKey] = legacyDraftsByEquipment;
+  }
+
+  if (
+    Object.keys(legacyReportPayloadsByEquipment).length > 0 &&
+    reportPayloadsByReportDate[todayDateKey] === undefined
+  ) {
+    reportPayloadsByReportDate[todayDateKey] =
+      legacyReportPayloadsByEquipment;
+  }
+
   return {
     lastEquipment:
       typeof value.lastEquipment === "string" ? value.lastEquipment : undefined,
-    draftsByEquipment: readDraftsByEquipment(value.draftsByEquipment),
-    reportPayloadsByEquipment: readDraftsByEquipment(
-      value.reportPayloadsByEquipment,
-    ),
+    draftsByReportDate,
+    reportPayloadsByReportDate,
   };
+}
+
+function readDateScopedEquipmentPayload(
+  payloadsByReportDate: Record<
+    string,
+    Record<string, DispatcherSubmissionPayload>
+  >,
+  reportDate: string,
+  equipment: string,
+) {
+  const reportDateKey = readReportDateStorageKey(reportDate);
+
+  if (reportDateKey.length === 0) {
+    return undefined;
+  }
+
+  return payloadsByReportDate[reportDateKey]?.[equipment];
+}
+
+function readDraftsByReportDate(value: unknown) {
+  const draftsByReportDate: Record<
+    string,
+    Record<string, DispatcherSubmissionPayload>
+  > = {};
+
+  if (!isRecord(value)) {
+    return draftsByReportDate;
+  }
+
+  for (const [reportDate, drafts] of Object.entries(value)) {
+    const reportDateKey = readReportDateStorageKey(reportDate);
+
+    if (reportDateKey.length === 0) {
+      continue;
+    }
+
+    draftsByReportDate[reportDateKey] = readDraftsByEquipment(drafts);
+  }
+
+  return draftsByReportDate;
 }
 
 function readDraftsByEquipment(value: unknown) {
@@ -433,14 +534,39 @@ function isSameReportDate(payloadDate: string | undefined, reportDate: string) {
   );
 }
 
+function readReportDateStorageKey(value: string) {
+  const trimmedValue = value.trim();
+  const scriptMatch = /^(\d{2})\.(\d{2})\.(\d{4})/.exec(trimmedValue);
+
+  if (scriptMatch !== null) {
+    return `${scriptMatch[3]}-${scriptMatch[2]}-${scriptMatch[1]}`;
+  }
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmedValue);
+
+  if (isoMatch !== null) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  return trimmedValue;
+}
+
+function readCurrentReportDateStorageKey() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 function buildEquipmentDraftStorageKey(businessAccountId: string) {
   return `${draftStorageKeyPrefix}.${businessAccountId}`;
 }
 
 function createEmptyEquipmentDraftState(): EquipmentDraftState {
   return {
-    draftsByEquipment: {},
-    reportPayloadsByEquipment: {},
+    draftsByReportDate: {},
+    reportPayloadsByReportDate: {},
   };
 }
 

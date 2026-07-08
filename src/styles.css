@@ -602,11 +602,22 @@ p {
   grid-column: 1 / -1;
 }
 
+.equipment-report-settings {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: var(--density-2) 0;
+  border-top: 1px solid var(--line);
+}
+
+.equipment-report-date-field {
+  width: min(260px, 100%);
+}
+
 .equipment-progress-panel {
   display: grid;
   gap: var(--density-2);
   padding: var(--density-3) 0;
-  border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
 
