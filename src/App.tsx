@@ -153,6 +153,8 @@ type DispatcherFeedFilterState = {
 
 type DispatcherFormChoiceGroupId = "equipment" | "incidents" | "visitors";
 
+type EquipmentLocalStatusTone = "info" | "error";
+
 type DispatcherFormChoiceGroup = {
   id: DispatcherFormChoiceGroupId;
   title: string;
@@ -1462,6 +1464,8 @@ function DispatcherEquipmentFormBody({
   );
   const [, setReportDraftVersion] = useState(0);
   const [equipmentLocalStatus, setEquipmentLocalStatus] = useState("");
+  const [equipmentLocalStatusTone, setEquipmentLocalStatusTone] =
+    useState<EquipmentLocalStatusTone>("info");
   const [equipmentUnsavedPrompt, setEquipmentUnsavedPrompt] = useState<
     | {
         equipment: string;
@@ -1536,6 +1540,10 @@ function DispatcherEquipmentFormBody({
   const addEquipmentEntryButtonLabel = isSelectedEquipmentDirty
     ? "Обновить данные"
     : "Внести данные";
+  const visibleEquipmentStatus =
+    status.length > 0 ? status : equipmentLocalStatus;
+  const isVisibleEquipmentStatusError =
+    status.length === 0 && equipmentLocalStatusTone === "error";
 
   useEffect(() => {
     setPayload(
@@ -1543,6 +1551,7 @@ function DispatcherEquipmentFormBody({
     );
     setReportDraftVersion((version) => version + 1);
     setEquipmentLocalStatus("");
+    setEquipmentLocalStatusTone("info");
   }, [businessAccountId, form, equipmentOptions]);
 
   useEffect(() => {
@@ -1727,6 +1736,7 @@ function DispatcherEquipmentFormBody({
       });
     });
     setEquipmentLocalStatus("");
+    setEquipmentLocalStatusTone("info");
     setEquipmentUnsavedPrompt(undefined);
     onResetStatus();
   }
@@ -1762,8 +1772,17 @@ function DispatcherEquipmentFormBody({
     });
     setReportDraftVersion((version) => version + 1);
     setEquipmentLocalStatus("");
+    setEquipmentLocalStatusTone("info");
     setEquipmentUnsavedPrompt(undefined);
     onResetStatus();
+  }
+
+  function showEquipmentLocalStatus(
+    message: string,
+    tone: EquipmentLocalStatusTone = "info",
+  ) {
+    setEquipmentLocalStatus(message);
+    setEquipmentLocalStatusTone(tone);
   }
 
   function handleFieldChange(field: DispatcherFormField, value: string) {
@@ -1907,13 +1926,16 @@ function DispatcherEquipmentFormBody({
     const equipment = entryPayload.equipment ?? "";
 
     if (equipment.length === 0) {
-      setEquipmentLocalStatus("Выберите оборудование.");
+      showEquipmentLocalStatus("Выберите оборудование.", "error");
       onResetStatus();
       return false;
     }
 
     if (!hasEquipmentReportData(entryPayload)) {
-      setEquipmentLocalStatus("Заполните данные по выбранному оборудованию.");
+      showEquipmentLocalStatus(
+        "Заполните данные по выбранному оборудованию.",
+        "error",
+      );
       onResetStatus();
       return false;
     }
@@ -1924,7 +1946,7 @@ function DispatcherEquipmentFormBody({
     );
 
     if (validationMessage !== undefined) {
-      setEquipmentLocalStatus(validationMessage);
+      showEquipmentLocalStatus(validationMessage, "error");
       onResetStatus();
       return false;
     }
@@ -1962,12 +1984,13 @@ function DispatcherEquipmentFormBody({
       storage,
     });
 
-    setEquipmentLocalStatus(
+    showEquipmentLocalStatus(
       isWritten
         ? `Данные для ${equipment} ${
             hadReportEntry ? "обновлены" : "внесены"
           } в дневном отчёте.`
         : "Не удалось сохранить данные в браузере.",
+      isWritten ? "info" : "error",
     );
     setReportDraftVersion((version) => version + 1);
     onResetStatus();
@@ -2157,9 +2180,17 @@ function DispatcherEquipmentFormBody({
         >
           {isSubmitting ? "Отправка..." : "Отправить"}
         </button>
-        {status.length > 0 || equipmentLocalStatus.length > 0 ? (
-          <p className="form-status">
-            {status.length > 0 ? status : equipmentLocalStatus}
+        {visibleEquipmentStatus.length > 0 ? (
+          <p
+            className={[
+              "form-status",
+              isVisibleEquipmentStatusError ? "form-status-error" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            role={isVisibleEquipmentStatusError ? "alert" : undefined}
+          >
+            {visibleEquipmentStatus}
           </p>
         ) : null}
       </div>

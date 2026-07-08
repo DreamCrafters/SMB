@@ -795,6 +795,15 @@ p {
   overflow-wrap: anywhere;
 }
 
+.form-status-error {
+  padding: 8px 10px;
+  border: 1px solid var(--brick);
+  border-radius: var(--radius);
+  color: var(--brick);
+  background: var(--brick-soft);
+  font-weight: 900;
+}
+
 .form-status-local {
   margin-bottom: 0;
   color: var(--amber);
