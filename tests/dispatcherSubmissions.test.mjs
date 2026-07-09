@@ -336,6 +336,29 @@ test("local equipment submissions reject downtime reason without positive hours"
   assert.match(result.message, /время простоя больше 0/);
 });
 
+test("local equipment submissions reject downtime hours without reason", async () => {
+  const result = await submitDispatcherSubmission(
+    {
+      businessAccountId: "business-id",
+      formId: "equipment",
+      payload: {
+        reportDate: "2026-06-18",
+        equipment: "Пресс №1",
+        downtimeHours: "7",
+        productionTons: "10",
+      },
+    },
+    {
+      baseUrl: "",
+      localFallback: true,
+      storage: createMemoryStorage(),
+    },
+  );
+
+  assert.equal(result.status, "error");
+  assert.match(result.message, /причину простоя/);
+});
+
 test("local equipment submissions reject short downtime without production", async () => {
   const result = await submitDispatcherSubmission(
     {
@@ -344,6 +367,7 @@ test("local equipment submissions reject short downtime without production", asy
       payload: {
         reportDate: "2026-06-18",
         equipment: "Пресс №1",
+        downtimeReason: "Резерв",
         downtimeHours: "7",
       },
     },

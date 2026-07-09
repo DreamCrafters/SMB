@@ -247,6 +247,16 @@ function applyDispatcherFormScriptRules(
       );
     }
 
+    if (
+      downtimeHours !== undefined &&
+      downtimeHours > 0 &&
+      downtimeReason.length === 0
+    ) {
+      errors.push(
+        "equipment downtime reason is required when downtime hours are greater than zero.",
+      );
+    }
+
     if (downtimeHours !== undefined && downtimeHours > 8) {
       errors.push("equipment downtime hours must be 8 hours or less.");
     }

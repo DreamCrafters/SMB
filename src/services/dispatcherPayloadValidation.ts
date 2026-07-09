@@ -5,6 +5,8 @@ import type {
 
 export const equipmentDowntimeReasonRequiresHoursMessage =
   "Укажите время простоя больше 0 часов, если выбрана причина простоя.";
+export const equipmentDowntimeHoursRequireReasonMessage =
+  "Укажите причину простоя, если время простоя больше 0 часов.";
 export const equipmentDowntimeRequiresProductionMessage =
   "Если простой меньше 8 часов, выработка должна быть больше 0.";
 export const equipmentDowntimeMaxHoursMessage =
@@ -52,6 +54,14 @@ export function validateEquipmentPayloadForSubmit(
     (downtimeHours === undefined || downtimeHours <= 0)
   ) {
     return equipmentDowntimeReasonRequiresHoursMessage;
+  }
+
+  if (
+    downtimeHours !== undefined &&
+    downtimeHours > 0 &&
+    downtimeReason.length === 0
+  ) {
+    return equipmentDowntimeHoursRequireReasonMessage;
   }
 
   if (downtimeHours !== undefined && downtimeHours > 8) {

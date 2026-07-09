@@ -121,6 +121,25 @@ test("validateDispatcherSubmissionDraft rejects downtime reason without positive
   }
 });
 
+test("validateDispatcherSubmissionDraft rejects downtime hours without reason", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      downtimeHours: "7",
+      productionTons: "10",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /downtime reason/);
+  }
+});
+
 test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without production", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",
@@ -128,6 +147,7 @@ test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without p
     payload: {
       reportDate: "2026-06-18",
       equipment: "Пресс №1",
+      downtimeReason: "Резерв",
       downtimeHours: "7",
     },
   });
