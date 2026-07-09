@@ -18,11 +18,10 @@ export const shellCopy = {
   visualDirection: "Industrial Finance Operations",
   referencePreview:
     "/Users/artemiz/.codex/generated_images/019edad9-6b9e-7f22-96f4-69e15e644aed/ig_047c9b30a9c8b2c9016a33f67fc18081919a778fdad4532cfe.png",
-  authTitle: "Выбор серверного доступа",
-  authLead:
-    "Временное dev-окно авторизации. Кнопка создаёт серверную сессию, после чего интерфейс заново запрашивает /api/access/profile.",
-  authLoading: "Проверяем текущую server session.",
-  sessionError: "Не удалось обновить dev-сессию.",
+  authTitle: "Выбор доступа",
+  authLead: "Выберите роль для проверки интерфейса.",
+  authLoading: "Проверяем вход.",
+  sessionError: "Не удалось войти.",
 };
 
 export const accountTypeLabels: Record<AccountType, string> = {
@@ -42,7 +41,7 @@ export const authOptions: AuthOption[] = [
   {
     accountType: "worker",
     label: "Работник",
-    description: "Видит только форму отправки данных и статус серверной записи.",
+    description: "Видит только свои рабочие действия.",
     scope: "form access",
   },
   {
@@ -54,7 +53,7 @@ export const authOptions: AuthOption[] = [
   {
     accountType: "admin",
     label: "Администратор",
-    description: "Просматривает рабочие кабинеты и серверные таблицы БД.",
+    description: "Просматривает кабинеты и БД.",
     scope: "platform access",
   },
 ];

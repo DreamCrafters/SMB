@@ -92,16 +92,13 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   );
   assert.deepEqual(JSON.parse(String(sent[0]?.init?.body)), {
     text: [
-      "Новый инцидент!",
-      "Дата и время инцидента: 06.07.2026 21:51",
-      "Место (цех/участок): Цех №1",
-      "Тип инцидента: Травма",
-      "Описание: Описание",
+      "Новый инцидент",
+      "№: INC-2026-1",
+      "Когда: 06.07.2026 21:51",
+      "Место: Цех №1",
+      "Тип: Травма",
       "Критичность: Средний",
-      "Ответственный за регистрацию: Соколова Т.В.",
-      "Оперативные меры: Оперативные меры",
-      "Статус: Новый",
-      "Номер инцидента: INC-2026-1",
+      "Описание: Описание",
     ].join("\n"),
     notify: true,
   });
@@ -146,7 +143,7 @@ test("createMaxNotificationService sends incident closure location", async () =>
   );
   assert.match(
     JSON.parse(sent[0]?.body ?? "{}").text,
-    /Место \(цех\/участок\): Цех №1/,
+    /Место: Цех №1/,
   );
 });
 
@@ -290,10 +287,10 @@ test("createMaxNotificationService sends visitor notifications to visitor chat i
   assert.deepEqual(sent.map((item) => item.url), [
     "https://platform-api2.max.ru/messages?chat_id=4001",
   ]);
-  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Посетитель вышел!/);
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Посетитель вышел/);
   assert.match(
     JSON.parse(sent[0]?.body ?? "{}").text,
-    /Время выхода: 06\.07\.2026 12:40/,
+    /Выход: 06\.07\.2026 12:40/,
   );
 });
 

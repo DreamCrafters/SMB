@@ -89,6 +89,7 @@ import {
   type OwnerDispatcherOverview,
   type DispatcherFeedGroup,
 } from "./services/dispatcherFeedViews";
+import { readShortUserMessage } from "./services/userFacingMessages";
 
 type OwnerTab = "overview" | "dispatcher";
 type AdminTab = "account_preview" | "database";
@@ -180,7 +181,7 @@ const submitToastTimeoutMs = 4_000;
 
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
-  message: "Запрашиваем серверный профиль доступа.",
+  message: "Загружаем профиль.",
 };
 
 const initialSessionRequestState: SessionRequestState = {
@@ -189,12 +190,12 @@ const initialSessionRequestState: SessionRequestState = {
 
 const initialDispatcherFeedState: DispatcherFeedLoadState = {
   status: "loading",
-  message: "Ожидаем профиль владельца для запроса диспетчерской истории.",
+  message: "Загружаем историю.",
 };
 
 const initialDispatcherFormsState: DispatcherFormsLoadState = {
   status: "loading",
-  message: "Ожидаем профиль доступа для запроса диспетчерских форм.",
+  message: "Загружаем формы.",
 };
 
 const initialDispatcherFeedFilters: DispatcherFeedFilterState = {
@@ -303,7 +304,7 @@ export default function App() {
 
     setAccessProfile({
       status: "loading",
-      message: "Запрашиваем серверный профиль доступа.",
+      message: "Загружаем профиль.",
     });
 
     requestAccessProfile({
@@ -341,7 +342,7 @@ export default function App() {
           ? current
           : {
               status: "loading",
-              message: "Запрашиваем диспетчерскую историю с удалённого сервера.",
+              message: "Загружаем историю.",
             },
       );
 
@@ -382,7 +383,7 @@ export default function App() {
 
     setDispatcherForms({
       status: "loading",
-      message: "Запрашиваем диспетчерские формы с удалённого сервера.",
+      message: "Загружаем формы.",
     });
 
     requestDispatcherForms({
@@ -441,7 +442,10 @@ export default function App() {
 
     setSessionRequest({
       status: "error",
-      message: result.message,
+      message: readShortUserMessage(
+        result.message,
+        "Не удалось войти. Попробуйте ещё раз.",
+      ),
     });
   }
 
@@ -497,16 +501,14 @@ export default function App() {
       (accessProfile.status === "ready" ? accessProfile.profile : undefined);
 
     if (submitProfile === undefined) {
-      controls.setStatus("Нельзя отправить данные без серверного профиля доступа.");
+      controls.setStatus("Войдите в аккаунт и повторите.");
       return;
     }
 
     if (
       !canSubmitDispatcherForms(submitProfile)
     ) {
-      controls.setStatus(
-        "Серверный профиль не разрешает отправку диспетчерской формы.",
-      );
+      controls.setStatus("Нет права отправки.");
       return;
     }
 
@@ -520,12 +522,12 @@ export default function App() {
         : undefined;
 
     if (dispatcherForms.status !== "ready") {
-      controls.setStatus("Список диспетчерских форм ещё не получен от сервера.");
+      controls.setStatus("Формы ещё загружаются.");
       return;
     }
 
     if (formDefinition === undefined) {
-      controls.setStatus("Выбранная форма не найдена в серверном списке.");
+      controls.setStatus("Выберите форму заново.");
       return;
     }
 
@@ -563,7 +565,7 @@ export default function App() {
       }
 
       controls.setIsSubmitting(true);
-      controls.setStatus("Сохраняем дневной отчёт оборудования.");
+      controls.setStatus("Сохраняем отчёт.");
 
       const result = await submitDispatcherEquipmentReport(
         {
@@ -586,7 +588,12 @@ export default function App() {
         return;
       }
 
-      controls.setStatus(result.message);
+      controls.setStatus(
+        readShortUserMessage(
+          result.message,
+          "Не удалось отправить отчёт. Проверьте данные и повторите.",
+        ),
+      );
       return;
     }
 
@@ -601,7 +608,7 @@ export default function App() {
     }
 
     controls.setIsSubmitting(true);
-    controls.setStatus("Отправляем данные на удалённый сервер.");
+    controls.setStatus("Отправляем данные.");
 
     const result = await submitDispatcherSubmission(
       {
@@ -627,7 +634,12 @@ export default function App() {
       return;
     }
 
-    controls.setStatus(result.message);
+    controls.setStatus(
+      readShortUserMessage(
+        result.message,
+        "Не удалось отправить. Проверьте данные и повторите.",
+      ),
+    );
   }
 
   if (accessProfile.status !== "ready") {
@@ -759,12 +771,18 @@ function AuthScreen({
     accessProfile.status === "loading" || sessionRequest.status === "loading";
   const statusMessage =
     sessionRequest.status === "error"
-      ? sessionRequest.message
+      ? readShortUserMessage(
+          sessionRequest.message,
+          "Не удалось войти. Попробуйте ещё раз.",
+        )
       : accessProfile.status === "loading"
         ? shellCopy.authLoading
         : accessProfile.status === "error"
-          ? accessProfile.message
-          : "Выберите тип аккаунта для dev-сессии.";
+          ? readShortUserMessage(
+              accessProfile.message,
+              "Не удалось загрузить профиль.",
+            )
+          : "Выберите роль для входа.";
 
   return (
     <main className="auth-shell">
@@ -794,9 +812,7 @@ function AuthScreen({
               >
                 <span>{option.scope}</span>
                 <strong>{option.label}</strong>
-                <small>
-                  {isSelecting ? "Создаём server session..." : option.description}
-                </small>
+                <small>{isSelecting ? "Входим..." : option.description}</small>
               </button>
             );
           })}
@@ -1057,13 +1073,15 @@ function OwnerOverviewPanel({
       ) : null}
       {dispatcherFeed.status === "error" ? (
         <p className="owner-overview-status owner-overview-status-error">
-          {dispatcherFeed.message}
+          {readShortUserMessage(
+            dispatcherFeed.message,
+            "Не удалось загрузить сводку.",
+          )}
         </p>
       ) : null}
       {isLocalTestMode ? (
         <p className="owner-overview-status owner-overview-status-local">
-          Локальный тестовый режим: сводка читается из localStorage этого
-          браузера.
+          Тестовый режим: данные только на этом устройстве.
         </p>
       ) : null}
       {dispatcherFeed.status === "ready" && !hasDispatcherData ? (
@@ -1307,10 +1325,15 @@ function DataEntryWorkspace({
     dispatcherForms.status === "ready" && dispatcherForms.source === "local_test";
   const formsStatusMessage =
     dispatcherForms.status === "ready"
-      ? "Сервер не вернул диспетчерские формы."
-      : dispatcherForms.message;
+      ? "Формы пока недоступны."
+      : dispatcherForms.status === "error"
+        ? readShortUserMessage(
+            dispatcherForms.message,
+            "Не удалось загрузить формы.",
+          )
+        : dispatcherForms.message;
   const localTestModeMessage =
-    "Локальный тестовый режим: сервер не найден, формы и отправки сохраняются в этом браузере.";
+    "Тестовый режим: данные сохраняются только на этом устройстве.";
 
   useEffect(() => {
     if (
@@ -1497,7 +1520,7 @@ function DataEntryWorkspace({
                 type="submit"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Отправка..." : "Отправить на сервер"}
+                {isSubmitting ? "Отправка..." : "Отправить"}
               </button>
               {status.length > 0 ? <p className="form-status">{status}</p> : null}
             </div>
@@ -1523,7 +1546,7 @@ function DispatcherIncidentCloseFormBody({
 }) {
   const [incidentFeed, setIncidentFeed] = useState<DispatcherFeedLoadState>({
     status: "loading",
-    message: "Запрашиваем незакрытые инциденты.",
+    message: "Загружаем инциденты.",
   });
   const submissions =
     incidentFeed.status === "ready" ? incidentFeed.submissions : [];
@@ -1547,7 +1570,7 @@ function DispatcherIncidentCloseFormBody({
           ? current
           : {
               status: "loading",
-              message: "Запрашиваем незакрытые инциденты.",
+              message: "Загружаем инциденты.",
             },
       );
 
@@ -1603,12 +1626,16 @@ function DispatcherIncidentCloseFormBody({
         ))}
       </div>
       {incidentFeed.status === "error" ? (
-        <p className="form-status">{incidentFeed.message}</p>
+        <p className="form-status">
+          {readShortUserMessage(
+            incidentFeed.message,
+            "Не удалось загрузить инциденты.",
+          )}
+        </p>
       ) : null}
       {isLocalIncidentFeed ? (
         <p className="form-status form-status-local">
-          Список незакрытых инцидентов читается из локального тестового
-          хранилища.
+          Тестовый режим: список только на этом устройстве.
         </p>
       ) : null}
       <div className="form-actions">
@@ -1638,7 +1665,7 @@ function DispatcherVisitorExitFormBody({
 }) {
   const [visitorFeed, setVisitorFeed] = useState<DispatcherFeedLoadState>({
     status: "loading",
-    message: "Запрашиваем посетителей без отметки выхода.",
+    message: "Загружаем посетителей.",
   });
   const submissions =
     visitorFeed.status === "ready" ? visitorFeed.submissions : [];
@@ -1664,7 +1691,7 @@ function DispatcherVisitorExitFormBody({
           ? current
           : {
               status: "loading",
-              message: "Запрашиваем посетителей без отметки выхода.",
+              message: "Загружаем посетителей.",
             },
       );
 
@@ -1714,11 +1741,16 @@ function DispatcherVisitorExitFormBody({
         </label>
       </div>
       {visitorFeed.status === "error" ? (
-        <p className="form-status">{visitorFeed.message}</p>
+        <p className="form-status">
+          {readShortUserMessage(
+            visitorFeed.message,
+            "Не удалось загрузить посетителей.",
+          )}
+        </p>
       ) : null}
       {isLocalVisitorFeed ? (
         <p className="form-status form-status-local">
-          Список открытых посетителей читается из локального тестового хранилища.
+          Тестовый режим: список только на этом устройстве.
         </p>
       ) : null}
       <div className="form-actions">
@@ -1769,7 +1801,7 @@ function DispatcherEquipmentFormBody({
   >(undefined);
   const [equipmentFeed, setEquipmentFeed] = useState<DispatcherFeedLoadState>({
     status: "loading",
-    message: "Запрашиваем отметки оборудования.",
+    message: "Загружаем отметки.",
   });
   const selectedEquipment = payload.equipment ?? "";
   const reportDate = payload.reportDate ?? getTodayDateValue();
@@ -1878,7 +1910,7 @@ function DispatcherEquipmentFormBody({
           ? current
           : {
               status: "loading",
-              message: "Запрашиваем отметки оборудования.",
+              message: "Загружаем отметки.",
             },
       );
 
@@ -2284,10 +2316,8 @@ function DispatcherEquipmentFormBody({
 
     showEquipmentLocalStatus(
       isWritten
-        ? `Данные для ${equipment} ${
-            hadReportEntry ? "обновлены" : "внесены"
-          } в дневном отчёте.`
-        : "Не удалось сохранить данные в браузере.",
+        ? `${equipment}: ${hadReportEntry ? "данные обновлены" : "данные внесены"}.`
+        : "Не удалось сохранить. Попробуйте ещё раз.",
       isWritten ? "info" : "error",
     );
     setReportDraftVersion((version) => version + 1);
@@ -2329,7 +2359,7 @@ function DispatcherEquipmentFormBody({
             {reportPayloads.length}/{equipmentOptions.length}
           </strong>
           <span>
-            Сохранено на сервере: {doneCount}/{equipmentOptions.length}
+            Сохранено: {doneCount}/{equipmentOptions.length}
           </span>
         </div>
         <div className="equipment-status-grid">
@@ -2399,9 +2429,9 @@ function DispatcherEquipmentFormBody({
                     : isInReport
                     ? submission === undefined
                       ? "внесено в отчёт"
-                      : `в отчёте, на сервере ${formatDateTime(submission.receivedAt)}`
+                      : `в отчёте, сохранено ${formatDateTime(submission.receivedAt)}`
                     : submission !== undefined
-                      ? `на сервере ${formatDateTime(submission.receivedAt)}`
+                      ? `сохранено ${formatDateTime(submission.receivedAt)}`
                       : hasDraft
                         ? "черновик"
                         : "нет данных"}
@@ -2411,11 +2441,16 @@ function DispatcherEquipmentFormBody({
           })}
         </div>
         {equipmentFeed.status === "error" ? (
-          <p className="form-status">{equipmentFeed.message}</p>
+          <p className="form-status">
+            {readShortUserMessage(
+              equipmentFeed.message,
+              "Не удалось загрузить отметки.",
+            )}
+          </p>
         ) : null}
         {isLocalEquipmentFeed ? (
           <p className="form-status form-status-local">
-            Отметки оборудования читаются из локального тестового хранилища.
+            Тестовый режим: отметки только на этом устройстве.
           </p>
         ) : null}
       </div>
@@ -2827,16 +2862,25 @@ function DispatcherFeedPanel({
         </div>
       ) : null}
       {dispatcherForms.status === "error" ? (
-        <p className="dispatcher-status-line">{dispatcherForms.message}</p>
+        <p className="dispatcher-status-line">
+          {readShortUserMessage(
+            dispatcherForms.message,
+            "Не удалось загрузить формы.",
+          )}
+        </p>
       ) : null}
       {isLocalTestMode ? (
         <p className="dispatcher-status-line dispatcher-status-line-local">
-          Локальный тестовый режим: история читается из localStorage этого
-          браузера.
+          Тестовый режим: данные только на этом устройстве.
         </p>
       ) : null}
       {dispatcherFeed.status === "error" ? (
-        <p className="dispatcher-status-line">{dispatcherFeed.message}</p>
+        <p className="dispatcher-status-line">
+          {readShortUserMessage(
+            dispatcherFeed.message,
+            "Не удалось загрузить историю.",
+          )}
+        </p>
       ) : null}
       {filters.group === "equipment" ? (
         <EquipmentSummaryTable rows={equipmentRows} />
@@ -3774,10 +3818,21 @@ function readSubmissionSuccessMessage(result: {
   source?: "remote" | "local_test";
 }) {
   if (result.source === "local_test") {
-    return `Сервер не найден. Отправка ${result.submission.id} сохранена локально для тестов в этом браузере.`;
+    return "Сохранено в тестовом режиме.";
   }
 
-  return `Сервер принял отправку ${result.submission.id}. История обновится у владельца через remote feed.`;
+  switch (result.submission.formId) {
+    case "incident":
+      return "Инцидент открыт.";
+    case "incident_close":
+      return "Инцидент закрыт.";
+    case "visitor":
+      return "Вход посетителя отмечен.";
+    case "visitor_exit":
+      return "Выход посетителя отмечен.";
+    default:
+      return "Данные отправлены.";
+  }
 }
 
 function readEquipmentReportSuccessMessage(result: {
@@ -3787,15 +3842,14 @@ function readEquipmentReportSuccessMessage(result: {
 }) {
   const prefix =
     result.reportStatus === "updated"
-      ? "Отчёт оборудования изменён"
-      : "Отчёт оборудования записан";
-  const suffix = `${result.submissions.length} позиций.`;
+      ? "Отчёт оборудования обновлён."
+      : "Отчёт оборудования отправлен.";
 
   if (result.source === "local_test") {
-    return `Сервер не найден. ${prefix}: ${suffix} Записи сохранены локально для тестов в этом браузере.`;
+    return "Отчёт сохранён в тестовом режиме.";
   }
 
-  return `${prefix}: ${suffix} История обновится у владельца через remote feed.`;
+  return prefix;
 }
 
 function readInputType(field: DispatcherFormField) {

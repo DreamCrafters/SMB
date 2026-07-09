@@ -215,35 +215,23 @@ function readIncidentNumber(submission: DispatcherSubmission) {
 
 function buildIncidentOpeningNotificationText(submission: DispatcherSubmission) {
   return [
-    "Новый инцидент!",
-    `Дата и время инцидента: ${readPayloadValue(submission, "datetime")}`,
-    `Место (цех/участок): ${readPayloadValue(submission, "location")}`,
-    `Тип инцидента: ${readPayloadValue(submission, "incidentType")}`,
-    `Описание: ${readPayloadValue(submission, "description")}`,
-    `Критичность: ${readPayloadValue(submission, "criticality")}`,
-    `Ответственный за регистрацию: ${readPayloadValue(submission, "responsible")}`,
-    `Оперативные меры: ${readPayloadValue(submission, "immediateActions")}`,
-    `Статус: ${readPayloadValue(submission, "incidentStatus")}`,
-    `Номер инцидента: ${readIncidentNumber(submission)}`,
+    "Новый инцидент",
+    `№: ${readIncidentNumber(submission)}`,
+    ...buildOptionalPayloadLine(submission, "datetime", "Когда"),
+    ...buildOptionalPayloadLine(submission, "location", "Место"),
+    ...buildOptionalPayloadLine(submission, "incidentType", "Тип"),
+    ...buildOptionalPayloadLine(submission, "criticality", "Критичность"),
+    ...buildOptionalPayloadLine(submission, "description", "Описание"),
   ].join("\n");
 }
 
 function buildIncidentClosureNotificationText(submission: DispatcherSubmission) {
   return [
-    "Инцидент закрыт!",
-    `Номер инцидента: ${readIncidentNumber(submission)}`,
-    ...buildOptionalPayloadLine(
-      submission,
-      "location",
-      "Место (цех/участок)",
-    ),
-    `Корневые причины: ${readPayloadValue(submission, "rootCauses")}`,
-    `Предотвращающие меры: ${readPayloadValue(submission, "preventiveMeasures")}`,
-    `Дата и время закрытия: ${readPayloadValue(submission, "closureDateTime")}`,
-    `Затраты (убытки), руб: ${readPayloadValue(submission, "costs")}`,
-    `Кто утвердил закрытие: ${readPayloadValue(submission, "approvedBy")}`,
-    `Примечание: ${readPayloadValue(submission, "closureNote")}`,
-    `Статус: ${readPayloadValue(submission, "incidentStatus")}`,
+    "Инцидент закрыт",
+    `№: ${readIncidentNumber(submission)}`,
+    ...buildOptionalPayloadLine(submission, "location", "Место"),
+    ...buildOptionalPayloadLine(submission, "closureDateTime", "Закрыт"),
+    ...buildOptionalPayloadLine(submission, "approvedBy", "Утвердил"),
   ].join("\n");
 }
 
@@ -269,27 +257,21 @@ function buildEquipmentReportLines(submission: DispatcherSubmission) {
 
 function buildVisitorEntryNotificationText(submission: DispatcherSubmission) {
   return [
-    "Посетитель вошел!",
-    `ФИО посетителя: ${readPayloadValue(submission, "fio")}`,
-    ...buildOptionalPayloadLine(submission, "position", "Должность"),
+    "Посетитель вошёл",
+    `ФИО: ${readPayloadValue(submission, "fio")}`,
     ...buildOptionalPayloadLine(submission, "organization", "Организация"),
-    ...buildOptionalPayloadLine(submission, "purpose", "Цель визита"),
-    ...buildOptionalPayloadLine(submission, "whom", "Кого посещает"),
-    `Время входа: ${readPayloadValue(submission, "entryAt", submission.receivedAt)}`,
-    ...buildOptionalPayloadLine(submission, "note", "Примечание"),
+    ...buildOptionalPayloadLine(submission, "whom", "К кому"),
+    `Вход: ${readPayloadValue(submission, "entryAt", submission.receivedAt)}`,
   ].join("\n");
 }
 
 function buildVisitorExitNotificationText(submission: DispatcherSubmission) {
   return [
-    "Посетитель вышел!",
-    `ФИО посетителя: ${readPayloadValue(submission, "fio")}`,
-    ...buildOptionalPayloadLine(submission, "position", "Должность"),
+    "Посетитель вышел",
+    `ФИО: ${readPayloadValue(submission, "fio")}`,
     ...buildOptionalPayloadLine(submission, "organization", "Организация"),
-    ...buildOptionalPayloadLine(submission, "purpose", "Цель визита"),
-    ...buildOptionalPayloadLine(submission, "whom", "Кого посещал"),
-    `Время входа: ${readPayloadValue(submission, "entryAt")}`,
-    `Время выхода: ${readPayloadValue(
+    ...buildOptionalPayloadLine(submission, "whom", "К кому"),
+    `Выход: ${readPayloadValue(
       submission,
       "exitAt",
       submission.receivedAt,

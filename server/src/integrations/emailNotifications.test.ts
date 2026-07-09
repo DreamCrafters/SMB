@@ -30,7 +30,7 @@ test("buildDispatcherSubmissionEmail sends incident openings to common recipient
   assert.deepEqual(message?.to, ["common@example.com"]);
   assert.equal(message?.from, "noreply@example.com");
   assert.equal(message?.subject, "[SMB Monitor] Открытие инцидента INC-2026-1");
-  assert.match(message?.text ?? "", /Место \(цех\/участок\): Цех №1/);
+  assert.match(message?.text ?? "", /Место: Цех №1/);
 });
 
 test("buildDispatcherSubmissionEmail adds mechanical recipients for mechanical incidents", () => {
@@ -75,7 +75,7 @@ test("buildDispatcherSubmissionEmail sends incident closures to common recipient
 
   assert.deepEqual(message?.to, ["common@example.com"]);
   assert.equal(message?.subject, "[SMB Monitor] Закрытие инцидента INC-2026-1");
-  assert.match(message?.text ?? "", /Место \(цех\/участок\): Цех №1/);
+  assert.match(message?.text ?? "", /Место: Цех №1/);
 });
 
 test("buildDispatcherSubmissionEmail adds mechanical and electrical recipients for downtime reason", () => {
@@ -173,9 +173,9 @@ test("buildDispatcherSubmissionEmail sends visitor entry to visitor recipients",
 
   assert.deepEqual(message?.to, ["visitors@example.com"]);
   assert.equal(message?.subject, "[SMB Monitor] Вход посетителя: Иван Иванов");
-  assert.match(message?.text ?? "", /Посетитель вошел!/);
-  assert.match(message?.text ?? "", /Кого посещает: Склад/);
-  assert.match(message?.text ?? "", /Время входа: 06\.07\.2026 09:10/);
+  assert.match(message?.text ?? "", /Посетитель вошёл/);
+  assert.match(message?.text ?? "", /К кому: Склад/);
+  assert.match(message?.text ?? "", /Вход: 06\.07\.2026 09:10/);
 });
 
 test("buildDispatcherSubmissionEmail sends visitor exit to visitor recipients", () => {
@@ -195,9 +195,9 @@ test("buildDispatcherSubmissionEmail sends visitor exit to visitor recipients", 
 
   assert.deepEqual(message?.to, ["visitors@example.com"]);
   assert.equal(message?.subject, "[SMB Monitor] Выход посетителя: Иван Иванов");
-  assert.match(message?.text ?? "", /Посетитель вышел!/);
-  assert.match(message?.text ?? "", /Кого посещал: Склад/);
-  assert.match(message?.text ?? "", /Время выхода: 06\.07\.2026 12:40/);
+  assert.match(message?.text ?? "", /Посетитель вышел/);
+  assert.match(message?.text ?? "", /К кому: Склад/);
+  assert.match(message?.text ?? "", /Выход: 06\.07\.2026 12:40/);
 });
 
 test("createEmailNotificationService does not send when disabled", async () => {
