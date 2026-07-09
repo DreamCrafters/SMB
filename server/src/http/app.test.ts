@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
 import type { ServerConfig } from "../config/env.js";
+import type {
+  AccountType,
+  AuthSessionService,
+  ServerUserProfile,
+} from "../domain/auth.js";
+import { defaultCapabilitiesByAccountType } from "../domain/auth.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
@@ -16,6 +22,7 @@ import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
+  appEnv: "test",
   port: 0,
   databaseUrl: "mysql://unused:unused@127.0.0.1:3306/unused",
   corsOrigins: [
@@ -23,6 +30,11 @@ const config: ServerConfig = {
     "https://smb-*-artemi-z-s-projects.vercel.app",
   ],
   runMigrationsOnStart: false,
+  devAccessEnabled: true,
+  session: {
+    cookieName: "smb_test_session",
+    ttlHours: 12,
+  },
   googleSheetsReference: {
     url: "https://docs.google.com/spreadsheets/d/test/edit?gid=0#gid=0",
     responsibleColumn: "Ответственный за регистрацию",
@@ -54,6 +66,17 @@ const config: ServerConfig = {
     apiBaseUrl: "https://platform-api2.max.ru",
     recipientIdType: "user_id",
     subjectPrefix: "SMB Monitor",
+  },
+};
+
+const productionConfig: ServerConfig = {
+  ...config,
+  appEnv: "production",
+  devAccessEnabled: false,
+  corsOrigins: ["https://smb.aonmou.ru"],
+  session: {
+    cookieName: "smb_session",
+    ttlHours: 12,
   },
 };
 
@@ -443,6 +466,260 @@ test("admin database API forwards update and delete mutations for admin sessions
   });
 });
 
+test("production API rejects dev access sessions", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/dev/access-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ accountType: "dispatcher" }),
+      });
+
+      assert.equal(response.status, 404);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+  );
+});
+
+test("production API logs in and clears auth sessions", async () => {
+  let deletedSessionId: string | undefined;
+  const authService = buildAuthService({
+    loginSessionId: "prod-session",
+    profile: buildProductionProfile("dispatcher"),
+    onDeleteSession(sessionId) {
+      deletedSessionId = sessionId;
+    },
+  });
+
+  await withApiServer(
+    async (baseUrl) => {
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          login: "dispatcher",
+          password: "secret",
+        }),
+      });
+      const setCookie = loginResponse.headers.get("set-cookie") ?? "";
+      const profileResponse = await fetch(`${baseUrl}/api/access/profile`, {
+        headers: {
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+      });
+      const logoutResponse = await fetch(`${baseUrl}/api/auth/logout`, {
+        method: "POST",
+        headers: {
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+      });
+
+      assert.equal(loginResponse.status, 200);
+      assert.match(setCookie, /smb_session=prod-session/);
+      assert.match(setCookie, /HttpOnly/);
+      assert.match(setCookie, /Secure/);
+      assert.equal(profileResponse.status, 200);
+      assert.equal(readProfileAccountType(await profileResponse.json()), "dispatcher");
+      assert.equal(logoutResponse.status, 200);
+      assert.equal(deletedSessionId, "prod-session");
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    authService,
+  );
+});
+
+test("production API rejects unauthenticated dispatcher submissions and admin database", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const submissionResponse = await fetch(
+        `${baseUrl}/api/dispatcher/submissions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            businessAccountId: "client-business",
+            formId: "visitor",
+            payload: {
+              fio: "Visitor Name",
+            },
+          }),
+        },
+      );
+      const adminResponse = await fetch(`${baseUrl}/api/admin/database`);
+
+      assert.equal(submissionResponse.status, 401);
+      assert.equal(adminResponse.status, 401);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: buildProductionProfile("dispatcher") }),
+  );
+});
+
+test("production API lets dispatcher submit with server-owned business scope", async () => {
+  let created:
+    | {
+        value: ValidatedDispatcherSubmissionDraft;
+        submittedByAccountId: string;
+      }
+    | undefined;
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async create(value, submittedByAccountId) {
+      created = {
+        value,
+        submittedByAccountId,
+      };
+
+      return dispatcherSubmissions.create(value, submittedByAccountId);
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          "X-SMB-Account-Id": "client-forged-access",
+        },
+        body: JSON.stringify({
+          businessAccountId: "client-forged-business",
+          formId: "visitor",
+          payload: {
+            fio: "Visitor Name",
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      assert.equal(created?.value.draft.businessAccountId, "prod-business");
+      assert.equal(created?.submittedByAccountId, "prod-access-dispatcher");
+    },
+    repository,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: buildProductionProfile("dispatcher") }),
+  );
+});
+
+test("production API lets owner read feed but not submit dispatcher forms", async () => {
+  let listFilters:
+    | Parameters<DispatcherSubmissionsRepository["listLatest"]>[0]
+    | undefined;
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      listFilters = filters;
+      return [];
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = {
+        Cookie: `${productionConfig.session.cookieName}=prod-session`,
+      };
+      const feedResponse = await fetch(
+        `${baseUrl}/api/dispatcher/submissions?limit=25`,
+        { headers },
+      );
+      const submitResponse = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          businessAccountId: "client-business",
+          formId: "visitor",
+          payload: {
+            fio: "Visitor Name",
+          },
+        }),
+      });
+
+      assert.equal(feedResponse.status, 200);
+      assert.deepEqual(listFilters, {
+        limit: 25,
+        businessAccountId: "prod-business",
+      });
+      assert.equal(submitResponse.status, 403);
+    },
+    repository,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: buildProductionProfile("business_owner") }),
+  );
+});
+
+test("production API keeps admin database gated by admin capability", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const ownerResponse = await fetch(`${baseUrl}/api/admin/database`, {
+        headers: {
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+      });
+
+      assert.equal(ownerResponse.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: buildProductionProfile("business_owner") }),
+  );
+
+  await withApiServer(
+    async (baseUrl) => {
+      const adminResponse = await fetch(`${baseUrl}/api/admin/database`, {
+        headers: {
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+      });
+
+      assert.equal(adminResponse.status, 200);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: buildProductionProfile("admin") }),
+  );
+});
+
 test("remote API returns dispatcher form definitions", async () => {
   await withApiServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/dispatcher/forms`);
@@ -484,8 +761,14 @@ test("remote API passes equipment reportDate feed filters to repository", async 
   };
 
   await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "business_owner");
     const response = await fetch(
       `${baseUrl}/api/dispatcher/submissions?formId=equipment&reportDate=2026-07-09&limit=500`,
+      {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+        },
+      },
     );
 
     assert.equal(response.status, 200);
@@ -568,10 +851,12 @@ test("remote API enriches incident location and responsible options from referen
 
 test("remote API creates dispatcher submissions with form payload", async () => {
   await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "dispatcher");
     const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
         "X-SMB-Account-Id": "dispatcher-account",
       },
       body: JSON.stringify({
@@ -648,11 +933,10 @@ test("remote API notifies recipients after successful incident submission", asyn
 
   await withApiServer(
     async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
       const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           businessAccountId: "business-id",
           formId: "incident",
@@ -737,11 +1021,10 @@ test("remote API notifies visitor recipients after successful visitor submission
 
   await withApiServer(
     async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
       const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           businessAccountId: "business-id",
           formId: "visitor",
@@ -822,13 +1105,12 @@ test("remote API sends one notification for a complete batched equipment report"
 
   await withApiServer(
     async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
       const response = await fetch(
         `${baseUrl}/api/dispatcher/equipment-report`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers,
           body: JSON.stringify({
             businessAccountId: "business-id",
             items: buildCompleteEquipmentReport({
@@ -871,11 +1153,10 @@ test("remote API sends one notification for a complete batched equipment report"
 
 test("remote API rejects incomplete equipment reports", async () => {
   await withApiServer(async (baseUrl) => {
+    const headers = await createDispatcherHeaders(baseUrl);
     const response = await fetch(`${baseUrl}/api/dispatcher/equipment-report`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         businessAccountId: "business-id",
         items: [
@@ -931,10 +1212,12 @@ test("remote API records a revision when a batched equipment report changes", as
   );
 
   await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "dispatcher");
     const response = await fetch(`${baseUrl}/api/dispatcher/equipment-report`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
         "X-SMB-Account-Id": "dispatcher-access-id",
       },
       body: JSON.stringify({
@@ -961,11 +1244,10 @@ test("remote API records a revision when a batched equipment report changes", as
 
 test("remote API rejects visitor entry when the visitor is already inside", async () => {
   await withApiServer(async (baseUrl) => {
+    const headers = await createDispatcherHeaders(baseUrl);
     const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         businessAccountId: "business-id",
         formId: "visitor",
@@ -994,11 +1276,10 @@ test("remote API enriches visitor exit from an open visitor entry", async () => 
   });
 
   await withApiServer(async (baseUrl) => {
+    const headers = await createDispatcherHeaders(baseUrl);
     const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         businessAccountId: "business-id",
         formId: "visitor_exit",
@@ -1023,11 +1304,10 @@ test("remote API enriches visitor exit from an open visitor entry", async () => 
 
 test("remote API rejects incident close when the incident is not open", async () => {
   await withApiServer(async (baseUrl) => {
+    const headers = await createDispatcherHeaders(baseUrl);
     const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         businessAccountId: "business-id",
         formId: "incident_close",
@@ -1071,11 +1351,10 @@ test("remote API accepts incident close for an earlier-day open incident", async
   );
 
   await withApiServer(async (baseUrl) => {
+    const headers = await createDispatcherHeaders(baseUrl);
     const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         businessAccountId: "business-id",
         formId: "incident_close",
@@ -1110,11 +1389,14 @@ async function withApiServer(
   emailNotificationService?: EmailNotificationService,
   maxNotificationService?: MaxNotificationService,
   adminDatabaseRepository: AdminDatabaseRepository = adminDatabase,
+  serverConfig: ServerConfig = config,
+  authService?: AuthSessionService,
 ) {
   const server = createApiServer({
-    config,
+    config: serverConfig,
     dispatcherSubmissions: repository,
     adminDatabase: adminDatabaseRepository,
+    authService,
     referenceDataSource,
     emailNotificationService,
     maxNotificationService,
@@ -1131,6 +1413,15 @@ async function withApiServer(
     server.close();
     await once(server, "close");
   }
+}
+
+async function createDispatcherHeaders(baseUrl: string) {
+  const sessionId = await createDevSession(baseUrl, "dispatcher");
+
+  return {
+    "Content-Type": "application/json",
+    "X-SMB-Dev-Session": sessionId,
+  };
 }
 
 function buildRepositoryWithHistory(
@@ -1171,6 +1462,103 @@ function buildRepositoryWithHistory(
         byForm: [],
       };
     },
+  };
+}
+
+function buildAuthService({
+  loginSessionId = "prod-session",
+  profile,
+  onDeleteSession,
+}: {
+  loginSessionId?: string;
+  profile: ServerUserProfile;
+  onDeleteSession?: (sessionId: string) => void;
+}): AuthSessionService {
+  return {
+    async login(credentials) {
+      if (credentials.login === "bad" || credentials.password === "bad") {
+        return { ok: false };
+      }
+
+      return {
+        ok: true,
+        session: {
+          sessionId: loginSessionId,
+          expiresAt: "2026-07-10T00:00:00.000Z",
+          profile,
+        },
+      };
+    },
+    async readSession(sessionId) {
+      if (sessionId !== loginSessionId) {
+        return undefined;
+      }
+
+      return {
+        sessionId,
+        expiresAt: "2026-07-10T00:00:00.000Z",
+        profile,
+      };
+    },
+    async deleteSession(sessionId) {
+      onDeleteSession?.(sessionId);
+    },
+  };
+}
+
+function buildProductionProfile(accountType: AccountType): ServerUserProfile {
+  const scope =
+    accountType === "admin"
+      ? {
+          kind: "platform" as const,
+        }
+      : accountType === "business_owner"
+        ? {
+            kind: "business" as const,
+            businessAccountId: "prod-business",
+          }
+        : {
+            kind: "department" as const,
+            businessAccountId: "prod-business",
+            departmentId: "prod-department",
+          };
+
+  return {
+    userId: `prod-user-${accountType}`,
+    displayName: `Production ${accountType}`,
+    accountType,
+    activeAccess: {
+      accountId: `prod-access-${accountType}`,
+      accountType,
+      displayName: `Production ${accountType} access`,
+      scope,
+      capabilities: [...defaultCapabilitiesByAccountType[accountType]],
+      issuedAt: "2026-07-09T00:00:00.000Z",
+      expiresAt: "2026-07-10T00:00:00.000Z",
+    },
+    businessAccounts:
+      accountType === "admin"
+        ? []
+        : [
+            {
+              id: "prod-business",
+              displayName: "Production business",
+              status: "active",
+            },
+          ],
+    departments:
+      accountType === "admin" || accountType === "business_owner"
+        ? []
+        : [
+            {
+              id: "prod-department",
+              businessAccountId: "prod-business",
+              displayName: "Production department",
+              structureMode: "current",
+            },
+          ],
+    organizationStructureMode: "current",
+    receivedAt: "2026-07-09T00:00:00.000Z",
   };
 }
 

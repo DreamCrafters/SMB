@@ -25,6 +25,7 @@ import {
   findOpenVisitorByEntryId,
   findOpenVisitorByEntryPayload,
 } from "./dispatcherFeedViews.js";
+import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 
 const DISPATCHER_FORMS_PATH = "/api/dispatcher/forms";
 const DISPATCHER_SUBMISSIONS_PATH = "/api/dispatcher/submissions";
@@ -404,9 +405,9 @@ export async function requestDispatcherForms({
   try {
     const response = await fetch(endpoint.endpoint, {
       method: "GET",
-      headers: {
+      headers: buildDevAccessHeaders({
         Accept: "application/json",
-      },
+      }),
       credentials: "include",
       signal,
     });
@@ -474,10 +475,10 @@ export async function submitDispatcherSubmission(
   try {
     const response = await fetch(endpoint.endpoint, {
       method: "POST",
-      headers: {
+      headers: buildDevAccessHeaders({
         Accept: "application/json",
         "Content-Type": "application/json",
-      },
+      }),
       credentials: "include",
       signal: options.signal,
       body: JSON.stringify(draft),
@@ -549,10 +550,10 @@ export async function submitDispatcherEquipmentReport(
   try {
     const response = await fetch(endpoint.endpoint, {
       method: "POST",
-      headers: {
+      headers: buildDevAccessHeaders({
         Accept: "application/json",
         "Content-Type": "application/json",
-      },
+      }),
       credentials: "include",
       signal: options.signal,
       body: JSON.stringify(value),
@@ -648,9 +649,9 @@ export async function requestDispatcherFeed({
   try {
     const response = await fetch(feedEndpoint, {
       method: "GET",
-      headers: {
+      headers: buildDevAccessHeaders({
         Accept: "application/json",
-      },
+      }),
       credentials: "include",
       signal,
     });

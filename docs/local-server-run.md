@@ -20,6 +20,7 @@ cat .env
 Для локального запуска там должно быть:
 
 ```text
+VITE_SMB_APP_ENV=test
 VITE_SMB_REMOTE_API_URL=http://127.0.0.1:3000
 ```
 
@@ -32,11 +33,20 @@ cat server/.env
 Для локального Docker там должно быть:
 
 ```text
+SMB_APP_ENV=test
 PORT=3000
 DATABASE_URL=mysql://smb_monitor:smb_monitor_dev_password@127.0.0.1:3306/smb_monitor
 CORS_ORIGIN=http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174
 RUN_MIGRATIONS_ON_START=true
+DEV_ACCESS_ENABLED=true
+SESSION_COOKIE_NAME=smb_test_session
+SESSION_TTL_HOURS=12
 ```
+
+Локальный режим `test` оставляет экран выбора роли и dev-session. В режиме
+`production` frontend показывает форму логина/пароля, backend отключает
+`/api/dev/access-session`, не использует клиентский fallback и проверяет
+dispatcher/admin действия по серверной session.
 
 ## Локальный Docker для БД
 
@@ -95,6 +105,29 @@ npm run dev:web -- --host 127.0.0.1
 ```text
 http://127.0.0.1:5173/
 ```
+
+## Локальная production-проверка
+
+Если нужно проверить production login вместо выбора роли, временно выставить:
+
+```text
+VITE_SMB_APP_ENV=production
+SMB_APP_ENV=production
+DEV_ACCESS_ENABLED=false
+SESSION_COOKIE_NAME=smb_session
+```
+
+После миграций создать тестового пользователя в локальной БД:
+
+```bash
+SMB_AUTH_LOGIN=admin \
+SMB_AUTH_PASSWORD='local-secret' \
+SMB_AUTH_DISPLAY_NAME='Администратор' \
+SMB_AUTH_ACCOUNT_TYPE=admin \
+npm --workspace server run auth:create-user
+```
+
+Пароль не коммитить и не выводить в ответы/логи.
 
 ## Остановка
 

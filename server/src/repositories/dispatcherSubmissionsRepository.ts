@@ -20,6 +20,7 @@ import {
 
 export type DispatcherFeedFilters = {
   limit?: number;
+  businessAccountId?: string;
   formId?: DispatcherFormId;
   dateFrom?: string;
   dateTo?: string;
@@ -312,6 +313,11 @@ function buildWhereClause(filters: DispatcherFeedFilters): WhereClause {
   if (filters.formId !== undefined) {
     values.push(filters.formId);
     clauses.push("form_id = ?");
+  }
+
+  if (filters.businessAccountId !== undefined) {
+    values.push(filters.businessAccountId);
+    clauses.push("business_account_id = ?");
   }
 
   if (filters.dateFrom !== undefined) {

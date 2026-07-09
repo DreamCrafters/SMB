@@ -145,6 +145,33 @@ test("requestAccessProfile reads a client-local profile when the local profile e
   ]);
 });
 
+test("requestAccessProfile does not read client-local profile when fallback is disabled", async () => {
+  globalThis.window = {
+    sessionStorage: createMemoryStorage(),
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "The page could not be found",
+        },
+      }),
+      {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+  createLocalDevAccessSession("dispatcher");
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    localDevFallback: false,
+  });
+
+  assert.equal(result.status, "error");
+  assert.equal(result.statusCode, 404);
+});
+
 test("requestAccessProfile accepts a minimal valid server profile", async () => {
   const profile = {
     userId: "user-id",

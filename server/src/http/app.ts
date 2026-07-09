@@ -1,6 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ServerConfig } from "../config/env.js";
 import {
+  hasProfileCapability,
+  readScopedBusinessAccountId,
+  type AccountCapability,
+  type AuthSessionService,
+  type AuthenticatedSession,
+  type ServerUserProfile,
+} from "../domain/auth.js";
+import {
   buildDevProfile,
   createDevSessionId,
   type DevAccessSession,
@@ -44,6 +52,7 @@ type AppDependencies = {
   config: ServerConfig;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   adminDatabase?: AdminDatabaseRepository;
+  authService?: AuthSessionService;
   referenceDataSource?: DispatcherReferenceDataSource;
   emailNotificationService?: EmailNotificationService;
   maxNotificationService?: MaxNotificationService;
@@ -54,11 +63,13 @@ type JsonPayload = Record<string, unknown> | unknown[];
 const maxBodyBytes = 100_000;
 const devSessionCookie = "smb_dev_access_session";
 const devSessionHeader = "x-smb-dev-session";
+const accountHeader = "x-smb-account-id";
 
 export function createApiServer({
   config,
   dispatcherSubmissions,
   adminDatabase,
+  authService,
   referenceDataSource = createGoogleSheetsReferenceDataSource(
     config.googleSheetsReference,
   ),
@@ -86,12 +97,36 @@ export function createApiServer({
         return;
       }
 
+      if (url.pathname === "/api/auth/login") {
+        await handleAuthLogin(req, res, config, authService);
+        return;
+      }
+
+      if (url.pathname === "/api/auth/logout") {
+        await handleAuthLogout(req, res, config, authService);
+        return;
+      }
+
       if (url.pathname === "/api/access/profile") {
-        handleAccessProfile(req, res, devSessions);
+        await handleAccessProfile(req, res, {
+          config,
+          devSessions,
+          authService,
+        });
         return;
       }
 
       if (url.pathname === "/api/dev/access-session") {
+        if (!config.devAccessEnabled) {
+          sendJson(res, 404, {
+            error: {
+              code: "not_found",
+              message: "Endpoint not found.",
+            },
+          });
+          return;
+        }
+
         await handleDevAccessSession(req, res, devSessions);
         return;
       }
@@ -104,7 +139,9 @@ export function createApiServer({
           req,
           res,
           url,
+          config,
           devSessions,
+          authService,
           adminDatabase,
         });
         return;
@@ -144,7 +181,22 @@ export function createApiServer({
           return;
         }
 
-        const payload = await readJsonBody(req);
+        const access = await requireCapability(req, res, {
+          config,
+          devSessions,
+          authService,
+          capability: "business.submit_dispatcher_forms",
+        });
+
+        if (access === undefined) {
+          return;
+        }
+
+        const payload = applyAuthenticatedBusinessScope(
+          await readJsonBody(req),
+          access.profile,
+          config,
+        );
         const validation = validateDispatcherEquipmentReportRequest(payload);
 
         if (!validation.ok) {
@@ -165,7 +217,11 @@ export function createApiServer({
           validation.value,
           history,
         );
-        const submittedByAccountId = readSubmittedByAccountId(req);
+        const submittedByAccountId = readSubmittedByAccountId(
+          req,
+          access.profile,
+          config,
+        );
         const submissions: DispatcherSubmission[] = [];
 
         for (const item of validation.value.items) {
@@ -204,6 +260,17 @@ export function createApiServer({
 
       if (url.pathname === "/api/dispatcher/submissions") {
         if (req.method === "GET") {
+          const access = await requireCapability(req, res, {
+            config,
+            devSessions,
+            authService,
+            capability: "business.view_dispatcher_feed",
+          });
+
+          if (access === undefined) {
+            return;
+          }
+
           const filters = readDispatcherFeedFilters(url);
 
           if (!filters.ok) {
@@ -216,8 +283,13 @@ export function createApiServer({
             return;
           }
 
-          const submissions = await dispatcherSubmissions.listLatest(filters.value);
-          const summary = await dispatcherSubmissions.readSummary(filters.value);
+          const scopedFilters = applyAuthenticatedFeedScope(
+            filters.value,
+            access.profile,
+            config,
+          );
+          const submissions = await dispatcherSubmissions.listLatest(scopedFilters);
+          const summary = await dispatcherSubmissions.readSummary(scopedFilters);
 
           sendJson(res, 200, {
             submissions,
@@ -228,7 +300,22 @@ export function createApiServer({
         }
 
         if (req.method === "POST") {
-          const payload = await readJsonBody(req);
+          const access = await requireCapability(req, res, {
+            config,
+            devSessions,
+            authService,
+            capability: "business.submit_dispatcher_forms",
+          });
+
+          if (access === undefined) {
+            return;
+          }
+
+          const payload = applyAuthenticatedBusinessScope(
+            await readJsonBody(req),
+            access.profile,
+            config,
+          );
           const validation = validateDispatcherSubmissionDraft(payload);
 
           if (!validation.ok) {
@@ -274,7 +361,7 @@ export function createApiServer({
 
           const submission = await dispatcherSubmissions.create(
             visitorStateValidation.value,
-            readSubmittedByAccountId(req),
+            readSubmittedByAccountId(req, access.profile, config),
           );
 
           await notifyDispatcherSubmission(
@@ -332,22 +419,28 @@ async function handleAdminDatabaseRequest({
   req,
   res,
   url,
+  config,
   devSessions,
+  authService,
   adminDatabase,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
   url: URL;
+  config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
   adminDatabase: AdminDatabaseRepository | undefined;
 }) {
-  if (!hasAdminDatabaseAccess(req, devSessions)) {
-    sendJson(res, 403, {
-      error: {
-        code: "access_denied",
-        message: "Admin database access is required.",
-      },
-    });
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "platform.manage_analytics_database",
+    message: "Admin database access is required.",
+  });
+
+  if (access === undefined) {
     return;
   }
 
@@ -471,23 +564,6 @@ async function handleAdminDatabaseRequest({
   } catch (error) {
     sendAdminDatabaseError(res, error);
   }
-}
-
-function hasAdminDatabaseAccess(
-  req: IncomingMessage,
-  devSessions: Map<string, DevAccessSession>,
-) {
-  const sessionId = readDevSessionId(req);
-  const session = sessionId === undefined ? undefined : devSessions.get(sessionId);
-
-  if (session === undefined) {
-    return false;
-  }
-
-  return buildDevProfile(
-    session.accountType,
-    session.createdAt,
-  ).activeAccess.capabilities.includes("platform.manage_analytics_database");
 }
 
 function readAdminDatabaseRowsRoute(url: URL) {
@@ -974,10 +1050,98 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function handleAccessProfile(
+async function handleAuthLogin(
   req: IncomingMessage,
   res: ServerResponse,
-  devSessions: Map<string, DevAccessSession>,
+  config: ServerConfig,
+  authService: AuthSessionService | undefined,
+) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only POST is supported for auth login.",
+      },
+    });
+    return;
+  }
+
+  if (authService === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Auth service is not configured.",
+      },
+    });
+    return;
+  }
+
+  const payload = await readJsonBody(req);
+  const credentials = readLoginCredentials(payload);
+
+  if (credentials === undefined) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: "Login and password are required.",
+      },
+    });
+    return;
+  }
+
+  const login = await authService.login(credentials);
+
+  if (!login.ok) {
+    sendJson(res, 401, {
+      error: {
+        code: "unauthenticated",
+        message: "Invalid login or password.",
+      },
+    });
+    return;
+  }
+
+  res.setHeader("set-cookie", buildAuthCookie(config, login.session));
+  sendJson(res, 200, {
+    ok: true,
+    profile: login.session.profile,
+  });
+}
+
+async function handleAuthLogout(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: ServerConfig,
+  authService: AuthSessionService | undefined,
+) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only POST is supported for auth logout.",
+      },
+    });
+    return;
+  }
+
+  const sessionId = readAuthSessionId(req, config);
+
+  if (sessionId !== undefined) {
+    await authService?.deleteSession(sessionId);
+  }
+
+  res.setHeader("set-cookie", buildExpiredAuthCookie(config));
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleAccessProfile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: {
+    config: ServerConfig;
+    devSessions: Map<string, DevAccessSession>;
+    authService: AuthSessionService | undefined;
+  },
 ) {
   if (req.method !== "GET") {
     sendJson(res, 405, {
@@ -989,16 +1153,10 @@ function handleAccessProfile(
     return;
   }
 
-  const sessionId = readDevSessionId(req);
-  const session = sessionId === undefined ? undefined : devSessions.get(sessionId);
-
-  if (session === undefined) {
-    sendJson(res, 200, { profile: null });
-    return;
-  }
+  const access = await readRequestAccess(req, dependencies);
 
   sendJson(res, 200, {
-    profile: buildDevProfile(session.accountType, session.createdAt),
+    profile: access?.profile ?? null,
   });
 }
 
@@ -1058,6 +1216,203 @@ async function handleDevAccessSession(
   sendJson(res, 200, { ok: true, sessionId });
 }
 
+async function requireCapability(
+  req: IncomingMessage,
+  res: ServerResponse,
+  {
+    config,
+    devSessions,
+    authService,
+    capability,
+    message = "Required access is missing.",
+  }: {
+    config: ServerConfig;
+    devSessions: Map<string, DevAccessSession>;
+    authService: AuthSessionService | undefined;
+    capability: AccountCapability;
+    message?: string;
+  },
+) {
+  const access = await readRequestAccess(req, {
+    config,
+    devSessions,
+    authService,
+  });
+
+  if (access === undefined) {
+    sendJson(res, 401, {
+      error: {
+        code: "unauthenticated",
+        message: "Authentication is required.",
+      },
+    });
+    return undefined;
+  }
+
+  if (!hasProfileCapability(access.profile, capability)) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message,
+      },
+    });
+    return undefined;
+  }
+
+  return access;
+}
+
+async function readRequestAccess(
+  req: IncomingMessage,
+  {
+    config,
+    devSessions,
+    authService,
+  }: {
+    config: ServerConfig;
+    devSessions: Map<string, DevAccessSession>;
+    authService: AuthSessionService | undefined;
+  },
+): Promise<
+  | {
+      profile: ServerUserProfile;
+      source: "auth" | "dev";
+    }
+  | undefined
+> {
+  const authSessionId = readAuthSessionId(req, config);
+
+  if (authSessionId !== undefined) {
+    const session = await authService?.readSession(authSessionId);
+
+    if (session !== undefined) {
+      return {
+        profile: session.profile,
+        source: "auth",
+      };
+    }
+  }
+
+  if (!config.devAccessEnabled) {
+    return undefined;
+  }
+
+  const devSessionId = readDevSessionId(req);
+  const devSession =
+    devSessionId === undefined ? undefined : devSessions.get(devSessionId);
+
+  if (devSession === undefined) {
+    return undefined;
+  }
+
+  return {
+    profile: buildDevProfile(
+      devSession.accountType,
+      devSession.createdAt,
+    ) as ServerUserProfile,
+    source: "dev",
+  };
+}
+
+function applyAuthenticatedBusinessScope(
+  payload: unknown,
+  profile: ServerUserProfile,
+  config: ServerConfig,
+) {
+  if (config.appEnv !== "production") {
+    return payload;
+  }
+
+  const businessAccountId = readScopedBusinessAccountId(profile);
+
+  if (businessAccountId === undefined || !isRecord(payload)) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    businessAccountId,
+  };
+}
+
+function applyAuthenticatedFeedScope(
+  filters: DispatcherFeedFilters,
+  profile: ServerUserProfile,
+  config: ServerConfig,
+): DispatcherFeedFilters {
+  if (config.appEnv !== "production") {
+    return filters;
+  }
+
+  const businessAccountId = readScopedBusinessAccountId(profile);
+
+  if (businessAccountId === undefined) {
+    return filters;
+  }
+
+  return {
+    ...filters,
+    businessAccountId,
+  };
+}
+
+function readLoginCredentials(payload: unknown) {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const login = typeof payload.login === "string" ? payload.login.trim() : "";
+  const password =
+    typeof payload.password === "string" ? payload.password : "";
+
+  if (login.length === 0 || password.length === 0) {
+    return undefined;
+  }
+
+  return {
+    login,
+    password,
+  };
+}
+
+function buildAuthCookie(
+  config: ServerConfig,
+  session: AuthenticatedSession,
+) {
+  const maxAgeSeconds = Math.max(
+    1,
+    Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000),
+  );
+
+  return [
+    `${config.session.cookieName}=${session.sessionId}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAgeSeconds}`,
+    config.appEnv === "production" ? "Secure" : undefined,
+  ]
+    .filter((value): value is string => value !== undefined)
+    .join("; ");
+}
+
+function buildExpiredAuthCookie(config: ServerConfig) {
+  return [
+    `${config.session.cookieName}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+    config.appEnv === "production" ? "Secure" : undefined,
+  ]
+    .filter((value): value is string => value !== undefined)
+    .join("; ");
+}
+
+function readAuthSessionId(req: IncomingMessage, config: ServerConfig) {
+  return readCookie(req.headers.cookie, config.session.cookieName);
+}
+
 function sendJson(res: ServerResponse, statusCode: number, payload: JsonPayload) {
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
@@ -1095,14 +1450,20 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
   });
 }
 
-function readSubmittedByAccountId(req: IncomingMessage) {
-  const header = req.headers["x-smb-account-id"];
-  const value = Array.isArray(header) ? header[0] : header;
-  const trimmed = value?.trim();
+function readSubmittedByAccountId(
+  req: IncomingMessage,
+  profile: ServerUserProfile | undefined,
+  config: ServerConfig,
+) {
+  if (config.appEnv === "production" && profile !== undefined) {
+    return profile.activeAccess.accountId;
+  }
+
+  const trimmed = readHeader(req, accountHeader);
 
   return trimmed && trimmed.length > 0
     ? trimmed
-    : "dev-dispatcher-account";
+    : (profile?.activeAccess.accountId ?? "dev-dispatcher-account");
 }
 
 function readDispatcherFeedFilters(url: URL):

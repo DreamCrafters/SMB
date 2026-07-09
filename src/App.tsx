@@ -26,6 +26,12 @@ import {
   type DevAccessSessionResult,
 } from "./services/devAccessSession";
 import {
+  loginWithPassword,
+  logoutAuthSession,
+  type AuthSessionResult,
+} from "./services/authSession";
+import { isProductionAppEnv } from "./services/appEnvironment";
+import {
   requestAccessProfile,
   type AccessProfileLoadState,
 } from "./services/accessProfile";
@@ -208,6 +214,8 @@ const initialDispatcherFeedFilters: DispatcherFeedFilterState = {
 
 const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
 const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
+const isProductionApp = isProductionAppEnv();
+const isLocalTestFallbackEnabled = !isProductionApp;
 
 function buildNavigationItems(
   accountType: AccountType,
@@ -309,7 +317,7 @@ export default function App() {
     });
 
     requestAccessProfile({
-      localDevFallback: true,
+      localDevFallback: isLocalTestFallbackEnabled,
       signal: controller.signal,
     }).then((result) => {
       if (!controller.signal.aborted) {
@@ -349,7 +357,7 @@ export default function App() {
 
       requestDispatcherFeed({
         signal: currentController.signal,
-        localFallback: true,
+        localFallback: isLocalTestFallbackEnabled,
         limit: 500,
       }).then((result) => {
         if (isActive) {
@@ -388,7 +396,7 @@ export default function App() {
     });
 
     requestDispatcherForms({
-      localFallback: true,
+      localFallback: isLocalTestFallbackEnabled,
       signal: controller.signal,
     }).then((result) => {
       if (!controller.signal.aborted) {
@@ -418,8 +426,20 @@ export default function App() {
     });
 
     const result = await selectDevAccessSession(accountType, {
-      localDevFallback: true,
+      localDevFallback: isLocalTestFallbackEnabled,
     });
+    handleSessionResult(result);
+  }
+
+  async function handlePasswordLogin(credentials: {
+    login: string;
+    password: string;
+  }) {
+    setSessionRequest({
+      status: "loading",
+    });
+
+    const result = await loginWithPassword(credentials);
     handleSessionResult(result);
   }
 
@@ -428,13 +448,15 @@ export default function App() {
       status: "loading",
     });
 
-    const result = await clearDevAccessSession({
-      localDevFallback: true,
-    });
+    const result = isProductionApp
+      ? await logoutAuthSession()
+      : await clearDevAccessSession({
+          localDevFallback: isLocalTestFallbackEnabled,
+        });
     handleSessionResult(result);
   }
 
-  function handleSessionResult(result: DevAccessSessionResult) {
+  function handleSessionResult(result: DevAccessSessionResult | AuthSessionResult) {
     if (result.status === "ready") {
       setSessionRequest(initialSessionRequestState);
       setRequestVersion((version) => version + 1);
@@ -574,7 +596,7 @@ export default function App() {
           items: equipmentReportPayloads,
         },
         {
-          localFallback: true,
+          localFallback: isLocalTestFallbackEnabled,
         },
       );
 
@@ -618,7 +640,7 @@ export default function App() {
         payload,
       },
       {
-        localFallback: true,
+        localFallback: isLocalTestFallbackEnabled,
       },
     );
 
@@ -650,6 +672,8 @@ export default function App() {
         sessionRequest={sessionRequest}
         onRetry={handleRetryProfile}
         onSelectAccount={handleSelectAccount}
+        onLogin={handlePasswordLogin}
+        mode={isProductionApp ? "production" : "test"}
       />
     );
   }
@@ -762,12 +786,18 @@ function AuthScreen({
   sessionRequest,
   onRetry,
   onSelectAccount,
+  onLogin,
+  mode,
 }: {
   accessProfile: AccessProfileLoadState;
   sessionRequest: SessionRequestState;
   onRetry: () => void;
   onSelectAccount: (accountType: AccountType) => void;
+  onLogin: (credentials: { login: string; password: string }) => void;
+  mode: "test" | "production";
 }) {
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
   const isBusy =
     accessProfile.status === "loading" || sessionRequest.status === "loading";
   const statusMessage =
@@ -783,7 +813,22 @@ function AuthScreen({
               accessProfile.message,
               "Не удалось загрузить профиль.",
             )
-          : "Выберите роль для входа.";
+          : mode === "production"
+            ? "Введите логин и пароль."
+            : "Выберите роль для входа.";
+
+  function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (isBusy) {
+      return;
+    }
+
+    onLogin({
+      login,
+      password,
+    });
+  }
 
   return (
     <main className="auth-shell">
@@ -793,31 +838,69 @@ function AuthScreen({
         </div>
         <div className="auth-copy">
           <p className="eyebrow">access boundary</p>
-          <h1 id="auth-title">{shellCopy.authTitle}</h1>
-          <p>{shellCopy.authLead}</p>
+          <h1 id="auth-title">
+            {mode === "production" ? "Вход в SMB Monitor" : shellCopy.authTitle}
+          </h1>
+          <p>
+            {mode === "production"
+              ? "Войдите в рабочий аккаунт."
+              : shellCopy.authLead}
+          </p>
         </div>
 
-        <div className="auth-options" aria-label="Выбор типа аккаунта">
-          {authOptions.map((option) => {
-            const isSelecting =
-              sessionRequest.status === "loading" &&
-              sessionRequest.accountType === option.accountType;
-
-            return (
-              <button
-                className={`auth-option auth-option-${option.accountType}`}
-                type="button"
+        {mode === "production" ? (
+          <form className="auth-login-form" onSubmit={handleLoginSubmit}>
+            <label>
+              <span>Логин</span>
+              <input
+                autoComplete="username"
                 disabled={isBusy}
-                key={option.accountType}
-                onClick={() => onSelectAccount(option.accountType)}
-              >
-                <span>{option.scope}</span>
-                <strong>{option.label}</strong>
-                <small>{isSelecting ? "Входим..." : option.description}</small>
-              </button>
-            );
-          })}
-        </div>
+                name="login"
+                onChange={(event) => setLogin(event.target.value)}
+                required
+                type="text"
+                value={login}
+              />
+            </label>
+            <label>
+              <span>Пароль</span>
+              <input
+                autoComplete="current-password"
+                disabled={isBusy}
+                name="password"
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                type="password"
+                value={password}
+              />
+            </label>
+            <button className="auth-login-button" disabled={isBusy} type="submit">
+              {sessionRequest.status === "loading" ? "Входим..." : "Войти"}
+            </button>
+          </form>
+        ) : (
+          <div className="auth-options" aria-label="Выбор типа аккаунта">
+            {authOptions.map((option) => {
+              const isSelecting =
+                sessionRequest.status === "loading" &&
+                sessionRequest.accountType === option.accountType;
+
+              return (
+                <button
+                  className={`auth-option auth-option-${option.accountType}`}
+                  type="button"
+                  disabled={isBusy}
+                  key={option.accountType}
+                  onClick={() => onSelectAccount(option.accountType)}
+                >
+                  <span>{option.scope}</span>
+                  <strong>{option.label}</strong>
+                  <small>{isSelecting ? "Входим..." : option.description}</small>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className={`auth-status auth-status-${accessProfile.status}`}>
           <span

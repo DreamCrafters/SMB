@@ -173,6 +173,35 @@ test("selectDevAccessSession creates a client-local session when the local dev e
   );
 });
 
+test("selectDevAccessSession does not use client-local fallback when disabled", async () => {
+  const storage = createMemoryStorage();
+
+  globalThis.window = {
+    sessionStorage: storage,
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "The page could not be found",
+        },
+      }),
+      {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+  const result = await selectDevAccessSession("dispatcher", {
+    endpoint: "/api/dev/access-session",
+    localDevFallback: false,
+  });
+
+  assert.equal(result.status, "error");
+  assert.equal(result.statusCode, 404);
+  assert.equal(storage.getItem("smb.localDevAccessSession.v1"), null);
+});
+
 test("clearDevAccessSession sends and clears stored dev session id", async () => {
   let request;
   let storedSessionId = "dev-session-id";

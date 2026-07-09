@@ -5,13 +5,23 @@ loadDotenv({
 });
 
 export type ServerConfig = {
+  appEnv: SmbAppEnv;
   port: number;
   databaseUrl: string;
   corsOrigins: string[];
   runMigrationsOnStart: boolean;
+  devAccessEnabled: boolean;
+  session: SessionConfig;
   googleSheetsReference: GoogleSheetsReferenceConfig;
   emailNotifications: EmailNotificationConfig;
   maxNotifications: MaxNotificationConfig;
+};
+
+export type SmbAppEnv = "test" | "production";
+
+export type SessionConfig = {
+  cookieName: string;
+  ttlHours: number;
 };
 
 export type GoogleSheetsReferenceConfig = {
@@ -75,13 +85,20 @@ const defaultMaxApiBaseUrl = "https://platform-api2.max.ru";
 const defaultMaxSubjectPrefix = "SMB Monitor";
 
 export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const appEnv = readAppEnv(env.SMB_APP_ENV);
   const databaseUrl = readRequired(env, "DATABASE_URL");
 
   return {
+    appEnv,
     port: readPort(env.PORT),
     databaseUrl,
     corsOrigins: readList(env.CORS_ORIGIN),
     runMigrationsOnStart: env.RUN_MIGRATIONS_ON_START === "true",
+    devAccessEnabled: readDevAccessEnabled(env.DEV_ACCESS_ENABLED, appEnv),
+    session: {
+      cookieName: readCookieName(env.SESSION_COOKIE_NAME, appEnv),
+      ttlHours: readSessionTtlHours(env.SESSION_TTL_HOURS),
+    },
     googleSheetsReference: {
       url:
         readOptional(env.GOOGLE_SHEETS_REFERENCE_URL) ??
@@ -118,6 +135,77 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     emailNotifications: readEmailNotificationConfig(env),
     maxNotifications: readMaxNotificationConfig(env),
   };
+}
+
+function readAppEnv(value: string | undefined): SmbAppEnv {
+  const normalized = value?.trim().toLowerCase();
+
+  if (normalized === undefined || normalized.length === 0) {
+    return "test";
+  }
+
+  if (normalized === "test" || normalized === "production") {
+    return normalized;
+  }
+
+  throw new Error("SMB_APP_ENV must be either test or production.");
+}
+
+function readDevAccessEnabled(
+  value: string | undefined,
+  appEnv: SmbAppEnv,
+) {
+  const normalized = value?.trim().toLowerCase();
+
+  if (appEnv === "production") {
+    if (normalized === "true") {
+      throw new Error("DEV_ACCESS_ENABLED must not be true in production.");
+    }
+
+    return false;
+  }
+
+  if (normalized === undefined || normalized.length === 0) {
+    return true;
+  }
+
+  if (normalized === "true") {
+    return true;
+  }
+
+  if (normalized === "false") {
+    return false;
+  }
+
+  throw new Error("DEV_ACCESS_ENABLED must be true or false.");
+}
+
+function readCookieName(value: string | undefined, appEnv: SmbAppEnv) {
+  const fallback =
+    appEnv === "production" ? "smb_session" : "smb_test_session";
+  const normalized = readOptional(value) ?? fallback;
+
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(normalized)) {
+    throw new Error(
+      "SESSION_COOKIE_NAME must contain only letters, numbers, underscores or dashes.",
+    );
+  }
+
+  return normalized;
+}
+
+function readSessionTtlHours(value: string | undefined) {
+  if (value === undefined || value.trim().length === 0) {
+    return 12;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 720) {
+    throw new Error("SESSION_TTL_HOURS must be an integer from 1 to 720.");
+  }
+
+  return parsed;
 }
 
 function readRequired(env: NodeJS.ProcessEnv, key: string) {

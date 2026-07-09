@@ -101,6 +101,88 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "004_auth_users_sessions_accesses",
+    statements: [
+      `
+      create table if not exists business_accounts (
+        id varchar(120) not null primary key,
+        display_name varchar(255) not null,
+        status varchar(40) not null default 'active',
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists departments (
+        id varchar(120) not null primary key,
+        business_account_id varchar(120) not null,
+        display_name varchar(255) not null,
+        structure_mode varchar(40) not null default 'current',
+        parent_department_id varchar(120) null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        key idx_departments_business (business_account_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists app_users (
+        id char(36) not null primary key,
+        login varchar(190) not null,
+        display_name varchar(255) not null,
+        status varchar(40) not null default 'active',
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        unique key uniq_app_users_login (login)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists auth_password_credentials (
+        user_id char(36) not null primary key,
+        password_hash varchar(512) not null,
+        password_updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists account_accesses (
+        id char(36) not null primary key,
+        user_id char(36) not null,
+        account_type varchar(40) not null,
+        display_name varchar(255) not null,
+        scope_kind varchar(40) not null,
+        business_account_id varchar(120) null,
+        department_id varchar(120) null,
+        capabilities json not null,
+        is_active tinyint(1) not null default 1,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        key idx_account_accesses_user (user_id),
+        key idx_account_accesses_scope (
+          scope_kind,
+          business_account_id,
+          department_id
+        )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists auth_sessions (
+        id char(64) not null primary key,
+        user_id char(36) not null,
+        access_id char(36) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        last_seen_at timestamp(3) null,
+        expires_at timestamp(3) not null,
+        key idx_auth_sessions_user (user_id),
+        key idx_auth_sessions_expires_at (expires_at)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

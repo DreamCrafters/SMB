@@ -166,6 +166,51 @@ p {
   gap: var(--density-3);
 }
 
+.auth-login-form {
+  display: grid;
+  gap: var(--density-3);
+  max-width: 420px;
+}
+
+.auth-login-form label {
+  display: grid;
+  gap: var(--density-1);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.auth-login-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  font: inherit;
+}
+
+.auth-login-form input:focus {
+  border-color: var(--blue-gray);
+  outline: 2px solid rgba(81, 106, 119, 0.18);
+}
+
+.auth-login-button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--nav-strong);
+  border-radius: var(--radius);
+  color: #ffffff;
+  background: var(--nav);
+  font-weight: 900;
+}
+
+.auth-login-button:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
 .auth-option {
   display: grid;
   gap: var(--density-2);
