@@ -4279,6 +4279,26 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   );
 }
 
+function CopyIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </svg>
+  );
+}
+
 function AdminAccountPasswordCell({
   revealedPassword,
   isResetting,
@@ -4294,7 +4314,12 @@ function AdminAccountPasswordCell({
   if (revealedPassword === undefined) {
     return (
       <div className="admin-accounts-password-cell">
-        <span className="admin-accounts-password-hidden">Скрыт</span>
+        <span
+          className="admin-accounts-password-hidden"
+          title="Сервер хранит только хеш пароля — сам пароль нигде не сохранён и его нельзя показать или скопировать. Нажмите «Сбросить», чтобы задать новый пароль — он появится здесь и будет доступен для копирования."
+        >
+          Скрыт
+        </span>
         <button
           className="secondary-button"
           type="button"
@@ -4332,8 +4357,14 @@ function AdminAccountPasswordCell({
       >
         {isVisible ? "Скрыть" : "Показать"}
       </button>
-      <button className="secondary-button" type="button" onClick={handleCopy}>
-        {didCopy ? "Скопировано ✓" : "Копировать"}
+      <button
+        className="secondary-button admin-accounts-copy-button"
+        type="button"
+        title="Скопировать пароль"
+        onClick={handleCopy}
+      >
+        <CopyIcon />
+        {didCopy ? "Скопировано" : "Копировать"}
       </button>
     </div>
   );

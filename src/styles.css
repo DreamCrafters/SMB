@@ -1373,6 +1373,12 @@ p {
   font-size: 12px;
 }
 
+.admin-accounts-copy-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .admin-accounts-password-hidden {
   color: var(--muted);
   font-size: 11px;
