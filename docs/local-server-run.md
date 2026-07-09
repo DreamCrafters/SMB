@@ -48,6 +48,18 @@ SESSION_TTL_HOURS=12
 `/api/dev/access-session`, не использует клиентский fallback и проверяет
 dispatcher/admin действия по серверной session.
 
+Для локальной проверки двух frontend-сборок можно использовать mode-файлы:
+
+```bash
+cp .env.test.example .env.test
+cp .env.production.example .env.production
+npm run build:web:test
+npm run build:web:production
+```
+
+Vite читает `.env.test` при `--mode test` и `.env.production` при
+`--mode production`. Это тот же механизм, который используется для Jino deploy.
+
 ## Локальный Docker для БД
 
 Запустить Docker Desktop:
@@ -128,6 +140,13 @@ npm --workspace server run auth:create-user
 ```
 
 Пароль не коммитить и не выводить в ответы/логи.
+
+Backend-команды можно запускать с явным env-файлом, чтобы не перезаписывать
+`server/.env`:
+
+```bash
+SMB_SERVER_ENV_FILE=server/.env.production npm --workspace server run db:migrate
+```
 
 ## Остановка
 

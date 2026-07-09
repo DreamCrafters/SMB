@@ -1,7 +1,13 @@
+import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 
+const serverEnvFile = process.env.SMB_SERVER_ENV_FILE?.trim();
+
 loadDotenv({
-  path: new URL("../../.env", import.meta.url),
+  path:
+    serverEnvFile === undefined || serverEnvFile.length === 0
+      ? new URL("../../.env", import.meta.url)
+      : resolve(serverEnvFile),
 });
 
 export type ServerConfig = {

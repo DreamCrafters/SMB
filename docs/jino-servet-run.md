@@ -1,39 +1,58 @@
-# Jino deploy: test и production
+# Jino deploy: одна ветка, test и production
 
-## Среды
+## Топология
 
-- `smb.aonmou.ru` — production, ветка `main` или `Production`, `VITE_SMB_APP_ENV=production`, `SMB_APP_ENV=production`, отдельная production MariaDB/MySQL.
-- `test.smb.aonmou.ru` — test/staging, ветка `Dev`, `VITE_SMB_APP_ENV=test`, `SMB_APP_ENV=test`, отдельная test MariaDB/MySQL или текущая тестовая БД.
+- `smb.aonmou.ru` — production: `VITE_SMB_APP_ENV=production`, `SMB_APP_ENV=production`, отдельная production MariaDB/MySQL.
+- `test.smb.aonmou.ru` — test/staging: `VITE_SMB_APP_ENV=test`, `SMB_APP_ENV=test`, отдельная test MariaDB/MySQL или текущая тестовая БД.
+- Оба домена могут деплоиться из одной ветки, по умолчанию `main`.
+- Frontend собирается два раза из одного кода: `npm run build:web:test` и `npm run build:web:production`.
+- Backend runtime должен быть раздельным для каждого домена, потому что у test и production разные `server/.env`, `DATABASE_URL`, cookie и CORS.
 - Production не должен включать `DEV_ACCESS_ENABLED=true`; `/api/dev/access-session` в production отключён.
 
-## Production deploy
+## Каталоги на Jino
+
+Production:
+
+```text
+~/domains/smb.aonmou.ru/app
+~/domains/smb.aonmou.ru/public_html
+~/domains/smb.aonmou.ru/app.js
+```
+
+Test:
+
+```text
+~/domains/test.smb.aonmou.ru/app
+~/domains/test.smb.aonmou.ru/public_html
+~/domains/test.smb.aonmou.ru/app.js
+```
+
+Оба каталога `app` — checkout одного и того же репозитория и одной ветки.
+Разница хранится только в непубличных env-файлах.
+
+## Первый setup env
+
+Production frontend env:
 
 ```bash
 cd ~/domains/smb.aonmou.ru/app
-
-git pull --ff-only origin main
-
-npm config set registry https://registry.npmmirror.com/
-npm config set replace-registry-host always
-npm ci --no-audit --no-fund --prefer-online
-
-grep -E 'SMB_APP_ENV|DEV_ACCESS_ENABLED|SESSION_COOKIE_NAME|EMAIL_NOTIFICATIONS_ENABLED|SMTP_HOST|MAX_NOTIFICATIONS_ENABLED|MAX_API_BASE_URL|MAX_RECIPIENT_ID_TYPE|MAX_CA_CERT_FILE|GOOGLE_SHEETS_NOTIFICATION_EMAILS_COLUMN|GOOGLE_SHEETS_MAX_USER_IDS_COLUMN' server/.env
-
-npm --workspace server run db:migrate
-npm run build
-
-rm -rf ../public_html/*
-cp -R dist/. ../public_html/
-
-printf 'import("./app/server/dist/index.js");\n' > ../app.js
-mkdir -p ../tmp
-touch ../tmp/restart.txt
-
-curl -i https://smb.aonmou.ru/
-curl -i https://smb.aonmou.ru/health
+cp .env.production.example .env.production
 ```
 
-Production `server/.env` должен содержать:
+Production `.env.production`:
+
+```text
+VITE_SMB_APP_ENV=production
+VITE_SMB_REMOTE_API_URL=https://smb.aonmou.ru
+```
+
+Production backend env:
+
+```bash
+cp server/.env.production.example server/.env
+```
+
+Production `server/.env` должен содержать реальные секреты и production БД:
 
 ```text
 SMB_APP_ENV=production
@@ -43,39 +62,27 @@ CORS_ORIGIN=https://smb.aonmou.ru
 DATABASE_URL=...
 ```
 
-Production frontend `.env` перед сборкой должен содержать:
-
-```text
-VITE_SMB_APP_ENV=production
-VITE_SMB_REMOTE_API_URL=https://smb.aonmou.ru
-```
-
-## Test deploy
+Test frontend env:
 
 ```bash
 cd ~/domains/test.smb.aonmou.ru/app
-
-git pull --ff-only origin Dev
-
-npm config set registry https://registry.npmmirror.com/
-npm config set replace-registry-host always
-npm ci --no-audit --no-fund --prefer-online
-
-npm --workspace server run db:migrate
-npm run build
-
-rm -rf ../public_html/*
-cp -R dist/. ../public_html/
-
-printf 'import("./app/server/dist/index.js");\n' > ../app.js
-mkdir -p ../tmp
-touch ../tmp/restart.txt
-
-curl -i https://test.smb.aonmou.ru/
-curl -i https://test.smb.aonmou.ru/health
+cp .env.test.example .env.test
 ```
 
-Test `server/.env` должен содержать:
+Test `.env.test`:
+
+```text
+VITE_SMB_APP_ENV=test
+VITE_SMB_REMOTE_API_URL=https://test.smb.aonmou.ru
+```
+
+Test backend env:
+
+```bash
+cp server/.env.test.example server/.env
+```
+
+Test `server/.env` должен содержать test БД:
 
 ```text
 SMB_APP_ENV=test
@@ -85,18 +92,79 @@ CORS_ORIGIN=https://test.smb.aonmou.ru
 DATABASE_URL=...
 ```
 
-Test frontend `.env` перед сборкой должен содержать:
+Секреты, пароли, service account JSON и реальные значения `.env` не коммитить.
 
-```text
-VITE_SMB_APP_ENV=test
-VITE_SMB_REMOTE_API_URL=https://test.smb.aonmou.ru
+## Один deploy для двух сред
+
+Запускать из production checkout после того, как в репозитории уже есть
+`scripts/deploy-jino-dual-env.sh`:
+
+```bash
+cd ~/domains/smb.aonmou.ru/app
+git pull --ff-only origin main
+SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
 ```
+
+Скрипт делает для `test` и `production`:
+
+- проверяет нужные `.env.test` / `.env.production` и `server/.env`;
+- подтягивает одну и ту же ветку;
+- устанавливает зависимости через `npm ci`;
+- запускает typecheck;
+- применяет миграции с env конкретной среды;
+- собирает backend;
+- собирает frontend в нужном Vite mode;
+- копирует `dist` в `public_html`;
+- обновляет `app.js` и трогает `tmp/restart.txt`.
+
+Опционально:
+
+```bash
+SMB_RUN_TESTS=true SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
+SMB_SKIP_NPM_CI=true SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
+SMB_SKIP_CHECKS=true SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
+```
+
+Не использовать `SMB_SKIP_CHECKS=true` для обычного production deploy.
+
+## Ручная проверка отдельных frontend-сборок
+
+В test checkout:
+
+```bash
+npm run build:web:test
+```
+
+В production checkout:
+
+```bash
+npm run build:web:production
+```
+
+Vite сам прочитает `.env.test` или `.env.production` по mode.
+
+## Smoke после deploy
+
+```bash
+curl -i https://test.smb.aonmou.ru/
+curl -i https://test.smb.aonmou.ru/health
+curl -i https://smb.aonmou.ru/
+curl -i https://smb.aonmou.ru/health
+```
+
+Ожидаемое поведение:
+
+- `https://test.smb.aonmou.ru` показывает тестовый выбор роли.
+- `https://smb.aonmou.ru` требует login/password.
+- Production `/api/dev/access-session` возвращает отказ и не создаёт dev-сессию.
 
 ## Первый production пользователь
 
-После миграций создать или обновить пользователя через env, не выводя пароль в логи:
+После production миграций создать или обновить пользователя через env, не выводя пароль в логи:
 
 ```bash
+cd ~/domains/smb.aonmou.ru/app
+
 SMB_AUTH_LOGIN=admin \
 SMB_AUTH_PASSWORD='replace-with-secret' \
 SMB_AUTH_DISPLAY_NAME='Администратор' \
