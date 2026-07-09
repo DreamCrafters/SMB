@@ -16,6 +16,19 @@ export type EquipmentSummaryRow = {
   }[];
 };
 
+export type EquipmentDetailRow = {
+  reportDate: string;
+  productionTons: number;
+  downtimeHours: number;
+  downtimeReasons: {
+    reason: string;
+    hours: number;
+  }[];
+  notes: string[];
+  receivedAt: string;
+  submissionCount: number;
+};
+
 export type IncidentSummaryRow = {
   incidentNumber: string;
   status: "open" | "closed";
@@ -226,6 +239,104 @@ export function buildEquipmentSummaryRows(
         .sort((left, right) => right.hours - left.hours),
     }))
     .sort((left, right) => left.equipment.localeCompare(right.equipment, "ru"));
+}
+
+export function buildEquipmentDetailRows(
+  submissions: DispatcherSubmission[],
+  equipment: string,
+  range: DateRange,
+): EquipmentDetailRow[] {
+  const requestedEquipment = equipment.trim().toLocaleLowerCase("ru-RU");
+  const rowsByDate = new Map<
+    string,
+    {
+      productionTons: number;
+      downtimeHours: number;
+      downtimeReasons: Map<string, number>;
+      notes: Set<string>;
+      latestSubmission: DispatcherSubmission;
+      submissionCount: number;
+    }
+  >();
+
+  if (requestedEquipment.length === 0) {
+    return [];
+  }
+
+  for (const submission of submissions) {
+    if (submission.formId !== "equipment") {
+      continue;
+    }
+
+    const reportDate = readPayloadDate(submission.payload.reportDate);
+
+    if (reportDate === undefined || !isDateInRange(reportDate, range)) {
+      continue;
+    }
+
+    const submissionEquipment = submission.payload.equipment?.trim();
+
+    if (
+      submissionEquipment === undefined ||
+      submissionEquipment.toLocaleLowerCase("ru-RU") !== requestedEquipment
+    ) {
+      continue;
+    }
+
+    const row =
+      rowsByDate.get(reportDate) ??
+      {
+        productionTons: 0,
+        downtimeHours: 0,
+        downtimeReasons: new Map<string, number>(),
+        notes: new Set<string>(),
+        latestSubmission: submission,
+        submissionCount: 0,
+      };
+    const productionTons = readNumber(submission.payload.productionTons) ?? 0;
+    const downtimeHours = readNumber(submission.payload.downtimeHours) ?? 0;
+    const downtimeReason = submission.payload.downtimeReason?.trim();
+    const note = submission.payload.note?.trim();
+
+    row.productionTons += productionTons;
+    row.downtimeHours += downtimeHours;
+    row.submissionCount += 1;
+
+    if (
+      downtimeReason !== undefined &&
+      downtimeReason.length > 0 &&
+      downtimeHours > 0
+    ) {
+      row.downtimeReasons.set(
+        downtimeReason,
+        (row.downtimeReasons.get(downtimeReason) ?? 0) + downtimeHours,
+      );
+    }
+
+    if (note !== undefined && note.length > 0) {
+      row.notes.add(note);
+    }
+
+    if (compareSubmissionsAscending(row.latestSubmission, submission) <= 0) {
+      row.latestSubmission = submission;
+    }
+
+    rowsByDate.set(reportDate, row);
+  }
+
+  return [...rowsByDate.entries()]
+    .map(([reportDate, row]) => ({
+      reportDate,
+      productionTons: row.productionTons,
+      downtimeHours: row.downtimeHours,
+      downtimeReasons: [...row.downtimeReasons.entries()]
+        .map(([reason, hours]) => ({ reason, hours }))
+        .sort((left, right) => right.hours - left.hours),
+      notes: [...row.notes],
+      receivedAt: row.latestSubmission.receivedAt,
+      submissionCount: row.submissionCount,
+    }))
+    .sort((left, right) => left.reportDate.localeCompare(right.reportDate));
 }
 
 function buildOwnerEquipmentOverview(

@@ -79,6 +79,7 @@ import {
   type AdminDatabaseTablesResult,
 } from "./services/adminDatabase";
 import {
+  buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
   buildOwnerDispatcherOverview,
@@ -2773,10 +2774,11 @@ function DispatcherFeedPanel({
       : filters.dateFrom.length > 0 || filters.dateTo.length > 0;
   const isLocalTestMode =
     dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
-  const equipmentRows = buildEquipmentSummaryRows(submissions, {
+  const equipmentDateRange = {
     dateFrom: filters.dateFrom.length > 0 ? filters.dateFrom : undefined,
     dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
-  });
+  };
+  const equipmentRows = buildEquipmentSummaryRows(submissions, equipmentDateRange);
   const incidentRows = buildIncidentSummaryRows(submissions, {
     dateFrom: filters.dateFrom.length > 0 ? filters.dateFrom : undefined,
     dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
@@ -2883,7 +2885,11 @@ function DispatcherFeedPanel({
         </p>
       ) : null}
       {filters.group === "equipment" ? (
-        <EquipmentSummaryTable rows={equipmentRows} />
+        <EquipmentSummaryTable
+          range={equipmentDateRange}
+          rows={equipmentRows}
+          submissions={submissions}
+        />
       ) : null}
       {filters.group === "incidents" ? (
         <IncidentSummaryTable rows={incidentRows} />
@@ -2895,39 +2901,218 @@ function DispatcherFeedPanel({
   );
 }
 
-function EquipmentSummaryTable({ rows }: { rows: ReturnType<typeof buildEquipmentSummaryRows> }) {
+function EquipmentSummaryTable({
+  range,
+  rows,
+  submissions,
+}: {
+  range: Parameters<typeof buildEquipmentSummaryRows>[1];
+  rows: ReturnType<typeof buildEquipmentSummaryRows>;
+  submissions: DispatcherSubmission[];
+}) {
+  const [detailEquipment, setDetailEquipment] = useState<string>();
+  const detailSummary =
+    detailEquipment === undefined
+      ? undefined
+      : rows.find((row) => row.equipment === detailEquipment);
+  const detailRows =
+    detailEquipment === undefined
+      ? []
+      : buildEquipmentDetailRows(submissions, detailEquipment, range);
+
+  useEffect(() => {
+    if (
+      detailEquipment !== undefined &&
+      !rows.some((row) => row.equipment === detailEquipment)
+    ) {
+      setDetailEquipment(undefined);
+    }
+  }, [detailEquipment, rows]);
+
+  useEffect(() => {
+    if (detailEquipment === undefined) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setDetailEquipment(undefined);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [detailEquipment]);
+
   if (rows.length === 0) {
     return <p className="dispatcher-status-line">Нет данных по оборудованию.</p>;
   }
 
   return (
-    <div className="dispatcher-feed-table" role="table">
-      <div className="dispatcher-feed-row dispatcher-feed-row-equipment dispatcher-feed-head" role="row">
-        <span role="columnheader">Оборудование</span>
-        <span role="columnheader">Выработка</span>
-        <span role="columnheader">Простой</span>
-        <span role="columnheader">Причины простоя</span>
+    <>
+      <div className="dispatcher-feed-table" role="table">
+        <div className="dispatcher-feed-row dispatcher-feed-row-equipment dispatcher-feed-head" role="row">
+          <span role="columnheader">Оборудование</span>
+          <span role="columnheader">Выработка</span>
+          <span role="columnheader">Простой</span>
+          <span role="columnheader">Причины простоя</span>
+        </div>
+        {rows.map((row) => (
+          <div
+            className="dispatcher-feed-row dispatcher-feed-row-equipment"
+            role="row"
+            key={row.equipment}
+          >
+            <span role="cell">
+              <button
+                className="equipment-detail-trigger"
+                type="button"
+                aria-haspopup="dialog"
+                onClick={() => setDetailEquipment(row.equipment)}
+              >
+                {row.equipment}
+              </button>
+            </span>
+            <span role="cell">{formatNumber(row.productionTons)} т</span>
+            <span role="cell">{formatNumber(row.downtimeHours)} ч</span>
+            <span role="cell">{formatDowntimeReasons(row.downtimeReasons)}</span>
+          </div>
+        ))}
       </div>
-      {rows.map((row) => (
-        <div
-          className="dispatcher-feed-row dispatcher-feed-row-equipment"
-          role="row"
-          key={row.equipment}
-        >
-          <span role="cell">{row.equipment}</span>
-          <span role="cell">{formatNumber(row.productionTons)} т</span>
-          <span role="cell">{formatNumber(row.downtimeHours)} ч</span>
-          <span role="cell">
-            {row.downtimeReasons.length === 0
-              ? "Нет отмеченных причин"
-              : row.downtimeReasons
-                  .map((item) => `${item.reason}: ${formatNumber(item.hours)} ч`)
-                  .join(" · ")}
+
+      {detailEquipment !== undefined && detailSummary !== undefined ? (
+        <EquipmentDetailModal
+          equipment={detailEquipment}
+          range={range}
+          rows={detailRows}
+          summary={detailSummary}
+          onClose={() => setDetailEquipment(undefined)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function EquipmentDetailModal({
+  equipment,
+  range,
+  rows,
+  summary,
+  onClose,
+}: {
+  equipment: string;
+  range: Parameters<typeof buildEquipmentSummaryRows>[1];
+  rows: ReturnType<typeof buildEquipmentDetailRows>;
+  summary: ReturnType<typeof buildEquipmentSummaryRows>[number];
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="admin-db-modal-backdrop equipment-detail-modal-backdrop"
+      role="presentation"
+      onClick={onClose}
+    >
+      <section
+        className="equipment-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="equipment-detail-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="equipment-detail-header">
+          <div>
+            <strong id="equipment-detail-title">{equipment}</strong>
+            <small>{formatEquipmentDetailPeriod(range)}</small>
+          </div>
+          <button className="secondary-button" type="button" onClick={onClose}>
+            Закрыть
+          </button>
+        </div>
+
+        <div className="equipment-detail-totals" aria-label="Итоги оборудования">
+          <span>
+            <strong>{formatNumber(summary.productionTons)} т</strong>
+            <small>Выработка</small>
+          </span>
+          <span>
+            <strong>{formatNumber(summary.downtimeHours)} ч</strong>
+            <small>Простой</small>
+          </span>
+          <span>
+            <strong>{formatDowntimeReasons(summary.downtimeReasons)}</strong>
+            <small>Причины</small>
           </span>
         </div>
-      ))}
+
+        {rows.length === 0 ? (
+          <p className="dispatcher-status-line">
+            Нет дневных строк для выбранного оборудования.
+          </p>
+        ) : (
+          <div className="equipment-detail-table" role="table">
+            <div className="equipment-detail-row equipment-detail-head" role="row">
+              <span role="columnheader">Дата отчета</span>
+              <span role="columnheader">Выработка</span>
+              <span role="columnheader">Простой</span>
+              <span role="columnheader">Причины</span>
+              <span role="columnheader">Примечание</span>
+              <span role="columnheader">Обновлено</span>
+            </div>
+            {rows.map((row) => (
+              <div className="equipment-detail-row" role="row" key={row.reportDate}>
+                <span role="cell">
+                  <strong>{formatReportDateForDisplay(row.reportDate)}</strong>
+                  {row.submissionCount > 1 ? (
+                    <small>{row.submissionCount} записи</small>
+                  ) : null}
+                </span>
+                <span role="cell">{formatNumber(row.productionTons)} т</span>
+                <span role="cell">{formatNumber(row.downtimeHours)} ч</span>
+                <span role="cell">{formatDowntimeReasons(row.downtimeReasons)}</span>
+                <span role="cell">
+                  {row.notes.length === 0 ? "Нет" : row.notes.join(" · ")}
+                </span>
+                <span role="cell">{formatDateTime(row.receivedAt)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
+}
+
+function formatDowntimeReasons(
+  reasons: { reason: string; hours: number }[],
+) {
+  if (reasons.length === 0) {
+    return "Нет отмеченных причин";
+  }
+
+  return reasons
+    .map((item) => `${item.reason}: ${formatNumber(item.hours)} ч`)
+    .join(" · ");
+}
+
+function formatEquipmentDetailPeriod(
+  range: Parameters<typeof buildEquipmentSummaryRows>[1],
+) {
+  if (range.dateFrom !== undefined && range.dateTo !== undefined) {
+    return `Период: ${formatDateOnly(range.dateFrom)} - ${formatDateOnly(range.dateTo)}`;
+  }
+
+  if (range.dateFrom !== undefined) {
+    return `С даты: ${formatDateOnly(range.dateFrom)}`;
+  }
+
+  if (range.dateTo !== undefined) {
+    return `По дату: ${formatDateOnly(range.dateTo)}`;
+  }
+
+  return "Все доступные даты";
 }
 
 function IncidentSummaryTable({ rows }: { rows: ReturnType<typeof buildIncidentSummaryRows> }) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
   buildOwnerDispatcherOverview,
@@ -41,6 +42,89 @@ test("buildEquipmentSummaryRows aggregates production, downtime, and reasons", (
     {
       reason: "Резерв",
       hours: 3,
+    },
+  ]);
+});
+
+test("buildEquipmentDetailRows lists selected equipment rows by report date", () => {
+  const rows = buildEquipmentDetailRows(
+    [
+      buildSubmission(
+        "press-2-first",
+        "equipment",
+        {
+          reportDate: "01.07.2026",
+          equipment: "Пресс №2",
+          productionTons: "10",
+          downtimeHours: "2",
+          downtimeReason: "Резерв",
+          note: "Утро",
+        },
+        "2026-07-01T08:00:00.000Z",
+      ),
+      buildSubmission(
+        "press-2-second",
+        "equipment",
+        {
+          reportDate: "01.07.2026",
+          equipment: "Пресс №2",
+          productionTons: "5",
+          downtimeHours: "1",
+          downtimeReason: "Резерв",
+          note: "Вечер",
+        },
+        "2026-07-01T20:00:00.000Z",
+      ),
+      buildSubmission(
+        "press-2-next-day",
+        "equipment",
+        {
+          reportDate: "03.07.2026",
+          equipment: "Пресс №2",
+          productionTons: "7",
+          downtimeHours: "4",
+          downtimeReason: "Простой по мех, эл. части",
+        },
+        "2026-07-03T18:00:00.000Z",
+      ),
+      buildSubmission("press-1", "equipment", {
+        reportDate: "03.07.2026",
+        equipment: "Пресс №1",
+        productionTons: "99",
+      }),
+      buildSubmission("press-2-outside-period", "equipment", {
+        reportDate: "10.07.2026",
+        equipment: "Пресс №2",
+        productionTons: "99",
+      }),
+    ],
+    "Пресс №2",
+    {
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-08",
+    },
+  );
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].reportDate, "2026-07-01");
+  assert.equal(rows[0].productionTons, 15);
+  assert.equal(rows[0].downtimeHours, 3);
+  assert.equal(rows[0].receivedAt, "2026-07-01T20:00:00.000Z");
+  assert.equal(rows[0].submissionCount, 2);
+  assert.deepEqual(rows[0].downtimeReasons, [
+    {
+      reason: "Резерв",
+      hours: 3,
+    },
+  ]);
+  assert.deepEqual(rows[0].notes, ["Утро", "Вечер"]);
+  assert.equal(rows[1].reportDate, "2026-07-03");
+  assert.equal(rows[1].productionTons, 7);
+  assert.equal(rows[1].downtimeHours, 4);
+  assert.deepEqual(rows[1].downtimeReasons, [
+    {
+      reason: "Простой по мех, эл. части",
+      hours: 4,
     },
   ]);
 });
