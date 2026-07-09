@@ -2174,11 +2174,11 @@ function DispatcherEquipmentFormBody({
           disabled={isSubmitting || !isEquipmentReportComplete}
           title={
             isEquipmentReportComplete
-              ? "Отправить дневной отчёт оборудования"
+              ? "Отправить отчет начальству"
               : `Осталось внести позиций: ${missingReportEquipmentCount}`
           }
         >
-          {isSubmitting ? "Отправка..." : "Отправить"}
+          {isSubmitting ? "Отправка..." : "Отправить отчет начальству"}
         </button>
         {visibleEquipmentStatus.length > 0 ? (
           <p
