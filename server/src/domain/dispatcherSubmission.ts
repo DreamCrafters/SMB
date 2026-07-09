@@ -15,6 +15,8 @@ export type DispatcherSubmissionStatus =
 
 export type DispatcherSubmissionPayload = Record<string, string>;
 
+const equipmentReserveDowntimeReason = "Резерв";
+
 export type DispatcherSubmissionDraft = {
   businessAccountId: string;
   formId: DispatcherFormId;
@@ -254,6 +256,16 @@ function applyDispatcherFormScriptRules(
     ) {
       errors.push(
         "equipment downtime reason is required when downtime hours are greater than zero.",
+      );
+    }
+
+    if (
+      downtimeReason === equipmentReserveDowntimeReason &&
+      downtimeHours !== undefined &&
+      downtimeHours !== 8
+    ) {
+      errors.push(
+        "equipment reserve downtime requires exactly 8 downtime hours.",
       );
     }
 

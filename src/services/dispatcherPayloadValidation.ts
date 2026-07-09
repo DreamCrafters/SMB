@@ -7,6 +7,8 @@ export const equipmentDowntimeReasonRequiresHoursMessage =
   "Укажите время простоя больше 0 часов, если выбрана причина простоя.";
 export const equipmentDowntimeHoursRequireReasonMessage =
   "Укажите причину простоя, если время простоя больше 0 часов.";
+export const equipmentReserveDowntimeRequiresEightHoursMessage =
+  "Если выбрана причина простоя Резерв, время простоя должно быть 8 часов.";
 export const equipmentDowntimeRequiresProductionMessage =
   "Если простой меньше 8 часов, выработка должна быть больше 0.";
 export const equipmentDowntimeMaxHoursMessage =
@@ -15,6 +17,8 @@ export const visitorExitRequiresEntryMessage =
   "Выберите посетителя, который вошёл и ещё не вышел.";
 export const incidentCloseRequiresOpenIncidentMessage =
   "Выберите незакрытый инцидент.";
+
+const equipmentReserveDowntimeReason = "Резерв";
 
 export function validateDispatcherPayloadForSubmit(
   form: DispatcherFormDefinition,
@@ -62,6 +66,14 @@ export function validateEquipmentPayloadForSubmit(
     downtimeReason.length === 0
   ) {
     return equipmentDowntimeHoursRequireReasonMessage;
+  }
+
+  if (
+    downtimeReason === equipmentReserveDowntimeReason &&
+    downtimeHours !== undefined &&
+    downtimeHours !== 8
+  ) {
+    return equipmentReserveDowntimeRequiresEightHoursMessage;
   }
 
   if (downtimeHours !== undefined && downtimeHours > 8) {

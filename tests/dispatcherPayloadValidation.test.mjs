@@ -5,6 +5,7 @@ import {
   equipmentDowntimeMaxHoursMessage,
   equipmentDowntimeReasonRequiresHoursMessage,
   equipmentDowntimeRequiresProductionMessage,
+  equipmentReserveDowntimeRequiresEightHoursMessage,
   incidentCloseRequiresOpenIncidentMessage,
   visitorExitRequiresEntryMessage,
   validateDispatcherPayloadForSubmit,
@@ -59,10 +60,31 @@ test("equipment payload validation requires downtime reason when hours are posit
   );
 });
 
-test("equipment payload validation requires production when downtime is under 8 hours", () => {
+test("equipment payload validation requires 8 hours when reserve reason is selected", () => {
   assert.equal(
     validateDispatcherPayloadForSubmit(equipmentForm, {
       downtimeReason: "Резерв",
+      downtimeHours: "7",
+      productionTons: "10",
+    }),
+    equipmentReserveDowntimeRequiresEightHoursMessage,
+  );
+});
+
+test("equipment payload validation accepts reserve downtime at exactly 8 hours", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(equipmentForm, {
+      downtimeReason: "Резерв",
+      downtimeHours: "8",
+    }),
+    undefined,
+  );
+});
+
+test("equipment payload validation requires production when downtime is under 8 hours", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(equipmentForm, {
+      downtimeReason: "Замена марки/формы",
       downtimeHours: "7",
       productionTons: "0",
     }),
@@ -73,7 +95,7 @@ test("equipment payload validation requires production when downtime is under 8 
 test("equipment payload validation accepts productive short downtime", () => {
   assert.equal(
     validateDispatcherPayloadForSubmit(equipmentForm, {
-      downtimeReason: "Резерв",
+      downtimeReason: "Замена марки/формы",
       downtimeHours: "7",
       productionTons: "1",
     }),
@@ -84,7 +106,7 @@ test("equipment payload validation accepts productive short downtime", () => {
 test("equipment payload validation rejects downtime over 8 hours", () => {
   assert.equal(
     validateDispatcherPayloadForSubmit(equipmentForm, {
-      downtimeReason: "Резерв",
+      downtimeReason: "Замена марки/формы",
       downtimeHours: "9",
       productionTons: "1",
     }),

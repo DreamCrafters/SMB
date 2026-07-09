@@ -140,7 +140,7 @@ test("validateDispatcherSubmissionDraft rejects downtime hours without reason", 
   }
 });
 
-test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without production", () => {
+test("validateDispatcherSubmissionDraft rejects reserve downtime under 8 hours", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",
     formId: "equipment",
@@ -148,6 +148,26 @@ test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without p
       reportDate: "2026-06-18",
       equipment: "Пресс №1",
       downtimeReason: "Резерв",
+      downtimeHours: "7",
+      productionTons: "10",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /reserve downtime/);
+  }
+});
+
+test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without production", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      downtimeReason: "Замена марки/формы",
       downtimeHours: "7",
     },
   });
@@ -166,9 +186,24 @@ test("validateDispatcherSubmissionDraft accepts productive downtime under 8 hour
     payload: {
       reportDate: "2026-06-18",
       equipment: "Пресс №1",
-      downtimeReason: "Резерв",
+      downtimeReason: "Замена марки/формы",
       downtimeHours: "7",
       productionTons: "1",
+    },
+  });
+
+  assert.equal(result.ok, true);
+});
+
+test("validateDispatcherSubmissionDraft accepts reserve downtime at exactly 8 hours", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "equipment",
+    payload: {
+      reportDate: "2026-06-18",
+      equipment: "Пресс №1",
+      downtimeReason: "Резерв",
+      downtimeHours: "8",
     },
   });
 
@@ -182,7 +217,7 @@ test("validateDispatcherSubmissionDraft rejects downtime over 8 hours", () => {
     payload: {
       reportDate: "2026-06-18",
       equipment: "Пресс №1",
-      downtimeReason: "Резерв",
+      downtimeReason: "Замена марки/формы",
       downtimeHours: "9",
       productionTons: "1",
     },
