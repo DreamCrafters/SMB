@@ -2,6 +2,7 @@
 set -euo pipefail
 
 DEPLOY_BRANCH="${SMB_DEPLOY_BRANCH:-main}"
+DEPLOY_TARGET="${SMB_DEPLOY_TARGET:-dual}"
 RUN_TESTS="${SMB_RUN_TESTS:-false}"
 SKIP_CHECKS="${SMB_SKIP_CHECKS:-false}"
 SKIP_NPM_CI="${SMB_SKIP_NPM_CI:-false}"
@@ -162,5 +163,18 @@ deploy_environment() {
   log "$label" "Done. Smoke check: curl -i https://$domain/ && curl -i https://$domain/health"
 }
 
-deploy_environment "test" "test" "$TEST_DOMAIN" "$TEST_ROOT" "$TEST_APP_DIR" "$TEST_PUBLIC_DIR"
-deploy_environment "production" "production" "$PROD_DOMAIN" "$PROD_ROOT" "$PROD_APP_DIR" "$PROD_PUBLIC_DIR"
+case "$DEPLOY_TARGET" in
+  test)
+    deploy_environment "test" "test" "$TEST_DOMAIN" "$TEST_ROOT" "$TEST_APP_DIR" "$TEST_PUBLIC_DIR"
+    ;;
+  production)
+    deploy_environment "production" "production" "$PROD_DOMAIN" "$PROD_ROOT" "$PROD_APP_DIR" "$PROD_PUBLIC_DIR"
+    ;;
+  dual)
+    deploy_environment "test" "test" "$TEST_DOMAIN" "$TEST_ROOT" "$TEST_APP_DIR" "$TEST_PUBLIC_DIR"
+    deploy_environment "production" "production" "$PROD_DOMAIN" "$PROD_ROOT" "$PROD_APP_DIR" "$PROD_PUBLIC_DIR"
+    ;;
+  *)
+    die "Unknown SMB_DEPLOY_TARGET: $DEPLOY_TARGET (expected test, production, or dual)"
+    ;;
+esac
