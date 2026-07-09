@@ -10,6 +10,7 @@ export type DispatcherEquipmentDraftStorage = Pick<
 >;
 
 type EquipmentDraftState = {
+  version: 2;
   lastEquipment?: string;
   draftsByReportDate: Record<
     string,
@@ -22,6 +23,7 @@ type EquipmentDraftState = {
 };
 
 const draftStorageKeyPrefix = "smb-monitor.dispatcher-equipment-drafts.v1";
+const equipmentDraftStateVersion = 2;
 const dateFieldNames = new Set(["reportDate", "reportMonth"]);
 
 export function readEquipmentOptions(form: DispatcherFormDefinition) {
@@ -400,11 +402,15 @@ function parseEquipmentDraftState(value: unknown): EquipmentDraftState {
     return createEmptyEquipmentDraftState();
   }
 
+  const isCurrentState = value.version === equipmentDraftStateVersion;
   const todayDateKey = readCurrentReportDateStorageKey();
   const draftsByReportDate = readDraftsByReportDate(value.draftsByReportDate);
-  const reportPayloadsByReportDate = readDraftsByReportDate(
+  const storedReportPayloadsByReportDate = readDraftsByReportDate(
     value.reportPayloadsByReportDate,
   );
+  const reportPayloadsByReportDate = isCurrentState
+    ? storedReportPayloadsByReportDate
+    : {};
   const legacyDraftsByEquipment = readDraftsByEquipment(
     value.draftsByEquipment,
   );
@@ -419,15 +425,26 @@ function parseEquipmentDraftState(value: unknown): EquipmentDraftState {
     draftsByReportDate[todayDateKey] = legacyDraftsByEquipment;
   }
 
+  if (!isCurrentState) {
+    for (const [reportDate, reportPayloadsByEquipment] of Object.entries(
+      storedReportPayloadsByReportDate,
+    )) {
+      draftsByReportDate[reportDate] = {
+        ...reportPayloadsByEquipment,
+        ...(draftsByReportDate[reportDate] ?? {}),
+      };
+    }
+  }
+
   if (
     Object.keys(legacyReportPayloadsByEquipment).length > 0 &&
-    reportPayloadsByReportDate[todayDateKey] === undefined
+    draftsByReportDate[todayDateKey] === undefined
   ) {
-    reportPayloadsByReportDate[todayDateKey] =
-      legacyReportPayloadsByEquipment;
+    draftsByReportDate[todayDateKey] = legacyReportPayloadsByEquipment;
   }
 
   return {
+    version: equipmentDraftStateVersion,
     lastEquipment:
       typeof value.lastEquipment === "string" ? value.lastEquipment : undefined,
     draftsByReportDate,
@@ -565,6 +582,7 @@ function buildEquipmentDraftStorageKey(businessAccountId: string) {
 
 function createEmptyEquipmentDraftState(): EquipmentDraftState {
   return {
+    version: equipmentDraftStateVersion,
     draftsByReportDate: {},
     reportPayloadsByReportDate: {},
   };

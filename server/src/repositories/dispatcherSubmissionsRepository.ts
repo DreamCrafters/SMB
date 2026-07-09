@@ -23,6 +23,7 @@ export type DispatcherFeedFilters = {
   formId?: DispatcherFormId;
   dateFrom?: string;
   dateTo?: string;
+  reportDate?: string;
 };
 
 export type DispatcherFeedSummaryItem = {
@@ -323,10 +324,30 @@ function buildWhereClause(filters: DispatcherFeedFilters): WhereClause {
     clauses.push("received_at < date_add(cast(? as date), interval 1 day)");
   }
 
+  if (filters.reportDate !== undefined) {
+    values.push(
+      filters.reportDate,
+      formatReportDateForPayload(filters.reportDate),
+    );
+    clauses.push(
+      "json_unquote(json_extract(payload, '$.reportDate')) in (?, ?)",
+    );
+  }
+
   return {
     sql: clauses.length === 0 ? "" : `where ${clauses.join(" and ")}`,
     values,
   };
+}
+
+function formatReportDateForPayload(value: string) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (parts === null) {
+    return value;
+  }
+
+  return `${parts[3]}.${parts[2]}.${parts[1]}`;
 }
 
 function buildLegacyValues(

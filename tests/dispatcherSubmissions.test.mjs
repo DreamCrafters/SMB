@@ -312,6 +312,36 @@ test("local equipment submissions overwrite the same report date and equipment",
   assert.equal(feedResult.submissions[0].payload.productionTons, "43");
 });
 
+test("local dispatcher feed filters equipment by report date payload", async () => {
+  const storage = createMemoryStorage();
+
+  await submitDispatcherSubmission(draft, {
+    baseUrl: "",
+    localFallback: true,
+    storage,
+  });
+
+  const matchingFeedResult = await requestDispatcherFeed({
+    baseUrl: "",
+    formId: "equipment",
+    reportDate: "2026-06-18",
+    localFallback: true,
+    storage,
+  });
+  const otherDateFeedResult = await requestDispatcherFeed({
+    baseUrl: "",
+    formId: "equipment",
+    reportDate: "2026-06-19",
+    localFallback: true,
+    storage,
+  });
+
+  assert.equal(matchingFeedResult.status, "ready");
+  assert.equal(matchingFeedResult.submissions.length, 1);
+  assert.equal(otherDateFeedResult.status, "ready");
+  assert.equal(otherDateFeedResult.submissions.length, 0);
+});
+
 test("local equipment submissions reject downtime reason without positive hours", async () => {
   const result = await submitDispatcherSubmission(
     {
@@ -642,6 +672,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
     formId: "equipment",
     dateFrom: "2026-06-01",
     dateTo: "2026-06-30",
+    reportDate: "2026-06-18",
     limit: 500,
   });
 
@@ -649,7 +680,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
   assert.equal(result.submissions.length, 1);
   assert.equal(
     request.endpoint,
-    "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&limit=500",
+    "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&reportDate=2026-06-18&limit=500",
   );
   assert.equal(request.init.method, "GET");
 });

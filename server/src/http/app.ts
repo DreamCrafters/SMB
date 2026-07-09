@@ -1119,6 +1119,7 @@ function readDispatcherFeedFilters(url: URL):
   const formId = readOptionalQueryParam(url, "formId");
   const dateFrom = readOptionalQueryParam(url, "dateFrom");
   const dateTo = readOptionalQueryParam(url, "dateTo");
+  const reportDate = readOptionalQueryParam(url, "reportDate");
   const limit = readOptionalQueryParam(url, "limit");
 
   if (formId !== undefined) {
@@ -1142,6 +1143,14 @@ function readDispatcherFeedFilters(url: URL):
       filters.dateTo = dateTo;
     } else {
       errors.push("dateTo must use YYYY-MM-DD format.");
+    }
+  }
+
+  if (reportDate !== undefined) {
+    if (isDateQueryValue(reportDate)) {
+      filters.reportDate = reportDate;
+    } else {
+      errors.push("reportDate must use YYYY-MM-DD format.");
     }
   }
 

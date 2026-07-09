@@ -654,8 +654,8 @@ p {
   border: 1px solid var(--line-strong);
   border-left: 5px solid var(--line-strong);
   border-radius: var(--radius);
-  color: var(--text);
-  background: var(--surface-raised);
+  color: var(--muted);
+  background: var(--bg-strong);
   text-align: left;
 }
 
@@ -683,13 +683,17 @@ p {
   background: var(--brick-soft);
 }
 
+.equipment-status-button.is-draft {
+  background: var(--bg-strong);
+}
+
 .equipment-status-button.is-active {
   border-color: var(--nav);
   outline: 2px solid var(--blue-gray-soft);
 }
 
 .equipment-status-button span {
-  color: var(--ink);
+  color: var(--muted);
   font-size: 13px;
   font-weight: 900;
   line-height: 1.2;
@@ -702,6 +706,17 @@ p {
   font-weight: 800;
   line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+.equipment-status-button.is-draft span,
+.equipment-status-button.is-draft small {
+  color: var(--ink);
+}
+
+.equipment-status-button.is-complete span,
+.equipment-status-button.is-in-report span,
+.equipment-status-button.is-dirty span {
+  color: var(--ink);
 }
 
 .equipment-status-button.is-in-report small {

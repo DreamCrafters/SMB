@@ -461,6 +461,43 @@ test("remote API returns dispatcher form definitions", async () => {
   });
 });
 
+test("remote API passes equipment reportDate feed filters to repository", async () => {
+  let listFilters:
+    | Parameters<DispatcherSubmissionsRepository["listLatest"]>[0]
+    | undefined;
+  let summaryFilters:
+    | Parameters<DispatcherSubmissionsRepository["readSummary"]>[0]
+    | undefined;
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      listFilters = filters;
+      return [];
+    },
+    async readSummary(filters) {
+      summaryFilters = filters;
+      return {
+        total: 0,
+        byForm: [],
+      };
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/dispatcher/submissions?formId=equipment&reportDate=2026-07-09&limit=500`,
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(listFilters, {
+      formId: "equipment",
+      reportDate: "2026-07-09",
+      limit: 500,
+    });
+    assert.deepEqual(summaryFilters, listFilters);
+  }, repository);
+});
+
 test("remote API enriches incident location and responsible options from reference data", async () => {
   const referenceDataSource: DispatcherReferenceDataSource = {
     async read() {

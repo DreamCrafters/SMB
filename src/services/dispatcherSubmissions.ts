@@ -105,6 +105,7 @@ export type DispatcherFeedFilters = {
   formId?: DispatcherFormId;
   dateFrom?: string;
   dateTo?: string;
+  reportDate?: string;
   limit?: number;
 };
 
@@ -612,13 +613,21 @@ export async function requestDispatcherFeed({
   formId,
   dateFrom,
   dateTo,
+  reportDate,
   limit,
 }: DispatcherRemoteOptions & DispatcherFeedFilters = {}): Promise<DispatcherFeedResult> {
   const endpoint = buildRemoteEndpoint(DISPATCHER_SUBMISSIONS_PATH, { baseUrl });
 
   if (endpoint.status === "missing") {
     if (shouldUseLocalDispatcherFallback({ localFallback, storage })) {
-      return requestLocalDispatcherFeed({ formId, dateFrom, dateTo, limit, storage });
+      return requestLocalDispatcherFeed({
+        formId,
+        dateFrom,
+        dateTo,
+        reportDate,
+        limit,
+        storage,
+      });
     }
 
     return {
@@ -632,6 +641,7 @@ export async function requestDispatcherFeed({
     formId,
     dateFrom,
     dateTo,
+    reportDate,
     limit,
   });
 
@@ -679,7 +689,14 @@ export async function requestDispatcherFeed({
     }
 
     if (shouldUseLocalDispatcherFallback({ localFallback, storage })) {
-      return requestLocalDispatcherFeed({ formId, dateFrom, dateTo, limit, storage });
+      return requestLocalDispatcherFeed({
+        formId,
+        dateFrom,
+        dateTo,
+        reportDate,
+        limit,
+        storage,
+      });
     }
 
     return {
@@ -905,6 +922,7 @@ function requestLocalDispatcherFeed({
   formId,
   dateFrom,
   dateTo,
+  reportDate,
   limit,
   storage,
 }: DispatcherFeedFilters & Pick<DispatcherRemoteOptions, "storage">): DispatcherFeedResult {
@@ -921,7 +939,12 @@ function requestLocalDispatcherFeed({
 
   const submissions = readLocalDispatcherSubmissions(localStorage)
     .filter((submission) =>
-      matchesLocalDispatcherFilters(submission, { formId, dateFrom, dateTo }),
+      matchesLocalDispatcherFilters(submission, {
+        formId,
+        dateFrom,
+        dateTo,
+        reportDate,
+      }),
     )
     .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
     .slice(0, readSafeLocalFeedLimit(limit));
@@ -1300,6 +1323,13 @@ function matchesLocalDispatcherFilters(
     return false;
   }
 
+  if (
+    filters.reportDate !== undefined &&
+    !isSameLocalReportDate(submission.payload.reportDate, filters.reportDate)
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -1360,11 +1390,28 @@ function buildFeedEndpoint(endpoint: string, filters: DispatcherFeedFilters) {
     url.searchParams.set("dateTo", filters.dateTo);
   }
 
+  if (filters.reportDate !== undefined) {
+    url.searchParams.set("reportDate", filters.reportDate);
+  }
+
   if (filters.limit !== undefined) {
     url.searchParams.set("limit", String(filters.limit));
   }
 
   return url.toString();
+}
+
+function isSameLocalReportDate(payloadDate: string | undefined, reportDate: string) {
+  if (payloadDate === undefined) {
+    return false;
+  }
+
+  const trimmedPayloadDate = payloadDate.trim();
+
+  return (
+    trimmedPayloadDate === reportDate ||
+    trimmedPayloadDate === formatLocalScriptDate(reportDate)
+  );
 }
 
 function readRemoteError(

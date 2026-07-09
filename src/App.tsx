@@ -1575,12 +1575,12 @@ function DispatcherEquipmentFormBody({
     let isActive = true;
     let currentController: AbortController | undefined;
 
-    function loadEquipmentFeed() {
+    function loadEquipmentFeed(showLoading: boolean) {
       currentController?.abort();
       currentController = new AbortController();
 
       setEquipmentFeed((current) =>
-        current.status === "ready"
+        !showLoading && current.status === "ready"
           ? current
           : {
               status: "loading",
@@ -1590,6 +1590,7 @@ function DispatcherEquipmentFormBody({
 
       requestDispatcherFeed({
         formId: "equipment",
+        reportDate: reportDate.length > 0 ? reportDate : undefined,
         limit: 500,
         localFallback: true,
         signal: currentController.signal,
@@ -1600,15 +1601,18 @@ function DispatcherEquipmentFormBody({
       });
     }
 
-    loadEquipmentFeed();
-    const intervalId = window.setInterval(loadEquipmentFeed, 10_000);
+    loadEquipmentFeed(true);
+    const intervalId = window.setInterval(
+      () => loadEquipmentFeed(false),
+      10_000,
+    );
 
     return () => {
       isActive = false;
       currentController?.abort();
       window.clearInterval(intervalId);
     };
-  }, [refreshVersion]);
+  }, [refreshVersion, reportDate]);
 
   useEffect(() => {
     if (
@@ -2055,6 +2059,7 @@ function DispatcherEquipmentFormBody({
               storage: readBrowserEquipmentDraftStorage(),
             });
             const hasDraft = hasEquipmentReportData(draftPayload);
+            const isDraft = hasDraft && !isInReport && !isComplete;
             const savedPayload = hasEquipmentReportData(reportEntryPayload)
               ? reportEntryPayload
               : (submission?.payload ?? {});
@@ -2072,6 +2077,7 @@ function DispatcherEquipmentFormBody({
                   "equipment-status-button",
                   isInReport && !isComplete ? "is-in-report" : "",
                   isComplete ? "is-complete" : "",
+                  isDraft ? "is-draft" : "",
                   isDirty ? "is-dirty" : "",
                   isActive ? "is-active" : "",
                 ]

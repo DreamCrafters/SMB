@@ -180,6 +180,85 @@ test("equipment report payloads only include explicitly added entries", () => {
   assert.equal(otherDatePayloads.length, 0);
 });
 
+test("legacy equipment report payloads become drafts instead of report entries", () => {
+  const storage = createMemoryStorage();
+  const todayDate = formatDateValue(new Date());
+
+  storage.setItem(
+    "smb-monitor.dispatcher-equipment-drafts.v1.business-id",
+    JSON.stringify({
+      reportPayloadsByEquipment: {
+        "Пресс №1": {
+          equipment: "Пресс №1",
+          productionTons: "42",
+          note: "Старый локальный пакет",
+        },
+      },
+    }),
+  );
+
+  const draft = readEquipmentDraftPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    reportDate: todayDate,
+    storage,
+  });
+  const reportPayloads = buildEquipmentReportPayloads({
+    businessAccountId: "business-id",
+    equipmentOptions: readEquipmentOptions(equipmentForm),
+    form: equipmentForm,
+    reportDate: todayDate,
+    storage,
+  });
+
+  assert.deepEqual(draft, {
+    productionTons: "42",
+    note: "Старый локальный пакет",
+  });
+  assert.equal(reportPayloads.length, 0);
+});
+
+test("legacy date-scoped equipment report payloads become drafts", () => {
+  const storage = createMemoryStorage();
+
+  storage.setItem(
+    "smb-monitor.dispatcher-equipment-drafts.v1.business-id",
+    JSON.stringify({
+      reportPayloadsByReportDate: {
+        "2026-07-06": {
+          "Пресс №1": {
+            equipment: "Пресс №1",
+            productionTons: "12",
+            note: "Старый пакет за дату",
+          },
+        },
+      },
+    }),
+  );
+
+  const draft = readEquipmentDraftPayload({
+    businessAccountId: "business-id",
+    equipment: "Пресс №1",
+    form: equipmentForm,
+    reportDate: "2026-07-06",
+    storage,
+  });
+  const reportPayloads = buildEquipmentReportPayloads({
+    businessAccountId: "business-id",
+    equipmentOptions: readEquipmentOptions(equipmentForm),
+    form: equipmentForm,
+    reportDate: "2026-07-06",
+    storage,
+  });
+
+  assert.deepEqual(draft, {
+    productionTons: "12",
+    note: "Старый пакет за дату",
+  });
+  assert.equal(reportPayloads.length, 0);
+});
+
 test("equipment report entries stay stable while edited drafts become dirty", () => {
   const storage = createMemoryStorage();
 
@@ -330,4 +409,11 @@ function createMemoryStorage() {
       values.set(key, String(value));
     },
   };
+}
+
+function formatDateValue(value) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(value.getDate()).padStart(2, "0")}`;
 }
