@@ -1,10 +1,8 @@
-import { randomUUID } from "node:crypto";
-import type { RowDataPacket } from "mysql2/promise";
 import { readServerConfig } from "../config/env.js";
 import { createDatabasePool } from "./pool.js";
+import { createAccountsRepository } from "../repositories/accountsRepository.js";
 import {
   defaultCapabilitiesByAccountType,
-  hashPassword,
   isAccountCapability,
   isAccountType,
   type AccountCapability,
@@ -24,177 +22,19 @@ type AuthUserInput = {
   capabilities: AccountCapability[];
 };
 
-type IdRow = RowDataPacket & {
-  id: string;
-};
-
 const config = readServerConfig();
 const pool = createDatabasePool(config.databaseUrl);
+const accounts = createAccountsRepository(pool);
 
 try {
   const input = readAuthUserInput(process.env);
 
-  await upsertAuthUser(input);
+  await accounts.createAccount(input);
   console.log(
     `auth_user.ready login=${input.login} accountType=${input.accountType}`,
   );
 } finally {
   await pool.end();
-}
-
-async function upsertAuthUser(input: AuthUserInput) {
-  if (input.businessAccountId !== undefined) {
-    await pool.query(
-      `
-        insert into business_accounts (id, display_name, status)
-        values (?, ?, 'active')
-        on duplicate key update
-          display_name = values(display_name),
-          status = 'active'
-      `,
-      [input.businessAccountId, input.businessDisplayName ?? input.businessAccountId],
-    );
-  }
-
-  if (input.departmentId !== undefined && input.businessAccountId !== undefined) {
-    await pool.query(
-      `
-        insert into departments (
-          id,
-          business_account_id,
-          display_name,
-          structure_mode
-        )
-        values (?, ?, ?, 'current')
-        on duplicate key update
-          business_account_id = values(business_account_id),
-          display_name = values(display_name),
-          structure_mode = values(structure_mode)
-      `,
-      [
-        input.departmentId,
-        input.businessAccountId,
-        input.departmentDisplayName ?? input.departmentId,
-      ],
-    );
-  }
-
-  await pool.query(
-    `
-      insert into app_users (id, login, display_name, status)
-      values (?, ?, ?, 'active')
-      on duplicate key update
-        display_name = values(display_name),
-        status = 'active'
-    `,
-    [randomUUID(), input.login, input.displayName],
-  );
-
-  const userId = await readUserId(input.login);
-
-  await pool.query(
-    `
-      insert into auth_password_credentials (user_id, password_hash)
-      values (?, ?)
-      on duplicate key update
-        password_hash = values(password_hash)
-    `,
-    [userId, await hashPassword(input.password)],
-  );
-
-  const existingAccessId = await readAccessId({
-    userId,
-    accountType: input.accountType,
-    businessAccountId: input.businessAccountId,
-    departmentId: input.departmentId,
-  });
-  const accessId = existingAccessId ?? randomUUID();
-
-  await pool.query(
-    `
-      insert into account_accesses (
-        id,
-        user_id,
-        account_type,
-        display_name,
-        scope_kind,
-        business_account_id,
-        department_id,
-        capabilities,
-        is_active
-      )
-      values (?, ?, ?, ?, ?, ?, ?, ?, 1)
-      on duplicate key update
-        display_name = values(display_name),
-        scope_kind = values(scope_kind),
-        business_account_id = values(business_account_id),
-        department_id = values(department_id),
-        capabilities = values(capabilities),
-        is_active = 1
-    `,
-    [
-      accessId,
-      userId,
-      input.accountType,
-      input.accessDisplayName,
-      readScopeKind(input.accountType),
-      input.businessAccountId ?? null,
-      input.departmentId ?? null,
-      JSON.stringify(input.capabilities),
-    ],
-  );
-}
-
-async function readUserId(login: string) {
-  const [rows] = await pool.query<IdRow[]>(
-    "select id from app_users where login = ? limit 1",
-    [login],
-  );
-  const row = rows[0];
-
-  if (row === undefined) {
-    throw new Error("Created user was not returned by database.");
-  }
-
-  return row.id;
-}
-
-async function readAccessId({
-  userId,
-  accountType,
-  businessAccountId,
-  departmentId,
-}: {
-  userId: string;
-  accountType: AccountType;
-  businessAccountId?: string;
-  departmentId?: string;
-}) {
-  const [rows] = await pool.query<IdRow[]>(
-    `
-      select id
-      from account_accesses
-      where user_id = ?
-        and account_type = ?
-        and scope_kind = ?
-        and (
-          business_account_id <=> ?
-        )
-        and (
-          department_id <=> ?
-        )
-      limit 1
-    `,
-    [
-      userId,
-      accountType,
-      readScopeKind(accountType),
-      businessAccountId ?? null,
-      departmentId ?? null,
-    ],
-  );
-
-  return rows[0]?.id;
 }
 
 function readAuthUserInput(env: NodeJS.ProcessEnv): AuthUserInput {
@@ -287,12 +127,4 @@ function readCapabilities(value: string | undefined, accountType: AccountType) {
   }
 
   return result;
-}
-
-function readScopeKind(accountType: AccountType) {
-  if (accountType === "admin") {
-    return "platform";
-  }
-
-  return accountType === "business_owner" ? "business" : "department";
 }

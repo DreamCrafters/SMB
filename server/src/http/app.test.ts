@@ -11,6 +11,7 @@ import type {
 import { defaultCapabilitiesByAccountType } from "../domain/auth.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
+import type { AccountsRepository } from "../repositories/accountsRepository.js";
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
 import type {
   DispatcherReferenceDataSource,
@@ -464,6 +465,209 @@ test("admin database API forwards update and delete mutations for admin sessions
       id: "row-id",
     },
   });
+});
+
+const adminAccount = {
+  accessId: "access-id",
+  userId: "user-id",
+  login: "dispatcher-1",
+  userDisplayName: "Диспетчер Один",
+  userStatus: "active",
+  accessDisplayName: "Диспетчер Один access",
+  accountType: "dispatcher" as AccountType,
+  scope: {
+    kind: "department" as const,
+    businessAccountId: "business-id",
+    departmentId: "department-id",
+  },
+  businessDisplayName: "Цех 1",
+  departmentDisplayName: "Смена А",
+  capabilities: ["business.submit_dispatcher_forms" as const],
+  createdAt: "2026-07-10T00:00:00.000Z",
+};
+
+const accounts: AccountsRepository = {
+  async listAccounts() {
+    return [adminAccount];
+  },
+  async createAccount() {
+    return adminAccount;
+  },
+  async resetPassword() {
+    return true;
+  },
+};
+
+test("admin accounts API rejects non-admin dev sessions", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "dispatcher");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+        },
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 403);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.error)
+          ? payload.error.code
+          : undefined,
+        "access_denied",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    accounts,
+  );
+});
+
+test("admin accounts API lists accounts for admin dev sessions", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+        },
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(
+        isRecord(payload) &&
+          Array.isArray(payload.accounts) &&
+          isRecord(payload.accounts[0])
+          ? payload.accounts[0].login
+          : undefined,
+        "dispatcher-1",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    accounts,
+  );
+});
+
+test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {
+  let createInput: Parameters<AccountsRepository["createAccount"]>[0] | undefined;
+  let resetInput: Parameters<AccountsRepository["resetPassword"]>[0] | undefined;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createAccount(input) {
+      createInput = input;
+
+      return adminAccount;
+    },
+    async resetPassword(input) {
+      resetInput = input;
+
+      return true;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
+      };
+
+      const createResponse = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          login: "dispatcher-1",
+          password: "supersecret1",
+          displayName: "Диспетчер Один",
+          accountType: "dispatcher",
+          businessAccountId: "business-id",
+          departmentId: "department-id",
+        }),
+      });
+      const resetResponse = await fetch(
+        `${baseUrl}/api/admin/accounts/reset-password`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            login: "dispatcher-1",
+            password: "newsecret1",
+          }),
+        },
+      );
+
+      assert.equal(createResponse.status, 201);
+      assert.equal(resetResponse.status, 200);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+
+  assert.equal(createInput?.login, "dispatcher-1");
+  assert.equal(createInput?.password, "supersecret1");
+  assert.equal(createInput?.businessAccountId, "business-id");
+  assert.equal(createInput?.departmentId, "department-id");
+  assert.deepEqual(resetInput, {
+    login: "dispatcher-1",
+    password: "newsecret1",
+  });
+});
+
+test("admin accounts API rejects a short password", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          login: "dispatcher-1",
+          password: "short",
+          displayName: "Диспетчер Один",
+          accountType: "admin",
+        }),
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 400);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.error)
+          ? payload.error.code
+          : undefined,
+        "invalid_response",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    accounts,
+  );
 });
 
 test("production API rejects dev access sessions", async () => {
@@ -1391,11 +1595,13 @@ async function withApiServer(
   adminDatabaseRepository: AdminDatabaseRepository = adminDatabase,
   serverConfig: ServerConfig = config,
   authService?: AuthSessionService,
+  accountsRepository?: AccountsRepository,
 ) {
   const server = createApiServer({
     config: serverConfig,
     dispatcherSubmissions: repository,
     adminDatabase: adminDatabaseRepository,
+    accounts: accountsRepository,
     authService,
     referenceDataSource,
     emailNotificationService,

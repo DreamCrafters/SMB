@@ -1,9 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ServerConfig } from "../config/env.js";
 import {
+  defaultCapabilitiesByAccountType,
   hasProfileCapability,
+  isAccountCapability,
   readScopedBusinessAccountId,
   type AccountCapability,
+  type AccountType,
   type AuthSessionService,
   type AuthenticatedSession,
   type ServerUserProfile,
@@ -35,6 +38,10 @@ import type {
   AdminDatabaseRepository,
   AdminDatabaseCellValue,
 } from "../repositories/adminDatabaseRepository.js";
+import type {
+  AccountsRepository,
+  CreateAccountInput,
+} from "../repositories/accountsRepository.js";
 import {
   createGoogleSheetsReferenceDataSource,
   type DispatcherReferenceDataSource,
@@ -52,6 +59,7 @@ type AppDependencies = {
   config: ServerConfig;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   adminDatabase?: AdminDatabaseRepository;
+  accounts?: AccountsRepository;
   authService?: AuthSessionService;
   referenceDataSource?: DispatcherReferenceDataSource;
   emailNotificationService?: EmailNotificationService;
@@ -69,6 +77,7 @@ export function createApiServer({
   config,
   dispatcherSubmissions,
   adminDatabase,
+  accounts,
   authService,
   referenceDataSource = createGoogleSheetsReferenceDataSource(
     config.googleSheetsReference,
@@ -143,6 +152,22 @@ export function createApiServer({
           devSessions,
           authService,
           adminDatabase,
+        });
+        return;
+      }
+
+      if (
+        url.pathname === "/api/admin/accounts" ||
+        url.pathname === "/api/admin/accounts/reset-password"
+      ) {
+        await handleAdminAccountsRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          accounts,
         });
         return;
       }
@@ -564,6 +589,279 @@ async function handleAdminDatabaseRequest({
   } catch (error) {
     sendAdminDatabaseError(res, error);
   }
+}
+
+async function handleAdminAccountsRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  accounts,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts: AccountsRepository | undefined;
+}) {
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "platform.manage_users",
+    message: "Управление учётными записями недоступно.",
+  });
+
+  if (access === undefined) {
+    return;
+  }
+
+  if (accounts === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище учётных записей не настроено.",
+      },
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/admin/accounts") {
+    if (req.method === "GET") {
+      sendJson(res, 200, {
+        accounts: await accounts.listAccounts(),
+      });
+      return;
+    }
+
+    if (req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const validation = validateCreateAccountRequest(payload);
+
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      try {
+        const account = await accounts.createAccount(validation.value);
+
+        sendJson(res, 201, { account });
+      } catch (error) {
+        sendAdminAccountsError(res, error);
+      }
+
+      return;
+    }
+
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only GET and POST are supported for admin accounts.",
+      },
+    });
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only POST is supported for admin account password reset.",
+      },
+    });
+    return;
+  }
+
+  const payload = await readJsonBody(req);
+  const validation = validateResetPasswordRequest(payload);
+
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  try {
+    const wasReset = await accounts.resetPassword(validation.value);
+
+    if (!wasReset) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Учётная запись с таким логином не найдена.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+  } catch (error) {
+    sendAdminAccountsError(res, error);
+  }
+}
+
+function validateCreateAccountRequest(input: unknown):
+  | {
+      ok: true;
+      value: CreateAccountInput;
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  const errors: string[] = [];
+  const login = typeof input.login === "string" ? input.login.trim() : "";
+  const password = typeof input.password === "string" ? input.password : "";
+  const displayName =
+    typeof input.displayName === "string" ? input.displayName.trim() : "";
+  const accountType = input.accountType;
+  const businessAccountId = readOptionalTrimmedString(input.businessAccountId);
+  const departmentId = readOptionalTrimmedString(input.departmentId);
+
+  if (login.length === 0) {
+    errors.push("login is required.");
+  }
+
+  if (password.length < 8) {
+    errors.push("password must be at least 8 characters long.");
+  }
+
+  if (displayName.length === 0) {
+    errors.push("displayName is required.");
+  }
+
+  if (!isAccountType(accountType)) {
+    errors.push(
+      "accountType must be admin, business_owner, worker or dispatcher.",
+    );
+    return { ok: false, errors };
+  }
+
+  if (
+    (accountType === "business_owner" ||
+      accountType === "worker" ||
+      accountType === "dispatcher") &&
+    businessAccountId === undefined
+  ) {
+    errors.push("businessAccountId is required for business roles.");
+  }
+
+  if (
+    (accountType === "worker" || accountType === "dispatcher") &&
+    departmentId === undefined
+  ) {
+    errors.push("departmentId is required for department roles.");
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      login,
+      password,
+      displayName,
+      accountType,
+      capabilities: readAccountCapabilities(input.capabilities, accountType),
+      businessAccountId,
+      businessDisplayName: readOptionalTrimmedString(input.businessDisplayName),
+      departmentId,
+      departmentDisplayName: readOptionalTrimmedString(input.departmentDisplayName),
+      accessDisplayName: readOptionalTrimmedString(input.accessDisplayName),
+    },
+  };
+}
+
+function validateResetPasswordRequest(input: unknown):
+  | {
+      ok: true;
+      value: {
+        login: string;
+        password: string;
+      };
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  const errors: string[] = [];
+  const login = typeof input.login === "string" ? input.login.trim() : "";
+  const password = typeof input.password === "string" ? input.password : "";
+
+  if (login.length === 0) {
+    errors.push("login is required.");
+  }
+
+  if (password.length < 8) {
+    errors.push("password must be at least 8 characters long.");
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: { login, password },
+  };
+}
+
+function readAccountCapabilities(value: unknown, accountType: AccountType) {
+  if (!Array.isArray(value)) {
+    return defaultCapabilitiesByAccountType[accountType];
+  }
+
+  const capabilities: AccountCapability[] = value.filter(isAccountCapability);
+
+  return capabilities.length > 0
+    ? capabilities
+    : defaultCapabilitiesByAccountType[accountType];
+}
+
+function readOptionalTrimmedString(value: unknown) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function sendAdminAccountsError(res: ServerResponse, error: unknown) {
+  sendJson(res, 400, {
+    error: {
+      code: "invalid_response",
+      message:
+        error instanceof Error ? error.message : "Admin accounts request failed.",
+    },
+  });
 }
 
 function readAdminDatabaseRowsRoute(url: URL) {

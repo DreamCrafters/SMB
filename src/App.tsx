@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   AccountCapability,
   AccountType,
+  AdminAccountSummary,
   AdminDatabaseCellValue,
   AdminDatabaseColumn,
   AdminDatabaseRow,
@@ -73,6 +74,7 @@ import {
 import {
   canRequestDispatcherForms,
   canManageAnalyticsDatabase,
+  canManageUsers,
   canSubmitDispatcherForms,
   hasCapability,
 } from "./services/accessGuards";
@@ -84,6 +86,12 @@ import {
   type AdminDatabaseRowsResult,
   type AdminDatabaseTablesResult,
 } from "./services/adminDatabase";
+import {
+  createAdminAccount,
+  requestAdminAccounts,
+  resetAdminAccountPassword,
+  type AdminAccountsListResult,
+} from "./services/adminAccounts";
 import {
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
@@ -99,7 +107,7 @@ import {
 import { readShortUserMessage } from "./services/userFacingMessages";
 
 type OwnerTab = "overview" | "dispatcher";
-type AdminTab = "account_preview" | "database";
+type AdminTab = "account_preview" | "accounts" | "database";
 type AdminViewableAccountType = Exclude<AccountType, "admin">;
 
 type DataEntrySubmitStateControls = {
@@ -158,6 +166,13 @@ type AdminDatabaseRowsLoadState =
       message: string;
     }
   | AdminDatabaseRowsResult;
+
+type AdminAccountsLoadState =
+  | {
+      status: "loading";
+      message: string;
+    }
+  | AdminAccountsListResult;
 
 type DispatcherFeedFilterState = {
   group: DispatcherFeedGroup;
@@ -268,6 +283,8 @@ function getAdminTabForNavigationItem(item: NavigationItem): AdminTab | undefine
   switch (item.label) {
     case "Просмотр аккаунта":
       return "account_preview";
+    case "Учётные записи":
+      return "accounts";
     case "БД":
       return "database";
     default:
@@ -3279,6 +3296,10 @@ function AdminWorkspace({
     return <AdminDatabaseWorkspace profile={profile} />;
   }
 
+  if (activeTab === "accounts") {
+    return <AdminAccountsWorkspace profile={profile} />;
+  }
+
   return <AdminAccountPreviewWorkspace onSelectAccountView={onSelectAccountView} />;
 }
 
@@ -3855,6 +3876,510 @@ function AdminDatabaseEditorModal({
         </div>
       </section>
     </div>
+  );
+}
+
+type AdminAccountFormState = {
+  login: string;
+  password: string;
+  displayName: string;
+  accountType: AccountType;
+  businessAccountId: string;
+  businessDisplayName: string;
+  departmentId: string;
+  departmentDisplayName: string;
+  accessDisplayName: string;
+};
+
+const emptyAdminAccountForm: AdminAccountFormState = {
+  login: "",
+  password: "",
+  displayName: "",
+  accountType: "worker",
+  businessAccountId: "",
+  businessDisplayName: "",
+  departmentId: "",
+  departmentDisplayName: "",
+  accessDisplayName: "",
+};
+
+const adminAccountTypeOptions: AccountType[] = [
+  "admin",
+  "business_owner",
+  "worker",
+  "dispatcher",
+];
+
+function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
+  const canManage = canManageUsers(profile);
+  const [accountsState, setAccountsState] = useState<AdminAccountsLoadState>({
+    status: "loading",
+    message: "Загружаем учётные записи.",
+  });
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [revealedPasswords, setRevealedPasswords] = useState<
+    Record<string, string>
+  >({});
+  const [form, setForm] = useState<AdminAccountFormState>(emptyAdminAccountForm);
+  const [formStatus, setFormStatus] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resettingLogin, setResettingLogin] = useState<string | undefined>(
+    undefined,
+  );
+
+  useEffect(() => {
+    if (!canManage) {
+      setAccountsState({
+        status: "error",
+        message: "Серверный профиль не разрешает управление учётными записями.",
+        code: "access_denied",
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setAccountsState({
+      status: "loading",
+      message: "Загружаем учётные записи.",
+    });
+
+    requestAdminAccounts({ signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted) {
+        setAccountsState(result);
+      }
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [canManage, refreshVersion]);
+
+  function handleFormFieldChange(patch: Partial<AdminAccountFormState>) {
+    setForm((current) => ({ ...current, ...patch }));
+  }
+
+  function handleGeneratePassword() {
+    handleFormFieldChange({ password: generateStrongPassword() });
+  }
+
+  async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const requiresBusiness = accountTypeRequiresBusiness(form.accountType);
+    const requiresDepartment = accountTypeRequiresDepartment(form.accountType);
+
+    if (
+      form.login.trim().length === 0 ||
+      form.password.length < 8 ||
+      form.displayName.trim().length === 0
+    ) {
+      setFormStatus("Заполните логин, пароль (от 8 символов) и имя.");
+      return;
+    }
+
+    if (requiresBusiness && form.businessAccountId.trim().length === 0) {
+      setFormStatus("Укажите ID бизнес-аккаунта для этой роли.");
+      return;
+    }
+
+    if (requiresDepartment && form.departmentId.trim().length === 0) {
+      setFormStatus("Укажите ID подразделения для этой роли.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormStatus("Создаём учётную запись.");
+
+    const submittedLogin = form.login.trim();
+    const submittedPassword = form.password;
+    const result = await createAdminAccount({
+      login: submittedLogin,
+      password: submittedPassword,
+      displayName: form.displayName.trim(),
+      accountType: form.accountType,
+      businessAccountId: requiresBusiness
+        ? form.businessAccountId.trim()
+        : undefined,
+      businessDisplayName:
+        requiresBusiness && form.businessDisplayName.trim().length > 0
+          ? form.businessDisplayName.trim()
+          : undefined,
+      departmentId: requiresDepartment ? form.departmentId.trim() : undefined,
+      departmentDisplayName:
+        requiresDepartment && form.departmentDisplayName.trim().length > 0
+          ? form.departmentDisplayName.trim()
+          : undefined,
+      accessDisplayName:
+        form.accessDisplayName.trim().length > 0
+          ? form.accessDisplayName.trim()
+          : undefined,
+    });
+
+    setIsSubmitting(false);
+
+    if (result.status !== "ready") {
+      setFormStatus(result.message);
+      return;
+    }
+
+    setRevealedPasswords((current) => ({
+      ...current,
+      [submittedLogin]: submittedPassword,
+    }));
+    setFormStatus(`Учётная запись «${result.account.login}» создана.`);
+    setForm({ ...emptyAdminAccountForm, accountType: form.accountType });
+    setRefreshVersion((version) => version + 1);
+  }
+
+  async function handleResetPassword(login: string) {
+    const nextPassword = generateStrongPassword();
+
+    setResettingLogin(login);
+    setFormStatus("");
+
+    const result = await resetAdminAccountPassword({
+      login,
+      password: nextPassword,
+    });
+
+    setResettingLogin(undefined);
+
+    if (result.status !== "ready") {
+      setFormStatus(result.message);
+      return;
+    }
+
+    setRevealedPasswords((current) => ({
+      ...current,
+      [login]: nextPassword,
+    }));
+  }
+
+  if (!canManage) {
+    return (
+      <section className="admin-workspace" aria-label="Учётные записи">
+        <p className="dispatcher-status-line">
+          Серверный профиль не разрешает управление учётными записями.
+        </p>
+      </section>
+    );
+  }
+
+  const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
+  const requiresBusiness = accountTypeRequiresBusiness(form.accountType);
+  const requiresDepartment = accountTypeRequiresDepartment(form.accountType);
+
+  return (
+    <section className="admin-workspace" aria-label="Учётные записи">
+      <div className="admin-accounts-layout">
+        <div className="admin-accounts-list">
+          {accountsState.status === "loading" ? <p>{accountsState.message}</p> : null}
+          {accountsState.status === "error" ? (
+            <p className="dispatcher-status-line">{accountsState.message}</p>
+          ) : null}
+
+          {accountsState.status === "ready" ? (
+            <div className="admin-db-table-scroll">
+              <table className="admin-db-data-table admin-accounts-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Логин</th>
+                    <th scope="col">Имя</th>
+                    <th scope="col">Роль</th>
+                    <th scope="col">Организация / отдел</th>
+                    <th scope="col">Статус</th>
+                    <th scope="col">Пароль</th>
+                    <th scope="col">Создано</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accounts.map((account) => (
+                    <tr key={account.accessId}>
+                      <td>{account.login}</td>
+                      <td>{account.userDisplayName}</td>
+                      <td>{accountTypeLabels[account.accountType]}</td>
+                      <td>{formatAdminAccountScope(account)}</td>
+                      <td>{formatAdminAccountStatus(account.userStatus)}</td>
+                      <td>
+                        <AdminAccountPasswordCell
+                          revealedPassword={revealedPasswords[account.login]}
+                          isResetting={resettingLogin === account.login}
+                          onReset={() => handleResetPassword(account.login)}
+                        />
+                      </td>
+                      <td>{formatDateTime(account.createdAt)}</td>
+                    </tr>
+                  ))}
+                  {accounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={7}>Учётных записей пока нет.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+
+        <form
+          className="data-entry-form admin-accounts-form"
+          onSubmit={handleCreateSubmit}
+        >
+          <h3>Новая учётная запись</h3>
+
+          <label>
+            <span>Логин</span>
+            <input
+              type="text"
+              value={form.login}
+              autoComplete="off"
+              onChange={(event) =>
+                handleFormFieldChange({ login: event.currentTarget.value })
+              }
+              required
+            />
+          </label>
+
+          <label>
+            <span>Пароль</span>
+            <div className="admin-accounts-password-field">
+              <input
+                type="text"
+                value={form.password}
+                autoComplete="off"
+                minLength={8}
+                onChange={(event) =>
+                  handleFormFieldChange({ password: event.currentTarget.value })
+                }
+                required
+              />
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={handleGeneratePassword}
+              >
+                Сгенерировать
+              </button>
+            </div>
+          </label>
+
+          <label>
+            <span>Отображаемое имя</span>
+            <input
+              type="text"
+              value={form.displayName}
+              onChange={(event) =>
+                handleFormFieldChange({ displayName: event.currentTarget.value })
+              }
+              required
+            />
+          </label>
+
+          <label>
+            <span>Роль</span>
+            <select
+              value={form.accountType}
+              onChange={(event) =>
+                handleFormFieldChange({
+                  accountType: event.currentTarget.value as AccountType,
+                })
+              }
+            >
+              {adminAccountTypeOptions.map((accountType) => (
+                <option key={accountType} value={accountType}>
+                  {accountTypeLabels[accountType]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {requiresBusiness ? (
+            <>
+              <label>
+                <span>ID бизнес-аккаунта</span>
+                <input
+                  type="text"
+                  value={form.businessAccountId}
+                  onChange={(event) =>
+                    handleFormFieldChange({
+                      businessAccountId: event.currentTarget.value,
+                    })
+                  }
+                  required
+                />
+              </label>
+              <label>
+                <span>Название бизнес-аккаунта</span>
+                <input
+                  type="text"
+                  value={form.businessDisplayName}
+                  placeholder={form.businessAccountId || "необязательно"}
+                  onChange={(event) =>
+                    handleFormFieldChange({
+                      businessDisplayName: event.currentTarget.value,
+                    })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+
+          {requiresDepartment ? (
+            <>
+              <label>
+                <span>ID подразделения</span>
+                <input
+                  type="text"
+                  value={form.departmentId}
+                  onChange={(event) =>
+                    handleFormFieldChange({
+                      departmentId: event.currentTarget.value,
+                    })
+                  }
+                  required
+                />
+              </label>
+              <label>
+                <span>Название подразделения</span>
+                <input
+                  type="text"
+                  value={form.departmentDisplayName}
+                  placeholder={form.departmentId || "необязательно"}
+                  onChange={(event) =>
+                    handleFormFieldChange({
+                      departmentDisplayName: event.currentTarget.value,
+                    })
+                  }
+                />
+              </label>
+            </>
+          ) : null}
+
+          <label>
+            <span>Название доступа (необязательно)</span>
+            <input
+              type="text"
+              value={form.accessDisplayName}
+              placeholder={`${form.displayName || "Имя"} access`}
+              onChange={(event) =>
+                handleFormFieldChange({
+                  accessDisplayName: event.currentTarget.value,
+                })
+              }
+            />
+          </label>
+
+          <div className="form-actions">
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={isSubmitting}
+            >
+              Создать
+            </button>
+            {formStatus.length > 0 ? (
+              <p className="form-status">{formStatus}</p>
+            ) : null}
+          </div>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function AdminAccountPasswordCell({
+  revealedPassword,
+  isResetting,
+  onReset,
+}: {
+  revealedPassword: string | undefined;
+  isResetting: boolean;
+  onReset: () => void;
+}) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  if (revealedPassword === undefined) {
+    return (
+      <div className="admin-accounts-password-cell">
+        <span className="admin-accounts-password-hidden">Скрыт</span>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={isResetting}
+          onClick={onReset}
+        >
+          {isResetting ? "Сброс…" : "Сбросить"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-accounts-password-cell">
+      <span className="admin-accounts-password-value">
+        {isVisible
+          ? revealedPassword
+          : "•".repeat(Math.min(revealedPassword.length, 12))}
+      </span>
+      <button
+        className="secondary-button"
+        type="button"
+        onClick={() => setIsVisible((value) => !value)}
+      >
+        {isVisible ? "Скрыть" : "Показать"}
+      </button>
+      <button
+        className="secondary-button"
+        type="button"
+        onClick={() => void navigator.clipboard?.writeText(revealedPassword)}
+      >
+        Копировать
+      </button>
+    </div>
+  );
+}
+
+function accountTypeRequiresBusiness(accountType: AccountType) {
+  return (
+    accountType === "business_owner" ||
+    accountType === "worker" ||
+    accountType === "dispatcher"
+  );
+}
+
+function accountTypeRequiresDepartment(accountType: AccountType) {
+  return accountType === "worker" || accountType === "dispatcher";
+}
+
+function formatAdminAccountScope(account: AdminAccountSummary) {
+  if (account.scope.kind === "platform") {
+    return "Платформа";
+  }
+
+  if (account.scope.kind === "business") {
+    return account.businessDisplayName ?? account.scope.businessAccountId;
+  }
+
+  const business = account.businessDisplayName ?? account.scope.businessAccountId;
+  const department = account.departmentDisplayName ?? account.scope.departmentId;
+
+  return `${business} / ${department}`;
+}
+
+function formatAdminAccountStatus(status: string) {
+  return status === "active" ? "Активен" : status;
+}
+
+function generateStrongPassword() {
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const randomValues = new Uint32Array(16);
+
+  crypto.getRandomValues(randomValues);
+
+  return Array.from(randomValues, (value) => alphabet[value % alphabet.length]).join(
+    "",
   );
 }
 

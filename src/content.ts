@@ -66,6 +66,11 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "active",
     },
     {
+      label: "Учётные записи",
+      description: "Логины, пароли и создание доступов",
+      state: "pending",
+    },
+    {
       label: "БД",
       description: "Таблицы и строки сервера",
       state: "pending",

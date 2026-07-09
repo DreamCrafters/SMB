@@ -3,6 +3,7 @@ import { runMigrations } from "./db/migrations.js";
 import { createDatabasePool } from "./db/pool.js";
 import { createApiServer } from "./http/app.js";
 import { createAdminDatabaseRepository } from "./repositories/adminDatabaseRepository.js";
+import { createAccountsRepository } from "./repositories/accountsRepository.js";
 import { createAuthSessionService } from "./repositories/authRepository.js";
 import { createDispatcherSubmissionsRepository } from "./repositories/dispatcherSubmissionsRepository.js";
 
@@ -16,6 +17,7 @@ if (config.runMigrationsOnStart) {
 const server = createApiServer({
   config,
   adminDatabase: createAdminDatabaseRepository(pool),
+  accounts: createAccountsRepository(pool),
   authService: createAuthSessionService(pool, {
     sessionTtlHours: config.session.ttlHours,
   }),
