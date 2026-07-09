@@ -4297,7 +4297,8 @@ function AdminAccountPasswordCell({
   isResetting: boolean;
   onReset: () => void;
 }) {
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
+  const [didCopy, setDidCopy] = useState(false);
 
   if (revealedPassword === undefined) {
     return (
@@ -4315,6 +4316,17 @@ function AdminAccountPasswordCell({
     );
   }
 
+  async function handleCopy() {
+    const didWrite = await copyTextToClipboard(revealedPassword ?? "");
+
+    if (!didWrite) {
+      return;
+    }
+
+    setDidCopy(true);
+    window.setTimeout(() => setDidCopy(false), 1500);
+  }
+
   return (
     <div className="admin-accounts-password-cell">
       <span className="admin-accounts-password-value">
@@ -4329,12 +4341,8 @@ function AdminAccountPasswordCell({
       >
         {isVisible ? "Скрыть" : "Показать"}
       </button>
-      <button
-        className="secondary-button"
-        type="button"
-        onClick={() => void navigator.clipboard?.writeText(revealedPassword)}
-      >
-        Копировать
+      <button className="secondary-button" type="button" onClick={handleCopy}>
+        {didCopy ? "Скопировано ✓" : "Копировать"}
       </button>
     </div>
   );
@@ -4381,6 +4389,38 @@ function generateStrongPassword() {
   return Array.from(randomValues, (value) => alphabet[value % alphabet.length]).join(
     "",
   );
+}
+
+async function copyTextToClipboard(value: string) {
+  if (navigator.clipboard?.writeText !== undefined) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall through to the legacy fallback below.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  let didCopy = false;
+
+  try {
+    didCopy = document.execCommand("copy");
+  } catch {
+    didCopy = false;
+  }
+
+  document.body.removeChild(textarea);
+
+  return didCopy;
 }
 
 const adminPreviewCapabilitiesByType: Record<
