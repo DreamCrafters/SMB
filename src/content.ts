@@ -36,7 +36,7 @@ export const authOptions: AuthOption[] = [
   {
     accountType: "business_owner",
     label: "Владелец бизнеса",
-    description: "Открывает пустой обзор и журнал диспетчерских регистраций.",
+    description: "Открывает обзор и журнал диспетчерских регистраций.",
     scope: "business access",
   },
   {
@@ -75,7 +75,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
   business_owner: [
     {
       label: "Обзор",
-      description: "Пустая рабочая область",
+      description: "Статусы по участкам",
       state: "active",
     },
     {

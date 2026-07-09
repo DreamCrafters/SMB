@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
+  buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   buildVisitorVisitRows,
@@ -195,7 +196,183 @@ test("visitor open options can be limited to entries from one day", () => {
   );
 });
 
-function buildSubmission(id, formId, payload) {
+test("buildOwnerDispatcherOverview summarizes latest dispatcher statuses", () => {
+  const submissions = [
+    buildSubmission(
+      "eq-old",
+      "equipment",
+      {
+        reportDate: "07.07.2026",
+        equipment: "Пресс №1",
+        productionTons: "0",
+      },
+      "2026-07-07T16:00:00.000Z",
+    ),
+    ...[
+      ["Пресс №1", "12"],
+      ["Пресс №2", "9"],
+      ["Пресс №3", "8"],
+      ["Пресс №4", "0"],
+      ["Бегуны №1", "0"],
+      ["Дезинтегратор №2", "5"],
+      ["Сушильный №2", "7"],
+      ["Шаровая №1", "3"],
+      ["Шаровая №2", "0"],
+    ].map(([equipment, productionTons], index) =>
+      buildSubmission(
+        `eq-latest-${index}`,
+        "equipment",
+        {
+          reportDate: "08.07.2026",
+          equipment,
+          productionTons,
+        },
+        "2026-07-08T16:00:00.000Z",
+      ),
+    ),
+    buildSubmission(
+      "inc-1",
+      "incident",
+      {
+        datetime: "08.07.2026 20:48",
+        location: "Склад готовой продукции",
+        incidentType: "Травма",
+        description: "сломался палец",
+        criticality: "Высокий",
+        responsible: "тест",
+        immediateActions: "забинтовали",
+        incidentStatus: "Новый",
+        incidentNumber: "INC-2026-16",
+      },
+      "2026-07-08T16:10:00.000Z",
+    ),
+    buildSubmission(
+      "close-1",
+      "incident_close",
+      {
+        incidentNumber: "INC-2026-16",
+        rootCauses: "нарушение инструкции",
+        preventiveMeasures: "зачитали инструкцию по ТБ",
+        closureDateTime: "08.07.2026 20:50",
+        costs: "0",
+        approvedBy: "Фридман",
+        closureNote: "",
+        incidentStatus: "Закрыт",
+      },
+      "2026-07-08T16:15:00.000Z",
+    ),
+    buildSubmission(
+      "visit-1",
+      "visitor",
+      {
+        fio: "Посетитель 1",
+        whom: "Фридману",
+        entryAt: "08.07.2026 09:00",
+      },
+      "2026-07-08T04:00:00.000Z",
+    ),
+    buildSubmission(
+      "visit-1-exit",
+      "visitor_exit",
+      {
+        visitorEntryId: "visit-1",
+        exitAt: "08.07.2026 10:00",
+      },
+      "2026-07-08T05:00:00.000Z",
+    ),
+    buildSubmission(
+      "visit-2",
+      "visitor",
+      {
+        fio: "Посетитель 2",
+        whom: "Глушкову",
+        entryAt: "08.07.2026 11:00",
+      },
+      "2026-07-08T06:00:00.000Z",
+    ),
+    buildSubmission(
+      "visit-2-exit",
+      "visitor_exit",
+      {
+        visitorEntryId: "visit-2",
+        exitAt: "08.07.2026 12:00",
+      },
+      "2026-07-08T07:00:00.000Z",
+    ),
+    buildSubmission(
+      "visit-3",
+      "visitor",
+      {
+        fio: "Посетитель 3",
+        whom: "Матвеевой",
+        entryAt: "08.07.2026 13:00",
+      },
+      "2026-07-08T08:00:00.000Z",
+    ),
+    buildSubmission(
+      "visit-4",
+      "visitor",
+      {
+        fio: "Посетитель 4",
+        whom: "Фридману",
+        entryAt: "08.07.2026 14:00",
+      },
+      "2026-07-08T09:00:00.000Z",
+    ),
+  ];
+
+  const overview = buildOwnerDispatcherOverview(submissions, {
+    businessAccountId: "business-id",
+  });
+
+  assert.equal(overview.equipment?.updatedAt, "2026-07-08T16:00:00.000Z");
+  assert.equal(overview.equipment?.reportDate, "2026-07-08");
+  assert.deepEqual(overview.equipment?.workingCounts, [
+    {
+      key: "press",
+      label: "Прессов",
+      count: 3,
+    },
+    {
+      key: "runner",
+      label: "Бегунов",
+      count: 0,
+    },
+    {
+      key: "disintegrator",
+      label: "Дезинтегратор",
+      count: 1,
+    },
+    {
+      key: "dryer",
+      label: "Сушильный",
+      count: 1,
+    },
+    {
+      key: "ball_mill",
+      label: "Шаровая",
+      count: 1,
+    },
+  ]);
+  assert.equal(overview.latestIncident?.incidentNumber, "INC-2026-16");
+  assert.equal(overview.latestIncident?.location, "Склад готовой продукции");
+  assert.equal(overview.latestIncidentClosure?.approvedBy, "Фридман");
+  assert.equal(overview.visitors.latestDate, "2026-07-08");
+  assert.equal(overview.visitors.count, 4);
+  assert.deepEqual(overview.visitors.hosts, [
+    "Фридману",
+    "Глушкову",
+    "Матвеевой",
+  ]);
+  assert.equal(overview.visitors.openCount, 2);
+});
+
+function buildSubmission(
+  id,
+  formId,
+  payload,
+  receivedAt = "2026-07-04T00:00:00.000Z",
+) {
   return {
     id,
     businessAccountId: "business-id",
@@ -206,6 +383,6 @@ function buildSubmission(id, formId, payload) {
     status: "received",
     submittedByAccountId: "dispatcher",
     submittedAt: "2026-07-04T00:00:00.000Z",
-    receivedAt: "2026-07-04T00:00:00.000Z",
+    receivedAt,
   };
 }

@@ -81,10 +81,12 @@ import {
 import {
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
+  buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   buildVisitorVisitRows,
   readDispatcherGroupFormIds,
+  type OwnerDispatcherOverview,
   type DispatcherFeedGroup,
 } from "./services/dispatcherFeedViews";
 
@@ -964,6 +966,7 @@ function RoleWorkspace({
           dispatcherForms={dispatcherForms}
           dispatcherFeedFilters={dispatcherFeedFilters}
           onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
+          businessAccountId={getActiveBusinessAccountId(profile)}
         />
       );
     case "worker":
@@ -990,6 +993,7 @@ function OwnerWorkspace({
   dispatcherForms,
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
+  businessAccountId,
 }: {
   activeTab: OwnerTab;
   dispatcherFeed: DispatcherFeedLoadState;
@@ -998,9 +1002,20 @@ function OwnerWorkspace({
   onDispatcherFeedFiltersChange: (
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
+  businessAccountId: string;
 }) {
   if (activeTab === "overview") {
-    return <section className="owner-empty-view" aria-label="Обзор" />;
+    const overview = buildOwnerDispatcherOverview(
+      dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [],
+      { businessAccountId },
+    );
+
+    return (
+      <OwnerOverviewPanel
+        dispatcherFeed={dispatcherFeed}
+        overview={overview}
+      />
+    );
   }
 
   return (
@@ -1010,6 +1025,206 @@ function OwnerWorkspace({
       filters={dispatcherFeedFilters}
       onFiltersChange={onDispatcherFeedFiltersChange}
     />
+  );
+}
+
+function OwnerOverviewPanel({
+  dispatcherFeed,
+  overview,
+}: {
+  dispatcherFeed: DispatcherFeedLoadState;
+  overview: OwnerDispatcherOverview;
+}) {
+  const hasDispatcherData =
+    overview.equipment !== undefined ||
+    overview.latestIncident !== undefined ||
+    overview.latestIncidentClosure !== undefined ||
+    overview.visitors.latestDate !== undefined ||
+    overview.visitors.openCount > 0;
+  const isLocalTestMode =
+    dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
+
+  return (
+    <section className="owner-overview" aria-label="Обзор">
+      <div className="owner-overview-header">
+        <h2>Диспетчер</h2>
+        {dispatcherFeed.status === "ready" ? (
+          <span>Обновлено: {formatDateTime(dispatcherFeed.receivedAt)}</span>
+        ) : null}
+      </div>
+      {dispatcherFeed.status === "loading" ? (
+        <p className="owner-overview-status">{dispatcherFeed.message}</p>
+      ) : null}
+      {dispatcherFeed.status === "error" ? (
+        <p className="owner-overview-status owner-overview-status-error">
+          {dispatcherFeed.message}
+        </p>
+      ) : null}
+      {isLocalTestMode ? (
+        <p className="owner-overview-status owner-overview-status-local">
+          Локальный тестовый режим: сводка читается из localStorage этого
+          браузера.
+        </p>
+      ) : null}
+      {dispatcherFeed.status === "ready" && !hasDispatcherData ? (
+        <p className="owner-overview-status">
+          Пока нет внесённых диспетчерских отчётов.
+        </p>
+      ) : null}
+      {dispatcherFeed.status === "ready" && hasDispatcherData ? (
+        <div className="owner-overview-stack">
+          <OwnerEquipmentOverviewBlock overview={overview} />
+          <OwnerIncidentOverviewBlock overview={overview} />
+          <OwnerIncidentClosureOverviewBlock overview={overview} />
+          <OwnerVisitorsOverviewBlock overview={overview} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OwnerEquipmentOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  return (
+    <section className="owner-overview-block" aria-label="Оборудование">
+      <h3>Оборудование</h3>
+      {overview.equipment === undefined ? (
+        <p className="owner-overview-status">Нет отчётов по оборудованию.</p>
+      ) : (
+        <p className="owner-overview-lead">
+          Последняя дата обновления отчета по оборудованию -{" "}
+          <strong>{formatDateTime(overview.equipment.updatedAt)}</strong>.
+          Работало {formatEquipmentWorkingCounts(overview.equipment.workingCounts)}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function OwnerIncidentOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  const incident = overview.latestIncident;
+
+  return (
+    <section className="owner-overview-block" aria-label="Последний инцидент">
+      <h3>Последний инцидент</h3>
+      {incident === undefined ? (
+        <p className="owner-overview-status">Нет зарегистрированных инцидентов.</p>
+      ) : (
+        <>
+          <p className="owner-overview-lead">
+            Дата последнего инцидента -{" "}
+            <strong>{formatDateTime(incident.updatedAt)}</strong>.
+          </p>
+          <OwnerOverviewDetails
+            rows={[
+              ["Дата и время инцидента", incident.dateTime],
+              ["Место (цех/участок)", incident.location],
+              ["Тип инцидента", incident.incidentType],
+              ["Описание", incident.description],
+              ["Критичность", incident.criticality],
+              ["Ответственный за регистрацию", incident.responsible],
+              ["Оперативные меры", incident.immediateActions],
+              ["Статус", incident.status],
+              ["Номер инцидента", incident.incidentNumber],
+            ]}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+function OwnerIncidentClosureOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  const closure = overview.latestIncidentClosure;
+
+  return (
+    <section className="owner-overview-block" aria-label="Последнее закрытие инцидента">
+      <h3>Последнее закрытие инцидента</h3>
+      {closure === undefined ? (
+        <p className="owner-overview-status">Нет закрытых инцидентов.</p>
+      ) : (
+        <>
+          <p className="owner-overview-lead">
+            Дата последнего закрытия инцидента -{" "}
+            <strong>{formatDateTime(closure.updatedAt)}</strong>.
+          </p>
+          <OwnerOverviewDetails
+            rows={[
+              ["Номер инцидента", closure.incidentNumber],
+              ["Корневые причины", closure.rootCauses],
+              ["Предотвращающие меры", closure.preventiveMeasures],
+              ["Дата и время закрытия", closure.closureDateTime],
+              ["Затраты (убытки), руб", closure.costs],
+              ["Кто утвердил закрытие", closure.approvedBy],
+              ["Примечание", closure.closureNote],
+              ["Статус", closure.status],
+            ]}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+function OwnerVisitorsOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  const visitors = overview.visitors;
+
+  return (
+    <section className="owner-overview-block" aria-label="Посетители">
+      <h3>Посетители</h3>
+      {visitors.latestDate === undefined ? (
+        <p className="owner-overview-status">Нет входов посетителей.</p>
+      ) : (
+        <>
+          <p className="owner-overview-lead">
+            Последние посетители были {formatDateOnly(visitors.latestDate)}.
+            Было посетителей - {visitors.count} чел.
+          </p>
+          <p className="owner-overview-line">
+            Приходили к{" "}
+            {visitors.hosts.length === 0
+              ? "не указано"
+              : visitors.hosts.join(", ")}.
+          </p>
+        </>
+      )}
+      <p className="owner-overview-line">
+        Количество невышедших посетителей на данный момент -{" "}
+        {visitors.openCount} чел.
+      </p>
+    </section>
+  );
+}
+
+function OwnerOverviewDetails({
+  rows,
+}: {
+  rows: [label: string, value: string | undefined][];
+}) {
+  return (
+    <dl className="owner-overview-details">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{readOverviewDetailValue(value)}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -3922,10 +4137,46 @@ function formatDateTime(value: string) {
   });
 }
 
+function formatDateOnly(value: string) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (parts !== null) {
+    return `${parts[3]}.${parts[2]}.${parts[1]}`;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatEquipmentWorkingCounts(
+  counts: NonNullable<OwnerDispatcherOverview["equipment"]>["workingCounts"],
+) {
+  if (counts.length === 0) {
+    return "нет данных по позициям оборудования";
+  }
+
+  return counts.map((item) => `${item.label} - ${item.count} шт`).join("; ");
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function readOverviewDetailValue(value: string | undefined) {
+  const text = value?.trim();
+
+  return text === undefined || text.length === 0 ? "Не указано" : text;
 }
 
 function readOptionalFormValue(value: FormDataEntryValue | null) {

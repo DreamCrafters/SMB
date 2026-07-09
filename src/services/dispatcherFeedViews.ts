@@ -55,9 +55,64 @@ export type OpenVisitorOption = {
   entryAt: string;
 };
 
+export type OwnerEquipmentWorkingCount = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+export type OwnerEquipmentOverview = {
+  updatedAt: string;
+  reportDate?: string;
+  workingCounts: OwnerEquipmentWorkingCount[];
+};
+
+export type OwnerIncidentOverview = {
+  updatedAt: string;
+  incidentNumber: string;
+  dateTime?: string;
+  location?: string;
+  incidentType?: string;
+  description?: string;
+  criticality?: string;
+  responsible?: string;
+  immediateActions?: string;
+  status: string;
+};
+
+export type OwnerIncidentClosureOverview = {
+  updatedAt: string;
+  incidentNumber: string;
+  rootCauses?: string;
+  preventiveMeasures?: string;
+  closureDateTime?: string;
+  costs?: string;
+  approvedBy?: string;
+  closureNote?: string;
+  status: string;
+};
+
+export type OwnerVisitorsOverview = {
+  latestDate?: string;
+  count: number;
+  hosts: string[];
+  openCount: number;
+};
+
+export type OwnerDispatcherOverview = {
+  equipment?: OwnerEquipmentOverview;
+  latestIncident?: OwnerIncidentOverview;
+  latestIncidentClosure?: OwnerIncidentClosureOverview;
+  visitors: OwnerVisitorsOverview;
+};
+
 type DateRange = {
   dateFrom?: string;
   dateTo?: string;
+};
+
+type OwnerDispatcherOverviewOptions = {
+  businessAccountId?: string;
 };
 
 export type OpenVisitorEntry = {
@@ -83,6 +138,24 @@ export function readDispatcherGroupFormIds(
     case "visitors":
       return ["visitor", "visitor_exit"];
   }
+}
+
+export function buildOwnerDispatcherOverview(
+  submissions: DispatcherSubmission[],
+  options: OwnerDispatcherOverviewOptions = {},
+): OwnerDispatcherOverview {
+  const businessSubmissions = filterSubmissionsByBusiness(
+    submissions,
+    options.businessAccountId,
+  );
+
+  return {
+    equipment: buildOwnerEquipmentOverview(businessSubmissions),
+    latestIncident: buildOwnerIncidentOverview(businessSubmissions),
+    latestIncidentClosure:
+      buildOwnerIncidentClosureOverview(businessSubmissions),
+    visitors: buildOwnerVisitorsOverview(businessSubmissions),
+  };
 }
 
 export function buildEquipmentSummaryRows(
@@ -153,6 +226,136 @@ export function buildEquipmentSummaryRows(
         .sort((left, right) => right.hours - left.hours),
     }))
     .sort((left, right) => left.equipment.localeCompare(right.equipment, "ru"));
+}
+
+function buildOwnerEquipmentOverview(
+  submissions: DispatcherSubmission[],
+): OwnerEquipmentOverview | undefined {
+  const equipmentSubmissions = submissions.filter(
+    (submission) =>
+      submission.formId === "equipment" &&
+      readPayloadDate(submission.payload.reportDate) !== undefined,
+  );
+  const latestEquipmentSubmission = findLatestSubmission(equipmentSubmissions);
+
+  if (latestEquipmentSubmission === undefined) {
+    return undefined;
+  }
+
+  const reportDate = readPayloadDate(latestEquipmentSubmission.payload.reportDate);
+  const latestReportSubmissions =
+    reportDate === undefined
+      ? [latestEquipmentSubmission]
+      : equipmentSubmissions.filter(
+          (submission) => readPayloadDate(submission.payload.reportDate) === reportDate,
+        );
+  const latestSubmissionByEquipment = new Map<string, DispatcherSubmission>();
+
+  for (const submission of latestReportSubmissions) {
+    const equipment = submission.payload.equipment?.trim();
+
+    if (equipment === undefined || equipment.length === 0) {
+      continue;
+    }
+
+    const current = latestSubmissionByEquipment.get(equipment);
+
+    if (
+      current === undefined ||
+      compareSubmissionsAscending(current, submission) <= 0
+    ) {
+      latestSubmissionByEquipment.set(equipment, submission);
+    }
+  }
+
+  return {
+    updatedAt: latestEquipmentSubmission.receivedAt,
+    reportDate,
+    workingCounts: buildEquipmentWorkingCounts([
+      ...latestSubmissionByEquipment.values(),
+    ]),
+  };
+}
+
+function buildOwnerIncidentOverview(
+  submissions: DispatcherSubmission[],
+): OwnerIncidentOverview | undefined {
+  const latestIncident = findLatestSubmission(
+    submissions.filter((submission) => submission.formId === "incident"),
+  );
+
+  if (latestIncident === undefined) {
+    return undefined;
+  }
+
+  return {
+    updatedAt: latestIncident.receivedAt,
+    incidentNumber: readIncidentNumber(latestIncident),
+    dateTime: latestIncident.payload.datetime,
+    location: latestIncident.payload.location,
+    incidentType: latestIncident.payload.incidentType,
+    description: latestIncident.payload.description,
+    criticality: latestIncident.payload.criticality,
+    responsible: latestIncident.payload.responsible,
+    immediateActions: latestIncident.payload.immediateActions,
+    status: latestIncident.payload.incidentStatus ?? "Новый",
+  };
+}
+
+function buildOwnerIncidentClosureOverview(
+  submissions: DispatcherSubmission[],
+): OwnerIncidentClosureOverview | undefined {
+  const latestClosure = findLatestSubmission(
+    submissions.filter((submission) => submission.formId === "incident_close"),
+  );
+
+  if (latestClosure === undefined) {
+    return undefined;
+  }
+
+  return {
+    updatedAt: latestClosure.receivedAt,
+    incidentNumber: latestClosure.payload.incidentNumber?.trim() || latestClosure.id,
+    rootCauses: latestClosure.payload.rootCauses,
+    preventiveMeasures: latestClosure.payload.preventiveMeasures,
+    closureDateTime: latestClosure.payload.closureDateTime,
+    costs: latestClosure.payload.costs,
+    approvedBy: latestClosure.payload.approvedBy,
+    closureNote: latestClosure.payload.closureNote,
+    status: latestClosure.payload.incidentStatus ?? "Закрыт",
+  };
+}
+
+function buildOwnerVisitorsOverview(
+  submissions: DispatcherSubmission[],
+): OwnerVisitorsOverview {
+  const visitorEntries = submissions.filter(
+    (submission) =>
+      submission.formId === "visitor" &&
+      readPayloadDate(submission.payload.entryAt ?? submission.receivedAt) !==
+        undefined,
+  );
+  const latestDate = visitorEntries
+    .map((submission) => readPayloadDate(submission.payload.entryAt ?? submission.receivedAt))
+    .filter((value): value is string => value !== undefined)
+    .sort((left, right) => right.localeCompare(left))[0];
+  const latestDateEntries =
+    latestDate === undefined
+      ? []
+      : visitorEntries.filter(
+          (submission) =>
+            readPayloadDate(submission.payload.entryAt ?? submission.receivedAt) ===
+            latestDate,
+        );
+
+  return {
+    latestDate,
+    count: latestDateEntries.length,
+    hosts: readUniqueValues(
+      latestDateEntries.map((submission) => submission.payload.whom),
+    ),
+    openCount: buildOpenVisitorOptions(submissions).length,
+  };
 }
 
 export function buildIncidentSummaryRows(
@@ -476,6 +679,166 @@ function formatOpenIncidentLabel(
 
 function readIncidentNumber(submission: DispatcherSubmission) {
   return submission.payload.incidentNumber?.trim() || submission.id;
+}
+
+function buildEquipmentWorkingCounts(
+  submissions: DispatcherSubmission[],
+): OwnerEquipmentWorkingCount[] {
+  const groupsByKey = new Map<
+    string,
+    {
+      label: string;
+      order: number;
+      count: number;
+    }
+  >();
+
+  for (const submission of submissions) {
+    const equipment = submission.payload.equipment?.trim();
+
+    if (equipment === undefined || equipment.length === 0) {
+      continue;
+    }
+
+    const group = readEquipmentWorkingGroup(equipment);
+    const current =
+      groupsByKey.get(group.key) ??
+      {
+        label: group.label,
+        order: group.order,
+        count: 0,
+      };
+
+    if ((readNumber(submission.payload.productionTons) ?? 0) > 0) {
+      current.count += 1;
+    }
+
+    groupsByKey.set(group.key, current);
+  }
+
+  return [...groupsByKey.entries()]
+    .map(([key, group]) => ({
+      key,
+      label: group.label,
+      count: group.count,
+      order: group.order,
+    }))
+    .sort(
+      (left, right) =>
+        left.order - right.order || left.label.localeCompare(right.label, "ru"),
+    )
+    .map(({ order: _order, ...group }) => group);
+}
+
+function readEquipmentWorkingGroup(equipment: string) {
+  if (equipment.startsWith("Пресс")) {
+    return {
+      key: "press",
+      label: "Прессов",
+      order: 0,
+    };
+  }
+
+  if (equipment.startsWith("Бегуны")) {
+    return {
+      key: "runner",
+      label: "Бегунов",
+      order: 1,
+    };
+  }
+
+  if (equipment.startsWith("Дезинтегратор")) {
+    return {
+      key: "disintegrator",
+      label: "Дезинтегратор",
+      order: 2,
+    };
+  }
+
+  if (equipment.startsWith("Сушильный")) {
+    return {
+      key: "dryer",
+      label: "Сушильный",
+      order: 3,
+    };
+  }
+
+  if (equipment.startsWith("Шаровая")) {
+    return {
+      key: "ball_mill",
+      label: "Шаровая",
+      order: 4,
+    };
+  }
+
+  const label = equipment.replace(/\s*№.*$/, "").trim() || equipment;
+
+  return {
+    key: `equipment:${label.toLocaleLowerCase("ru-RU")}`,
+    label,
+    order: 100,
+  };
+}
+
+function readUniqueValues(values: (string | undefined)[]) {
+  const seen = new Set<string>();
+  const uniqueValues: string[] = [];
+
+  for (const value of values) {
+    const normalized = value?.trim();
+
+    if (normalized === undefined || normalized.length === 0) {
+      continue;
+    }
+
+    const key = normalized.toLocaleLowerCase("ru-RU");
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    uniqueValues.push(normalized);
+  }
+
+  return uniqueValues;
+}
+
+function filterSubmissionsByBusiness(
+  submissions: DispatcherSubmission[],
+  businessAccountId: string | undefined,
+) {
+  if (businessAccountId === undefined) {
+    return submissions;
+  }
+
+  return submissions.filter(
+    (submission) => submission.businessAccountId === businessAccountId,
+  );
+}
+
+function findLatestSubmission(submissions: DispatcherSubmission[]) {
+  return submissions.reduce<DispatcherSubmission | undefined>(
+    (latest, submission) => {
+      if (latest === undefined) {
+        return submission;
+      }
+
+      const timestampDelta =
+        readTimestamp(submission.receivedAt) - readTimestamp(latest.receivedAt);
+
+      if (timestampDelta > 0) {
+        return submission;
+      }
+
+      if (timestampDelta === 0 && submission.id.localeCompare(latest.id) > 0) {
+        return submission;
+      }
+
+      return latest;
+    },
+    undefined,
+  );
 }
 
 function buildVisitorKey(payload: DispatcherSubmissionPayload) {
