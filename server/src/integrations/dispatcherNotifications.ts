@@ -232,6 +232,11 @@ function buildIncidentClosureNotificationText(submission: DispatcherSubmission) 
   return [
     "Инцидент закрыт!",
     `Номер инцидента: ${readIncidentNumber(submission)}`,
+    ...buildOptionalPayloadLine(
+      submission,
+      "location",
+      "Место (цех/участок)",
+    ),
     `Корневые причины: ${readPayloadValue(submission, "rootCauses")}`,
     `Предотвращающие меры: ${readPayloadValue(submission, "preventiveMeasures")}`,
     `Дата и время закрытия: ${readPayloadValue(submission, "closureDateTime")}`,

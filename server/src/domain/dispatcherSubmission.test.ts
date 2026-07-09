@@ -376,14 +376,21 @@ test("incident state rules allow closure of earlier-day open incidents only", ()
     const opening = buildDispatcherSubmission("incident-id", "incident", {
       incidentNumber: "INC-2026-1",
       datetime: "17.06.2026 10:30",
+      location: "Цех 1",
     });
     const closure = buildDispatcherSubmission("incident-close-id", "incident_close", {
       incidentNumber: "INC-2026-1",
       closureDateTime: "18.06.2026 11:30",
     });
+    const openResult = applyIncidentStateRules(result.value, [opening]);
 
     assert.equal(applyIncidentStateRules(result.value, []).ok, false);
-    assert.equal(applyIncidentStateRules(result.value, [opening]).ok, true);
+    assert.equal(openResult.ok, true);
+
+    if (openResult.ok) {
+      assert.equal(openResult.value.draft.payload.location, "Цех 1");
+    }
+
     assert.equal(
       applyIncidentStateRules(result.value, [opening, closure]).ok,
       false,

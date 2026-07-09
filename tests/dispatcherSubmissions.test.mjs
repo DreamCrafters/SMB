@@ -273,6 +273,7 @@ test("local incident close submissions can close an earlier-day open incident", 
 
   assert.equal(closeResult.status, "ready");
   assert.equal(closeResult.submission.payload.incidentNumber, incidentNumber);
+  assert.equal(closeResult.submission.payload.location, "Цех 1");
   assert.equal(duplicateCloseResult.status, "error");
   assert.match(duplicateCloseResult.message, /незакрытый инцидент/);
 });

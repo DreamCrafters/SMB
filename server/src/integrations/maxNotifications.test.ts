@@ -107,6 +107,49 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   });
 });
 
+test("createMaxNotificationService sends incident closure location", async () => {
+  const sent: { url: string; body: string }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
+
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await service.sendDispatcherSubmissionNotification(
+    buildSubmission("incident_close", {
+      incidentNumber: "INC-2026-1",
+      location: "Цех №1",
+      rootCauses: "Root cause",
+      preventiveMeasures: "Preventive measures",
+      closureDateTime: "06.07.2026 12:40",
+      approvedBy: "Иван Иванов",
+      incidentStatus: "Закрыт",
+    }),
+    recipients,
+  );
+
+  assert.equal(sent.length, 1);
+  assert.equal(
+    sent[0]?.url,
+    "https://platform-api2.max.ru/messages?user_id=-1001",
+  );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Место \(цех\/участок\): Цех №1/,
+  );
+});
+
 test("createMaxNotificationService adds specialized recipients", async () => {
   const sent: { url: string; body: string }[] = [];
   const service = createMaxNotificationService(

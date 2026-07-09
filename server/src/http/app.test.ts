@@ -1098,6 +1098,7 @@ test("remote API accepts incident close for an earlier-day open incident", async
       "incident_close",
     );
     assert.equal(createdPayload?.incidentNumber, "INC-2026-1");
+    assert.equal(createdPayload?.location, "Цех 1");
     assert.equal(createdPayload?.incidentStatus, "Закрыт");
   }, repository);
 });

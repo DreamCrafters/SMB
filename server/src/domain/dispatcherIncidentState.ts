@@ -42,9 +42,24 @@ export function applyIncidentStateRules(
     };
   }
 
+  const openingLocation = openIncident.submission.payload.location?.trim();
+  const payload =
+    openingLocation === undefined || openingLocation.length === 0
+      ? value.draft.payload
+      : {
+          ...value.draft.payload,
+          location: openingLocation,
+        };
+
   return {
     ok: true,
-    value,
+    value: {
+      ...value,
+      draft: {
+        ...value.draft,
+        payload,
+      },
+    },
   };
 }
 

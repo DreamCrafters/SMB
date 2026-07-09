@@ -65,6 +65,7 @@ test("buildDispatcherSubmissionEmail sends incident closures to common recipient
   const message = buildDispatcherSubmissionEmail(
     buildSubmission("incident_close", {
       incidentNumber: "INC-2026-1",
+      location: "Цех №1",
       approvedBy: "Иван Иванов",
     }),
     recipients,
@@ -74,6 +75,7 @@ test("buildDispatcherSubmissionEmail sends incident closures to common recipient
 
   assert.deepEqual(message?.to, ["common@example.com"]);
   assert.equal(message?.subject, "[SMB Monitor] Закрытие инцидента INC-2026-1");
+  assert.match(message?.text ?? "", /Место \(цех\/участок\): Цех №1/);
 });
 
 test("buildDispatcherSubmissionEmail adds mechanical and electrical recipients for downtime reason", () => {

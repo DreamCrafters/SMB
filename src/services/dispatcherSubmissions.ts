@@ -1157,6 +1157,9 @@ function applyLocalDispatcherFormScriptRules(
     }
 
     nextPayload.costs = nextPayload.costs ?? "0";
+    if ((openIncident.submission.payload.location?.trim() ?? "").length > 0) {
+      nextPayload.location = openIncident.submission.payload.location ?? "";
+    }
     nextPayload.incidentStatus = "Закрыт";
 
     if (
