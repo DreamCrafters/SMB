@@ -3966,8 +3966,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const requiresBusiness = accountTypeRequiresBusiness(form.accountType);
-    const requiresDepartment = accountTypeRequiresDepartment(form.accountType);
+    const showsScopeFields = accountTypeShowsScopeFields(form.accountType);
 
     if (
       form.login.trim().length === 0 ||
@@ -3978,12 +3977,12 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       return;
     }
 
-    if (requiresBusiness && form.businessAccountId.trim().length === 0) {
+    if (showsScopeFields && form.businessAccountId.trim().length === 0) {
       setFormStatus("Укажите ID бизнес-аккаунта для этой роли.");
       return;
     }
 
-    if (requiresDepartment && form.departmentId.trim().length === 0) {
+    if (showsScopeFields && form.departmentId.trim().length === 0) {
       setFormStatus("Укажите ID подразделения для этой роли.");
       return;
     }
@@ -3993,23 +3992,16 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
 
     const submittedLogin = form.login.trim();
     const submittedPassword = form.password;
+    const scope = readAdminAccountScopeInput(form);
     const result = await createAdminAccount({
       login: submittedLogin,
       password: submittedPassword,
       displayName: form.displayName.trim(),
       accountType: form.accountType,
-      businessAccountId: requiresBusiness
-        ? form.businessAccountId.trim()
-        : undefined,
-      businessDisplayName:
-        requiresBusiness && form.businessDisplayName.trim().length > 0
-          ? form.businessDisplayName.trim()
-          : undefined,
-      departmentId: requiresDepartment ? form.departmentId.trim() : undefined,
-      departmentDisplayName:
-        requiresDepartment && form.departmentDisplayName.trim().length > 0
-          ? form.departmentDisplayName.trim()
-          : undefined,
+      businessAccountId: scope.businessAccountId,
+      businessDisplayName: scope.businessDisplayName,
+      departmentId: scope.departmentId,
+      departmentDisplayName: scope.departmentDisplayName,
       accessDisplayName:
         form.accessDisplayName.trim().length > 0
           ? form.accessDisplayName.trim()
@@ -4067,8 +4059,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   }
 
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
-  const requiresBusiness = accountTypeRequiresBusiness(form.accountType);
-  const requiresDepartment = accountTypeRequiresDepartment(form.accountType);
+  const showsScopeFields = accountTypeShowsScopeFields(form.accountType);
 
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
@@ -4194,7 +4185,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             </select>
           </label>
 
-          {requiresBusiness ? (
+          {showsScopeFields ? (
             <>
               <label>
                 <span>ID бизнес-аккаунта</span>
@@ -4225,7 +4216,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             </>
           ) : null}
 
-          {requiresDepartment ? (
+          {showsScopeFields ? (
             <>
               <label>
                 <span>ID подразделения</span>
@@ -4348,16 +4339,60 @@ function AdminAccountPasswordCell({
   );
 }
 
-function accountTypeRequiresBusiness(accountType: AccountType) {
-  return (
-    accountType === "business_owner" ||
-    accountType === "worker" ||
-    accountType === "dispatcher"
-  );
+const singletonBusinessAccountId = "prod-business";
+const singletonBusinessDisplayName = "Основной бизнес";
+const singletonDispatchDepartmentId = "dispatch";
+const singletonDispatchDepartmentDisplayName = "Диспетчерская";
+
+function accountTypeShowsScopeFields(accountType: AccountType) {
+  return accountType === "worker";
 }
 
-function accountTypeRequiresDepartment(accountType: AccountType) {
-  return accountType === "worker" || accountType === "dispatcher";
+function readAdminAccountScopeInput(form: AdminAccountFormState): {
+  businessAccountId: string | undefined;
+  businessDisplayName: string | undefined;
+  departmentId: string | undefined;
+  departmentDisplayName: string | undefined;
+} {
+  if (form.accountType === "business_owner") {
+    return {
+      businessAccountId: singletonBusinessAccountId,
+      businessDisplayName: singletonBusinessDisplayName,
+      departmentId: undefined,
+      departmentDisplayName: undefined,
+    };
+  }
+
+  if (form.accountType === "dispatcher") {
+    return {
+      businessAccountId: singletonBusinessAccountId,
+      businessDisplayName: singletonBusinessDisplayName,
+      departmentId: singletonDispatchDepartmentId,
+      departmentDisplayName: singletonDispatchDepartmentDisplayName,
+    };
+  }
+
+  if (form.accountType === "worker") {
+    return {
+      businessAccountId: form.businessAccountId.trim(),
+      businessDisplayName:
+        form.businessDisplayName.trim().length > 0
+          ? form.businessDisplayName.trim()
+          : undefined,
+      departmentId: form.departmentId.trim(),
+      departmentDisplayName:
+        form.departmentDisplayName.trim().length > 0
+          ? form.departmentDisplayName.trim()
+          : undefined,
+    };
+  }
+
+  return {
+    businessAccountId: undefined,
+    businessDisplayName: undefined,
+    departmentId: undefined,
+    departmentDisplayName: undefined,
+  };
 }
 
 function formatAdminAccountScope(account: AdminAccountSummary) {
