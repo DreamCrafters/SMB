@@ -97,10 +97,15 @@ type DataEntrySubmitStateControls = {
   setIsSubmitting: (isSubmitting: boolean) => void;
 };
 
+type DataEntrySubmitCallbacks = {
+  onSuccess?: (message: string) => void;
+};
+
 type DataEntrySubmitHandler = (
   event: FormEvent<HTMLFormElement>,
   actingProfile?: ServerUserProfile,
   controls?: DataEntrySubmitStateControls,
+  callbacks?: DataEntrySubmitCallbacks,
 ) => void;
 
 type SessionRequestState =
@@ -162,7 +167,14 @@ type DispatcherFormChoiceGroup = {
   forms: DispatcherFormDefinition[];
 };
 
+type DataEntrySubmitToast = {
+  id: number;
+  message: string;
+};
+
 type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
+
+const submitToastTimeoutMs = 4_000;
 
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
@@ -474,6 +486,7 @@ export default function App() {
       setStatus: setDataEntryStatus,
       setIsSubmitting: setIsDataEntrySubmitting,
     },
+    callbacks: DataEntrySubmitCallbacks = {},
   ) {
     event.preventDefault();
 
@@ -563,8 +576,11 @@ export default function App() {
       controls.setIsSubmitting(false);
 
       if (result.status === "ready") {
-        controls.setStatus(readEquipmentReportSuccessMessage(result));
+        const successMessage = readEquipmentReportSuccessMessage(result);
+
+        controls.setStatus(successMessage);
         setDispatcherSubmissionVersion((version) => version + 1);
+        callbacks.onSuccess?.(successMessage);
         return;
       }
 
@@ -599,9 +615,12 @@ export default function App() {
     controls.setIsSubmitting(false);
 
     if (result.status === "ready") {
-      controls.setStatus(readSubmissionSuccessMessage(result));
+      const successMessage = readSubmissionSuccessMessage(result);
+
+      controls.setStatus(successMessage);
       setDispatcherSubmissionVersion((version) => version + 1);
       resetDispatcherForm(form, formDefinition.id);
+      callbacks.onSuccess?.(successMessage);
 
       return;
     }
@@ -648,16 +667,22 @@ export default function App() {
     event,
     actingProfile,
     controls,
+    callbacks,
   ) => {
     if (viewedProfile !== undefined) {
-      handleDataEntrySubmit(event, viewedProfile, {
-        setStatus: setAdminViewedDataEntryStatus,
-        setIsSubmitting: setIsAdminViewedDataEntrySubmitting,
-      });
+      handleDataEntrySubmit(
+        event,
+        viewedProfile,
+        {
+          setStatus: setAdminViewedDataEntryStatus,
+          setIsSubmitting: setIsAdminViewedDataEntrySubmitting,
+        },
+        callbacks,
+      );
       return;
     }
 
-    handleDataEntrySubmit(event, actingProfile, controls);
+    handleDataEntrySubmit(event, actingProfile, controls, callbacks);
   };
 
   return (
@@ -1050,7 +1075,7 @@ function DataEntryWorkspace({
   ariaLabel: string;
   status: string;
   isSubmitting: boolean;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: DataEntrySubmitHandler;
   dispatcherForms: DispatcherFormsLoadState;
   businessAccountId: string;
   refreshVersion: number;
@@ -1058,6 +1083,9 @@ function DataEntryWorkspace({
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
+  const [submitToast, setSubmitToast] = useState<DataEntrySubmitToast | undefined>(
+    undefined,
+  );
   const formLeaveGuardRef = useRef<FormLeaveGuard | undefined>(undefined);
   const currentForm = forms.find((form) => form.id === selectedFormId);
   const isLocalTestMode =
@@ -1079,6 +1107,22 @@ function DataEntryWorkspace({
     }
   }, [forms, selectedFormId]);
 
+  useEffect(() => {
+    if (submitToast === undefined) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSubmitToast((current) =>
+        current?.id === submitToast.id ? undefined : current,
+      );
+    }, submitToastTimeoutMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [submitToast]);
+
   function handleSelectForm(formId: string) {
     const continueSelection = () => {
       formLeaveGuardRef.current = undefined;
@@ -1096,6 +1140,21 @@ function DataEntryWorkspace({
     continueSelection();
   }
 
+  function handleSuccessfulSubmit(message: string) {
+    formLeaveGuardRef.current = undefined;
+    setSubmitToast({
+      id: Date.now(),
+      message,
+    });
+    setSelectedFormId("");
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    onSubmit(event, undefined, undefined, {
+      onSuccess: handleSuccessfulSubmit,
+    });
+  }
+
   if (dispatcherForms.status !== "ready" || forms.length === 0) {
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
@@ -1111,6 +1170,16 @@ function DataEntryWorkspace({
       <section className="data-entry-surface" aria-label={ariaLabel}>
         {isLocalTestMode ? (
           <p className="form-status form-status-local">{localTestModeMessage}</p>
+        ) : null}
+        {submitToast !== undefined ? (
+          <div
+            aria-live="polite"
+            className="dispatcher-submit-toast"
+            role="status"
+          >
+            <strong>Отправлено</strong>
+            <span>{submitToast.message}</span>
+          </div>
         ) : null}
         <div className="dispatcher-form-choice" aria-label="Выбор формы">
           {choiceGroups.map((group) => (
@@ -1146,7 +1215,17 @@ function DataEntryWorkspace({
 
   return (
     <section className="data-entry-surface" aria-label={ariaLabel}>
-      <form className="data-entry-form" onSubmit={onSubmit}>
+      {submitToast !== undefined ? (
+        <div
+          aria-live="polite"
+          className="dispatcher-submit-toast"
+          role="status"
+        >
+          <strong>Отправлено</strong>
+          <span>{submitToast.message}</span>
+        </div>
+      ) : null}
+      <form className="data-entry-form" onSubmit={handleSubmit}>
         <input name="formId" type="hidden" value={currentForm.id} readOnly />
         {isLocalTestMode ? (
           <p className="form-status form-status-local">{localTestModeMessage}</p>

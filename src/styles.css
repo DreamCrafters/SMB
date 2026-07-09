@@ -826,6 +826,39 @@ p {
   font-weight: 800;
 }
 
+.dispatcher-submit-toast {
+  position: fixed;
+  top: var(--density-4);
+  right: var(--density-4);
+  z-index: 40;
+  display: grid;
+  gap: 3px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--emerald);
+  border-left: 5px solid var(--emerald);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.dispatcher-submit-toast strong {
+  color: var(--emerald);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.dispatcher-submit-toast span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .primary-button {
   min-height: 40px;
   padding: 9px 12px;
