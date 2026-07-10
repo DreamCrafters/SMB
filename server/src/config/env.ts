@@ -308,8 +308,7 @@ function readEmailNotificationConfig(env: NodeJS.ProcessEnv): EmailNotificationC
   return {
     enabled,
     from: from ?? "",
-    subjectPrefix:
-      readOptional(env.EMAIL_SUBJECT_PREFIX) ?? defaultEmailSubjectPrefix,
+    subjectPrefix: env.EMAIL_SUBJECT_PREFIX?.trim() ?? defaultEmailSubjectPrefix,
     smtpHost,
     smtpPort: readSmtpPort(env.SMTP_PORT),
     smtpSecure: env.SMTP_SECURE === "true",
@@ -334,8 +333,7 @@ function readMaxNotificationConfig(env: NodeJS.ProcessEnv): MaxNotificationConfi
       "MAX_API_BASE_URL",
     ),
     recipientIdType: readMaxRecipientIdType(env.MAX_RECIPIENT_ID_TYPE),
-    subjectPrefix:
-      readOptional(env.MAX_SUBJECT_PREFIX) ?? defaultMaxSubjectPrefix,
+    subjectPrefix: env.MAX_SUBJECT_PREFIX?.trim() ?? defaultMaxSubjectPrefix,
     caCertFile: readOptional(env.MAX_CA_CERT_FILE),
   };
 }

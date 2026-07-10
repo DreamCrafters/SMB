@@ -174,7 +174,7 @@ curl -i https://smb.aonmou.ru/api/dispatcher/forms
 ```text
 EMAIL_NOTIFICATIONS_ENABLED=true
 EMAIL_FROM=адрес_отправителя
-EMAIL_SUBJECT_PREFIX=SMB Monitor
+EMAIL_SUBJECT_PREFIX=СУБ
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -195,7 +195,7 @@ MAX_NOTIFICATIONS_ENABLED=true
 MAX_BOT_TOKEN=токен_бота_MAX
 MAX_API_BASE_URL=https://platform-api2.max.ru
 MAX_RECIPIENT_ID_TYPE=user_id
-MAX_SUBJECT_PREFIX=SMB Monitor
+MAX_SUBJECT_PREFIX=СУБ
 MAX_CA_CERT_FILE=
 ```
 

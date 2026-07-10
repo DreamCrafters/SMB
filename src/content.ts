@@ -14,7 +14,7 @@ export type AuthOption = {
 };
 
 export const shellCopy = {
-  productName: "SMB Monitor",
+  productName: "СУБ",
   visualDirection: "Industrial Finance Operations",
   referencePreview:
     "/Users/artemiz/.codex/generated_images/019edad9-6b9e-7f22-96f4-69e15e644aed/ig_047c9b30a9c8b2c9016a33f67fc18081919a778fdad4532cfe.png",

@@ -855,7 +855,7 @@ function AuthScreen({
         <div className="auth-copy">
           <p className="eyebrow">access boundary</p>
           <h1 id="auth-title">
-            {mode === "production" ? "Вход в SMB Monitor" : shellCopy.authTitle}
+            {mode === "production" ? "Вход в СУБ" : shellCopy.authTitle}
           </h1>
           <p>
             {mode === "production"
