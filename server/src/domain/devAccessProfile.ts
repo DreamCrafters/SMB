@@ -58,7 +58,10 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.view_notifications",
     "business.view_own_submissions",
   ],
-  dispatcher: ["business.submit_dispatcher_forms"],
+  dispatcher: [
+    "business.submit_dispatcher_forms",
+    "business.view_dispatcher_feed",
+  ],
 };
 
 export function buildDevProfile(accountType: AccountType, issuedAt: string) {

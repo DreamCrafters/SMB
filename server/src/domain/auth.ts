@@ -128,7 +128,10 @@ export const defaultCapabilitiesByAccountType: Record<
     "business.view_notifications",
     "business.view_own_submissions",
   ],
-  dispatcher: ["business.submit_dispatcher_forms"],
+  dispatcher: [
+    "business.submit_dispatcher_forms",
+    "business.view_dispatcher_feed",
+  ],
 };
 
 const scryptAsync = promisify(scrypt);

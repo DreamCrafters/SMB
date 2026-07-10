@@ -341,6 +341,7 @@ test("remote API creates and reads dev access sessions by header", async () => {
     assert.equal(readProfileAccountType(profilePayload), "dispatcher");
     assert.deepEqual(readProfileCapabilities(profilePayload), [
       "business.submit_dispatcher_forms",
+      "business.view_dispatcher_feed",
     ]);
   });
 });
