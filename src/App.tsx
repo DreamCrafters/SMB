@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   AccountCapability,
   AccountType,
-  AdminAccountSummary,
   AdminDatabaseCellValue,
   AdminDatabaseColumn,
   AdminDatabaseRow,
@@ -3888,7 +3887,6 @@ type AdminAccountFormState = {
   businessDisplayName: string;
   departmentId: string;
   departmentDisplayName: string;
-  accessDisplayName: string;
 };
 
 const emptyAdminAccountForm: AdminAccountFormState = {
@@ -3900,7 +3898,6 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   businessDisplayName: "",
   departmentId: "",
   departmentDisplayName: "",
-  accessDisplayName: "",
 };
 
 const adminAccountTypeOptions: AccountType[] = [
@@ -4002,10 +3999,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       businessDisplayName: scope.businessDisplayName,
       departmentId: scope.departmentId,
       departmentDisplayName: scope.departmentDisplayName,
-      accessDisplayName:
-        form.accessDisplayName.trim().length > 0
-          ? form.accessDisplayName.trim()
-          : undefined,
     });
 
     setIsSubmitting(false);
@@ -4075,23 +4068,19 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
               <table className="admin-db-data-table admin-accounts-table">
                 <thead>
                   <tr>
-                    <th scope="col">Логин</th>
-                    <th scope="col">Имя</th>
                     <th scope="col">Роль</th>
-                    <th scope="col">Организация / отдел</th>
-                    <th scope="col">Статус</th>
+                    <th scope="col">Имя</th>
+                    <th scope="col">Логин</th>
                     <th scope="col">Пароль</th>
-                    <th scope="col">Создано</th>
+                    <th scope="col">Статус</th>
                   </tr>
                 </thead>
                 <tbody>
                   {accounts.map((account) => (
                     <tr key={account.accessId}>
-                      <td>{account.login}</td>
-                      <td>{account.userDisplayName}</td>
                       <td>{accountTypeLabels[account.accountType]}</td>
-                      <td>{formatAdminAccountScope(account)}</td>
-                      <td>{formatAdminAccountStatus(account.userStatus)}</td>
+                      <td>{account.userDisplayName}</td>
+                      <td>{account.login}</td>
                       <td>
                         <AdminAccountPasswordCell
                           revealedPassword={revealedPasswords[account.login]}
@@ -4099,12 +4088,12 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                           onReset={() => handleResetPassword(account.login)}
                         />
                       </td>
-                      <td>{formatDateTime(account.createdAt)}</td>
+                      <td>{formatAdminAccountStatus(account.userStatus)}</td>
                     </tr>
                   ))}
                   {accounts.length === 0 ? (
                     <tr>
-                      <td colSpan={7}>Учётных записей пока нет.</td>
+                      <td colSpan={5}>Учётных записей пока нет.</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -4246,20 +4235,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
               </label>
             </>
           ) : null}
-
-          <label>
-            <span>Название доступа (необязательно)</span>
-            <input
-              type="text"
-              value={form.accessDisplayName}
-              placeholder={`${form.displayName || "Имя"} access`}
-              onChange={(event) =>
-                handleFormFieldChange({
-                  accessDisplayName: event.currentTarget.value,
-                })
-              }
-            />
-          </label>
 
           <div className="form-actions">
             <button
@@ -4424,21 +4399,6 @@ function readAdminAccountScopeInput(form: AdminAccountFormState): {
     departmentId: undefined,
     departmentDisplayName: undefined,
   };
-}
-
-function formatAdminAccountScope(account: AdminAccountSummary) {
-  if (account.scope.kind === "platform") {
-    return "Платформа";
-  }
-
-  if (account.scope.kind === "business") {
-    return account.businessDisplayName ?? account.scope.businessAccountId;
-  }
-
-  const business = account.businessDisplayName ?? account.scope.businessAccountId;
-  const department = account.departmentDisplayName ?? account.scope.departmentId;
-
-  return `${business} / ${department}`;
 }
 
 function formatAdminAccountStatus(status: string) {
