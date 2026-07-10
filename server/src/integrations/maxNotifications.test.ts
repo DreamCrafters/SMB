@@ -92,7 +92,7 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   );
   assert.deepEqual(JSON.parse(String(sent[0]?.init?.body)), {
     text: [
-      "Новый инцидент",
+      "[SMB Monitor] Новый инцидент",
       "№: INC-2026-1",
       "Когда: 06.07.2026 21:51",
       "Место: Цех №1",

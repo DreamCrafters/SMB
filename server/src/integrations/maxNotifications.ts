@@ -93,7 +93,9 @@ export function createMaxNotificationService(
         return;
       }
 
-      const text = trimMaxMessageText(buildDispatcherNotificationText(submission));
+      const text = trimMaxMessageText(
+        withMaxSubjectPrefix(config.subjectPrefix, buildDispatcherNotificationText(submission)),
+      );
       const caCertificate = await caCertificatePromise;
 
       await Promise.all(
@@ -125,7 +127,10 @@ export function createMaxNotificationService(
       }
 
       const text = trimMaxMessageText(
-        buildEquipmentReportNotificationText(submissions, status),
+        withMaxSubjectPrefix(
+          config.subjectPrefix,
+          buildEquipmentReportNotificationText(submissions, status),
+        ),
       );
       const caCertificate = await caCertificatePromise;
 
@@ -237,6 +242,10 @@ function isMaxNotifiableSubmission(submission: DispatcherSubmission) {
     submission.formId === "visitor" ||
     submission.formId === "visitor_exit"
   );
+}
+
+function withMaxSubjectPrefix(subjectPrefix: string, text: string) {
+  return subjectPrefix.length > 0 ? `[${subjectPrefix}] ${text}` : text;
 }
 
 function trimMaxMessageText(value: string) {
