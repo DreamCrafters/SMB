@@ -37,3 +37,4 @@ local-data/
 *.pdf
 deploy/test.env
 deploy/production.env
+/deploy
