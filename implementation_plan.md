@@ -23,6 +23,7 @@
 - [x] Короткий runbook локального запуска и локального Docker хранится в `docs/local-server-run.md`; внешний Google Sheets источник справочников описан отдельно в `docs/google-sheets-source.md`.
 - [x] Базовый контракт аккаунтов создан в `src/contracts/accounts.ts`.
 - [x] Первый визуальный app shell собран без клиентских бизнес-данных.
+- [x] Временные текстовые знаки `SM` на экране входа и в левом rail заменены единым radar-брендмарком СУБ; тот же знак подключён как favicon сайта.
 - [x] Roadmap переведён в режим checklist: выполненное, активный пункт и следующий шаг должны обновляться после каждой задачи.
 - [x] Серверные контракты шага 1 расширены для business account, user profile, department, org structure, data entry, confirmation и audit summary.
 - [x] Клиентская fetch-boundary для `access/profile` создана в `src/services/accessProfile.ts` с loading, empty и error states.

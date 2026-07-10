@@ -850,7 +850,7 @@ function AuthScreen({
     <main className="auth-shell">
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="brand-mark" aria-hidden="true">
-          SM
+          <img alt="" src="/smb-radar-icon.png" />
         </div>
         <div className="auth-copy">
           <p className="eyebrow">access boundary</p>
@@ -966,7 +966,7 @@ function SideRail({
     <aside className="side-rail" aria-label="Основная навигация">
       <div className="rail-brand-row">
         <div className="brand-mark" aria-hidden="true">
-          SM
+          <img alt="" src="/smb-radar-icon.png" />
         </div>
         {isAdminPreviewMode ? (
           <div className="admin-preview-mode-badge" role="status">
