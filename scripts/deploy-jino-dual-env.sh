@@ -151,6 +151,7 @@ deploy_environment() {
   SMB_SERVER_ENV_FILE="$app_dir/server/.env" npm --workspace server run db:migrate
   npm --workspace server run build
   npm run "build:web:$mode"
+  require_file "$app_dir/dist/.htaccess"
 
   mkdir -p "$public_dir"
   rm -rf "$public_dir"/*
@@ -160,7 +161,7 @@ deploy_environment() {
   mkdir -p "$root_dir/tmp"
   touch "$root_dir/tmp/restart.txt"
 
-  log "$label" "Done. Smoke check: curl -i https://$domain/ && curl -i https://$domain/health"
+  log "$label" "Done. Smoke check: curl -I http://$domain/ (expect 301) && curl -i https://$domain/health"
 }
 
 case "$DEPLOY_TARGET" in

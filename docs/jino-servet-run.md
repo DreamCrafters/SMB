@@ -114,7 +114,8 @@ SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
 - применяет миграции с env конкретной среды;
 - собирает backend;
 - собирает frontend в нужном Vite mode;
-- копирует `dist` в `public_html`;
+- проверяет наличие `dist/.htaccess` с HTTP → HTTPS redirect и security headers;
+- копирует `dist`, включая tracked `.htaccess`, в `public_html`;
 - обновляет `app.js` и трогает `tmp/restart.txt`.
 
 Опционально:
@@ -143,17 +144,39 @@ npm run build:web:production
 
 Vite сам прочитает `.env.test` или `.env.production` по mode.
 
+## Принудительный HTTPS
+
+Оба домена должны обслуживать приложение только через HTTPS. Файл
+`public/.htaccess` попадает в `dist/.htaccess` при Vite-сборке и затем
+публикуется deploy-скриптом в `public_html`. Правило учитывает Jino proxy header
+`X-Forwarded-Protocol`, поэтому не должно зацикливать HTTPS-запросы.
+
+Как дополнительную защиту в панели Jino для каждого домена отдельно включить:
+`Домены` → настройки домена → `SSL-сертификат` → `Всегда использовать только HTTPS`.
+
+Не добавлять `http://smb.aonmou.ru` в `CORS_ORIGIN` и не убирать `Secure` у
+production-cookie. HTTP-origin должен перенаправляться до загрузки frontend,
+а не получать доступ к production API.
+
 ## Smoke после deploy
 
 ```bash
-curl -i https://test.smb.aonmou.ru/
-curl -i https://test.smb.aonmou.ru/health
-curl -i https://smb.aonmou.ru/
-curl -i https://smb.aonmou.ru/health
+for host in test.smb.aonmou.ru smb.aonmou.ru; do
+  curl -sS -o /dev/null -w "$host /: %{http_code} %{redirect_url}\n" \
+    "http://$host/"
+  curl -sS -o /dev/null -w "$host /health: %{http_code} %{redirect_url}\n" \
+    "http://$host/health"
+  curl -sS -o /dev/null -w "$host /api/access/profile: %{http_code} %{redirect_url}\n" \
+    "http://$host/api/access/profile"
+  curl -fsS -D - "https://$host/health" -o /dev/null | \
+    grep -Ei '^(HTTP/|strict-transport-security:|x-content-type-options:|referrer-policy:|x-frame-options:|permissions-policy:)'
+done
 ```
 
 Ожидаемое поведение:
 
+- HTTP `/`, `/health` и `/api/access/profile` возвращают `301` на тот же host/path через HTTPS;
+- HTTPS `/health` возвращает `200`, HSTS и остальные базовые security headers;
 - `https://test.smb.aonmou.ru` показывает тестовый выбор роли.
 - `https://smb.aonmou.ru` требует login/password.
 - Production `/api/dev/access-session` возвращает отказ и не создаёт dev-сессию.
