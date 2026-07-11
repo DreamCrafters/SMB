@@ -1359,7 +1359,7 @@ p {
   align-content: start;
 }
 
-.admin-account-create-modal {
+.admin-account-modal {
   display: grid;
   gap: var(--density-4);
   width: min(100%, 640px);
@@ -1372,17 +1372,35 @@ p {
   box-shadow: var(--shadow);
 }
 
-.admin-account-create-modal-header {
+.admin-account-modal-header {
   display: flex;
   gap: var(--density-3);
   align-items: center;
   justify-content: space-between;
 }
 
-.admin-account-create-modal-header h3 {
+.admin-account-modal-header h3 {
   margin: 0;
   color: var(--ink);
   font-size: 18px;
+}
+
+.admin-account-password-reset-copy,
+.admin-account-password-reset-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-account-password-reset-copy strong {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.admin-account-password-reset-hint {
+  margin-top: calc(var(--density-2) * -1);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .admin-accounts-status-message {
@@ -2049,7 +2067,7 @@ p {
   .form-actions,
   .admin-db-meta,
   .admin-db-editor-header,
-  .admin-account-create-modal-header,
+  .admin-account-modal-header,
   .admin-accounts-password-field {
     display: grid;
   }
@@ -2058,7 +2076,7 @@ p {
     padding: var(--density-3);
   }
 
-  .admin-account-create-modal {
+  .admin-account-modal {
     padding: var(--density-4);
   }
 }

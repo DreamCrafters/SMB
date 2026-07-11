@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import type {
   AccountCapability,
   AccountType,
@@ -3890,6 +3896,11 @@ type AdminAccountFormState = {
   departmentDisplayName: string;
 };
 
+type AdminPasswordResetFormState = {
+  login: string;
+  password: string;
+};
+
 const emptyAdminAccountForm: AdminAccountFormState = {
   login: "",
   password: "",
@@ -3921,6 +3932,9 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [formStatus, setFormStatus] = useState("");
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [passwordResetForm, setPasswordResetForm] =
+    useState<AdminPasswordResetFormState>();
+  const [passwordResetStatus, setPasswordResetStatus] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resettingLogin, setResettingLogin] = useState<string | undefined>(
     undefined,
@@ -3930,6 +3944,8 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   );
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
+  const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
+  const passwordResetInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!canManage) {
@@ -3992,6 +4008,39 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     };
   }, [isCreateModalOpen, isSubmitting]);
 
+  useEffect(() => {
+    if (passwordResetForm === undefined) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      passwordResetInputRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [passwordResetForm?.login]);
+
+  useEffect(() => {
+    if (passwordResetForm === undefined) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && resettingLogin === undefined) {
+        event.preventDefault();
+        closePasswordResetModal();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [passwordResetForm?.login, resettingLogin]);
+
   function openCreateModal() {
     setForm((current) => ({
       ...emptyAdminAccountForm,
@@ -4013,6 +4062,32 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   function finishCreateModal() {
     setIsCreateModalOpen(false);
     window.requestAnimationFrame(() => createAccountButtonRef.current?.focus());
+  }
+
+  function openPasswordResetModal(
+    login: string,
+    trigger: HTMLButtonElement,
+  ) {
+    passwordResetButtonRef.current = trigger;
+    setPasswordResetForm({ login, password: "" });
+    setPasswordResetStatus("");
+    setWorkspaceStatus("");
+  }
+
+  function closePasswordResetModal() {
+    if (resettingLogin !== undefined) {
+      return;
+    }
+
+    setPasswordResetForm(undefined);
+    setPasswordResetStatus("");
+    window.requestAnimationFrame(() => passwordResetButtonRef.current?.focus());
+  }
+
+  function finishPasswordResetModal() {
+    setPasswordResetForm(undefined);
+    setPasswordResetStatus("");
+    window.requestAnimationFrame(() => passwordResetButtonRef.current?.focus());
   }
 
   function handleFormFieldChange(patch: Partial<AdminAccountFormState>) {
@@ -4076,29 +4151,51 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setRefreshVersion((version) => version + 1);
   }
 
-  async function handleResetPassword(login: string) {
-    const nextPassword = generateStrongPassword();
+  function handleGenerateResetPassword() {
+    setPasswordResetStatus("");
+    setPasswordResetForm((current) =>
+      current === undefined
+        ? current
+        : { ...current, password: generateStrongPassword() },
+    );
+  }
 
-    setResettingLogin(login);
-    setWorkspaceStatus("");
+  async function handleResetPasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (passwordResetForm === undefined || resettingLogin !== undefined) {
+      return;
+    }
+
+    if (passwordResetForm.password.length < 8) {
+      setPasswordResetStatus("Введите новый пароль — минимум 8 символов.");
+      return;
+    }
+
+    const submittedLogin = passwordResetForm.login;
+    const submittedPassword = passwordResetForm.password;
+
+    setResettingLogin(submittedLogin);
+    setPasswordResetStatus("Сохраняем новый пароль.");
 
     const result = await resetAdminAccountPassword({
-      login,
-      password: nextPassword,
+      login: submittedLogin,
+      password: submittedPassword,
     });
 
     setResettingLogin(undefined);
 
     if (result.status !== "ready") {
-      setWorkspaceStatus(result.message);
+      setPasswordResetStatus(result.message);
       return;
     }
 
     setRevealedPasswords((current) => ({
       ...current,
-      [login]: nextPassword,
+      [submittedLogin]: submittedPassword,
     }));
-    setWorkspaceStatus(`Новый пароль для «${login}» готов.`);
+    setWorkspaceStatus(`Пароль для «${submittedLogin}» изменён.`);
+    finishPasswordResetModal();
   }
 
   async function handleSetAccountLoginEnabled(account: AdminAccountSummary) {
@@ -4204,7 +4301,9 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                         <AdminAccountPasswordCell
                           revealedPassword={revealedPasswords[account.login]}
                           isResetting={resettingLogin === account.login}
-                          onReset={() => handleResetPassword(account.login)}
+                          onReset={(trigger) =>
+                            openPasswordResetModal(account.login, trigger)
+                          }
                         />
                       </td>
                       <td>
@@ -4261,39 +4360,12 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
           <section
             aria-labelledby="admin-account-create-title"
             aria-modal="true"
-            className="admin-account-create-modal"
+            className="admin-account-modal"
             id="admin-account-create-dialog"
             role="dialog"
-            onKeyDown={(event) => {
-              if (event.key !== "Tab") {
-                return;
-              }
-
-              const focusableElements = Array.from(
-                event.currentTarget.querySelectorAll<HTMLElement>(
-                  "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])",
-                ),
-              );
-              const firstElement = focusableElements[0];
-              const lastElement = focusableElements[focusableElements.length - 1];
-
-              if (firstElement === undefined || lastElement === undefined) {
-                return;
-              }
-
-              if (event.shiftKey && document.activeElement === firstElement) {
-                event.preventDefault();
-                lastElement.focus();
-              } else if (
-                !event.shiftKey &&
-                document.activeElement === lastElement
-              ) {
-                event.preventDefault();
-                firstElement.focus();
-              }
-            }}
+            onKeyDown={keepFocusInsideDialog}
           >
-            <div className="admin-account-create-modal-header">
+            <div className="admin-account-modal-header">
               <h3 id="admin-account-create-title">Новая учётная запись</h3>
               <button
                 className="secondary-button"
@@ -4435,8 +4507,145 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
           </section>
         </div>
       ) : null}
+
+      {passwordResetForm !== undefined ? (
+        <div
+          className="admin-db-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closePasswordResetModal();
+            }
+          }}
+        >
+          <section
+            aria-labelledby="admin-account-password-reset-title"
+            aria-modal="true"
+            className="admin-account-modal"
+            id="admin-account-password-reset-dialog"
+            role="dialog"
+            onKeyDown={keepFocusInsideDialog}
+          >
+            <div className="admin-account-modal-header">
+              <h3 id="admin-account-password-reset-title">Новый пароль</h3>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={resettingLogin !== undefined}
+                onClick={closePasswordResetModal}
+              >
+                Закрыть
+              </button>
+            </div>
+
+            <p className="admin-account-password-reset-copy">
+              Учётная запись: <strong>{passwordResetForm.login}</strong>. Введите
+              новый пароль самостоятельно или сгенерируйте случайный.
+            </p>
+
+            <form
+              className="data-entry-form admin-accounts-form"
+              onSubmit={handleResetPasswordSubmit}
+            >
+              <label>
+                <span>Новый пароль</span>
+                <div className="admin-accounts-password-field">
+                  <input
+                    ref={passwordResetInputRef}
+                    aria-describedby="admin-account-password-reset-hint"
+                    type="text"
+                    value={passwordResetForm.password}
+                    autoComplete="new-password"
+                    minLength={8}
+                    readOnly={resettingLogin !== undefined}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      setPasswordResetStatus("");
+                      setPasswordResetForm((current) =>
+                        current === undefined
+                          ? current
+                          : {
+                              ...current,
+                              password: event.currentTarget.value,
+                            },
+                      );
+                    }}
+                    required
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={resettingLogin !== undefined}
+                    onClick={handleGenerateResetPassword}
+                  >
+                    Сгенерировать
+                  </button>
+                </div>
+              </label>
+
+              <p
+                className="admin-account-password-reset-hint"
+                id="admin-account-password-reset-hint"
+              >
+                Минимум 8 символов.
+              </p>
+
+              <div className="form-actions">
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={resettingLogin !== undefined}
+                >
+                  {resettingLogin !== undefined
+                    ? "Сохраняем…"
+                    : "Сохранить пароль"}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={resettingLogin !== undefined}
+                  onClick={closePasswordResetModal}
+                >
+                  Отмена
+                </button>
+                {passwordResetStatus.length > 0 ? (
+                  <p className="form-status" role="status">
+                    {passwordResetStatus}
+                  </p>
+                ) : null}
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function keepFocusInsideDialog(event: ReactKeyboardEvent<HTMLElement>) {
+  if (event.key !== "Tab") {
+    return;
+  }
+
+  const focusableElements = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>(
+      "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])",
+    ),
+  );
+  const firstElement = focusableElements[0];
+  const lastElement = focusableElements[focusableElements.length - 1];
+
+  if (firstElement === undefined || lastElement === undefined) {
+    return;
+  }
+
+  if (event.shiftKey && document.activeElement === firstElement) {
+    event.preventDefault();
+    lastElement.focus();
+  } else if (!event.shiftKey && document.activeElement === lastElement) {
+    event.preventDefault();
+    firstElement.focus();
+  }
 }
 
 function CopyIcon() {
@@ -4466,31 +4675,17 @@ function AdminAccountPasswordCell({
 }: {
   revealedPassword: string | undefined;
   isResetting: boolean;
-  onReset: () => void;
+  onReset: (trigger: HTMLButtonElement) => void;
 }) {
   const [isVisible, setIsVisible] = useState(true);
   const [didCopy, setDidCopy] = useState(false);
 
-  if (revealedPassword === undefined) {
-    return (
-      <div className="admin-accounts-password-cell">
-        <span
-          className="admin-accounts-password-hidden"
-          title="Сервер хранит только хеш пароля — сам пароль нигде не сохранён и его нельзя показать или скопировать. Нажмите «Сбросить», чтобы задать новый пароль — он появится здесь и будет доступен для копирования."
-        >
-          Скрыт
-        </span>
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={isResetting}
-          onClick={onReset}
-        >
-          {isResetting ? "Сброс…" : "Сбросить"}
-        </button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (revealedPassword !== undefined) {
+      setIsVisible(true);
+      setDidCopy(false);
+    }
+  }, [revealedPassword]);
 
   async function handleCopy() {
     const didWrite = await copyTextToClipboard(revealedPassword ?? "");
@@ -4505,26 +4700,48 @@ function AdminAccountPasswordCell({
 
   return (
     <div className="admin-accounts-password-cell">
-      <span className="admin-accounts-password-value">
-        {isVisible
-          ? revealedPassword
-          : "•".repeat(Math.min(revealedPassword.length, 12))}
-      </span>
+      {revealedPassword === undefined ? (
+        <span
+          className="admin-accounts-password-hidden"
+          title="Сервер хранит только хеш пароля — сам пароль нигде не сохранён и его нельзя показать или скопировать. Нажмите «Сбросить», чтобы задать новый пароль — он появится здесь и будет доступен для копирования."
+        >
+          Скрыт
+        </span>
+      ) : (
+        <>
+          <span className="admin-accounts-password-value">
+            {isVisible
+              ? revealedPassword
+              : "•".repeat(Math.min(revealedPassword.length, 12))}
+          </span>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setIsVisible((value) => !value)}
+          >
+            {isVisible ? "Скрыть" : "Показать"}
+          </button>
+          <button
+            className="secondary-button admin-accounts-copy-button"
+            type="button"
+            title="Скопировать пароль"
+            onClick={handleCopy}
+          >
+            <CopyIcon />
+            {didCopy ? "Скопировано" : "Копировать"}
+          </button>
+        </>
+      )}
       <button
+        key="password-reset"
+        aria-controls="admin-account-password-reset-dialog"
+        aria-haspopup="dialog"
         className="secondary-button"
         type="button"
-        onClick={() => setIsVisible((value) => !value)}
+        disabled={isResetting}
+        onClick={(event) => onReset(event.currentTarget)}
       >
-        {isVisible ? "Скрыть" : "Показать"}
-      </button>
-      <button
-        className="secondary-button admin-accounts-copy-button"
-        type="button"
-        title="Скопировать пароль"
-        onClick={handleCopy}
-      >
-        <CopyIcon />
-        {didCopy ? "Скопировано" : "Копировать"}
+        {isResetting ? "Сброс…" : "Сбросить"}
       </button>
     </div>
   );
