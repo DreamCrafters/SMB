@@ -43,6 +43,17 @@ export type ResetAdminAccountPasswordResult =
     }
   | AdminAccountsErrorState;
 
+export function hasAdminAccountLogin(
+  accounts: AdminAccountSummary[],
+  login: string,
+) {
+  const normalizedLogin = login.trim().toLowerCase();
+
+  return accounts.some(
+    (account) => account.login.trim().toLowerCase() === normalizedLogin,
+  );
+}
+
 type AdminAccountsRequestOptions = {
   baseUrl?: string;
   signal?: AbortSignal;

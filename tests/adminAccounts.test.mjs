@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createAdminAccount,
+  hasAdminAccountLogin,
   requestAdminAccounts,
   resetAdminAccountPassword,
 } from "../.test-build/src/services/adminAccounts.js";
@@ -48,7 +49,7 @@ test("admin accounts service reads accounts from remote API", async () => {
   assert.equal(calls[0].init.method, "GET");
 });
 
-test("admin accounts service creates an account", async () => {
+test("admin accounts service creates an account without client-generated ids", async () => {
   const calls = [];
 
   globalThis.fetch = async (url, init) => {
@@ -62,8 +63,6 @@ test("admin accounts service creates an account", async () => {
     password: "supersecret1",
     displayName: "Диспетчер Один",
     accountType: "dispatcher",
-    businessAccountId: "business-id",
-    departmentId: "department-id",
   });
 
   assert.equal(result.status, "ready");
@@ -74,9 +73,40 @@ test("admin accounts service creates an account", async () => {
     password: "supersecret1",
     displayName: "Диспетчер Один",
     accountType: "dispatcher",
-    businessAccountId: "business-id",
-    departmentId: "department-id",
   });
+});
+
+test("admin accounts service sends optional worker scope names without ids", async () => {
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+
+    return jsonResponse({ account }, 201);
+  };
+
+  await createAdminAccount({
+    login: "worker-1",
+    password: "supersecret1",
+    displayName: "Работник Один",
+    accountType: "worker",
+    businessDisplayName: "Основной бизнес",
+    departmentDisplayName: "Производство",
+  });
+
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    login: "worker-1",
+    password: "supersecret1",
+    displayName: "Работник Один",
+    accountType: "worker",
+    businessDisplayName: "Основной бизнес",
+    departmentDisplayName: "Производство",
+  });
+});
+
+test("admin account login precheck is trimmed and case-insensitive", () => {
+  assert.equal(hasAdminAccountLogin([account], " DISPATCHER-1 "), true);
+  assert.equal(hasAdminAccountLogin([account], "dispatcher-2"), false);
 });
 
 test("admin accounts service resets a password", async () => {

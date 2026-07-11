@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { RowDataPacket } from "mysql2/promise";
+import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
+import { resolveAccountProvisioningScope } from "../domain/accountProvisioning.js";
 import {
   hashPassword,
   type AccountCapability,
@@ -47,6 +48,17 @@ export type AccountsRepository = {
   resetPassword: (input: ResetPasswordInput) => Promise<boolean>;
 };
 
+export class AccountLoginAlreadyExistsError extends Error {
+  constructor() {
+    super("Учётная запись с таким логином уже существует.");
+    this.name = "AccountLoginAlreadyExistsError";
+  }
+}
+
+type AccountsRepositoryOptions = {
+  createId?: () => string;
+};
+
 type AccountRow = RowDataPacket & {
   access_id: string;
   user_id: string;
@@ -91,7 +103,10 @@ const accountRowSelect = `
   left join departments on departments.id = accesses.department_id
 `;
 
-export function createAccountsRepository(pool: DatabasePool): AccountsRepository {
+export function createAccountsRepository(
+  pool: DatabasePool,
+  { createId = randomUUID }: AccountsRepositoryOptions = {},
+): AccountsRepository {
   async function listAccounts() {
     const [rows] = await pool.query<AccountRow[]>(`
       ${accountRowSelect}
@@ -103,121 +118,129 @@ export function createAccountsRepository(pool: DatabasePool): AccountsRepository
   }
 
   async function createAccount(input: CreateAccountInput) {
-    if (input.businessAccountId !== undefined) {
-      await pool.query(
-        `
-          insert into business_accounts (id, display_name, status)
-          values (?, ?, 'active')
-          on duplicate key update
-            display_name = values(display_name),
-            status = 'active'
-        `,
-        [
-          input.businessAccountId,
-          input.businessDisplayName ?? input.businessAccountId,
-        ],
-      );
-    }
+    const connection = await pool.getConnection();
 
-    if (input.departmentId !== undefined && input.businessAccountId !== undefined) {
-      await pool.query(
+    try {
+      await connection.beginTransaction();
+
+      if (
+        (await readUserIdByLoginInTransaction(connection, input.login)) !==
+        undefined
+      ) {
+        throw new AccountLoginAlreadyExistsError();
+      }
+
+      const scope = resolveAccountProvisioningScope(input, createId);
+
+      if (scope.businessAccount !== undefined) {
+        await connection.query(
+          `
+            insert into business_accounts (id, display_name, status)
+            values (?, ?, 'active')
+            on duplicate key update
+              display_name = values(display_name),
+              status = 'active'
+          `,
+          [scope.businessAccount.id, scope.businessAccount.displayName],
+        );
+      }
+
+      if (
+        scope.department !== undefined &&
+        scope.businessAccount !== undefined
+      ) {
+        await connection.query(
+          `
+            insert into departments (
+              id,
+              business_account_id,
+              display_name,
+              structure_mode
+            )
+            values (?, ?, ?, 'current')
+            on duplicate key update
+              business_account_id = values(business_account_id),
+              display_name = values(display_name),
+              structure_mode = values(structure_mode)
+          `,
+          [
+            scope.department.id,
+            scope.businessAccount.id,
+            scope.department.displayName,
+          ],
+        );
+      }
+
+      const userId = createId();
+
+      try {
+        await connection.query(
+          `
+            insert into app_users (id, login, display_name, status)
+            values (?, ?, ?, 'active')
+          `,
+          [userId, input.login, input.displayName],
+        );
+      } catch (error) {
+        if (isDuplicateEntryError(error)) {
+          throw new AccountLoginAlreadyExistsError();
+        }
+
+        throw error;
+      }
+
+      await connection.query(
         `
-          insert into departments (
+          insert into auth_password_credentials (user_id, password_hash)
+          values (?, ?)
+        `,
+        [userId, await hashPassword(input.password)],
+      );
+
+      const accessId = createId();
+
+      await connection.query(
+        `
+          insert into account_accesses (
             id,
-            business_account_id,
+            user_id,
+            account_type,
             display_name,
-            structure_mode
+            scope_kind,
+            business_account_id,
+            department_id,
+            capabilities,
+            is_active
           )
-          values (?, ?, ?, 'current')
-          on duplicate key update
-            business_account_id = values(business_account_id),
-            display_name = values(display_name),
-            structure_mode = values(structure_mode)
+          values (?, ?, ?, ?, ?, ?, ?, ?, 1)
         `,
         [
-          input.departmentId,
-          input.businessAccountId,
-          input.departmentDisplayName ?? input.departmentId,
+          accessId,
+          userId,
+          input.accountType,
+          input.accessDisplayName ?? `${input.displayName} access`,
+          scope.scopeKind,
+          scope.businessAccount?.id ?? null,
+          scope.department?.id ?? null,
+          JSON.stringify(input.capabilities),
         ],
       );
+
+      const created = await readAccountByAccessId(connection, accessId);
+
+      if (created === undefined) {
+        throw new Error("Created account access was not returned by database.");
+      }
+
+      await connection.commit();
+
+      return created;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
-
-    await pool.query(
-      `
-        insert into app_users (id, login, display_name, status)
-        values (?, ?, ?, 'active')
-        on duplicate key update
-          display_name = values(display_name),
-          status = 'active'
-      `,
-      [randomUUID(), input.login, input.displayName],
-    );
-
-    const userId = await readUserIdByLogin(input.login);
-
-    if (userId === undefined) {
-      throw new Error("Created user was not returned by database.");
-    }
-
-    await pool.query(
-      `
-        insert into auth_password_credentials (user_id, password_hash)
-        values (?, ?)
-        on duplicate key update
-          password_hash = values(password_hash)
-      `,
-      [userId, await hashPassword(input.password)],
-    );
-
-    const existingAccessId = await readAccessId({
-      userId,
-      accountType: input.accountType,
-      businessAccountId: input.businessAccountId,
-      departmentId: input.departmentId,
-    });
-    const accessId = existingAccessId ?? randomUUID();
-
-    await pool.query(
-      `
-        insert into account_accesses (
-          id,
-          user_id,
-          account_type,
-          display_name,
-          scope_kind,
-          business_account_id,
-          department_id,
-          capabilities,
-          is_active
-        )
-        values (?, ?, ?, ?, ?, ?, ?, ?, 1)
-        on duplicate key update
-          display_name = values(display_name),
-          scope_kind = values(scope_kind),
-          business_account_id = values(business_account_id),
-          department_id = values(department_id),
-          capabilities = values(capabilities),
-          is_active = 1
-      `,
-      [
-        accessId,
-        userId,
-        input.accountType,
-        input.accessDisplayName ?? `${input.displayName} access`,
-        readScopeKind(input.accountType),
-        input.businessAccountId ?? null,
-        input.departmentId ?? null,
-        JSON.stringify(input.capabilities),
-      ],
-    );
-
-    const created = await readAccountByAccessId(accessId);
-
-    if (created === undefined) {
-      throw new Error("Created account access was not returned by database.");
-    }
-
-    return created;
   }
 
   async function resetPassword({ login, password }: ResetPasswordInput) {
@@ -249,42 +272,11 @@ export function createAccountsRepository(pool: DatabasePool): AccountsRepository
     return rows[0]?.id;
   }
 
-  async function readAccessId({
-    userId,
-    accountType,
-    businessAccountId,
-    departmentId,
-  }: {
-    userId: string;
-    accountType: AccountType;
-    businessAccountId?: string;
-    departmentId?: string;
-  }) {
-    const [rows] = await pool.query<IdRow[]>(
-      `
-        select id
-        from account_accesses
-        where user_id = ?
-          and account_type = ?
-          and scope_kind = ?
-          and (business_account_id <=> ?)
-          and (department_id <=> ?)
-        limit 1
-      `,
-      [
-        userId,
-        accountType,
-        readScopeKind(accountType),
-        businessAccountId ?? null,
-        departmentId ?? null,
-      ],
-    );
-
-    return rows[0]?.id;
-  }
-
-  async function readAccountByAccessId(accessId: string) {
-    const [rows] = await pool.query<AccountRow[]>(
+  async function readAccountByAccessId(
+    connection: PoolConnection,
+    accessId: string,
+  ) {
+    const [rows] = await connection.query<AccountRow[]>(
       `
         ${accountRowSelect}
         where accesses.id = ?
@@ -302,6 +294,18 @@ export function createAccountsRepository(pool: DatabasePool): AccountsRepository
     createAccount,
     resetPassword,
   };
+}
+
+async function readUserIdByLoginInTransaction(
+  connection: PoolConnection,
+  login: string,
+) {
+  const [rows] = await connection.query<IdRow[]>(
+    "select id from app_users where login = ? limit 1",
+    [login],
+  );
+
+  return rows[0]?.id;
 }
 
 function mapAccountRow(row: AccountRow): AdminAccountSummary {
@@ -358,14 +362,15 @@ function safelyParseJson(value: string) {
   }
 }
 
-function readScopeKind(accountType: AccountType) {
-  if (accountType === "admin") {
-    return "platform";
-  }
-
-  return accountType === "business_owner" ? "business" : "department";
-}
-
 function toDate(value: Date | string) {
   return value instanceof Date ? value : new Date(value);
+}
+
+function isDuplicateEntryError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ER_DUP_ENTRY"
+  );
 }

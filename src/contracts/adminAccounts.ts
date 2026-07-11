@@ -24,11 +24,8 @@ export type CreateAdminAccountRequest = {
   password: string;
   displayName: string;
   accountType: AccountType;
-  businessAccountId?: string;
   businessDisplayName?: string;
-  departmentId?: string;
   departmentDisplayName?: string;
-  accessDisplayName?: string;
 };
 
 export type CreateAdminAccountResponse = {

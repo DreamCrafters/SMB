@@ -3,7 +3,6 @@ import type { ServerConfig } from "../config/env.js";
 import {
   defaultCapabilitiesByAccountType,
   hasProfileCapability,
-  isAccountCapability,
   readScopedBusinessAccountId,
   type AccountCapability,
   type AccountType,
@@ -38,9 +37,10 @@ import type {
   AdminDatabaseRepository,
   AdminDatabaseCellValue,
 } from "../repositories/adminDatabaseRepository.js";
-import type {
-  AccountsRepository,
-  CreateAccountInput,
+import {
+  AccountLoginAlreadyExistsError,
+  type AccountsRepository,
+  type CreateAccountInput,
 } from "../repositories/accountsRepository.js";
 import {
   createGoogleSheetsReferenceDataSource,
@@ -736,8 +736,6 @@ function validateCreateAccountRequest(input: unknown):
   const displayName =
     typeof input.displayName === "string" ? input.displayName.trim() : "";
   const accountType = input.accountType;
-  const businessAccountId = readOptionalTrimmedString(input.businessAccountId);
-  const departmentId = readOptionalTrimmedString(input.departmentId);
 
   if (login.length === 0) {
     errors.push("login is required.");
@@ -751,27 +749,24 @@ function validateCreateAccountRequest(input: unknown):
     errors.push("displayName is required.");
   }
 
+  for (const field of [
+    "userId",
+    "accessId",
+    "businessAccountId",
+    "departmentId",
+    "accessDisplayName",
+    "capabilities",
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      errors.push(`${field} is managed by the server.`);
+    }
+  }
+
   if (!isAccountType(accountType)) {
     errors.push(
       "accountType must be admin, business_owner, worker or dispatcher.",
     );
     return { ok: false, errors };
-  }
-
-  if (
-    (accountType === "business_owner" ||
-      accountType === "worker" ||
-      accountType === "dispatcher") &&
-    businessAccountId === undefined
-  ) {
-    errors.push("businessAccountId is required for business roles.");
-  }
-
-  if (
-    (accountType === "worker" || accountType === "dispatcher") &&
-    departmentId === undefined
-  ) {
-    errors.push("departmentId is required for department roles.");
   }
 
   if (errors.length > 0) {
@@ -785,12 +780,11 @@ function validateCreateAccountRequest(input: unknown):
       password,
       displayName,
       accountType,
-      capabilities: readAccountCapabilities(input.capabilities, accountType),
-      businessAccountId,
+      capabilities: defaultCapabilitiesByAccountType[accountType],
       businessDisplayName: readOptionalTrimmedString(input.businessDisplayName),
-      departmentId,
-      departmentDisplayName: readOptionalTrimmedString(input.departmentDisplayName),
-      accessDisplayName: readOptionalTrimmedString(input.accessDisplayName),
+      departmentDisplayName: readOptionalTrimmedString(
+        input.departmentDisplayName,
+      ),
     },
   };
 }
@@ -836,18 +830,6 @@ function validateResetPasswordRequest(input: unknown):
   };
 }
 
-function readAccountCapabilities(value: unknown, accountType: AccountType) {
-  if (!Array.isArray(value)) {
-    return defaultCapabilitiesByAccountType[accountType];
-  }
-
-  const capabilities: AccountCapability[] = value.filter(isAccountCapability);
-
-  return capabilities.length > 0
-    ? capabilities
-    : defaultCapabilitiesByAccountType[accountType];
-}
-
 function readOptionalTrimmedString(value: unknown) {
   const trimmed = typeof value === "string" ? value.trim() : "";
 
@@ -855,6 +837,16 @@ function readOptionalTrimmedString(value: unknown) {
 }
 
 function sendAdminAccountsError(res: ServerResponse, error: unknown) {
+  if (error instanceof AccountLoginAlreadyExistsError) {
+    sendJson(res, 409, {
+      error: {
+        code: "invalid_response",
+        message: error.message,
+      },
+    });
+    return;
+  }
+
   sendJson(res, 400, {
     error: {
       code: "invalid_response",

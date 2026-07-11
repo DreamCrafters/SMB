@@ -87,6 +87,7 @@ import {
 } from "./services/adminDatabase";
 import {
   createAdminAccount,
+  hasAdminAccountLogin,
   requestAdminAccounts,
   resetAdminAccountPassword,
   type AdminAccountsListResult,
@@ -3883,9 +3884,7 @@ type AdminAccountFormState = {
   password: string;
   displayName: string;
   accountType: AccountType;
-  businessAccountId: string;
   businessDisplayName: string;
-  departmentId: string;
   departmentDisplayName: string;
 };
 
@@ -3894,9 +3893,7 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   password: "",
   displayName: "",
   accountType: "worker",
-  businessAccountId: "",
   businessDisplayName: "",
-  departmentId: "",
   departmentDisplayName: "",
 };
 
@@ -3963,10 +3960,10 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const showsScopeFields = accountTypeShowsScopeFields(form.accountType);
+    const submittedLogin = form.login.trim();
 
     if (
-      form.login.trim().length === 0 ||
+      submittedLogin.length === 0 ||
       form.password.length < 8 ||
       form.displayName.trim().length === 0
     ) {
@@ -3974,31 +3971,26 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       return;
     }
 
-    if (showsScopeFields && form.businessAccountId.trim().length === 0) {
-      setFormStatus("Укажите ID бизнес-аккаунта для этой роли.");
-      return;
-    }
-
-    if (showsScopeFields && form.departmentId.trim().length === 0) {
-      setFormStatus("Укажите ID подразделения для этой роли.");
+    if (
+      accountsState.status === "ready" &&
+      hasAdminAccountLogin(accountsState.accounts, submittedLogin)
+    ) {
+      setFormStatus("Учётная запись с таким логином уже существует.");
       return;
     }
 
     setIsSubmitting(true);
     setFormStatus("Создаём учётную запись.");
 
-    const submittedLogin = form.login.trim();
     const submittedPassword = form.password;
-    const scope = readAdminAccountScopeInput(form);
+    const scopeNames = readAdminAccountScopeNames(form);
     const result = await createAdminAccount({
       login: submittedLogin,
       password: submittedPassword,
       displayName: form.displayName.trim(),
       accountType: form.accountType,
-      businessAccountId: scope.businessAccountId,
-      businessDisplayName: scope.businessDisplayName,
-      departmentId: scope.departmentId,
-      departmentDisplayName: scope.departmentDisplayName,
+      businessDisplayName: scopeNames.businessDisplayName,
+      departmentDisplayName: scopeNames.departmentDisplayName,
     });
 
     setIsSubmitting(false);
@@ -4052,7 +4044,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   }
 
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
-  const showsScopeFields = accountTypeShowsScopeFields(form.accountType);
+  const showsScopeNames = accountTypeShowsScopeNames(form.accountType);
 
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
@@ -4174,27 +4166,14 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             </select>
           </label>
 
-          {showsScopeFields ? (
+          {showsScopeNames ? (
             <>
-              <label>
-                <span>ID бизнес-аккаунта</span>
-                <input
-                  type="text"
-                  value={form.businessAccountId}
-                  onChange={(event) =>
-                    handleFormFieldChange({
-                      businessAccountId: event.currentTarget.value,
-                    })
-                  }
-                  required
-                />
-              </label>
               <label>
                 <span>Название бизнес-аккаунта</span>
                 <input
                   type="text"
                   value={form.businessDisplayName}
-                  placeholder={form.businessAccountId || "необязательно"}
+                  placeholder="необязательно"
                   onChange={(event) =>
                     handleFormFieldChange({
                       businessDisplayName: event.currentTarget.value,
@@ -4202,30 +4181,12 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                   }
                 />
               </label>
-            </>
-          ) : null}
-
-          {showsScopeFields ? (
-            <>
-              <label>
-                <span>ID подразделения</span>
-                <input
-                  type="text"
-                  value={form.departmentId}
-                  onChange={(event) =>
-                    handleFormFieldChange({
-                      departmentId: event.currentTarget.value,
-                    })
-                  }
-                  required
-                />
-              </label>
               <label>
                 <span>Название подразделения</span>
                 <input
                   type="text"
                   value={form.departmentDisplayName}
-                  placeholder={form.departmentId || "необязательно"}
+                  placeholder="необязательно"
                   onChange={(event) =>
                     handleFormFieldChange({
                       departmentDisplayName: event.currentTarget.value,
@@ -4345,47 +4306,20 @@ function AdminAccountPasswordCell({
   );
 }
 
-const singletonBusinessAccountId = "prod-business";
-const singletonBusinessDisplayName = "Основной бизнес";
-const singletonDispatchDepartmentId = "dispatch";
-const singletonDispatchDepartmentDisplayName = "Диспетчерская";
-
-function accountTypeShowsScopeFields(accountType: AccountType) {
+function accountTypeShowsScopeNames(accountType: AccountType) {
   return accountType === "worker";
 }
 
-function readAdminAccountScopeInput(form: AdminAccountFormState): {
-  businessAccountId: string | undefined;
+function readAdminAccountScopeNames(form: AdminAccountFormState): {
   businessDisplayName: string | undefined;
-  departmentId: string | undefined;
   departmentDisplayName: string | undefined;
 } {
-  if (form.accountType === "business_owner") {
-    return {
-      businessAccountId: singletonBusinessAccountId,
-      businessDisplayName: singletonBusinessDisplayName,
-      departmentId: undefined,
-      departmentDisplayName: undefined,
-    };
-  }
-
-  if (form.accountType === "dispatcher") {
-    return {
-      businessAccountId: singletonBusinessAccountId,
-      businessDisplayName: singletonBusinessDisplayName,
-      departmentId: singletonDispatchDepartmentId,
-      departmentDisplayName: singletonDispatchDepartmentDisplayName,
-    };
-  }
-
   if (form.accountType === "worker") {
     return {
-      businessAccountId: form.businessAccountId.trim(),
       businessDisplayName:
         form.businessDisplayName.trim().length > 0
           ? form.businessDisplayName.trim()
           : undefined,
-      departmentId: form.departmentId.trim(),
       departmentDisplayName:
         form.departmentDisplayName.trim().length > 0
           ? form.departmentDisplayName.trim()
@@ -4394,9 +4328,7 @@ function readAdminAccountScopeInput(form: AdminAccountFormState): {
   }
 
   return {
-    businessAccountId: undefined,
     businessDisplayName: undefined,
-    departmentId: undefined,
     departmentDisplayName: undefined,
   };
 }

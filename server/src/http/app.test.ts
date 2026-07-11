@@ -11,7 +11,10 @@ import type {
 import { defaultCapabilitiesByAccountType } from "../domain/auth.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
-import type { AccountsRepository } from "../repositories/accountsRepository.js";
+import {
+  AccountLoginAlreadyExistsError,
+  type AccountsRepository,
+} from "../repositories/accountsRepository.js";
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
 import type {
   DispatcherReferenceDataSource,
@@ -594,8 +597,6 @@ test("admin accounts API creates accounts and resets passwords for admin session
           password: "supersecret1",
           displayName: "Диспетчер Один",
           accountType: "dispatcher",
-          businessAccountId: "business-id",
-          departmentId: "department-id",
         }),
       });
       const resetResponse = await fetch(
@@ -625,12 +626,120 @@ test("admin accounts API creates accounts and resets passwords for admin session
 
   assert.equal(createInput?.login, "dispatcher-1");
   assert.equal(createInput?.password, "supersecret1");
-  assert.equal(createInput?.businessAccountId, "business-id");
-  assert.equal(createInput?.departmentId, "department-id");
+  assert.equal(createInput?.businessAccountId, undefined);
+  assert.equal(createInput?.departmentId, undefined);
+  assert.deepEqual(
+    createInput?.capabilities,
+    defaultCapabilitiesByAccountType.dispatcher,
+  );
   assert.deepEqual(resetInput, {
     login: "dispatcher-1",
     password: "newsecret1",
   });
+});
+
+test("admin accounts API rejects client-managed provisioning fields", async () => {
+  let didCreateAccount = false;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createAccount() {
+      didCreateAccount = true;
+      return adminAccount;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          login: "worker-1",
+          password: "supersecret1",
+          displayName: "Работник Один",
+          accountType: "worker",
+          businessAccountId: "client-business",
+          departmentId: "client-department",
+          accessDisplayName: "Privileged access",
+          capabilities: ["platform.manage_users"],
+        }),
+      });
+      const payload = await response.json();
+      const message =
+        isRecord(payload) && isRecord(payload.error)
+          ? String(payload.error.message)
+          : "";
+
+      assert.equal(response.status, 400);
+      assert.equal(didCreateAccount, false);
+      assert.match(message, /businessAccountId is managed by the server/);
+      assert.match(message, /accessDisplayName is managed by the server/);
+      assert.match(message, /capabilities is managed by the server/);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+});
+
+test("admin accounts API reports duplicate logins as conflict", async () => {
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createAccount() {
+      throw new AccountLoginAlreadyExistsError();
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          login: "owner-1",
+          password: "supersecret1",
+          displayName: "Владелец Один",
+          accountType: "business_owner",
+        }),
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 409);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.error)
+          ? payload.error.code
+          : undefined,
+        "invalid_response",
+      );
+      assert.equal(
+        isRecord(payload) && isRecord(payload.error)
+          ? payload.error.message
+          : undefined,
+        "Учётная запись с таким логином уже существует.",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
 });
 
 test("admin accounts API rejects a short password", async () => {

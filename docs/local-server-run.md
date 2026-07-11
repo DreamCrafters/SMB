@@ -129,7 +129,7 @@ DEV_ACCESS_ENABLED=false
 SESSION_COOKIE_NAME=smb_session
 ```
 
-После миграций создать тестового пользователя в локальной БД:
+После миграций создать нового тестового пользователя в локальной БД:
 
 ```bash
 SMB_AUTH_LOGIN=admin \
@@ -138,6 +138,17 @@ SMB_AUTH_DISPLAY_NAME='Администратор' \
 SMB_AUTH_ACCOUNT_TYPE=admin \
 npm --workspace server run auth:create-user
 ```
+
+`auth:create-user` создаёт только новый логин. Повторный логин отклоняется и не
+обновляет существующую роль или пароль; для смены пароля использовать отдельное
+действие сброса в админском интерфейсе/API.
+
+Для `business_owner`, `dispatcher` и `worker` достаточно тех же четырёх
+переменных с нужным `SMB_AUTH_ACCOUNT_TYPE`. Scope ID указывать необязательно:
+backend сам назначает общий business scope владельцу и диспетчеру, диспетчеру —
+стандартное подразделение, а работнику создаёт отдельный department ID.
+`SMB_AUTH_BUSINESS_ACCOUNT_ID` и `SMB_AUTH_DEPARTMENT_ID` нужны только как
+необязательные явные overrides.
 
 Пароль не коммитить и не выводить в ответы/логи.
 

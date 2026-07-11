@@ -45,21 +45,6 @@ function readAuthUserInput(env: NodeJS.ProcessEnv): AuthUserInput {
   const businessAccountId = readOptional(env.SMB_AUTH_BUSINESS_ACCOUNT_ID);
   const departmentId = readOptional(env.SMB_AUTH_DEPARTMENT_ID);
 
-  if (
-    (accountType === "business_owner" || accountType === "worker" ||
-      accountType === "dispatcher") &&
-    businessAccountId === undefined
-  ) {
-    throw new Error("SMB_AUTH_BUSINESS_ACCOUNT_ID is required for business roles.");
-  }
-
-  if (
-    (accountType === "worker" || accountType === "dispatcher") &&
-    departmentId === undefined
-  ) {
-    throw new Error("SMB_AUTH_DEPARTMENT_ID is required for department roles.");
-  }
-
   return {
     login,
     password,

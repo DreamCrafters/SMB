@@ -160,7 +160,7 @@ curl -i https://smb.aonmou.ru/health
 
 ## Первый production пользователь
 
-После production миграций создать или обновить пользователя через env, не выводя пароль в логи:
+После production-миграций создать нового пользователя через env, не выводя пароль в логи:
 
 ```bash
 cd ~/domains/smb.aonmou.ru/app
@@ -172,16 +172,24 @@ SMB_AUTH_ACCOUNT_TYPE=admin \
 npm --workspace server run auth:create-user
 ```
 
-Для dispatcher/worker нужен business и department:
+Каждый запуск создаёт отдельный login identity/access. Повторный логин
+отклоняется и не меняет существующую роль или пароль; для смены пароля
+использовать отдельное действие сброса в админском интерфейсе/API.
+
+Для `business_owner`, `dispatcher` и `worker` scope ID необязательны. Например,
+диспетчера можно создать без ручного задания business/department ID:
 
 ```bash
 SMB_AUTH_LOGIN=dispatcher \
 SMB_AUTH_PASSWORD='replace-with-secret' \
 SMB_AUTH_DISPLAY_NAME='Диспетчер' \
 SMB_AUTH_ACCOUNT_TYPE=dispatcher \
-SMB_AUTH_BUSINESS_ACCOUNT_ID=prod-business \
-SMB_AUTH_BUSINESS_DISPLAY_NAME='Основной бизнес' \
-SMB_AUTH_DEPARTMENT_ID=dispatch \
-SMB_AUTH_DEPARTMENT_DISPLAY_NAME='Диспетчерская' \
 npm --workspace server run auth:create-user
 ```
+
+Без scope-переменных backend автоматически назначает владельцу и диспетчеру
+общий business scope, диспетчеру — стандартное подразделение, а работнику
+создаёт отдельный department ID. `SMB_AUTH_BUSINESS_ACCOUNT_ID` и
+`SMB_AUTH_DEPARTMENT_ID` остаются необязательными явными overrides;
+`SMB_AUTH_BUSINESS_DISPLAY_NAME` и `SMB_AUTH_DEPARTMENT_DISPLAY_NAME` также
+необязательны.
