@@ -4560,13 +4560,15 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                     readOnly={resettingLogin !== undefined}
                     spellCheck={false}
                     onChange={(event) => {
+                      const password = event.currentTarget.value;
+
                       setPasswordResetStatus("");
                       setPasswordResetForm((current) =>
                         current === undefined
                           ? current
                           : {
                               ...current,
-                              password: event.currentTarget.value,
+                              password,
                             },
                       );
                     }}
