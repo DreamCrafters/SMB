@@ -1164,6 +1164,28 @@ p {
   outline: 2px solid var(--blue-gray-soft);
 }
 
+.data-entry-form select,
+.dispatcher-feed-controls select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 36px;
+  background-color: var(--surface-raised);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23667070' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  background-size: 12px 8px;
+}
+
+@media (forced-colors: active) {
+  .data-entry-form select,
+  .dispatcher-feed-controls select {
+    -webkit-appearance: auto;
+    appearance: auto;
+    padding-right: 10px;
+    background-image: none;
+  }
+}
+
 .dispatcher-clear-dates-button {
   min-height: 38px;
   white-space: nowrap;
@@ -1316,16 +1338,16 @@ p {
   text-transform: uppercase;
 }
 
-.admin-accounts-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
-  gap: var(--density-4);
-  align-items: start;
-}
-
 .admin-accounts-list {
   display: grid;
   gap: var(--density-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-accounts-toolbar {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .admin-accounts-table th,
@@ -1335,16 +1357,70 @@ p {
 
 .admin-accounts-form {
   align-content: start;
-  padding: var(--density-4);
+}
+
+.admin-account-create-modal {
+  display: grid;
+  gap: var(--density-4);
+  width: min(100%, 640px);
+  max-height: min(88vh, 780px);
+  overflow: auto;
+  padding: var(--density-5);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--surface-raised);
+  box-shadow: var(--shadow);
 }
 
-.admin-accounts-form h3 {
-  margin: 0 0 4px;
+.admin-account-create-modal-header {
+  display: flex;
+  gap: var(--density-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-account-create-modal-header h3 {
+  margin: 0;
   color: var(--ink);
-  font-size: 15px;
+  font-size: 18px;
+}
+
+.admin-accounts-status-message {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 4px solid var(--blue-gray);
+  color: var(--text);
+  background: var(--blue-gray-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-accounts-access-cell {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+}
+
+.admin-accounts-status-badge {
+  min-width: 82px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.admin-accounts-status-badge.is-enabled {
+  border-color: var(--emerald);
+  color: var(--emerald);
+  background: var(--emerald-soft);
+}
+
+.admin-accounts-status-badge.is-disabled {
+  border-color: var(--brick);
+  color: var(--brick);
+  background: var(--brick-soft);
 }
 
 .admin-accounts-password-field {
@@ -1908,10 +1984,6 @@ p {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .admin-accounts-layout {
-    grid-template-columns: 1fr;
-  }
-
 }
 
 @media (max-width: 560px) {
@@ -1976,7 +2048,17 @@ p {
   .auth-status,
   .form-actions,
   .admin-db-meta,
-  .admin-db-editor-header {
+  .admin-db-editor-header,
+  .admin-account-create-modal-header,
+  .admin-accounts-password-field {
     display: grid;
+  }
+
+  .admin-db-modal-backdrop {
+    padding: var(--density-3);
+  }
+
+  .admin-account-create-modal {
+    padding: var(--density-4);
   }
 }

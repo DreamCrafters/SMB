@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import {
+  ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   createAccountsRepository,
 } from "./accountsRepository.js";
@@ -158,6 +159,128 @@ test("createAccount rolls back partial provisioning when a write fails", async (
   );
 });
 
+test("setAccountLoginEnabled suspends login and deletes existing sessions", async () => {
+  const database = buildFakeDatabase({ userStatus: "active" });
+  const repository = createAccountsRepository(database.pool);
+
+  const result = await repository.setAccountLoginEnabled({
+    userId: "dispatcher-user-id",
+    isEnabled: false,
+  });
+
+  assert.deepEqual(result, {
+    userId: "dispatcher-user-id",
+    userStatus: "suspended",
+  });
+  assert.equal(database.didBegin, true);
+  assert.equal(database.didCommit, true);
+  assert.equal(database.didRollback, false);
+  assert.equal(database.didRelease, true);
+  assert.deepEqual(
+    database.queries.find((query) =>
+      query.sql.startsWith("update app_users set status"),
+    )?.params,
+    ["suspended", "dispatcher-user-id"],
+  );
+  assert.deepEqual(
+    database.queries.find((query) =>
+      query.sql.startsWith("delete from auth_sessions"),
+    )?.params,
+    ["dispatcher-user-id"],
+  );
+});
+
+test("setAccountLoginEnabled enables login without reviving old sessions", async () => {
+  const database = buildFakeDatabase({ userStatus: "suspended" });
+  const repository = createAccountsRepository(database.pool);
+
+  const result = await repository.setAccountLoginEnabled({
+    userId: "dispatcher-user-id",
+    isEnabled: true,
+  });
+
+  assert.deepEqual(result, {
+    userId: "dispatcher-user-id",
+    userStatus: "active",
+  });
+  assert.deepEqual(
+    database.queries.find((query) =>
+      query.sql.startsWith("update app_users set status"),
+    )?.params,
+    ["active", "dispatcher-user-id"],
+  );
+  assert.equal(
+    database.queries.some((query) =>
+      query.sql.startsWith("delete from auth_sessions"),
+    ),
+    false,
+  );
+});
+
+test("setAccountLoginEnabled returns undefined for a missing user", async () => {
+  const database = buildFakeDatabase();
+  const repository = createAccountsRepository(database.pool);
+
+  const result = await repository.setAccountLoginEnabled({
+    userId: "missing-user-id",
+    isEnabled: false,
+  });
+
+  assert.equal(result, undefined);
+  assert.equal(database.didCommit, false);
+  assert.equal(database.didRollback, true);
+  assert.equal(database.didRelease, true);
+  assert.equal(
+    database.queries.some((query) =>
+      query.sql.startsWith("update app_users set status"),
+    ),
+    false,
+  );
+});
+
+test("setAccountLoginEnabled rejects archived users without changing them", async () => {
+  const database = buildFakeDatabase({ userStatus: "archived" });
+  const repository = createAccountsRepository(database.pool);
+
+  await assert.rejects(
+    repository.setAccountLoginEnabled({
+      userId: "archived-user-id",
+      isEnabled: true,
+    }),
+    ArchivedAccountLoginStatusError,
+  );
+
+  assert.equal(database.didCommit, false);
+  assert.equal(database.didRollback, true);
+  assert.equal(database.didRelease, true);
+  assert.equal(
+    database.queries.some((query) =>
+      query.sql.startsWith("update app_users set status"),
+    ),
+    false,
+  );
+});
+
+test("setAccountLoginEnabled rolls back when session revocation fails", async () => {
+  const database = buildFakeDatabase({
+    userStatus: "active",
+    failOn: "delete from auth_sessions",
+  });
+  const repository = createAccountsRepository(database.pool);
+
+  await assert.rejects(
+    repository.setAccountLoginEnabled({
+      userId: "dispatcher-user-id",
+      isEnabled: false,
+    }),
+    /simulated database failure/,
+  );
+
+  assert.equal(database.didCommit, false);
+  assert.equal(database.didRollback, true);
+  assert.equal(database.didRelease, true);
+});
+
 type FakeAccountRow = {
   access_id: string;
   user_id: string;
@@ -179,10 +302,12 @@ function buildFakeDatabase({
   existingUserId,
   accountRow,
   failOn,
+  userStatus,
 }: {
   existingUserId?: string;
   accountRow?: FakeAccountRow;
   failOn?: string;
+  userStatus?: string;
 } = {}) {
   const state = {
     didBegin: false,
@@ -215,6 +340,10 @@ function buildFakeDatabase({
 
       if (normalized.startsWith("select id from app_users")) {
         return [existingUserId === undefined ? [] : [{ id: existingUserId }], []];
+      }
+
+      if (normalized.startsWith("select status from app_users")) {
+        return [userStatus === undefined ? [] : [{ status: userStatus }], []];
       }
 
       if (

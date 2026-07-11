@@ -12,6 +12,7 @@ import { defaultCapabilitiesByAccountType } from "../domain/auth.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
 import {
+  ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   type AccountsRepository,
 } from "../repositories/accountsRepository.js";
@@ -476,7 +477,7 @@ const adminAccount = {
   userId: "user-id",
   login: "dispatcher-1",
   userDisplayName: "Диспетчер Один",
-  userStatus: "active",
+  userStatus: "active" as const,
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher" as AccountType,
   scope: {
@@ -499,6 +500,12 @@ const accounts: AccountsRepository = {
   },
   async resetPassword() {
     return true;
+  },
+  async setAccountLoginEnabled({ userId, isEnabled }) {
+    return {
+      userId,
+      userStatus: isEnabled ? "active" : "suspended",
+    };
   },
 };
 
@@ -636,6 +643,275 @@ test("admin accounts API creates accounts and resets passwords for admin session
     login: "dispatcher-1",
     password: "newsecret1",
   });
+});
+
+test("admin accounts API suspends another user login", async () => {
+  let updateInput:
+    | Parameters<AccountsRepository["setAccountLoginEnabled"]>[0]
+    | undefined;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setAccountLoginEnabled(input) {
+      updateInput = input;
+
+      return {
+        userId: input.userId,
+        userStatus: input.isEnabled ? "active" : "suspended",
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          userId: "dispatcher-user-id",
+          isEnabled: false,
+        }),
+      });
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        userId: "dispatcher-user-id",
+        userStatus: "suspended",
+      });
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+
+  assert.deepEqual(updateInput, {
+    userId: "dispatcher-user-id",
+    isEnabled: false,
+  });
+});
+
+test("admin accounts API requires manage_access to change login status", async () => {
+  let didUpdate = false;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setAccountLoginEnabled() {
+      didUpdate = true;
+      return {
+        userId: "dispatcher-user-id",
+        userStatus: "suspended",
+      };
+    },
+  };
+  const profile = buildProductionProfile("admin");
+
+  profile.activeAccess.capabilities = ["platform.manage_users"];
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+        body: JSON.stringify({
+          userId: "dispatcher-user-id",
+          isEnabled: false,
+        }),
+      });
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
+});
+
+test("admin accounts API rejects disabling the current login", async () => {
+  let didUpdate = false;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setAccountLoginEnabled() {
+      didUpdate = true;
+      return {
+        userId: "prod-user-admin",
+        userStatus: "suspended",
+      };
+    },
+  };
+  const profile = buildProductionProfile("admin");
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+        body: JSON.stringify({
+          userId: profile.userId,
+          isEnabled: false,
+        }),
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 409);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.error)
+          ? payload.error.message
+          : undefined,
+        "Нельзя отключить вход для текущей учётной записи.",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
+});
+
+test("admin accounts API validates login status updates", async () => {
+  let didUpdate = false;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setAccountLoginEnabled() {
+      didUpdate = true;
+      return {
+        userId: "dispatcher-user-id",
+        userStatus: "suspended",
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          userId: "",
+          isEnabled: "false",
+        }),
+      });
+      const payload = await response.json();
+      const message =
+        isRecord(payload) && isRecord(payload.error)
+          ? String(payload.error.message)
+          : "";
+
+      assert.equal(response.status, 400);
+      assert.match(message, /userId is required/);
+      assert.match(message, /isEnabled must be a boolean/);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
+});
+
+test("admin accounts API reports missing and archived login identities", async () => {
+  let updateCount = 0;
+  const missingRepository: AccountsRepository = {
+    ...accounts,
+    async setAccountLoginEnabled() {
+      updateCount += 1;
+      return undefined;
+    },
+  };
+  const archivedRepository: AccountsRepository = {
+    ...accounts,
+    async setAccountLoginEnabled() {
+      updateCount += 1;
+      throw new ArchivedAccountLoginStatusError();
+    },
+  };
+
+  async function requestUpdate(
+    baseUrl: string,
+    repositorySessionId: string,
+  ) {
+    return fetch(`${baseUrl}/api/admin/accounts`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": repositorySessionId,
+      },
+      body: JSON.stringify({
+        userId: "target-user-id",
+        isEnabled: true,
+      }),
+    });
+  }
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await requestUpdate(baseUrl, sessionId);
+
+      assert.equal(response.status, 404);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    missingRepository,
+  );
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await requestUpdate(baseUrl, sessionId);
+
+      assert.equal(response.status, 409);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    archivedRepository,
+  );
+
+  assert.equal(updateCount, 2);
 });
 
 test("admin accounts API rejects client-managed provisioning fields", async () => {

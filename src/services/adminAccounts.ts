@@ -5,6 +5,8 @@ import type {
   CreateAdminAccountRequest,
   CreateAdminAccountResponse,
   ResetAdminAccountPasswordRequest,
+  SetAdminAccountLoginEnabledRequest,
+  SetAdminAccountLoginEnabledResponse,
 } from "../contracts";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -40,6 +42,14 @@ export type CreateAdminAccountResult =
 export type ResetAdminAccountPasswordResult =
   | {
       status: "ready";
+    }
+  | AdminAccountsErrorState;
+
+export type SetAdminAccountLoginEnabledResult =
+  | {
+      status: "ready";
+      userId: string;
+      userStatus: "active" | "suspended";
     }
   | AdminAccountsErrorState;
 
@@ -169,6 +179,67 @@ export async function createAdminAccount(
   }
 }
 
+export async function setAdminAccountLoginEnabled(
+  value: SetAdminAccountLoginEnabledRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<SetAdminAccountLoginEnabledResult> {
+  const endpoint = resolveApiEndpoint(ADMIN_ACCOUNTS_PATH, ADMIN_ACCOUNTS_PATH, {
+    baseUrl,
+  });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify(value),
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Сервер отклонил изменение доступа.",
+      );
+    }
+
+    if (isSetAdminAccountLoginEnabledResponse(payload)) {
+      return {
+        status: "ready",
+        userId: payload.userId,
+        userStatus: payload.userStatus,
+      };
+    }
+
+    return {
+      status: "error",
+      message: "Сервер вернул статус доступа в неподдерживаемом формате.",
+      code: "invalid_response",
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        status: "error",
+        message: "Запрос изменения доступа отменён.",
+      };
+    }
+
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure("Не удалось изменить доступ.", {
+        baseUrl,
+      }),
+      code: "network_error",
+    };
+  }
+}
+
 export async function resetAdminAccountPassword(
   value: ResetAdminAccountPasswordRequest,
   { baseUrl, signal }: AdminAccountsRequestOptions = {},
@@ -289,6 +360,16 @@ function isCreateAdminAccountResponse(
   value: unknown,
 ): value is CreateAdminAccountResponse {
   return isRecord(value) && isAdminAccountSummary(value.account);
+}
+
+function isSetAdminAccountLoginEnabledResponse(
+  value: unknown,
+): value is SetAdminAccountLoginEnabledResponse {
+  return (
+    isRecord(value) &&
+    typeof value.userId === "string" &&
+    (value.userStatus === "active" || value.userStatus === "suspended")
+  );
 }
 
 function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {

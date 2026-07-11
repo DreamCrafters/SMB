@@ -38,9 +38,11 @@ import type {
   AdminDatabaseCellValue,
 } from "../repositories/adminDatabaseRepository.js";
 import {
+  ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   type AccountsRepository,
   type CreateAccountInput,
+  type SetAccountLoginEnabledInput,
 } from "../repositories/accountsRepository.js";
 import {
   createGoogleSheetsReferenceDataSource,
@@ -608,12 +610,18 @@ async function handleAdminAccountsRequest({
   authService: AuthSessionService | undefined;
   accounts: AccountsRepository | undefined;
 }) {
+  const isLoginStatusUpdate =
+    url.pathname === "/api/admin/accounts" && req.method === "PATCH";
   const access = await requireCapability(req, res, {
     config,
     devSessions,
     authService,
-    capability: "platform.manage_users",
-    message: "Управление учётными записями недоступно.",
+    capability: isLoginStatusUpdate
+      ? "platform.manage_access"
+      : "platform.manage_users",
+    message: isLoginStatusUpdate
+      ? "Управление доступом к учётным записям недоступно."
+      : "Управление учётными записями недоступно.",
   });
 
   if (access === undefined) {
@@ -663,10 +671,60 @@ async function handleAdminAccountsRequest({
       return;
     }
 
+    if (req.method === "PATCH") {
+      const payload = await readJsonBody(req);
+      const validation = validateSetAccountLoginEnabledRequest(payload);
+
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      if (
+        !validation.value.isEnabled &&
+        validation.value.userId === access.profile.userId
+      ) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Нельзя отключить вход для текущей учётной записи.",
+          },
+        });
+        return;
+      }
+
+      try {
+        const loginStatus = await accounts.setAccountLoginEnabled(
+          validation.value,
+        );
+
+        if (loginStatus === undefined) {
+          sendJson(res, 404, {
+            error: {
+              code: "not_found",
+              message: "Учётная запись не найдена.",
+            },
+          });
+          return;
+        }
+
+        sendJson(res, 200, loginStatus);
+      } catch (error) {
+        sendAdminAccountsError(res, error);
+      }
+
+      return;
+    }
+
     sendJson(res, 405, {
       error: {
         code: "access_denied",
-        message: "Only GET and POST are supported for admin accounts.",
+        message: "Only GET, POST and PATCH are supported for admin accounts.",
       },
     });
     return;
@@ -830,6 +888,47 @@ function validateResetPasswordRequest(input: unknown):
   };
 }
 
+function validateSetAccountLoginEnabledRequest(input: unknown):
+  | {
+      ok: true;
+      value: SetAccountLoginEnabledInput;
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  const errors: string[] = [];
+  const userId = typeof input.userId === "string" ? input.userId.trim() : "";
+  const isEnabled = input.isEnabled;
+
+  if (userId.length === 0) {
+    errors.push("userId is required.");
+  }
+
+  if (typeof isEnabled !== "boolean") {
+    errors.push("isEnabled must be a boolean.");
+  }
+
+  if (errors.length > 0 || typeof isEnabled !== "boolean") {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      userId,
+      isEnabled,
+    },
+  };
+}
+
 function readOptionalTrimmedString(value: unknown) {
   const trimmed = typeof value === "string" ? value.trim() : "";
 
@@ -838,6 +937,16 @@ function readOptionalTrimmedString(value: unknown) {
 
 function sendAdminAccountsError(res: ServerResponse, error: unknown) {
   if (error instanceof AccountLoginAlreadyExistsError) {
+    sendJson(res, 409, {
+      error: {
+        code: "invalid_response",
+        message: error.message,
+      },
+    });
+    return;
+  }
+
+  if (error instanceof ArchivedAccountLoginStatusError) {
     sendJson(res, 409, {
       error: {
         code: "invalid_response",

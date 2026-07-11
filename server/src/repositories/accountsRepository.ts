@@ -14,7 +14,7 @@ export type AdminAccountSummary = {
   userId: string;
   login: string;
   userDisplayName: string;
-  userStatus: string;
+  userStatus: AdminUserStatus;
   accessDisplayName: string;
   accountType: AccountType;
   scope: AccountScope;
@@ -42,16 +42,38 @@ export type ResetPasswordInput = {
   password: string;
 };
 
+export type AdminUserStatus = "active" | "suspended" | "archived";
+
+export type SetAccountLoginEnabledInput = {
+  userId: string;
+  isEnabled: boolean;
+};
+
+export type AccountLoginStatus = {
+  userId: string;
+  userStatus: "active" | "suspended";
+};
+
 export type AccountsRepository = {
   listAccounts: () => Promise<AdminAccountSummary[]>;
   createAccount: (input: CreateAccountInput) => Promise<AdminAccountSummary>;
   resetPassword: (input: ResetPasswordInput) => Promise<boolean>;
+  setAccountLoginEnabled: (
+    input: SetAccountLoginEnabledInput,
+  ) => Promise<AccountLoginStatus | undefined>;
 };
 
 export class AccountLoginAlreadyExistsError extends Error {
   constructor() {
     super("Учётная запись с таким логином уже существует.");
     this.name = "AccountLoginAlreadyExistsError";
+  }
+}
+
+export class ArchivedAccountLoginStatusError extends Error {
+  constructor() {
+    super("Архивную учётную запись нельзя включить или отключить.");
+    this.name = "ArchivedAccountLoginStatusError";
   }
 }
 
@@ -78,6 +100,10 @@ type AccountRow = RowDataPacket & {
 
 type IdRow = RowDataPacket & {
   id: string;
+};
+
+type UserStatusRow = RowDataPacket & {
+  status: string;
 };
 
 const accountRowSelect = `
@@ -263,6 +289,68 @@ export function createAccountsRepository(
     return true;
   }
 
+  async function setAccountLoginEnabled({
+    userId,
+    isEnabled,
+  }: SetAccountLoginEnabledInput) {
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [rows] = await connection.query<UserStatusRow[]>(
+        `
+          select status
+          from app_users
+          where id = ?
+          limit 1
+          for update
+        `,
+        [userId],
+      );
+      const currentStatus = rows[0]?.status;
+
+      if (currentStatus === undefined) {
+        await connection.rollback();
+        return undefined;
+      }
+
+      if (currentStatus === "archived") {
+        throw new ArchivedAccountLoginStatusError();
+      }
+
+      if (currentStatus !== "active" && currentStatus !== "suspended") {
+        throw new Error("Stored user status is not supported.");
+      }
+
+      const userStatus = isEnabled ? "active" : "suspended";
+
+      await connection.query(
+        "update app_users set status = ? where id = ?",
+        [userStatus, userId],
+      );
+
+      if (!isEnabled) {
+        await connection.query(
+          "delete from auth_sessions where user_id = ?",
+          [userId],
+        );
+      }
+
+      await connection.commit();
+
+      return {
+        userId,
+        userStatus,
+      } satisfies AccountLoginStatus;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async function readUserIdByLogin(login: string) {
     const [rows] = await pool.query<IdRow[]>(
       "select id from app_users where login = ? limit 1",
@@ -293,6 +381,7 @@ export function createAccountsRepository(
     listAccounts,
     createAccount,
     resetPassword,
+    setAccountLoginEnabled,
   };
 }
 
@@ -314,7 +403,7 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     userId: row.user_id,
     login: row.login,
     userDisplayName: row.user_display_name,
-    userStatus: row.user_status,
+    userStatus: readAdminUserStatus(row.user_status),
     accessDisplayName: row.access_display_name,
     accountType: row.account_type as AccountType,
     scope: buildScope(row),
@@ -323,6 +412,14 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     capabilities: readCapabilities(row.capabilities),
     createdAt: toDate(row.created_at).toISOString(),
   };
+}
+
+function readAdminUserStatus(value: string): AdminUserStatus {
+  if (value === "active" || value === "suspended" || value === "archived") {
+    return value;
+  }
+
+  throw new Error("Stored user status is not supported.");
 }
 
 function buildScope(row: AccountRow): AccountScope {

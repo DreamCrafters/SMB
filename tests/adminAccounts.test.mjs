@@ -5,6 +5,7 @@ import {
   hasAdminAccountLogin,
   requestAdminAccounts,
   resetAdminAccountPassword,
+  setAdminAccountLoginEnabled,
 } from "../.test-build/src/services/adminAccounts.js";
 
 const originalFetch = globalThis.fetch;
@@ -128,6 +129,36 @@ test("admin accounts service resets a password", async () => {
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     login: "dispatcher-1",
     password: "newsecret1",
+  });
+});
+
+test("admin accounts service enables and disables account login", async () => {
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+
+    return jsonResponse({
+      userId: "user-id",
+      userStatus: "suspended",
+    });
+  };
+
+  const result = await setAdminAccountLoginEnabled({
+    userId: "user-id",
+    isEnabled: false,
+  });
+
+  assert.deepEqual(result, {
+    status: "ready",
+    userId: "user-id",
+    userStatus: "suspended",
+  });
+  assert.equal(calls[0].url.endsWith("/api/admin/accounts"), true);
+  assert.equal(calls[0].init.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    userId: "user-id",
+    isEnabled: false,
   });
 });
 

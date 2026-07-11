@@ -36,3 +36,13 @@ export type ResetAdminAccountPasswordRequest = {
   login: string;
   password: string;
 };
+
+export type SetAdminAccountLoginEnabledRequest = {
+  userId: string;
+  isEnabled: boolean;
+};
+
+export type SetAdminAccountLoginEnabledResponse = {
+  userId: string;
+  userStatus: "active" | "suspended";
+};
