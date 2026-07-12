@@ -674,7 +674,7 @@ async function handleAdminAccountsRequest({
   }
 
   if (url.pathname.startsWith("/api/admin/positions/")) {
-    if (req.method !== "PATCH") {
+    if (req.method !== "PATCH" && req.method !== "DELETE") {
       sendJson(res, 405, { error: { code: "access_denied", message: "Метод не поддерживается." } });
       return;
     }
@@ -685,7 +685,24 @@ async function handleAdminAccountsRequest({
       return;
     }
     if (existing.isProtected) {
-      sendJson(res, 409, { error: { code: "invalid_response", message: "Системную должность нельзя изменить." } });
+      sendJson(res, 409, { error: { code: "invalid_response", message: "Системную должность нельзя изменить или удалить." } });
+      return;
+    }
+    if (req.method === "DELETE") {
+      const result = await accounts.deletePosition(id);
+      if (result === "in_use") {
+        sendJson(res, 409, { error: { code: "invalid_response", message: "Должность используется учётными записями." } });
+        return;
+      }
+      if (result === "not_found") {
+        sendJson(res, 404, { error: { code: "not_found", message: "Должность не найдена." } });
+        return;
+      }
+      if (result === "protected") {
+        sendJson(res, 409, { error: { code: "invalid_response", message: "Системную должность нельзя удалить." } });
+        return;
+      }
+      sendJson(res, 200, { ok: true });
       return;
     }
     const validation = validateUpdatePositionRequest(await readJsonBody(req), existing);
@@ -891,6 +908,8 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
     "capabilities",
     "accountType",
     "accessLevelId",
+    "businessDisplayName",
+    "departmentDisplayName",
   ]) {
     if (Object.prototype.hasOwnProperty.call(input, field)) {
       errors.push(`${field} is managed by the server.`);
@@ -919,16 +938,17 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
       position,
       navigationItems,
       capabilities: positionDefinition.capabilities,
-      businessDisplayName: readOptionalTrimmedString(input.businessDisplayName),
-      departmentDisplayName: readOptionalTrimmedString(
-        input.departmentDisplayName,
-      ),
     },
   };
 }
 
 function validateCreatePositionRequest(input: unknown):
-  | { ok: true; value: Omit<AdminPositionSummary, "id" | "isProtected" | "usageCount" | "createdAt"> }
+  | { ok: true; value: {
+      displayName: string;
+      accountType: "business_owner" | "worker" | "dispatcher";
+      navigationItems: AccountNavigationItem[];
+      capabilities: AccountCapability[];
+    } }
   | { ok: false; errors: string[] } {
   if (!isRecord(input) || Array.isArray(input)) {
     return { ok: false, errors: ["Payload must be a JSON object."] };
@@ -973,13 +993,10 @@ function validateCreatePositionRequest(input: unknown):
   };
 }
 
-function validateUpdatePositionRequest(input: unknown, existing: AdminPositionSummary):
-  | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
+function validateUpdatePositionRequest(input: unknown, _existing: AdminPositionSummary):
+  | { ok: true; value: { displayName: string; accountType: "business_owner" | "worker" | "dispatcher"; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
-  const validation = validateCreatePositionRequest({
-    ...(isRecord(input) ? input : {}),
-    accountType: existing.accountType,
-  });
+  const validation = validateCreatePositionRequest(input);
   if (!validation.ok) {
     return validation;
   }
@@ -988,6 +1005,7 @@ function validateUpdatePositionRequest(input: unknown, existing: AdminPositionSu
     ok: true,
     value: {
       displayName: validation.value.displayName,
+      accountType: validation.value.accountType,
       navigationItems: validation.value.navigationItems,
       capabilities: validation.value.capabilities,
     },
@@ -1074,12 +1092,6 @@ function validateSetAccountLoginEnabledRequest(input: unknown):
       isEnabled,
     },
   };
-}
-
-function readOptionalTrimmedString(value: unknown) {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-
-  return trimmed.length === 0 ? undefined : trimmed;
 }
 
 function sendAdminAccountsError(res: ServerResponse, error: unknown) {

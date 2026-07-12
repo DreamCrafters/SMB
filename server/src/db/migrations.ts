@@ -458,6 +458,17 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "013_protect_used_account_positions",
+    statements: [
+      `
+      alter table account_accesses
+        add constraint fk_account_accesses_position
+        foreign key (position_code) references account_positions(id)
+        on update restrict on delete restrict;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

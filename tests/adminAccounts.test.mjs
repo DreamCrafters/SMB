@@ -3,12 +3,14 @@ import test from "node:test";
 import {
   createAdminAccount,
   createAdminPosition,
+  deleteAdminPosition,
   hasAdminAccountLogin,
   requestAdminAccounts,
   requestAdminPositions,
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
   setAdminAccountNavigation,
+  updateAdminPosition,
 } from "../.test-build/src/services/adminAccounts.js";
 
 const originalFetch = globalThis.fetch;
@@ -83,7 +85,7 @@ test("admin accounts service creates an account without client-generated ids", a
   });
 });
 
-test("admin accounts service sends optional worker scope names without ids", async () => {
+test("admin accounts service drops client-managed scope names", async () => {
   const calls = [];
 
   globalThis.fetch = async (url, init) => {
@@ -106,8 +108,6 @@ test("admin accounts service sends optional worker scope names without ids", asy
     password: "supersecret1",
     displayName: "Работник Один",
     position: "worker",
-    businessDisplayName: "Основной бизнес",
-    departmentDisplayName: "Производство",
   });
 });
 
@@ -143,6 +143,48 @@ test("admin positions service lists and creates positions with a base cabinet", 
   assert.equal(list.status, "ready");
   assert.equal(created.status, "ready");
   assert.equal(calls[1].init.method, "POST");
+});
+
+test("admin positions service sends a changed base cabinet", async () => {
+  const calls = [];
+  const position = {
+    id: "position-chief-engineer",
+    displayName: "Диспетчер производства",
+    accountType: "dispatcher",
+    navigationItems: ["business.dispatcher_form"],
+    capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
+    isProtected: false,
+    usageCount: 1,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  };
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({ position });
+  };
+
+  const result = await updateAdminPosition(position.id, {
+    displayName: position.displayName,
+    accountType: "dispatcher",
+    navigationItems: ["business.dispatcher_form"],
+  }, { baseUrl: "http://api.test" });
+
+  assert.equal(result.status, "ready");
+  assert.equal(calls[0].init.method, "PATCH");
+  assert.equal(JSON.parse(calls[0].init.body).accountType, "dispatcher");
+});
+
+test("admin positions service deletes an unused position", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({ ok: true });
+  };
+
+  const result = await deleteAdminPosition("position-unused", { baseUrl: "http://api.test" });
+
+  assert.equal(result.status, "ready");
+  assert.equal(calls[0].init.method, "DELETE");
+  assert.equal(calls[0].url, "http://api.test/api/admin/positions/position-unused");
 });
 
 test("admin accounts service resets a password", async () => {

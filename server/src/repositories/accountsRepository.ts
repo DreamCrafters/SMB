@@ -53,6 +53,7 @@ export type CreatePositionInput = Omit<
 export type UpdatePositionInput = {
   id: string;
   displayName: string;
+  accountType: Exclude<AccountType, "admin">;
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
 };
@@ -95,6 +96,8 @@ export type AccountLoginStatus = {
   userStatus: "active" | "suspended";
 };
 
+export type DeletePositionResult = "deleted" | "not_found" | "protected" | "in_use";
+
 export type AccountsRepository = {
   listAccounts: () => Promise<AdminAccountSummary[]>;
   createAccount: (input: CreateAccountInput) => Promise<AdminAccountSummary>;
@@ -108,6 +111,7 @@ export type AccountsRepository = {
   listPositions: () => Promise<AdminPositionSummary[]>;
   createPosition: (input: CreatePositionInput) => Promise<AdminPositionSummary>;
   updatePosition: (input: UpdatePositionInput) => Promise<AdminPositionSummary | undefined>;
+  deletePosition: (id: string) => Promise<DeletePositionResult>;
 };
 
 export class AccountLoginAlreadyExistsError extends Error {
@@ -159,6 +163,18 @@ type PositionRow = RowDataPacket & {
   usage_count: number | string;
 };
 
+type PositionAccessRow = RowDataPacket & {
+  access_id: string;
+  user_display_name: string;
+  business_account_id: string | null;
+  department_id: string | null;
+};
+
+type DeletePositionRow = RowDataPacket & {
+  is_protected: number | boolean;
+  usage_count: number | string;
+};
+
 type IdRow = RowDataPacket & {
   id: string;
 };
@@ -202,7 +218,8 @@ export function createAccountsRepository(
     const [rows] = await pool.query<AccountRow[]>(`
       ${accountRowSelect}
       where accesses.is_active = 1
-      order by accesses.created_at desc, accesses.id desc
+      order by positions.display_name asc, users.display_name asc,
+        accesses.created_at desc, accesses.id desc
     `);
 
     return rows.map(mapAccountRow);
@@ -250,9 +267,14 @@ export function createAccountsRepository(
         await connection.rollback();
         return undefined;
       }
+      if (current.account_type !== input.accountType) {
+        await updatePositionAccessScopes(connection, input, createId);
+      }
       await connection.query(
-        `update account_positions set display_name = ?, navigation_items = ?, capabilities = ? where id = ?`,
-        [input.displayName, JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities), input.id],
+        `update account_positions
+         set display_name = ?, account_type = ?, navigation_items = ?, capabilities = ?
+         where id = ?`,
+        [input.displayName, input.accountType, JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities), input.id],
       );
       await connection.query(
         `delete sessions from auth_sessions sessions
@@ -262,9 +284,51 @@ export function createAccountsRepository(
       );
       await connection.commit();
       return { ...mapPositionRow(current), displayName: input.displayName,
+        accountType: input.accountType,
         navigationItems: input.navigationItems, capabilities: input.capabilities };
     } catch (error) {
       await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async function deletePosition(id: string): Promise<DeletePositionResult> {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.query<DeletePositionRow[]>(
+        `select positions.is_protected,
+          (select count(*) from account_accesses accesses
+            where accesses.position_code = positions.id) as usage_count
+         from account_positions positions
+         where positions.id = ?
+         limit 1 for update`,
+        [id],
+      );
+      const position = rows[0];
+      if (position === undefined) {
+        await connection.rollback();
+        return "not_found";
+      }
+      if (position.is_protected === true || position.is_protected === 1) {
+        await connection.rollback();
+        return "protected";
+      }
+      if (Number(position.usage_count) > 0) {
+        await connection.rollback();
+        return "in_use";
+      }
+
+      await connection.query("delete from account_positions where id = ?", [id]);
+      await connection.commit();
+      return "deleted";
+    } catch (error) {
+      await connection.rollback();
+      if (isForeignKeyReferenceError(error)) {
+        return "in_use";
+      }
       throw error;
     } finally {
       connection.release();
@@ -562,7 +626,72 @@ export function createAccountsRepository(
     listPositions,
     createPosition,
     updatePosition,
+    deletePosition,
   };
+}
+
+async function updatePositionAccessScopes(
+  connection: PoolConnection,
+  input: UpdatePositionInput,
+  createId: () => string,
+) {
+  if (input.accountType === "business_owner") {
+    await connection.query(
+      `update account_accesses
+       set account_type = ?, scope_kind = 'business', department_id = null
+       where position_code = ?`,
+      [input.accountType, input.id],
+    );
+    return;
+  }
+
+  const [accesses] = await connection.query<PositionAccessRow[]>(
+    `select accesses.id as access_id, users.display_name as user_display_name,
+      accesses.business_account_id, accesses.department_id
+     from account_accesses accesses
+     join app_users users on users.id = accesses.user_id
+     where accesses.position_code = ?`,
+    [input.id],
+  );
+
+  for (const access of accesses) {
+    if (access.business_account_id === null) {
+      throw new Error("Stored account position scope has no business account.");
+    }
+
+    let departmentId = access.department_id;
+    if (departmentId === null) {
+      const scope = resolveAccountProvisioningScope(
+        {
+          accountType: input.accountType,
+          displayName: access.user_display_name,
+          businessAccountId: access.business_account_id,
+        },
+        createId,
+      );
+      if (scope.department === undefined || scope.businessAccount === undefined) {
+        throw new Error("Failed to resolve department scope for account position.");
+      }
+      departmentId = scope.department.id;
+      await connection.query(
+        `insert into departments (
+          id, business_account_id, display_name, structure_mode
+        ) values (?, ?, ?, 'current')
+        on duplicate key update
+          business_account_id = values(business_account_id),
+          display_name = values(display_name),
+          structure_mode = values(structure_mode)`,
+        [departmentId, scope.businessAccount.id, scope.department.displayName],
+      );
+    }
+
+    await connection.query(
+      `update account_accesses
+       set account_type = ?, scope_kind = 'department', department_id = ?
+       where id = ?`,
+      [input.accountType, departmentId, access.access_id],
+    );
+  }
 }
 
 async function readUserIdByLoginInTransaction(
@@ -690,5 +819,14 @@ function isDuplicateEntryError(error: unknown) {
     error !== null &&
     "code" in error &&
     error.code === "ER_DUP_ENTRY"
+  );
+}
+
+function isForeignKeyReferenceError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error.code === "ER_ROW_IS_REFERENCED_2" || error.code === "ER_ROW_IS_REFERENCED")
   );
 }

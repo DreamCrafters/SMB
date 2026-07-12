@@ -70,6 +70,9 @@ export type AdminPositionsResult =
 export type SaveAdminPositionResult =
   | { status: "ready"; position: AdminPositionSummary }
   | AdminAccountsErrorState;
+export type DeleteAdminPositionResult =
+  | { status: "ready" }
+  | AdminAccountsErrorState;
 
 export async function requestAdminPositions(
   { baseUrl, signal }: AdminAccountsRequestOptions = {},
@@ -90,6 +93,33 @@ export async function updateAdminPosition(
   options: AdminAccountsRequestOptions = {},
 ): Promise<SaveAdminPositionResult> {
   return requestPositionSave(`${ADMIN_POSITIONS_PATH}/${encodeURIComponent(id)}`, "PATCH", value, options);
+}
+
+export async function deleteAdminPosition(
+  id: string,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<DeleteAdminPositionResult> {
+  const path = `${ADMIN_POSITIONS_PATH}/${encodeURIComponent(id)}`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+  try {
+    const response = await fetch(endpoint, {
+      method: "DELETE",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return readRemoteError(payload, response.status, "Не удалось удалить должность.");
+    }
+    if (isOkResponse(payload)) {
+      return { status: "ready" };
+    }
+    return { status: "error", message: "Сервер вернул неподдерживаемый ответ удаления.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Удаление должности отменено." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось удалить должность.", { baseUrl }), code: "network_error" };
+  }
 }
 
 async function requestPositions(
@@ -222,7 +252,12 @@ export async function createAdminAccount(
       }),
       credentials: "include",
       signal,
-      body: JSON.stringify(value),
+      body: JSON.stringify({
+        login: value.login,
+        password: value.password,
+        displayName: value.displayName,
+        position: value.position,
+      }),
     });
     const payload = await readJson(response);
 

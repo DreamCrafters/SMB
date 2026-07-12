@@ -99,6 +99,7 @@ import {
 import {
   createAdminAccount,
   createAdminPosition,
+  deleteAdminPosition,
   hasAdminAccountLogin,
   requestAdminAccounts,
   requestAdminPositions,
@@ -3998,8 +3999,6 @@ type AdminAccountFormState = {
   password: string;
   displayName: string;
   position: AccountPosition;
-  businessDisplayName: string;
-  departmentDisplayName: string;
 };
 
 type AdminPasswordResetFormState = {
@@ -4012,8 +4011,6 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   password: "",
   displayName: "",
   position: "worker",
-  businessDisplayName: "",
-  departmentDisplayName: "",
 };
 
 type AdminPositionFormState = {
@@ -4181,6 +4178,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [positionForm, setPositionForm] = useState<AdminPositionFormState>(emptyAdminPositionForm);
   const [positionFormStatus, setPositionFormStatus] = useState("");
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
+  const [deletingPositionId, setDeletingPositionId] = useState<string>();
   const [passwordResetForm, setPasswordResetForm] =
     useState<AdminPasswordResetFormState>();
   const [passwordResetStatus, setPasswordResetStatus] = useState("");
@@ -4346,6 +4344,26 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setRefreshVersion((version) => version + 1);
   }
 
+  async function handleDeletePosition(position: AdminPositionSummary) {
+    if (position.isProtected || position.usageCount > 0 || deletingPositionId !== undefined) {
+      return;
+    }
+    if (!window.confirm(`Удалить должность «${position.displayName}»?`)) {
+      return;
+    }
+
+    setDeletingPositionId(position.id);
+    setWorkspaceStatus("");
+    const result = await deleteAdminPosition(position.id);
+    setDeletingPositionId(undefined);
+    if (result.status !== "ready") {
+      setWorkspaceStatus(result.message);
+      return;
+    }
+    setWorkspaceStatus(`Должность «${position.displayName}» удалена.`);
+    setRefreshVersion((version) => version + 1);
+  }
+
   function closeCreateModal() {
     if (isSubmitting) {
       return;
@@ -4420,14 +4438,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setFormStatus("Создаём учётную запись.");
 
     const submittedPassword = form.password;
-    const scopeNames = readAdminAccountScopeNames(form);
     const result = await createAdminAccount({
       login: submittedLogin,
       password: submittedPassword,
       displayName: form.displayName.trim(),
       position: form.position,
-      businessDisplayName: scopeNames.businessDisplayName,
-      departmentDisplayName: scopeNames.departmentDisplayName,
     });
 
     setIsSubmitting(false);
@@ -4534,11 +4549,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   }
 
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
-  const selectedPosition = positionsState.status === "ready"
-    ? positionsState.positions.find((position) => position.id === form.position)
-    : undefined;
-  const formAccountType = selectedPosition?.accountType ?? "worker";
-  const showsScopeNames = accountTypeShowsScopeNames(formAccountType);
 
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
@@ -4687,14 +4697,30 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                     ).join(", ")}</td>
                     <td>{position.usageCount}</td>
                     <td>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        disabled={!canManageAccess || position.accountType === "admin"}
-                        onClick={() => openPositionModal(position)}
-                      >
-                        Изменить
-                      </button>
+                      <div className="admin-position-actions">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={!canManageAccess || position.isProtected}
+                          onClick={() => openPositionModal(position)}
+                        >
+                          Изменить
+                        </button>
+                        <button
+                          className="secondary-button secondary-button-danger"
+                          type="button"
+                          title={position.usageCount > 0 ? "Должность назначена аккаунтам." : undefined}
+                          disabled={
+                            !canManageAccess ||
+                            position.isProtected ||
+                            position.usageCount > 0 ||
+                            deletingPositionId === position.id
+                          }
+                          onClick={() => handleDeletePosition(position)}
+                        >
+                          {deletingPositionId === position.id ? "Удаляем…" : "Удалить"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -4807,37 +4833,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                 </select>
               </label>
 
-              {showsScopeNames ? (
-                <>
-                  <label>
-                    <span>Название бизнес-аккаунта</span>
-                    <input
-                      type="text"
-                      value={form.businessDisplayName}
-                      placeholder="необязательно"
-                      onChange={(event) =>
-                        handleFormFieldChange({
-                          businessDisplayName: event.currentTarget.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    <span>Название подразделения</span>
-                    <input
-                      type="text"
-                      value={form.departmentDisplayName}
-                      placeholder="необязательно"
-                      onChange={(event) =>
-                        handleFormFieldChange({
-                          departmentDisplayName: event.currentTarget.value,
-                        })
-                      }
-                    />
-                  </label>
-                </>
-              ) : null}
-
               <div className="form-actions">
                 <button
                   className="primary-button"
@@ -4884,7 +4879,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
               </label>
               <label>
                 <span>Базовый кабинет</span>
-                <select value={positionForm.accountType} disabled={positionForm.id !== undefined} onChange={(event) => {
+                <select value={positionForm.accountType} onChange={(event) => {
                   const accountType = event.currentTarget.value as AdminPositionFormState["accountType"];
                   setPositionForm((current) => ({
                     ...current,
@@ -5171,33 +5166,6 @@ function AdminAccountPasswordCell({
       </button>
     </div>
   );
-}
-
-function accountTypeShowsScopeNames(accountType: AccountType) {
-  return accountType === "worker";
-}
-
-function readAdminAccountScopeNames(form: AdminAccountFormState): {
-  businessDisplayName: string | undefined;
-  departmentDisplayName: string | undefined;
-} {
-  if (accountTypeByPosition[form.position] === "worker") {
-    return {
-      businessDisplayName:
-        form.businessDisplayName.trim().length > 0
-          ? form.businessDisplayName.trim()
-          : undefined,
-      departmentDisplayName:
-        form.departmentDisplayName.trim().length > 0
-          ? form.departmentDisplayName.trim()
-          : undefined,
-    };
-  }
-
-  return {
-    businessDisplayName: undefined,
-    departmentDisplayName: undefined,
-  };
 }
 
 function formatAdminAccountStatus(status: string) {

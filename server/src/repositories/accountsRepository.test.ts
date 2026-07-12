@@ -7,6 +7,136 @@ import {
   createAccountsRepository,
 } from "./accountsRepository.js";
 
+test("listAccounts groups equal positions and sorts names within each group", async () => {
+  let selectSql = "";
+  const pool = {
+    async query(sql: string) {
+      selectSql = sql.replace(/\s+/g, " ").trim();
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  await createAccountsRepository(pool).listAccounts();
+
+  assert.match(
+    selectSql,
+    /order by positions\.display_name asc, users\.display_name asc/,
+  );
+});
+
+test("updatePosition changes linked business accounts to department scope", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  let didCommit = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() { didCommit = true; },
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+      if (normalized.includes("from account_positions positions where positions.id")) {
+        return [[{
+          id: "position-manager",
+          display_name: "Руководитель участка",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(["business.overview"]),
+          capabilities: JSON.stringify(["business.view_all_statistics"]),
+          is_protected: 0,
+          created_at: "2026-07-12T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("select accesses.id as access_id")) {
+        return [[{
+          access_id: "access-manager",
+          user_display_name: "Иванов И.",
+          business_account_id: "prod-business",
+          department_id: null,
+        }], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  const repository = createAccountsRepository(pool, { createId: () => "generated-department" });
+
+  const result = await repository.updatePosition({
+    id: "position-manager",
+    displayName: "Диспетчер участка",
+    accountType: "dispatcher",
+    navigationItems: ["business.dispatcher_form"],
+    capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
+  });
+
+  assert.equal(didCommit, true);
+  assert.equal(result?.accountType, "dispatcher");
+  assert.deepEqual(
+    queries.find((query) => query.sql.startsWith("insert into departments"))?.params,
+    ["dispatch", "prod-business", "Диспетчерская"],
+  );
+  assert.deepEqual(
+    queries.find((query) => query.sql.startsWith("update account_accesses set account_type"))?.params,
+    ["dispatcher", "dispatch", "access-manager"],
+  );
+  assert.deepEqual(
+    queries.find((query) => query.sql.startsWith("update account_positions set display_name"))?.params?.slice(0, 2),
+    ["Диспетчер участка", "dispatcher"],
+  );
+});
+
+test("deletePosition deletes only an unused custom position", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  let didCommit = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() { didCommit = true; },
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+      if (normalized.startsWith("select positions.is_protected")) {
+        return [[{ is_protected: 0, usage_count: 0 }], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).deletePosition("position-unused");
+
+  assert.equal(result, "deleted");
+  assert.equal(didCommit, true);
+  assert.deepEqual(
+    queries.find((query) => query.sql.startsWith("delete from account_positions"))?.params,
+    ["position-unused"],
+  );
+});
+
+test("deletePosition keeps a position assigned to accounts", async () => {
+  let didDelete = false;
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select positions.is_protected")) {
+        return [[{ is_protected: 0, usage_count: 2 }], []];
+      }
+      if (normalized.startsWith("delete from account_positions")) didDelete = true;
+      return [[], []];
+    },
+  };
+  const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).deletePosition("position-used");
+
+  assert.equal(result, "in_use");
+  assert.equal(didDelete, false);
+});
+
 test("createAccount generates worker ids and commits all rows together", async () => {
   const ids = ["worker-department-id", "worker-user-id", "worker-access-id"];
   const database = buildFakeDatabase({

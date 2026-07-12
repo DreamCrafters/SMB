@@ -561,6 +561,9 @@ const accounts: AccountsRepository = {
   async updatePosition(input) {
     return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
   },
+  async deletePosition() {
+    return "deleted";
+  },
 };
 
 test("admin accounts API rejects non-admin dev sessions", async () => {
@@ -762,6 +765,91 @@ test("admin positions API separates manager and dispatcher tabs", async () => {
     assert.equal(dispatcherResponse.status, 201);
     assert.equal(dispatcherOverviewResponse.status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});
+
+test("admin positions API changes the base cabinet after creation", async () => {
+  let updateInput: Parameters<AccountsRepository["updatePosition"]>[0] | undefined;
+  const existingPosition = {
+    id: "position-custom",
+    displayName: "Начальник смены",
+    accountType: "business_owner" as const,
+    navigationItems: ["business.overview" as const],
+    capabilities: ["business.view_all_statistics" as const],
+    isProtected: false,
+    usageCount: 2,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listPositions() { return [existingPosition]; },
+    async updatePosition(input) {
+      updateInput = input;
+      return { ...existingPosition, ...input };
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/position-custom`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
+      body: JSON.stringify({
+        displayName: "Диспетчер смены",
+        accountType: "dispatcher",
+        navigationItems: ["business.dispatcher_form"],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.equal(updateInput?.accountType, "dispatcher");
+  assert.deepEqual(updateInput?.navigationItems, ["business.dispatcher_form"]);
+  assert.deepEqual(updateInput?.capabilities, [
+    "business.submit_dispatcher_forms",
+    "business.view_dispatcher_feed",
+  ]);
+});
+
+test("admin positions API deletes only an unused position", async () => {
+  const unusedPosition = {
+    id: "position-unused",
+    displayName: "Временная должность",
+    accountType: "worker" as const,
+    navigationItems: [],
+    capabilities: [],
+    isProtected: false,
+    usageCount: 0,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  };
+  const unusedRepository: AccountsRepository = {
+    ...accounts,
+    async listPositions() { return [unusedPosition]; },
+    async deletePosition() { return "deleted"; },
+  };
+  const usedRepository: AccountsRepository = {
+    ...unusedRepository,
+    async listPositions() { return [{ ...unusedPosition, usageCount: 1 }]; },
+    async deletePosition() { return "in_use"; },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/position-unused`, {
+      method: "DELETE",
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+    assert.equal(response.status, 200);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, unusedRepository);
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/position-unused`, {
+      method: "DELETE",
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+    assert.equal(response.status, 409);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, usedRepository);
 });
 
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {
@@ -1166,6 +1254,8 @@ test("admin accounts API rejects client-managed provisioning fields", async () =
           accessDisplayName: "Privileged access",
           accessLevelId: "removed-level",
           capabilities: ["platform.manage_users"],
+          businessDisplayName: "Клиентский бизнес",
+          departmentDisplayName: "Клиентское подразделение",
         }),
       });
       const payload = await response.json();
@@ -1180,6 +1270,8 @@ test("admin accounts API rejects client-managed provisioning fields", async () =
       assert.match(message, /accessDisplayName is managed by the server/);
       assert.match(message, /accessLevelId is managed by the server/);
       assert.match(message, /capabilities is managed by the server/);
+      assert.match(message, /businessDisplayName is managed by the server/);
+      assert.match(message, /departmentDisplayName is managed by the server/);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,

@@ -1376,6 +1376,12 @@ p {
   white-space: normal;
 }
 
+.admin-position-actions {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+}
+
 .admin-accounts-table th,
 .admin-accounts-table td {
   white-space: nowrap;

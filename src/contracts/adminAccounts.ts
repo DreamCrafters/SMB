@@ -33,8 +33,6 @@ export type CreateAdminAccountRequest = {
   password: string;
   displayName: string;
   position: AccountPosition;
-  businessDisplayName?: string;
-  departmentDisplayName?: string;
 };
 
 export type AdminPositionSummary = {
