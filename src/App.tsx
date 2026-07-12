@@ -5,22 +5,23 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import type {
-  AccountNavigationItem,
-  AccountPosition,
-  AdminAccessLevelSummary,
-  AccountType,
-  AdminAccountSummary,
-  AdminDatabaseCellValue,
-  AdminDatabaseColumn,
-  AdminDatabaseRow,
-  AdminDatabaseTable,
-  DispatcherFormDefinition,
-  DispatcherFormField,
-  DispatcherFormId,
-  DispatcherSubmission,
-  DispatcherSubmissionPayload,
-  ServerUserProfile,
+import {
+  accountCapabilities,
+  type AccountNavigationItem,
+  type AccountPosition,
+  type AdminAccessLevelSummary,
+  type AccountType,
+  type AdminAccountSummary,
+  type AdminDatabaseCellValue,
+  type AdminDatabaseColumn,
+  type AdminDatabaseRow,
+  type AdminDatabaseTable,
+  type DispatcherFormDefinition,
+  type DispatcherFormField,
+  type DispatcherFormId,
+  type DispatcherSubmission,
+  type DispatcherSubmissionPayload,
+  type ServerUserProfile,
 } from "./contracts";
 import {
   accountPositionLabels,
@@ -3372,42 +3373,78 @@ function AdminAccountPreviewWorkspace({
     accountsState.status === "ready"
       ? accountsState.accounts
       : [];
+  const accountTypePreviews = adminAccountPositionOptions.map(
+    buildAdminPreviewAccountForPosition,
+  );
 
   return (
     <section className="admin-workspace" aria-label="Просмотр аккаунта">
-      {accountsState.status === "loading" ? <p>{accountsState.message}</p> : null}
-      {accountsState.status === "error" ? (
-        <p className="dispatcher-status-line">{accountsState.message}</p>
-      ) : null}
-      {accountsState.status === "ready" && accounts.length === 0 ? (
-        <p className="dispatcher-status-line">Нет аккаунтов для просмотра.</p>
-      ) : null}
-      <div className="admin-account-switcher" aria-label="Созданные аккаунты">
-        {accounts.map((account) => (
-          <button
-            className="admin-account-button"
-            type="button"
-            disabled={account.accountType === "admin"}
-            title={
-              account.accountType === "admin"
-                ? "Административный аккаунт показан в списке, но не открывается в превью."
-                : undefined
-            }
-            key={account.accessId}
-            onClick={() => {
-              if (account.accountType !== "admin") onSelectAccountView(account);
-            }}
-          >
-            <span>{accountPositionLabels[account.position]}</span>
-            <strong>{account.userDisplayName}</strong>
-            <small>
-              {account.login}
-              {account.accountType === "admin" ? " · без превью" : ""}
-            </small>
-          </button>
-        ))}
+      <div className="admin-account-preview-group">
+        <h3>Типы аккаунтов</h3>
+        <div className="admin-account-switcher" aria-label="Типы аккаунтов">
+          {accountTypePreviews.map((account) => (
+            <AdminAccountPreviewButton
+              account={account}
+              key={account.accessId}
+              onSelectAccountView={onSelectAccountView}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="admin-account-preview-group">
+        <h3>Созданные аккаунты</h3>
+        {accountsState.status === "loading" ? <p>{accountsState.message}</p> : null}
+        {accountsState.status === "error" ? (
+          <p className="dispatcher-status-line">{accountsState.message}</p>
+        ) : null}
+        {accountsState.status === "ready" && accounts.length === 0 ? (
+          <p className="dispatcher-status-line">Созданных аккаунтов пока нет.</p>
+        ) : null}
+        <div className="admin-account-switcher" aria-label="Созданные аккаунты">
+          {accounts.map((account) => (
+            <AdminAccountPreviewButton
+              account={account}
+              key={account.accessId}
+              onSelectAccountView={onSelectAccountView}
+            />
+          ))}
+        </div>
       </div>
     </section>
+  );
+}
+
+function AdminAccountPreviewButton({
+  account,
+  onSelectAccountView,
+}: {
+  account: AdminAccountSummary;
+  onSelectAccountView: (account: AdminAccountSummary) => void;
+}) {
+  const isAdmin = account.accountType === "admin";
+
+  return (
+    <button
+      className="admin-account-button"
+      type="button"
+      disabled={isAdmin}
+      title={
+        isAdmin
+          ? "Административный аккаунт показан в списке, но не открывается в превью."
+          : undefined
+      }
+      onClick={() => {
+        if (!isAdmin) onSelectAccountView(account);
+      }}
+    >
+      <span>{accountPositionLabels[account.position]}</span>
+      <strong>{account.userDisplayName}</strong>
+      <small>
+        {account.login}
+        {isAdmin ? " · без превью" : ""}
+      </small>
+    </button>
   );
 }
 
@@ -4018,6 +4055,45 @@ function getNavigationOptionsForPosition(position: AccountPosition) {
   return accountTypeByPosition[position] === "admin"
     ? navigationItemsByAccountType.admin
     : nonAdminNavigationItems;
+}
+
+function buildAdminPreviewAccountForPosition(
+  position: AccountPosition,
+): AdminAccountSummary {
+  const accountType = accountTypeByPosition[position];
+  const label = accountPositionLabels[position];
+  const isAdmin = accountType === "admin";
+  const navigationItems = getNavigationOptionsForPosition(position).map(({ id }) => id);
+
+  return {
+    accessId: `admin-preview-${position}`,
+    userId: `admin-preview-user-${position}`,
+    login: "Полный доступ",
+    userDisplayName: "Типовой кабинет",
+    userStatus: "active",
+    accessDisplayName: `Превью: ${label}`,
+    accountType,
+    position,
+    scope: isAdmin
+      ? { kind: "platform" }
+      : accountType === "business_owner"
+        ? { kind: "business", businessAccountId: "admin-preview-business" }
+        : {
+            kind: "department",
+            businessAccountId: "admin-preview-business",
+            departmentId: "admin-preview-department",
+          },
+    businessDisplayName: isAdmin ? null : "Основной бизнес",
+    departmentDisplayName:
+      accountType === "worker" || accountType === "dispatcher" ? label : null,
+    capabilities: isAdmin
+      ? []
+      : accountCapabilities.filter((capability) => capability.startsWith("business.")),
+    navigationItems,
+    accessLevelId: null,
+    accessLevelDisplayName: null,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
@@ -4727,7 +4803,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             <table className="admin-db-data-table admin-access-levels-table">
               <thead>
                 <tr>
-                  <th scope="col">Название</th>
                   <th scope="col">Должность</th>
                   <th scope="col">Вкладки слева</th>
                   <th scope="col">Аккаунты</th>
@@ -4737,7 +4812,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
               <tbody>
                 {accessLevels.map((level) => (
                   <tr key={level.id}>
-                    <td>{level.displayName}{level.isSystem ? " · системный" : ""}</td>
                     <td>{accountPositionLabels[level.position]}</td>
                     <td>
                       {getNavigationOptionsForPosition(level.position)

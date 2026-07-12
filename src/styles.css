@@ -1302,6 +1302,15 @@ p {
   width: min(100%, 1500px);
 }
 
+.admin-account-preview-group {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.admin-account-preview-group h3 {
+  margin: 0;
+}
+
 .admin-account-switcher {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -1485,10 +1494,6 @@ p {
 
 .admin-access-levels-list h3 {
   margin: 0 0 12px;
-}
-
-.admin-access-levels-table td:first-child {
-  font-weight: 700;
 }
 
 .admin-accounts-status-badge {
