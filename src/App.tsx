@@ -6,7 +6,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import type {
-  AccountCapability,
   AccountNavigationItem,
   AccountPosition,
   AdminAccessLevelSummary,
@@ -24,7 +23,6 @@ import type {
   ServerUserProfile,
 } from "./contracts";
 import {
-  accountTypeLabels,
   accountPositionLabels,
   authOptions,
   navigationItemsByAccountType,
@@ -126,7 +124,6 @@ import { readShortUserMessage } from "./services/userFacingMessages";
 
 type BusinessTab = "overview" | "dispatcher" | "work" | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database";
-type AdminViewableAccountType = Exclude<AccountType, "admin">;
 
 type DataEntrySubmitStateControls = {
   setStatus: (message: string) => void;
@@ -329,8 +326,8 @@ export default function App() {
   const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
   const [ownerTab, setOwnerTab] = useState<BusinessTab>("overview");
   const [adminTab, setAdminTab] = useState<AdminTab>("account_preview");
-  const [adminViewedAccountType, setAdminViewedAccountType] =
-    useState<AdminViewableAccountType>();
+  const [adminViewedAccount, setAdminViewedAccount] =
+    useState<AdminAccountSummary>();
   const [adminViewedOwnerTab, setAdminViewedOwnerTab] =
     useState<BusinessTab>("overview");
   const [adminViewedDataEntryStatus, setAdminViewedDataEntryStatus] =
@@ -457,7 +454,7 @@ export default function App() {
       accessProfile.profile.accountType !== "admin" ||
       adminTab !== "account_preview"
     ) {
-      setAdminViewedAccountType(undefined);
+      setAdminViewedAccount(undefined);
     }
   }, [accessProfile, adminTab]);
 
@@ -536,8 +533,8 @@ export default function App() {
     }));
   }
 
-  function handleStartAdminAccountView(accountType: AdminViewableAccountType) {
-    setAdminViewedAccountType(accountType);
+  function handleStartAdminAccountView(account: AdminAccountSummary) {
+    setAdminViewedAccount(account);
     setAdminViewedOwnerTab("overview");
     setAdminViewedDataEntryStatus("");
     setIsAdminViewedDataEntrySubmitting(false);
@@ -545,7 +542,7 @@ export default function App() {
   }
 
   function handleStopAdminAccountView() {
-    setAdminViewedAccountType(undefined);
+    setAdminViewedAccount(undefined);
     setAdminViewedDataEntryStatus("");
     setIsAdminViewedDataEntrySubmitting(false);
   }
@@ -724,8 +721,8 @@ export default function App() {
   const viewedProfile =
     profile.accountType === "admin" &&
     adminTab === "account_preview" &&
-    adminViewedAccountType !== undefined
-      ? buildAdminPreviewProfile(adminViewedAccountType, profile)
+    adminViewedAccount !== undefined
+      ? buildAdminPreviewProfile(adminViewedAccount, profile)
       : undefined;
   const isAdminPreviewMode = viewedProfile !== undefined;
   const visibleProfile = viewedProfile ?? profile;
@@ -1088,7 +1085,7 @@ function RoleWorkspace({
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
   onDataEntryStatusReset: () => void;
-  onSelectAdminAccountView: (accountType: AdminViewableAccountType) => void;
+  onSelectAdminAccountView: (account: AdminAccountSummary) => void;
 }) {
   const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
     overview: "business.overview",
@@ -3340,7 +3337,7 @@ function AdminWorkspace({
 }: {
   profile: ServerUserProfile;
   activeTab: AdminTab;
-  onSelectAccountView: (accountType: AdminViewableAccountType) => void;
+  onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
   if (activeTab === "database") {
     return <AdminDatabaseWorkspace profile={profile} />;
@@ -3356,30 +3353,59 @@ function AdminWorkspace({
 function AdminAccountPreviewWorkspace({
   onSelectAccountView,
 }: {
-  onSelectAccountView: (accountType: AdminViewableAccountType) => void;
+  onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
+  const [accountsState, setAccountsState] = useState<AdminAccountsLoadState>({
+    status: "loading",
+    message: "Загружаем учётные записи.",
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    requestAdminAccounts({ signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted) setAccountsState(result);
+    });
+    return () => controller.abort();
+  }, []);
+
+  const accounts =
+    accountsState.status === "ready"
+      ? accountsState.accounts
+      : [];
+
   return (
     <section className="admin-workspace" aria-label="Просмотр аккаунта">
-      <div className="admin-account-switcher" aria-label="Тип аккаунта">
-        {authOptions.map((option) => {
-          const accountType = option.accountType;
-
-          if (accountType === "admin") {
-            return null;
-          }
-
-          return (
-            <button
-              className="admin-account-button"
-              type="button"
-              key={option.accountType}
-              onClick={() => onSelectAccountView(accountType)}
-            >
-              <span>{option.label}</span>
-              <small>{option.scope}</small>
-            </button>
-          );
-        })}
+      {accountsState.status === "loading" ? <p>{accountsState.message}</p> : null}
+      {accountsState.status === "error" ? (
+        <p className="dispatcher-status-line">{accountsState.message}</p>
+      ) : null}
+      {accountsState.status === "ready" && accounts.length === 0 ? (
+        <p className="dispatcher-status-line">Нет аккаунтов для просмотра.</p>
+      ) : null}
+      <div className="admin-account-switcher" aria-label="Созданные аккаунты">
+        {accounts.map((account) => (
+          <button
+            className="admin-account-button"
+            type="button"
+            disabled={account.accountType === "admin"}
+            title={
+              account.accountType === "admin"
+                ? "Административный аккаунт показан в списке, но не открывается в превью."
+                : undefined
+            }
+            key={account.accessId}
+            onClick={() => {
+              if (account.accountType !== "admin") onSelectAccountView(account);
+            }}
+          >
+            <span>{accountPositionLabels[account.position]}</span>
+            <strong>{account.userDisplayName}</strong>
+            <small>
+              {account.login}
+              {account.accountType === "admin" ? " · без превью" : ""}
+            </small>
+          </button>
+        ))}
       </div>
     </section>
   );
@@ -5390,78 +5416,48 @@ async function copyTextToClipboard(value: string) {
   return didCopy;
 }
 
-const adminPreviewCapabilitiesByType: Record<
-  AdminViewableAccountType,
-  AccountCapability[]
-> = {
-  business_owner: [
-    "business.view_all_statistics",
-    "business.view_department_statistics",
-    "business.view_notifications",
-    "business.view_dispatcher_feed",
-  ],
-  worker: [
-    "business.submit_forms",
-    "business.view_notifications",
-    "business.view_own_submissions",
-  ],
-  dispatcher: ["business.submit_dispatcher_forms"],
-};
-
 function buildAdminPreviewProfile(
-  accountType: AdminViewableAccountType,
+  account: AdminAccountSummary,
   adminProfile: ServerUserProfile,
 ): ServerUserProfile {
-  const businessAccount =
-    adminProfile.businessAccounts[0] ?? {
-      id: "admin-preview-business",
-      displayName: "Admin preview business",
-      status: "active" as const,
-    };
+  const scope = account.scope;
+  const businessAccountId =
+    scope.kind === "business" || scope.kind === "department"
+      ? scope.businessAccountId
+      : "admin-preview-business";
+  const businessAccount = {
+    id: businessAccountId,
+    displayName: account.businessDisplayName ?? "Основной бизнес",
+    status: "active" as const,
+  };
   const department =
-    adminProfile.departments.find(
-      (item) => item.businessAccountId === businessAccount.id,
-    ) ?? {
-      id: "admin-preview-department",
-      businessAccountId: businessAccount.id,
-      displayName: "Admin preview department",
-      structureMode: adminProfile.organizationStructureMode,
-    };
-  const scope =
-    accountType === "business_owner"
+    scope.kind === "department"
       ? {
-          kind: "business" as const,
-          businessAccountId: businessAccount.id,
+          id: scope.departmentId,
+          businessAccountId,
+          displayName: account.departmentDisplayName ?? account.userDisplayName,
+          structureMode: adminProfile.organizationStructureMode,
         }
-      : {
-          kind: "department" as const,
-          businessAccountId: businessAccount.id,
-          departmentId: department.id,
-        };
+      : undefined;
 
   return {
-    userId: `admin-preview-${accountType}`,
-    displayName: accountTypeLabels[accountType],
-    accountType,
+    userId: account.userId,
+    displayName: account.userDisplayName,
+    accountType: account.accountType,
     activeAccess: {
-      accountId: `admin-preview-access-${accountType}`,
-      accountType,
-      position:
-        accountType === "business_owner"
-          ? "business_owner"
-          : accountType === "dispatcher"
-            ? "dispatcher"
-            : "worker",
-      displayName: `${accountTypeLabels[accountType]} preview`,
+      accountId: account.accessId,
+      accountType: account.accountType,
+      position: account.position,
+      displayName: account.accessDisplayName,
       scope,
-      capabilities: [...adminPreviewCapabilitiesByType[accountType]],
-      navigationItems: navigationItemsByAccountType[accountType].map(({ id }) => id),
-      issuedAt: adminProfile.activeAccess.issuedAt,
+      capabilities: [...account.capabilities],
+      navigationItems: [...account.navigationItems],
+      issuedAt: account.createdAt,
     },
     businessAccounts: [businessAccount],
-    departments: accountType === "business_owner" ? [] : [department],
+    departments: department === undefined ? [] : [department],
     organizationStructureMode: adminProfile.organizationStructureMode,
-    receivedAt: adminProfile.receivedAt,
+    receivedAt: new Date().toISOString(),
   };
 }
 
