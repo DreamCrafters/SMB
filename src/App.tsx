@@ -100,6 +100,7 @@ import {
   createAdminAccount,
   createAdminPosition,
   deleteAdminPosition,
+  deleteAdminAccount,
   hasAdminAccountLogin,
   requestAdminAccounts,
   requestAdminPositions,
@@ -4189,6 +4190,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [updatingUserId, setUpdatingUserId] = useState<string | undefined>(
     undefined,
   );
+  const [deletingUserId, setDeletingUserId] = useState<string>();
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
   const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
@@ -4538,6 +4540,28 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setRefreshVersion((version) => version + 1);
   }
 
+  async function handleDeleteAccount(account: AdminAccountSummary) {
+    if (account.userId === profile.userId || deletingUserId !== undefined) {
+      return;
+    }
+    if (!window.confirm(
+      `Удалить учётную запись «${account.login}»? Вход будет закрыт, сохранённая история останется.`,
+    )) {
+      return;
+    }
+
+    setDeletingUserId(account.userId);
+    setWorkspaceStatus("");
+    const result = await deleteAdminAccount(account.userId);
+    setDeletingUserId(undefined);
+    if (result.status !== "ready") {
+      setWorkspaceStatus(result.message);
+      return;
+    }
+    setWorkspaceStatus(`Учётная запись «${account.login}» удалена.`);
+    setRefreshVersion((version) => version + 1);
+  }
+
   if (!canManage) {
     return (
       <section className="admin-workspace" aria-label="Учётные записи">
@@ -4666,6 +4690,19 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                               : isLoginEnabled
                                 ? "Отключить"
                                 : "Включить"}
+                          </button>
+                          <button
+                            className="secondary-button secondary-button-danger"
+                            type="button"
+                            title={isCurrentAccount ? "Нельзя удалить текущую учётную запись." : undefined}
+                            disabled={
+                              !canManageAccess ||
+                              isCurrentAccount ||
+                              deletingUserId === account.userId
+                            }
+                            onClick={() => handleDeleteAccount(account)}
+                          >
+                            {deletingUserId === account.userId ? "Удаляем…" : "Удалить"}
                           </button>
                         </div>
                       </td>

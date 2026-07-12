@@ -4,6 +4,7 @@ import {
   createAdminAccount,
   createAdminPosition,
   deleteAdminPosition,
+  deleteAdminAccount,
   hasAdminAccountLogin,
   requestAdminAccounts,
   requestAdminPositions,
@@ -109,6 +110,20 @@ test("admin accounts service drops client-managed scope names", async () => {
     displayName: "Работник Один",
     position: "worker",
   });
+});
+
+test("admin accounts service deletes an account", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({ ok: true });
+  };
+
+  const result = await deleteAdminAccount("user-id", { baseUrl: "http://api.test" });
+
+  assert.equal(result.status, "ready");
+  assert.equal(calls[0].init.method, "DELETE");
+  assert.equal(calls[0].url, "http://api.test/api/admin/accounts/user-id");
 });
 
 test("admin account login precheck is trimmed and case-insensitive", () => {

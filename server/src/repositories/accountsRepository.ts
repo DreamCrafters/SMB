@@ -105,6 +105,7 @@ export type AccountsRepository = {
   setAccountLoginEnabled: (
     input: SetAccountLoginEnabledInput,
   ) => Promise<AccountLoginStatus | undefined>;
+  deleteAccount: (userId: string) => Promise<boolean>;
   setAccountNavigation: (
     input: SetAccountNavigationInput,
   ) => Promise<AdminAccountSummary | undefined>;
@@ -550,6 +551,33 @@ export function createAccountsRepository(
     }
   }
 
+  async function deleteAccount(userId: string) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.query<UserStatusRow[]>(
+        `select status from app_users where id = ? limit 1 for update`,
+        [userId],
+      );
+      const currentStatus = rows[0]?.status;
+      if (currentStatus === undefined || currentStatus === "archived") {
+        await connection.rollback();
+        return false;
+      }
+
+      await connection.query("update app_users set status = 'archived' where id = ?", [userId]);
+      await connection.query("update account_accesses set is_active = 0 where user_id = ?", [userId]);
+      await connection.query("delete from auth_sessions where user_id = ?", [userId]);
+      await connection.commit();
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async function setAccountNavigation({
     accessId,
     navigationItems,
@@ -622,6 +650,7 @@ export function createAccountsRepository(
     createAccount,
     resetPassword,
     setAccountLoginEnabled,
+    deleteAccount,
     setAccountNavigation,
     listPositions,
     createPosition,

@@ -169,6 +169,7 @@ export function createApiServer({
       if (
         url.pathname === "/api/admin/accounts" ||
         url.pathname === "/api/admin/accounts/reset-password" ||
+        url.pathname.startsWith("/api/admin/accounts/") ||
         url.pathname === "/api/admin/positions" ||
         url.pathname.startsWith("/api/admin/positions/")
       ) {
@@ -623,8 +624,12 @@ async function handleAdminAccountsRequest({
   const isLoginStatusUpdate =
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
   const isPositionRequest = url.pathname.startsWith("/api/admin/positions");
+  const isAccountDelete =
+    url.pathname.startsWith("/api/admin/accounts/") &&
+    url.pathname !== "/api/admin/accounts/reset-password" &&
+    req.method === "DELETE";
   const requiresManageAccess =
-    isLoginStatusUpdate || isPositionRequest ||
+    isLoginStatusUpdate || isPositionRequest || isAccountDelete ||
     (url.pathname === "/api/admin/accounts" && req.method === "POST");
   const access = await requireCapability(req, res, {
     config,
@@ -649,6 +654,28 @@ async function handleAdminAccountsRequest({
         message: "Хранилище учётных записей не настроено.",
       },
     });
+    return;
+  }
+
+  if (
+    url.pathname.startsWith("/api/admin/accounts/") &&
+    url.pathname !== "/api/admin/accounts/reset-password"
+  ) {
+    if (req.method !== "DELETE") {
+      sendJson(res, 405, { error: { code: "access_denied", message: "Метод не поддерживается." } });
+      return;
+    }
+    const userId = decodeURIComponent(url.pathname.slice("/api/admin/accounts/".length));
+    if (userId === access.profile.userId) {
+      sendJson(res, 409, { error: { code: "invalid_response", message: "Нельзя удалить текущую учётную запись." } });
+      return;
+    }
+    const wasDeleted = await accounts.deleteAccount(userId);
+    if (!wasDeleted) {
+      sendJson(res, 404, { error: { code: "not_found", message: "Учётная запись не найдена." } });
+      return;
+    }
+    sendJson(res, 200, { ok: true });
     return;
   }
 

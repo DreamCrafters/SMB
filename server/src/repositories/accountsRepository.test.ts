@@ -321,6 +321,28 @@ test("setAccountLoginEnabled suspends login and deletes existing sessions", asyn
   );
 });
 
+test("deleteAccount archives identity, disables accesses, and revokes sessions", async () => {
+  const database = buildFakeDatabase({ userStatus: "active" });
+  const repository = createAccountsRepository(database.pool);
+
+  const result = await repository.deleteAccount("worker-user-id");
+
+  assert.equal(result, true);
+  assert.equal(database.didCommit, true);
+  assert.deepEqual(
+    database.queries.find((query) => query.sql.startsWith("update app_users set status = 'archived'"))?.params,
+    ["worker-user-id"],
+  );
+  assert.deepEqual(
+    database.queries.find((query) => query.sql.startsWith("update account_accesses set is_active = 0"))?.params,
+    ["worker-user-id"],
+  );
+  assert.deepEqual(
+    database.queries.find((query) => query.sql.startsWith("delete from auth_sessions"))?.params,
+    ["worker-user-id"],
+  );
+});
+
 test("setAccountLoginEnabled enables login without reviving old sessions", async () => {
   const database = buildFakeDatabase({ userStatus: "suspended" });
   const repository = createAccountsRepository(database.pool);

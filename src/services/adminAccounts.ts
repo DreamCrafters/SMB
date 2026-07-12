@@ -59,6 +59,9 @@ export type SetAdminAccountLoginEnabledResult =
       userStatus: "active" | "suspended";
     }
   | AdminAccountsErrorState;
+export type DeleteAdminAccountResult =
+  | { status: "ready" }
+  | AdminAccountsErrorState;
 
 export type SetAdminAccountNavigationResult =
   | { status: "ready"; account: AdminAccountSummary }
@@ -232,6 +235,31 @@ export async function requestAdminAccounts({
       }),
       code: "network_error",
     };
+  }
+}
+
+export async function deleteAdminAccount(
+  userId: string,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<DeleteAdminAccountResult> {
+  const path = `${ADMIN_ACCOUNTS_PATH}/${encodeURIComponent(userId)}`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+  try {
+    const response = await fetch(endpoint, {
+      method: "DELETE",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return readRemoteError(payload, response.status, "Не удалось удалить учётную запись.");
+    }
+    if (isOkResponse(payload)) return { status: "ready" };
+    return { status: "error", message: "Сервер вернул неподдерживаемый ответ удаления.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Удаление учётной записи отменено." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось удалить учётную запись.", { baseUrl }), code: "network_error" };
   }
 }
 

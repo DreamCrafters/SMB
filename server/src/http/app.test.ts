@@ -528,6 +528,9 @@ const accounts: AccountsRepository = {
       userStatus: isEnabled ? "active" : "suspended",
     };
   },
+  async deleteAccount() {
+    return true;
+  },
   async setAccountNavigation() {
     return adminAccount;
   },
@@ -978,6 +981,34 @@ test("admin accounts API suspends another user login", async () => {
     userId: "dispatcher-user-id",
     isEnabled: false,
   });
+});
+
+test("admin accounts API deletes another account but not the current account", async () => {
+  const deletedUserIds: string[] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async deleteAccount(userId) {
+      deletedUserIds.push(userId);
+      return true;
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const deletedResponse = await fetch(`${baseUrl}/api/admin/accounts/target-user`, {
+      method: "DELETE",
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+    const selfResponse = await fetch(`${baseUrl}/api/admin/accounts/dev-user-admin`, {
+      method: "DELETE",
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+
+    assert.equal(deletedResponse.status, 200);
+    assert.equal(selfResponse.status, 409);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.deepEqual(deletedUserIds, ["target-user"]);
 });
 
 test("admin accounts API rejects individual navigation changes", async () => {
