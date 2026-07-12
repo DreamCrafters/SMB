@@ -569,6 +569,66 @@ const accounts: AccountsRepository = {
   },
 };
 
+test("dev access options list current positions and open the selected cabinet", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const optionsResponse = await fetch(`${baseUrl}/api/dev/access-session`);
+      const optionsPayload = await optionsResponse.json();
+
+      assert.equal(optionsResponse.status, 200);
+      assert.equal(
+        isRecord(optionsPayload) &&
+          Array.isArray(optionsPayload.options) &&
+          isRecord(optionsPayload.options[0])
+          ? optionsPayload.options[0].position
+          : undefined,
+        "dispatcher",
+      );
+
+      const sessionResponse = await fetch(`${baseUrl}/api/dev/access-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position: "business_owner" }),
+      });
+      const sessionPayload = await sessionResponse.json();
+      const sessionId = isRecord(sessionPayload) && typeof sessionPayload.sessionId === "string"
+        ? sessionPayload.sessionId
+        : "";
+      const profileResponse = await fetch(`${baseUrl}/api/access/profile`, {
+        headers: { "X-SMB-Dev-Session": sessionId },
+      });
+      const profilePayload = await profileResponse.json();
+
+      assert.equal(sessionResponse.status, 200);
+      assert.equal(profileResponse.status, 200);
+      assert.equal(
+        isRecord(profilePayload) &&
+          isRecord(profilePayload.profile) &&
+          isRecord(profilePayload.profile.activeAccess)
+          ? profilePayload.profile.activeAccess.positionDisplayName
+          : undefined,
+        "Владелец бизнеса",
+      );
+      assert.deepEqual(
+        isRecord(profilePayload) &&
+          isRecord(profilePayload.profile) &&
+          isRecord(profilePayload.profile.activeAccess)
+          ? profilePayload.profile.activeAccess.navigationItems
+          : undefined,
+        ["business.overview", "business.dispatcher"],
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    accounts,
+  );
+});
+
 test("admin accounts API rejects non-admin dev sessions", async () => {
   await withApiServer(
     async (baseUrl) => {

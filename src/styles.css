@@ -141,7 +141,7 @@ p {
 .auth-panel {
   display: grid;
   gap: var(--density-4);
-  width: min(100%, 860px);
+  width: min(100%, 1120px);
   padding: var(--density-5);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -156,7 +156,7 @@ p {
 
 .auth-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: var(--density-3);
 }
 
@@ -208,7 +208,7 @@ p {
 .auth-option {
   display: grid;
   gap: var(--density-2);
-  min-height: 174px;
+  min-height: 132px;
   padding: var(--density-4);
   border: 1px solid var(--line);
   border-top: 6px solid var(--blue-gray);

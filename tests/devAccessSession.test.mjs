@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clearDevAccessSession,
+  requestDevAccessOptions,
   selectDevAccessSession,
 } from "../.test-build/src/services/devAccessSession.js";
 
@@ -52,6 +53,61 @@ test("selectDevAccessSession posts selected account type to the server", async (
   assert.equal(request.init.method, "POST");
   assert.equal(request.init.credentials, "include");
   assert.deepEqual(JSON.parse(request.init.body), {
+    accountType: "business_owner",
+  });
+});
+
+test("requestDevAccessOptions reads current server positions", async () => {
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({
+      options: [
+        {
+          position: "position-chief",
+          positionDisplayName: "Главный инженер",
+          accountType: "business_owner",
+          navigationItems: ["business.overview"],
+          capabilities: ["business.view_all_statistics"],
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  const result = await requestDevAccessOptions({
+    endpoint: "/api/dev/access-session",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.options[0].position, "position-chief");
+  assert.equal(result.options[0].positionDisplayName, "Главный инженер");
+});
+
+test("selectDevAccessSession posts the selected position", async () => {
+  let request;
+  const option = {
+    position: "position-chief",
+    positionDisplayName: "Главный инженер",
+    accountType: "business_owner",
+    navigationItems: ["business.overview"],
+    capabilities: ["business.view_all_statistics"],
+  };
+
+  globalThis.fetch = async (endpoint, init) => {
+    request = { endpoint, init };
+    return new Response(JSON.stringify({ ok: true, sessionId: "position-session" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await selectDevAccessSession(option, {
+    endpoint: "/api/dev/access-session",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(JSON.parse(request.init.body), {
+    position: "position-chief",
     accountType: "business_owner",
   });
 });

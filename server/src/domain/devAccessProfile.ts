@@ -1,39 +1,25 @@
-export type AccountType =
-  | "admin"
-  | "business_owner"
-  | "worker"
-  | "dispatcher";
+import type {
+  AccountCapability,
+  AccountNavigationItem,
+  AccountPosition,
+  AccountType,
+} from "./auth.js";
 
-type AccountCapability =
-  | "platform.manage_business_accounts"
-  | "platform.manage_users"
-  | "platform.manage_access"
-  | "platform.manage_analytics_database"
-  | "platform.manage_integrations"
-  | "platform.view_audit"
-  | "platform.view_logs"
-  | "platform.use_debug_tools"
-  | "business.view_all_statistics"
-  | "business.view_department_statistics"
-  | "business.view_notifications"
-  | "business.submit_forms"
-  | "business.submit_dispatcher_forms"
-  | "business.view_dispatcher_feed"
-  | "business.view_own_submissions";
+export type DevAccessOption = {
+  position: AccountPosition;
+  positionDisplayName: string;
+  accountType: AccountType;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
+};
 
 export type DevAccessSession = {
-  accountType: AccountType;
+  option: DevAccessOption;
   createdAt: string;
 };
 
 const DEV_BUSINESS_ID = "dev-business-boundary";
 const DEV_DEPARTMENT_ID = "dev-department-boundary";
-const defaultPositionByAccountType = {
-  admin: "administrator",
-  business_owner: "business_owner",
-  worker: "worker",
-  dispatcher: "dispatcher",
-} as const;
 const navigationItemsByAccountType = {
   admin: ["admin.account_preview", "admin.accounts", "admin.database"],
   business_owner: ["business.overview", "business.dispatcher", "business.work"],
@@ -74,9 +60,32 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   ],
 };
 
-export function buildDevProfile(accountType: AccountType, issuedAt: string) {
+const defaultPositionDefinitions: Array<{
+  position: AccountPosition;
+  positionDisplayName: string;
+  accountType: AccountType;
+}> = [
+  { position: "administrator", positionDisplayName: "Администратор", accountType: "admin" },
+  { position: "business_owner", positionDisplayName: "Владелец бизнеса", accountType: "business_owner" },
+  { position: "board_chair", positionDisplayName: "Председатель совета директоров", accountType: "business_owner" },
+  { position: "board_member", positionDisplayName: "Член совета директоров", accountType: "business_owner" },
+  { position: "general_director", positionDisplayName: "Генеральный директор", accountType: "business_owner" },
+  { position: "worker", positionDisplayName: "Работник", accountType: "worker" },
+  { position: "dispatcher", positionDisplayName: "Диспетчер", accountType: "dispatcher" },
+];
+
+export function buildDefaultDevAccessOptions(): DevAccessOption[] {
+  return defaultPositionDefinitions.map((definition) => ({
+    ...definition,
+    navigationItems: [...navigationItemsByAccountType[definition.accountType]],
+    capabilities: [...accountCapabilitiesByType[definition.accountType]],
+  }));
+}
+
+export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
+  const { accountType } = option;
   const receivedAt = new Date().toISOString();
-  const capabilities = accountCapabilitiesByType[accountType];
+  const capabilities = option.capabilities;
 
   if (accountType === "admin") {
     return {
@@ -86,13 +95,14 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
       activeAccess: {
         accountId: "dev-access-admin",
         accountType,
-        position: defaultPositionByAccountType[accountType],
+        position: option.position,
+        positionDisplayName: option.positionDisplayName,
         displayName: "Dev admin access",
         scope: {
           kind: "platform",
         },
         capabilities,
-        navigationItems: [...navigationItemsByAccountType[accountType]],
+        navigationItems: [...option.navigationItems],
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
@@ -110,14 +120,15 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
       activeAccess: {
         accountId: "dev-access-owner",
         accountType,
-        position: defaultPositionByAccountType[accountType],
+        position: option.position,
+        positionDisplayName: option.positionDisplayName,
         displayName: "Dev business owner access",
         scope: {
           kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
         },
         capabilities,
-        navigationItems: [...navigationItemsByAccountType[accountType]],
+        navigationItems: [...option.navigationItems],
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
@@ -135,7 +146,8 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
       activeAccess: {
         accountId: "dev-access-dispatcher",
         accountType,
-        position: defaultPositionByAccountType[accountType],
+        position: option.position,
+        positionDisplayName: option.positionDisplayName,
         displayName: "Dev dispatcher access",
         scope: {
           kind: "department",
@@ -143,7 +155,7 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
           departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
-        navigationItems: [...navigationItemsByAccountType[accountType]],
+        navigationItems: [...option.navigationItems],
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
@@ -160,7 +172,8 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
     activeAccess: {
       accountId: "dev-access-worker",
       accountType,
-      position: defaultPositionByAccountType[accountType],
+      position: option.position,
+      positionDisplayName: option.positionDisplayName,
       displayName: "Dev worker access",
       scope: {
         kind: "department",
@@ -168,7 +181,7 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
         departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
-      navigationItems: [...navigationItemsByAccountType[accountType]],
+      navigationItems: [...option.navigationItems],
       issuedAt,
     },
     businessAccounts: [buildDevBusiness()],

@@ -71,6 +71,14 @@ export type ServerIssuedAccountAccess = {
   expiresAt?: string;
 };
 
+export type DevAccessOption = {
+  position: AccountPosition;
+  positionDisplayName: string;
+  accountType: AccountType;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
+};
+
 export type AccountAccessResponse = {
   access: ServerIssuedAccountAccess;
 };

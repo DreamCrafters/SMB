@@ -18,8 +18,10 @@ import {
   validateNavigationItemsForAccountType,
 } from "../domain/accountAccessConfiguration.js";
 import {
+  buildDefaultDevAccessOptions,
   buildDevProfile,
   createDevSessionId,
+  type DevAccessOption,
   type DevAccessSession,
   isAccountType,
 } from "../domain/devAccessProfile.js";
@@ -146,7 +148,7 @@ export function createApiServer({
           return;
         }
 
-        await handleDevAccessSession(req, res, devSessions);
+        await handleDevAccessSession(req, res, devSessions, accounts);
         return;
       }
 
@@ -1749,7 +1751,15 @@ async function handleDevAccessSession(
   req: IncomingMessage,
   res: ServerResponse,
   devSessions: Map<string, DevAccessSession>,
+  accounts: AccountsRepository | undefined,
 ) {
+  if (req.method === "GET") {
+    sendJson(res, 200, {
+      options: await readDevAccessOptions(accounts),
+    });
+    return;
+  }
+
   if (req.method === "DELETE") {
     const sessionId = readDevSessionId(req);
 
@@ -1769,7 +1779,7 @@ async function handleDevAccessSession(
     sendJson(res, 405, {
       error: {
         code: "access_denied",
-        message: "Only POST and DELETE are supported for dev access session.",
+        message: "Only GET, POST and DELETE are supported for dev access session.",
       },
     });
     return;
@@ -1777,7 +1787,7 @@ async function handleDevAccessSession(
 
   const payload = await readJsonBody(req);
 
-  if (!isRecord(payload) || !isAccountType(payload.accountType)) {
+  if (!isRecord(payload)) {
     sendJson(res, 400, {
       error: {
         code: "access_denied",
@@ -1787,10 +1797,30 @@ async function handleDevAccessSession(
     return;
   }
 
-  const sessionId = createDevSessionId(payload.accountType);
+  const option = typeof payload.position === "string"
+    ? (await readDevAccessOptions(accounts)).find(
+        (item) => item.position === payload.position,
+      )
+    : isAccountType(payload.accountType)
+      ? buildDefaultDevAccessOptions().find(
+          (item) => item.accountType === payload.accountType,
+        )
+      : undefined;
+
+  if (option === undefined) {
+    sendJson(res, 400, {
+      error: {
+        code: "access_denied",
+        message: "Unsupported dev account position.",
+      },
+    });
+    return;
+  }
+
+  const sessionId = createDevSessionId(option.accountType);
 
   devSessions.set(sessionId, {
-    accountType: payload.accountType,
+    option,
     createdAt: new Date().toISOString(),
   });
 
@@ -1892,11 +1922,27 @@ async function readRequestAccess(
 
   return {
     profile: buildDevProfile(
-      devSession.accountType,
+      devSession.option,
       devSession.createdAt,
     ) as ServerUserProfile,
     source: "dev",
   };
+}
+
+async function readDevAccessOptions(
+  accounts: AccountsRepository | undefined,
+): Promise<DevAccessOption[]> {
+  if (accounts === undefined) {
+    return buildDefaultDevAccessOptions();
+  }
+
+  return (await accounts.listPositions()).map((position) => ({
+    position: position.id,
+    positionDisplayName: position.displayName,
+    accountType: position.accountType,
+    navigationItems: [...position.navigationItems],
+    capabilities: [...position.capabilities],
+  }));
 }
 
 function applyAuthenticatedBusinessScope(

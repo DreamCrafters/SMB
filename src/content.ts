@@ -22,7 +22,7 @@ export const shellCopy = {
   productName: "НМОУ Вектор",
   visualDirection: "Industrial Finance Operations",
   authTitle: "Выбор доступа",
-  authLead: "Выберите роль для проверки интерфейса.",
+  authLead: "Выберите должность для проверки интерфейса.",
   authLoading: "Проверяем вход.",
   sessionError: "Не удалось войти.",
 };
@@ -49,25 +49,25 @@ export const authOptions: AuthOption[] = [
     accountType: "business_owner",
     label: "Владелец бизнеса",
     description: "Открывает обзор и журнал диспетчерских регистраций.",
-    scope: "business access",
+    scope: "Руководитель",
   },
   {
     accountType: "worker",
     label: "Работник",
     description: "Видит только свои рабочие действия.",
-    scope: "form access",
+    scope: "Работник",
   },
   {
     accountType: "dispatcher",
     label: "Диспетчер",
     description: "Выбирает одну из диспетчерских форм и отправляет регистрацию.",
-    scope: "dispatcher form",
+    scope: "Диспетчер",
   },
   {
     accountType: "admin",
     label: "Администратор",
     description: "Просматривает кабинеты и БД.",
-    scope: "platform access",
+    scope: "Администратор",
   },
 ];
 

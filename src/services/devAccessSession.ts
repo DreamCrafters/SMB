@@ -1,7 +1,12 @@
-import type {
-  AccountAccessErrorCode,
-  AccountType,
-} from "../contracts/accounts";
+import {
+  accountCapabilities,
+  accountNavigationItems,
+  type AccountAccessErrorCode,
+  type AccountCapability,
+  type AccountNavigationItem,
+  type AccountType,
+  type DevAccessOption,
+} from "../contracts/accounts.js";
 import {
   buildDevAccessHeaders,
   clearStoredDevAccessSessionId,
@@ -10,6 +15,7 @@ import {
 import {
   clearLocalDevAccessSession,
   createLocalDevAccessSession,
+  localDevAccessOptions,
 } from "./localDevAccess.js";
 import { resolveApiEndpoint } from "./remoteServer.js";
 
@@ -31,6 +37,10 @@ export type DevAccessSessionResult =
   | DevAccessSessionReadyState
   | DevAccessSessionErrorState;
 
+export type DevAccessOptionsResult =
+  | { status: "ready"; options: DevAccessOption[] }
+  | DevAccessSessionErrorState;
+
 type RequestDevAccessSessionOptions = {
   endpoint?: string;
   remoteBaseUrl?: string;
@@ -43,7 +53,7 @@ type ClientLocalDevSessionFallback = {
 };
 
 export async function selectDevAccessSession(
-  accountType: AccountType,
+  selection: AccountType | DevAccessOption,
   {
     endpoint,
     remoteBaseUrl,
@@ -51,6 +61,12 @@ export async function selectDevAccessSession(
     signal,
   }: RequestDevAccessSessionOptions = {},
 ): Promise<DevAccessSessionResult> {
+  const option = typeof selection === "string"
+    ? localDevAccessOptions.find((item) => item.accountType === selection)
+    : selection;
+  const body = typeof selection === "string"
+    ? { accountType: selection }
+    : { position: selection.position, accountType: selection.accountType };
   const requestEndpoint =
     endpoint ??
     resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT, DEV_ACCESS_SESSION_ENDPOINT, {
@@ -65,7 +81,7 @@ export async function selectDevAccessSession(
     requestEndpoint,
     "POST",
     signal,
-    { accountType },
+    body,
     shouldUseLocalDevEndpointFallback(
       shouldUseClientLocalFallback,
       requestEndpoint,
@@ -73,6 +89,37 @@ export async function selectDevAccessSession(
       ? DEV_ACCESS_SESSION_ENDPOINT
       : undefined,
     shouldUseClientLocalFallback ? { enabled: true } : undefined,
+    option,
+  );
+}
+
+export async function requestDevAccessOptions({
+  endpoint,
+  remoteBaseUrl,
+  localDevFallback,
+  signal,
+}: RequestDevAccessSessionOptions = {}): Promise<DevAccessOptionsResult> {
+  const requestEndpoint =
+    endpoint ??
+    resolveApiEndpoint(DEV_ACCESS_SESSION_ENDPOINT, DEV_ACCESS_SESSION_ENDPOINT, {
+      baseUrl: remoteBaseUrl,
+    });
+  const shouldUseClientLocalFallback = shouldUseClientLocalDevSessionFallback(
+    localDevFallback,
+    endpoint,
+  );
+  const fallbackEndpoint = shouldUseLocalDevEndpointFallback(
+    shouldUseClientLocalFallback,
+    requestEndpoint,
+  )
+    ? DEV_ACCESS_SESSION_ENDPOINT
+    : undefined;
+
+  return requestDevAccessOptionsFromEndpoint(
+    requestEndpoint,
+    signal,
+    fallbackEndpoint,
+    shouldUseClientLocalFallback,
   );
 }
 
@@ -107,6 +154,74 @@ export async function clearDevAccessSession({
   );
 }
 
+async function requestDevAccessOptionsFromEndpoint(
+  endpoint: string,
+  signal: AbortSignal | undefined,
+  fallbackEndpoint: string | undefined,
+  useClientLocalFallback: boolean,
+): Promise<DevAccessOptionsResult> {
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+
+    if (response.ok && isDevAccessOptionsPayload(payload)) {
+      return { status: "ready", options: payload.options };
+    }
+
+    if (
+      fallbackEndpoint !== undefined &&
+      shouldRetryLocalDevEndpoint(fallbackEndpoint, endpoint, response.status)
+    ) {
+      return requestDevAccessOptionsFromEndpoint(
+        fallbackEndpoint,
+        signal,
+        undefined,
+        useClientLocalFallback,
+      );
+    }
+
+    const localResult = readClientLocalDevAccessOptionsFallback(
+      useClientLocalFallback,
+      response.status,
+    );
+
+    if (localResult !== undefined) {
+      return localResult;
+    }
+
+    return {
+      status: "error",
+      message: readErrorMessage(payload, "Не удалось загрузить тестовые аккаунты."),
+      code: response.ok ? "invalid_response" : readErrorCode(payload),
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return { status: "error", message: "Запрос тестовых аккаунтов отменён." };
+    }
+
+    if (fallbackEndpoint !== undefined && fallbackEndpoint !== endpoint) {
+      return requestDevAccessOptionsFromEndpoint(
+        fallbackEndpoint,
+        signal,
+        undefined,
+        useClientLocalFallback,
+      );
+    }
+
+    return readClientLocalDevAccessOptionsFallback(useClientLocalFallback) ?? {
+      status: "error",
+      message: "Не удалось загрузить тестовые аккаунты.",
+      code: "network_error",
+    };
+  }
+}
+
 async function requestDevAccessSession(
   endpoint: string,
   method: "POST" | "DELETE",
@@ -114,6 +229,7 @@ async function requestDevAccessSession(
   body?: unknown,
   fallbackEndpoint?: string,
   clientLocalFallback?: ClientLocalDevSessionFallback,
+  clientLocalOption?: DevAccessOption,
 ): Promise<DevAccessSessionResult> {
   try {
     const response = await fetch(endpoint, {
@@ -146,6 +262,7 @@ async function requestDevAccessSession(
           body,
           undefined,
           clientLocalFallback,
+          clientLocalOption,
         );
       }
 
@@ -154,6 +271,7 @@ async function requestDevAccessSession(
         body,
         clientLocalFallback,
         response.status,
+        clientLocalOption,
       );
 
       if (clientLocalResult !== undefined) {
@@ -191,6 +309,7 @@ async function requestDevAccessSession(
         body,
         undefined,
         clientLocalFallback,
+        clientLocalOption,
       );
     }
 
@@ -199,6 +318,7 @@ async function requestDevAccessSession(
       body,
       clientLocalFallback,
       response.status,
+      clientLocalOption,
     );
 
     if (clientLocalResult !== undefined) {
@@ -227,6 +347,7 @@ async function requestDevAccessSession(
         body,
         undefined,
         clientLocalFallback,
+        clientLocalOption,
       );
     }
 
@@ -234,6 +355,8 @@ async function requestDevAccessSession(
       method,
       body,
       clientLocalFallback,
+      undefined,
+      clientLocalOption,
     );
 
     if (clientLocalResult !== undefined) {
@@ -253,6 +376,7 @@ function readClientLocalDevSessionFallback(
   body: unknown,
   clientLocalFallback: ClientLocalDevSessionFallback | undefined,
   statusCode?: number,
+  option?: DevAccessOption,
 ): DevAccessSessionResult | undefined {
   if (clientLocalFallback?.enabled !== true) {
     return undefined;
@@ -260,8 +384,9 @@ function readClientLocalDevSessionFallback(
 
   if (
     statusCode !== undefined &&
-    statusCode !== 404 &&
-    statusCode !== 502 &&
+      statusCode !== 404 &&
+      statusCode !== 405 &&
+      statusCode !== 502 &&
     statusCode !== 503 &&
     statusCode !== 504
   ) {
@@ -278,9 +403,9 @@ function readClientLocalDevSessionFallback(
     };
   }
 
-  const accountType = readAccountTypeFromRequestBody(body);
+  const localOption = option ?? readDefaultOptionFromRequestBody(body);
 
-  if (accountType === undefined) {
+  if (localOption === undefined) {
     return {
       status: "error",
       message: "Нельзя создать локальную dev-сессию без типа доступа.",
@@ -288,7 +413,7 @@ function readClientLocalDevSessionFallback(
     };
   }
 
-  const sessionId = createLocalDevAccessSession(accountType);
+  const sessionId = createLocalDevAccessSession(localOption);
 
   if (sessionId === undefined) {
     return {
@@ -313,6 +438,7 @@ function shouldRetryLocalDevEndpoint(
     fallbackEndpoint !== undefined &&
     fallbackEndpoint !== endpoint &&
     (statusCode === 404 ||
+      statusCode === 405 ||
       statusCode === 502 ||
       statusCode === 503 ||
       statusCode === 504)
@@ -347,12 +473,40 @@ function shouldUseClientLocalDevSessionFallback(
   return viteEnv?.DEV === true;
 }
 
-function readAccountTypeFromRequestBody(body: unknown): AccountType | undefined {
+function readDefaultOptionFromRequestBody(body: unknown): DevAccessOption | undefined {
   if (!isRecord(body) || !isAccountType(body.accountType)) {
     return undefined;
   }
 
-  return body.accountType;
+  return localDevAccessOptions.find(
+    (option) => option.accountType === body.accountType,
+  );
+}
+
+function readClientLocalDevAccessOptionsFallback(
+  enabled: boolean,
+  statusCode?: number,
+): DevAccessOptionsResult | undefined {
+  if (
+    !enabled ||
+    (statusCode !== undefined &&
+      statusCode !== 404 &&
+      statusCode !== 405 &&
+      statusCode !== 502 &&
+      statusCode !== 503 &&
+      statusCode !== 504)
+  ) {
+    return undefined;
+  }
+
+  return {
+    status: "ready",
+    options: localDevAccessOptions.map((option) => ({
+      ...option,
+      navigationItems: [...option.navigationItems],
+      capabilities: [...option.capabilities],
+    })),
+  };
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -367,6 +521,38 @@ async function readJson(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+function isDevAccessOptionsPayload(
+  value: unknown,
+): value is { options: DevAccessOption[] } {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.options) &&
+    value.options.length > 0 &&
+    value.options.every(isDevAccessOption)
+  );
+}
+
+function isDevAccessOption(value: unknown): value is DevAccessOption {
+  return (
+    isRecord(value) &&
+    typeof value.position === "string" &&
+    typeof value.positionDisplayName === "string" &&
+    isAccountType(value.accountType) &&
+    Array.isArray(value.navigationItems) &&
+    value.navigationItems.every(isAccountNavigationItem) &&
+    Array.isArray(value.capabilities) &&
+    value.capabilities.every(isAccountCapability)
+  );
+}
+
+function isAccountNavigationItem(value: unknown): value is AccountNavigationItem {
+  return accountNavigationItems.some((item) => item === value);
+}
+
+function isAccountCapability(value: unknown): value is AccountCapability {
+  return accountCapabilities.some((capability) => capability === value);
 }
 
 function isReadyPayload(value: unknown): value is { ok: true; sessionId?: string } {

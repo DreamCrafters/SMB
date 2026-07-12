@@ -1,10 +1,11 @@
 import { defineConfig, type Connect, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import type {
-  AccountCapability,
   AccountType,
+  DevAccessOption,
   ServerUserProfile,
 } from "./src/contracts";
+import { localDevAccessOptions } from "./src/services/localDevAccess";
 
 type MiddlewareRequest = Parameters<Connect.NextHandleFunction>[0];
 type MiddlewareResponse = Parameters<Connect.NextHandleFunction>[1];
@@ -20,7 +21,7 @@ type NodeLikeMiddlewareRequest = MiddlewareRequest & {
 };
 
 type DevSession = {
-  accountType: AccountType;
+  option: DevAccessOption;
   createdAt: string;
 };
 
@@ -28,48 +29,6 @@ const DEV_SESSION_COOKIE = "smb_dev_access_session";
 const DEV_SESSION_HEADER = "x-smb-dev-session";
 const DEV_BUSINESS_ID = "dev-business-boundary";
 const DEV_DEPARTMENT_ID = "dev-department-boundary";
-const defaultPositionByAccountType = {
-  admin: "administrator",
-  business_owner: "business_owner",
-  worker: "worker",
-  dispatcher: "dispatcher",
-} as const;
-const navigationItemsByAccountType = {
-  admin: ["admin.account_preview", "admin.accounts", "admin.database"],
-  business_owner: ["business.overview", "business.dispatcher", "business.work"],
-  worker: [],
-  dispatcher: ["business.dispatcher_form"],
-} as const;
-
-const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
-  admin: [
-    "platform.manage_business_accounts",
-    "platform.manage_users",
-    "platform.manage_access",
-    "platform.manage_analytics_database",
-    "platform.manage_integrations",
-    "platform.view_audit",
-    "platform.view_logs",
-    "platform.use_debug_tools",
-    "business.view_all_statistics",
-    "business.view_department_statistics",
-    "business.view_notifications",
-    "business.submit_forms",
-    "business.submit_dispatcher_forms",
-    "business.view_dispatcher_feed",
-    "business.view_own_submissions",
-  ],
-  business_owner: [
-    "business.view_all_statistics",
-    "business.view_department_statistics",
-    "business.view_notifications",
-    "business.view_dispatcher_feed",
-    "business.submit_forms",
-    "business.view_own_submissions",
-  ],
-  worker: [],
-  dispatcher: ["business.submit_dispatcher_forms"],
-};
 
 function accessProfileApi(): Plugin {
   const sessions = new Map<string, DevSession>();
@@ -96,7 +55,7 @@ function accessProfileApi(): Plugin {
     }
 
     sendJson(res, 200, {
-      profile: buildDevProfile(session.accountType, session.createdAt),
+      profile: buildDevProfile(session.option, session.createdAt),
     });
   };
 
@@ -124,6 +83,11 @@ async function handleDevSessionRequest(
 ) {
   const method = getRequestMethod(req);
 
+  if (method === "GET") {
+    sendJson(res, 200, { options: localDevAccessOptions });
+    return;
+  }
+
   if (method === "DELETE") {
     const sessionId = readDevSessionId(req);
 
@@ -143,7 +107,7 @@ async function handleDevSessionRequest(
     sendJson(res, 405, {
       error: {
         code: "access_denied",
-        message: "Only POST and DELETE are supported for dev access session.",
+        message: "Only GET, POST and DELETE are supported for dev access session.",
       },
     });
     return;
@@ -151,7 +115,13 @@ async function handleDevSessionRequest(
 
   const payload = await readJsonBody(req);
 
-  if (!isRecord(payload) || !isAccountType(payload.accountType)) {
+  const option = isRecord(payload) && typeof payload.position === "string"
+    ? localDevAccessOptions.find((item) => item.position === payload.position)
+    : isRecord(payload) && isAccountType(payload.accountType)
+      ? localDevAccessOptions.find((item) => item.accountType === payload.accountType)
+      : undefined;
+
+  if (option === undefined) {
     sendJson(res, 400, {
       error: {
         code: "access_denied",
@@ -161,10 +131,10 @@ async function handleDevSessionRequest(
     return;
   }
 
-  const sessionId = createSessionId(payload.accountType);
+  const sessionId = createSessionId(option.accountType);
 
   sessions.set(sessionId, {
-    accountType: payload.accountType,
+    option,
     createdAt: new Date().toISOString(),
   });
 
@@ -176,11 +146,12 @@ async function handleDevSessionRequest(
 }
 
 function buildDevProfile(
-  accountType: AccountType,
+  option: DevAccessOption,
   issuedAt: string,
 ): ServerUserProfile {
+  const { accountType } = option;
   const receivedAt = new Date().toISOString();
-  const capabilities = accountCapabilitiesByType[accountType];
+  const capabilities = option.capabilities;
 
   if (accountType === "admin") {
     return {
@@ -190,14 +161,14 @@ function buildDevProfile(
       activeAccess: {
         accountId: "dev-access-admin",
         accountType,
-        position: defaultPositionByAccountType[accountType],
-        positionDisplayName: "Администратор",
+        position: option.position,
+        positionDisplayName: option.positionDisplayName,
         displayName: "Dev admin access",
         scope: {
           kind: "platform",
         },
         capabilities,
-        navigationItems: [...navigationItemsByAccountType[accountType]],
+        navigationItems: [...option.navigationItems],
         issuedAt,
       },
       businessAccounts: [
@@ -228,15 +199,15 @@ function buildDevProfile(
       activeAccess: {
         accountId: "dev-access-owner",
         accountType,
-        position: defaultPositionByAccountType[accountType],
-        positionDisplayName: "Владелец бизнеса",
+        position: option.position,
+        positionDisplayName: option.positionDisplayName,
         displayName: "Dev business owner access",
         scope: {
           kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
         },
         capabilities,
-        navigationItems: [...navigationItemsByAccountType[accountType]],
+        navigationItems: [...option.navigationItems],
         issuedAt,
       },
       businessAccounts: [
@@ -260,8 +231,8 @@ function buildDevProfile(
       activeAccess: {
         accountId: "dev-access-dispatcher",
         accountType,
-        position: defaultPositionByAccountType[accountType],
-        positionDisplayName: "Диспетчер",
+        position: option.position,
+        positionDisplayName: option.positionDisplayName,
         displayName: "Dev dispatcher access",
         scope: {
           kind: "department",
@@ -269,7 +240,7 @@ function buildDevProfile(
           departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
-        navigationItems: [...navigationItemsByAccountType[accountType]],
+        navigationItems: [...option.navigationItems],
         issuedAt,
       },
       businessAccounts: [
@@ -299,8 +270,8 @@ function buildDevProfile(
     activeAccess: {
       accountId: "dev-access-worker",
       accountType,
-      position: defaultPositionByAccountType[accountType],
-      positionDisplayName: "Работник",
+      position: option.position,
+      positionDisplayName: option.positionDisplayName,
       displayName: "Dev worker access",
       scope: {
         kind: "department",
@@ -308,7 +279,7 @@ function buildDevProfile(
         departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
-      navigationItems: [...navigationItemsByAccountType[accountType]],
+      navigationItems: [...option.navigationItems],
       issuedAt,
     },
     businessAccounts: [

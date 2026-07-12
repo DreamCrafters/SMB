@@ -144,6 +144,14 @@ export async function requestAccessProfile({
     }
 
     if (isAccessProfilePayload(payload) && payload.profile === null) {
+      const clientLocalResult = readClientLocalAccessProfileFallback(
+        shouldUseClientLocalFallback,
+      );
+
+      if (clientLocalResult?.status === "ready") {
+        return clientLocalResult;
+      }
+
       return {
         status: "empty",
         message: "Профиль доступа пока не назначен сервером.",

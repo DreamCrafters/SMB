@@ -21,6 +21,7 @@ import {
   type DispatcherFormId,
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
+  type DevAccessOption,
   type ServerUserProfile,
 } from "./contracts";
 import {
@@ -33,7 +34,9 @@ import {
 } from "./content";
 import {
   clearDevAccessSession,
+  requestDevAccessOptions,
   selectDevAccessSession,
+  type DevAccessOptionsResult,
   type DevAccessSessionResult,
 } from "./services/devAccessSession";
 import {
@@ -149,7 +152,7 @@ type SessionRequestState =
     }
   | {
       status: "loading";
-      accountType?: AccountType;
+      position?: AccountPosition;
     }
   | {
       status: "error";
@@ -190,6 +193,10 @@ type AdminAccountsLoadState =
       message: string;
     }
   | AdminAccountsListResult;
+
+type DevAccessOptionsLoadState =
+  | { status: "loading"; message: string }
+  | DevAccessOptionsResult;
 
 type DispatcherFeedFilterState = {
   group: DispatcherFeedGroup;
@@ -456,13 +463,13 @@ export default function App() {
     }
   }, [accessProfile, adminTab]);
 
-  async function handleSelectAccount(accountType: AccountType) {
+  async function handleSelectAccount(option: DevAccessOption) {
     setSessionRequest({
       status: "loading",
-      accountType,
+      position: option.position,
     });
 
-    const result = await selectDevAccessSession(accountType, {
+    const result = await selectDevAccessSession(option, {
       localDevFallback: isLocalTestFallbackEnabled,
     });
     handleSessionResult(result);
@@ -828,14 +835,39 @@ function AuthScreen({
   accessProfile: AccessProfileLoadState;
   sessionRequest: SessionRequestState;
   onRetry: () => void;
-  onSelectAccount: (accountType: AccountType) => void;
+  onSelectAccount: (option: DevAccessOption) => void;
   onLogin: (credentials: { login: string; password: string }) => void;
   mode: "test" | "production";
 }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [devAccessOptions, setDevAccessOptions] =
+    useState<DevAccessOptionsLoadState>({
+      status: "loading",
+      message: "Загружаем тестовые аккаунты.",
+    });
+  useEffect(() => {
+    if (mode === "production") {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    requestDevAccessOptions({
+      localDevFallback: isLocalTestFallbackEnabled,
+      signal: controller.signal,
+    }).then((result) => {
+      if (!controller.signal.aborted) {
+        setDevAccessOptions(result);
+      }
+    });
+
+    return () => controller.abort();
+  }, [mode]);
   const isBusy =
-    accessProfile.status === "loading" || sessionRequest.status === "loading";
+    accessProfile.status === "loading" ||
+    sessionRequest.status === "loading" ||
+    (mode === "test" && devAccessOptions.status === "loading");
   const statusMessage =
     sessionRequest.status === "error"
       ? readShortUserMessage(
@@ -844,6 +876,13 @@ function AuthScreen({
         )
       : accessProfile.status === "loading"
         ? shellCopy.authLoading
+        : mode === "test" && devAccessOptions.status === "loading"
+          ? devAccessOptions.message
+          : mode === "test" && devAccessOptions.status === "error"
+            ? readShortUserMessage(
+                devAccessOptions.message,
+                "Не удалось загрузить тестовые аккаунты.",
+              )
         : accessProfile.status === "error"
           ? readShortUserMessage(
               accessProfile.message,
@@ -851,7 +890,7 @@ function AuthScreen({
             )
           : mode === "production"
             ? "Введите логин и пароль."
-            : "Выберите роль для входа.";
+            : "Выберите должность для входа.";
 
   function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -915,23 +954,28 @@ function AuthScreen({
             </button>
           </form>
         ) : (
-          <div className="auth-options" aria-label="Выбор типа аккаунта">
-            {authOptions.map((option) => {
+          <div className="auth-options" aria-label="Выбор должности">
+            {(devAccessOptions.status === "ready"
+              ? devAccessOptions.options
+              : []).map((option) => {
+              const copy = authOptions.find(
+                (item) => item.accountType === option.accountType,
+              );
               const isSelecting =
                 sessionRequest.status === "loading" &&
-                sessionRequest.accountType === option.accountType;
+                sessionRequest.position === option.position;
 
               return (
                 <button
                   className={`auth-option auth-option-${option.accountType}`}
                   type="button"
                   disabled={isBusy}
-                  key={option.accountType}
-                  onClick={() => onSelectAccount(option.accountType)}
+                  key={option.position}
+                  onClick={() => onSelectAccount(option)}
                 >
-                  <span>{option.scope}</span>
-                  <strong>{option.label}</strong>
-                  <small>{isSelecting ? "Входим..." : option.description}</small>
+                  <span>{copy?.scope ?? "test access"}</span>
+                  <strong>{option.positionDisplayName}</strong>
+                  <small>{isSelecting ? "Входим..." : copy?.description}</small>
                 </button>
               );
             })}

@@ -42,6 +42,24 @@ test("requestAccessProfile returns empty when server profile is null", async () 
   assert.equal(result.statusCode, 200);
 });
 
+test("requestAccessProfile uses a selected local dev account when remote profile is empty", async () => {
+  globalThis.window = { sessionStorage: createMemoryStorage() };
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ profile: null }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  createLocalDevAccessSession("dispatcher");
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.profile.activeAccess.positionDisplayName, "Диспетчер");
+});
+
 test("requestAccessProfile sends stored dev access session id", async () => {
   let request;
 
