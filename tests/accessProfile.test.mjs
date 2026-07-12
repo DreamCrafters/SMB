@@ -145,6 +145,25 @@ test("requestAccessProfile reads a client-local profile when the local profile e
   ]);
 });
 
+test("client-local worker profile keeps the workspace empty", async () => {
+  globalThis.window = { sessionStorage: createMemoryStorage() };
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: { message: "The page could not be found" } }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+
+  createLocalDevAccessSession("worker");
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.profile.activeAccess.navigationItems, []);
+  assert.deepEqual(result.profile.activeAccess.capabilities, []);
+});
+
 test("requestAccessProfile does not read client-local profile when fallback is disabled", async () => {
   globalThis.window = {
     sessionStorage: createMemoryStorage(),

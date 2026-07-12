@@ -947,8 +947,11 @@ function validateCreatePositionRequest(input: unknown):
   if (!isAllowedBase) {
     errors.push("Выберите базовый кабинет.");
   }
-  if (
+  if (isAllowedBase && accountType === "worker" && navigationItems.length > 0) {
+    errors.push("Кабинет работника пока не поддерживает вкладки.");
+  } else if (
     isAllowedBase &&
+    accountType !== "worker" &&
     (navigationItems.length === 0 ||
       !navigationItems.every(isAccountNavigationItem) ||
       !validateNavigationItemsForAccountType(accountType, navigationItems))

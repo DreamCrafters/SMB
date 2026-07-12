@@ -405,12 +405,22 @@ const migrations: Migration[] = [
           json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
           json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
         ('worker', 'Работник', 'worker',
-          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
-          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+          json_array(), json_array(), 0),
         ('dispatcher', 'Диспетчер', 'dispatcher',
           json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
           json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0)
       on duplicate key update id = values(id);
+      `,
+    ],
+  },
+  {
+    id: "011_empty_worker_workspace",
+    statements: [
+      `
+      update account_positions
+      set navigation_items = json_array(),
+          capabilities = json_array()
+      where account_type = 'worker';
       `,
     ],
   },

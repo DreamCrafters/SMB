@@ -100,6 +100,36 @@ test("dynamic positions migration creates and seeds the server-owned catalog", a
   assert.match(statements[2] ?? "", /'general_director'.*'Генеральный директор'/);
 });
 
+test("worker workspace migration removes inherited owner access", async () => {
+  const appliedIds = new Set([
+    "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
+    "003_equipment_report_revisions", "004_auth_users_sessions_accesses",
+    "005_account_positions_and_navigation", "006_account_access_levels",
+    "007_expand_non_admin_access_catalog", "008_remove_system_full_access_levels",
+    "009_remove_account_access_levels", "010_dynamic_account_positions",
+  ]);
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [appliedIds.has(id) ? [{ id }] : [], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(statements[0] ?? "", /set navigation_items = json_array\(\), capabilities = json_array\(\)/);
+  assert.match(statements[0] ?? "", /where account_type = 'worker'/);
+});
+
 function normalizeSql(sql: string) {
   return sql.replace(/\s+/g, " ").trim();
 }

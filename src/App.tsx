@@ -4029,6 +4029,15 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   navigationItems: nonAdminNavigationItems.map(({ id }) => id),
 };
 
+const defaultNavigationItemsByBaseCabinet: Record<
+  AdminPositionFormState["accountType"],
+  AccountNavigationItem[]
+> = {
+  business_owner: nonAdminNavigationItems.map(({ id }) => id),
+  worker: [],
+  dispatcher: ["business.dispatcher_form"],
+};
+
 const baseCabinetLabels: Record<AdminPositionFormState["accountType"], string> = {
   business_owner: "Руководитель",
   worker: "Работник",
@@ -4292,7 +4301,10 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
 
   async function handlePositionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (positionForm.displayName.trim().length === 0 || positionForm.navigationItems.length === 0) {
+    if (
+      positionForm.displayName.trim().length === 0 ||
+      (positionForm.accountType !== "worker" && positionForm.navigationItems.length === 0)
+    ) {
       setPositionFormStatus("Укажите название и выберите хотя бы одну вкладку.");
       return;
     }
@@ -4846,14 +4858,21 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             <form className="data-entry-form admin-accounts-form" onSubmit={handlePositionSubmit}>
               <label>
                 <span>Название должности</span>
-                <input value={positionForm.displayName} onChange={(event) => setPositionForm((current) => ({ ...current, displayName: event.currentTarget.value }))} required />
+                <input value={positionForm.displayName} onChange={(event) => {
+                  const displayName = event.currentTarget.value;
+                  setPositionForm((current) => ({ ...current, displayName }));
+                }} required />
               </label>
               <label>
                 <span>Базовый кабинет</span>
-                <select value={positionForm.accountType} disabled={positionForm.id !== undefined} onChange={(event) => setPositionForm((current) => ({
-                  ...current,
-                  accountType: event.currentTarget.value as AdminPositionFormState["accountType"],
-                }))}>
+                <select value={positionForm.accountType} disabled={positionForm.id !== undefined} onChange={(event) => {
+                  const accountType = event.currentTarget.value as AdminPositionFormState["accountType"];
+                  setPositionForm((current) => ({
+                    ...current,
+                    accountType,
+                    navigationItems: [...defaultNavigationItemsByBaseCabinet[accountType]],
+                  }));
+                }}>
                   {(Object.keys(baseCabinetLabels) as AdminPositionFormState["accountType"][]).map((type) => (
                     <option key={type} value={type}>{baseCabinetLabels[type]}</option>
                   ))}
@@ -4861,19 +4880,28 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
               </label>
               <fieldset className="admin-account-navigation-fieldset">
                 <legend>Доступ к вкладкам слева</legend>
-                <div className="admin-account-navigation-grid">
-                  {nonAdminNavigationItems.map((item) => (
-                    <label key={item.id} className="admin-account-navigation-option">
-                      <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => setPositionForm((current) => ({
-                        ...current,
-                        navigationItems: event.currentTarget.checked
-                          ? Array.from(new Set([...current.navigationItems, item.id]))
-                          : current.navigationItems.filter((id) => id !== item.id),
-                      }))} />
-                      <span>{formatNavigationItemLabel(item)}</span>
-                    </label>
-                  ))}
-                </div>
+                {positionForm.accountType === "worker" ? (
+                  <p className="admin-position-empty-workspace-copy">
+                    Кабинет работника пока пуст. Вкладки для него недоступны.
+                  </p>
+                ) : (
+                  <div className="admin-account-navigation-grid">
+                    {nonAdminNavigationItems.map((item) => (
+                      <label key={item.id} className="admin-account-navigation-option">
+                        <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
+                          const isChecked = event.currentTarget.checked;
+                          setPositionForm((current) => ({
+                            ...current,
+                            navigationItems: isChecked
+                              ? Array.from(new Set([...current.navigationItems, item.id]))
+                              : current.navigationItems.filter((id) => id !== item.id),
+                          }));
+                        }} />
+                        <span>{formatNavigationItemLabel(item)}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </fieldset>
               <div className="form-actions">
                 <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? "Сохраняем…" : "Сохранить"}</button>

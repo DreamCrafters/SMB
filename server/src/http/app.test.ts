@@ -350,6 +350,24 @@ test("remote API creates and reads dev access sessions by header", async () => {
   });
 });
 
+test("remote dev worker profile has no navigation or capabilities", async () => {
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "worker");
+    const response = await fetch(`${baseUrl}/api/access/profile`, {
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+    const payload = await response.json();
+    const profile = isRecord(payload) && isRecord(payload.profile) ? payload.profile : undefined;
+    const access = profile !== undefined && isRecord(profile.activeAccess)
+      ? profile.activeAccess
+      : undefined;
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(access?.navigationItems, []);
+    assert.deepEqual(access?.capabilities, []);
+  });
+});
+
 test("admin database API rejects non-admin dev sessions", async () => {
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "dispatcher");
@@ -656,6 +674,39 @@ test("admin positions API creates a position from a supported base cabinet", asy
   assert.equal(createdInput?.accountType, "business_owner");
   assert.deepEqual(createdInput?.navigationItems, ["business.overview", "business.dispatcher"]);
   assert.equal(createdInput?.capabilities.includes("business.view_dispatcher_feed"), true);
+});
+
+test("admin positions API keeps the worker workspace empty", async () => {
+  const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createPosition(input) {
+      created.push(input);
+      return { id: "position-worker", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
+    const emptyResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ displayName: "Работник склада", accountType: "worker", navigationItems: [] }),
+    });
+    const ownerAccessResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ displayName: "Работник с обзором", accountType: "worker", navigationItems: ["business.overview"] }),
+    });
+
+    assert.equal(emptyResponse.status, 201);
+    assert.equal(ownerAccessResponse.status, 400);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.equal(created.length, 1);
+  assert.deepEqual(created[0]?.navigationItems, []);
+  assert.deepEqual(created[0]?.capabilities, []);
 });
 
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {

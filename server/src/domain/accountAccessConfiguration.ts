@@ -28,7 +28,7 @@ export const navigationItemsByAccountType: Record<
 > = {
   admin: ["admin.account_preview", "admin.accounts", "admin.database"],
   business_owner: ["business.overview", "business.dispatcher"],
-  worker: ["business.work"],
+  worker: [],
   dispatcher: ["business.dispatcher_form"],
 };
 

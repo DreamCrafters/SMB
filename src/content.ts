@@ -106,14 +106,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "pending",
     },
   ],
-  worker: [
-    {
-      id: "business.work",
-      label: "Работа",
-      description: "Рабочие формы отдельно",
-      state: "active",
-    },
-  ],
+  worker: [],
   dispatcher: [
     {
       id: "business.dispatcher_form",
@@ -126,6 +119,11 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
 
 export const nonAdminNavigationItems: NavigationItem[] = [
   ...navigationItemsByAccountType.business_owner,
-  ...navigationItemsByAccountType.worker,
+  {
+    id: "business.work",
+    label: "Работа",
+    description: "Рабочие формы отдельно",
+    state: "active",
+  },
   ...navigationItemsByAccountType.dispatcher,
 ];
