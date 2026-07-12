@@ -123,3 +123,9 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
     },
   ],
 };
+
+export const nonAdminNavigationItems: NavigationItem[] = [
+  ...navigationItemsByAccountType.business_owner,
+  ...navigationItemsByAccountType.worker,
+  ...navigationItemsByAccountType.dispatcher,
+];

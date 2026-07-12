@@ -527,6 +527,7 @@ const accounts: AccountsRepository = {
           "business.view_dispatcher_feed",
         ],
         isSystem: true,
+        usageCount: 1,
         createdAt: "2026-07-10T00:00:00.000Z",
       },
     ];
@@ -536,8 +537,20 @@ const accounts: AccountsRepository = {
       id: "custom-access-level",
       ...input,
       isSystem: false,
+      usageCount: 0,
       createdAt: "2026-07-12T00:00:00.000Z",
     };
+  },
+  async updateAccessLevel(input) {
+    const current = (await this.listAccessLevels()).find((item) => item.id === input.id);
+    return current === undefined
+      ? undefined
+      : {
+          ...current,
+          displayName: input.displayName,
+          navigationItems: input.navigationItems,
+          capabilities: input.capabilities,
+        };
   },
 };
 
@@ -615,6 +628,7 @@ test("admin access levels API lists and creates reusable levels", async () => {
         id: "custom-level",
         ...input,
         isSystem: false,
+        usageCount: 0,
         createdAt: "2026-07-12T00:00:00.000Z",
       };
     },
@@ -665,6 +679,59 @@ test("admin access levels API lists and creates reusable levels", async () => {
       "business.view_dispatcher_feed",
     ],
   });
+});
+
+test("admin access levels API updates a level for linked accounts", async () => {
+  let updateInput:
+    | Parameters<AccountsRepository["updateAccessLevel"]>[0]
+    | undefined;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async updateAccessLevel(input) {
+      updateInput = input;
+      return {
+        ...(await accounts.listAccessLevels())[0],
+        displayName: input.displayName,
+        navigationItems: input.navigationItems,
+        capabilities: input.capabilities,
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/access-levels/system-dispatcher`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({
+            displayName: "Расширенный",
+            navigationItems: ["business.overview", "business.dispatcher_form"],
+          }),
+        },
+      );
+      assert.equal(response.status, 200);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+
+  assert.equal(updateInput?.displayName, "Расширенный");
+  assert.deepEqual(updateInput?.navigationItems, [
+    "business.overview",
+    "business.dispatcher_form",
+  ]);
 });
 
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {

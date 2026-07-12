@@ -6,6 +6,8 @@ import type {
   AdminAccessLevelSummary,
   CreateAdminAccessLevelRequest,
   CreateAdminAccessLevelResponse,
+  UpdateAdminAccessLevelRequest,
+  UpdateAdminAccessLevelResponse,
   CreateAdminAccountRequest,
   CreateAdminAccountResponse,
   ResetAdminAccountPasswordRequest,
@@ -51,6 +53,10 @@ export type AdminAccessLevelsListResult =
   | AdminAccountsErrorState;
 
 export type CreateAdminAccessLevelResult =
+  | { status: "ready"; accessLevel: AdminAccessLevelSummary }
+  | AdminAccountsErrorState;
+
+export type UpdateAdminAccessLevelResult =
   | { status: "ready"; accessLevel: AdminAccessLevelSummary }
   | AdminAccountsErrorState;
 
@@ -198,6 +204,34 @@ export async function createAdminAccessLevel(
   } catch (error) {
     if (isAbortError(error)) return { status: "error", message: "Запрос создания уровня отменён." };
     return { status: "error", message: describeRemoteNetworkFailure("Не удалось создать уровень доступа.", { baseUrl }), code: "network_error" };
+  }
+}
+
+export async function updateAdminAccessLevel(
+  id: string,
+  value: UpdateAdminAccessLevelRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<UpdateAdminAccessLevelResult> {
+  const path = `${ADMIN_ACCESS_LEVELS_PATH}/${encodeURIComponent(id)}`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: buildDevAccessHeaders({ Accept: "application/json", "Content-Type": "application/json" }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify(value),
+    });
+    const payload = await readJson(response);
+    if (!response.ok) return readRemoteError(payload, response.status, "Сервер отклонил изменение уровня доступа.");
+    if (isUpdateAdminAccessLevelResponse(payload)) {
+      return { status: "ready", accessLevel: payload.accessLevel };
+    }
+    return { status: "error", message: "Сервер вернул уровень доступа в неподдерживаемом формате.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Изменение уровня отменено." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось изменить уровень доступа.", { baseUrl }), code: "network_error" };
   }
 }
 
@@ -482,6 +516,12 @@ function isCreateAdminAccessLevelResponse(
   return isRecord(value) && isAdminAccessLevelSummary(value.accessLevel);
 }
 
+function isUpdateAdminAccessLevelResponse(
+  value: unknown,
+): value is UpdateAdminAccessLevelResponse {
+  return isRecord(value) && isAdminAccessLevelSummary(value.accessLevel);
+}
+
 function isAdminAccessLevelSummary(value: unknown): value is AdminAccessLevelSummary {
   return isRecord(value) &&
     typeof value.id === "string" &&
@@ -491,6 +531,7 @@ function isAdminAccessLevelSummary(value: unknown): value is AdminAccessLevelSum
     Array.isArray(value.navigationItems) &&
     Array.isArray(value.capabilities) &&
     typeof value.isSystem === "boolean" &&
+    typeof value.usageCount === "number" &&
     typeof value.createdAt === "string";
 }
 

@@ -28,6 +28,7 @@ import {
   accountPositionLabels,
   authOptions,
   navigationItemsByAccountType,
+  nonAdminNavigationItems,
   shellCopy,
   type NavigationItem,
 } from "./content";
@@ -105,6 +106,7 @@ import {
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
   setAdminAccountNavigation,
+  updateAdminAccessLevel,
   type AdminAccountsListResult,
   type AdminAccessLevelsListResult,
 } from "./services/adminAccounts";
@@ -122,7 +124,7 @@ import {
 } from "./services/dispatcherFeedViews";
 import { readShortUserMessage } from "./services/userFacingMessages";
 
-type OwnerTab = "overview" | "dispatcher";
+type BusinessTab = "overview" | "dispatcher" | "work" | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database";
 type AdminViewableAccountType = Exclude<AccountType, "admin">;
 
@@ -254,13 +256,13 @@ const isLocalTestFallbackEnabled = !isProductionApp;
 
 function buildNavigationItems(
   profile: ServerUserProfile,
-  ownerTab: OwnerTab,
+  businessTab: BusinessTab,
   adminTab: AdminTab,
 ): NavigationItem[] {
   const accountType = profile.accountType;
-  const navigationItems = navigationItemsByAccountType[accountType].filter((item) =>
-    profile.activeAccess.navigationItems.includes(item.id),
-  );
+  const navigationItems = (
+    accountType === "admin" ? navigationItemsByAccountType.admin : nonAdminNavigationItems
+  ).filter((item) => profile.activeAccess.navigationItems.includes(item.id));
 
   if (accountType === "admin") {
     return navigationItems
@@ -275,28 +277,28 @@ function buildNavigationItems(
       });
   }
 
-  if (accountType !== "business_owner") {
-    return navigationItems;
-  }
-
   return navigationItems
-    .filter((item) => getOwnerTabForNavigationItem(item) !== undefined)
+    .filter((item) => getBusinessTabForNavigationItem(item) !== undefined)
     .map((item) => {
-      const target = getOwnerTabForNavigationItem(item);
+      const target = getBusinessTabForNavigationItem(item);
 
       return {
         ...item,
-        state: target === ownerTab ? "active" : "pending",
+        state: target === businessTab ? "active" : "pending",
       };
     });
 }
 
-function getOwnerTabForNavigationItem(item: NavigationItem): OwnerTab | undefined {
+function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | undefined {
   switch (item.id) {
     case "business.overview":
       return "overview";
     case "business.dispatcher":
       return "dispatcher";
+    case "business.work":
+      return "work";
+    case "business.dispatcher_form":
+      return "dispatcher_form";
     default:
       return undefined;
   }
@@ -325,12 +327,12 @@ export default function App() {
   const [requestVersion, setRequestVersion] = useState(0);
   const [dataEntryStatus, setDataEntryStatus] = useState("");
   const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
-  const [ownerTab, setOwnerTab] = useState<OwnerTab>("overview");
+  const [ownerTab, setOwnerTab] = useState<BusinessTab>("overview");
   const [adminTab, setAdminTab] = useState<AdminTab>("account_preview");
   const [adminViewedAccountType, setAdminViewedAccountType] =
     useState<AdminViewableAccountType>();
   const [adminViewedOwnerTab, setAdminViewedOwnerTab] =
-    useState<OwnerTab>("overview");
+    useState<BusinessTab>("overview");
   const [adminViewedDataEntryStatus, setAdminViewedDataEntryStatus] =
     useState("");
   const [
@@ -727,18 +729,17 @@ export default function App() {
       : undefined;
   const isAdminPreviewMode = viewedProfile !== undefined;
   const visibleProfile = viewedProfile ?? profile;
-  const visibleOwnerTab =
-    viewedProfile?.accountType === "business_owner" ? adminViewedOwnerTab : ownerTab;
+  const visibleOwnerTab = viewedProfile !== undefined ? adminViewedOwnerTab : ownerTab;
   const visibleDispatcherFeedFilters =
     viewedProfile === undefined
       ? dispatcherFeedFilters
       : adminViewedDispatcherFeedFilters;
   const visibleDataEntryStatus =
-    viewedProfile?.accountType === "dispatcher"
+    viewedProfile !== undefined
       ? adminViewedDataEntryStatus
       : dataEntryStatus;
   const isVisibleDataEntrySubmitting =
-    viewedProfile?.accountType === "dispatcher"
+    viewedProfile !== undefined
       ? isAdminViewedDataEntrySubmitting
       : isDataEntrySubmitting;
 
@@ -784,7 +785,7 @@ export default function App() {
         }
         ownerTab={visibleOwnerTab}
         onOwnerTabChange={
-          viewedProfile?.accountType === "business_owner"
+          viewedProfile !== undefined
             ? setAdminViewedOwnerTab
             : setOwnerTab
         }
@@ -810,7 +811,7 @@ export default function App() {
               : handleAdminViewedDispatcherFeedFiltersChange
           }
           onDataEntryStatusReset={
-            viewedProfile?.accountType === "dispatcher"
+            viewedProfile !== undefined
               ? () => setAdminViewedDataEntryStatus("")
               : () => setDataEntryStatus("")
           }
@@ -975,8 +976,8 @@ function SideRail({
   onClearSession: () => void;
   isSessionLoading: boolean;
   sessionError?: string;
-  ownerTab: OwnerTab;
-  onOwnerTabChange: (tab: OwnerTab) => void;
+  ownerTab: BusinessTab;
+  onOwnerTabChange: (tab: BusinessTab) => void;
   adminTab: AdminTab;
   onAdminTabChange: (tab: AdminTab) => void;
 }) {
@@ -1005,9 +1006,9 @@ function SideRail({
       <nav className="primary-nav">
         {navigationItems.map((item) => {
           const ownerTarget =
-            profile.accountType === "business_owner"
-              ? getOwnerTabForNavigationItem(item)
-              : undefined;
+            profile.accountType === "admin"
+              ? undefined
+              : getBusinessTabForNavigationItem(item);
           const adminTarget =
             profile.accountType === "admin"
               ? getAdminTabForNavigationItem(item)
@@ -1077,7 +1078,7 @@ function RoleWorkspace({
   dataEntryStatus: string;
   isDataEntrySubmitting: boolean;
   onDataEntrySubmit: DataEntrySubmitHandler;
-  ownerTab: OwnerTab;
+  ownerTab: BusinessTab;
   adminTab: AdminTab;
   dispatcherFeed: DispatcherFeedLoadState;
   dispatcherForms: DispatcherFormsLoadState;
@@ -1089,13 +1090,19 @@ function RoleWorkspace({
   onDataEntryStatusReset: () => void;
   onSelectAdminAccountView: (accountType: AdminViewableAccountType) => void;
 }) {
+  const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
+    overview: "business.overview",
+    dispatcher: "business.dispatcher",
+    work: "business.work",
+    dispatcher_form: "business.dispatcher_form",
+  };
   const effectiveOwnerTab = profile.activeAccess.navigationItems.includes(
-    ownerTab === "overview" ? "business.overview" : "business.dispatcher",
+    navigationByBusinessTab[ownerTab],
   )
     ? ownerTab
-    : profile.activeAccess.navigationItems.includes("business.overview")
-      ? "overview"
-      : "dispatcher";
+    : ((Object.keys(navigationByBusinessTab) as BusinessTab[]).find((tab) =>
+        profile.activeAccess.navigationItems.includes(navigationByBusinessTab[tab]),
+      ) ?? ownerTab);
   const adminNavigationByTab: Record<AdminTab, AccountNavigationItem> = {
     account_preview: "admin.account_preview",
     accounts: "admin.accounts",
@@ -1118,7 +1125,22 @@ function RoleWorkspace({
           onSelectAccountView={onSelectAdminAccountView}
         />
       );
-    case "business_owner":
+    default:
+      if (effectiveOwnerTab === "work") return <WorkerWorkspace />;
+      if (effectiveOwnerTab === "dispatcher_form") {
+        return (
+          <DataEntryWorkspace
+            ariaLabel="Диспетчерская отправка"
+            status={dataEntryStatus}
+            isSubmitting={isDataEntrySubmitting}
+            onSubmit={onDataEntrySubmit}
+            dispatcherForms={dispatcherForms}
+            businessAccountId={getActiveBusinessAccountId(profile)}
+            refreshVersion={dispatcherSubmissionVersion}
+            onResetStatus={onDataEntryStatusReset}
+          />
+        );
+      }
       return (
         <OwnerWorkspace
           activeTab={effectiveOwnerTab}
@@ -1127,21 +1149,6 @@ function RoleWorkspace({
           dispatcherFeedFilters={dispatcherFeedFilters}
           onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
           businessAccountId={getActiveBusinessAccountId(profile)}
-        />
-      );
-    case "worker":
-      return <WorkerWorkspace />;
-    case "dispatcher":
-      return (
-        <DataEntryWorkspace
-          ariaLabel="Диспетчерская отправка"
-          status={dataEntryStatus}
-          isSubmitting={isDataEntrySubmitting}
-          onSubmit={onDataEntrySubmit}
-          dispatcherForms={dispatcherForms}
-          businessAccountId={getActiveBusinessAccountId(profile)}
-          refreshVersion={dispatcherSubmissionVersion}
-          onResetStatus={onDataEntryStatusReset}
         />
       );
   }
@@ -1155,7 +1162,7 @@ function OwnerWorkspace({
   onDispatcherFeedFiltersChange,
   businessAccountId,
 }: {
-  activeTab: OwnerTab;
+  activeTab: Extract<BusinessTab, "overview" | "dispatcher">;
   dispatcherFeed: DispatcherFeedLoadState;
   dispatcherForms: DispatcherFormsLoadState;
   dispatcherFeedFilters: DispatcherFeedFilterState;
@@ -3982,7 +3989,9 @@ const accountTypeByPosition: Record<AccountPosition, AccountType> = {
 };
 
 function getNavigationOptionsForPosition(position: AccountPosition) {
-  return navigationItemsByAccountType[accountTypeByPosition[position]];
+  return accountTypeByPosition[position] === "admin"
+    ? navigationItemsByAccountType.admin
+    : nonAdminNavigationItems;
 }
 
 function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
@@ -4006,6 +4015,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAccessLevelModalOpen, setIsAccessLevelModalOpen] = useState(false);
+  const [editingAccessLevelId, setEditingAccessLevelId] = useState<string>();
   const [accessLevelForm, setAccessLevelForm] = useState<AdminAccessLevelFormState>(
     emptyAdminAccessLevelForm,
   );
@@ -4154,8 +4164,17 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setIsCreateModalOpen(true);
   }
 
-  function openAccessLevelModal() {
-    setAccessLevelForm(emptyAdminAccessLevelForm);
+  function openAccessLevelModal(accessLevel?: AdminAccessLevelSummary) {
+    setEditingAccessLevelId(accessLevel?.id);
+    setAccessLevelForm(
+      accessLevel === undefined
+        ? emptyAdminAccessLevelForm
+        : {
+            displayName: accessLevel.displayName,
+            position: accessLevel.position,
+            navigationItems: accessLevel.navigationItems,
+          },
+    );
     setAccessLevelFormStatus("");
     setIsAccessLevelModalOpen(true);
   }
@@ -4290,11 +4309,16 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
 
     setIsAccessLevelSubmitting(true);
     setAccessLevelFormStatus("Создаём уровень доступа.");
-    const result = await createAdminAccessLevel({
-      displayName: accessLevelForm.displayName.trim(),
-      position: accessLevelForm.position,
-      navigationItems: accessLevelForm.navigationItems,
-    });
+    const result = editingAccessLevelId === undefined
+      ? await createAdminAccessLevel({
+          displayName: accessLevelForm.displayName.trim(),
+          position: accessLevelForm.position,
+          navigationItems: accessLevelForm.navigationItems,
+        })
+      : await updateAdminAccessLevel(editingAccessLevelId, {
+          displayName: accessLevelForm.displayName.trim(),
+          navigationItems: accessLevelForm.navigationItems,
+        });
     setIsAccessLevelSubmitting(false);
 
     if (result.status !== "ready") {
@@ -4303,7 +4327,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     }
 
     setIsAccessLevelModalOpen(false);
-    setWorkspaceStatus(`Уровень доступа «${result.accessLevel.displayName}» создан.`);
+    setWorkspaceStatus(
+      editingAccessLevelId === undefined
+        ? `Уровень доступа «${result.accessLevel.displayName}» создан.`
+        : `Уровень доступа «${result.accessLevel.displayName}» обновлён.`,
+    );
     setRefreshVersion((version) => version + 1);
   }
 
@@ -4491,7 +4519,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             className="secondary-button"
             type="button"
             disabled={!canManageAccess}
-            onClick={openAccessLevelModal}
+            onClick={() => openAccessLevelModal()}
           >
             Новый уровень доступа
           </button>
@@ -4576,26 +4604,35 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                                 </option>
                               ))}
                           </select>
-                          {navigationItemsByAccountType[account.accountType].map((item) => {
-                            const draft = navigationDrafts[account.accessId] ?? account.navigationItems;
-                            return (
-                              <label key={item.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={draft.includes(item.id)}
-                                  disabled={!canManageAccess || isCurrentAccount || updatingAccessId === account.accessId}
-                                  onChange={(event) =>
-                                    handleNavigationDraftChange(
-                                      account,
-                                      item.id,
-                                      event.currentTarget.checked,
-                                    )
-                                  }
-                                />
-                                <span>{item.label}</span>
-                              </label>
-                            );
-                          })}
+                          <details className="admin-account-access-details">
+                            <summary>
+                              Настроить доступы ({(
+                                navigationDrafts[account.accessId] ?? account.navigationItems
+                              ).length})
+                            </summary>
+                            <div className="admin-account-access-grid">
+                              {getNavigationOptionsForPosition(account.position).map((item) => {
+                                const draft = navigationDrafts[account.accessId] ?? account.navigationItems;
+                                return (
+                                  <label key={item.id}>
+                                    <input
+                                      type="checkbox"
+                                      checked={draft.includes(item.id)}
+                                      disabled={!canManageAccess || isCurrentAccount || updatingAccessId === account.accessId}
+                                      onChange={(event) =>
+                                        handleNavigationDraftChange(
+                                          account,
+                                          item.id,
+                                          event.currentTarget.checked,
+                                        )
+                                      }
+                                    />
+                                    <span>{item.label}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </details>
                           <button
                             className="secondary-button"
                             type="button"
@@ -4667,6 +4704,8 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                   <th scope="col">Название</th>
                   <th scope="col">Должность</th>
                   <th scope="col">Вкладки слева</th>
+                  <th scope="col">Аккаунты</th>
+                  <th scope="col">Действия</th>
                 </tr>
               </thead>
               <tbody>
@@ -4675,10 +4714,26 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                     <td>{level.displayName}{level.isSystem ? " · системный" : ""}</td>
                     <td>{accountPositionLabels[level.position]}</td>
                     <td>
-                      {navigationItemsByAccountType[level.accountType]
+                      {getNavigationOptionsForPosition(level.position)
                         .filter((item) => level.navigationItems.includes(item.id))
                         .map((item) => item.label)
                         .join(", ")}
+                    </td>
+                    <td>{level.usageCount}</td>
+                    <td>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={level.accountType === "admin"}
+                        title={
+                          level.accountType === "admin"
+                            ? "Административные доступы меняются отдельно."
+                            : undefined
+                        }
+                        onClick={() => openAccessLevelModal(level)}
+                      >
+                        Настроить
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -4913,7 +4968,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             onKeyDown={keepFocusInsideDialog}
           >
             <div className="admin-account-modal-header">
-              <h3 id="admin-access-level-create-title">Новый уровень доступа</h3>
+              <h3 id="admin-access-level-create-title">
+                {editingAccessLevelId === undefined
+                  ? "Новый уровень доступа"
+                  : "Настройка уровня доступа"}
+              </h3>
               <button
                 className="secondary-button"
                 type="button"
@@ -4946,6 +5005,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                 <span>Должность</span>
                 <select
                   value={accessLevelForm.position}
+                  disabled={editingAccessLevelId !== undefined}
                   onChange={(event) => {
                     const position = event.currentTarget.value as AccountPosition;
                     setAccessLevelForm((current) => ({
@@ -4984,7 +5044,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
               </fieldset>
               <div className="form-actions">
                 <button className="primary-button" type="submit" disabled={isAccessLevelSubmitting}>
-                  {isAccessLevelSubmitting ? "Создаём…" : "Создать"}
+                  {isAccessLevelSubmitting
+                    ? "Сохраняем…"
+                    : editingAccessLevelId === undefined
+                      ? "Создать"
+                      : "Сохранить"}
                 </button>
                 <button className="secondary-button" type="button" disabled={isAccessLevelSubmitting} onClick={closeAccessLevelModal}>
                   Отмена

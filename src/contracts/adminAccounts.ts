@@ -58,6 +58,7 @@ export type AdminAccessLevelSummary = {
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
   isSystem: boolean;
+  usageCount: number;
   createdAt: string;
 };
 
@@ -72,6 +73,15 @@ export type CreateAdminAccessLevelRequest = {
 };
 
 export type CreateAdminAccessLevelResponse = {
+  accessLevel: AdminAccessLevelSummary;
+};
+
+export type UpdateAdminAccessLevelRequest = {
+  displayName: string;
+  navigationItems: AccountNavigationItem[];
+};
+
+export type UpdateAdminAccessLevelResponse = {
   accessLevel: AdminAccessLevelSummary;
 };
 

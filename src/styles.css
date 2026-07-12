@@ -1425,6 +1425,7 @@ p {
 
 .admin-account-navigation-fieldset {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 8px;
   margin: 0;
   padding: 12px;
@@ -1434,6 +1435,24 @@ p {
 .admin-account-navigation-fieldset legend {
   padding: 0 6px;
   font-weight: 700;
+}
+
+.admin-account-access-details {
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.admin-account-access-details summary {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.admin-account-access-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  padding: 4px 10px 10px;
 }
 
 .admin-account-navigation-option,

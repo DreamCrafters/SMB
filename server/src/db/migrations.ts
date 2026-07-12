@@ -295,6 +295,32 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "007_expand_non_admin_access_catalog",
+    statements: [
+      `
+      update account_access_levels
+      set navigation_items = json_array(
+        'business.overview', 'business.dispatcher',
+        'business.work', 'business.dispatcher_form'
+      ),
+      capabilities = json_array(
+        'business.view_all_statistics', 'business.view_department_statistics',
+        'business.view_notifications', 'business.view_dispatcher_feed',
+        'business.submit_forms', 'business.view_own_submissions',
+        'business.submit_dispatcher_forms'
+      )
+      where is_system = 1 and account_type <> 'admin';
+      `,
+      `
+      update account_accesses accesses
+      join account_access_levels levels on levels.id = accesses.access_level_id
+      set accesses.navigation_items = levels.navigation_items,
+        accesses.capabilities = levels.capabilities
+      where levels.is_system = 1 and levels.account_type <> 'admin';
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

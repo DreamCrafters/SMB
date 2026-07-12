@@ -170,7 +170,7 @@ export function createApiServer({
       if (
         url.pathname === "/api/admin/accounts" ||
         url.pathname === "/api/admin/accounts/reset-password" ||
-        url.pathname === "/api/admin/access-levels"
+        url.pathname.startsWith("/api/admin/access-levels")
       ) {
         await handleAdminAccountsRequest({
           req,
@@ -624,7 +624,7 @@ async function handleAdminAccountsRequest({
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
   const requiresManageAccess =
     isLoginStatusUpdate ||
-    url.pathname === "/api/admin/access-levels" ||
+    url.pathname.startsWith("/api/admin/access-levels") ||
     (url.pathname === "/api/admin/accounts" && req.method === "POST");
   const access = await requireCapability(req, res, {
     config,
@@ -691,6 +691,67 @@ async function handleAdminAccountsRequest({
     sendJson(res, 405, {
       error: { code: "access_denied", message: "Only GET and POST are supported for access levels." },
     });
+    return;
+  }
+
+  const accessLevelRoute = /^\/api\/admin\/access-levels\/([^/]+)$/.exec(
+    url.pathname,
+  );
+  if (accessLevelRoute !== null) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Only PATCH is supported for this access level." },
+      });
+      return;
+    }
+
+    const id = decodeURIComponent(accessLevelRoute[1]);
+    const existing = (await accounts.listAccessLevels()).find((item) => item.id === id);
+    if (existing === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Уровень доступа не найден." },
+      });
+      return;
+    }
+    if (existing.accountType === "admin") {
+      sendJson(res, 403, {
+        error: { code: "access_denied", message: "Административный уровень нельзя изменять здесь." },
+      });
+      return;
+    }
+
+    const payload = await readJsonBody(req);
+    const displayName =
+      isRecord(payload) && typeof payload.displayName === "string"
+        ? payload.displayName.trim()
+        : "";
+    const navigationItems =
+      isRecord(payload) && Array.isArray(payload.navigationItems)
+        ? payload.navigationItems
+        : [];
+    if (
+      displayName.length === 0 ||
+      displayName.length > 120 ||
+      !navigationItems.every(isAccountNavigationItem) ||
+      !validateNavigationItemsForAccountType(existing.accountType, navigationItems)
+    ) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: "Проверьте название и выбранные доступы." },
+      });
+      return;
+    }
+
+    try {
+      const accessLevel = await accounts.updateAccessLevel({
+        id,
+        displayName,
+        navigationItems,
+        capabilities: resolveCapabilitiesForNavigation(navigationItems),
+      });
+      sendJson(res, 200, { accessLevel });
+    } catch (error) {
+      sendAdminAccountsError(res, error);
+    }
     return;
   }
 
