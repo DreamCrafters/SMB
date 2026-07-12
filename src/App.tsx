@@ -3447,10 +3447,11 @@ function AdminAccountPreviewButton({
     >
       <span>{account.positionDisplayName}</span>
       {!isTypePreview ? <strong>{account.userDisplayName}</strong> : null}
-      <small>
-        {account.login}
-        {isAdmin ? " · без превью" : ""}
-      </small>
+      {isTypePreview ? (
+        isAdmin ? <small>Без превью</small> : null
+      ) : (
+        <small>{account.login}</small>
+      )}
     </button>
   );
 }
