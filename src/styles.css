@@ -322,6 +322,10 @@ p {
   object-fit: cover;
 }
 
+.auth-panel > .brand-mark {
+  background: transparent;
+}
+
 .side-rail h1,
 .side-rail .eyebrow {
   color: #ffffff;

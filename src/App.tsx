@@ -862,7 +862,7 @@ function AuthScreen({
           <img alt="" src="/nmou-vector-icon.png" />
         </div>
         <div className="auth-copy">
-          <p className="eyebrow">access boundary</p>
+          <p className="eyebrow"></p>
           <h1 id="auth-title">
             {mode === "production" ? "Вход в НМОУ Вектор" : shellCopy.authTitle}
           </h1>
