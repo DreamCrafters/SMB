@@ -490,8 +490,6 @@ const adminAccount = {
   departmentDisplayName: "Смена А",
   capabilities: ["business.submit_dispatcher_forms" as const],
   navigationItems: ["business.dispatcher_form" as const],
-  accessLevelId: "system-dispatcher",
-  accessLevelDisplayName: "Полный доступ",
   createdAt: "2026-07-10T00:00:00.000Z",
 };
 
@@ -513,44 +511,6 @@ const accounts: AccountsRepository = {
   },
   async setAccountNavigation() {
     return adminAccount;
-  },
-  async listAccessLevels() {
-    return [
-      {
-        id: "system-dispatcher",
-        displayName: "Полный доступ",
-        position: "dispatcher",
-        accountType: "dispatcher",
-        navigationItems: ["business.dispatcher_form"],
-        capabilities: [
-          "business.submit_dispatcher_forms",
-          "business.view_dispatcher_feed",
-        ],
-        isSystem: true,
-        usageCount: 1,
-        createdAt: "2026-07-10T00:00:00.000Z",
-      },
-    ];
-  },
-  async createAccessLevel(input) {
-    return {
-      id: "custom-access-level",
-      ...input,
-      isSystem: false,
-      usageCount: 0,
-      createdAt: "2026-07-12T00:00:00.000Z",
-    };
-  },
-  async updateAccessLevel(input) {
-    const current = (await this.listAccessLevels()).find((item) => item.id === input.id);
-    return current === undefined
-      ? undefined
-      : {
-          ...current,
-          displayName: input.displayName,
-          navigationItems: input.navigationItems,
-          capabilities: input.capabilities,
-        };
   },
 };
 
@@ -616,46 +576,15 @@ test("admin accounts API lists accounts for admin dev sessions", async () => {
   );
 });
 
-test("admin access levels API lists and creates reusable levels", async () => {
-  let createInput:
-    | Parameters<AccountsRepository["createAccessLevel"]>[0]
-    | undefined;
-  const repository: AccountsRepository = {
-    ...accounts,
-    async createAccessLevel(input) {
-      createInput = input;
-      return {
-        id: "custom-level",
-        ...input,
-        isSystem: false,
-        usageCount: 0,
-        createdAt: "2026-07-12T00:00:00.000Z",
-      };
-    },
-  };
-
+test("admin access levels API is removed", async () => {
   await withApiServer(
     async (baseUrl) => {
       const sessionId = await createDevSession(baseUrl, "admin");
-      const headers = {
-        "Content-Type": "application/json",
-        "X-SMB-Dev-Session": sessionId,
-      };
-      const listResponse = await fetch(`${baseUrl}/api/admin/access-levels`, {
-        headers,
-      });
-      const createResponse = await fetch(`${baseUrl}/api/admin/access-levels`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          displayName: "Только обзор",
-          position: "board_member",
-          navigationItems: ["business.overview"],
-        }),
+      const response = await fetch(`${baseUrl}/api/admin/access-levels`, {
+        headers: { "X-SMB-Dev-Session": sessionId },
       });
 
-      assert.equal(listResponse.status, 200);
-      assert.equal(createResponse.status, 201);
+      assert.equal(response.status, 404);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -664,74 +593,8 @@ test("admin access levels API lists and creates reusable levels", async () => {
     adminDatabase,
     config,
     undefined,
-    repository,
+    accounts,
   );
-
-  assert.deepEqual(createInput, {
-    displayName: "Только обзор",
-    position: "board_member",
-    accountType: "business_owner",
-    navigationItems: ["business.overview"],
-    capabilities: [
-      "business.view_all_statistics",
-      "business.view_department_statistics",
-      "business.view_notifications",
-      "business.view_dispatcher_feed",
-    ],
-  });
-});
-
-test("admin access levels API updates a level for linked accounts", async () => {
-  let updateInput:
-    | Parameters<AccountsRepository["updateAccessLevel"]>[0]
-    | undefined;
-  const repository: AccountsRepository = {
-    ...accounts,
-    async updateAccessLevel(input) {
-      updateInput = input;
-      return {
-        ...(await accounts.listAccessLevels())[0],
-        displayName: input.displayName,
-        navigationItems: input.navigationItems,
-        capabilities: input.capabilities,
-      };
-    },
-  };
-
-  await withApiServer(
-    async (baseUrl) => {
-      const sessionId = await createDevSession(baseUrl, "admin");
-      const response = await fetch(
-        `${baseUrl}/api/admin/access-levels/system-dispatcher`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "X-SMB-Dev-Session": sessionId,
-          },
-          body: JSON.stringify({
-            displayName: "Расширенный",
-            navigationItems: ["business.overview", "business.dispatcher_form"],
-          }),
-        },
-      );
-      assert.equal(response.status, 200);
-    },
-    dispatcherSubmissions,
-    emptyReferenceDataSource,
-    undefined,
-    undefined,
-    adminDatabase,
-    config,
-    undefined,
-    repository,
-  );
-
-  assert.equal(updateInput?.displayName, "Расширенный");
-  assert.deepEqual(updateInput?.navigationItems, [
-    "business.overview",
-    "business.dispatcher_form",
-  ]);
 });
 
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {
@@ -907,7 +770,6 @@ test("admin accounts API updates navigation and server capabilities", async () =
 
   assert.deepEqual(updateInput, {
     accessId: adminAccount.accessId,
-    accessLevelId: null,
     navigationItems: ["business.dispatcher_form"],
     capabilities: [
       "business.submit_dispatcher_forms",
@@ -1159,6 +1021,7 @@ test("admin accounts API rejects client-managed provisioning fields", async () =
           businessAccountId: "client-business",
           departmentId: "client-department",
           accessDisplayName: "Privileged access",
+          accessLevelId: "removed-level",
           capabilities: ["platform.manage_users"],
         }),
       });
@@ -1172,6 +1035,7 @@ test("admin accounts API rejects client-managed provisioning fields", async () =
       assert.equal(didCreateAccount, false);
       assert.match(message, /businessAccountId is managed by the server/);
       assert.match(message, /accessDisplayName is managed by the server/);
+      assert.match(message, /accessLevelId is managed by the server/);
       assert.match(message, /capabilities is managed by the server/);
     },
     dispatcherSubmissions,

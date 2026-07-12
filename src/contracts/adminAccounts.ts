@@ -20,8 +20,6 @@ export type AdminAccountSummary = {
   departmentDisplayName: string | null;
   capabilities: AccountCapability[];
   navigationItems: AccountNavigationItem[];
-  accessLevelId: string | null;
-  accessLevelDisplayName: string | null;
   createdAt: string;
 };
 
@@ -35,7 +33,6 @@ export type CreateAdminAccountRequest = {
   displayName: string;
   position: AccountPosition;
   navigationItems: AccountNavigationItem[];
-  accessLevelId?: string;
   businessDisplayName?: string;
   departmentDisplayName?: string;
 };
@@ -43,46 +40,10 @@ export type CreateAdminAccountRequest = {
 export type SetAdminAccountNavigationRequest = {
   accessId: string;
   navigationItems: AccountNavigationItem[];
-  accessLevelId?: string | null;
 };
 
 export type SetAdminAccountNavigationResponse = {
   account: AdminAccountSummary;
-};
-
-export type AdminAccessLevelSummary = {
-  id: string;
-  displayName: string;
-  position: AccountPosition;
-  accountType: AccountType;
-  navigationItems: AccountNavigationItem[];
-  capabilities: AccountCapability[];
-  isSystem: boolean;
-  usageCount: number;
-  createdAt: string;
-};
-
-export type AdminAccessLevelsListResponse = {
-  accessLevels: AdminAccessLevelSummary[];
-};
-
-export type CreateAdminAccessLevelRequest = {
-  displayName: string;
-  position: AccountPosition;
-  navigationItems: AccountNavigationItem[];
-};
-
-export type CreateAdminAccessLevelResponse = {
-  accessLevel: AdminAccessLevelSummary;
-};
-
-export type UpdateAdminAccessLevelRequest = {
-  displayName: string;
-  navigationItems: AccountNavigationItem[];
-};
-
-export type UpdateAdminAccessLevelResponse = {
-  accessLevel: AdminAccessLevelSummary;
 };
 
 export type CreateAdminAccountResponse = {

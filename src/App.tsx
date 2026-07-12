@@ -9,7 +9,6 @@ import {
   accountCapabilities,
   type AccountNavigationItem,
   type AccountPosition,
-  type AdminAccessLevelSummary,
   type AccountType,
   type AdminAccountSummary,
   type AdminDatabaseCellValue,
@@ -98,16 +97,12 @@ import {
 } from "./services/adminDatabase";
 import {
   createAdminAccount,
-  createAdminAccessLevel,
   hasAdminAccountLogin,
   requestAdminAccounts,
-  requestAdminAccessLevels,
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
   setAdminAccountNavigation,
-  updateAdminAccessLevel,
   type AdminAccountsListResult,
-  type AdminAccessLevelsListResult,
 } from "./services/adminAccounts";
 import {
   buildEquipmentDetailRows,
@@ -189,10 +184,6 @@ type AdminAccountsLoadState =
       message: string;
     }
   | AdminAccountsListResult;
-
-type AdminAccessLevelsLoadState =
-  | { status: "loading"; message: string }
-  | AdminAccessLevelsListResult;
 
 type DispatcherFeedFilterState = {
   group: DispatcherFeedGroup;
@@ -3998,15 +3989,8 @@ type AdminAccountFormState = {
   displayName: string;
   position: AccountPosition;
   navigationItems: AccountNavigationItem[];
-  accessLevelId: string;
   businessDisplayName: string;
   departmentDisplayName: string;
-};
-
-type AdminAccessLevelFormState = {
-  displayName: string;
-  position: AccountPosition;
-  navigationItems: AccountNavigationItem[];
 };
 
 type AdminPasswordResetFormState = {
@@ -4020,15 +4004,8 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   displayName: "",
   position: "worker",
   navigationItems: ["business.work"],
-  accessLevelId: "",
   businessDisplayName: "",
   departmentDisplayName: "",
-};
-
-const emptyAdminAccessLevelForm: AdminAccessLevelFormState = {
-  displayName: "",
-  position: "worker",
-  navigationItems: ["business.work"],
 };
 
 const adminAccountPositionOptions: AccountPosition[] = [
@@ -4057,6 +4034,10 @@ function getNavigationOptionsForPosition(position: AccountPosition) {
     : nonAdminNavigationItems;
 }
 
+function formatNavigationItemLabel(item: NavigationItem) {
+  return `${item.label} (${item.description})`;
+}
+
 function buildAdminPreviewAccountForPosition(
   position: AccountPosition,
 ): AdminAccountSummary {
@@ -4068,7 +4049,7 @@ function buildAdminPreviewAccountForPosition(
   return {
     accessId: `admin-preview-${position}`,
     userId: `admin-preview-user-${position}`,
-    login: "Полный доступ",
+    login: "Ручная настройка",
     userDisplayName: "Типовой кабинет",
     userStatus: "active",
     accessDisplayName: `Превью: ${label}`,
@@ -4090,8 +4071,6 @@ function buildAdminPreviewAccountForPosition(
       ? []
       : accountCapabilities.filter((capability) => capability.startsWith("business.")),
     navigationItems,
-    accessLevelId: null,
-    accessLevelDisplayName: null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -4103,11 +4082,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     status: "loading",
     message: "Загружаем учётные записи.",
   });
-  const [accessLevelsState, setAccessLevelsState] =
-    useState<AdminAccessLevelsLoadState>({
-      status: "loading",
-      message: "Загружаем уровни доступа.",
-    });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [revealedPasswords, setRevealedPasswords] = useState<
     Record<string, string>
@@ -4116,13 +4090,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [formStatus, setFormStatus] = useState("");
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isAccessLevelModalOpen, setIsAccessLevelModalOpen] = useState(false);
-  const [editingAccessLevelId, setEditingAccessLevelId] = useState<string>();
-  const [accessLevelForm, setAccessLevelForm] = useState<AdminAccessLevelFormState>(
-    emptyAdminAccessLevelForm,
-  );
-  const [accessLevelFormStatus, setAccessLevelFormStatus] = useState("");
-  const [isAccessLevelSubmitting, setIsAccessLevelSubmitting] = useState(false);
   const [passwordResetForm, setPasswordResetForm] =
     useState<AdminPasswordResetFormState>();
   const [passwordResetStatus, setPasswordResetStatus] = useState("");
@@ -4137,7 +4104,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [navigationDrafts, setNavigationDrafts] = useState<
     Record<string, AccountNavigationItem[]>
   >({});
-  const [accessLevelDrafts, setAccessLevelDrafts] = useState<Record<string, string>>({});
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
   const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
@@ -4170,24 +4136,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       controller.abort();
     };
   }, [canManage, refreshVersion]);
-
-  useEffect(() => {
-    if (!canManageAccess) {
-      setAccessLevelsState({
-        status: "error",
-        message: "Серверный профиль не разрешает управление уровнями доступа.",
-        code: "access_denied",
-      });
-      return;
-    }
-
-    const controller = new AbortController();
-    setAccessLevelsState({ status: "loading", message: "Загружаем уровни доступа." });
-    requestAdminAccessLevels({ signal: controller.signal }).then((result) => {
-      if (!controller.signal.aborted) setAccessLevelsState(result);
-    });
-    return () => controller.abort();
-  }, [canManageAccess, refreshVersion]);
 
   useEffect(() => {
     if (!isCreateModalOpen) {
@@ -4260,29 +4208,9 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       ...emptyAdminAccountForm,
       position: current.position,
       navigationItems: getNavigationOptionsForPosition(current.position).map(({ id }) => id),
-      accessLevelId: "",
     }));
     setFormStatus("");
     setIsCreateModalOpen(true);
-  }
-
-  function openAccessLevelModal(accessLevel?: AdminAccessLevelSummary) {
-    setEditingAccessLevelId(accessLevel?.id);
-    setAccessLevelForm(
-      accessLevel === undefined
-        ? emptyAdminAccessLevelForm
-        : {
-            displayName: accessLevel.displayName,
-            position: accessLevel.position,
-            navigationItems: accessLevel.navigationItems,
-          },
-    );
-    setAccessLevelFormStatus("");
-    setIsAccessLevelModalOpen(true);
-  }
-
-  function closeAccessLevelModal() {
-    if (!isAccessLevelSubmitting) setIsAccessLevelModalOpen(false);
   }
 
   function closeCreateModal() {
@@ -4371,7 +4299,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       displayName: form.displayName.trim(),
       position: form.position,
       navigationItems: form.navigationItems,
-      accessLevelId: form.accessLevelId.length > 0 ? form.accessLevelId : undefined,
       businessDisplayName: scopeNames.businessDisplayName,
       departmentDisplayName: scopeNames.departmentDisplayName,
     });
@@ -4392,48 +4319,8 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       ...emptyAdminAccountForm,
       position: form.position,
       navigationItems: getNavigationOptionsForPosition(form.position).map(({ id }) => id),
-      accessLevelId: "",
     });
     finishCreateModal();
-    setRefreshVersion((version) => version + 1);
-  }
-
-  async function handleCreateAccessLevelSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (accessLevelForm.displayName.trim().length === 0) {
-      setAccessLevelFormStatus("Введите название уровня.");
-      return;
-    }
-    if (accessLevelForm.navigationItems.length === 0) {
-      setAccessLevelFormStatus("Выберите хотя бы одну вкладку.");
-      return;
-    }
-
-    setIsAccessLevelSubmitting(true);
-    setAccessLevelFormStatus("Создаём уровень доступа.");
-    const result = editingAccessLevelId === undefined
-      ? await createAdminAccessLevel({
-          displayName: accessLevelForm.displayName.trim(),
-          position: accessLevelForm.position,
-          navigationItems: accessLevelForm.navigationItems,
-        })
-      : await updateAdminAccessLevel(editingAccessLevelId, {
-          displayName: accessLevelForm.displayName.trim(),
-          navigationItems: accessLevelForm.navigationItems,
-        });
-    setIsAccessLevelSubmitting(false);
-
-    if (result.status !== "ready") {
-      setAccessLevelFormStatus(result.message);
-      return;
-    }
-
-    setIsAccessLevelModalOpen(false);
-    setWorkspaceStatus(
-      editingAccessLevelId === undefined
-        ? `Уровень доступа «${result.accessLevel.displayName}» создан.`
-        : `Уровень доступа «${result.accessLevel.displayName}» обновлён.`,
-    );
     setRefreshVersion((version) => version + 1);
   }
 
@@ -4515,7 +4402,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     itemId: AccountNavigationItem,
     isChecked: boolean,
   ) {
-    setAccessLevelDrafts((current) => ({ ...current, [account.accessId]: "" }));
     setNavigationDrafts((current) => {
       const items = current[account.accessId] ?? account.navigationItems;
       return {
@@ -4525,26 +4411,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
           : items.filter((id) => id !== itemId),
       };
     });
-  }
-
-  function handleAccessLevelDraftChange(
-    account: AdminAccountSummary,
-    accessLevelId: string,
-  ) {
-    const accessLevel =
-      accessLevelsState.status === "ready"
-        ? accessLevelsState.accessLevels.find((item) => item.id === accessLevelId)
-        : undefined;
-    setAccessLevelDrafts((current) => ({
-      ...current,
-      [account.accessId]: accessLevelId,
-    }));
-    if (accessLevel !== undefined) {
-      setNavigationDrafts((current) => ({
-        ...current,
-        [account.accessId]: accessLevel.navigationItems,
-      }));
-    }
   }
 
   async function handleSaveNavigation(account: AdminAccountSummary) {
@@ -4560,10 +4426,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     const result = await setAdminAccountNavigation({
       accessId: account.accessId,
       navigationItems,
-      accessLevelId:
-        accessLevelDrafts[account.accessId] === undefined
-          ? account.accessLevelId
-          : accessLevelDrafts[account.accessId] || null,
     });
     setUpdatingAccessId(undefined);
 
@@ -4573,11 +4435,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     }
 
     setNavigationDrafts((current) => {
-      const next = { ...current };
-      delete next[account.accessId];
-      return next;
-    });
-    setAccessLevelDrafts((current) => {
       const next = { ...current };
       delete next[account.accessId];
       return next;
@@ -4597,8 +4454,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   }
 
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
-  const accessLevels =
-    accessLevelsState.status === "ready" ? accessLevelsState.accessLevels : [];
   const formAccountType = accountTypeByPosition[form.position];
   const showsScopeNames = accountTypeShowsScopeNames(formAccountType);
 
@@ -4616,14 +4471,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             onClick={openCreateModal}
           >
             Новая учётная запись
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={!canManageAccess}
-            onClick={() => openAccessLevelModal()}
-          >
-            Новый уровень доступа
           </button>
         </div>
 
@@ -4682,30 +4529,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                       </td>
                       <td>
                         <div className="admin-account-navigation-cell">
-                          <select
-                            aria-label={`Уровень доступа для ${account.login}`}
-                            value={
-                              accessLevelDrafts[account.accessId] ??
-                              account.accessLevelId ??
-                              ""
-                            }
-                            disabled={!canManageAccess || isCurrentAccount}
-                            onChange={(event) =>
-                              handleAccessLevelDraftChange(
-                                account,
-                                event.currentTarget.value,
-                              )
-                            }
-                          >
-                            <option value="">Индивидуальный</option>
-                            {accessLevels
-                              .filter((level) => level.position === account.position)
-                              .map((level) => (
-                                <option key={level.id} value={level.id}>
-                                  {level.displayName}
-                                </option>
-                              ))}
-                          </select>
                           <details className="admin-account-access-details">
                             <summary>
                               Настроить доступы ({(
@@ -4729,7 +4552,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                                         )
                                       }
                                     />
-                                    <span>{item.label}</span>
+                                    <span>{formatNavigationItemLabel(item)}</span>
                                   </label>
                                 );
                               })}
@@ -4743,7 +4566,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                               isCurrentAccount ||
                               updatingAccessId === account.accessId ||
                               navigationDrafts[account.accessId] === undefined
-                              && accessLevelDrafts[account.accessId] === undefined
                             }
                             onClick={() => handleSaveNavigation(account)}
                           >
@@ -4786,57 +4608,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                     <td colSpan={6}>Учётных записей пока нет.</td>
                   </tr>
                 ) : null}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="admin-accounts-list admin-access-levels-list">
-        <h3>Уровни доступа</h3>
-        {accessLevelsState.status === "loading" ? <p>{accessLevelsState.message}</p> : null}
-        {accessLevelsState.status === "error" ? (
-          <p className="dispatcher-status-line">{accessLevelsState.message}</p>
-        ) : null}
-        {accessLevelsState.status === "ready" ? (
-          <div className="admin-db-table-scroll">
-            <table className="admin-db-data-table admin-access-levels-table">
-              <thead>
-                <tr>
-                  <th scope="col">Должность</th>
-                  <th scope="col">Вкладки слева</th>
-                  <th scope="col">Аккаунты</th>
-                  <th scope="col">Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accessLevels.map((level) => (
-                  <tr key={level.id}>
-                    <td>{accountPositionLabels[level.position]}</td>
-                    <td>
-                      {getNavigationOptionsForPosition(level.position)
-                        .filter((item) => level.navigationItems.includes(item.id))
-                        .map((item) => item.label)
-                        .join(", ")}
-                    </td>
-                    <td>{level.usageCount}</td>
-                    <td>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        disabled={level.accountType === "admin"}
-                        title={
-                          level.accountType === "admin"
-                            ? "Административные доступы меняются отдельно."
-                            : undefined
-                        }
-                        onClick={() => openAccessLevelModal(level)}
-                      >
-                        Настроить
-                      </button>
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>
@@ -4938,7 +4709,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                       navigationItems: getNavigationOptionsForPosition(
                         event.currentTarget.value as AccountPosition,
                       ).map(({ id }) => id),
-                      accessLevelId: "",
                     })
                   }
                 >
@@ -4947,30 +4717,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                       {accountPositionLabels[position]}
                     </option>
                   ))}
-                </select>
-              </label>
-
-              <label>
-                <span>Уровень доступа</span>
-                <select
-                  value={form.accessLevelId}
-                  onChange={(event) => {
-                    const accessLevelId = event.currentTarget.value;
-                    const level = accessLevels.find((item) => item.id === accessLevelId);
-                    handleFormFieldChange({
-                      accessLevelId,
-                      navigationItems: level?.navigationItems ?? form.navigationItems,
-                    });
-                  }}
-                >
-                  <option value="">Индивидуальный</option>
-                  {accessLevels
-                    .filter((level) => level.position === form.position)
-                    .map((level) => (
-                      <option key={level.id} value={level.id}>
-                        {level.displayName}
-                      </option>
-                    ))}
                 </select>
               </label>
 
@@ -4986,10 +4732,9 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                           ? [...form.navigationItems, item.id]
                           : form.navigationItems.filter((id) => id !== item.id);
                         handleFormFieldChange({ navigationItems });
-                        handleFormFieldChange({ accessLevelId: "" });
                       }}
                     />
-                    <span>{item.label}</span>
+                    <span>{formatNavigationItemLabel(item)}</span>
                   </label>
                 ))}
               </fieldset>
@@ -5045,116 +4790,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                   <p className="form-status" role="status">
                     {formStatus}
                   </p>
-                ) : null}
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
-
-      {isAccessLevelModalOpen ? (
-        <div
-          className="admin-db-modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeAccessLevelModal();
-          }}
-        >
-          <section
-            aria-labelledby="admin-access-level-create-title"
-            aria-modal="true"
-            className="admin-account-modal"
-            role="dialog"
-            onKeyDown={keepFocusInsideDialog}
-          >
-            <div className="admin-account-modal-header">
-              <h3 id="admin-access-level-create-title">
-                {editingAccessLevelId === undefined
-                  ? "Новый уровень доступа"
-                  : "Настройка уровня доступа"}
-              </h3>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={isAccessLevelSubmitting}
-                onClick={closeAccessLevelModal}
-              >
-                Закрыть
-              </button>
-            </div>
-            <form
-              className="data-entry-form admin-accounts-form"
-              onSubmit={handleCreateAccessLevelSubmit}
-            >
-              <label>
-                <span>Название уровня</span>
-                <input
-                  type="text"
-                  maxLength={120}
-                  value={accessLevelForm.displayName}
-                  onChange={(event) =>
-                    setAccessLevelForm((current) => ({
-                      ...current,
-                      displayName: event.currentTarget.value,
-                    }))
-                  }
-                  required
-                />
-              </label>
-              <label>
-                <span>Должность</span>
-                <select
-                  value={accessLevelForm.position}
-                  disabled={editingAccessLevelId !== undefined}
-                  onChange={(event) => {
-                    const position = event.currentTarget.value as AccountPosition;
-                    setAccessLevelForm((current) => ({
-                      ...current,
-                      position,
-                      navigationItems: getNavigationOptionsForPosition(position).map(({ id }) => id),
-                    }));
-                  }}
-                >
-                  {adminAccountPositionOptions.map((position) => (
-                    <option key={position} value={position}>
-                      {accountPositionLabels[position]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <fieldset className="admin-account-navigation-fieldset">
-                <legend>Доступ к вкладкам слева</legend>
-                {getNavigationOptionsForPosition(accessLevelForm.position).map((item) => (
-                  <label key={item.id} className="admin-account-navigation-option">
-                    <input
-                      type="checkbox"
-                      checked={accessLevelForm.navigationItems.includes(item.id)}
-                      onChange={(event) =>
-                        setAccessLevelForm((current) => ({
-                          ...current,
-                          navigationItems: event.currentTarget.checked
-                            ? [...current.navigationItems, item.id]
-                            : current.navigationItems.filter((id) => id !== item.id),
-                        }))
-                      }
-                    />
-                    <span>{item.label}</span>
-                  </label>
-                ))}
-              </fieldset>
-              <div className="form-actions">
-                <button className="primary-button" type="submit" disabled={isAccessLevelSubmitting}>
-                  {isAccessLevelSubmitting
-                    ? "Сохраняем…"
-                    : editingAccessLevelId === undefined
-                      ? "Создать"
-                      : "Сохранить"}
-                </button>
-                <button className="secondary-button" type="button" disabled={isAccessLevelSubmitting} onClick={closeAccessLevelModal}>
-                  Отмена
-                </button>
-                {accessLevelFormStatus.length > 0 ? (
-                  <p className="form-status" role="status">{accessLevelFormStatus}</p>
                 ) : null}
               </div>
             </form>

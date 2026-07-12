@@ -321,6 +321,42 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "008_remove_system_full_access_levels",
+    statements: [
+      `
+      update account_accesses accesses
+      join account_access_levels levels on levels.id = accesses.access_level_id
+      set accesses.access_level_id = null
+      where levels.is_system = 1;
+      `,
+      `
+      delete from account_access_levels
+      where is_system = 1;
+      `,
+    ],
+  },
+  {
+    id: "009_remove_account_access_levels",
+    statements: [
+      `
+      update account_accesses
+      set access_level_id = null
+      where access_level_id is not null;
+      `,
+      `
+      alter table account_accesses
+        drop index idx_account_accesses_access_level;
+      `,
+      `
+      alter table account_accesses
+        drop column access_level_id;
+      `,
+      `
+      drop table if exists account_access_levels;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

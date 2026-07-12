@@ -31,33 +31,7 @@ export type AdminAccountSummary = {
   departmentDisplayName: string | null;
   capabilities: AccountCapability[];
   navigationItems: AccountNavigationItem[];
-  accessLevelId: string | null;
-  accessLevelDisplayName: string | null;
   createdAt: string;
-};
-
-export type AdminAccessLevelSummary = {
-  id: string;
-  displayName: string;
-  position: AccountPosition;
-  accountType: AccountType;
-  navigationItems: AccountNavigationItem[];
-  capabilities: AccountCapability[];
-  isSystem: boolean;
-  usageCount: number;
-  createdAt: string;
-};
-
-export type CreateAccessLevelInput = Omit<
-  AdminAccessLevelSummary,
-  "id" | "isSystem" | "usageCount" | "createdAt"
->;
-
-export type UpdateAccessLevelInput = {
-  id: string;
-  displayName: string;
-  navigationItems: AccountNavigationItem[];
-  capabilities: AccountCapability[];
 };
 
 export type CreateAccountInput = {
@@ -68,7 +42,6 @@ export type CreateAccountInput = {
   position?: AccountPosition;
   capabilities: AccountCapability[];
   navigationItems?: AccountNavigationItem[];
-  accessLevelId?: string | null;
   businessAccountId?: string;
   businessDisplayName?: string;
   departmentId?: string;
@@ -92,7 +65,6 @@ export type SetAccountNavigationInput = {
   accessId: string;
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
-  accessLevelId?: string | null;
 };
 
 export type AccountLoginStatus = {
@@ -110,13 +82,6 @@ export type AccountsRepository = {
   setAccountNavigation: (
     input: SetAccountNavigationInput,
   ) => Promise<AdminAccountSummary | undefined>;
-  listAccessLevels: () => Promise<AdminAccessLevelSummary[]>;
-  createAccessLevel: (
-    input: CreateAccessLevelInput,
-  ) => Promise<AdminAccessLevelSummary>;
-  updateAccessLevel: (
-    input: UpdateAccessLevelInput,
-  ) => Promise<AdminAccessLevelSummary | undefined>;
 };
 
 export class AccountLoginAlreadyExistsError extends Error {
@@ -130,13 +95,6 @@ export class ArchivedAccountLoginStatusError extends Error {
   constructor() {
     super("Архивную учётную запись нельзя включить или отключить.");
     this.name = "ArchivedAccountLoginStatusError";
-  }
-}
-
-export class AccessLevelAlreadyExistsError extends Error {
-  constructor() {
-    super("Уровень доступа с таким названием уже существует для этой должности.");
-    this.name = "AccessLevelAlreadyExistsError";
   }
 }
 
@@ -160,8 +118,6 @@ type AccountRow = RowDataPacket & {
   department_display_name: string | null;
   capabilities: unknown;
   navigation_items: unknown;
-  access_level_id: string | null;
-  access_level_display_name: string | null;
   created_at: Date | string;
 };
 
@@ -171,18 +127,6 @@ type IdRow = RowDataPacket & {
 
 type UserStatusRow = RowDataPacket & {
   status: string;
-};
-
-type AccessLevelRow = RowDataPacket & {
-  id: string;
-  display_name: string;
-  position_code: string;
-  account_type: string;
-  navigation_items: unknown;
-  capabilities: unknown;
-  is_system: number | boolean;
-  created_at: Date | string;
-  usage_count: number | string;
 };
 
 const accountRowSelect = `
@@ -202,16 +146,12 @@ const accountRowSelect = `
     departments.display_name as department_display_name,
     accesses.capabilities,
     accesses.navigation_items,
-    accesses.access_level_id,
-    access_levels.display_name as access_level_display_name,
     accesses.created_at
   from account_accesses as accesses
   join app_users as users on users.id = accesses.user_id
   left join business_accounts as business
     on business.id = accesses.business_account_id
   left join departments on departments.id = accesses.department_id
-  left join account_access_levels as access_levels
-    on access_levels.id = accesses.access_level_id
 `;
 
 export function createAccountsRepository(
@@ -227,119 +167,6 @@ export function createAccountsRepository(
 
     return rows.map(mapAccountRow);
   }
-
-  async function listAccessLevels() {
-    const [rows] = await pool.query<AccessLevelRow[]>(`
-      select levels.id, levels.display_name, levels.position_code, levels.account_type,
-        levels.navigation_items, levels.capabilities, levels.is_system, levels.created_at,
-        (select count(*) from account_accesses accesses
-          where accesses.access_level_id = levels.id) as usage_count
-      from account_access_levels levels
-      order by position_code asc, is_system desc, display_name asc
-    `);
-
-    return rows.map(mapAccessLevelRow);
-  }
-
-  async function createAccessLevel(input: CreateAccessLevelInput) {
-    const id = createId();
-
-    try {
-      await pool.query(
-        `insert into account_access_levels (
-          id, display_name, position_code, account_type,
-          navigation_items, capabilities, is_system
-        ) values (?, ?, ?, ?, ?, ?, 0)`,
-        [
-          id,
-          input.displayName,
-          input.position,
-          input.accountType,
-          JSON.stringify(input.navigationItems),
-          JSON.stringify(input.capabilities),
-        ],
-      );
-    } catch (error) {
-      if (isDuplicateEntryError(error)) {
-        throw new AccessLevelAlreadyExistsError();
-      }
-      throw error;
-    }
-
-    return {
-      id,
-      ...input,
-      isSystem: false,
-      usageCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-  }
-
-  async function updateAccessLevel(input: UpdateAccessLevelInput) {
-    const connection = await pool.getConnection();
-
-    try {
-      await connection.beginTransaction();
-      const [rows] = await connection.query<AccessLevelRow[]>(`
-        select levels.id, levels.display_name, levels.position_code, levels.account_type,
-          levels.navigation_items, levels.capabilities, levels.is_system, levels.created_at,
-          0 as usage_count
-        from account_access_levels levels
-        where levels.id = ?
-        limit 1
-        for update
-      `, [input.id]);
-      const current = rows[0];
-
-      if (current === undefined) {
-        await connection.rollback();
-        return undefined;
-      }
-
-      await connection.query(
-        `update account_access_levels
-         set display_name = ?, navigation_items = ?, capabilities = ?
-         where id = ?`,
-        [
-          input.displayName,
-          JSON.stringify(input.navigationItems),
-          JSON.stringify(input.capabilities),
-          input.id,
-        ],
-      );
-      await connection.query(
-        `update account_accesses
-         set navigation_items = ?, capabilities = ?
-         where access_level_id = ?`,
-        [
-          JSON.stringify(input.navigationItems),
-          JSON.stringify(input.capabilities),
-          input.id,
-        ],
-      );
-      await connection.query(
-        `delete sessions from auth_sessions sessions
-         join account_accesses accesses on accesses.user_id = sessions.user_id
-         where accesses.access_level_id = ?`,
-        [input.id],
-      );
-
-      await connection.commit();
-      return {
-        ...mapAccessLevelRow(current),
-        displayName: input.displayName,
-        navigationItems: input.navigationItems,
-        capabilities: input.capabilities,
-      };
-    } catch (error) {
-      await connection.rollback();
-      if (isDuplicateEntryError(error)) throw new AccessLevelAlreadyExistsError();
-      throw error;
-    } finally {
-      connection.release();
-    }
-  }
-
   async function createAccount(input: CreateAccountInput) {
     const connection = await pool.getConnection();
 
@@ -353,24 +180,9 @@ export function createAccountsRepository(
         throw new AccountLoginAlreadyExistsError();
       }
 
-      let resolvedNavigationItems =
+      const resolvedNavigationItems =
         input.navigationItems ?? navigationItemsByAccountType[input.accountType];
-      let resolvedCapabilities = input.capabilities;
-
-      if (input.accessLevelId !== undefined && input.accessLevelId !== null) {
-        const level = await readAccessLevelById(connection, input.accessLevelId, true);
-        const position = input.position ?? defaultPositionByAccountType[input.accountType];
-
-        if (
-          level === undefined ||
-          level.position !== position ||
-          level.accountType !== input.accountType
-        ) {
-          throw new Error("Уровень доступа не подходит должности.");
-        }
-        resolvedNavigationItems = level.navigationItems;
-        resolvedCapabilities = level.capabilities;
-      }
+      const resolvedCapabilities = input.capabilities;
 
       const scope = resolveAccountProvisioningScope(input, createId);
 
@@ -454,10 +266,9 @@ export function createAccountsRepository(
             department_id,
             capabilities,
             navigation_items,
-            access_level_id,
             is_active
           )
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         `,
         [
           accessId,
@@ -470,7 +281,6 @@ export function createAccountsRepository(
           scope.department?.id ?? null,
           JSON.stringify(resolvedCapabilities),
           JSON.stringify(resolvedNavigationItems),
-          input.accessLevelId ?? null,
         ],
       );
 
@@ -577,7 +387,6 @@ export function createAccountsRepository(
     accessId,
     navigationItems,
     capabilities,
-    accessLevelId,
   }: SetAccountNavigationInput) {
     const connection = await pool.getConnection();
 
@@ -590,26 +399,13 @@ export function createAccountsRepository(
         return undefined;
       }
 
-
-      let resolvedNavigationItems = navigationItems;
-      let resolvedCapabilities = capabilities;
-      if (accessLevelId !== undefined && accessLevelId !== null) {
-        const level = await readAccessLevelById(connection, accessLevelId, true);
-        if (level === undefined || level.position !== existing.position) {
-          throw new Error("Уровень доступа не подходит учётной записи.");
-        }
-        resolvedNavigationItems = level.navigationItems;
-        resolvedCapabilities = level.capabilities;
-      }
-
       await connection.query(
         `update account_accesses
-         set capabilities = ?, navigation_items = ?, access_level_id = ?
+         set capabilities = ?, navigation_items = ?
          where id = ? and is_active = 1`,
         [
-          JSON.stringify(resolvedCapabilities),
-          JSON.stringify(resolvedNavigationItems),
-          accessLevelId ?? null,
+          JSON.stringify(capabilities),
+          JSON.stringify(navigationItems),
           accessId,
         ],
       );
@@ -660,42 +456,6 @@ export function createAccountsRepository(
     resetPassword,
     setAccountLoginEnabled,
     setAccountNavigation,
-    listAccessLevels,
-    createAccessLevel,
-    updateAccessLevel,
-  };
-}
-
-async function readAccessLevelById(
-  connection: PoolConnection,
-  id: string,
-  forUpdate = false,
-) {
-  const [rows] = await connection.query<AccessLevelRow[]>(`
-    select levels.id, levels.display_name, levels.position_code, levels.account_type,
-      levels.navigation_items, levels.capabilities, levels.is_system, levels.created_at,
-      0 as usage_count
-    from account_access_levels levels
-    where levels.id = ?
-    limit 1
-    ${forUpdate ? "for update" : ""}
-  `, [id]);
-  return rows[0] === undefined ? undefined : mapAccessLevelRow(rows[0]);
-}
-
-function mapAccessLevelRow(row: AccessLevelRow): AdminAccessLevelSummary {
-  const accountType = row.account_type as AccountType;
-
-  return {
-    id: row.id,
-    displayName: row.display_name,
-    position: readPosition(row.position_code, accountType),
-    accountType,
-    navigationItems: readNavigationItems(row.navigation_items, accountType),
-    capabilities: readCapabilities(row.capabilities),
-    isSystem: row.is_system === true || row.is_system === 1,
-    usageCount: Number(row.usage_count ?? 0),
-    createdAt: toDate(row.created_at).toISOString(),
   };
 }
 
@@ -726,8 +486,6 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     departmentDisplayName: row.department_display_name,
     capabilities: readCapabilities(row.capabilities),
     navigationItems: readNavigationItems(row.navigation_items, row.account_type as AccountType),
-    accessLevelId: row.access_level_id,
-    accessLevelDisplayName: row.access_level_display_name,
     createdAt: toDate(row.created_at).toISOString(),
   };
 }

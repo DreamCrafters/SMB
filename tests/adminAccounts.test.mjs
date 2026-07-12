@@ -2,14 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createAdminAccount,
-  createAdminAccessLevel,
   hasAdminAccountLogin,
   requestAdminAccounts,
-  requestAdminAccessLevels,
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
   setAdminAccountNavigation,
-  updateAdminAccessLevel,
 } from "../.test-build/src/services/adminAccounts.js";
 
 const originalFetch = globalThis.fetch;
@@ -36,8 +33,6 @@ const account = {
   departmentDisplayName: "Смена А",
   capabilities: ["business.submit_dispatcher_forms"],
   navigationItems: ["business.dispatcher_form"],
-  accessLevelId: "system-dispatcher",
-  accessLevelDisplayName: "Полный доступ",
   createdAt: "2026-07-10T00:00:00.000Z",
 };
 
@@ -85,65 +80,6 @@ test("admin accounts service creates an account without client-generated ids", a
     position: "dispatcher",
     navigationItems: ["business.dispatcher_form"],
   });
-});
-
-test("admin access levels service lists and creates reusable levels", async () => {
-  const accessLevel = {
-    id: "level-id",
-    displayName: "Только обзор",
-    position: "board_member",
-    accountType: "business_owner",
-    navigationItems: ["business.overview"],
-    capabilities: ["business.view_all_statistics"],
-    isSystem: false,
-    usageCount: 0,
-    createdAt: "2026-07-12T00:00:00.000Z",
-  };
-  let requestIndex = 0;
-  globalThis.fetch = async () => {
-    requestIndex += 1;
-    return requestIndex === 1
-      ? jsonResponse({ accessLevels: [accessLevel] })
-      : jsonResponse({ accessLevel }, 201);
-  };
-
-  const listResult = await requestAdminAccessLevels();
-  const createResult = await createAdminAccessLevel({
-    displayName: "Только обзор",
-    position: "board_member",
-    navigationItems: ["business.overview"],
-  });
-
-  assert.equal(listResult.status, "ready");
-  assert.equal(createResult.status, "ready");
-});
-
-test("admin access levels service updates an existing level", async () => {
-  const accessLevel = {
-    id: "level-id",
-    displayName: "Расширенный",
-    position: "worker",
-    accountType: "worker",
-    navigationItems: ["business.overview", "business.work"],
-    capabilities: ["business.view_all_statistics", "business.submit_forms"],
-    isSystem: false,
-    usageCount: 2,
-    createdAt: "2026-07-12T00:00:00.000Z",
-  };
-  let call;
-  globalThis.fetch = async (url, init) => {
-    call = { url: String(url), init };
-    return jsonResponse({ accessLevel });
-  };
-
-  const result = await updateAdminAccessLevel("level-id", {
-    displayName: "Расширенный",
-    navigationItems: ["business.overview", "business.work"],
-  });
-
-  assert.equal(result.status, "ready");
-  assert.equal(call.init.method, "PATCH");
-  assert.match(call.url, /access-levels\/level-id$/);
 });
 
 test("admin accounts service sends optional worker scope names without ids", async () => {
