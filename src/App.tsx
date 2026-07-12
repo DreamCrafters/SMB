@@ -3388,6 +3388,7 @@ function AdminAccountPreviewWorkspace({
           {accountTypePreviews.map((account) => (
             <AdminAccountPreviewButton
               account={account}
+              isTypePreview
               key={account.accessId}
               onSelectAccountView={onSelectAccountView}
             />
@@ -3408,6 +3409,7 @@ function AdminAccountPreviewWorkspace({
           {accounts.map((account) => (
             <AdminAccountPreviewButton
               account={account}
+              isTypePreview={false}
               key={account.accessId}
               onSelectAccountView={onSelectAccountView}
             />
@@ -3420,9 +3422,11 @@ function AdminAccountPreviewWorkspace({
 
 function AdminAccountPreviewButton({
   account,
+  isTypePreview,
   onSelectAccountView,
 }: {
   account: AdminAccountSummary;
+  isTypePreview: boolean;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
   const isAdmin = account.accountType === "admin";
@@ -3442,7 +3446,7 @@ function AdminAccountPreviewButton({
       }}
     >
       <span>{account.positionDisplayName}</span>
-      <strong>{account.userDisplayName}</strong>
+      {!isTypePreview ? <strong>{account.userDisplayName}</strong> : null}
       <small>
         {account.login}
         {isAdmin ? " · без превью" : ""}
