@@ -86,9 +86,9 @@ const defaultVisitorMaxUserIdColumns = [
   "Адресаты по посетителям (МАКС)",
 ] as const;
 const defaultGoogleSheetsCacheTtlMs = 0;
-const defaultEmailSubjectPrefix = "SMB Monitor";
+const defaultEmailSubjectPrefix = "НМОУ Вектор";
 const defaultMaxApiBaseUrl = "https://platform-api2.max.ru";
-const defaultMaxSubjectPrefix = "SMB Monitor";
+const defaultMaxSubjectPrefix = "НМОУ Вектор";
 
 export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const appEnv = readAppEnv(env.SMB_APP_ENV);

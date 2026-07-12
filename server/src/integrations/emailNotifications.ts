@@ -89,7 +89,7 @@ export function buildDispatcherSubmissionEmail(
   submission: DispatcherSubmission,
   recipients: NotificationRecipients,
   from: string,
-  subjectPrefix = "SMB Monitor",
+  subjectPrefix = "НМОУ Вектор",
 ): EmailMessage | undefined {
   const to = readDispatcherNotificationRecipients(submission, recipients);
 
@@ -109,7 +109,7 @@ export function buildEquipmentReportEmail(
   submissions: readonly DispatcherSubmission[],
   recipients: NotificationRecipients,
   from: string,
-  subjectPrefix = "SMB Monitor",
+  subjectPrefix = "НМОУ Вектор",
   status: EquipmentReportNotificationStatus = "created",
 ): EmailMessage | undefined {
   if (submissions.length === 0) {

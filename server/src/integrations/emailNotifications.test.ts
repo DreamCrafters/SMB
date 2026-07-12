@@ -24,12 +24,11 @@ test("buildDispatcherSubmissionEmail sends incident openings to common recipient
     }),
     recipients,
     "noreply@example.com",
-    "SMB Monitor",
   );
 
   assert.deepEqual(message?.to, ["common@example.com"]);
   assert.equal(message?.from, "noreply@example.com");
-  assert.equal(message?.subject, "[SMB Monitor] Открытие инцидента INC-2026-1");
+  assert.equal(message?.subject, "[НМОУ Вектор] Открытие инцидента INC-2026-1");
   assert.match(message?.text ?? "", /Место: Цех №1/);
 });
 

@@ -72,6 +72,7 @@
 - Для обоих Jino-доменов принудительный HTTP → HTTPS redirect выполнять на Apache/Jino boundary через tracked `public/.htaccess` с `X-Forwarded-Protocol`; deploy обязан публиковать dotfiles. Не разрешать HTTP-origin в production CORS и не снимать `Secure` с auth-cookie: отсутствие redirect нужно исправлять на уровне хостинга и проверять для `/`, `/health` и `/api/*`.
 - Рабочая Jino managed DB — `j53403317_bot1` с пользователем `j53403317_robot`; при запуске backend на Jino использовать DB host `localhost`, а если TCP-подключение даёт `user@127.0.0.1` access denied, подключать backend через `socketPath=/var/lib/mysql/mysql.sock` в `DATABASE_URL`; при внешней проверке/VPS использовать `mysql.584e7697571.hosting.myjino.ru` с IP allowlist.
 - Визуальный стиль проекта: Industrial Finance Operations — светлый stone-gray рабочий интерфейс с blue-gray навигацией, compact density, server/status strip, очередями, таблицами и строгими статусными цветами.
+- Видимый бренд продукта — `НМОУ Вектор`; заголовок вкладки production — `Вектор`, test — `Вектор Тест`. Технические идентификаторы `smb-*`, env-переменные, package names, storage keys и deployment-пути не переименовывать вместе с видимым брендом, чтобы не ломать окружения и сохранённые данные.
 
 ## Проверки
 

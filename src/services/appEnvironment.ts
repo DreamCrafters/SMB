@@ -10,3 +10,11 @@ export function readClientAppEnv(): SmbClientAppEnv {
 export function isProductionAppEnv() {
   return readClientAppEnv() === "production";
 }
+
+export function resolveClientSiteTitle(appEnv: SmbClientAppEnv) {
+  return appEnv === "production" ? "Вектор" : "Вектор Тест";
+}
+
+export function readClientSiteTitle() {
+  return resolveClientSiteTitle(readClientAppEnv());
+}
