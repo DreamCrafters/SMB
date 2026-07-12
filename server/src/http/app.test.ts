@@ -709,6 +709,61 @@ test("admin positions API keeps the worker workspace empty", async () => {
   assert.deepEqual(created[0]?.capabilities, []);
 });
 
+test("admin positions API separates manager and dispatcher tabs", async () => {
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createPosition(input) {
+      return { id: "position-split", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
+    const managerResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "Руководитель участка",
+        accountType: "business_owner",
+        navigationItems: ["business.overview", "business.dispatcher", "business.work"],
+      }),
+    });
+    const managerFormResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "Руководитель с формой",
+        accountType: "business_owner",
+        navigationItems: ["business.dispatcher_form"],
+      }),
+    });
+    const dispatcherResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "Старший диспетчер",
+        accountType: "dispatcher",
+        navigationItems: ["business.dispatcher_form"],
+      }),
+    });
+    const dispatcherOverviewResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "Диспетчер с обзором",
+        accountType: "dispatcher",
+        navigationItems: ["business.overview"],
+      }),
+    });
+
+    assert.equal(managerResponse.status, 201);
+    assert.equal(managerFormResponse.status, 400);
+    assert.equal(dispatcherResponse.status, 201);
+    assert.equal(dispatcherOverviewResponse.status, 400);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});
+
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {
   let createInput: Parameters<AccountsRepository["createAccount"]>[0] | undefined;
   let resetInput: Parameters<AccountsRepository["resetPassword"]>[0] | undefined;

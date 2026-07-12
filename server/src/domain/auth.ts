@@ -149,6 +149,8 @@ export const defaultCapabilitiesByAccountType: Record<
     "business.view_department_statistics",
     "business.view_notifications",
     "business.view_dispatcher_feed",
+    "business.submit_forms",
+    "business.view_own_submissions",
   ],
   worker: [],
   dispatcher: [

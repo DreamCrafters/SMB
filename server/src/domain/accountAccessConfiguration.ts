@@ -27,7 +27,7 @@ export const navigationItemsByAccountType: Record<
   AccountNavigationItem[]
 > = {
   admin: ["admin.account_preview", "admin.accounts", "admin.database"],
-  business_owner: ["business.overview", "business.dispatcher"],
+  business_owner: ["business.overview", "business.dispatcher", "business.work"],
   worker: [],
   dispatcher: ["business.dispatcher_form"],
 };
@@ -85,9 +85,16 @@ export function validateNavigationItemsForAccountType(
   accountType: AccountType,
   navigationItems: AccountNavigationItem[],
 ) {
-  const allowedItems =
-    accountType === "admin" ? navigationItemsByAccountType.admin : nonAdminNavigationItems;
+  const allowedItems = accountType === "admin"
+    ? navigationItemsByAccountType.admin
+    : accountType === "business_owner"
+      ? navigationItemsByAccountType.business_owner
+      : accountType === "dispatcher"
+        ? navigationItemsByAccountType.dispatcher
+        : navigationItemsByAccountType.worker;
   const allowed = new Set(allowedItems);
 
-  return navigationItems.length > 0 && navigationItems.every((item) => allowed.has(item));
+  return accountType === "worker"
+    ? navigationItems.length === 0
+    : navigationItems.length > 0 && navigationItems.every((item) => allowed.has(item));
 }

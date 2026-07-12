@@ -393,22 +393,22 @@ const migrations: Migration[] = [
             'business.view_own_submissions'
           ), 1),
         ('business_owner', 'Владелец бизнеса', 'business_owner',
-          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
-          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+          json_array('business.overview', 'business.dispatcher', 'business.work'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions'), 0),
         ('board_chair', 'Председатель совета директоров', 'business_owner',
-          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
-          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+          json_array('business.overview', 'business.dispatcher', 'business.work'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions'), 0),
         ('board_member', 'Член совета директоров', 'business_owner',
-          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
-          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+          json_array('business.overview', 'business.dispatcher', 'business.work'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions'), 0),
         ('general_director', 'Генеральный директор', 'business_owner',
-          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
-          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+          json_array('business.overview', 'business.dispatcher', 'business.work'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions'), 0),
         ('worker', 'Работник', 'worker',
           json_array(), json_array(), 0),
         ('dispatcher', 'Диспетчер', 'dispatcher',
-          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
-          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0)
+          json_array('business.dispatcher_form'),
+          json_array('business.submit_dispatcher_forms', 'business.view_dispatcher_feed'), 0)
       on duplicate key update id = values(id);
       `,
     ],
@@ -421,6 +421,40 @@ const migrations: Migration[] = [
       set navigation_items = json_array(),
           capabilities = json_array()
       where account_type = 'worker';
+      `,
+    ],
+  },
+  {
+    id: "012_split_manager_dispatcher_access",
+    statements: [
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(navigation_items, json_quote('business.dispatcher_form'))
+              then json_remove(
+                navigation_items,
+                json_unquote(json_search(navigation_items, 'one', 'business.dispatcher_form'))
+              )
+            else navigation_items
+          end,
+          capabilities = case
+            when json_contains(capabilities, json_quote('business.submit_dispatcher_forms'))
+              then json_remove(
+                capabilities,
+                json_unquote(json_search(capabilities, 'one', 'business.submit_dispatcher_forms'))
+              )
+            else capabilities
+          end
+      where account_type = 'business_owner';
+      `,
+      `
+      update account_positions
+      set navigation_items = json_array('business.dispatcher_form'),
+          capabilities = json_array(
+            'business.submit_dispatcher_forms',
+            'business.view_dispatcher_feed'
+          )
+      where account_type = 'dispatcher';
       `,
     ],
   },

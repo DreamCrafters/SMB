@@ -36,7 +36,7 @@ const defaultPositionByAccountType = {
 } as const;
 const navigationItemsByAccountType = {
   admin: ["admin.account_preview", "admin.accounts", "admin.database"],
-  business_owner: ["business.overview", "business.dispatcher"],
+  business_owner: ["business.overview", "business.dispatcher", "business.work"],
   worker: [],
   dispatcher: ["business.dispatcher_form"],
 } as const;
@@ -64,6 +64,8 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.view_department_statistics",
     "business.view_notifications",
     "business.view_dispatcher_feed",
+    "business.submit_forms",
+    "business.view_own_submissions",
   ],
   worker: [],
   dispatcher: ["business.submit_dispatcher_forms"],

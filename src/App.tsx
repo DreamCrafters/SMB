@@ -4026,16 +4026,31 @@ type AdminPositionFormState = {
 const emptyAdminPositionForm: AdminPositionFormState = {
   displayName: "",
   accountType: "business_owner",
-  navigationItems: nonAdminNavigationItems.map(({ id }) => id),
+  navigationItems: nonAdminNavigationItems
+    .filter(({ id }) => id !== "business.dispatcher_form")
+    .map(({ id }) => id),
+};
+
+const availableNavigationItemsByBaseCabinet: Record<
+  AdminPositionFormState["accountType"],
+  NavigationItem[]
+> = {
+  business_owner: nonAdminNavigationItems.filter(
+    ({ id }) => id !== "business.dispatcher_form",
+  ),
+  worker: [],
+  dispatcher: nonAdminNavigationItems.filter(
+    ({ id }) => id === "business.dispatcher_form",
+  ),
 };
 
 const defaultNavigationItemsByBaseCabinet: Record<
   AdminPositionFormState["accountType"],
   AccountNavigationItem[]
 > = {
-  business_owner: nonAdminNavigationItems.map(({ id }) => id),
+  business_owner: availableNavigationItemsByBaseCabinet.business_owner.map(({ id }) => id),
   worker: [],
-  dispatcher: ["business.dispatcher_form"],
+  dispatcher: availableNavigationItemsByBaseCabinet.dispatcher.map(({ id }) => id),
 };
 
 const baseCabinetLabels: Record<AdminPositionFormState["accountType"], string> = {
@@ -4293,7 +4308,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       id: position.id,
       displayName: position.displayName,
       accountType: position.accountType as AdminPositionFormState["accountType"],
-      navigationItems: [...position.navigationItems],
+      navigationItems: position.navigationItems.filter((id) =>
+        availableNavigationItemsByBaseCabinet[
+          position.accountType as AdminPositionFormState["accountType"]
+        ].some((item) => item.id === id),
+      ),
     });
     setPositionFormStatus("");
     setIsPositionModalOpen(true);
@@ -4886,7 +4905,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                   </p>
                 ) : (
                   <div className="admin-account-navigation-grid">
-                    {nonAdminNavigationItems.map((item) => (
+                    {availableNavigationItemsByBaseCabinet[positionForm.accountType].map((item) => (
                       <label key={item.id} className="admin-account-navigation-option">
                         <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
                           const isChecked = event.currentTarget.checked;

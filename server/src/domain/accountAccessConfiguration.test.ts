@@ -25,13 +25,39 @@ test("navigation validation rejects tabs from another workspace", () => {
     ]),
     false,
   );
-  assert.equal(validateNavigationItemsForAccountType("worker", []), false);
+  assert.equal(validateNavigationItemsForAccountType("worker", []), true);
   assert.equal(
     validateNavigationItemsForAccountType("worker", [
       "business.overview",
       "business.dispatcher_form",
     ]),
+    false,
+  );
+  assert.equal(
+    validateNavigationItemsForAccountType("business_owner", [
+      "business.overview",
+      "business.dispatcher",
+      "business.work",
+    ]),
     true,
+  );
+  assert.equal(
+    validateNavigationItemsForAccountType("business_owner", [
+      "business.dispatcher_form",
+    ]),
+    false,
+  );
+  assert.equal(
+    validateNavigationItemsForAccountType("dispatcher", [
+      "business.dispatcher_form",
+    ]),
+    true,
+  );
+  assert.equal(
+    validateNavigationItemsForAccountType("dispatcher", [
+      "business.overview",
+    ]),
+    false,
   );
   assert.equal(
     validateNavigationItemsForAccountType("admin", ["business.overview"]),
