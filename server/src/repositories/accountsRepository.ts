@@ -7,7 +7,6 @@ import {
   navigationItemsByAccountType,
 } from "../domain/accountAccessConfiguration.js";
 import {
-  accountPositions,
   hashPassword,
   isAccountNavigationItem,
   type AccountCapability,
@@ -26,12 +25,36 @@ export type AdminAccountSummary = {
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
+  positionDisplayName: string;
   scope: AccountScope;
   businessDisplayName: string | null;
   departmentDisplayName: string | null;
   capabilities: AccountCapability[];
   navigationItems: AccountNavigationItem[];
   createdAt: string;
+};
+
+export type AdminPositionSummary = {
+  id: string;
+  displayName: string;
+  accountType: AccountType;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
+  isProtected: boolean;
+  usageCount: number;
+  createdAt: string;
+};
+
+export type CreatePositionInput = Omit<
+  AdminPositionSummary,
+  "id" | "isProtected" | "usageCount" | "createdAt"
+>;
+
+export type UpdatePositionInput = {
+  id: string;
+  displayName: string;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
 };
 
 export type CreateAccountInput = {
@@ -82,6 +105,9 @@ export type AccountsRepository = {
   setAccountNavigation: (
     input: SetAccountNavigationInput,
   ) => Promise<AdminAccountSummary | undefined>;
+  listPositions: () => Promise<AdminPositionSummary[]>;
+  createPosition: (input: CreatePositionInput) => Promise<AdminPositionSummary>;
+  updatePosition: (input: UpdatePositionInput) => Promise<AdminPositionSummary | undefined>;
 };
 
 export class AccountLoginAlreadyExistsError extends Error {
@@ -111,6 +137,7 @@ type AccountRow = RowDataPacket & {
   access_display_name: string;
   account_type: string;
   position_code: string;
+  position_display_name: string;
   scope_kind: string;
   business_account_id: string | null;
   business_display_name: string | null;
@@ -119,6 +146,17 @@ type AccountRow = RowDataPacket & {
   capabilities: unknown;
   navigation_items: unknown;
   created_at: Date | string;
+};
+
+type PositionRow = RowDataPacket & {
+  id: string;
+  display_name: string;
+  account_type: string;
+  navigation_items: unknown;
+  capabilities: unknown;
+  is_protected: number | boolean;
+  created_at: Date | string;
+  usage_count: number | string;
 };
 
 type IdRow = RowDataPacket & {
@@ -137,18 +175,20 @@ const accountRowSelect = `
     users.display_name as user_display_name,
     users.status as user_status,
     accesses.display_name as access_display_name,
-    accesses.account_type,
+    positions.account_type,
     accesses.position_code,
+    positions.display_name as position_display_name,
     accesses.scope_kind,
     accesses.business_account_id,
     business.display_name as business_display_name,
     accesses.department_id,
     departments.display_name as department_display_name,
-    accesses.capabilities,
-    accesses.navigation_items,
+    positions.capabilities,
+    positions.navigation_items,
     accesses.created_at
   from account_accesses as accesses
   join app_users as users on users.id = accesses.user_id
+  join account_positions as positions on positions.id = accesses.position_code
   left join business_accounts as business
     on business.id = accesses.business_account_id
   left join departments on departments.id = accesses.department_id
@@ -166,6 +206,69 @@ export function createAccountsRepository(
     `);
 
     return rows.map(mapAccountRow);
+  }
+
+  async function listPositions() {
+    const [rows] = await pool.query<PositionRow[]>(`
+      select positions.id, positions.display_name, positions.account_type,
+        positions.navigation_items, positions.capabilities, positions.is_protected,
+        positions.created_at,
+        (select count(*) from account_accesses accesses
+          where accesses.position_code = positions.id) as usage_count
+      from account_positions positions
+      order by positions.is_protected desc, positions.display_name asc
+    `);
+    return rows.map(mapPositionRow);
+  }
+
+  async function createPosition(input: CreatePositionInput) {
+    const id = `position-${createId()}`;
+    await pool.query(
+      `insert into account_positions (
+        id, display_name, account_type, navigation_items, capabilities, is_protected
+      ) values (?, ?, ?, ?, ?, 0)`,
+      [id, input.displayName, input.accountType,
+        JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities)],
+    );
+    return { id, ...input, isProtected: false, usageCount: 0, createdAt: new Date().toISOString() };
+  }
+
+  async function updatePosition(input: UpdatePositionInput) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.query<PositionRow[]>(`
+        select positions.id, positions.display_name, positions.account_type,
+          positions.navigation_items, positions.capabilities, positions.is_protected,
+          positions.created_at,
+          (select count(*) from account_accesses accesses
+            where accesses.position_code = positions.id) as usage_count
+        from account_positions positions where positions.id = ? limit 1 for update
+      `, [input.id]);
+      const current = rows[0];
+      if (current === undefined) {
+        await connection.rollback();
+        return undefined;
+      }
+      await connection.query(
+        `update account_positions set display_name = ?, navigation_items = ?, capabilities = ? where id = ?`,
+        [input.displayName, JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities), input.id],
+      );
+      await connection.query(
+        `delete sessions from auth_sessions sessions
+         join account_accesses accesses on accesses.user_id = sessions.user_id
+         where accesses.position_code = ?`,
+        [input.id],
+      );
+      await connection.commit();
+      return { ...mapPositionRow(current), displayName: input.displayName,
+        navigationItems: input.navigationItems, capabilities: input.capabilities };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
   async function createAccount(input: CreateAccountInput) {
     const connection = await pool.getConnection();
@@ -456,6 +559,9 @@ export function createAccountsRepository(
     resetPassword,
     setAccountLoginEnabled,
     setAccountNavigation,
+    listPositions,
+    createPosition,
+    updatePosition,
   };
 }
 
@@ -481,6 +587,7 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     accessDisplayName: row.access_display_name,
     accountType: row.account_type as AccountType,
     position: readPosition(row.position_code, row.account_type as AccountType),
+    positionDisplayName: row.position_display_name,
     scope: buildScope(row),
     businessDisplayName: row.business_display_name,
     departmentDisplayName: row.department_display_name,
@@ -490,9 +597,23 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
   };
 }
 
+function mapPositionRow(row: PositionRow): AdminPositionSummary {
+  const accountType = row.account_type as AccountType;
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    accountType,
+    navigationItems: readNavigationItems(row.navigation_items, accountType),
+    capabilities: readCapabilities(row.capabilities),
+    isProtected: row.is_protected === true || row.is_protected === 1,
+    usageCount: Number(row.usage_count ?? 0),
+    createdAt: toDate(row.created_at).toISOString(),
+  };
+}
+
 function readPosition(value: unknown, accountType: AccountType): AccountPosition {
-  if (typeof value === "string" && accountPositions.includes(value as AccountPosition)) {
-    return value as AccountPosition;
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value;
   }
 
   return defaultPositionByAccountType[accountType];

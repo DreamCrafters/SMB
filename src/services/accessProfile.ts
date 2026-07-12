@@ -8,7 +8,6 @@ import type {
 import {
   accountCapabilities,
   accountNavigationItems,
-  accountPositions,
 } from "../contracts/accounts.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import { readLocalDevAccessProfile } from "./localDevAccess.js";
@@ -373,7 +372,9 @@ function isServerIssuedAccountAccess(value: unknown): value is ServerIssuedAccou
     typeof value.accountId === "string" &&
     isAccountType(value.accountType) &&
     typeof value.position === "string" &&
-    accountPositions.includes(value.position as (typeof accountPositions)[number]) &&
+    value.position.trim().length > 0 &&
+    typeof value.positionDisplayName === "string" &&
+    value.positionDisplayName.trim().length > 0 &&
     typeof value.displayName === "string" &&
     Array.isArray(value.capabilities) &&
     value.capabilities.every(isAccountCapability) &&

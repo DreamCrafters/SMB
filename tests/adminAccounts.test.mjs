@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createAdminAccount,
+  createAdminPosition,
   hasAdminAccountLogin,
   requestAdminAccounts,
+  requestAdminPositions,
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
   setAdminAccountNavigation,
@@ -24,6 +26,7 @@ const account = {
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher",
   position: "dispatcher",
+  positionDisplayName: "Диспетчер",
   scope: {
     kind: "department",
     businessAccountId: "business-id",
@@ -67,7 +70,6 @@ test("admin accounts service creates an account without client-generated ids", a
     password: "supersecret1",
     displayName: "Диспетчер Один",
     position: "dispatcher",
-    navigationItems: ["business.dispatcher_form"],
   });
 
   assert.equal(result.status, "ready");
@@ -78,7 +80,6 @@ test("admin accounts service creates an account without client-generated ids", a
     password: "supersecret1",
     displayName: "Диспетчер Один",
     position: "dispatcher",
-    navigationItems: ["business.dispatcher_form"],
   });
 });
 
@@ -96,7 +97,6 @@ test("admin accounts service sends optional worker scope names without ids", asy
     password: "supersecret1",
     displayName: "Работник Один",
     position: "worker",
-    navigationItems: ["business.work"],
     businessDisplayName: "Основной бизнес",
     departmentDisplayName: "Производство",
   });
@@ -106,7 +106,6 @@ test("admin accounts service sends optional worker scope names without ids", asy
     password: "supersecret1",
     displayName: "Работник Один",
     position: "worker",
-    navigationItems: ["business.work"],
     businessDisplayName: "Основной бизнес",
     departmentDisplayName: "Производство",
   });
@@ -115,6 +114,35 @@ test("admin accounts service sends optional worker scope names without ids", asy
 test("admin account login precheck is trimmed and case-insensitive", () => {
   assert.equal(hasAdminAccountLogin([account], " DISPATCHER-1 "), true);
   assert.equal(hasAdminAccountLogin([account], "dispatcher-2"), false);
+});
+
+test("admin positions service lists and creates positions with a base cabinet", async () => {
+  const position = {
+    id: "position-chief-engineer",
+    displayName: "Главный инженер",
+    accountType: "business_owner",
+    navigationItems: ["business.overview", "business.dispatcher"],
+    capabilities: ["business.view_dashboard", "business.view_dispatcher_feed"],
+    isProtected: false,
+    usageCount: 0,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  };
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return calls.length === 1 ? jsonResponse({ positions: [position] }) : jsonResponse({ position }, 201);
+  };
+
+  const list = await requestAdminPositions({ baseUrl: "http://api.test" });
+  const created = await createAdminPosition({
+    displayName: "Главный инженер",
+    accountType: "business_owner",
+    navigationItems: ["business.overview", "business.dispatcher"],
+  }, { baseUrl: "http://api.test" });
+
+  assert.equal(list.status, "ready");
+  assert.equal(created.status, "ready");
+  assert.equal(calls[1].init.method, "POST");
 });
 
 test("admin accounts service resets a password", async () => {

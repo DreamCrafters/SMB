@@ -164,6 +164,7 @@ function buildLocalDevProfile(
         accountId: "local-dev-access-admin",
         accountType,
         position: defaultPositionByAccountType[accountType],
+        positionDisplayName: "Администратор",
         displayName: "Local test admin access",
         scope: {
           kind: "platform",
@@ -188,6 +189,7 @@ function buildLocalDevProfile(
         accountId: "local-dev-access-owner",
         accountType,
         position: defaultPositionByAccountType[accountType],
+        positionDisplayName: "Владелец бизнеса",
         displayName: "Local test business owner access",
         scope: {
           kind: "business",
@@ -213,6 +215,7 @@ function buildLocalDevProfile(
         accountId: "local-dev-access-dispatcher",
         accountType,
         position: defaultPositionByAccountType[accountType],
+        positionDisplayName: "Диспетчер",
         displayName: "Local test dispatcher access",
         scope: {
           kind: "department",
@@ -238,6 +241,7 @@ function buildLocalDevProfile(
       accountId: "local-dev-access-worker",
       accountType,
       position: defaultPositionByAccountType[accountType],
+      positionDisplayName: "Работник",
       displayName: "Local test worker access",
       scope: {
         kind: "department",

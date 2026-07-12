@@ -10,7 +10,7 @@ export const accountPositions = [
   "dispatcher",
 ] as const;
 
-export type AccountPosition = (typeof accountPositions)[number];
+export type AccountPosition = string;
 
 export const accountNavigationItems = [
   "admin.account_preview",
@@ -62,6 +62,7 @@ export type ServerIssuedAccountAccess = {
   accountId: string;
   accountType: AccountType;
   position: AccountPosition;
+  positionDisplayName: string;
   displayName: string;
   scope: AccountScope;
   capabilities: AccountCapability[];

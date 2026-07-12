@@ -481,6 +481,7 @@ const adminAccount = {
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher" as AccountType,
   position: "dispatcher" as const,
+  positionDisplayName: "Диспетчер",
   scope: {
     kind: "department" as const,
     businessAccountId: "business-id",
@@ -511,6 +512,36 @@ const accounts: AccountsRepository = {
   },
   async setAccountNavigation() {
     return adminAccount;
+  },
+  async listPositions() {
+    return [
+      {
+        id: "dispatcher",
+        displayName: "Диспетчер",
+        accountType: "dispatcher",
+        navigationItems: ["business.dispatcher", "business.dispatcher_form"],
+        capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
+        isProtected: true,
+        usageCount: 1,
+        createdAt: "2026-07-10T00:00:00.000Z",
+      },
+      {
+        id: "business_owner",
+        displayName: "Владелец бизнеса",
+        accountType: "business_owner",
+        navigationItems: ["business.overview", "business.dispatcher"],
+        capabilities: ["business.view_all_statistics", "business.view_dispatcher_feed"],
+        isProtected: true,
+        usageCount: 0,
+        createdAt: "2026-07-10T00:00:00.000Z",
+      },
+    ];
+  },
+  async createPosition(input) {
+    return { id: "created-position", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
+  },
+  async updatePosition(input) {
+    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
   },
 };
 
@@ -595,6 +626,36 @@ test("admin access levels API is removed", async () => {
     undefined,
     accounts,
   );
+});
+
+test("admin positions API creates a position from a supported base cabinet", async () => {
+  let createdInput: Parameters<AccountsRepository["createPosition"]>[0] | undefined;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createPosition(input) {
+      createdInput = input;
+      return { id: "position-chief", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
+      body: JSON.stringify({
+        displayName: "Главный инженер",
+        accountType: "business_owner",
+        navigationItems: ["business.overview", "business.dispatcher"],
+      }),
+    });
+
+    assert.equal(response.status, 201);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.equal(createdInput?.accountType, "business_owner");
+  assert.deepEqual(createdInput?.navigationItems, ["business.overview", "business.dispatcher"]);
+  assert.equal(createdInput?.capabilities.includes("business.view_dispatcher_feed"), true);
 });
 
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {
@@ -725,22 +786,7 @@ test("admin accounts API suspends another user login", async () => {
   });
 });
 
-test("admin accounts API updates navigation and server capabilities", async () => {
-  let updateInput:
-    | Parameters<AccountsRepository["setAccountNavigation"]>[0]
-    | undefined;
-  const repository: AccountsRepository = {
-    ...accounts,
-    async setAccountNavigation(input) {
-      updateInput = input;
-      return {
-        ...adminAccount,
-        navigationItems: input.navigationItems,
-        capabilities: input.capabilities,
-      };
-    },
-  };
-
+test("admin accounts API rejects individual navigation changes", async () => {
   await withApiServer(
     async (baseUrl) => {
       const sessionId = await createDevSession(baseUrl, "admin");
@@ -756,7 +802,7 @@ test("admin accounts API updates navigation and server capabilities", async () =
         }),
       });
 
-      assert.equal(response.status, 200);
+      assert.equal(response.status, 400);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -765,17 +811,8 @@ test("admin accounts API updates navigation and server capabilities", async () =
     adminDatabase,
     config,
     undefined,
-    repository,
+    accounts,
   );
-
-  assert.deepEqual(updateInput, {
-    accessId: adminAccount.accessId,
-    navigationItems: ["business.dispatcher_form"],
-    capabilities: [
-      "business.submit_dispatcher_forms",
-      "business.view_dispatcher_feed",
-    ],
-  });
 });
 
 test("admin accounts API requires manage_access to change login status", async () => {
@@ -2212,6 +2249,7 @@ function buildProductionProfile(accountType: AccountType): ServerUserProfile {
           : accountType === "business_owner"
             ? "business_owner"
             : accountType,
+      positionDisplayName: accountType === "admin" ? "Администратор" : accountType,
       displayName: `Production ${accountType} access`,
       scope,
       capabilities: [...defaultCapabilitiesByAccountType[accountType]],

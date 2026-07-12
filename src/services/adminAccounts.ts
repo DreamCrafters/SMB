@@ -1,10 +1,14 @@
 import type {
   AccountAccessErrorCode,
   AdminAccountSummary,
+  AdminPositionSummary,
+  AdminPositionsListResponse,
   AdminAccountsListResponse,
   CreateAdminAccountRequest,
   CreateAdminAccountResponse,
   ResetAdminAccountPasswordRequest,
+  SaveAdminPositionRequest,
+  SaveAdminPositionResponse,
   SetAdminAccountLoginEnabledRequest,
   SetAdminAccountLoginEnabledResponse,
   SetAdminAccountNavigationRequest,
@@ -19,6 +23,7 @@ import {
 
 const ADMIN_ACCOUNTS_PATH = "/api/admin/accounts";
 const ADMIN_ACCOUNTS_RESET_PASSWORD_PATH = "/api/admin/accounts/reset-password";
+const ADMIN_POSITIONS_PATH = "/api/admin/positions";
 
 export type AdminAccountsErrorState = {
   status: "error";
@@ -58,6 +63,77 @@ export type SetAdminAccountLoginEnabledResult =
 export type SetAdminAccountNavigationResult =
   | { status: "ready"; account: AdminAccountSummary }
   | AdminAccountsErrorState;
+
+export type AdminPositionsResult =
+  | { status: "ready"; positions: AdminPositionSummary[] }
+  | AdminAccountsErrorState;
+export type SaveAdminPositionResult =
+  | { status: "ready"; position: AdminPositionSummary }
+  | AdminAccountsErrorState;
+
+export async function requestAdminPositions(
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<AdminPositionsResult> {
+  return requestPositions("GET", undefined, { baseUrl, signal });
+}
+
+export async function createAdminPosition(
+  value: SaveAdminPositionRequest,
+  options: AdminAccountsRequestOptions = {},
+): Promise<SaveAdminPositionResult> {
+  return requestPositionSave(ADMIN_POSITIONS_PATH, "POST", value, options);
+}
+
+export async function updateAdminPosition(
+  id: string,
+  value: SaveAdminPositionRequest,
+  options: AdminAccountsRequestOptions = {},
+): Promise<SaveAdminPositionResult> {
+  return requestPositionSave(`${ADMIN_POSITIONS_PATH}/${encodeURIComponent(id)}`, "PATCH", value, options);
+}
+
+async function requestPositions(
+  method: "GET",
+  body: undefined,
+  { baseUrl, signal }: AdminAccountsRequestOptions,
+): Promise<AdminPositionsResult> {
+  const endpoint = resolveApiEndpoint(ADMIN_POSITIONS_PATH, ADMIN_POSITIONS_PATH, { baseUrl });
+  try {
+    const response = await fetch(endpoint, { method, headers: buildDevAccessHeaders({ Accept: "application/json" }), credentials: "include", signal });
+    const payload = await readJson(response);
+    if (!response.ok) return readRemoteError(payload, response.status, "Не удалось загрузить должности.");
+    if (isAdminPositionsListResponse(payload)) return { status: "ready", positions: payload.positions };
+    return { status: "error", message: "Сервер вернул должности в неподдерживаемом формате.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Запрос должностей отменён." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось загрузить должности.", { baseUrl }), code: "network_error" };
+  }
+}
+
+async function requestPositionSave(
+  path: string,
+  method: "POST" | "PATCH",
+  value: SaveAdminPositionRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions,
+): Promise<SaveAdminPositionResult> {
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+  try {
+    const response = await fetch(endpoint, {
+      method,
+      headers: buildDevAccessHeaders({ Accept: "application/json", "Content-Type": "application/json" }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify(value),
+    });
+    const payload = await readJson(response);
+    if (!response.ok) return readRemoteError(payload, response.status, "Не удалось сохранить должность.");
+    if (isSaveAdminPositionResponse(payload)) return { status: "ready", position: payload.position };
+    return { status: "error", message: "Сервер вернул должность в неподдерживаемом формате.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Запрос должности отменён." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось сохранить должность.", { baseUrl }), code: "network_error" };
+  }
+}
 
 export function hasAdminAccountLogin(
   accounts: AdminAccountSummary[],
@@ -398,6 +474,28 @@ function isAdminAccountsListResponse(
   );
 }
 
+function isAdminPositionsListResponse(value: unknown): value is AdminPositionsListResponse {
+  return isRecord(value) && Array.isArray(value.positions) && value.positions.every(isAdminPositionSummary);
+}
+
+function isSaveAdminPositionResponse(value: unknown): value is SaveAdminPositionResponse {
+  return isRecord(value) && isAdminPositionSummary(value.position);
+}
+
+function isAdminPositionSummary(value: unknown): value is AdminPositionSummary {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.displayName === "string" &&
+    typeof value.accountType === "string" &&
+    Array.isArray(value.navigationItems) &&
+    Array.isArray(value.capabilities) &&
+    typeof value.isProtected === "boolean" &&
+    typeof value.usageCount === "number" &&
+    typeof value.createdAt === "string"
+  );
+}
+
 function isCreateAdminAccountResponse(
   value: unknown,
 ): value is CreateAdminAccountResponse {
@@ -431,6 +529,7 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     typeof value.accessDisplayName === "string" &&
     typeof value.accountType === "string" &&
     typeof value.position === "string" &&
+    typeof value.positionDisplayName === "string" &&
     isRecord(value.scope) &&
     (typeof value.businessDisplayName === "string" ||
       value.businessDisplayName === null) &&

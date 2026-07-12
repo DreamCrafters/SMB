@@ -357,6 +357,63 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "010_dynamic_account_positions",
+    statements: [
+      `
+      alter table account_accesses
+        modify position_code varchar(120) not null;
+      `,
+      `
+      create table if not exists account_positions (
+        id varchar(120) not null primary key,
+        display_name varchar(255) not null,
+        account_type varchar(40) not null,
+        navigation_items json not null,
+        capabilities json not null,
+        is_protected tinyint(1) not null default 0,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        unique key uniq_account_positions_name (display_name)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into account_positions (
+        id, display_name, account_type, navigation_items, capabilities, is_protected
+      ) values
+        ('administrator', 'Администратор', 'admin',
+          json_array('admin.account_preview', 'admin.accounts', 'admin.database'),
+          json_array(
+            'platform.manage_business_accounts', 'platform.manage_users',
+            'platform.manage_access', 'platform.manage_analytics_database',
+            'business.view_all_statistics', 'business.view_department_statistics',
+            'business.view_notifications', 'business.submit_forms',
+            'business.submit_dispatcher_forms', 'business.view_dispatcher_feed',
+            'business.view_own_submissions'
+          ), 1),
+        ('business_owner', 'Владелец бизнеса', 'business_owner',
+          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+        ('board_chair', 'Председатель совета директоров', 'business_owner',
+          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+        ('board_member', 'Член совета директоров', 'business_owner',
+          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+        ('general_director', 'Генеральный директор', 'business_owner',
+          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+        ('worker', 'Работник', 'worker',
+          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0),
+        ('dispatcher', 'Диспетчер', 'dispatcher',
+          json_array('business.overview', 'business.dispatcher', 'business.work', 'business.dispatcher_form'),
+          json_array('business.view_all_statistics', 'business.view_department_statistics', 'business.view_notifications', 'business.view_dispatcher_feed', 'business.submit_forms', 'business.view_own_submissions', 'business.submit_dispatcher_forms'), 0)
+      on duplicate key update id = values(id);
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

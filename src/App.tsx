@@ -11,6 +11,7 @@ import {
   type AccountPosition,
   type AccountType,
   type AdminAccountSummary,
+  type AdminPositionSummary,
   type AdminDatabaseCellValue,
   type AdminDatabaseColumn,
   type AdminDatabaseRow,
@@ -97,12 +98,15 @@ import {
 } from "./services/adminDatabase";
 import {
   createAdminAccount,
+  createAdminPosition,
   hasAdminAccountLogin,
   requestAdminAccounts,
+  requestAdminPositions,
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
-  setAdminAccountNavigation,
+  updateAdminPosition,
   type AdminAccountsListResult,
+  type AdminPositionsResult,
 } from "./services/adminAccounts";
 import {
   buildEquipmentDetailRows,
@@ -1027,7 +1031,7 @@ function SideRail({
       </nav>
       <div className="rail-note">
         <span>доступ</span>
-        <strong>{accountPositionLabels[profile.activeAccess.position]}</strong>
+        <strong>{profile.activeAccess.positionDisplayName}</strong>
         <button
           className="rail-logout-button"
           type="button"
@@ -3351,11 +3355,17 @@ function AdminAccountPreviewWorkspace({
     status: "loading",
     message: "Загружаем учётные записи.",
   });
-
+  const [positionsState, setPositionsState] = useState<AdminPositionsResult>({
+    status: "error",
+    message: "Загружаем должности.",
+  });
   useEffect(() => {
     const controller = new AbortController();
     requestAdminAccounts({ signal: controller.signal }).then((result) => {
       if (!controller.signal.aborted) setAccountsState(result);
+    });
+    requestAdminPositions({ signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted) setPositionsState(result);
     });
     return () => controller.abort();
   }, []);
@@ -3364,9 +3374,9 @@ function AdminAccountPreviewWorkspace({
     accountsState.status === "ready"
       ? accountsState.accounts
       : [];
-  const accountTypePreviews = adminAccountPositionOptions.map(
-    buildAdminPreviewAccountForPosition,
-  );
+  const accountTypePreviews = positionsState.status === "ready"
+    ? positionsState.positions.map(buildAdminPreviewAccountForDefinition)
+    : adminAccountPositionOptions.map(buildAdminPreviewAccountForPosition);
 
   return (
     <section className="admin-workspace" aria-label="Просмотр аккаунта">
@@ -3429,7 +3439,7 @@ function AdminAccountPreviewButton({
         if (!isAdmin) onSelectAccountView(account);
       }}
     >
-      <span>{accountPositionLabels[account.position]}</span>
+      <span>{account.positionDisplayName}</span>
       <strong>{account.userDisplayName}</strong>
       <small>
         {account.login}
@@ -3988,7 +3998,6 @@ type AdminAccountFormState = {
   password: string;
   displayName: string;
   position: AccountPosition;
-  navigationItems: AccountNavigationItem[];
   businessDisplayName: string;
   departmentDisplayName: string;
 };
@@ -4003,9 +4012,27 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   password: "",
   displayName: "",
   position: "worker",
-  navigationItems: ["business.work"],
   businessDisplayName: "",
   departmentDisplayName: "",
+};
+
+type AdminPositionFormState = {
+  id?: string;
+  displayName: string;
+  accountType: "business_owner" | "worker" | "dispatcher";
+  navigationItems: AccountNavigationItem[];
+};
+
+const emptyAdminPositionForm: AdminPositionFormState = {
+  displayName: "",
+  accountType: "business_owner",
+  navigationItems: nonAdminNavigationItems.map(({ id }) => id),
+};
+
+const baseCabinetLabels: Record<AdminPositionFormState["accountType"], string> = {
+  business_owner: "Руководитель",
+  worker: "Работник",
+  dispatcher: "Диспетчер",
 };
 
 const adminAccountPositionOptions: AccountPosition[] = [
@@ -4055,6 +4082,7 @@ function buildAdminPreviewAccountForPosition(
     accessDisplayName: `Превью: ${label}`,
     accountType,
     position,
+    positionDisplayName: label,
     scope: isAdmin
       ? { kind: "platform" }
       : accountType === "business_owner"
@@ -4075,12 +4103,48 @@ function buildAdminPreviewAccountForPosition(
   };
 }
 
+function buildAdminPreviewAccountForDefinition(
+  position: AdminPositionSummary,
+): AdminAccountSummary {
+  const isAdmin = position.accountType === "admin";
+  const isBusinessOwner = position.accountType === "business_owner";
+  return {
+    accessId: `admin-preview-${position.id}`,
+    userId: `admin-preview-user-${position.id}`,
+    login: "Типовой кабинет",
+    userDisplayName: position.displayName,
+    userStatus: "active",
+    accessDisplayName: `Превью: ${position.displayName}`,
+    accountType: position.accountType,
+    position: position.id,
+    positionDisplayName: position.displayName,
+    scope: isAdmin
+      ? { kind: "platform" }
+      : isBusinessOwner
+        ? { kind: "business", businessAccountId: "admin-preview-business" }
+        : {
+            kind: "department",
+            businessAccountId: "admin-preview-business",
+            departmentId: "admin-preview-department",
+          },
+    businessDisplayName: isAdmin ? null : "Основной бизнес",
+    departmentDisplayName: isAdmin || isBusinessOwner ? null : position.displayName,
+    capabilities: [...position.capabilities],
+    navigationItems: [...position.navigationItems],
+    createdAt: position.createdAt,
+  };
+}
+
 function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const canManage = canManageUsers(profile);
   const canManageAccess = hasCapability(profile, "platform.manage_access");
   const [accountsState, setAccountsState] = useState<AdminAccountsLoadState>({
     status: "loading",
     message: "Загружаем учётные записи.",
+  });
+  const [positionsState, setPositionsState] = useState<AdminPositionsResult>({
+    status: "error",
+    message: "Загружаем должности.",
   });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [revealedPasswords, setRevealedPasswords] = useState<
@@ -4090,6 +4154,9 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [formStatus, setFormStatus] = useState("");
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [positionForm, setPositionForm] = useState<AdminPositionFormState>(emptyAdminPositionForm);
+  const [positionFormStatus, setPositionFormStatus] = useState("");
+  const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
   const [passwordResetForm, setPasswordResetForm] =
     useState<AdminPasswordResetFormState>();
   const [passwordResetStatus, setPasswordResetStatus] = useState("");
@@ -4100,10 +4167,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [updatingUserId, setUpdatingUserId] = useState<string | undefined>(
     undefined,
   );
-  const [updatingAccessId, setUpdatingAccessId] = useState<string | undefined>();
-  const [navigationDrafts, setNavigationDrafts] = useState<
-    Record<string, AccountNavigationItem[]>
-  >({});
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
   const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
@@ -4130,6 +4193,9 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       if (!controller.signal.aborted) {
         setAccountsState(result);
       }
+    });
+    requestAdminPositions({ signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted) setPositionsState(result);
     });
 
     return () => {
@@ -4204,13 +4270,49 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   }, [passwordResetForm?.login, resettingLogin]);
 
   function openCreateModal() {
+    const firstPosition = positionsState.status === "ready" ? positionsState.positions[0] : undefined;
     setForm((current) => ({
       ...emptyAdminAccountForm,
-      position: current.position,
-      navigationItems: getNavigationOptionsForPosition(current.position).map(({ id }) => id),
+      position: firstPosition?.id ?? current.position,
     }));
     setFormStatus("");
     setIsCreateModalOpen(true);
+  }
+
+  function openPositionModal(position?: AdminPositionSummary) {
+    setPositionForm(position === undefined ? emptyAdminPositionForm : {
+      id: position.id,
+      displayName: position.displayName,
+      accountType: position.accountType as AdminPositionFormState["accountType"],
+      navigationItems: [...position.navigationItems],
+    });
+    setPositionFormStatus("");
+    setIsPositionModalOpen(true);
+  }
+
+  async function handlePositionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (positionForm.displayName.trim().length === 0 || positionForm.navigationItems.length === 0) {
+      setPositionFormStatus("Укажите название и выберите хотя бы одну вкладку.");
+      return;
+    }
+    setIsSubmitting(true);
+    const value = {
+      displayName: positionForm.displayName.trim(),
+      accountType: positionForm.accountType,
+      navigationItems: positionForm.navigationItems,
+    };
+    const result = positionForm.id === undefined
+      ? await createAdminPosition(value)
+      : await updateAdminPosition(positionForm.id, value);
+    setIsSubmitting(false);
+    if (result.status !== "ready") {
+      setPositionFormStatus(result.message);
+      return;
+    }
+    setIsPositionModalOpen(false);
+    setWorkspaceStatus(`Должность «${result.position.displayName}» сохранена.`);
+    setRefreshVersion((version) => version + 1);
   }
 
   function closeCreateModal() {
@@ -4275,11 +4377,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       return;
     }
 
-    if (form.navigationItems.length === 0) {
-      setFormStatus("Выберите хотя бы одну вкладку.");
-      return;
-    }
-
     if (
       accountsState.status === "ready" &&
       hasAdminAccountLogin(accountsState.accounts, submittedLogin)
@@ -4298,7 +4395,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       password: submittedPassword,
       displayName: form.displayName.trim(),
       position: form.position,
-      navigationItems: form.navigationItems,
       businessDisplayName: scopeNames.businessDisplayName,
       departmentDisplayName: scopeNames.departmentDisplayName,
     });
@@ -4318,7 +4414,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setForm({
       ...emptyAdminAccountForm,
       position: form.position,
-      navigationItems: getNavigationOptionsForPosition(form.position).map(({ id }) => id),
     });
     finishCreateModal();
     setRefreshVersion((version) => version + 1);
@@ -4397,52 +4492,6 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setRefreshVersion((version) => version + 1);
   }
 
-  function handleNavigationDraftChange(
-    account: AdminAccountSummary,
-    itemId: AccountNavigationItem,
-    isChecked: boolean,
-  ) {
-    setNavigationDrafts((current) => {
-      const items = current[account.accessId] ?? account.navigationItems;
-      return {
-        ...current,
-        [account.accessId]: isChecked
-          ? Array.from(new Set([...items, itemId]))
-          : items.filter((id) => id !== itemId),
-      };
-    });
-  }
-
-  async function handleSaveNavigation(account: AdminAccountSummary) {
-    const navigationItems = navigationDrafts[account.accessId] ?? account.navigationItems;
-
-    if (navigationItems.length === 0) {
-      setWorkspaceStatus("Выберите хотя бы одну вкладку.");
-      return;
-    }
-
-    setUpdatingAccessId(account.accessId);
-    setWorkspaceStatus("");
-    const result = await setAdminAccountNavigation({
-      accessId: account.accessId,
-      navigationItems,
-    });
-    setUpdatingAccessId(undefined);
-
-    if (result.status !== "ready") {
-      setWorkspaceStatus(result.message);
-      return;
-    }
-
-    setNavigationDrafts((current) => {
-      const next = { ...current };
-      delete next[account.accessId];
-      return next;
-    });
-    setWorkspaceStatus(`Вкладки для «${account.login}» сохранены. Пользователю нужно войти снова.`);
-    setRefreshVersion((version) => version + 1);
-  }
-
   if (!canManage) {
     return (
       <section className="admin-workspace" aria-label="Учётные записи">
@@ -4454,7 +4503,10 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   }
 
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
-  const formAccountType = accountTypeByPosition[form.position];
+  const selectedPosition = positionsState.status === "ready"
+    ? positionsState.positions.find((position) => position.id === form.position)
+    : undefined;
+  const formAccountType = selectedPosition?.accountType ?? "worker";
   const showsScopeNames = accountTypeShowsScopeNames(formAccountType);
 
   return (
@@ -4471,6 +4523,14 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             onClick={openCreateModal}
           >
             Новая учётная запись
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!canManageAccess}
+            onClick={() => openPositionModal()}
+          >
+            Новая должность
           </button>
         </div>
 
@@ -4515,7 +4575,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
 
                   return (
                     <tr key={account.accessId}>
-                      <td>{accountPositionLabels[account.position]}</td>
+                      <td>{account.positionDisplayName}</td>
                       <td>{account.userDisplayName}</td>
                       <td>{account.login}</td>
                       <td>
@@ -4531,46 +4591,14 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                         <div className="admin-account-navigation-cell">
                           <details className="admin-account-access-details">
                             <summary>
-                              Настроить доступы ({(
-                                navigationDrafts[account.accessId] ?? account.navigationItems
-                              ).length})
+                              Доступы должности ({account.navigationItems.length})
                             </summary>
                             <div className="admin-account-access-grid">
-                              {getNavigationOptionsForPosition(account.position).map((item) => {
-                                const draft = navigationDrafts[account.accessId] ?? account.navigationItems;
-                                return (
-                                  <label key={item.id}>
-                                    <input
-                                      type="checkbox"
-                                      checked={draft.includes(item.id)}
-                                      disabled={!canManageAccess || isCurrentAccount || updatingAccessId === account.accessId}
-                                      onChange={(event) =>
-                                        handleNavigationDraftChange(
-                                          account,
-                                          item.id,
-                                          event.currentTarget.checked,
-                                        )
-                                      }
-                                    />
-                                    <span>{formatNavigationItemLabel(item)}</span>
-                                  </label>
-                                );
-                              })}
+                              {[...navigationItemsByAccountType.admin, ...nonAdminNavigationItems]
+                                .filter((item) => account.navigationItems.includes(item.id))
+                                .map((item) => <span key={item.id}>{formatNavigationItemLabel(item)}</span>)}
                             </div>
                           </details>
-                          <button
-                            className="secondary-button"
-                            type="button"
-                            disabled={
-                              !canManageAccess ||
-                              isCurrentAccount ||
-                              updatingAccessId === account.accessId ||
-                              navigationDrafts[account.accessId] === undefined
-                            }
-                            onClick={() => handleSaveNavigation(account)}
-                          >
-                            {updatingAccessId === account.accessId ? "Сохраняем…" : "Сохранить"}
-                          </button>
                         </div>
                       </td>
                       <td>
@@ -4612,6 +4640,37 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
             </table>
           </div>
         ) : null}
+
+        <h3 className="admin-positions-title">Должности и доступы</h3>
+        {positionsState.status === "ready" ? (
+          <div className="admin-db-table-scroll">
+            <table className="admin-db-data-table admin-positions-table">
+              <thead><tr><th>Должность</th><th>Базовый кабинет</th><th>Вкладки слева</th><th>Аккаунты</th><th /></tr></thead>
+              <tbody>
+                {positionsState.positions.map((position) => (
+                  <tr key={position.id}>
+                    <td>{position.displayName}</td>
+                    <td>{position.accountType === "admin" ? "Администратор" : baseCabinetLabels[position.accountType]}</td>
+                    <td>{position.navigationItems.map((id) =>
+                      [...navigationItemsByAccountType.admin, ...nonAdminNavigationItems].find((item) => item.id === id)?.label ?? id
+                    ).join(", ")}</td>
+                    <td>{position.usageCount}</td>
+                    <td>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={!canManageAccess || position.accountType === "admin"}
+                        onClick={() => openPositionModal(position)}
+                      >
+                        Изменить
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="dispatcher-status-line">{positionsState.message}</p>}
       </div>
 
       {isCreateModalOpen ? (
@@ -4706,38 +4765,16 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                   onChange={(event) =>
                     handleFormFieldChange({
                       position: event.currentTarget.value as AccountPosition,
-                      navigationItems: getNavigationOptionsForPosition(
-                        event.currentTarget.value as AccountPosition,
-                      ).map(({ id }) => id),
                     })
                   }
                 >
-                  {adminAccountPositionOptions.map((position) => (
-                    <option key={position} value={position}>
-                      {accountPositionLabels[position]}
+                  {(positionsState.status === "ready" ? positionsState.positions : []).map((position) => (
+                    <option key={position.id} value={position.id}>
+                      {position.displayName}
                     </option>
                   ))}
                 </select>
               </label>
-
-              <fieldset className="admin-account-navigation-fieldset">
-                <legend>Доступ к вкладкам слева</legend>
-                {getNavigationOptionsForPosition(form.position).map((item) => (
-                  <label key={item.id} className="admin-account-navigation-option">
-                    <input
-                      type="checkbox"
-                      checked={form.navigationItems.includes(item.id)}
-                      onChange={(event) => {
-                        const navigationItems = event.currentTarget.checked
-                          ? [...form.navigationItems, item.id]
-                          : form.navigationItems.filter((id) => id !== item.id);
-                        handleFormFieldChange({ navigationItems });
-                      }}
-                    />
-                    <span>{formatNavigationItemLabel(item)}</span>
-                  </label>
-                ))}
-              </fieldset>
 
               {showsScopeNames ? (
                 <>
@@ -4791,6 +4828,57 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                     {formStatus}
                   </p>
                 ) : null}
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {isPositionModalOpen ? (
+        <div className="admin-db-modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !isSubmitting) setIsPositionModalOpen(false);
+        }}>
+          <section aria-labelledby="admin-position-title" aria-modal="true" className="admin-account-modal" role="dialog" onKeyDown={keepFocusInsideDialog}>
+            <div className="admin-account-modal-header">
+              <h3 id="admin-position-title">{positionForm.id === undefined ? "Новая должность" : "Настройка должности"}</h3>
+              <button className="secondary-button" type="button" disabled={isSubmitting} onClick={() => setIsPositionModalOpen(false)}>Закрыть</button>
+            </div>
+            <form className="data-entry-form admin-accounts-form" onSubmit={handlePositionSubmit}>
+              <label>
+                <span>Название должности</span>
+                <input value={positionForm.displayName} onChange={(event) => setPositionForm((current) => ({ ...current, displayName: event.currentTarget.value }))} required />
+              </label>
+              <label>
+                <span>Базовый кабинет</span>
+                <select value={positionForm.accountType} disabled={positionForm.id !== undefined} onChange={(event) => setPositionForm((current) => ({
+                  ...current,
+                  accountType: event.currentTarget.value as AdminPositionFormState["accountType"],
+                }))}>
+                  {(Object.keys(baseCabinetLabels) as AdminPositionFormState["accountType"][]).map((type) => (
+                    <option key={type} value={type}>{baseCabinetLabels[type]}</option>
+                  ))}
+                </select>
+              </label>
+              <fieldset className="admin-account-navigation-fieldset">
+                <legend>Доступ к вкладкам слева</legend>
+                <div className="admin-account-navigation-grid">
+                  {nonAdminNavigationItems.map((item) => (
+                    <label key={item.id} className="admin-account-navigation-option">
+                      <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => setPositionForm((current) => ({
+                        ...current,
+                        navigationItems: event.currentTarget.checked
+                          ? Array.from(new Set([...current.navigationItems, item.id]))
+                          : current.navigationItems.filter((id) => id !== item.id),
+                      }))} />
+                      <span>{formatNavigationItemLabel(item)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="form-actions">
+                <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? "Сохраняем…" : "Сохранить"}</button>
+                <button className="secondary-button" type="button" disabled={isSubmitting} onClick={() => setIsPositionModalOpen(false)}>Отмена</button>
+                {positionFormStatus ? <p className="form-status" role="status">{positionFormStatus}</p> : null}
               </div>
             </form>
           </section>
@@ -5157,6 +5245,7 @@ function buildAdminPreviewProfile(
       accountId: account.accessId,
       accountType: account.accountType,
       position: account.position,
+      positionDisplayName: account.positionDisplayName,
       displayName: account.accessDisplayName,
       scope,
       capabilities: [...account.capabilities],

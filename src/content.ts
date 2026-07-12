@@ -34,7 +34,7 @@ export const accountTypeLabels: Record<AccountType, string> = {
   dispatcher: "Диспетчер",
 };
 
-export const accountPositionLabels: Record<AccountPosition, string> = {
+export const accountPositionLabels: Record<string, string> = {
   administrator: "Администратор",
   business_owner: "Владелец бизнеса",
   board_chair: "Председатель совета директоров",

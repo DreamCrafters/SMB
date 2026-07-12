@@ -181,6 +181,7 @@ test("requestAccessProfile accepts a minimal valid server profile", async () => 
       accountId: "account-id",
       accountType: "worker",
       position: "worker",
+      positionDisplayName: "Работник",
       displayName: "Worker access",
       scope: {
         kind: "department",
@@ -218,6 +219,7 @@ test("requestAccessProfile accepts dispatcher profiles", async () => {
       accountId: "dispatcher-access-id",
       accountType: "dispatcher",
       position: "dispatcher",
+      positionDisplayName: "Диспетчер",
       displayName: "Dispatcher access",
       scope: {
         kind: "department",

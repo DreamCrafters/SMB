@@ -15,6 +15,7 @@ export type AdminAccountSummary = {
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
+  positionDisplayName: string;
   scope: AccountScope;
   businessDisplayName: string | null;
   departmentDisplayName: string | null;
@@ -32,10 +33,28 @@ export type CreateAdminAccountRequest = {
   password: string;
   displayName: string;
   position: AccountPosition;
-  navigationItems: AccountNavigationItem[];
   businessDisplayName?: string;
   departmentDisplayName?: string;
 };
+
+export type AdminPositionSummary = {
+  id: AccountPosition;
+  displayName: string;
+  accountType: AccountType;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
+  isProtected: boolean;
+  usageCount: number;
+  createdAt: string;
+};
+
+export type AdminPositionsListResponse = { positions: AdminPositionSummary[] };
+export type SaveAdminPositionRequest = {
+  displayName: string;
+  accountType: "business_owner" | "worker" | "dispatcher";
+  navigationItems: AccountNavigationItem[];
+};
+export type SaveAdminPositionResponse = { position: AdminPositionSummary };
 
 export type SetAdminAccountNavigationRequest = {
   accessId: string;

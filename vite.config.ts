@@ -193,6 +193,7 @@ function buildDevProfile(
         accountId: "dev-access-admin",
         accountType,
         position: defaultPositionByAccountType[accountType],
+        positionDisplayName: "Администратор",
         displayName: "Dev admin access",
         scope: {
           kind: "platform",
@@ -230,6 +231,7 @@ function buildDevProfile(
         accountId: "dev-access-owner",
         accountType,
         position: defaultPositionByAccountType[accountType],
+        positionDisplayName: "Владелец бизнеса",
         displayName: "Dev business owner access",
         scope: {
           kind: "business",
@@ -261,6 +263,7 @@ function buildDevProfile(
         accountId: "dev-access-dispatcher",
         accountType,
         position: defaultPositionByAccountType[accountType],
+        positionDisplayName: "Диспетчер",
         displayName: "Dev dispatcher access",
         scope: {
           kind: "department",
@@ -299,6 +302,7 @@ function buildDevProfile(
       accountId: "dev-access-worker",
       accountType,
       position: defaultPositionByAccountType[accountType],
+      positionDisplayName: "Работник",
       displayName: "Dev worker access",
       scope: {
         kind: "department",

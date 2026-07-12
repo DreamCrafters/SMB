@@ -31,6 +31,7 @@ type AuthAccessRow = RowDataPacket & {
   access_id: string;
   account_type: string;
   position_code: string;
+  position_display_name: string;
   access_display_name: string;
   scope_kind: string;
   business_account_id: string | null;
@@ -109,14 +110,15 @@ export function createAuthSessionService(
             users.status as user_status,
             credentials.password_hash,
             accesses.id as access_id,
-            accesses.account_type,
+            positions.account_type,
             accesses.position_code,
+            positions.display_name as position_display_name,
             accesses.display_name as access_display_name,
             accesses.scope_kind,
             accesses.business_account_id,
             accesses.department_id,
-            accesses.capabilities,
-            accesses.navigation_items,
+            positions.capabilities,
+            positions.navigation_items,
             accesses.created_at as access_created_at,
             sessions.expires_at as session_expires_at,
             business.display_name as business_display_name,
@@ -129,6 +131,7 @@ export function createAuthSessionService(
           join auth_password_credentials as credentials
             on credentials.user_id = users.id
           join account_accesses as accesses on accesses.id = sessions.access_id
+          join account_positions as positions on positions.id = accesses.position_code
           left join business_accounts as business
             on business.id = accesses.business_account_id
           left join departments
@@ -178,14 +181,15 @@ async function readLoginAccessRow(
         users.status as user_status,
         credentials.password_hash,
         accesses.id as access_id,
-        accesses.account_type,
+        positions.account_type,
         accesses.position_code,
+        positions.display_name as position_display_name,
         accesses.display_name as access_display_name,
         accesses.scope_kind,
         accesses.business_account_id,
         accesses.department_id,
-        accesses.capabilities,
-        accesses.navigation_items,
+        positions.capabilities,
+        positions.navigation_items,
         accesses.created_at as access_created_at,
         business.display_name as business_display_name,
         business.status as business_status,
@@ -196,6 +200,7 @@ async function readLoginAccessRow(
       join auth_password_credentials as credentials
         on credentials.user_id = users.id
       join account_accesses as accesses on accesses.user_id = users.id
+      join account_positions as positions on positions.id = accesses.position_code
       left join business_accounts as business
         on business.id = accesses.business_account_id
       left join departments
@@ -252,6 +257,7 @@ function buildAccess(
     accountId: row.access_id,
     accountType: row.account_type,
     position: readPosition(row.position_code, row.account_type),
+    positionDisplayName: row.position_display_name,
     displayName: row.access_display_name,
     scope: buildScope(row),
     capabilities: readCapabilities(row.capabilities),

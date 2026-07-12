@@ -48,6 +48,7 @@ import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   type AccountsRepository,
+  type AdminPositionSummary,
   type CreateAccountInput,
   type SetAccountLoginEnabledInput,
 } from "../repositories/accountsRepository.js";
@@ -167,7 +168,9 @@ export function createApiServer({
 
       if (
         url.pathname === "/api/admin/accounts" ||
-        url.pathname === "/api/admin/accounts/reset-password"
+        url.pathname === "/api/admin/accounts/reset-password" ||
+        url.pathname === "/api/admin/positions" ||
+        url.pathname.startsWith("/api/admin/positions/")
       ) {
         await handleAdminAccountsRequest({
           req,
@@ -619,8 +622,9 @@ async function handleAdminAccountsRequest({
 }) {
   const isLoginStatusUpdate =
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
+  const isPositionRequest = url.pathname.startsWith("/api/admin/positions");
   const requiresManageAccess =
-    isLoginStatusUpdate ||
+    isLoginStatusUpdate || isPositionRequest ||
     (url.pathname === "/api/admin/accounts" && req.method === "POST");
   const access = await requireCapability(req, res, {
     config,
@@ -648,6 +652,52 @@ async function handleAdminAccountsRequest({
     return;
   }
 
+  if (url.pathname === "/api/admin/positions") {
+    if (req.method === "GET") {
+      sendJson(res, 200, { positions: await accounts.listPositions() });
+      return;
+    }
+
+    if (req.method === "POST") {
+      const validation = validateCreatePositionRequest(await readJsonBody(req));
+      if (!validation.ok) {
+        sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
+        return;
+      }
+      const position = await accounts.createPosition(validation.value);
+      sendJson(res, 201, { position });
+      return;
+    }
+
+    sendJson(res, 405, { error: { code: "access_denied", message: "Метод не поддерживается." } });
+    return;
+  }
+
+  if (url.pathname.startsWith("/api/admin/positions/")) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, { error: { code: "access_denied", message: "Метод не поддерживается." } });
+      return;
+    }
+    const id = decodeURIComponent(url.pathname.slice("/api/admin/positions/".length));
+    const existing = (await accounts.listPositions()).find((position) => position.id === id);
+    if (existing === undefined) {
+      sendJson(res, 404, { error: { code: "not_found", message: "Должность не найдена." } });
+      return;
+    }
+    if (existing.isProtected) {
+      sendJson(res, 409, { error: { code: "invalid_response", message: "Системную должность нельзя изменить." } });
+      return;
+    }
+    const validation = validateUpdatePositionRequest(await readJsonBody(req), existing);
+    if (!validation.ok) {
+      sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
+      return;
+    }
+    const position = await accounts.updatePosition({ id, ...validation.value });
+    sendJson(res, 200, { position });
+    return;
+  }
+
   if (
     url.pathname === "/api/admin/accounts" &&
     req.method === "POST" &&
@@ -669,7 +719,10 @@ async function handleAdminAccountsRequest({
 
     if (req.method === "POST") {
       const payload = await readJsonBody(req);
-      const validation = validateCreateAccountRequest(payload);
+      const requestedPosition = isRecord(payload) && typeof payload.position === "string"
+        ? (await accounts.listPositions()).find((position) => position.id === payload.position)
+        : undefined;
+      const validation = validateCreateAccountRequest(payload, requestedPosition);
 
       if (!validation.ok) {
         sendJson(res, 400, {
@@ -694,55 +747,6 @@ async function handleAdminAccountsRequest({
 
     if (req.method === "PATCH") {
       const payload = await readJsonBody(req);
-
-      if (isRecord(payload) && Object.hasOwn(payload, "navigationItems")) {
-        const validation = validateSetAccountNavigationRequest(payload);
-
-        if (!validation.ok) {
-          sendJson(res, 400, {
-            error: { code: "invalid_response", message: validation.errors.join(" ") },
-          });
-          return;
-        }
-
-        const existing = (await accounts.listAccounts()).find(
-          (account) => account.accessId === validation.value.accessId,
-        );
-
-        if (existing === undefined) {
-          sendJson(res, 404, { error: { code: "not_found", message: "Доступ не найден." } });
-          return;
-        }
-
-        if (
-          !validateNavigationItemsForAccountType(
-            existing.accountType,
-            validation.value.navigationItems,
-          )
-        ) {
-          sendJson(res, 400, {
-            error: { code: "invalid_response", message: "Выбраны недоступные вкладки." },
-          });
-          return;
-        }
-
-        if (existing.userId === access.profile.userId) {
-          sendJson(res, 409, {
-            error: { code: "invalid_response", message: "Нельзя изменять вкладки текущей учётной записи." },
-          });
-          return;
-        }
-
-        const account = await accounts.setAccountNavigation({
-          accessId: existing.accessId,
-          navigationItems: validation.value.navigationItems,
-          capabilities: resolveCapabilitiesForNavigation(
-            validation.value.navigationItems,
-          ),
-        });
-        sendJson(res, 200, { account });
-        return;
-      }
 
       const validation = validateSetAccountLoginEnabledRequest(payload);
 
@@ -843,7 +847,7 @@ async function handleAdminAccountsRequest({
   }
 }
 
-function validateCreateAccountRequest(input: unknown):
+function validateCreateAccountRequest(input: unknown, positionDefinition?: AdminPositionSummary):
   | {
       ok: true;
       value: CreateAccountInput;
@@ -893,22 +897,13 @@ function validateCreateAccountRequest(input: unknown):
     }
   }
 
-  if (!isAccountPosition(position)) {
+  if (!isAccountPosition(position) || positionDefinition === undefined) {
     errors.push("position is not supported.");
     return { ok: false, errors };
   }
 
-  const accountType = accountTypeByPosition[position];
-  const navigationItems = Array.isArray(input.navigationItems)
-    ? input.navigationItems
-    : [];
-
-  if (
-    !navigationItems.every(isAccountNavigationItem) ||
-    !validateNavigationItemsForAccountType(accountType, navigationItems)
-  ) {
-    errors.push("navigationItems must contain at least one allowed item.");
-  }
+  const accountType = positionDefinition.accountType;
+  const navigationItems = positionDefinition.navigationItems;
 
   if (errors.length > 0) {
     return { ok: false, errors };
@@ -923,7 +918,7 @@ function validateCreateAccountRequest(input: unknown):
       accountType,
       position,
       navigationItems,
-      capabilities: resolveCapabilitiesForNavigation(navigationItems),
+      capabilities: positionDefinition.capabilities,
       businessDisplayName: readOptionalTrimmedString(input.businessDisplayName),
       departmentDisplayName: readOptionalTrimmedString(
         input.departmentDisplayName,
@@ -932,27 +927,68 @@ function validateCreateAccountRequest(input: unknown):
   };
 }
 
-function validateSetAccountNavigationRequest(input: unknown):
-  | { ok: true; value: { accessId: string; navigationItems: AccountNavigationItem[] } }
+function validateCreatePositionRequest(input: unknown):
+  | { ok: true; value: Omit<AdminPositionSummary, "id" | "isProtected" | "usageCount" | "createdAt"> }
   | { ok: false; errors: string[] } {
   if (!isRecord(input) || Array.isArray(input)) {
     return { ok: false, errors: ["Payload must be a JSON object."] };
   }
 
-  const accessId = typeof input.accessId === "string" ? input.accessId.trim() : "";
-  const navigationItems = Array.isArray(input.navigationItems)
-    ? input.navigationItems
-    : [];
+  const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
+  const accountType = input.accountType;
+  const navigationItems = Array.isArray(input.navigationItems) ? input.navigationItems : [];
   const errors: string[] = [];
+  const isAllowedBase =
+    accountType === "business_owner" || accountType === "worker" || accountType === "dispatcher";
 
-  if (accessId.length === 0) errors.push("accessId is required.");
-  if (navigationItems.length === 0 || !navigationItems.every(isAccountNavigationItem)) {
-    errors.push("navigationItems are invalid.");
+  if (displayName.length === 0 || displayName.length > 160) {
+    errors.push("Укажите название должности.");
+  }
+  if (!isAllowedBase) {
+    errors.push("Выберите базовый кабинет.");
+  }
+  if (
+    isAllowedBase &&
+    (navigationItems.length === 0 ||
+      !navigationItems.every(isAccountNavigationItem) ||
+      !validateNavigationItemsForAccountType(accountType, navigationItems))
+  ) {
+    errors.push("Выберите хотя бы одну доступную вкладку.");
+  }
+  if (errors.length > 0 || !isAllowedBase) {
+    return { ok: false, errors };
   }
 
-  return errors.length === 0
-    ? { ok: true, value: { accessId, navigationItems } }
-    : { ok: false, errors };
+  return {
+    ok: true,
+    value: {
+      displayName,
+      accountType,
+      navigationItems,
+      capabilities: resolveCapabilitiesForNavigation(navigationItems),
+    },
+  };
+}
+
+function validateUpdatePositionRequest(input: unknown, existing: AdminPositionSummary):
+  | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
+  | { ok: false; errors: string[] } {
+  const validation = validateCreatePositionRequest({
+    ...(isRecord(input) ? input : {}),
+    accountType: existing.accountType,
+  });
+  if (!validation.ok) {
+    return validation;
+  }
+
+  return {
+    ok: true,
+    value: {
+      displayName: validation.value.displayName,
+      navigationItems: validation.value.navigationItems,
+      capabilities: validation.value.capabilities,
+    },
+  };
 }
 
 function validateResetPasswordRequest(input: unknown):
