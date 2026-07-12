@@ -480,6 +480,7 @@ const adminAccount = {
   userStatus: "active" as const,
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher" as AccountType,
+  position: "dispatcher" as const,
   scope: {
     kind: "department" as const,
     businessAccountId: "business-id",
@@ -488,6 +489,9 @@ const adminAccount = {
   businessDisplayName: "Цех 1",
   departmentDisplayName: "Смена А",
   capabilities: ["business.submit_dispatcher_forms" as const],
+  navigationItems: ["business.dispatcher_form" as const],
+  accessLevelId: "system-dispatcher",
+  accessLevelDisplayName: "Полный доступ",
   createdAt: "2026-07-10T00:00:00.000Z",
 };
 
@@ -505,6 +509,34 @@ const accounts: AccountsRepository = {
     return {
       userId,
       userStatus: isEnabled ? "active" : "suspended",
+    };
+  },
+  async setAccountNavigation() {
+    return adminAccount;
+  },
+  async listAccessLevels() {
+    return [
+      {
+        id: "system-dispatcher",
+        displayName: "Полный доступ",
+        position: "dispatcher",
+        accountType: "dispatcher",
+        navigationItems: ["business.dispatcher_form"],
+        capabilities: [
+          "business.submit_dispatcher_forms",
+          "business.view_dispatcher_feed",
+        ],
+        isSystem: true,
+        createdAt: "2026-07-10T00:00:00.000Z",
+      },
+    ];
+  },
+  async createAccessLevel(input) {
+    return {
+      id: "custom-access-level",
+      ...input,
+      isSystem: false,
+      createdAt: "2026-07-12T00:00:00.000Z",
     };
   },
 };
@@ -571,6 +603,70 @@ test("admin accounts API lists accounts for admin dev sessions", async () => {
   );
 });
 
+test("admin access levels API lists and creates reusable levels", async () => {
+  let createInput:
+    | Parameters<AccountsRepository["createAccessLevel"]>[0]
+    | undefined;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createAccessLevel(input) {
+      createInput = input;
+      return {
+        id: "custom-level",
+        ...input,
+        isSystem: false,
+        createdAt: "2026-07-12T00:00:00.000Z",
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
+      };
+      const listResponse = await fetch(`${baseUrl}/api/admin/access-levels`, {
+        headers,
+      });
+      const createResponse = await fetch(`${baseUrl}/api/admin/access-levels`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          displayName: "Только обзор",
+          position: "board_member",
+          navigationItems: ["business.overview"],
+        }),
+      });
+
+      assert.equal(listResponse.status, 200);
+      assert.equal(createResponse.status, 201);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+
+  assert.deepEqual(createInput, {
+    displayName: "Только обзор",
+    position: "board_member",
+    accountType: "business_owner",
+    navigationItems: ["business.overview"],
+    capabilities: [
+      "business.view_all_statistics",
+      "business.view_department_statistics",
+      "business.view_notifications",
+      "business.view_dispatcher_feed",
+    ],
+  });
+});
+
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {
   let createInput: Parameters<AccountsRepository["createAccount"]>[0] | undefined;
   let resetInput: Parameters<AccountsRepository["resetPassword"]>[0] | undefined;
@@ -603,7 +699,8 @@ test("admin accounts API creates accounts and resets passwords for admin session
           login: "dispatcher-1",
           password: "supersecret1",
           displayName: "Диспетчер Один",
-          accountType: "dispatcher",
+          position: "dispatcher",
+          navigationItems: ["business.dispatcher_form"],
         }),
       });
       const resetResponse = await fetch(
@@ -637,7 +734,7 @@ test("admin accounts API creates accounts and resets passwords for admin session
   assert.equal(createInput?.departmentId, undefined);
   assert.deepEqual(
     createInput?.capabilities,
-    defaultCapabilitiesByAccountType.dispatcher,
+    ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
   );
   assert.deepEqual(resetInput, {
     login: "dispatcher-1",
@@ -695,6 +792,60 @@ test("admin accounts API suspends another user login", async () => {
   assert.deepEqual(updateInput, {
     userId: "dispatcher-user-id",
     isEnabled: false,
+  });
+});
+
+test("admin accounts API updates navigation and server capabilities", async () => {
+  let updateInput:
+    | Parameters<AccountsRepository["setAccountNavigation"]>[0]
+    | undefined;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setAccountNavigation(input) {
+      updateInput = input;
+      return {
+        ...adminAccount,
+        navigationItems: input.navigationItems,
+        capabilities: input.capabilities,
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          accessId: adminAccount.accessId,
+          navigationItems: ["business.dispatcher_form"],
+        }),
+      });
+
+      assert.equal(response.status, 200);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+
+  assert.deepEqual(updateInput, {
+    accessId: adminAccount.accessId,
+    accessLevelId: null,
+    navigationItems: ["business.dispatcher_form"],
+    capabilities: [
+      "business.submit_dispatcher_forms",
+      "business.view_dispatcher_feed",
+    ],
   });
 });
 
@@ -988,7 +1139,8 @@ test("admin accounts API reports duplicate logins as conflict", async () => {
           login: "owner-1",
           password: "supersecret1",
           displayName: "Владелец Один",
-          accountType: "business_owner",
+          position: "business_owner",
+          navigationItems: ["business.overview", "business.dispatcher"],
         }),
       });
       const payload = await response.json();
@@ -1032,7 +1184,8 @@ test("admin accounts API rejects a short password", async () => {
           login: "dispatcher-1",
           password: "short",
           displayName: "Диспетчер Один",
-          accountType: "admin",
+          position: "administrator",
+          navigationItems: ["admin.accounts"],
         }),
       });
       const payload = await response.json();
@@ -2122,9 +2275,23 @@ function buildProductionProfile(accountType: AccountType): ServerUserProfile {
     activeAccess: {
       accountId: `prod-access-${accountType}`,
       accountType,
+      position:
+        accountType === "admin"
+          ? "administrator"
+          : accountType === "business_owner"
+            ? "business_owner"
+            : accountType,
       displayName: `Production ${accountType} access`,
       scope,
       capabilities: [...defaultCapabilitiesByAccountType[accountType]],
+      navigationItems:
+        accountType === "admin"
+          ? ["admin.account_preview", "admin.accounts", "admin.database"]
+          : accountType === "business_owner"
+            ? ["business.overview", "business.dispatcher"]
+            : accountType === "dispatcher"
+              ? ["business.dispatcher_form"]
+              : ["business.work"],
       issuedAt: "2026-07-09T00:00:00.000Z",
       expiresAt: "2026-07-10T00:00:00.000Z",
     },

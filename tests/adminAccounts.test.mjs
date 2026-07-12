@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createAdminAccount,
+  createAdminAccessLevel,
   hasAdminAccountLogin,
   requestAdminAccounts,
+  requestAdminAccessLevels,
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
+  setAdminAccountNavigation,
 } from "../.test-build/src/services/adminAccounts.js";
 
 const originalFetch = globalThis.fetch;
@@ -22,6 +25,7 @@ const account = {
   userStatus: "active",
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher",
+  position: "dispatcher",
   scope: {
     kind: "department",
     businessAccountId: "business-id",
@@ -30,6 +34,9 @@ const account = {
   businessDisplayName: "Цех 1",
   departmentDisplayName: "Смена А",
   capabilities: ["business.submit_dispatcher_forms"],
+  navigationItems: ["business.dispatcher_form"],
+  accessLevelId: "system-dispatcher",
+  accessLevelDisplayName: "Полный доступ",
   createdAt: "2026-07-10T00:00:00.000Z",
 };
 
@@ -63,7 +70,8 @@ test("admin accounts service creates an account without client-generated ids", a
     login: "dispatcher-1",
     password: "supersecret1",
     displayName: "Диспетчер Один",
-    accountType: "dispatcher",
+    position: "dispatcher",
+    navigationItems: ["business.dispatcher_form"],
   });
 
   assert.equal(result.status, "ready");
@@ -73,8 +81,39 @@ test("admin accounts service creates an account without client-generated ids", a
     login: "dispatcher-1",
     password: "supersecret1",
     displayName: "Диспетчер Один",
-    accountType: "dispatcher",
+    position: "dispatcher",
+    navigationItems: ["business.dispatcher_form"],
   });
+});
+
+test("admin access levels service lists and creates reusable levels", async () => {
+  const accessLevel = {
+    id: "level-id",
+    displayName: "Только обзор",
+    position: "board_member",
+    accountType: "business_owner",
+    navigationItems: ["business.overview"],
+    capabilities: ["business.view_all_statistics"],
+    isSystem: false,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  };
+  let requestIndex = 0;
+  globalThis.fetch = async () => {
+    requestIndex += 1;
+    return requestIndex === 1
+      ? jsonResponse({ accessLevels: [accessLevel] })
+      : jsonResponse({ accessLevel }, 201);
+  };
+
+  const listResult = await requestAdminAccessLevels();
+  const createResult = await createAdminAccessLevel({
+    displayName: "Только обзор",
+    position: "board_member",
+    navigationItems: ["business.overview"],
+  });
+
+  assert.equal(listResult.status, "ready");
+  assert.equal(createResult.status, "ready");
 });
 
 test("admin accounts service sends optional worker scope names without ids", async () => {
@@ -90,7 +129,8 @@ test("admin accounts service sends optional worker scope names without ids", asy
     login: "worker-1",
     password: "supersecret1",
     displayName: "Работник Один",
-    accountType: "worker",
+    position: "worker",
+    navigationItems: ["business.work"],
     businessDisplayName: "Основной бизнес",
     departmentDisplayName: "Производство",
   });
@@ -99,7 +139,8 @@ test("admin accounts service sends optional worker scope names without ids", asy
     login: "worker-1",
     password: "supersecret1",
     displayName: "Работник Один",
-    accountType: "worker",
+    position: "worker",
+    navigationItems: ["business.work"],
     businessDisplayName: "Основной бизнес",
     departmentDisplayName: "Производство",
   });
@@ -160,6 +201,25 @@ test("admin accounts service enables and disables account login", async () => {
     userId: "user-id",
     isEnabled: false,
   });
+});
+
+test("admin accounts service updates left navigation access", async () => {
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({
+      account: { ...account, navigationItems: ["business.dispatcher_form"] },
+    });
+  };
+
+  const result = await setAdminAccountNavigation({
+    accessId: "access-id",
+    navigationItems: ["business.dispatcher_form"],
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(calls[0].init.method, "PATCH");
 });
 
 test("admin accounts service surfaces server errors", async () => {

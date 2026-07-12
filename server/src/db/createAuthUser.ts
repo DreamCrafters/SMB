@@ -8,12 +8,18 @@ import {
   type AccountCapability,
   type AccountType,
 } from "../domain/auth.js";
+import {
+  defaultPositionByAccountType,
+  navigationItemsByAccountType,
+} from "../domain/accountAccessConfiguration.js";
 
 type AuthUserInput = {
   login: string;
   password: string;
   displayName: string;
   accountType: AccountType;
+  position: import("../domain/auth.js").AccountPosition;
+  navigationItems: import("../domain/auth.js").AccountNavigationItem[];
   businessAccountId?: string;
   businessDisplayName?: string;
   departmentId?: string;
@@ -50,6 +56,8 @@ function readAuthUserInput(env: NodeJS.ProcessEnv): AuthUserInput {
     password,
     displayName,
     accountType,
+    position: defaultPositionByAccountType[accountType],
+    navigationItems: navigationItemsByAccountType[accountType],
     businessAccountId,
     businessDisplayName: readOptional(env.SMB_AUTH_BUSINESS_DISPLAY_NAME),
     departmentId,

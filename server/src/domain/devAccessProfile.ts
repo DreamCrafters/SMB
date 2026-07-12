@@ -28,6 +28,18 @@ export type DevAccessSession = {
 
 const DEV_BUSINESS_ID = "dev-business-boundary";
 const DEV_DEPARTMENT_ID = "dev-department-boundary";
+const defaultPositionByAccountType = {
+  admin: "administrator",
+  business_owner: "business_owner",
+  worker: "worker",
+  dispatcher: "dispatcher",
+} as const;
+const navigationItemsByAccountType = {
+  admin: ["admin.account_preview", "admin.accounts", "admin.database"],
+  business_owner: ["business.overview", "business.dispatcher"],
+  worker: ["business.work"],
+  dispatcher: ["business.dispatcher_form"],
+} as const;
 
 const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   admin: [
@@ -76,11 +88,13 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
       activeAccess: {
         accountId: "dev-access-admin",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Dev admin access",
         scope: {
           kind: "platform",
         },
         capabilities,
+        navigationItems: [...navigationItemsByAccountType[accountType]],
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
@@ -98,12 +112,14 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
       activeAccess: {
         accountId: "dev-access-owner",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Dev business owner access",
         scope: {
           kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
         },
         capabilities,
+        navigationItems: [...navigationItemsByAccountType[accountType]],
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
@@ -121,6 +137,7 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
       activeAccess: {
         accountId: "dev-access-dispatcher",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Dev dispatcher access",
         scope: {
           kind: "department",
@@ -128,6 +145,7 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
           departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
+        navigationItems: [...navigationItemsByAccountType[accountType]],
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
@@ -144,6 +162,7 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
     activeAccess: {
       accountId: "dev-access-worker",
       accountType,
+      position: defaultPositionByAccountType[accountType],
       displayName: "Dev worker access",
       scope: {
         kind: "department",
@@ -151,6 +170,7 @@ export function buildDevProfile(accountType: AccountType, issuedAt: string) {
         departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
+      navigationItems: [...navigationItemsByAccountType[accountType]],
       issuedAt,
     },
     businessAccounts: [buildDevBusiness()],

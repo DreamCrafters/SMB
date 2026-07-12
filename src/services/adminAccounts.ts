@@ -2,11 +2,17 @@ import type {
   AccountAccessErrorCode,
   AdminAccountSummary,
   AdminAccountsListResponse,
+  AdminAccessLevelsListResponse,
+  AdminAccessLevelSummary,
+  CreateAdminAccessLevelRequest,
+  CreateAdminAccessLevelResponse,
   CreateAdminAccountRequest,
   CreateAdminAccountResponse,
   ResetAdminAccountPasswordRequest,
   SetAdminAccountLoginEnabledRequest,
   SetAdminAccountLoginEnabledResponse,
+  SetAdminAccountNavigationRequest,
+  SetAdminAccountNavigationResponse,
 } from "../contracts";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -17,6 +23,7 @@ import {
 
 const ADMIN_ACCOUNTS_PATH = "/api/admin/accounts";
 const ADMIN_ACCOUNTS_RESET_PASSWORD_PATH = "/api/admin/accounts/reset-password";
+const ADMIN_ACCESS_LEVELS_PATH = "/api/admin/access-levels";
 
 export type AdminAccountsErrorState = {
   status: "error";
@@ -39,6 +46,14 @@ export type CreateAdminAccountResult =
     }
   | AdminAccountsErrorState;
 
+export type AdminAccessLevelsListResult =
+  | { status: "ready"; accessLevels: AdminAccessLevelSummary[] }
+  | AdminAccountsErrorState;
+
+export type CreateAdminAccessLevelResult =
+  | { status: "ready"; accessLevel: AdminAccessLevelSummary }
+  | AdminAccountsErrorState;
+
 export type ResetAdminAccountPasswordResult =
   | {
       status: "ready";
@@ -51,6 +66,10 @@ export type SetAdminAccountLoginEnabledResult =
       userId: string;
       userStatus: "active" | "suspended";
     }
+  | AdminAccountsErrorState;
+
+export type SetAdminAccountNavigationResult =
+  | { status: "ready"; account: AdminAccountSummary }
   | AdminAccountsErrorState;
 
 export function hasAdminAccountLogin(
@@ -120,6 +139,65 @@ export async function requestAdminAccounts({
       }),
       code: "network_error",
     };
+  }
+}
+
+export async function requestAdminAccessLevels({
+  baseUrl,
+  signal,
+}: AdminAccountsRequestOptions = {}): Promise<AdminAccessLevelsListResult> {
+  const endpoint = resolveApiEndpoint(
+    ADMIN_ACCESS_LEVELS_PATH,
+    ADMIN_ACCESS_LEVELS_PATH,
+    { baseUrl },
+  );
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+    if (!response.ok) return readRemoteError(payload, response.status, "Сервер отклонил запрос уровней доступа.");
+    if (isAdminAccessLevelsListResponse(payload)) {
+      return { status: "ready", accessLevels: payload.accessLevels };
+    }
+    return { status: "error", message: "Сервер вернул уровни доступа в неподдерживаемом формате.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Запрос уровней доступа отменён." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось запросить уровни доступа.", { baseUrl }), code: "network_error" };
+  }
+}
+
+export async function createAdminAccessLevel(
+  value: CreateAdminAccessLevelRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<CreateAdminAccessLevelResult> {
+  const endpoint = resolveApiEndpoint(
+    ADMIN_ACCESS_LEVELS_PATH,
+    ADMIN_ACCESS_LEVELS_PATH,
+    { baseUrl },
+  );
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: buildDevAccessHeaders({ Accept: "application/json", "Content-Type": "application/json" }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify(value),
+    });
+    const payload = await readJson(response);
+    if (!response.ok) return readRemoteError(payload, response.status, "Сервер отклонил создание уровня доступа.");
+    if (isCreateAdminAccessLevelResponse(payload)) {
+      return { status: "ready", accessLevel: payload.accessLevel };
+    }
+    return { status: "error", message: "Сервер вернул уровень доступа в неподдерживаемом формате.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Запрос создания уровня отменён." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось создать уровень доступа.", { baseUrl }), code: "network_error" };
   }
 }
 
@@ -240,6 +318,42 @@ export async function setAdminAccountLoginEnabled(
   }
 }
 
+export async function setAdminAccountNavigation(
+  value: SetAdminAccountNavigationRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<SetAdminAccountNavigationResult> {
+  const endpoint = resolveApiEndpoint(ADMIN_ACCOUNTS_PATH, ADMIN_ACCOUNTS_PATH, {
+    baseUrl,
+  });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify(value),
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(payload, response.status, "Сервер отклонил изменение вкладок.");
+    }
+
+    if (isSetAdminAccountNavigationResponse(payload)) {
+      return { status: "ready", account: payload.account };
+    }
+
+    return { status: "error", message: "Сервер вернул доступы в неподдерживаемом формате.", code: "invalid_response" };
+  } catch (error) {
+    if (isAbortError(error)) return { status: "error", message: "Запрос отменён." };
+    return { status: "error", message: describeRemoteNetworkFailure("Не удалось изменить вкладки.", { baseUrl }), code: "network_error" };
+  }
+}
+
 export async function resetAdminAccountPassword(
   value: ResetAdminAccountPasswordRequest,
   { baseUrl, signal }: AdminAccountsRequestOptions = {},
@@ -356,6 +470,30 @@ function isAdminAccountsListResponse(
   );
 }
 
+function isAdminAccessLevelsListResponse(
+  value: unknown,
+): value is AdminAccessLevelsListResponse {
+  return isRecord(value) && Array.isArray(value.accessLevels) && value.accessLevels.every(isAdminAccessLevelSummary);
+}
+
+function isCreateAdminAccessLevelResponse(
+  value: unknown,
+): value is CreateAdminAccessLevelResponse {
+  return isRecord(value) && isAdminAccessLevelSummary(value.accessLevel);
+}
+
+function isAdminAccessLevelSummary(value: unknown): value is AdminAccessLevelSummary {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.displayName === "string" &&
+    typeof value.position === "string" &&
+    typeof value.accountType === "string" &&
+    Array.isArray(value.navigationItems) &&
+    Array.isArray(value.capabilities) &&
+    typeof value.isSystem === "boolean" &&
+    typeof value.createdAt === "string";
+}
+
 function isCreateAdminAccountResponse(
   value: unknown,
 ): value is CreateAdminAccountResponse {
@@ -372,6 +510,12 @@ function isSetAdminAccountLoginEnabledResponse(
   );
 }
 
+function isSetAdminAccountNavigationResponse(
+  value: unknown,
+): value is SetAdminAccountNavigationResponse {
+  return isRecord(value) && isAdminAccountSummary(value.account);
+}
+
 function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
   return (
     isRecord(value) &&
@@ -382,12 +526,16 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     typeof value.userStatus === "string" &&
     typeof value.accessDisplayName === "string" &&
     typeof value.accountType === "string" &&
+    typeof value.position === "string" &&
     isRecord(value.scope) &&
     (typeof value.businessDisplayName === "string" ||
       value.businessDisplayName === null) &&
     (typeof value.departmentDisplayName === "string" ||
       value.departmentDisplayName === null) &&
     Array.isArray(value.capabilities) &&
+    Array.isArray(value.navigationItems) &&
+    (typeof value.accessLevelId === "string" || value.accessLevelId === null) &&
+    (typeof value.accessLevelDisplayName === "string" || value.accessLevelDisplayName === null) &&
     typeof value.createdAt === "string"
   );
 }

@@ -183,6 +183,118 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "005_account_positions_and_navigation",
+    statements: [
+      `
+      alter table account_accesses
+        add column position_code varchar(60) null after account_type,
+        add column navigation_items json null after capabilities;
+      `,
+      `
+      update account_accesses
+      set position_code = case account_type
+        when 'admin' then 'administrator'
+        when 'business_owner' then 'business_owner'
+        when 'dispatcher' then 'dispatcher'
+        else 'worker'
+      end,
+      navigation_items = case account_type
+        when 'admin' then json_array(
+          'admin.account_preview', 'admin.accounts', 'admin.database'
+        )
+        when 'business_owner' then json_array(
+          'business.overview', 'business.dispatcher'
+        )
+        when 'dispatcher' then json_array('business.dispatcher_form')
+        else json_array('business.work')
+      end
+      where position_code is null or navigation_items is null;
+      `,
+      `
+      alter table account_accesses
+        modify position_code varchar(60) not null,
+        modify navigation_items json not null;
+      `,
+    ],
+  },
+  {
+    id: "006_account_access_levels",
+    statements: [
+      `
+      create table if not exists account_access_levels (
+        id varchar(120) not null primary key,
+        display_name varchar(255) not null,
+        position_code varchar(60) not null,
+        account_type varchar(40) not null,
+        navigation_items json not null,
+        capabilities json not null,
+        is_system tinyint(1) not null default 0,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        unique key uniq_access_level_position_name (position_code, display_name)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into account_access_levels (
+        id, display_name, position_code, account_type,
+        navigation_items, capabilities, is_system
+      ) values
+        ('system-administrator', 'Полный доступ', 'administrator', 'admin',
+          json_array('admin.account_preview', 'admin.accounts', 'admin.database'),
+          json_array(
+            'platform.manage_business_accounts', 'business.view_all_statistics',
+            'business.view_department_statistics', 'business.view_notifications',
+            'business.submit_forms', 'business.submit_dispatcher_forms',
+            'business.view_dispatcher_feed', 'business.view_own_submissions',
+            'platform.manage_users', 'platform.manage_access',
+            'platform.manage_analytics_database'
+          ), 1),
+        ('system-business-owner', 'Полный доступ', 'business_owner', 'business_owner',
+          json_array('business.overview', 'business.dispatcher'),
+          json_array(
+            'business.view_all_statistics', 'business.view_department_statistics',
+            'business.view_notifications', 'business.view_dispatcher_feed'
+          ), 1),
+        ('system-board-chair', 'Полный доступ', 'board_chair', 'business_owner',
+          json_array('business.overview', 'business.dispatcher'),
+          json_array(
+            'business.view_all_statistics', 'business.view_department_statistics',
+            'business.view_notifications', 'business.view_dispatcher_feed'
+          ), 1),
+        ('system-board-member', 'Полный доступ', 'board_member', 'business_owner',
+          json_array('business.overview', 'business.dispatcher'),
+          json_array(
+            'business.view_all_statistics', 'business.view_department_statistics',
+            'business.view_notifications', 'business.view_dispatcher_feed'
+          ), 1),
+        ('system-general-director', 'Полный доступ', 'general_director', 'business_owner',
+          json_array('business.overview', 'business.dispatcher'),
+          json_array(
+            'business.view_all_statistics', 'business.view_department_statistics',
+            'business.view_notifications', 'business.view_dispatcher_feed'
+          ), 1),
+        ('system-worker', 'Полный доступ', 'worker', 'worker',
+          json_array('business.work'),
+          json_array(
+            'business.submit_forms', 'business.view_notifications',
+            'business.view_own_submissions'
+          ), 1),
+        ('system-dispatcher', 'Полный доступ', 'dispatcher', 'dispatcher',
+          json_array('business.dispatcher_form'),
+          json_array(
+            'business.submit_dispatcher_forms', 'business.view_dispatcher_feed'
+          ), 1)
+      on duplicate key update id = values(id);
+      `,
+      `
+      alter table account_accesses
+        add column access_level_id varchar(120) null after navigation_items,
+        add key idx_account_accesses_access_level (access_level_id);
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

@@ -1,15 +1,22 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ServerConfig } from "../config/env.js";
 import {
-  defaultCapabilitiesByAccountType,
   hasProfileCapability,
+  isAccountNavigationItem,
+  isAccountPosition,
   readScopedBusinessAccountId,
   type AccountCapability,
+  type AccountNavigationItem,
   type AccountType,
   type AuthSessionService,
   type AuthenticatedSession,
   type ServerUserProfile,
 } from "../domain/auth.js";
+import {
+  accountTypeByPosition,
+  resolveCapabilitiesForNavigation,
+  validateNavigationItemsForAccountType,
+} from "../domain/accountAccessConfiguration.js";
 import {
   buildDevProfile,
   createDevSessionId,
@@ -39,8 +46,10 @@ import type {
 } from "../repositories/adminDatabaseRepository.js";
 import {
   ArchivedAccountLoginStatusError,
+  AccessLevelAlreadyExistsError,
   AccountLoginAlreadyExistsError,
   type AccountsRepository,
+  type CreateAccessLevelInput,
   type CreateAccountInput,
   type SetAccountLoginEnabledInput,
 } from "../repositories/accountsRepository.js";
@@ -160,7 +169,8 @@ export function createApiServer({
 
       if (
         url.pathname === "/api/admin/accounts" ||
-        url.pathname === "/api/admin/accounts/reset-password"
+        url.pathname === "/api/admin/accounts/reset-password" ||
+        url.pathname === "/api/admin/access-levels"
       ) {
         await handleAdminAccountsRequest({
           req,
@@ -612,11 +622,15 @@ async function handleAdminAccountsRequest({
 }) {
   const isLoginStatusUpdate =
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
+  const requiresManageAccess =
+    isLoginStatusUpdate ||
+    url.pathname === "/api/admin/access-levels" ||
+    (url.pathname === "/api/admin/accounts" && req.method === "POST");
   const access = await requireCapability(req, res, {
     config,
     devSessions,
     authService,
-    capability: isLoginStatusUpdate
+    capability: requiresManageAccess
       ? "platform.manage_access"
       : "platform.manage_users",
     message: isLoginStatusUpdate
@@ -634,6 +648,48 @@ async function handleAdminAccountsRequest({
         code: "server_error",
         message: "Хранилище учётных записей не настроено.",
       },
+    });
+    return;
+  }
+
+  if (
+    url.pathname === "/api/admin/accounts" &&
+    req.method === "POST" &&
+    !hasProfileCapability(access.profile, "platform.manage_users")
+  ) {
+    sendJson(res, 403, {
+      error: { code: "access_denied", message: "Управление учётными записями недоступно." },
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/admin/access-levels") {
+    if (req.method === "GET") {
+      sendJson(res, 200, { accessLevels: await accounts.listAccessLevels() });
+      return;
+    }
+
+    if (req.method === "POST") {
+      const validation = validateCreateAccessLevelRequest(await readJsonBody(req));
+
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: { code: "invalid_response", message: validation.errors.join(" ") },
+        });
+        return;
+      }
+
+      try {
+        const accessLevel = await accounts.createAccessLevel(validation.value);
+        sendJson(res, 201, { accessLevel });
+      } catch (error) {
+        sendAdminAccountsError(res, error);
+      }
+      return;
+    }
+
+    sendJson(res, 405, {
+      error: { code: "access_denied", message: "Only GET and POST are supported for access levels." },
     });
     return;
   }
@@ -661,7 +717,33 @@ async function handleAdminAccountsRequest({
       }
 
       try {
-        const account = await accounts.createAccount(validation.value);
+        let createInput = validation.value;
+
+        if (validation.value.accessLevelId !== undefined) {
+          const accessLevel = (await accounts.listAccessLevels()).find(
+            (item) => item.id === validation.value.accessLevelId,
+          );
+
+          if (
+            accessLevel === undefined ||
+            accessLevel.position !== validation.value.position
+          ) {
+            sendJson(res, 400, {
+              error: { code: "invalid_response", message: "Уровень доступа не подходит должности." },
+            });
+            return;
+          }
+
+          createInput = {
+            ...validation.value,
+            accountType: accessLevel.accountType,
+            navigationItems: accessLevel.navigationItems,
+            capabilities: accessLevel.capabilities,
+            accessLevelId: accessLevel.id,
+          };
+        }
+
+        const account = await accounts.createAccount(createInput);
 
         sendJson(res, 201, { account });
       } catch (error) {
@@ -673,6 +755,95 @@ async function handleAdminAccountsRequest({
 
     if (req.method === "PATCH") {
       const payload = await readJsonBody(req);
+
+      if (isRecord(payload) && typeof payload.accessLevelId === "string") {
+        const accessId = typeof payload.accessId === "string" ? payload.accessId.trim() : "";
+        const accessLevelId = payload.accessLevelId.trim();
+        const existing = (await accounts.listAccounts()).find(
+          (account) => account.accessId === accessId,
+        );
+        const accessLevel = (await accounts.listAccessLevels()).find(
+          (item) => item.id === accessLevelId,
+        );
+
+        if (
+          existing === undefined ||
+          accessLevel === undefined ||
+          accessLevel.position !== existing.position
+        ) {
+          sendJson(res, 400, {
+            error: { code: "invalid_response", message: "Уровень доступа не подходит учётной записи." },
+          });
+          return;
+        }
+
+        if (existing.userId === access.profile.userId) {
+          sendJson(res, 409, {
+            error: { code: "invalid_response", message: "Нельзя изменять уровень текущей учётной записи." },
+          });
+          return;
+        }
+
+        const account = await accounts.setAccountNavigation({
+          accessId,
+          accessLevelId,
+          navigationItems: accessLevel.navigationItems,
+          capabilities: accessLevel.capabilities,
+        });
+        sendJson(res, 200, { account });
+        return;
+      }
+
+      if (isRecord(payload) && Object.hasOwn(payload, "navigationItems")) {
+        const validation = validateSetAccountNavigationRequest(payload);
+
+        if (!validation.ok) {
+          sendJson(res, 400, {
+            error: { code: "invalid_response", message: validation.errors.join(" ") },
+          });
+          return;
+        }
+
+        const existing = (await accounts.listAccounts()).find(
+          (account) => account.accessId === validation.value.accessId,
+        );
+
+        if (existing === undefined) {
+          sendJson(res, 404, { error: { code: "not_found", message: "Доступ не найден." } });
+          return;
+        }
+
+        if (
+          !validateNavigationItemsForAccountType(
+            existing.accountType,
+            validation.value.navigationItems,
+          )
+        ) {
+          sendJson(res, 400, {
+            error: { code: "invalid_response", message: "Выбраны недоступные вкладки." },
+          });
+          return;
+        }
+
+        if (existing.userId === access.profile.userId) {
+          sendJson(res, 409, {
+            error: { code: "invalid_response", message: "Нельзя изменять вкладки текущей учётной записи." },
+          });
+          return;
+        }
+
+        const account = await accounts.setAccountNavigation({
+          accessId: existing.accessId,
+          navigationItems: validation.value.navigationItems,
+          capabilities: resolveCapabilitiesForNavigation(
+            validation.value.navigationItems,
+          ),
+          accessLevelId: null,
+        });
+        sendJson(res, 200, { account });
+        return;
+      }
+
       const validation = validateSetAccountLoginEnabledRequest(payload);
 
       if (!validation.ok) {
@@ -793,7 +964,8 @@ function validateCreateAccountRequest(input: unknown):
   const password = typeof input.password === "string" ? input.password : "";
   const displayName =
     typeof input.displayName === "string" ? input.displayName.trim() : "";
-  const accountType = input.accountType;
+  const position = input.position;
+  const accessLevelId = readOptionalTrimmedString(input.accessLevelId);
 
   if (login.length === 0) {
     errors.push("login is required.");
@@ -814,17 +986,29 @@ function validateCreateAccountRequest(input: unknown):
     "departmentId",
     "accessDisplayName",
     "capabilities",
+    "accountType",
   ]) {
     if (Object.prototype.hasOwnProperty.call(input, field)) {
       errors.push(`${field} is managed by the server.`);
     }
   }
 
-  if (!isAccountType(accountType)) {
-    errors.push(
-      "accountType must be admin, business_owner, worker or dispatcher.",
-    );
+  if (!isAccountPosition(position)) {
+    errors.push("position is not supported.");
     return { ok: false, errors };
+  }
+
+  const accountType = accountTypeByPosition[position];
+  const navigationItems = Array.isArray(input.navigationItems)
+    ? input.navigationItems
+    : [];
+
+  if (
+    accessLevelId === undefined &&
+    (!navigationItems.every(isAccountNavigationItem) ||
+      !validateNavigationItemsForAccountType(accountType, navigationItems))
+  ) {
+    errors.push("navigationItems must contain at least one allowed item.");
   }
 
   if (errors.length > 0) {
@@ -838,13 +1022,81 @@ function validateCreateAccountRequest(input: unknown):
       password,
       displayName,
       accountType,
-      capabilities: defaultCapabilitiesByAccountType[accountType],
+      position,
+      accessLevelId,
+      navigationItems,
+      capabilities: resolveCapabilitiesForNavigation(navigationItems),
       businessDisplayName: readOptionalTrimmedString(input.businessDisplayName),
       departmentDisplayName: readOptionalTrimmedString(
         input.departmentDisplayName,
       ),
     },
   };
+}
+
+function validateCreateAccessLevelRequest(input: unknown):
+  | { ok: true; value: CreateAccessLevelInput }
+  | { ok: false; errors: string[] } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return { ok: false, errors: ["Payload must be a JSON object."] };
+  }
+
+  const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
+  const position = input.position;
+  const navigationItems = Array.isArray(input.navigationItems) ? input.navigationItems : [];
+  const errors: string[] = [];
+
+  if (displayName.length === 0 || displayName.length > 120) {
+    errors.push("displayName must contain 1 to 120 characters.");
+  }
+  if (!isAccountPosition(position)) {
+    errors.push("position is not supported.");
+    return { ok: false, errors };
+  }
+
+  const accountType = accountTypeByPosition[position];
+  if (
+    !navigationItems.every(isAccountNavigationItem) ||
+    !validateNavigationItemsForAccountType(accountType, navigationItems)
+  ) {
+    errors.push("navigationItems must contain at least one allowed item.");
+  }
+
+  return errors.length === 0
+    ? {
+        ok: true,
+        value: {
+          displayName,
+          position,
+          accountType,
+          navigationItems,
+          capabilities: resolveCapabilitiesForNavigation(navigationItems),
+        },
+      }
+    : { ok: false, errors };
+}
+
+function validateSetAccountNavigationRequest(input: unknown):
+  | { ok: true; value: { accessId: string; navigationItems: AccountNavigationItem[] } }
+  | { ok: false; errors: string[] } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return { ok: false, errors: ["Payload must be a JSON object."] };
+  }
+
+  const accessId = typeof input.accessId === "string" ? input.accessId.trim() : "";
+  const navigationItems = Array.isArray(input.navigationItems)
+    ? input.navigationItems
+    : [];
+  const errors: string[] = [];
+
+  if (accessId.length === 0) errors.push("accessId is required.");
+  if (navigationItems.length === 0 || !navigationItems.every(isAccountNavigationItem)) {
+    errors.push("navigationItems are invalid.");
+  }
+
+  return errors.length === 0
+    ? { ok: true, value: { accessId, navigationItems } }
+    : { ok: false, errors };
 }
 
 function validateResetPasswordRequest(input: unknown):
@@ -942,6 +1194,13 @@ function sendAdminAccountsError(res: ServerResponse, error: unknown) {
         code: "invalid_response",
         message: error.message,
       },
+    });
+    return;
+  }
+
+  if (error instanceof AccessLevelAlreadyExistsError) {
+    sendJson(res, 409, {
+      error: { code: "invalid_response", message: error.message },
     });
     return;
   }

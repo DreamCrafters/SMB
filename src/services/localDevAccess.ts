@@ -3,6 +3,14 @@ import type {
   AccountType,
   ServerUserProfile,
 } from "../contracts";
+import { navigationItemsByAccountType } from "../content.js";
+
+const defaultPositionByAccountType = {
+  admin: "administrator",
+  business_owner: "business_owner",
+  worker: "worker",
+  dispatcher: "dispatcher",
+} as const;
 
 const LOCAL_DEV_ACCESS_SESSION_STORAGE_KEY =
   "smb.localDevAccessSession.v1";
@@ -155,11 +163,13 @@ function buildLocalDevProfile(
       activeAccess: {
         accountId: "local-dev-access-admin",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Local test admin access",
         scope: {
           kind: "platform",
         },
         capabilities,
+        navigationItems: navigationItemsByAccountType[accountType].map(({ id }) => id),
         issuedAt,
       },
       businessAccounts,
@@ -177,12 +187,14 @@ function buildLocalDevProfile(
       activeAccess: {
         accountId: "local-dev-access-owner",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Local test business owner access",
         scope: {
           kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
         },
         capabilities,
+        navigationItems: navigationItemsByAccountType[accountType].map(({ id }) => id),
         issuedAt,
       },
       businessAccounts,
@@ -200,6 +212,7 @@ function buildLocalDevProfile(
       activeAccess: {
         accountId: "local-dev-access-dispatcher",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Local test dispatcher access",
         scope: {
           kind: "department",
@@ -207,6 +220,7 @@ function buildLocalDevProfile(
           departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
+        navigationItems: navigationItemsByAccountType[accountType].map(({ id }) => id),
         issuedAt,
       },
       businessAccounts,
@@ -223,6 +237,7 @@ function buildLocalDevProfile(
     activeAccess: {
       accountId: "local-dev-access-worker",
       accountType,
+      position: defaultPositionByAccountType[accountType],
       displayName: "Local test worker access",
       scope: {
         kind: "department",
@@ -230,6 +245,7 @@ function buildLocalDevProfile(
         departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
+      navigationItems: navigationItemsByAccountType[accountType].map(({ id }) => id),
       issuedAt,
     },
     businessAccounts,

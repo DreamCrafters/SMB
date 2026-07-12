@@ -1,5 +1,29 @@
 export type AccountType = "admin" | "business_owner" | "worker" | "dispatcher";
 
+export const accountPositions = [
+  "administrator",
+  "business_owner",
+  "board_chair",
+  "board_member",
+  "general_director",
+  "worker",
+  "dispatcher",
+] as const;
+
+export type AccountPosition = (typeof accountPositions)[number];
+
+export const accountNavigationItems = [
+  "admin.account_preview",
+  "admin.accounts",
+  "admin.database",
+  "business.overview",
+  "business.dispatcher",
+  "business.work",
+  "business.dispatcher_form",
+] as const;
+
+export type AccountNavigationItem = (typeof accountNavigationItems)[number];
+
 export const accountCapabilities = [
   "platform.manage_business_accounts",
   "platform.manage_users",
@@ -37,9 +61,11 @@ export type AccountScope =
 export type ServerIssuedAccountAccess = {
   accountId: string;
   accountType: AccountType;
+  position: AccountPosition;
   displayName: string;
   scope: AccountScope;
   capabilities: AccountCapability[];
+  navigationItems: AccountNavigationItem[];
   issuedAt: string;
   expiresAt?: string;
 };

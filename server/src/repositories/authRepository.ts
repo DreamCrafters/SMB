@@ -1,12 +1,19 @@
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import {
+  defaultPositionByAccountType,
+  navigationItemsByAccountType,
+} from "../domain/accountAccessConfiguration.js";
+import {
   createSessionId,
   isAccountCapability,
+  isAccountNavigationItem,
+  isAccountPosition,
   isAccountType,
   verifyPassword,
   type AccountCapability,
   type AccountScope,
+  type AccountType,
   type AuthSessionService,
   type AuthenticatedSession,
   type BusinessAccountRef,
@@ -23,11 +30,13 @@ type AuthAccessRow = RowDataPacket & {
   password_hash: string;
   access_id: string;
   account_type: string;
+  position_code: string;
   access_display_name: string;
   scope_kind: string;
   business_account_id: string | null;
   department_id: string | null;
   capabilities: unknown;
+  navigation_items: unknown;
   access_created_at: Date | string;
   session_expires_at?: Date | string;
   business_display_name: string | null;
@@ -101,11 +110,13 @@ export function createAuthSessionService(
             credentials.password_hash,
             accesses.id as access_id,
             accesses.account_type,
+            accesses.position_code,
             accesses.display_name as access_display_name,
             accesses.scope_kind,
             accesses.business_account_id,
             accesses.department_id,
             accesses.capabilities,
+            accesses.navigation_items,
             accesses.created_at as access_created_at,
             sessions.expires_at as session_expires_at,
             business.display_name as business_display_name,
@@ -168,11 +179,13 @@ async function readLoginAccessRow(
         credentials.password_hash,
         accesses.id as access_id,
         accesses.account_type,
+        accesses.position_code,
         accesses.display_name as access_display_name,
         accesses.scope_kind,
         accesses.business_account_id,
         accesses.department_id,
         accesses.capabilities,
+        accesses.navigation_items,
         accesses.created_at as access_created_at,
         business.display_name as business_display_name,
         business.status as business_status,
@@ -238,12 +251,38 @@ function buildAccess(
   return {
     accountId: row.access_id,
     accountType: row.account_type,
+    position: readPosition(row.position_code, row.account_type),
     displayName: row.access_display_name,
     scope: buildScope(row),
     capabilities: readCapabilities(row.capabilities),
+    navigationItems: readNavigationItems(row.navigation_items, row.account_type),
     issuedAt: toDate(row.access_created_at).toISOString(),
     expiresAt: expiresAt.toISOString(),
   };
+}
+
+function readPosition(value: unknown, accountType: AccountType) {
+  if (value === undefined || value === null) {
+    return defaultPositionByAccountType[accountType];
+  }
+  if (!isAccountPosition(value)) {
+    throw new Error("Stored account position is not supported.");
+  }
+
+  return value;
+}
+
+function readNavigationItems(value: unknown, accountType: AccountType) {
+  if (value === undefined || value === null) {
+    return navigationItemsByAccountType[accountType];
+  }
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+
+  if (!Array.isArray(parsed) || !parsed.every(isAccountNavigationItem)) {
+    throw new Error("Stored navigation items are not supported.");
+  }
+
+  return parsed;
 }
 
 function buildScope(row: AuthAccessRow): AccountScope {

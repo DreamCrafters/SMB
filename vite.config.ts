@@ -28,6 +28,18 @@ const DEV_SESSION_COOKIE = "smb_dev_access_session";
 const DEV_SESSION_HEADER = "x-smb-dev-session";
 const DEV_BUSINESS_ID = "dev-business-boundary";
 const DEV_DEPARTMENT_ID = "dev-department-boundary";
+const defaultPositionByAccountType = {
+  admin: "administrator",
+  business_owner: "business_owner",
+  worker: "worker",
+  dispatcher: "dispatcher",
+} as const;
+const navigationItemsByAccountType = {
+  admin: ["admin.account_preview", "admin.accounts", "admin.database"],
+  business_owner: ["business.overview", "business.dispatcher"],
+  worker: ["business.work"],
+  dispatcher: ["business.dispatcher_form"],
+} as const;
 
 const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   admin: [
@@ -180,11 +192,13 @@ function buildDevProfile(
       activeAccess: {
         accountId: "dev-access-admin",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Dev admin access",
         scope: {
           kind: "platform",
         },
         capabilities,
+        navigationItems: [...navigationItemsByAccountType[accountType]],
         issuedAt,
       },
       businessAccounts: [
@@ -215,12 +229,14 @@ function buildDevProfile(
       activeAccess: {
         accountId: "dev-access-owner",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Dev business owner access",
         scope: {
           kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
         },
         capabilities,
+        navigationItems: [...navigationItemsByAccountType[accountType]],
         issuedAt,
       },
       businessAccounts: [
@@ -244,6 +260,7 @@ function buildDevProfile(
       activeAccess: {
         accountId: "dev-access-dispatcher",
         accountType,
+        position: defaultPositionByAccountType[accountType],
         displayName: "Dev dispatcher access",
         scope: {
           kind: "department",
@@ -251,6 +268,7 @@ function buildDevProfile(
           departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
+        navigationItems: [...navigationItemsByAccountType[accountType]],
         issuedAt,
       },
       businessAccounts: [
@@ -280,6 +298,7 @@ function buildDevProfile(
     activeAccess: {
       accountId: "dev-access-worker",
       accountType,
+      position: defaultPositionByAccountType[accountType],
       displayName: "Dev worker access",
       scope: {
         kind: "department",
@@ -287,6 +306,7 @@ function buildDevProfile(
         departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
+      navigationItems: [...navigationItemsByAccountType[accountType]],
       issuedAt,
     },
     businessAccounts: [

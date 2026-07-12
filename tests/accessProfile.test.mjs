@@ -180,6 +180,7 @@ test("requestAccessProfile accepts a minimal valid server profile", async () => 
     activeAccess: {
       accountId: "account-id",
       accountType: "worker",
+      position: "worker",
       displayName: "Worker access",
       scope: {
         kind: "department",
@@ -187,6 +188,7 @@ test("requestAccessProfile accepts a minimal valid server profile", async () => 
         departmentId: "department-id",
       },
       capabilities: ["business.submit_forms"],
+      navigationItems: ["business.work"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
     businessAccounts: [],
@@ -215,6 +217,7 @@ test("requestAccessProfile accepts dispatcher profiles", async () => {
     activeAccess: {
       accountId: "dispatcher-access-id",
       accountType: "dispatcher",
+      position: "dispatcher",
       displayName: "Dispatcher access",
       scope: {
         kind: "department",
@@ -222,6 +225,7 @@ test("requestAccessProfile accepts dispatcher profiles", async () => {
         departmentId: "department-id",
       },
       capabilities: ["business.submit_dispatcher_forms"],
+      navigationItems: ["business.dispatcher_form"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
     businessAccounts: [],
@@ -263,6 +267,7 @@ test("requestAccessProfile rejects unknown server capabilities", async () => {
     activeAccess: {
       accountId: "account-id",
       accountType: "worker",
+      position: "worker",
       displayName: "Worker access",
       scope: {
         kind: "department",
@@ -270,6 +275,7 @@ test("requestAccessProfile rejects unknown server capabilities", async () => {
         departmentId: "department-id",
       },
       capabilities: ["unknown.capability"],
+      navigationItems: ["business.work"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
     businessAccounts: [],

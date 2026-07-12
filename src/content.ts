@@ -1,6 +1,11 @@
-import type { AccountType } from "./contracts/accounts";
+import type {
+  AccountNavigationItem,
+  AccountPosition,
+  AccountType,
+} from "./contracts/accounts";
 
 export type NavigationItem = {
+  id: AccountNavigationItem;
   label: string;
   description: string;
   state: "active" | "locked" | "pending";
@@ -25,6 +30,16 @@ export const shellCopy = {
 export const accountTypeLabels: Record<AccountType, string> = {
   admin: "Администратор",
   business_owner: "Владелец бизнеса",
+  worker: "Работник",
+  dispatcher: "Диспетчер",
+};
+
+export const accountPositionLabels: Record<AccountPosition, string> = {
+  administrator: "Администратор",
+  business_owner: "Владелец бизнеса",
+  board_chair: "Председатель совета директоров",
+  board_member: "Член совета директоров",
+  general_director: "Генеральный директор",
   worker: "Работник",
   dispatcher: "Диспетчер",
 };
@@ -59,16 +74,19 @@ export const authOptions: AuthOption[] = [
 export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]> = {
   admin: [
     {
+      id: "admin.account_preview",
       label: "Просмотр аккаунта",
       description: "Режимы рабочих кабинетов",
       state: "active",
     },
     {
+      id: "admin.accounts",
       label: "Учётные записи",
       description: "Логины, пароли и создание доступов",
       state: "pending",
     },
     {
+      id: "admin.database",
       label: "БД",
       description: "Таблицы и строки сервера",
       state: "pending",
@@ -76,11 +94,13 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
   ],
   business_owner: [
     {
+      id: "business.overview",
       label: "Обзор",
       description: "Статусы по участкам",
       state: "active",
     },
     {
+      id: "business.dispatcher",
       label: "Диспетчерская",
       description: "Регистрации, фильтры и счётчики",
       state: "pending",
@@ -88,6 +108,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
   ],
   worker: [
     {
+      id: "business.work",
       label: "Работа",
       description: "Рабочие формы отдельно",
       state: "active",
@@ -95,6 +116,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
   ],
   dispatcher: [
     {
+      id: "business.dispatcher_form",
       label: "Форма",
       description: "Выбор и отправка регистрации",
       state: "active",

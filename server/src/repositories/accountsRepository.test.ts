@@ -83,9 +83,10 @@ test("createAccount generates worker ids and commits all rows together", async (
     "Работник Один",
   ]);
   assert.equal(userInsert?.sql.includes("on duplicate key update"), false);
-  assert.deepEqual(accessInsert?.params?.slice(0, 7), [
+  assert.deepEqual(accessInsert?.params?.slice(0, 8), [
     "worker-access-id",
     "worker-user-id",
+    "worker",
     "worker",
     "Работник Один access",
     "department",

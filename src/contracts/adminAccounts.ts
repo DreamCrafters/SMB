@@ -1,4 +1,10 @@
-import type { AccountCapability, AccountScope, AccountType } from "./accounts";
+import type {
+  AccountCapability,
+  AccountNavigationItem,
+  AccountPosition,
+  AccountScope,
+  AccountType,
+} from "./accounts";
 
 export type AdminAccountSummary = {
   accessId: string;
@@ -8,10 +14,14 @@ export type AdminAccountSummary = {
   userStatus: string;
   accessDisplayName: string;
   accountType: AccountType;
+  position: AccountPosition;
   scope: AccountScope;
   businessDisplayName: string | null;
   departmentDisplayName: string | null;
   capabilities: AccountCapability[];
+  navigationItems: AccountNavigationItem[];
+  accessLevelId: string | null;
+  accessLevelDisplayName: string | null;
   createdAt: string;
 };
 
@@ -23,9 +33,46 @@ export type CreateAdminAccountRequest = {
   login: string;
   password: string;
   displayName: string;
-  accountType: AccountType;
+  position: AccountPosition;
+  navigationItems: AccountNavigationItem[];
+  accessLevelId?: string;
   businessDisplayName?: string;
   departmentDisplayName?: string;
+};
+
+export type SetAdminAccountNavigationRequest = {
+  accessId: string;
+  navigationItems: AccountNavigationItem[];
+  accessLevelId?: string | null;
+};
+
+export type SetAdminAccountNavigationResponse = {
+  account: AdminAccountSummary;
+};
+
+export type AdminAccessLevelSummary = {
+  id: string;
+  displayName: string;
+  position: AccountPosition;
+  accountType: AccountType;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
+  isSystem: boolean;
+  createdAt: string;
+};
+
+export type AdminAccessLevelsListResponse = {
+  accessLevels: AdminAccessLevelSummary[];
+};
+
+export type CreateAdminAccessLevelRequest = {
+  displayName: string;
+  position: AccountPosition;
+  navigationItems: AccountNavigationItem[];
+};
+
+export type CreateAdminAccessLevelResponse = {
+  accessLevel: AdminAccessLevelSummary;
 };
 
 export type CreateAdminAccountResponse = {

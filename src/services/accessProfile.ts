@@ -5,7 +5,11 @@ import type {
   ServerIssuedAccountAccess,
   ServerUserProfile,
 } from "../contracts";
-import { accountCapabilities } from "../contracts/accounts.js";
+import {
+  accountCapabilities,
+  accountNavigationItems,
+  accountPositions,
+} from "../contracts/accounts.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import { readLocalDevAccessProfile } from "./localDevAccess.js";
 import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
@@ -368,9 +372,19 @@ function isServerIssuedAccountAccess(value: unknown): value is ServerIssuedAccou
   return (
     typeof value.accountId === "string" &&
     isAccountType(value.accountType) &&
+    typeof value.position === "string" &&
+    accountPositions.includes(value.position as (typeof accountPositions)[number]) &&
     typeof value.displayName === "string" &&
     Array.isArray(value.capabilities) &&
     value.capabilities.every(isAccountCapability) &&
+    Array.isArray(value.navigationItems) &&
+    value.navigationItems.every(
+      (item) =>
+        typeof item === "string" &&
+        accountNavigationItems.includes(
+          item as (typeof accountNavigationItems)[number],
+        ),
+    ) &&
     typeof value.issuedAt === "string"
   );
 }
