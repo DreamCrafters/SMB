@@ -357,11 +357,13 @@ function isAdminDatabaseTable(value: unknown) {
   return (
     isRecord(value) &&
     typeof value.name === "string" &&
+    typeof value.label === "string" &&
     (typeof value.rowCount === "number" || value.rowCount === null) &&
     Array.isArray(value.columns) &&
     value.columns.every(isAdminDatabaseColumn) &&
     Array.isArray(value.primaryKey) &&
-    value.primaryKey.every((item) => typeof item === "string")
+    value.primaryKey.every((item) => typeof item === "string") &&
+    typeof value.canDelete === "boolean"
   );
 }
 
@@ -369,12 +371,15 @@ function isAdminDatabaseColumn(value: unknown) {
   return (
     isRecord(value) &&
     typeof value.name === "string" &&
-    typeof value.dataType === "string" &&
-    typeof value.columnType === "string" &&
-    typeof value.nullable === "boolean" &&
-    typeof value.primaryKey === "boolean" &&
-    (typeof value.defaultValue === "string" || value.defaultValue === null) &&
-    typeof value.extra === "string"
+    typeof value.label === "string" &&
+    (value.format === "text" ||
+      value.format === "status" ||
+      value.format === "date" ||
+      value.format === "date_time" ||
+      value.format === "number") &&
+    typeof value.editable === "boolean" &&
+    typeof value.multiline === "boolean" &&
+    typeof value.nullable === "boolean"
   );
 }
 

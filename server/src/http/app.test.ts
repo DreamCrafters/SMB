@@ -117,26 +117,18 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
 
 const adminDatabaseTable = {
   name: "dispatcher_submissions",
+  label: "Диспетчерские записи",
   rowCount: 1,
   primaryKey: ["id"],
+  canDelete: true,
   columns: [
     {
-      name: "id",
-      dataType: "varchar",
-      columnType: "varchar(64)",
-      nullable: false,
-      primaryKey: true,
-      defaultValue: null,
-      extra: "",
-    },
-    {
       name: "summary",
-      dataType: "text",
-      columnType: "text",
-      nullable: true,
-      primaryKey: false,
-      defaultValue: null,
-      extra: "",
+      label: "Краткое описание",
+      format: "text" as const,
+      editable: true,
+      multiline: true,
+      nullable: false,
     },
   ],
 };

@@ -101,6 +101,10 @@ import {
   type AdminDatabaseTablesResult,
 } from "./services/adminDatabase";
 import {
+  formatAdminDatabaseCellValue,
+  hasAdminDatabaseRowActions,
+} from "./services/adminDatabasePresentation";
+import {
   executeAdminDispatcherImport,
   previewAdminDispatcherImport,
 } from "./services/adminDispatcherImport";
@@ -3715,7 +3719,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
         onImported={() => setRefreshVersion((version) => version + 1)}
       />
       <div className="admin-db-layout">
-        <aside className="admin-db-sidebar" aria-label="Таблицы БД">
+        <div className="admin-db-sidebar" aria-label="Разделы БД">
           {tablesState.status === "loading" ? (
             <p>{tablesState.message}</p>
           ) : null}
@@ -3732,11 +3736,11 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
               key={table.name}
               onClick={() => setSelectedTableName(table.name)}
             >
-              <span>{table.name}</span>
+              <span>{table.label}</span>
               <small>{formatTableRowCount(table.rowCount)}</small>
             </button>
           ))}
-        </aside>
+        </div>
 
         <div className="admin-db-main">
           <AdminDatabaseRowsTable
@@ -3772,7 +3776,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
 
           {deleteCandidate !== undefined ? (
             <div className="admin-db-danger-panel" role="alert">
-              <span>Удалить строку {formatPrimaryKey(deleteCandidate)}?</span>
+              <span>Удалить выбранную запись без возможности восстановления?</span>
               <div className="admin-db-actions">
                 <button
                   className="secondary-button"
@@ -3995,7 +3999,7 @@ function AdminDatabaseRowsTable({
   if (rowsState.rows.length === 0) {
     return (
       <div className="admin-db-meta">
-        <span>{rowsState.table.name}</span>
+        <span>{rowsState.table.label}</span>
         <strong>{rowsState.offset === 0 ? "Строк нет" : "Страницы дальше нет"}</strong>
         {rowsState.offset > 0 ? (
           <div className="admin-db-pager">
@@ -4017,11 +4021,13 @@ function AdminDatabaseRowsTable({
     rowsState.rows.length === rowsState.limit &&
     (rowsState.table.rowCount === null ||
       rowsState.offset + rowsState.rows.length < rowsState.table.rowCount);
+  const hasActions = hasAdminDatabaseRowActions(rowsState.table);
+  const canEdit = rowsState.table.columns.some((column) => column.editable);
 
   return (
     <>
       <div className="admin-db-meta">
-        <span>{rowsState.table.name}</span>
+        <span>{rowsState.table.label}</span>
         <strong>{formatRowsPage(rowsState)}</strong>
         <div className="admin-db-pager">
           <button
@@ -4052,10 +4058,14 @@ function AdminDatabaseRowsTable({
                   scope="col"
                   key={column.name}
                 >
-                  {column.name}
+                  {column.label}
                 </th>
               ))}
-              <th className="admin-db-actions-column" scope="col">Действия</th>
+              {hasActions ? (
+                <th className="admin-db-actions-column" scope="col">
+                  Действия
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -4067,29 +4077,36 @@ function AdminDatabaseRowsTable({
                     title={row.values[column.name] ?? "NULL"}
                     key={column.name}
                   >
-                    {formatDatabaseCellValue(row.values[column.name])}
+                    {formatAdminDatabaseCellValue(
+                      row.values[column.name],
+                      column.format,
+                    )}
                   </td>
                 ))}
-                <td className="admin-db-actions-column">
-                  <div className="admin-db-actions">
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      disabled={rowsState.table.primaryKey.length === 0}
-                      onClick={() => onEdit(row)}
-                    >
-                      Править
-                    </button>
-                    <button
-                      className="secondary-button secondary-button-danger"
-                      type="button"
-                      disabled={rowsState.table.primaryKey.length === 0}
-                      onClick={() => onDelete(row)}
-                    >
-                      Удалить
-                    </button>
-                  </div>
-                </td>
+                {hasActions ? (
+                  <td className="admin-db-actions-column">
+                    <div className="admin-db-actions">
+                      {canEdit ? (
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => onEdit(row)}
+                        >
+                          Править
+                        </button>
+                      ) : null}
+                      {rowsState.table.canDelete ? (
+                        <button
+                          className="secondary-button secondary-button-danger"
+                          type="button"
+                          onClick={() => onDelete(row)}
+                        >
+                          Удалить
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
@@ -4117,7 +4134,7 @@ function AdminDatabaseEditorModal({
   onSave: () => void;
   onValueChange: (columnName: string, value: AdminDatabaseCellValue) => void;
 }) {
-  const editableColumns = table.columns.filter((column) => !column.primaryKey);
+  const editableColumns = table.columns.filter((column) => column.editable);
   const editorTitleId = "admin-db-editor-title";
 
   return (
@@ -4139,8 +4156,7 @@ function AdminDatabaseEditorModal({
         <div className="admin-db-editor-header">
           <div>
             <span id={editorTitleId}>Редактирование строки</span>
-            <strong>{table.name}</strong>
-            <small>{formatPrimaryKey(editor.row)}</small>
+            <strong>{table.label}</strong>
           </div>
           <div className="admin-db-actions">
             <button
@@ -4162,26 +4178,20 @@ function AdminDatabaseEditorModal({
           </div>
         </div>
         <div className="admin-db-editor-grid">
-          {table.columns.map((column) => {
+          {editableColumns.map((column) => {
             const value = editor.values[column.name] ?? "";
             const isNull = editor.values[column.name] === null;
-            const isReadonly = column.primaryKey;
             const inputId = `admin-db-editor-${column.name}`;
 
             return (
               <div className="admin-db-editor-field" key={column.name}>
                 <label htmlFor={inputId}>
-                  <span>
-                    {column.name}
-                    {column.primaryKey ? <em>primary key</em> : null}
-                  </span>
-                  <small>{column.columnType}</small>
+                  <span>{column.label}</span>
                 </label>
                 {isMultilineDatabaseColumn(column) ? (
                   <textarea
                     id={inputId}
                     rows={5}
-                    readOnly={isReadonly}
                     disabled={isNull}
                     value={value}
                     onChange={(event) =>
@@ -4192,7 +4202,6 @@ function AdminDatabaseEditorModal({
                   <input
                     id={inputId}
                     type="text"
-                    readOnly={isReadonly}
                     disabled={isNull}
                     value={value}
                     onChange={(event) =>
@@ -4200,7 +4209,7 @@ function AdminDatabaseEditorModal({
                     }
                   />
                 )}
-                {column.nullable && !column.primaryKey ? (
+                {column.nullable ? (
                   <label className="admin-db-null-toggle">
                     <input
                       type="checkbox"
@@ -5564,48 +5573,12 @@ function formatPrimaryKey(row: AdminDatabaseRow) {
     .join(", ");
 }
 
-function formatDatabaseCellValue(value: AdminDatabaseCellValue | undefined) {
-  if (value === null || value === undefined) {
-    return "NULL";
-  }
-
-  const normalized = value.replace(/\s+/g, " ").trim();
-
-  if (normalized.length === 0) {
-    return "";
-  }
-
-  return normalized.length > 140
-    ? `${normalized.slice(0, 137)}...`
-    : normalized;
-}
-
 function readDatabaseCellClassName(column: AdminDatabaseColumn) {
-  const normalizedName = column.name.toLowerCase();
-
-  if (
-    column.dataType === "json" ||
-    column.dataType.endsWith("text") ||
-    normalizedName.includes("payload") ||
-    normalizedName.includes("summary") ||
-    normalizedName.includes("raw_value")
-  ) {
+  if (column.multiline) {
     return "admin-db-cell admin-db-cell-wide";
   }
 
-  if (
-    normalizedName === "id" ||
-    normalizedName.endsWith("_id") ||
-    normalizedName.includes("uuid")
-  ) {
-    return "admin-db-cell admin-db-cell-id";
-  }
-
-  if (
-    column.dataType.includes("date") ||
-    column.dataType.includes("time") ||
-    normalizedName.includes("_at")
-  ) {
+  if (column.format === "date" || column.format === "date_time") {
     return "admin-db-cell admin-db-cell-date";
   }
 
@@ -5616,33 +5589,15 @@ function readInitialAdminDatabaseEditorValues(
   row: AdminDatabaseRow,
   table: AdminDatabaseTable | undefined,
 ) {
-  const values = {
-    ...row.values,
-  };
-
-  for (const column of table?.columns ?? []) {
-    const value = values[column.name];
-
-    if (column.dataType !== "json" || value === null || value === undefined) {
-      continue;
-    }
-
-    try {
-      values[column.name] = JSON.stringify(JSON.parse(value), null, 2);
-    } catch {
-      // Keep the original server value if it is not valid JSON text.
-    }
-  }
-
-  return values;
+  return Object.fromEntries(
+    (table?.columns ?? [])
+      .filter((column) => column.editable)
+      .map((column) => [column.name, row.values[column.name] ?? null]),
+  );
 }
 
 function isMultilineDatabaseColumn(column: AdminDatabaseColumn) {
-  return (
-    column.dataType === "json" ||
-    column.dataType.endsWith("text") ||
-    column.columnType.length > 80
-  );
+  return column.multiline;
 }
 
 function getActiveBusinessAccountId(profile: ServerUserProfile) {

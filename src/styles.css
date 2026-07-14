@@ -1784,7 +1784,7 @@ p {
 
 .admin-db-layout {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-4);
   align-items: start;
   width: 100%;
@@ -1792,7 +1792,8 @@ p {
 
 .admin-db-sidebar {
   display: grid;
-  gap: var(--density-1);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--density-2);
   align-content: start;
 }
 
@@ -1804,8 +1805,8 @@ p {
 .admin-db-table-button {
   display: grid;
   gap: 3px;
-  min-height: 54px;
-  padding: 9px 10px;
+  min-height: 64px;
+  padding: 10px 12px;
   border: 1px solid var(--line-strong);
   border-left: 5px solid var(--line-strong);
   border-radius: var(--radius);
@@ -1844,6 +1845,7 @@ p {
 .admin-db-main {
   display: grid;
   gap: var(--density-3);
+  width: 100%;
   min-width: 0;
 }
 
@@ -1856,7 +1858,7 @@ p {
 }
 
 .admin-db-data-table {
-  width: max-content;
+  width: 100%;
   min-width: 100%;
   border-collapse: collapse;
 }

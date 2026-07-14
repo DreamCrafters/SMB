@@ -15,26 +15,18 @@ test.after(() => {
 
 const table = {
   name: "dispatcher_submissions",
+  label: "Диспетчерские записи",
   rowCount: 1,
   primaryKey: ["id"],
+  canDelete: true,
   columns: [
     {
-      name: "id",
-      dataType: "varchar",
-      columnType: "varchar(64)",
-      nullable: false,
-      primaryKey: true,
-      defaultValue: null,
-      extra: "",
-    },
-    {
       name: "summary",
-      dataType: "text",
-      columnType: "text",
+      label: "Краткое описание",
+      format: "text",
+      editable: true,
+      multiline: true,
       nullable: true,
-      primaryKey: false,
-      defaultValue: null,
-      extra: "",
     },
   ],
 };
