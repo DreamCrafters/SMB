@@ -121,6 +121,7 @@ const adminDatabaseTable = {
   rowCount: 1,
   primaryKey: ["id"],
   canDelete: true,
+  canClear: true,
   columns: [
     {
       name: "summary",
@@ -160,6 +161,9 @@ const adminDatabase: AdminDatabaseRepository = {
   },
   async deleteRow() {
     // The default test repository does not need mutation assertions.
+  },
+  async clearTable() {
+    return 0;
   },
 };
 
@@ -595,6 +599,63 @@ test("admin database API forwards update and delete mutations for admin sessions
       id: "row-id",
     },
   });
+});
+
+test("admin database API clears a section only after exact confirmation", async () => {
+  const clearedTables: string[] = [];
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async clearTable(tableName) {
+      clearedTables.push(tableName);
+      return 582;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const adminSessionId = await createDevSession(baseUrl, "admin");
+      const dispatcherSessionId = await createDevSession(baseUrl, "dispatcher");
+      const endpoint =
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows/all`;
+      const validResponse = await fetch(endpoint, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": adminSessionId,
+        },
+        body: JSON.stringify({ confirmation: "dispatcher_submissions" }),
+      });
+      const validPayload = await validResponse.json();
+      const invalidConfirmationResponse = await fetch(endpoint, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": adminSessionId,
+        },
+        body: JSON.stringify({ confirmation: "wrong_table" }),
+      });
+      const forbiddenResponse = await fetch(endpoint, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": dispatcherSessionId,
+        },
+        body: JSON.stringify({ confirmation: "dispatcher_submissions" }),
+      });
+
+      assert.equal(validResponse.status, 200);
+      assert.deepEqual(validPayload, { ok: true, deleted: 582 });
+      assert.equal(invalidConfirmationResponse.status, 400);
+      assert.equal(forbiddenResponse.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+  );
+
+  assert.deepEqual(clearedTables, ["dispatcher_submissions"]);
 });
 
 const adminAccount = {

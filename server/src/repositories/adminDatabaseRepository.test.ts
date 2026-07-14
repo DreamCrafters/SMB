@@ -37,6 +37,7 @@ test("admin database exposes credentials as a safe informative view", async () =
   );
   assert.deepEqual(result.table.primaryKey, []);
   assert.equal(result.table.canDelete, false);
+  assert.equal(result.table.canClear, false);
   assert.doesNotMatch(serialized, /password-hash-secret|password_hash|user-secret-id/u);
   assert.doesNotMatch(
     queries.at(-1) ?? "",
@@ -78,6 +79,7 @@ test("admin database does not expose or mutate active session identifiers", asyn
   assert.equal(result.table.label, "Активные сессии");
   assert.deepEqual(result.table.primaryKey, []);
   assert.equal(result.table.canDelete, false);
+  assert.equal(result.table.canClear, false);
   assert.doesNotMatch(serialized, /session-token-secret|user-id|access-id/u);
   assert.doesNotMatch(queries.at(-1) ?? "", /sessions\.id|select \*/u);
   await assert.rejects(
@@ -87,4 +89,27 @@ test("admin database does not expose or mutate active session identifiers", asyn
     }),
     /does not allow deletion/u,
   );
+});
+
+test("admin database clears only an explicitly allowlisted section", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push(normalized);
+
+      return [{ affectedRows: 582 }, []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createAdminDatabaseRepository(pool);
+
+  const deleted = await repository.clearTable("dispatcher_submissions");
+
+  assert.equal(deleted, 582);
+  assert.equal(queries[0], "delete from `dispatcher_submissions`");
+  await assert.rejects(
+    repository.clearTable("auth_sessions"),
+    /does not allow clearing/u,
+  );
+  assert.equal(queries.length, 1);
 });

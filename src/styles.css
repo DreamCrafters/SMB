@@ -1939,6 +1939,14 @@ p {
   flex-wrap: wrap;
 }
 
+.admin-db-meta-actions {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .admin-db-danger-panel {
   display: grid;
   gap: var(--density-3);
@@ -1974,6 +1982,36 @@ p {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.admin-db-clear-dialog {
+  width: min(100%, 560px);
+}
+
+.admin-db-clear-copy {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.admin-db-clear-copy span {
+  color: var(--brick);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-db-clear-copy strong {
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.admin-db-clear-copy p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .equipment-detail-modal-backdrop {
@@ -2359,6 +2397,7 @@ p {
   .auth-status,
   .form-actions,
   .admin-db-meta,
+  .admin-db-meta-actions,
   .admin-db-editor-header,
   .admin-account-modal-header,
   .admin-accounts-password-field,

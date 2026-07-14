@@ -23,6 +23,7 @@ export type AdminDatabaseTable = {
   columns: AdminDatabaseColumn[];
   primaryKey: string[];
   canDelete: boolean;
+  canClear: boolean;
 };
 
 export type AdminDatabaseRow = {

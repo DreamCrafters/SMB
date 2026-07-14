@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  clearAdminDatabaseTable,
   deleteAdminDatabaseRow,
   requestAdminDatabaseRows,
   requestAdminDatabaseTables,
@@ -19,6 +20,7 @@ const table = {
   rowCount: 1,
   primaryKey: ["id"],
   canDelete: true,
+  canClear: true,
   columns: [
     {
       name: "summary",
@@ -126,6 +128,31 @@ test("admin database service sends update and delete mutations", async () => {
       id: "row-id",
     },
     values: {},
+  });
+});
+
+test("admin database service clears an allowlisted table with explicit confirmation", async () => {
+  let request;
+
+  globalThis.fetch = async (url, init) => {
+    request = { url: String(url), init };
+
+    return jsonResponse({ ok: true, deleted: 582 });
+  };
+
+  const result = await clearAdminDatabaseTable("dispatcher_submissions");
+
+  assert.deepEqual(result, {
+    status: "ready",
+    deleted: 582,
+  });
+  assert.equal(
+    request.url,
+    "/api/admin/database/tables/dispatcher_submissions/rows/all",
+  );
+  assert.equal(request.init.method, "DELETE");
+  assert.deepEqual(JSON.parse(request.init.body), {
+    confirmation: "dispatcher_submissions",
   });
 });
 

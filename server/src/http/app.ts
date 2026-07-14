@@ -550,6 +550,37 @@ async function handleAdminDatabaseRequest({
   }
 
   try {
+    if (route.clearAll) {
+      if (req.method !== "DELETE") {
+        sendJson(res, 405, {
+          error: {
+            code: "access_denied",
+            message: "Only DELETE is supported for clearing an admin database table.",
+          },
+        });
+        return;
+      }
+
+      const validation = readAdminDatabaseClearPayload(
+        await readJsonBody(req),
+        route.tableName,
+      );
+
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      const deleted = await adminDatabase.clearTable(route.tableName);
+      sendJson(res, 200, { ok: true, deleted });
+      return;
+    }
+
     if (req.method === "GET") {
       const pagination = readAdminDatabasePagination(url);
 
@@ -1269,7 +1300,7 @@ function sendAdminAccountsError(res: ServerResponse, error: unknown) {
 }
 
 function readAdminDatabaseRowsRoute(url: URL) {
-  const match = /^\/api\/admin\/database\/tables\/([^/]+)\/rows$/.exec(
+  const match = /^\/api\/admin\/database\/tables\/([^/]+)\/rows(?:\/(all))?$/.exec(
     url.pathname,
   );
 
@@ -1279,6 +1310,7 @@ function readAdminDatabaseRowsRoute(url: URL) {
 
   return {
     tableName: decodeURIComponent(match[1]),
+    clearAll: match[2] === "all",
   };
 }
 
@@ -1419,6 +1451,33 @@ function readAdminDatabaseMutationPayload(input: unknown):
       values,
     },
   };
+}
+
+function readAdminDatabaseClearPayload(
+  input: unknown,
+  tableName: string,
+): { ok: true } | { ok: false; errors: string[] } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  const errors: string[] = [];
+  const unexpectedFields = Object.keys(input).filter(
+    (fieldName) => fieldName !== "confirmation",
+  );
+
+  if (unexpectedFields.length > 0) {
+    errors.push("Payload contains unsupported fields.");
+  }
+
+  if (input.confirmation !== tableName) {
+    errors.push("Table confirmation does not match the selected table.");
+  }
+
+  return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
 function readAdminDatabaseValueMap(

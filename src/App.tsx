@@ -93,6 +93,7 @@ import {
   hasCapability,
 } from "./services/accessGuards";
 import {
+  clearAdminDatabaseTable,
   deleteAdminDatabaseRow,
   requestAdminDatabaseRows,
   requestAdminDatabaseTables,
@@ -3531,6 +3532,8 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
   >(undefined);
   const [deleteCandidate, setDeleteCandidate] =
     useState<AdminDatabaseRow | undefined>(undefined);
+  const [clearCandidate, setClearCandidate] =
+    useState<AdminDatabaseTable | undefined>(undefined);
   const [mutationStatus, setMutationStatus] = useState("");
   const [isMutating, setIsMutating] = useState(false);
 
@@ -3562,7 +3565,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
     return () => {
       controller.abort();
     };
-  }, [canManageDatabase]);
+  }, [canManageDatabase, refreshVersion]);
 
   useEffect(() => {
     if (tablesState.status !== "ready") {
@@ -3602,6 +3605,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
     });
     setEditor(undefined);
     setDeleteCandidate(undefined);
+    setClearCandidate(undefined);
 
     requestAdminDatabaseRows(selectedTableName, {
       limit: 100,
@@ -3625,6 +3629,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
   function handleStartEdit(row: AdminDatabaseRow) {
     setMutationStatus("");
     setDeleteCandidate(undefined);
+    setClearCandidate(undefined);
     setEditor({
       row,
       values: readInitialAdminDatabaseEditorValues(row, selectedTable),
@@ -3676,7 +3681,15 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
   function handleStartDelete(row: AdminDatabaseRow) {
     setMutationStatus("");
     setEditor(undefined);
+    setClearCandidate(undefined);
     setDeleteCandidate(row);
+  }
+
+  function handleStartClear(table: AdminDatabaseTable) {
+    setMutationStatus("");
+    setEditor(undefined);
+    setDeleteCandidate(undefined);
+    setClearCandidate(table);
   }
 
   async function handleConfirmDelete() {
@@ -3696,6 +3709,29 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
     if (result.status === "ready") {
       setMutationStatus("Строка БД удалена.");
       setDeleteCandidate(undefined);
+      setRefreshVersion((version) => version + 1);
+      return;
+    }
+
+    setMutationStatus(result.message);
+  }
+
+  async function handleConfirmClear() {
+    if (clearCandidate === undefined) {
+      return;
+    }
+
+    setIsMutating(true);
+    setMutationStatus("Очищаем раздел БД.");
+
+    const result = await clearAdminDatabaseTable(clearCandidate.name);
+
+    setIsMutating(false);
+
+    if (result.status === "ready") {
+      setMutationStatus(`Раздел очищен. Удалено записей: ${result.deleted}.`);
+      setClearCandidate(undefined);
+      setRowsOffset(0);
       setRefreshVersion((version) => version + 1);
       return;
     }
@@ -3747,6 +3783,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
             rowsState={rowsState}
             onEdit={handleStartEdit}
             onDelete={handleStartDelete}
+            onClear={handleStartClear}
             onNextPage={() =>
               setRowsOffset((current) =>
                 rowsState.status === "ready"
@@ -3796,6 +3833,15 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {clearCandidate !== undefined ? (
+            <AdminDatabaseClearModal
+              table={clearCandidate}
+              isMutating={isMutating}
+              onCancel={() => setClearCandidate(undefined)}
+              onConfirm={handleConfirmClear}
+            />
           ) : null}
 
           {mutationStatus.length > 0 ? (
@@ -3983,12 +4029,14 @@ function AdminDatabaseRowsTable({
   rowsState,
   onEdit,
   onDelete,
+  onClear,
   onNextPage,
   onPreviousPage,
 }: {
   rowsState: AdminDatabaseRowsLoadState;
   onEdit: (row: AdminDatabaseRow) => void;
   onDelete: (row: AdminDatabaseRow) => void;
+  onClear: (table: AdminDatabaseTable) => void;
   onNextPage: () => void;
   onPreviousPage: () => void;
 }) {
@@ -4029,23 +4077,34 @@ function AdminDatabaseRowsTable({
       <div className="admin-db-meta">
         <span>{rowsState.table.label}</span>
         <strong>{formatRowsPage(rowsState)}</strong>
-        <div className="admin-db-pager">
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={!hasPreviousPage}
-            onClick={onPreviousPage}
-          >
-            Назад
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={!hasNextPage}
-            onClick={onNextPage}
-          >
-            Дальше
-          </button>
+        <div className="admin-db-meta-actions">
+          {rowsState.table.canClear ? (
+            <button
+              className="secondary-button secondary-button-danger"
+              type="button"
+              onClick={() => onClear(rowsState.table)}
+            >
+              Очистить раздел
+            </button>
+          ) : null}
+          <div className="admin-db-pager">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!hasPreviousPage}
+              onClick={onPreviousPage}
+            >
+              Назад
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!hasNextPage}
+              onClick={onNextPage}
+            >
+              Дальше
+            </button>
+          </div>
         </div>
       </div>
       <div className="admin-db-table-scroll">
@@ -4113,6 +4172,66 @@ function AdminDatabaseRowsTable({
         </table>
       </div>
     </>
+  );
+}
+
+function AdminDatabaseClearModal({
+  table,
+  isMutating,
+  onCancel,
+  onConfirm,
+}: {
+  table: AdminDatabaseTable;
+  isMutating: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const titleId = "admin-db-clear-title";
+
+  return (
+    <div
+      className="admin-db-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !isMutating) {
+          onCancel();
+        }
+      }}
+    >
+      <section
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="admin-db-editor admin-db-clear-dialog"
+        role="dialog"
+      >
+        <div className="admin-db-clear-copy">
+          <span>Необратимое действие</span>
+          <strong id={titleId}>Очистить раздел «{table.label}»?</strong>
+          <p>
+            Будут удалены все записи этого раздела — {formatTableRowCount(table.rowCount)}.
+            Другие разделы БД не изменятся.
+          </p>
+        </div>
+        <div className="admin-db-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={isMutating}
+            onClick={onCancel}
+          >
+            Отмена
+          </button>
+          <button
+            className="secondary-button secondary-button-danger"
+            type="button"
+            disabled={isMutating}
+            onClick={onConfirm}
+          >
+            {isMutating ? "Очищаем" : "Удалить все записи"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 

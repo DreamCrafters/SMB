@@ -39,6 +39,13 @@ export type AdminDatabaseMutationResult =
     }
   | AdminDatabaseErrorState;
 
+export type AdminDatabaseClearResult =
+  | {
+      status: "ready";
+      deleted: number;
+    }
+  | AdminDatabaseErrorState;
+
 type AdminDatabaseRequestOptions = {
   baseUrl?: string;
   signal?: AbortSignal;
@@ -186,6 +193,60 @@ export async function deleteAdminDatabaseRow(
     },
     { baseUrl, signal },
   );
+}
+
+export async function clearAdminDatabaseTable(
+  tableName: string,
+  { baseUrl, signal }: AdminDatabaseRequestOptions = {},
+): Promise<AdminDatabaseClearResult> {
+  const endpoint = `${buildRowsEndpoint(tableName, { baseUrl })}/all`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "DELETE",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify({ confirmation: tableName }),
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(payload, response.status, "Сервер отклонил очистку раздела БД.");
+    }
+
+    if (isClearResponse(payload)) {
+      return {
+        status: "ready",
+        deleted: payload.deleted,
+      };
+    }
+
+    return {
+      status: "error",
+      message: "Сервер вернул результат очистки БД в неподдерживаемом формате.",
+      code: "invalid_response",
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        status: "error",
+        message: "Запрос очистки БД отменён.",
+      };
+    }
+
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure("Не удалось очистить раздел БД.", {
+        baseUrl,
+      }),
+      code: "network_error",
+    };
+  }
 }
 
 async function mutateAdminDatabaseRow(
@@ -363,7 +424,8 @@ function isAdminDatabaseTable(value: unknown) {
     value.columns.every(isAdminDatabaseColumn) &&
     Array.isArray(value.primaryKey) &&
     value.primaryKey.every((item) => typeof item === "string") &&
-    typeof value.canDelete === "boolean"
+    typeof value.canDelete === "boolean" &&
+    typeof value.canClear === "boolean"
   );
 }
 
@@ -405,6 +467,16 @@ function isDatabaseValueMap(value: unknown): value is Record<
 
 function isOkResponse(value: unknown) {
   return isRecord(value) && value.ok === true;
+}
+
+function isClearResponse(value: unknown): value is { ok: true; deleted: number } {
+  return (
+    isRecord(value) &&
+    value.ok === true &&
+    typeof value.deleted === "number" &&
+    Number.isInteger(value.deleted) &&
+    value.deleted >= 0
+  );
 }
 
 function isKnownErrorCode(

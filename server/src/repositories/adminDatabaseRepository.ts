@@ -1,4 +1,4 @@
-import type { RowDataPacket } from "mysql2/promise";
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 
 export type AdminDatabaseValueFormat =
@@ -24,6 +24,7 @@ export type AdminDatabaseTable = {
   columns: AdminDatabaseColumn[];
   primaryKey: string[];
   canDelete: boolean;
+  canClear: boolean;
 };
 
 export type AdminDatabaseCellValue = string | null;
@@ -62,6 +63,7 @@ export type AdminDatabaseRepository = {
   ) => Promise<AdminDatabaseTableRows>;
   updateRow: (value: AdminDatabaseUpdate) => Promise<void>;
   deleteRow: (value: AdminDatabaseDelete) => Promise<void>;
+  clearTable: (tableName: string) => Promise<number>;
 };
 
 type TableRow = RowDataPacket & {
@@ -90,6 +92,7 @@ type AdminDatabaseView = {
   columns: AdminDatabaseViewColumn[];
   primaryKey: AdminDatabasePrimaryKey[];
   canDelete: boolean;
+  canClear?: boolean;
 };
 
 const identifierPattern = /^[A-Za-z0-9_]+$/;
@@ -400,6 +403,7 @@ const databaseViews: AdminDatabaseView[] = [
     ],
     primaryKey: [{ name: "id", selectExpression: "submissions.id" }],
     canDelete: true,
+    canClear: true,
   },
   {
     name: "schema_migrations",
@@ -549,6 +553,20 @@ export function createAdminDatabaseRepository(
     );
   }
 
+  async function clearTable(tableName: string) {
+    const view = readView(tableName);
+
+    if (view.canClear !== true) {
+      throw new Error(`Selected table does not allow clearing: ${view.name}`);
+    }
+
+    const [result] = await pool.query<ResultSetHeader>(
+      `delete from ${quoteIdentifier(view.name)}`,
+    );
+
+    return result.affectedRows;
+  }
+
   async function readPublicTable(view: AdminDatabaseView) {
     const [rows] = await pool.query<Array<RowDataPacket & { row_count: number | string }>>(
       `select count(*) as row_count from ${quoteIdentifier(view.name)}`,
@@ -562,6 +580,7 @@ export function createAdminDatabaseRepository(
     listRows,
     updateRow,
     deleteRow,
+    clearTable,
   };
 }
 
@@ -582,6 +601,7 @@ function buildPublicTable(view: AdminDatabaseView, rowCount: number | null) {
     ),
     primaryKey: view.primaryKey.map((column) => column.name),
     canDelete: view.canDelete,
+    canClear: view.canClear === true,
   } satisfies AdminDatabaseTable;
 }
 
