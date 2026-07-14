@@ -901,7 +901,7 @@ function saveLocalDispatcherSubmission(
   try {
     storage.setItem(
       LOCAL_DISPATCHER_STORAGE_KEY,
-      JSON.stringify(submissions.slice(0, 500)),
+      JSON.stringify(submissions.slice(0, 2_000)),
     );
   } catch {
     return {
@@ -1362,7 +1362,7 @@ function buildLocalDispatcherSummary(
 }
 
 function readSafeLocalFeedLimit(limit: number | undefined) {
-  return Math.min(Math.max(limit ?? 100, 1), 500);
+  return Math.min(Math.max(limit ?? 100, 1), 2_000);
 }
 
 async function readJson(response: Response): Promise<unknown> {

@@ -6,9 +6,13 @@ import { createAdminDatabaseRepository } from "./repositories/adminDatabaseRepos
 import { createAccountsRepository } from "./repositories/accountsRepository.js";
 import { createAuthSessionService } from "./repositories/authRepository.js";
 import { createDispatcherSubmissionsRepository } from "./repositories/dispatcherSubmissionsRepository.js";
+import { createDispatcherSpreadsheetImportRepository } from "./repositories/dispatcherSpreadsheetImportRepository.js";
+import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
 const config = readServerConfig();
 const pool = createDatabasePool(config.databaseUrl);
+const dispatcherSpreadsheetImportRepository =
+  createDispatcherSpreadsheetImportRepository(pool);
 
 if (config.runMigrationsOnStart) {
   await runMigrations(pool);
@@ -22,6 +26,10 @@ const server = createApiServer({
     sessionTtlHours: config.session.ttlHours,
   }),
   dispatcherSubmissions: createDispatcherSubmissionsRepository(pool),
+  dispatcherSpreadsheetImport: createDispatcherSpreadsheetImportService(
+    config.googleSheetsReference,
+    dispatcherSpreadsheetImportRepository,
+  ),
 });
 
 server.listen(config.port, "0.0.0.0", () => {

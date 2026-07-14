@@ -193,7 +193,7 @@ export function createDispatcherSubmissionsRepository(
     },
 
     async listLatest(filters = {}) {
-      const safeLimit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
+      const safeLimit = Math.min(Math.max(filters.limit ?? 100, 1), 2_000);
       const where = buildWhereClause(filters);
       const [rows] = await pool.query<DispatcherSubmissionDbRow[]>(
         `

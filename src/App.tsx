@@ -16,6 +16,7 @@ import {
   type AdminDatabaseColumn,
   type AdminDatabaseRow,
   type AdminDatabaseTable,
+  type AdminDispatcherImportPreviewResponse,
   type DispatcherFormDefinition,
   type DispatcherFormField,
   type DispatcherFormId,
@@ -99,6 +100,12 @@ import {
   type AdminDatabaseRowsResult,
   type AdminDatabaseTablesResult,
 } from "./services/adminDatabase";
+import {
+  executeAdminDispatcherImport,
+  previewAdminDispatcherImport,
+  requestAdminDispatcherImportOptions,
+  type AdminDispatcherImportOptionsResult,
+} from "./services/adminDispatcherImport";
 import {
   createAdminAccount,
   createAdminPosition,
@@ -402,7 +409,7 @@ export default function App() {
       requestDispatcherFeed({
         signal: currentController.signal,
         localFallback: isLocalTestFallbackEnabled,
-        limit: 500,
+        limit: 2_000,
       }).then((result) => {
         if (isActive) {
           setDispatcherFeed(result);
@@ -1765,7 +1772,7 @@ function DispatcherIncidentCloseFormBody({
       );
 
       requestDispatcherFeed({
-        limit: 500,
+        limit: 2_000,
         localFallback: true,
         signal: currentController.signal,
       }).then((result) => {
@@ -1886,7 +1893,7 @@ function DispatcherVisitorExitFormBody({
       );
 
       requestDispatcherFeed({
-        limit: 500,
+        limit: 2_000,
         localFallback: true,
         signal: currentController.signal,
       }).then((result) => {
@@ -2107,7 +2114,7 @@ function DispatcherEquipmentFormBody({
       requestDispatcherFeed({
         formId: "equipment",
         reportDate: reportDate.length > 0 ? reportDate : undefined,
-        limit: 500,
+        limit: 2_000,
         localFallback: true,
         signal: currentController.signal,
       }).then((result) => {
@@ -3706,6 +3713,9 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
 
   return (
     <section className="admin-workspace" aria-label="БД">
+      <AdminDispatcherImportPanel
+        onImported={() => setRefreshVersion((version) => version + 1)}
+      />
       <div className="admin-db-layout">
         <aside className="admin-db-sidebar" aria-label="Таблицы БД">
           {tablesState.status === "loading" ? (
@@ -3791,6 +3801,241 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
           ) : null}
         </div>
       </div>
+    </section>
+  );
+}
+
+function AdminDispatcherImportPanel({ onImported }: { onImported: () => void }) {
+  const [optionsState, setOptionsState] =
+    useState<AdminDispatcherImportOptionsResult>({
+      status: "error",
+      message: "Загружаем бизнес-аккаунты.",
+    });
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
+  const [businessAccountId, setBusinessAccountId] = useState("");
+  const [preview, setPreview] =
+    useState<AdminDispatcherImportPreviewResponse | undefined>(undefined);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [isLoadingOptions, setIsLoadingOptions] = useState(true);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    requestAdminDispatcherImportOptions({ signal: controller.signal }).then(
+      (result) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setOptionsState(result);
+        setIsLoadingOptions(false);
+
+        if (result.status === "ready" && result.businessAccounts.length === 1) {
+          setBusinessAccountId(result.businessAccounts[0]?.id ?? "");
+        }
+      },
+    );
+
+    return () => controller.abort();
+  }, []);
+
+  const businessAccounts =
+    optionsState.status === "ready" ? optionsState.businessAccounts : [];
+
+  function handleSourceChange(value: string) {
+    setSpreadsheetUrl(value);
+    setPreview(undefined);
+    setStatusMessage("");
+  }
+
+  function handleBusinessChange(value: string) {
+    setBusinessAccountId(value);
+    setPreview(undefined);
+    setStatusMessage("");
+  }
+
+  async function handlePreview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsPreviewing(true);
+    setPreview(undefined);
+    setStatusMessage("Проверяем таблицу.");
+
+    const result = await previewAdminDispatcherImport({
+      spreadsheetUrl,
+      businessAccountId,
+    });
+
+    setIsPreviewing(false);
+
+    if (result.status === "error") {
+      setStatusMessage(result.message);
+      return;
+    }
+
+    setPreview(result);
+    setStatusMessage("Предпросмотр готов. Данные в БД ещё не изменены.");
+  }
+
+  async function handleExecuteImport() {
+    if (preview === undefined) {
+      return;
+    }
+
+    setIsImporting(true);
+    setStatusMessage("Переносим записи в БД.");
+
+    const result = await executeAdminDispatcherImport({
+      spreadsheetUrl,
+      businessAccountId,
+      previewToken: preview.previewToken,
+    });
+
+    setIsImporting(false);
+
+    if (result.status === "error") {
+      setStatusMessage(result.message);
+      return;
+    }
+
+    setPreview(undefined);
+    setStatusMessage(
+      `Импорт завершён: добавлено ${result.inserted}, пропущено ${result.skipped}.`,
+    );
+    onImported();
+  }
+
+  return (
+    <section className="admin-db-import" aria-labelledby="admin-db-import-title">
+      <div className="admin-db-import-heading">
+        <div>
+          <span>Google Sheets</span>
+          <strong id="admin-db-import-title">Импорт диспетчерских таблиц</strong>
+        </div>
+        <small>Оборудование · Инциденты · Посетители</small>
+      </div>
+
+      <form className="admin-db-import-form" onSubmit={handlePreview}>
+        <label>
+          <span>Ссылка на таблицу</span>
+          <input
+            type="url"
+            required
+            placeholder="https://docs.google.com/spreadsheets/d/..."
+            value={spreadsheetUrl}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              handleSourceChange(value);
+            }}
+          />
+        </label>
+        <label>
+          <span>Бизнес-аккаунт</span>
+          <select
+            required
+            disabled={isLoadingOptions || businessAccounts.length === 0}
+            value={businessAccountId}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              handleBusinessChange(value);
+            }}
+          >
+            <option value="">Выберите аккаунт</option>
+            {businessAccounts.map((account) => (
+              <option value={account.id} key={account.id}>
+                {account.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="secondary-button"
+          type="submit"
+          disabled={
+            isPreviewing ||
+            isImporting ||
+            spreadsheetUrl.trim().length === 0 ||
+            businessAccountId.length === 0
+          }
+        >
+          {isPreviewing ? "Проверяем" : "Проверить таблицу"}
+        </button>
+      </form>
+
+      {optionsState.status === "error" && !isLoadingOptions ? (
+        <p className="dispatcher-status-line">{optionsState.message}</p>
+      ) : null}
+
+      {preview !== undefined ? (
+        <div className="admin-db-import-preview">
+          <div className="admin-db-import-totals">
+            <div>
+              <span>Всего записей</span>
+              <strong>{preview.totalRecords}</strong>
+            </div>
+            <div>
+              <span>Будет добавлено</span>
+              <strong>{preview.newRecords}</strong>
+            </div>
+            <div>
+              <span>Уже существует</span>
+              <strong>{preview.existingRecords}</strong>
+            </div>
+            <div>
+              <span>Предупреждения</span>
+              <strong>{preview.warnings.length}</strong>
+            </div>
+          </div>
+
+          <div className="admin-db-import-sheets">
+            {preview.sheets.map((sheet) => (
+              <div key={sheet.sheetName}>
+                <strong>{sheet.sheetName}</strong>
+                <span>
+                  строк: {sheet.sourceRows} · записей: {sheet.importRecords}
+                </span>
+                {sheet.skippedRows > 0 ? (
+                  <small>пропущено строк: {sheet.skippedRows}</small>
+                ) : null}
+              </div>
+            ))}
+          </div>
+
+          {preview.warnings.length > 0 ? (
+            <details className="admin-db-import-warnings">
+              <summary>Показать предупреждения</summary>
+              <ul>
+                {preview.warnings.slice(0, 20).map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+              {preview.warnings.length > 20 ? (
+                <small>Ещё предупреждений: {preview.warnings.length - 20}</small>
+              ) : null}
+            </details>
+          ) : null}
+
+          <div className="admin-db-import-confirm">
+            <span>
+              Импорт добавит только новые записи. Существующие строки не
+              перезаписываются, уведомления не отправляются.
+            </span>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={isImporting || preview.newRecords === 0}
+              onClick={handleExecuteImport}
+            >
+              {isImporting ? "Переносим" : "Перенести в БД"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {statusMessage.length > 0 ? (
+        <p className="dispatcher-status-line">{statusMessage}</p>
+      ) : null}
     </section>
   );
 }

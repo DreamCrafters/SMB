@@ -469,6 +469,18 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "014_dispatcher_spreadsheet_import_source",
+    statements: [
+      `
+      alter table dispatcher_submissions
+        add column import_source_key varchar(512) null after dedupe_key,
+        add unique key uniq_dispatcher_submissions_import_source (
+          import_source_key
+        );
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

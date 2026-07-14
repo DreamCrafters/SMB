@@ -1609,6 +1609,156 @@ p {
   text-transform: uppercase;
 }
 
+.admin-db-import {
+  display: grid;
+  gap: var(--density-3);
+  width: 100%;
+  margin-bottom: var(--density-4);
+  padding: var(--density-4);
+  border: 1px solid var(--line-strong);
+  border-left: 5px solid var(--blue-gray);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.admin-db-import-heading,
+.admin-db-import-confirm {
+  display: flex;
+  gap: var(--density-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-db-import-heading div {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-db-import-heading span,
+.admin-db-import-form label > span,
+.admin-db-import-totals span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-db-import-heading strong {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.admin-db-import-heading small,
+.admin-db-import-sheets span,
+.admin-db-import-sheets small,
+.admin-db-import-warnings small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-db-import-form {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(220px, 0.5fr) auto;
+  gap: var(--density-2);
+  align-items: end;
+}
+
+.admin-db-import-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-db-import-form input,
+.admin-db-import-form select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+
+.admin-db-import-form input:focus,
+.admin-db-import-form select:focus {
+  border-color: var(--blue-gray);
+  outline: 2px solid var(--blue-gray-soft);
+}
+
+.admin-db-import-preview {
+  display: grid;
+  gap: var(--density-3);
+  padding-top: var(--density-3);
+  border-top: 1px solid var(--line);
+}
+
+.admin-db-import-totals,
+.admin-db-import-sheets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--density-2);
+}
+
+.admin-db-import-totals div,
+.admin-db-import-sheets div {
+  display: grid;
+  gap: 4px;
+  padding: var(--density-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.admin-db-import-totals strong {
+  color: var(--ink);
+  font-size: 20px;
+}
+
+.admin-db-import-sheets {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-db-import-sheets strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.admin-db-import-warnings {
+  padding: var(--density-2) var(--density-3);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius);
+  background: var(--amber-soft);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.admin-db-import-warnings summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.admin-db-import-warnings ul {
+  display: grid;
+  gap: 5px;
+  margin: var(--density-2) 0;
+  padding-left: 20px;
+}
+
+.admin-db-import-confirm {
+  padding-top: var(--density-2);
+  border-top: 1px solid var(--line);
+}
+
+.admin-db-import-confirm span {
+  max-width: 760px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .admin-db-meta {
   display: flex;
   gap: var(--density-2);
@@ -2139,6 +2289,12 @@ p {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .admin-db-import-form,
+  .admin-db-import-totals,
+  .admin-db-import-sheets {
+    grid-template-columns: 1fr;
+  }
+
 }
 
 @media (max-width: 560px) {
@@ -2205,7 +2361,9 @@ p {
   .admin-db-meta,
   .admin-db-editor-header,
   .admin-account-modal-header,
-  .admin-accounts-password-field {
+  .admin-accounts-password-field,
+  .admin-db-import-heading,
+  .admin-db-import-confirm {
     display: grid;
   }
 

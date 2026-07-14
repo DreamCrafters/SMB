@@ -23,6 +23,7 @@ import type {
 } from "../integrations/googleSheetsReference.js";
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import type { MaxNotificationService } from "../integrations/maxNotifications.js";
+import type { DispatcherSpreadsheetImportService } from "../integrations/dispatcherSpreadsheetImport.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
@@ -408,6 +409,117 @@ test("admin database API lists tables for admin dev sessions", async () => {
       "dispatcher_submissions",
     );
   });
+});
+
+test("admin dispatcher import API previews and executes for admin sessions", async () => {
+  let submittedByAccountId = "";
+  const importService: DispatcherSpreadsheetImportService = {
+    async listBusinessAccounts() {
+      return [{ id: "business-main", displayName: "Основной бизнес" }];
+    },
+    async preview() {
+      return {
+        previewToken: "a".repeat(64),
+        totalRecords: 5,
+        newRecords: 5,
+        existingRecords: 0,
+        sheets: [],
+        warnings: [],
+      };
+    },
+    async execute(value) {
+      submittedByAccountId = value.submittedByAccountId;
+      return { totalRecords: 5, inserted: 5, skipped: 0 };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
+      };
+      const optionsResponse = await fetch(
+        `${baseUrl}/api/admin/database/imports/dispatcher`,
+        { headers },
+      );
+      const previewResponse = await fetch(
+        `${baseUrl}/api/admin/database/imports/dispatcher/preview`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            spreadsheetUrl:
+              "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
+            businessAccountId: "business-main",
+          }),
+        },
+      );
+      const executeResponse = await fetch(
+        `${baseUrl}/api/admin/database/imports/dispatcher/execute`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            spreadsheetUrl:
+              "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
+            businessAccountId: "business-main",
+            previewToken: "a".repeat(64),
+          }),
+        },
+      );
+
+      assert.equal(optionsResponse.status, 200);
+      assert.equal(previewResponse.status, 200);
+      assert.equal(executeResponse.status, 200);
+      assert.equal(submittedByAccountId, "dev-access-admin");
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    importService,
+  );
+});
+
+test("admin dispatcher import API rejects dispatcher sessions", async () => {
+  const importService: DispatcherSpreadsheetImportService = {
+    async listBusinessAccounts() {
+      throw new Error("must not be called");
+    },
+    async preview() {
+      throw new Error("must not be called");
+    },
+    async execute() {
+      throw new Error("must not be called");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "dispatcher");
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/imports/dispatcher`,
+        { headers: { "X-SMB-Dev-Session": sessionId } },
+      );
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    importService,
+  );
 });
 
 test("admin database API forwards update and delete mutations for admin sessions", async () => {
@@ -2392,6 +2504,7 @@ async function withApiServer(
   serverConfig: ServerConfig = config,
   authService?: AuthSessionService,
   accountsRepository?: AccountsRepository,
+  dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService,
 ) {
   const server = createApiServer({
     config: serverConfig,
@@ -2402,6 +2515,7 @@ async function withApiServer(
     referenceDataSource,
     emailNotificationService,
     maxNotificationService,
+    dispatcherSpreadsheetImport,
   });
 
   server.listen(0, "127.0.0.1");

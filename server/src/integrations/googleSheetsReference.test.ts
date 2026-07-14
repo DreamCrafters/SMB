@@ -4,10 +4,44 @@ import test from "node:test";
 import {
   buildGoogleSheetsCsvUrl,
   createGoogleSheetsReferenceDataSource,
+  readGoogleSheetsWorkbook,
   readColumnOptionsFromCsv,
   readMaxNotificationRecipientsFromCsv,
   readNotificationRecipientsFromCsv,
 } from "./googleSheetsReference.js";
+
+test("google sheets workbook reader requests exact public tab names", async () => {
+  const requestedUrls: string[] = [];
+  const workbook = await readGoogleSheetsWorkbook(
+    {
+      url: "https://docs.google.com/spreadsheets/d/reference-sheet/edit",
+      responsibleColumn: "Ответственный",
+      locationColumn: "Место",
+      notificationEmailColumns: [],
+      maxUserIdColumns: [],
+      visitorNotificationEmailColumns: [],
+      visitorMaxUserIdColumns: [],
+      cacheTtlMs: 0,
+      authMode: "public_csv",
+    },
+    "https://docs.google.com/spreadsheets/d/import-sheet-id/edit",
+    ["Оборудование", "Инциденты", "Посетители"],
+    async (input) => {
+      requestedUrls.push(input.toString());
+      return new Response("Заголовок\nЗначение", { status: 200 });
+    },
+  );
+
+  assert.equal(workbook.spreadsheetId, "import-sheet-id");
+  assert.deepEqual(Object.keys(workbook.rowsBySheet), [
+    "Оборудование",
+    "Инциденты",
+    "Посетители",
+  ]);
+  assert.ok(requestedUrls[0]?.includes("sheet=%D0%9E%D0%B1%D0%BE%D1%80%D1%83%D0%B4%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5"));
+  assert.ok(requestedUrls[1]?.includes("sheet=%D0%98%D0%BD%D1%86%D0%B8%D0%B4%D0%B5%D0%BD%D1%82%D1%8B"));
+  assert.ok(requestedUrls[2]?.includes("sheet=%D0%9F%D0%BE%D1%81%D0%B5%D1%82%D0%B8%D1%82%D0%B5%D0%BB%D0%B8"));
+});
 
 test("buildGoogleSheetsCsvUrl converts regular sheet links to csv export links", () => {
   assert.equal(

@@ -66,6 +66,10 @@ import {
   createMaxNotificationService,
   type MaxNotificationService,
 } from "../integrations/maxNotifications.js";
+import {
+  DispatcherSpreadsheetImportChangedError,
+  type DispatcherSpreadsheetImportService,
+} from "../integrations/dispatcherSpreadsheetImport.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -76,6 +80,7 @@ type AppDependencies = {
   referenceDataSource?: DispatcherReferenceDataSource;
   emailNotificationService?: EmailNotificationService;
   maxNotificationService?: MaxNotificationService;
+  dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
 };
 
 type JsonPayload = Record<string, unknown> | unknown[];
@@ -98,6 +103,7 @@ export function createApiServer({
     config.emailNotifications,
   ),
   maxNotificationService = createMaxNotificationService(config.maxNotifications),
+  dispatcherSpreadsheetImport,
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
 
@@ -154,7 +160,8 @@ export function createApiServer({
 
       if (
         url.pathname === "/api/admin/database" ||
-        url.pathname.startsWith("/api/admin/database/tables/")
+        url.pathname.startsWith("/api/admin/database/tables/") ||
+        url.pathname.startsWith("/api/admin/database/imports/")
       ) {
         await handleAdminDatabaseRequest({
           req,
@@ -164,6 +171,7 @@ export function createApiServer({
           devSessions,
           authService,
           adminDatabase,
+          dispatcherSpreadsheetImport,
         });
         return;
       }
@@ -251,7 +259,7 @@ export function createApiServer({
 
         const history = await dispatcherSubmissions.listLatest({
           formId: "equipment",
-          limit: 500,
+          limit: 2_000,
         });
         const reportStatus = readEquipmentReportStatus(
           validation.value,
@@ -368,7 +376,7 @@ export function createApiServer({
             return;
           }
 
-          const history = await dispatcherSubmissions.listLatest({ limit: 500 });
+          const history = await dispatcherSubmissions.listLatest({ limit: 2_000 });
           const incidentStateValidation = applyIncidentStateRules(
             validation.value,
             history,
@@ -463,6 +471,7 @@ async function handleAdminDatabaseRequest({
   devSessions,
   authService,
   adminDatabase,
+  dispatcherSpreadsheetImport,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -471,6 +480,7 @@ async function handleAdminDatabaseRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   adminDatabase: AdminDatabaseRepository | undefined;
+  dispatcherSpreadsheetImport: DispatcherSpreadsheetImportService | undefined;
 }) {
   const access = await requireCapability(req, res, {
     config,
@@ -481,6 +491,17 @@ async function handleAdminDatabaseRequest({
   });
 
   if (access === undefined) {
+    return;
+  }
+
+  if (url.pathname.startsWith("/api/admin/database/imports/dispatcher")) {
+    await handleAdminDispatcherImportRequest({
+      req,
+      res,
+      url,
+      access,
+      dispatcherSpreadsheetImport,
+    });
     return;
   }
 
@@ -603,6 +624,111 @@ async function handleAdminDatabaseRequest({
     });
   } catch (error) {
     sendAdminDatabaseError(res, error);
+  }
+}
+
+async function handleAdminDispatcherImportRequest({
+  req,
+  res,
+  url,
+  access,
+  dispatcherSpreadsheetImport,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  access: { profile: ServerUserProfile; source: "auth" | "dev" };
+  dispatcherSpreadsheetImport: DispatcherSpreadsheetImportService | undefined;
+}) {
+  if (dispatcherSpreadsheetImport === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Импорт Google Sheets не настроен.",
+      },
+    });
+    return;
+  }
+
+  try {
+    if (
+      url.pathname === "/api/admin/database/imports/dispatcher" &&
+      req.method === "GET"
+    ) {
+      sendJson(res, 200, {
+        businessAccounts:
+          await dispatcherSpreadsheetImport.listBusinessAccounts(),
+      });
+      return;
+    }
+
+    if (
+      url.pathname === "/api/admin/database/imports/dispatcher/preview" &&
+      req.method === "POST"
+    ) {
+      const validation = readAdminDispatcherImportPayload(await readJsonBody(req));
+
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, await dispatcherSpreadsheetImport.preview(validation.value));
+      return;
+    }
+
+    if (
+      url.pathname === "/api/admin/database/imports/dispatcher/execute" &&
+      req.method === "POST"
+    ) {
+      const validation = readAdminDispatcherImportPayload(
+        await readJsonBody(req),
+        true,
+      );
+
+      if (!validation.ok || validation.value.previewToken === undefined) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.ok
+              ? "previewToken is required."
+              : validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      sendJson(
+        res,
+        200,
+        await dispatcherSpreadsheetImport.execute({
+          ...validation.value,
+          previewToken: validation.value.previewToken,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+      );
+      return;
+    }
+
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Unsupported dispatcher import request.",
+      },
+    });
+  } catch (error) {
+    sendJson(res, error instanceof DispatcherSpreadsheetImportChangedError ? 409 : 400, {
+      error: {
+        code: "invalid_response",
+        message:
+          error instanceof Error ? error.message : "Не удалось выполнить импорт.",
+      },
+    });
   }
 }
 
@@ -1164,6 +1290,68 @@ function readAdminDatabaseRowsRoute(url: URL) {
 
   return {
     tableName: decodeURIComponent(match[1]),
+  };
+}
+
+function readAdminDispatcherImportPayload(
+  input: unknown,
+  requirePreviewToken = false,
+):
+  | {
+      ok: true;
+      value: {
+        spreadsheetUrl: string;
+        businessAccountId: string;
+        previewToken?: string;
+      };
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  const spreadsheetUrl =
+    typeof input.spreadsheetUrl === "string" ? input.spreadsheetUrl.trim() : "";
+  const businessAccountId =
+    typeof input.businessAccountId === "string"
+      ? input.businessAccountId.trim()
+      : "";
+  const previewToken =
+    typeof input.previewToken === "string" ? input.previewToken.trim() : undefined;
+  const errors: string[] = [];
+
+  if (spreadsheetUrl.length === 0 || spreadsheetUrl.length > 2_000) {
+    errors.push("spreadsheetUrl is required and must be 2000 characters or less.");
+  }
+
+  if (businessAccountId.length === 0 || businessAccountId.length > 120) {
+    errors.push("businessAccountId is required and must be 120 characters or less.");
+  }
+
+  if (
+    requirePreviewToken &&
+    (previewToken === undefined || !/^[a-f0-9]{64}$/.test(previewToken))
+  ) {
+    errors.push("previewToken must be a SHA-256 digest.");
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      spreadsheetUrl,
+      businessAccountId,
+      previewToken,
+    },
   };
 }
 

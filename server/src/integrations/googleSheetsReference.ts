@@ -26,6 +26,11 @@ type GoogleSheetsReferenceDependencies = {
   now?: () => number;
 };
 
+export type GoogleSheetsWorkbook = {
+  spreadsheetId: string;
+  rowsBySheet: Record<string, string[][]>;
+};
+
 type GoogleServiceAccountCredentials = {
   type: string;
   client_email: string;
@@ -133,6 +138,69 @@ export function createGoogleSheetsReferenceDataSource(
   };
 }
 
+export async function readGoogleSheetsWorkbook(
+  config: GoogleSheetsReferenceConfig,
+  sourceUrl: string,
+  sheetTitles: readonly string[],
+  fetchImpl: FetchLike = fetch,
+  dependencies: GoogleSheetsReferenceDependencies = {},
+): Promise<GoogleSheetsWorkbook> {
+  const parsedUrl = new URL(sourceUrl);
+  const spreadsheetId = readSpreadsheetId(parsedUrl);
+
+  if (
+    parsedUrl.protocol !== "https:" ||
+    parsedUrl.hostname !== "docs.google.com" ||
+    spreadsheetId === undefined
+  ) {
+    throw new Error("Import source must be a Google Sheets URL.");
+  }
+
+  const rowsBySheet: Record<string, string[][]> = {};
+
+  if (config.authMode === "service_account") {
+    if (config.serviceAccountKeyFile === undefined) {
+      throw new Error(
+        "GOOGLE_SERVICE_ACCOUNT_KEY_FILE is required when GOOGLE_SHEETS_AUTH=service_account.",
+      );
+    }
+
+    const readTextFile =
+      dependencies.readTextFile ?? ((path) => readFile(path, "utf8"));
+    const credentials = await readGoogleServiceAccountCredentials(
+      config.serviceAccountKeyFile,
+      readTextFile,
+    );
+    const accessToken = await requestGoogleAccessToken(
+      credentials,
+      fetchImpl,
+      dependencies.now ?? Date.now,
+    );
+
+    for (const sheetTitle of sheetTitles) {
+      rowsBySheet[sheetTitle] = await readGoogleSheetRowsByTitle(
+        spreadsheetId,
+        sheetTitle,
+        accessToken,
+        fetchImpl,
+      );
+    }
+  } else {
+    for (const sheetTitle of sheetTitles) {
+      rowsBySheet[sheetTitle] = await readGoogleSheetsNamedSheetCsvRows(
+        sourceUrl,
+        sheetTitle,
+        fetchImpl,
+      );
+    }
+  }
+
+  return {
+    spreadsheetId,
+    rowsBySheet,
+  };
+}
+
 async function readGoogleSheetsRows(
   config: GoogleSheetsReferenceConfig,
   fetchImpl: FetchLike,
@@ -156,6 +224,40 @@ async function readGoogleSheetsCsvRows(sourceUrl: string, fetchImpl: FetchLike) 
 
   if (!response.ok) {
     throw new Error(`Google Sheets responded with ${response.status}.`);
+  }
+
+  return parseCsvRows(await response.text());
+}
+
+async function readGoogleSheetsNamedSheetCsvRows(
+  sourceUrl: string,
+  sheetTitle: string,
+  fetchImpl: FetchLike,
+) {
+  const source = new URL(sourceUrl);
+  const spreadsheetId = readSpreadsheetId(source);
+
+  if (spreadsheetId === undefined) {
+    throw new Error("Import source must be a Google Sheets URL.");
+  }
+
+  const csvUrl = new URL(
+    `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq`,
+  );
+
+  csvUrl.searchParams.set("tqx", "out:csv");
+  csvUrl.searchParams.set("sheet", sheetTitle);
+
+  const response = await fetchImpl(csvUrl, {
+    headers: {
+      Accept: "text/csv,text/plain;q=0.9,*/*;q=0.1",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Google Sheets tab ${sheetTitle} responded with ${response.status}.`,
+    );
   }
 
   return parseCsvRows(await response.text());
@@ -349,6 +451,30 @@ async function fetchGoogleJson<T>(
   }
 
   return (await response.json()) as T;
+}
+
+async function readGoogleSheetRowsByTitle(
+  spreadsheetId: string,
+  sheetTitle: string,
+  accessToken: string,
+  fetchImpl: FetchLike,
+) {
+  const valuesUrl = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+      quoteA1SheetName(sheetTitle),
+    )}`,
+  );
+
+  valuesUrl.searchParams.set("majorDimension", "ROWS");
+  valuesUrl.searchParams.set("valueRenderOption", "UNFORMATTED_VALUE");
+
+  const response = await fetchGoogleJson<GoogleSpreadsheetValuesResponse>(
+    valuesUrl,
+    accessToken,
+    fetchImpl,
+  );
+
+  return normalizeGoogleValuesRows(response.values);
 }
 
 export function buildGoogleSheetsCsvUrl(sourceUrl: string) {
