@@ -128,6 +128,32 @@ SMB_SKIP_CHECKS=true SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
 
 Не использовать `SMB_SKIP_CHECKS=true` для обычного production deploy.
 
+## Запуск из Codex одним действием
+
+Локальный personal plugin `smb-jino-deploy` запускает тот же tracked
+`scripts/deploy-jino-dual-env.sh` по SSH и не дублирует deploy-логику проекта.
+На карточке плагина действие `Deploy NMOU Vector to Jino test and production`
+запускает test и production из текущей локальной ветки SMB, с тестами,
+миграциями, сборками, перезапуском и публичными smoke-проверками.
+
+До SSH-подключения плагин проверяет, что локальный checkout чистый, его HEAD
+совпадает с `origin/<текущая-ветка>`, а точный commit содержит deploy-скрипт.
+На сервере до первой мутации проверяются оба checkout и оба набора env. Это
+позволяет безопасно пользоваться плагином из `Dev`, пока deploy-контур ещё не
+слит в `main`.
+
+Плагин не хранит пароль, приватный SSH-ключ или содержимое серверных `.env`.
+Для запуска без вопросов должен быть один раз настроен вход по SSH-ключу для:
+
+```text
+j53403317@584e7697571.hosting.myjino.ru
+```
+
+Если нужен только read-only preflight, на карточке плагина выбрать действие
+`Check whether Jino is ready for an SMB dual deploy`. Ручная команда
+`SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual` остаётся основным fallback и
+источником истины для серверного deploy-процесса.
+
 ## Ручная проверка отдельных frontend-сборок
 
 В test checkout:
