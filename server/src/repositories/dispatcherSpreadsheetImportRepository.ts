@@ -1,5 +1,6 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DispatcherSpreadsheetImportRecord } from "../domain/dispatcherSpreadsheetImport.js";
+import { buildDispatcherSubmissionDedupeKey } from "../domain/dispatcherSubmission.js";
 import type { DatabasePool } from "../db/pool.js";
 
 export type DispatcherImportBusinessAccount = {
@@ -272,9 +273,11 @@ function buildBusinessDedupeKey(
   businessAccountId: string,
   record: DispatcherSpreadsheetImportRecord,
 ) {
-  return record.dedupeKey === null
-    ? null
-    : `equipment:${businessAccountId}:${record.dedupeKey.slice("equipment:".length)}`;
+  return buildDispatcherSubmissionDedupeKey({
+    businessAccountId,
+    formId: record.formId,
+    payload: record.payload,
+  });
 }
 
 function buildNaturalKey(record: DispatcherSpreadsheetImportRecord) {

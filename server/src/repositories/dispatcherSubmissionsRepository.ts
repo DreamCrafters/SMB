@@ -89,9 +89,28 @@ export function createDispatcherSubmissionsRepository(
       const dedupeKey = buildDispatcherSubmissionDedupeKey(draft);
       const id = randomUUID();
 
+      const insertMode = draft.formId === "equipment" ? "insert" : "insert ignore";
+      const duplicateUpdate =
+        draft.formId === "equipment"
+          ? `
+              on duplicate key update
+                period = values(period),
+                metric_code = values(metric_code),
+                raw_value = values(raw_value),
+                comment = values(comment),
+                form_id = values(form_id),
+                payload = values(payload),
+                summary = values(summary),
+                status = 'received',
+                submitted_by_account_id = values(submitted_by_account_id),
+                submitted_at = current_timestamp(3),
+                received_at = current_timestamp(3)
+            `
+          : "";
+
       await pool.query(
         `
-          insert into dispatcher_submissions (
+          ${insertMode} into dispatcher_submissions (
             id,
             business_account_id,
             period,
@@ -106,18 +125,7 @@ export function createDispatcherSubmissionsRepository(
             submitted_by_account_id
           )
           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
-          on duplicate key update
-            period = values(period),
-            metric_code = values(metric_code),
-            raw_value = values(raw_value),
-            comment = values(comment),
-            form_id = values(form_id),
-            payload = values(payload),
-            summary = values(summary),
-            status = 'received',
-            submitted_by_account_id = values(submitted_by_account_id),
-            submitted_at = current_timestamp(3),
-            received_at = current_timestamp(3)
+          ${duplicateUpdate}
         `,
         [
           id,

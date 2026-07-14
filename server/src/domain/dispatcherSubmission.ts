@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   getDispatcherFormDefinition,
   getDispatcherFormTitle,
@@ -152,23 +153,89 @@ export function mapDispatcherSubmissionRow(
 export function buildDispatcherSubmissionDedupeKey(
   draft: DispatcherSubmissionDraft,
 ) {
-  if (draft.formId !== "equipment") {
+  const contentKey = buildDispatcherSubmissionContentKey(
+    draft.formId,
+    draft.payload,
+  );
+
+  if (contentKey === null) {
     return null;
   }
 
-  const reportDate = draft.payload.reportDate?.trim();
-  const equipment = draft.payload.equipment?.trim();
+  if (contentKey.startsWith("equipment:")) {
+    return `equipment:${draft.businessAccountId}:${contentKey.slice("equipment:".length)}`;
+  }
 
+  return `dispatcher:${draft.businessAccountId}:${contentKey}`;
+}
+
+export function buildDispatcherSubmissionContentKey(
+  formId: DispatcherFormId,
+  payload: DispatcherSubmissionPayload,
+) {
+  const identity = readDispatcherSubmissionIdentity(formId, payload);
+
+  if (identity === undefined) {
+    return null;
+  }
+
+  if (formId === "equipment") {
+    return `equipment:${identity.join(":")}`;
+  }
+
+  const hash = createHash("sha256")
+    .update(JSON.stringify(identity.map(normalizeDedupePart)))
+    .digest("hex");
+
+  return `${formId}:${hash}`;
+}
+
+function readDispatcherSubmissionIdentity(
+  formId: DispatcherFormId,
+  payload: DispatcherSubmissionPayload,
+) {
+  if (formId === "equipment") {
+    return readDedupeIdentity(payload.reportDate, payload.equipment);
+  }
+
+  if (formId === "incident" || formId === "incident_close") {
+    return readDedupeIdentity(payload.incidentNumber);
+  }
+
+  if (formId === "visitor") {
+    return readDedupeIdentity(
+      payload.entryAt,
+      payload.fio,
+      payload.organization ?? "",
+    );
+  }
+
+  if (formId === "visitor_exit") {
+    return readDedupeIdentity(
+      payload.exitAt,
+      payload.fio,
+      payload.organization ?? "",
+    );
+  }
+
+  return undefined;
+}
+
+function readDedupeIdentity(...values: Array<string | undefined>) {
   if (
-    reportDate === undefined ||
-    reportDate.length === 0 ||
-    equipment === undefined ||
-    equipment.length === 0
+    values.some(
+      (value, index) =>
+        index < 2 && (value === undefined || value.trim().length === 0),
+    )
   ) {
-    return null;
+    return undefined;
   }
 
-  return `equipment:${draft.businessAccountId}:${reportDate}:${equipment}`;
+  return values.map((value) => value?.trim() ?? "");
+}
+
+function normalizeDedupePart(value: string) {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function readFormId(value: unknown, errors: string[]) {

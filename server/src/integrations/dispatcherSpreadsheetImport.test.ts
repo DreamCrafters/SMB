@@ -85,7 +85,51 @@ test("dispatcher spreadsheet import rejects commit when source changed", async (
   );
 });
 
-function buildWorkbook(exitAt: string) {
+test("dispatcher spreadsheet import collapses duplicate rows before persistence", async () => {
+  let importedRecords = 0;
+  const repository: DispatcherSpreadsheetImportRepository = {
+    async listBusinessAccounts() {
+      return [{ id: "business-main", displayName: "Основной бизнес" }];
+    },
+    async findExistingSourceKeys() {
+      return new Set();
+    },
+    async importRecords(value) {
+      importedRecords = value.records.length;
+      return { inserted: value.records.length, skipped: 0 };
+    },
+  };
+  const service = createDispatcherSpreadsheetImportService(
+    config,
+    repository,
+    async () => buildWorkbook("10.06.2026 07:42", true),
+  );
+  const preview = await service.preview({
+    spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
+    businessAccountId: "business-main",
+  });
+  const result = await service.execute({
+    spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
+    businessAccountId: "business-main",
+    previewToken: preview.previewToken,
+    submittedByAccountId: "admin-access",
+  });
+
+  assert.equal(preview.totalRecords, 4);
+  assert.equal(preview.newRecords, 2);
+  assert.equal(preview.existingRecords, 2);
+  assert.equal(importedRecords, 2);
+  assert.deepEqual(result, { totalRecords: 4, inserted: 2, skipped: 2 });
+});
+
+function buildWorkbook(exitAt: string, duplicateVisitor = false) {
+  const visitorRow = [
+    "09.06.2026 14:16", "Иванов", "", "Организация", "", "", exitAt, "",
+  ];
+  const duplicateRow = [
+    "09.06.2026 14:16", "  иВАНОВ  ", "", "организация", "", "", exitAt, "",
+  ];
+
   return {
     spreadsheetId: "source_sheet_123",
     rowsBySheet: {
@@ -106,7 +150,8 @@ function buildWorkbook(exitAt: string) {
           "Дата время", "ФИО посетителя", "Должность", "Организация",
           "Цель визита", "Кого посещает", "Дата время выхода", "Примечание",
         ],
-        ["09.06.2026 14:16", "Иванов", "", "Организация", "", "", exitAt, ""],
+        visitorRow,
+        ...(duplicateVisitor ? [duplicateRow] : []),
       ],
     },
   };

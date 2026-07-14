@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  buildDispatcherSubmissionContentKey,
   buildDispatcherSubmissionSummary,
   type DispatcherSubmissionPayload,
 } from "./dispatcherSubmission.js";
@@ -486,12 +487,7 @@ function buildRecord(
 
   const summary = buildDispatcherSubmissionSummary(form, payload);
   const period = readPeriod(payload, occurredAt);
-  const dedupeKey =
-    formId === "equipment" &&
-    payload.reportDate !== undefined &&
-    payload.equipment !== undefined
-      ? `equipment:${payload.reportDate}:${payload.equipment}`
-      : null;
+  const dedupeKey = buildDispatcherSubmissionContentKey(formId, payload);
 
   return {
     id: buildStableUuid(sourceKey),

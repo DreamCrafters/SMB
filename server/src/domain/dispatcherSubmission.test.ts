@@ -251,7 +251,7 @@ test("buildDispatcherSubmissionDedupeKey scopes equipment reports by business, d
   }
 });
 
-test("buildDispatcherSubmissionDedupeKey leaves non-equipment submissions append-only", () => {
+test("buildDispatcherSubmissionDedupeKey protects visitor submissions", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",
     formId: "visitor",
@@ -263,8 +263,27 @@ test("buildDispatcherSubmissionDedupeKey leaves non-equipment submissions append
   assert.equal(result.ok, true);
 
   if (result.ok) {
-    assert.equal(buildDispatcherSubmissionDedupeKey(result.value.draft), null);
+    assert.match(
+      buildDispatcherSubmissionDedupeKey(result.value.draft) ?? "",
+      /^dispatcher:business-id:visitor:[a-f0-9]{64}$/u,
+    );
   }
+});
+
+test("buildDispatcherSubmissionDedupeKey normalizes incident identity", () => {
+  const first = buildDispatcherSubmissionDedupeKey({
+    businessAccountId: "business-id",
+    formId: "incident",
+    payload: { incidentNumber: " INC-2026-12 " },
+  });
+  const second = buildDispatcherSubmissionDedupeKey({
+    businessAccountId: "business-id",
+    formId: "incident",
+    payload: { incidentNumber: "inc-2026-12" },
+  });
+
+  assert.equal(first, second);
+  assert.match(first ?? "", /^dispatcher:business-id:incident:[a-f0-9]{64}$/u);
 });
 
 test("validateDispatcherSubmissionDraft stamps visitor exit time", () => {

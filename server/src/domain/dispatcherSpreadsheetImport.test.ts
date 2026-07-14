@@ -102,8 +102,37 @@ test("dispatcher spreadsheet import maps all three sheets and lifecycle rows", (
   assert.equal(plan.records[3]?.payload.entryAt, "09.06.2026 14:16");
   assert.equal(plan.records[4]?.payload.exitAt, "10.06.2026 07:42");
   assert.equal(plan.records[0]?.occurredAt.toISOString(), "2026-06-02T15:16:54.000Z");
+  assert.ok(plan.records.every((record) => record.dedupeKey !== null));
   assert.equal(plan.sheets[1]?.importRecords, 2);
   assert.equal(plan.sheets[2]?.importRecords, 2);
+});
+
+test("dispatcher spreadsheet import uses source-independent content keys", () => {
+  const rowsBySheet = {
+    Оборудование: [equipmentHeaders],
+    Инциденты: [
+      incidentHeaders,
+      ["INC-2026-12", "12.06.2026 08:30"],
+    ],
+    Посетители: [
+      visitorHeaders,
+      ["12.06.2026 09:00", "Иванов", "", "Организация"],
+    ],
+  };
+  const first = buildDispatcherSpreadsheetImportPlan({
+    spreadsheetId: "spreadsheet_source_one",
+    rowsBySheet,
+  });
+  const second = buildDispatcherSpreadsheetImportPlan({
+    spreadsheetId: "spreadsheet_source_two",
+    rowsBySheet,
+  });
+
+  assert.notEqual(first.records[0]?.sourceKey, second.records[0]?.sourceKey);
+  assert.deepEqual(
+    first.records.map((record) => record.dedupeKey),
+    second.records.map((record) => record.dedupeKey),
+  );
 });
 
 test("dispatcher spreadsheet import keeps legacy rows and reports warnings", () => {

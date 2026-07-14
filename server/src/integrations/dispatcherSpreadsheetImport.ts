@@ -61,16 +61,17 @@ export function createDispatcherSpreadsheetImportService(
         plan.records,
         value.businessAccountId,
       );
+      const uniqueRecords = deduplicateImportRecords(records);
       const existing = await repository.findExistingSourceKeys(
         value.businessAccountId,
-        records,
+        uniqueRecords.records,
       );
 
       return {
         previewToken: buildPreviewToken(plan.fingerprint, value.businessAccountId),
         totalRecords: records.length,
-        newRecords: records.length - existing.size,
-        existingRecords: existing.size,
+        newRecords: uniqueRecords.records.length - existing.size,
+        existingRecords: existing.size + uniqueRecords.duplicateCount,
         sheets: plan.sheets,
         warnings: plan.warnings,
       };
@@ -94,17 +95,46 @@ export function createDispatcherSpreadsheetImportService(
         plan.records,
         value.businessAccountId,
       );
+      const uniqueRecords = deduplicateImportRecords(records);
       const result = await repository.importRecords({
         businessAccountId: value.businessAccountId,
         submittedByAccountId: value.submittedByAccountId,
-        records,
+        records: uniqueRecords.records,
       });
 
       return {
         totalRecords: records.length,
-        ...result,
+        inserted: result.inserted,
+        skipped: result.skipped + uniqueRecords.duplicateCount,
       };
     },
+  };
+}
+
+function deduplicateImportRecords<T extends {
+  sourceKey: string;
+  dedupeKey: string | null;
+}>(records: readonly T[]) {
+  const seen = new Set<string>();
+  const uniqueRecords: T[] = [];
+
+  for (const record of records) {
+    const identity =
+      record.dedupeKey === null
+        ? `source:${record.sourceKey}`
+        : `record:${record.dedupeKey}`;
+
+    if (seen.has(identity)) {
+      continue;
+    }
+
+    seen.add(identity);
+    uniqueRecords.push(record);
+  }
+
+  return {
+    records: uniqueRecords,
+    duplicateCount: records.length - uniqueRecords.length,
   };
 }
 
