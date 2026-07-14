@@ -413,11 +413,10 @@ test("admin database API lists tables for admin dev sessions", async () => {
 
 test("admin dispatcher import API previews and executes for admin sessions", async () => {
   let submittedByAccountId = "";
+  let previewCalls = 0;
   const importService: DispatcherSpreadsheetImportService = {
-    async listBusinessAccounts() {
-      return [{ id: "business-main", displayName: "Основной бизнес" }];
-    },
     async preview() {
+      previewCalls += 1;
       return {
         previewToken: "a".repeat(64),
         totalRecords: 5,
@@ -440,10 +439,6 @@ test("admin dispatcher import API previews and executes for admin sessions", asy
         "Content-Type": "application/json",
         "X-SMB-Dev-Session": sessionId,
       };
-      const optionsResponse = await fetch(
-        `${baseUrl}/api/admin/database/imports/dispatcher`,
-        { headers },
-      );
       const previewResponse = await fetch(
         `${baseUrl}/api/admin/database/imports/dispatcher/preview`,
         {
@@ -452,7 +447,6 @@ test("admin dispatcher import API previews and executes for admin sessions", asy
           body: JSON.stringify({
             spreadsheetUrl:
               "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
-            businessAccountId: "business-main",
           }),
         },
       );
@@ -464,15 +458,27 @@ test("admin dispatcher import API previews and executes for admin sessions", asy
           body: JSON.stringify({
             spreadsheetUrl:
               "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
-            businessAccountId: "business-main",
             previewToken: "a".repeat(64),
           }),
         },
       );
+      const forgedBusinessResponse = await fetch(
+        `${baseUrl}/api/admin/database/imports/dispatcher/preview`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            spreadsheetUrl:
+              "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
+            businessAccountId: "forged-business",
+          }),
+        },
+      );
 
-      assert.equal(optionsResponse.status, 200);
       assert.equal(previewResponse.status, 200);
       assert.equal(executeResponse.status, 200);
+      assert.equal(forgedBusinessResponse.status, 400);
+      assert.equal(previewCalls, 1);
       assert.equal(submittedByAccountId, "dev-access-admin");
     },
     dispatcherSubmissions,
@@ -489,9 +495,6 @@ test("admin dispatcher import API previews and executes for admin sessions", asy
 
 test("admin dispatcher import API rejects dispatcher sessions", async () => {
   const importService: DispatcherSpreadsheetImportService = {
-    async listBusinessAccounts() {
-      throw new Error("must not be called");
-    },
     async preview() {
       throw new Error("must not be called");
     },

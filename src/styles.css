@@ -1660,7 +1660,7 @@ p {
 
 .admin-db-import-form {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(220px, 0.5fr) auto;
+  grid-template-columns: minmax(280px, 1fr) auto;
   gap: var(--density-2);
   align-items: end;
 }
@@ -1670,8 +1670,7 @@ p {
   gap: 6px;
 }
 
-.admin-db-import-form input,
-.admin-db-import-form select {
+.admin-db-import-form input {
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
@@ -1682,8 +1681,7 @@ p {
   font: inherit;
 }
 
-.admin-db-import-form input:focus,
-.admin-db-import-form select:focus {
+.admin-db-import-form input:focus {
   border-color: var(--blue-gray);
   outline: 2px solid var(--blue-gray-soft);
 }

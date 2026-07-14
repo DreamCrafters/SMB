@@ -103,8 +103,6 @@ import {
 import {
   executeAdminDispatcherImport,
   previewAdminDispatcherImport,
-  requestAdminDispatcherImportOptions,
-  type AdminDispatcherImportOptionsResult,
 } from "./services/adminDispatcherImport";
 import {
   createAdminAccount,
@@ -3806,52 +3804,15 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
 }
 
 function AdminDispatcherImportPanel({ onImported }: { onImported: () => void }) {
-  const [optionsState, setOptionsState] =
-    useState<AdminDispatcherImportOptionsResult>({
-      status: "error",
-      message: "Загружаем бизнес-аккаунты.",
-    });
   const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
-  const [businessAccountId, setBusinessAccountId] = useState("");
   const [preview, setPreview] =
     useState<AdminDispatcherImportPreviewResponse | undefined>(undefined);
   const [statusMessage, setStatusMessage] = useState("");
-  const [isLoadingOptions, setIsLoadingOptions] = useState(true);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    requestAdminDispatcherImportOptions({ signal: controller.signal }).then(
-      (result) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setOptionsState(result);
-        setIsLoadingOptions(false);
-
-        if (result.status === "ready" && result.businessAccounts.length === 1) {
-          setBusinessAccountId(result.businessAccounts[0]?.id ?? "");
-        }
-      },
-    );
-
-    return () => controller.abort();
-  }, []);
-
-  const businessAccounts =
-    optionsState.status === "ready" ? optionsState.businessAccounts : [];
-
   function handleSourceChange(value: string) {
     setSpreadsheetUrl(value);
-    setPreview(undefined);
-    setStatusMessage("");
-  }
-
-  function handleBusinessChange(value: string) {
-    setBusinessAccountId(value);
     setPreview(undefined);
     setStatusMessage("");
   }
@@ -3864,7 +3825,6 @@ function AdminDispatcherImportPanel({ onImported }: { onImported: () => void }) 
 
     const result = await previewAdminDispatcherImport({
       spreadsheetUrl,
-      businessAccountId,
     });
 
     setIsPreviewing(false);
@@ -3888,7 +3848,6 @@ function AdminDispatcherImportPanel({ onImported }: { onImported: () => void }) 
 
     const result = await executeAdminDispatcherImport({
       spreadsheetUrl,
-      businessAccountId,
       previewToken: preview.previewToken,
     });
 
@@ -3930,42 +3889,18 @@ function AdminDispatcherImportPanel({ onImported }: { onImported: () => void }) 
             }}
           />
         </label>
-        <label>
-          <span>Бизнес-аккаунт</span>
-          <select
-            required
-            disabled={isLoadingOptions || businessAccounts.length === 0}
-            value={businessAccountId}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              handleBusinessChange(value);
-            }}
-          >
-            <option value="">Выберите аккаунт</option>
-            {businessAccounts.map((account) => (
-              <option value={account.id} key={account.id}>
-                {account.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
         <button
           className="secondary-button"
           type="submit"
           disabled={
             isPreviewing ||
             isImporting ||
-            spreadsheetUrl.trim().length === 0 ||
-            businessAccountId.length === 0
+            spreadsheetUrl.trim().length === 0
           }
         >
           {isPreviewing ? "Проверяем" : "Проверить таблицу"}
         </button>
       </form>
-
-      {optionsState.status === "error" && !isLoadingOptions ? (
-        <p className="dispatcher-status-line">{optionsState.message}</p>
-      ) : null}
 
       {preview !== undefined ? (
         <div className="admin-db-import-preview">

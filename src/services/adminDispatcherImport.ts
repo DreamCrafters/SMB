@@ -1,6 +1,5 @@
 import type {
   AdminDispatcherImportExecuteResponse,
-  AdminDispatcherImportOptionsResponse,
   AdminDispatcherImportPreviewResponse,
 } from "../contracts";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
@@ -20,10 +19,6 @@ export type AdminDispatcherImportError = {
   statusCode?: number;
 };
 
-export type AdminDispatcherImportOptionsResult =
-  | ({ status: "ready" } & AdminDispatcherImportOptionsResponse)
-  | AdminDispatcherImportError;
-
 export type AdminDispatcherImportPreviewResult =
   | ({ status: "ready" } & AdminDispatcherImportPreviewResponse)
   | AdminDispatcherImportError;
@@ -37,23 +32,9 @@ type RequestOptions = {
   signal?: AbortSignal;
 };
 
-export async function requestAdminDispatcherImportOptions({
-  baseUrl,
-  signal,
-}: RequestOptions = {}): Promise<AdminDispatcherImportOptionsResult> {
-  return requestImportEndpoint(
-    ADMIN_DISPATCHER_IMPORT_PATH,
-    "GET",
-    undefined,
-    isOptionsResponse,
-    { baseUrl, signal },
-  );
-}
-
 export async function previewAdminDispatcherImport(
   value: {
     spreadsheetUrl: string;
-    businessAccountId: string;
   },
   options: RequestOptions = {},
 ): Promise<AdminDispatcherImportPreviewResult> {
@@ -69,7 +50,6 @@ export async function previewAdminDispatcherImport(
 export async function executeAdminDispatcherImport(
   value: {
     spreadsheetUrl: string;
-    businessAccountId: string;
     previewToken: string;
   },
   options: RequestOptions = {},
@@ -162,21 +142,6 @@ function readErrorMessage(value: unknown, fallback: string) {
     typeof value.error.message === "string"
     ? value.error.message
     : fallback;
-}
-
-function isOptionsResponse(
-  value: unknown,
-): value is AdminDispatcherImportOptionsResponse {
-  return (
-    isRecord(value) &&
-    Array.isArray(value.businessAccounts) &&
-    value.businessAccounts.every(
-      (account) =>
-        isRecord(account) &&
-        typeof account.id === "string" &&
-        typeof account.displayName === "string",
-    )
-  );
 }
 
 function isPreviewResponse(

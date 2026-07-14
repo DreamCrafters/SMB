@@ -1,12 +1,3 @@
-export type AdminDispatcherImportBusinessAccount = {
-  id: string;
-  displayName: string;
-};
-
-export type AdminDispatcherImportOptionsResponse = {
-  businessAccounts: AdminDispatcherImportBusinessAccount[];
-};
-
 export type AdminDispatcherImportSheetSummary = {
   sheetName: "Оборудование" | "Инциденты" | "Посетители";
   sourceRows: number;

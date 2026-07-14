@@ -7,7 +7,6 @@ import {
   type DispatcherSpreadsheetImportSheetSummary,
 } from "../domain/dispatcherSpreadsheetImport.js";
 import type {
-  DispatcherImportBusinessAccount,
   DispatcherSpreadsheetImportRepository,
 } from "../repositories/dispatcherSpreadsheetImportRepository.js";
 import {
@@ -25,14 +24,11 @@ export type DispatcherSpreadsheetImportPreview = {
 };
 
 export type DispatcherSpreadsheetImportService = {
-  listBusinessAccounts: () => Promise<DispatcherImportBusinessAccount[]>;
   preview: (value: {
     spreadsheetUrl: string;
-    businessAccountId: string;
   }) => Promise<DispatcherSpreadsheetImportPreview>;
   execute: (value: {
     spreadsheetUrl: string;
-    businessAccountId: string;
     previewToken: string;
     submittedByAccountId: string;
   }) => Promise<{ totalRecords: number; inserted: number; skipped: number }>;
@@ -52,23 +48,21 @@ export function createDispatcherSpreadsheetImportService(
   readWorkbook: ReadWorkbook = readGoogleSheetsWorkbook,
 ): DispatcherSpreadsheetImportService {
   return {
-    listBusinessAccounts: repository.listBusinessAccounts,
-
     async preview(value) {
-      await requireBusinessAccount(repository, value.businessAccountId);
+      const businessAccountId = await requireSingleBusinessAccount(repository);
       const plan = await readImportPlan(config, value.spreadsheetUrl, readWorkbook);
       const records = scopeDispatcherSpreadsheetImportRecords(
         plan.records,
-        value.businessAccountId,
+        businessAccountId,
       );
       const uniqueRecords = deduplicateImportRecords(records);
       const existing = await repository.findExistingSourceKeys(
-        value.businessAccountId,
+        businessAccountId,
         uniqueRecords.records,
       );
 
       return {
-        previewToken: buildPreviewToken(plan.fingerprint, value.businessAccountId),
+        previewToken: buildPreviewToken(plan.fingerprint, businessAccountId),
         totalRecords: records.length,
         newRecords: uniqueRecords.records.length - existing.size,
         existingRecords: existing.size + uniqueRecords.duplicateCount,
@@ -78,11 +72,11 @@ export function createDispatcherSpreadsheetImportService(
     },
 
     async execute(value) {
-      await requireBusinessAccount(repository, value.businessAccountId);
+      const businessAccountId = await requireSingleBusinessAccount(repository);
       const plan = await readImportPlan(config, value.spreadsheetUrl, readWorkbook);
       const expectedToken = buildPreviewToken(
         plan.fingerprint,
-        value.businessAccountId,
+        businessAccountId,
       );
 
       if (value.previewToken !== expectedToken) {
@@ -93,11 +87,11 @@ export function createDispatcherSpreadsheetImportService(
 
       const records = scopeDispatcherSpreadsheetImportRecords(
         plan.records,
-        value.businessAccountId,
+        businessAccountId,
       );
       const uniqueRecords = deduplicateImportRecords(records);
       const result = await repository.importRecords({
-        businessAccountId: value.businessAccountId,
+        businessAccountId,
         submittedByAccountId: value.submittedByAccountId,
         records: uniqueRecords.records,
       });
@@ -156,19 +150,22 @@ async function readImportPlan(
   return buildDispatcherSpreadsheetImportPlan(workbook);
 }
 
-async function requireBusinessAccount(
+async function requireSingleBusinessAccount(
   repository: DispatcherSpreadsheetImportRepository,
-  businessAccountId: string,
 ) {
-  if (businessAccountId.length === 0 || businessAccountId.length > 120) {
-    throw new Error("Выберите бизнес-аккаунт для импорта.");
-  }
-
   const accounts = await repository.listBusinessAccounts();
 
-  if (!accounts.some((account) => account.id === businessAccountId)) {
-    throw new Error("Выбранный бизнес-аккаунт не найден или отключён.");
+  if (accounts.length === 0) {
+    throw new Error("Нет активного бизнес-аккаунта для импорта.");
   }
+
+  if (accounts.length > 1) {
+    throw new Error(
+      "Импорт доступен только при одном активном бизнес-аккаунте.",
+    );
+  }
+
+  return accounts[0]?.id ?? "";
 }
 
 function buildPreviewToken(fingerprint: string, businessAccountId: string) {

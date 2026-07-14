@@ -33,11 +33,9 @@ test("dispatcher spreadsheet import previews existing rows and imports scoped re
 
   const preview = await service.preview({
     spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
-    businessAccountId: "business-main",
   });
   const result = await service.execute({
     spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
-    businessAccountId: "business-main",
     previewToken: preview.previewToken,
     submittedByAccountId: "admin-access",
   });
@@ -69,7 +67,6 @@ test("dispatcher spreadsheet import rejects commit when source changed", async (
   );
   const preview = await service.preview({
     spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_456/edit",
-    businessAccountId: "business-main",
   });
 
   exitAt = "10.06.2026 08:00";
@@ -77,7 +74,6 @@ test("dispatcher spreadsheet import rejects commit when source changed", async (
   await assert.rejects(
     service.execute({
       spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_456/edit",
-      businessAccountId: "business-main",
       previewToken: preview.previewToken,
       submittedByAccountId: "admin-access",
     }),
@@ -106,11 +102,9 @@ test("dispatcher spreadsheet import collapses duplicate rows before persistence"
   );
   const preview = await service.preview({
     spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
-    businessAccountId: "business-main",
   });
   const result = await service.execute({
     spreadsheetUrl: "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
-    businessAccountId: "business-main",
     previewToken: preview.previewToken,
     submittedByAccountId: "admin-access",
   });
@@ -120,6 +114,37 @@ test("dispatcher spreadsheet import collapses duplicate rows before persistence"
   assert.equal(preview.existingRecords, 2);
   assert.equal(importedRecords, 2);
   assert.deepEqual(result, { totalRecords: 4, inserted: 2, skipped: 2 });
+});
+
+test("dispatcher spreadsheet import requires exactly one active business", async () => {
+  const buildService = (businessAccounts: Array<{ id: string; displayName: string }>) =>
+    createDispatcherSpreadsheetImportService(
+      config,
+      {
+        async listBusinessAccounts() {
+          return businessAccounts;
+        },
+        async findExistingSourceKeys() {
+          throw new Error("must not read import state");
+        },
+        async importRecords() {
+          throw new Error("must not import");
+        },
+      },
+      async () => buildWorkbook("10.06.2026 07:42"),
+    );
+
+  await assert.rejects(
+    buildService([]).preview({ spreadsheetUrl: "https://example.test/sheet" }),
+    /Нет активного бизнес-аккаунта/u,
+  );
+  await assert.rejects(
+    buildService([
+      { id: "business-one", displayName: "Первый" },
+      { id: "business-two", displayName: "Второй" },
+    ]).preview({ spreadsheetUrl: "https://example.test/sheet" }),
+    /только при одном активном бизнес-аккаунте/u,
+  );
 });
 
 function buildWorkbook(exitAt: string, duplicateVisitor = false) {

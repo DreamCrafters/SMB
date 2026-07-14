@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   executeAdminDispatcherImport,
   previewAdminDispatcherImport,
-  requestAdminDispatcherImportOptions,
 } from "../.test-build/src/services/adminDispatcherImport.js";
 
 const originalFetch = globalThis.fetch;
@@ -12,7 +11,7 @@ test.after(() => {
   globalThis.fetch = originalFetch;
 });
 
-test("admin dispatcher import service reads options and previews a workbook", async () => {
+test("admin dispatcher import service previews a workbook without business selection", async () => {
   const calls = [];
 
   globalThis.fetch = async (url, init) => {
@@ -48,33 +47,25 @@ test("admin dispatcher import service reads options and previews a workbook", as
       });
     }
 
-    return jsonResponse({
-      businessAccounts: [{ id: "business-main", displayName: "Основной бизнес" }],
-    });
+    throw new Error(`Unexpected request: ${url}`);
   };
 
-  const options = await requestAdminDispatcherImportOptions({
-    baseUrl: "http://api.test",
-  });
   const preview = await previewAdminDispatcherImport(
     {
       spreadsheetUrl: "https://docs.google.com/spreadsheets/d/test-sheet/edit",
-      businessAccountId: "business-main",
     },
     { baseUrl: "http://api.test" },
   );
 
-  assert.equal(options.status, "ready");
   assert.equal(preview.status, "ready");
   assert.equal(preview.totalRecords, 5);
   assert.equal(
     calls[0].url,
-    "http://api.test/api/admin/database/imports/dispatcher",
+    "http://api.test/api/admin/database/imports/dispatcher/preview",
   );
-  assert.equal(calls[1].init.method, "POST");
-  assert.deepEqual(JSON.parse(calls[1].init.body), {
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
     spreadsheetUrl: "https://docs.google.com/spreadsheets/d/test-sheet/edit",
-    businessAccountId: "business-main",
   });
 });
 
@@ -89,7 +80,6 @@ test("admin dispatcher import service sends the preview token on execute", async
   const result = await executeAdminDispatcherImport(
     {
       spreadsheetUrl: "https://docs.google.com/spreadsheets/d/test-sheet/edit",
-      businessAccountId: "business-main",
       previewToken: "b".repeat(64),
     },
     { baseUrl: "http://api.test" },
@@ -101,7 +91,10 @@ test("admin dispatcher import service sends the preview token on execute", async
     request.url,
     "http://api.test/api/admin/database/imports/dispatcher/execute",
   );
-  assert.equal(JSON.parse(request.init.body).previewToken, "b".repeat(64));
+  assert.deepEqual(JSON.parse(request.init.body), {
+    spreadsheetUrl: "https://docs.google.com/spreadsheets/d/test-sheet/edit",
+    previewToken: "b".repeat(64),
+  });
 });
 
 function jsonResponse(payload, status = 200) {

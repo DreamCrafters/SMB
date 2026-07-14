@@ -652,17 +652,6 @@ async function handleAdminDispatcherImportRequest({
 
   try {
     if (
-      url.pathname === "/api/admin/database/imports/dispatcher" &&
-      req.method === "GET"
-    ) {
-      sendJson(res, 200, {
-        businessAccounts:
-          await dispatcherSpreadsheetImport.listBusinessAccounts(),
-      });
-      return;
-    }
-
-    if (
       url.pathname === "/api/admin/database/imports/dispatcher/preview" &&
       req.method === "POST"
     ) {
@@ -1301,7 +1290,6 @@ function readAdminDispatcherImportPayload(
       ok: true;
       value: {
         spreadsheetUrl: string;
-        businessAccountId: string;
         previewToken?: string;
       };
     }
@@ -1318,10 +1306,6 @@ function readAdminDispatcherImportPayload(
 
   const spreadsheetUrl =
     typeof input.spreadsheetUrl === "string" ? input.spreadsheetUrl.trim() : "";
-  const businessAccountId =
-    typeof input.businessAccountId === "string"
-      ? input.businessAccountId.trim()
-      : "";
   const previewToken =
     typeof input.previewToken === "string" ? input.previewToken.trim() : undefined;
   const errors: string[] = [];
@@ -1330,8 +1314,8 @@ function readAdminDispatcherImportPayload(
     errors.push("spreadsheetUrl is required and must be 2000 characters or less.");
   }
 
-  if (businessAccountId.length === 0 || businessAccountId.length > 120) {
-    errors.push("businessAccountId is required and must be 120 characters or less.");
+  if (input.businessAccountId !== undefined) {
+    errors.push("businessAccountId is managed by the server.");
   }
 
   if (
@@ -1349,7 +1333,6 @@ function readAdminDispatcherImportPayload(
     ok: true,
     value: {
       spreadsheetUrl,
-      businessAccountId,
       previewToken,
     },
   };
