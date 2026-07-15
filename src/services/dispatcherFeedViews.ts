@@ -6,6 +6,12 @@ import type {
 
 export type DispatcherFeedGroup = "equipment" | "incidents" | "visitors";
 
+export type DispatcherFeedPeriod =
+  | "today"
+  | "current_month"
+  | "current_year"
+  | "custom";
+
 export type EquipmentSummaryRow = {
   equipment: string;
   productionTons: number;
@@ -119,7 +125,7 @@ export type OwnerDispatcherOverview = {
   visitors: OwnerVisitorsOverview;
 };
 
-type DateRange = {
+export type DateRange = {
   dateFrom?: string;
   dateTo?: string;
 };
@@ -151,6 +157,32 @@ export function readDispatcherGroupFormIds(
     case "visitors":
       return ["visitor", "visitor_exit"];
   }
+}
+
+export function buildDispatcherFeedDateRange(
+  period: DispatcherFeedPeriod,
+  currentDate = new Date(),
+): DateRange {
+  if (period === "custom") {
+    return {};
+  }
+
+  const today = formatDateValue(currentDate);
+
+  if (period === "today") {
+    return {
+      dateFrom: today,
+      dateTo: today,
+    };
+  }
+
+  return {
+    dateFrom:
+      period === "current_month"
+        ? `${today.slice(0, 7)}-01`
+        : `${today.slice(0, 4)}-01-01`,
+    dateTo: today,
+  };
 }
 
 export function buildOwnerDispatcherOverview(
@@ -538,7 +570,7 @@ export function buildIncidentSummaryRows(
 
 export function buildVisitorVisitRows(
   submissions: DispatcherSubmission[],
-  date: string,
+  range: DateRange,
 ): VisitorVisitRow[] {
   const entries = submissions
     .filter((submission) => submission.formId === "visitor")
@@ -559,7 +591,11 @@ export function buildVisitorVisitRows(
   const usedLegacyExitIds = new Set<string>();
 
   return entries
-    .filter((entry) => readPayloadDate(entry.payload.entryAt) === date)
+    .filter((entry) => {
+      const entryDate = readPayloadDate(entry.payload.entryAt);
+
+      return entryDate !== undefined && isDateInRange(entryDate, range);
+    })
     .map((entry) => {
       const key = buildVisitorKey(entry.payload);
       const exit =
@@ -968,6 +1004,14 @@ function isDateInRange(value: string, range: DateRange) {
   }
 
   return true;
+}
+
+function formatDateValue(value: Date) {
+  return [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 function readPayloadDate(value: string | undefined) {

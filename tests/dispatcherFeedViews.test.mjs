@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildDispatcherFeedDateRange,
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
@@ -9,6 +10,24 @@ import {
   buildOpenVisitorOptions,
   buildVisitorVisitRows,
 } from "../.test-build/src/services/dispatcherFeedViews.js";
+
+test("buildDispatcherFeedDateRange builds current incomplete periods", () => {
+  const currentDate = new Date(2026, 6, 15, 12, 0, 0);
+
+  assert.deepEqual(buildDispatcherFeedDateRange("today", currentDate), {
+    dateFrom: "2026-07-15",
+    dateTo: "2026-07-15",
+  });
+  assert.deepEqual(buildDispatcherFeedDateRange("current_month", currentDate), {
+    dateFrom: "2026-07-01",
+    dateTo: "2026-07-15",
+  });
+  assert.deepEqual(buildDispatcherFeedDateRange("current_year", currentDate), {
+    dateFrom: "2026-01-01",
+    dateTo: "2026-07-15",
+  });
+  assert.deepEqual(buildDispatcherFeedDateRange("custom", currentDate), {});
+});
 
 test("buildEquipmentSummaryRows aggregates production, downtime, and reasons", () => {
   const rows = buildEquipmentSummaryRows(
@@ -231,7 +250,10 @@ test("visitor helpers list open visitors and daily visits", () => {
     ["Пётр Петров"],
   );
 
-  const rows = buildVisitorVisitRows(submissions, "2026-07-04");
+  const rows = buildVisitorVisitRows(submissions, {
+    dateFrom: "2026-07-04",
+    dateTo: "2026-07-04",
+  });
 
   assert.equal(rows.length, 2);
   assert.equal(rows[0].exitAt, "04.07.2026 12:00");
@@ -254,10 +276,39 @@ test("visitor helpers close entries when exit has the same received timestamp", 
 
   assert.deepEqual(buildOpenVisitorOptions(submissions), []);
 
-  const rows = buildVisitorVisitRows(submissions, "2026-07-04");
+  const rows = buildVisitorVisitRows(submissions, {
+    dateFrom: "2026-07-04",
+    dateTo: "2026-07-04",
+  });
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].exitAt, "04.07.2026 09:15");
+});
+
+test("buildVisitorVisitRows supports ranges and an empty all-time range", () => {
+  const submissions = [
+    buildSubmission("visit-june", "visitor", {
+      fio: "Июньский посетитель",
+      entryAt: "30.06.2026 16:40",
+    }),
+    buildSubmission("visit-july-first", "visitor", {
+      fio: "Первый июльский посетитель",
+      entryAt: "03.07.2026 09:10",
+    }),
+    buildSubmission("visit-july-second", "visitor", {
+      fio: "Второй июльский посетитель",
+      entryAt: "04.07.2026 13:20",
+    }),
+  ];
+
+  assert.deepEqual(
+    buildVisitorVisitRows(submissions, {
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-31",
+    }).map((visitor) => visitor.fio),
+    ["Первый июльский посетитель", "Второй июльский посетитель"],
+  );
+  assert.equal(buildVisitorVisitRows(submissions, {}).length, 3);
 });
 
 test("visitor open options can be limited to entries from one day", () => {
