@@ -20,6 +20,7 @@ import {
 
 export type DispatcherFeedFilters = {
   limit?: number;
+  offset?: number;
   businessAccountId?: string;
   formId?: DispatcherFormId;
   dateFrom?: string;
@@ -61,6 +62,8 @@ type WhereClause = {
   sql: string;
   values: unknown[];
 };
+
+const dispatcherFeedPageLimit = 2_000;
 
 export type DispatcherSubmissionsRepository = {
   create: (
@@ -201,7 +204,11 @@ export function createDispatcherSubmissionsRepository(
     },
 
     async listLatest(filters = {}) {
-      const safeLimit = Math.min(Math.max(filters.limit ?? 100, 1), 2_000);
+      const safeLimit = Math.min(
+        Math.max(filters.limit ?? 100, 1),
+        dispatcherFeedPageLimit,
+      );
+      const safeOffset = Math.max(Math.trunc(filters.offset ?? 0), 0);
       const where = buildWhereClause(filters);
       const [rows] = await pool.query<DispatcherSubmissionDbRow[]>(
         `
@@ -218,9 +225,9 @@ export function createDispatcherSubmissionsRepository(
           from dispatcher_submissions
           ${where.sql}
           order by received_at desc, submitted_at desc, id desc
-          limit ?
+          limit ? offset ?
         `,
-        [...where.values, safeLimit],
+        [...where.values, safeLimit, safeOffset],
       );
 
       return rows.map(mapDispatcherSubmissionRow);

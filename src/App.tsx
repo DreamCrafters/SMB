@@ -51,7 +51,10 @@ import {
   type AccessProfileLoadState,
 } from "./services/accessProfile";
 import {
+  dispatcherFeedPageLimit,
+  mergeDispatcherFeedSubmissions,
   requestDispatcherForms,
+  requestCompleteDispatcherFeed,
   requestDispatcherFeed,
   submitDispatcherEquipmentReport,
   submitDispatcherSubmission,
@@ -125,6 +128,7 @@ import {
   type AdminPositionsResult,
 } from "./services/adminAccounts";
 import {
+  buildDispatcherFeedDateRange,
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
@@ -132,9 +136,9 @@ import {
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   buildVisitorVisitRows,
-  readDispatcherGroupFormIds,
   type OwnerDispatcherOverview,
   type DispatcherFeedGroup,
+  type DispatcherFeedPeriod,
 } from "./services/dispatcherFeedViews";
 import { readShortUserMessage } from "./services/userFacingMessages";
 
@@ -211,9 +215,9 @@ type DevAccessOptionsLoadState =
 
 type DispatcherFeedFilterState = {
   group: DispatcherFeedGroup;
+  period: DispatcherFeedPeriod;
   dateFrom: string;
   dateTo: string;
-  visitorDate: string;
 };
 
 type DispatcherFormChoiceGroupId = "equipment" | "incidents" | "visitors";
@@ -257,10 +261,20 @@ const initialDispatcherFormsState: DispatcherFormsLoadState = {
 
 const initialDispatcherFeedFilters: DispatcherFeedFilterState = {
   group: "equipment",
+  period: "custom",
   dateFrom: "",
   dateTo: "",
-  visitorDate: getTodayDateValue(),
 };
+
+const dispatcherFeedPeriodOptions: readonly {
+  id: DispatcherFeedPeriod;
+  label: string;
+}[] = [
+  { id: "today", label: "Сегодня" },
+  { id: "current_month", label: "Текущий месяц" },
+  { id: "current_year", label: "Текущий год" },
+  { id: "custom", label: "Своё" },
+];
 
 const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
 const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
@@ -395,9 +409,17 @@ export default function App() {
     }
 
     let isActive = true;
+    let isLoading = false;
     let currentController: AbortController | undefined;
+    let completeHistory: DispatcherSubmission[] | undefined;
+    let reloadTimeoutId: number | undefined;
 
-    function loadDispatcherFeed() {
+    async function loadDispatcherFeed() {
+      if (isLoading) {
+        return;
+      }
+
+      isLoading = true;
       currentController?.abort();
       currentController = new AbortController();
 
@@ -410,15 +432,50 @@ export default function App() {
             },
       );
 
-      requestDispatcherFeed({
-        signal: currentController.signal,
-        localFallback: isLocalTestFallbackEnabled,
-        limit: 2_000,
-      }).then((result) => {
-        if (isActive) {
-          setDispatcherFeed(result);
+      try {
+        const request = completeHistory === undefined
+          ? requestCompleteDispatcherFeed
+          : requestDispatcherFeed;
+        const result = await request({
+          signal: currentController.signal,
+          localFallback: isLocalTestFallbackEnabled,
+          limit: dispatcherFeedPageLimit,
+        });
+
+        if (!isActive) {
+          return;
         }
-      });
+
+        if (result.status !== "ready") {
+          setDispatcherFeed(result);
+          return;
+        }
+
+        if (completeHistory === undefined) {
+          completeHistory = result.submissions;
+          setDispatcherFeed(result);
+          return;
+        }
+
+        const mergedSubmissions = mergeDispatcherFeedSubmissions(
+          completeHistory,
+          result.submissions,
+        );
+
+        if (mergedSubmissions.length !== result.summary.total) {
+          completeHistory = undefined;
+          reloadTimeoutId = window.setTimeout(loadDispatcherFeed, 0);
+          return;
+        }
+
+        completeHistory = mergedSubmissions;
+        setDispatcherFeed({
+          ...result,
+          submissions: mergedSubmissions,
+        });
+      } finally {
+        isLoading = false;
+      }
     }
 
     loadDispatcherFeed();
@@ -428,6 +485,9 @@ export default function App() {
       isActive = false;
       currentController?.abort();
       window.clearInterval(intervalId);
+      if (reloadTimeoutId !== undefined) {
+        window.clearTimeout(reloadTimeoutId);
+      }
     };
   }, [
     accessProfile,
@@ -3001,26 +3061,30 @@ function DispatcherFeedPanel({
 }) {
   const submissions =
     dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [];
-  const selectedGroupFormIds = readDispatcherGroupFormIds(filters.group);
-  const selectedGroupSubmissions = submissions.filter((submission) =>
-    selectedGroupFormIds.includes(submission.formId),
-  );
-  const hasDateFilters =
-    filters.group === "visitors"
-      ? filters.visitorDate.length > 0
-      : filters.dateFrom.length > 0 || filters.dateTo.length > 0;
   const isLocalTestMode =
     dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
-  const equipmentDateRange = {
+  const selectedDateRange = {
     dateFrom: filters.dateFrom.length > 0 ? filters.dateFrom : undefined,
     dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
   };
-  const equipmentRows = buildEquipmentSummaryRows(submissions, equipmentDateRange);
-  const incidentRows = buildIncidentSummaryRows(submissions, {
-    dateFrom: filters.dateFrom.length > 0 ? filters.dateFrom : undefined,
-    dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
-  });
-  const visitorRows = buildVisitorVisitRows(submissions, filters.visitorDate);
+  const equipmentRows = buildEquipmentSummaryRows(submissions, selectedDateRange);
+  const incidentRows = buildIncidentSummaryRows(submissions, selectedDateRange);
+  const visitorRows = buildVisitorVisitRows(submissions, selectedDateRange);
+  const visibleRowCount = {
+    equipment: equipmentRows.length,
+    incidents: incidentRows.length,
+    visitors: visitorRows.length,
+  }[filters.group];
+
+  function handlePeriodChange(period: DispatcherFeedPeriod) {
+    const range = buildDispatcherFeedDateRange(period);
+
+    onFiltersChange({
+      period,
+      dateFrom: range.dateFrom ?? "",
+      dateTo: range.dateTo ?? "",
+    });
+  }
 
   return (
     <section className="dispatcher-live-column" aria-label="Диспетчерская">
@@ -3046,57 +3110,56 @@ function DispatcherFeedPanel({
             </button>
           ))}
         </div>
-        {filters.group === "visitors" ? (
-          <label>
-            <span>День</span>
-            <input
-              type="date"
-              value={filters.visitorDate}
-              onChange={(event) =>
-                onFiltersChange({ visitorDate: event.currentTarget.value })
-              }
-            />
-          </label>
-        ) : (
-          <>
-            <label>
-              <span>С даты</span>
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(event) =>
-                  onFiltersChange({ dateFrom: event.currentTarget.value })
-                }
-              />
-            </label>
-            <label>
-              <span>По дату</span>
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(event) =>
-                  onFiltersChange({ dateTo: event.currentTarget.value })
-                }
-              />
-            </label>
-          </>
-        )}
-        <button
-          className="secondary-button dispatcher-clear-dates-button"
-          type="button"
-          disabled={!hasDateFilters}
-          onClick={() =>
-            filters.group === "visitors"
-              ? onFiltersChange({ visitorDate: getTodayDateValue() })
-              : onFiltersChange({ dateFrom: "", dateTo: "" })
-          }
-        >
-          {filters.group === "visitors" ? "Сегодня" : "Очистить даты"}
-        </button>
+        <div className="dispatcher-period-picker">
+          <div className="dispatcher-period-buttons" aria-label="Период данных">
+            {dispatcherFeedPeriodOptions.map((option) => (
+              <button
+                className={`dispatcher-period-button ${
+                  filters.period === option.id ? "is-active" : ""
+                }`}
+                type="button"
+                aria-pressed={filters.period === option.id}
+                key={option.id}
+                onClick={() => handlePeriodChange(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {filters.period === "custom" ? (
+            <div className="dispatcher-custom-date-range">
+              <label>
+                <span>С даты</span>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  max={filters.dateTo || undefined}
+                  onChange={(event) => {
+                    const dateFrom = event.currentTarget.value;
+                    onFiltersChange({ dateFrom });
+                  }}
+                />
+              </label>
+              <label>
+                <span>По дату</span>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  min={filters.dateFrom || undefined}
+                  onChange={(event) => {
+                    const dateTo = event.currentTarget.value;
+                    onFiltersChange({ dateTo });
+                  }}
+                />
+              </label>
+              <small>Без дат показываются данные за всё время.</small>
+            </div>
+          ) : null}
+        </div>
       </div>
       {dispatcherFeed.status === "ready" ? (
         <div className="dispatcher-summary-strip" aria-label="Сводка регистраций">
-          <span>Записей в разделе: {selectedGroupSubmissions.length}</span>
+          <span>Строк в таблице: {visibleRowCount}</span>
           <span>Обновлено: {formatDateTime(dispatcherFeed.receivedAt)}</span>
         </div>
       ) : null}
@@ -3123,7 +3186,7 @@ function DispatcherFeedPanel({
       ) : null}
       {filters.group === "equipment" ? (
         <EquipmentSummaryTable
-          range={equipmentDateRange}
+          range={selectedDateRange}
           rows={equipmentRows}
           submissions={submissions}
         />

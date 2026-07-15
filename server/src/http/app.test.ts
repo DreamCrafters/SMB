@@ -1931,7 +1931,7 @@ test("remote API passes equipment reportDate feed filters to repository", async 
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "business_owner");
     const response = await fetch(
-      `${baseUrl}/api/dispatcher/submissions?formId=equipment&reportDate=2026-07-09&limit=500`,
+      `${baseUrl}/api/dispatcher/submissions?formId=equipment&reportDate=2026-07-09&limit=500&offset=250`,
       {
         headers: {
           "X-SMB-Dev-Session": sessionId,
@@ -1944,9 +1944,27 @@ test("remote API passes equipment reportDate feed filters to repository", async 
       formId: "equipment",
       reportDate: "2026-07-09",
       limit: 500,
+      offset: 250,
     });
     assert.deepEqual(summaryFilters, listFilters);
   }, repository);
+});
+
+test("remote API validates dispatcher feed offsets", async () => {
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "business_owner");
+    const request = (offset: string) =>
+      fetch(`${baseUrl}/api/dispatcher/submissions?offset=${offset}`, {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+        },
+      });
+
+    assert.equal((await request("0")).status, 200);
+    assert.equal((await request("-1")).status, 400);
+    assert.equal((await request("1.5")).status, 400);
+    assert.equal((await request("not-a-number")).status, 400);
+  });
 });
 
 test("remote API enriches incident location and responsible options from reference data", async () => {

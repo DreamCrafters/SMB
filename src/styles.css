@@ -1104,9 +1104,9 @@ p {
 
 .dispatcher-feed-controls {
   display: grid;
-  grid-template-columns: minmax(260px, 1.2fr) repeat(2, minmax(150px, 0.5fr)) max-content;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(520px, 1.5fr);
   gap: var(--density-2);
-  align-items: end;
+  align-items: start;
 }
 
 .dispatcher-feed-group-tabs {
@@ -1115,7 +1115,8 @@ p {
   gap: var(--density-1);
 }
 
-.dispatcher-feed-group-button {
+.dispatcher-feed-group-button,
+.dispatcher-period-button {
   min-height: 38px;
   padding: 8px 10px;
   border: 1px solid var(--line-strong);
@@ -1127,15 +1128,42 @@ p {
 }
 
 .dispatcher-feed-group-button:hover,
-.dispatcher-feed-group-button:focus-visible {
+.dispatcher-feed-group-button:focus-visible,
+.dispatcher-period-button:hover,
+.dispatcher-period-button:focus-visible {
   border-color: var(--blue-gray);
   outline: 2px solid var(--blue-gray-soft);
 }
 
-.dispatcher-feed-group-button.is-active {
+.dispatcher-feed-group-button.is-active,
+.dispatcher-period-button.is-active {
   border-color: var(--nav);
   color: #ffffff;
   background: var(--nav);
+}
+
+.dispatcher-period-picker {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.dispatcher-period-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--density-1);
+}
+
+.dispatcher-custom-date-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: var(--density-2);
+}
+
+.dispatcher-custom-date-range small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .dispatcher-feed-controls label {
@@ -1188,11 +1216,6 @@ p {
     padding-right: 10px;
     background-image: none;
   }
-}
-
-.dispatcher-clear-dates-button {
-  min-height: 38px;
-  white-space: nowrap;
 }
 
 .dispatcher-summary-strip {
@@ -2291,6 +2314,10 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .dispatcher-feed-controls {
+    grid-template-columns: 1fr;
+  }
+
   .ops-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
@@ -2387,6 +2414,14 @@ p {
   }
 
   .dispatcher-feed-group-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .dispatcher-period-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dispatcher-custom-date-range {
     grid-template-columns: 1fr;
   }
 

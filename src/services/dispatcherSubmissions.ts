@@ -108,7 +108,10 @@ export type DispatcherFeedFilters = {
   dateTo?: string;
   reportDate?: string;
   limit?: number;
+  offset?: number;
 };
+
+export const dispatcherFeedPageLimit = 2_000;
 
 type DispatcherRemoteOptions = {
   baseUrl?: string;
@@ -616,6 +619,7 @@ export async function requestDispatcherFeed({
   dateTo,
   reportDate,
   limit,
+  offset,
 }: DispatcherRemoteOptions & DispatcherFeedFilters = {}): Promise<DispatcherFeedResult> {
   const endpoint = buildRemoteEndpoint(DISPATCHER_SUBMISSIONS_PATH, { baseUrl });
 
@@ -627,6 +631,7 @@ export async function requestDispatcherFeed({
         dateTo,
         reportDate,
         limit,
+        offset,
         storage,
       });
     }
@@ -644,6 +649,7 @@ export async function requestDispatcherFeed({
     dateTo,
     reportDate,
     limit,
+    offset,
   });
 
   try {
@@ -696,6 +702,7 @@ export async function requestDispatcherFeed({
         dateTo,
         reportDate,
         limit,
+        offset,
         storage,
       });
     }
@@ -709,6 +716,57 @@ export async function requestDispatcherFeed({
       code: "network_error",
     };
   }
+}
+
+export async function requestCompleteDispatcherFeed(
+  options: DispatcherRemoteOptions & Omit<DispatcherFeedFilters, "offset"> = {},
+): Promise<DispatcherFeedResult> {
+  const pageLimit = Math.min(
+    Math.max(Math.trunc(options.limit ?? dispatcherFeedPageLimit), 1),
+    dispatcherFeedPageLimit,
+  );
+  const submissions: DispatcherSubmission[] = [];
+  let offset = 0;
+  let latestPage: DispatcherFeedReadyState | undefined;
+
+  while (true) {
+    const page = await requestDispatcherFeed({
+      ...options,
+      limit: pageLimit,
+      offset,
+    });
+
+    if (page.status !== "ready") {
+      return page;
+    }
+
+    latestPage = page;
+    submissions.push(...page.submissions);
+
+    if (
+      page.submissions.length < pageLimit ||
+      submissions.length >= page.summary.total
+    ) {
+      return {
+        ...latestPage,
+        submissions,
+      };
+    }
+
+    offset += page.submissions.length;
+  }
+}
+
+export function mergeDispatcherFeedSubmissions(
+  cachedSubmissions: readonly DispatcherSubmission[],
+  latestSubmissions: readonly DispatcherSubmission[],
+) {
+  const latestIds = new Set(latestSubmissions.map((submission) => submission.id));
+
+  return [
+    ...latestSubmissions,
+    ...cachedSubmissions.filter((submission) => !latestIds.has(submission.id)),
+  ];
 }
 
 function saveLocalDispatcherEquipmentReport(
@@ -925,6 +983,7 @@ function requestLocalDispatcherFeed({
   dateTo,
   reportDate,
   limit,
+  offset,
   storage,
 }: DispatcherFeedFilters & Pick<DispatcherRemoteOptions, "storage">): DispatcherFeedResult {
   const localStorage = readLocalDispatcherStorage({ storage });
@@ -938,7 +997,7 @@ function requestLocalDispatcherFeed({
     };
   }
 
-  const submissions = readLocalDispatcherSubmissions(localStorage)
+  const matchingSubmissions = readLocalDispatcherSubmissions(localStorage)
     .filter((submission) =>
       matchesLocalDispatcherFilters(submission, {
         formId,
@@ -947,14 +1006,18 @@ function requestLocalDispatcherFeed({
         reportDate,
       }),
     )
-    .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
-    .slice(0, readSafeLocalFeedLimit(limit));
+    .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt));
+  const safeOffset = Math.max(offset ?? 0, 0);
+  const submissions = matchingSubmissions.slice(
+    safeOffset,
+    safeOffset + readSafeLocalFeedLimit(limit),
+  );
 
   return {
     status: "ready",
     submissions,
     receivedAt: new Date().toISOString(),
-    summary: buildLocalDispatcherSummary(submissions),
+    summary: buildLocalDispatcherSummary(matchingSubmissions),
     source: "local_test",
   };
 }
@@ -1400,6 +1463,10 @@ function buildFeedEndpoint(endpoint: string, filters: DispatcherFeedFilters) {
 
   if (filters.limit !== undefined) {
     url.searchParams.set("limit", String(filters.limit));
+  }
+
+  if (filters.offset !== undefined) {
+    url.searchParams.set("offset", String(filters.offset));
   }
 
   return url.toString();

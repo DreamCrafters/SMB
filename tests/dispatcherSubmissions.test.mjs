@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  mergeDispatcherFeedSubmissions,
+  requestCompleteDispatcherFeed,
   requestDispatcherForms,
   requestDispatcherFeed,
   submitDispatcherEquipmentReport,
@@ -684,6 +686,76 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
     "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&reportDate=2026-06-18&limit=500",
   );
   assert.equal(request.init.method, "GET");
+});
+
+test("requestCompleteDispatcherFeed reads every history page", async () => {
+  const requestedEndpoints = [];
+
+  globalThis.fetch = async (endpoint) => {
+    requestedEndpoints.push(endpoint);
+    const offset = Number(new URL(endpoint).searchParams.get("offset") ?? 0);
+    const pageSubmissions =
+      offset === 0
+        ? [
+            { ...submission, id: "submission-3" },
+            { ...submission, id: "submission-2" },
+          ]
+        : [{ ...submission, id: "submission-1" }];
+
+    return new Response(
+      JSON.stringify({
+        submissions: pageSubmissions,
+        receivedAt: "2026-06-18T00:00:02.000Z",
+        summary: {
+          total: 3,
+          byForm: [
+            {
+              formId: "equipment",
+              formTitle: "Оборудование",
+              count: 3,
+            },
+          ],
+        },
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  };
+
+  const result = await requestCompleteDispatcherFeed({
+    baseUrl: "https://api.example.test",
+    limit: 2,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(
+    result.submissions.map((item) => item.id),
+    ["submission-3", "submission-2", "submission-1"],
+  );
+  assert.deepEqual(requestedEndpoints, [
+    "https://api.example.test/api/dispatcher/submissions?limit=2&offset=0",
+    "https://api.example.test/api/dispatcher/submissions?limit=2&offset=2",
+  ]);
+});
+
+test("mergeDispatcherFeedSubmissions replaces cached rows from the latest page", () => {
+  const cachedSubmission = { ...submission, id: "cached", summary: "Старое" };
+  const updatedSubmission = { ...cachedSubmission, summary: "Новое" };
+  const newSubmission = { ...submission, id: "new" };
+
+  assert.deepEqual(
+    mergeDispatcherFeedSubmissions(
+      [cachedSubmission, { ...submission, id: "older" }],
+      [newSubmission, updatedSubmission],
+    ).map((item) => [item.id, item.summary]),
+    [
+      ["new", submission.summary],
+      ["cached", "Новое"],
+      ["older", submission.summary],
+    ],
+  );
 });
 
 test("requestDispatcherFeed rejects unsupported remote payloads", async () => {

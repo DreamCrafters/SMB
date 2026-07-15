@@ -3,6 +3,24 @@ import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import { createDispatcherSubmissionsRepository } from "./dispatcherSubmissionsRepository.js";
 
+test("dispatcher submissions repository paginates history", async () => {
+  let statement = "";
+  let queryValues: unknown[] = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      statement = sql.replace(/\s+/gu, " ").trim();
+      queryValues = values ?? [];
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createDispatcherSubmissionsRepository(pool);
+
+  await repository.listLatest({ limit: 50, offset: 75 });
+
+  assert.match(statement, /limit \? offset \?$/u);
+  assert.deepEqual(queryValues, [50, 75]);
+});
+
 test("dispatcher submissions repository ignores a duplicate non-equipment row", async () => {
   const statements: string[] = [];
   const queryValues: unknown[][] = [];

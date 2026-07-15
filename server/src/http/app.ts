@@ -2343,6 +2343,7 @@ function readDispatcherFeedFilters(url: URL):
   const dateTo = readOptionalQueryParam(url, "dateTo");
   const reportDate = readOptionalQueryParam(url, "reportDate");
   const limit = readOptionalQueryParam(url, "limit");
+  const offset = readOptionalQueryParam(url, "offset");
 
   if (formId !== undefined) {
     if (isDispatcherFormId(formId)) {
@@ -2383,6 +2384,16 @@ function readDispatcherFeedFilters(url: URL):
       filters.limit = parsedLimit;
     } else {
       errors.push("limit must be a positive integer.");
+    }
+  }
+
+  if (offset !== undefined) {
+    const parsedOffset = Number(offset);
+
+    if (Number.isInteger(parsedOffset) && parsedOffset >= 0) {
+      filters.offset = parsedOffset;
+    } else {
+      errors.push("offset must be a non-negative integer.");
     }
   }
 
