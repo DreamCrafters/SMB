@@ -4,6 +4,7 @@ import type {
   AccountPosition,
   AccountType,
 } from "./auth.js";
+import { getNextMoscowDispatcherLogoutAt } from "./auth.js";
 
 export type DevAccessOption = {
   position: AccountPosition;
@@ -139,6 +140,10 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
   }
 
   if (accountType === "dispatcher") {
+    const expiresAt = getNextMoscowDispatcherLogoutAt(
+      new Date(issuedAt),
+    ).toISOString();
+
     return {
       userId: "dev-user-dispatcher",
       displayName: "Dev dispatcher",
@@ -157,6 +162,7 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         capabilities,
         navigationItems: [...option.navigationItems],
         issuedAt,
+        expiresAt,
       },
       businessAccounts: [buildDevBusiness()],
       departments: [buildDevDepartment()],
@@ -189,6 +195,17 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
     organizationStructureMode: "current",
     receivedAt,
   };
+}
+
+export function isDevAccessSessionExpired(
+  session: DevAccessSession,
+  now = new Date(),
+) {
+  return (
+    session.option.accountType === "dispatcher" &&
+    getNextMoscowDispatcherLogoutAt(new Date(session.createdAt)).getTime() <=
+      now.getTime()
+  );
 }
 
 export function createDevSessionId(accountType: AccountType) {

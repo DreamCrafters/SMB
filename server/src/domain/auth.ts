@@ -162,6 +162,9 @@ export const defaultCapabilitiesByAccountType: Record<
 const scryptAsync = promisify(scrypt);
 const passwordHashAlgorithm = "scrypt";
 const passwordKeyLength = 64;
+const moscowUtcOffsetHours = 3;
+const dispatcherLogoutHour = 7;
+const dispatcherLogoutMinute = 45;
 
 export async function hashPassword(password: string, salt = createPasswordSalt()) {
   const key = (await scryptAsync(
@@ -189,6 +192,58 @@ export async function verifyPassword(password: string, hash: string) {
 
 export function createSessionId() {
   return randomBytes(32).toString("hex");
+}
+
+export function resolveAccountSessionExpiresAt(
+  accountType: AccountType,
+  sessionTtlHours: number,
+  now = new Date(),
+) {
+  const ttlExpiresAt = new Date(
+    now.getTime() + sessionTtlHours * 60 * 60 * 1000,
+  );
+
+  if (accountType !== "dispatcher") {
+    return ttlExpiresAt;
+  }
+
+  const dispatcherLogoutAt = getNextMoscowDispatcherLogoutAt(now);
+
+  return dispatcherLogoutAt.getTime() < ttlExpiresAt.getTime()
+    ? dispatcherLogoutAt
+    : ttlExpiresAt;
+}
+
+export function getNextMoscowDispatcherLogoutAt(now = new Date()) {
+  const moscowNow = new Date(
+    now.getTime() + moscowUtcOffsetHours * 60 * 60 * 1000,
+  );
+  const logoutAt = new Date(
+    Date.UTC(
+      moscowNow.getUTCFullYear(),
+      moscowNow.getUTCMonth(),
+      moscowNow.getUTCDate(),
+      dispatcherLogoutHour - moscowUtcOffsetHours,
+      dispatcherLogoutMinute,
+    ),
+  );
+
+  if (logoutAt.getTime() <= now.getTime()) {
+    logoutAt.setUTCDate(logoutAt.getUTCDate() + 1);
+  }
+
+  return logoutAt;
+}
+
+export function hasDispatcherSessionPassedDailyLogout(
+  accountType: AccountType,
+  sessionCreatedAt: Date,
+  now = new Date(),
+) {
+  return (
+    accountType === "dispatcher" &&
+    getNextMoscowDispatcherLogoutAt(sessionCreatedAt).getTime() <= now.getTime()
+  );
 }
 
 export function isAccountType(value: unknown): value is AccountType {

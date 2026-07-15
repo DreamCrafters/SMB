@@ -21,6 +21,7 @@ import {
   buildDefaultDevAccessOptions,
   buildDevProfile,
   createDevSessionId,
+  isDevAccessSessionExpired,
   type DevAccessOption,
   type DevAccessSession,
   isAccountType,
@@ -2147,6 +2148,13 @@ async function readRequestAccess(
     devSessionId === undefined ? undefined : devSessions.get(devSessionId);
 
   if (devSession === undefined) {
+    return undefined;
+  }
+
+  if (isDevAccessSessionExpired(devSession)) {
+    if (devSessionId !== undefined) {
+      devSessions.delete(devSessionId);
+    }
     return undefined;
   }
 

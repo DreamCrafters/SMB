@@ -6,10 +6,12 @@ import {
 } from "../domain/accountAccessConfiguration.js";
 import {
   createSessionId,
+  hasDispatcherSessionPassedDailyLogout,
   isAccountCapability,
   isAccountNavigationItem,
   isAccountPosition,
   isAccountType,
+  resolveAccountSessionExpiresAt,
   verifyPassword,
   type AccountCapability,
   type AccountScope,
@@ -39,6 +41,7 @@ type AuthAccessRow = RowDataPacket & {
   capabilities: unknown;
   navigation_items: unknown;
   access_created_at: Date | string;
+  session_created_at?: Date | string;
   session_expires_at?: Date | string;
   business_display_name: string | null;
   business_status: string | null;
@@ -51,6 +54,7 @@ export function createAuthSessionService(
   pool: DatabasePool,
   options: {
     sessionTtlHours: number;
+    now?: () => Date;
   },
 ): AuthSessionService {
   return {
@@ -76,9 +80,15 @@ export function createAuthSessionService(
         return { ok: false };
       }
 
+      if (!isAccountType(row.account_type)) {
+        throw new Error("Stored account type is not supported.");
+      }
+
       const sessionId = createSessionId();
-      const expiresAt = new Date(
-        Date.now() + options.sessionTtlHours * 60 * 60 * 1000,
+      const expiresAt = resolveAccountSessionExpiresAt(
+        row.account_type,
+        options.sessionTtlHours,
+        options.now?.() ?? new Date(),
       );
 
       await pool.query(
@@ -120,6 +130,7 @@ export function createAuthSessionService(
             positions.capabilities,
             positions.navigation_items,
             accesses.created_at as access_created_at,
+            sessions.created_at as session_created_at,
             sessions.expires_at as session_expires_at,
             business.display_name as business_display_name,
             business.status as business_status,
@@ -147,6 +158,19 @@ export function createAuthSessionService(
       const row = rows[0];
 
       if (row === undefined || row.session_expires_at === undefined) {
+        return undefined;
+      }
+
+      if (
+        isAccountType(row.account_type) &&
+        row.session_created_at !== undefined &&
+        hasDispatcherSessionPassedDailyLogout(
+          row.account_type,
+          toDate(row.session_created_at),
+          options.now?.() ?? new Date(),
+        )
+      ) {
+        await pool.query("delete from auth_sessions where id = ?", [sessionId]);
         return undefined;
       }
 

@@ -6,6 +6,7 @@ import type {
   ServerUserProfile,
 } from "./src/contracts";
 import { localDevAccessOptions } from "./src/services/localDevAccess";
+import { getNextMoscowDispatcherLogoutAt } from "./src/services/dispatcherSessionExpiry";
 
 type MiddlewareRequest = Parameters<Connect.NextHandleFunction>[0];
 type MiddlewareResponse = Parameters<Connect.NextHandleFunction>[1];
@@ -47,7 +48,19 @@ function accessProfileApi(): Plugin {
     }
 
     const sessionId = readDevSessionId(req);
-    const session = sessionId === undefined ? undefined : sessions.get(sessionId);
+    let session = sessionId === undefined ? undefined : sessions.get(sessionId);
+
+    if (
+      session !== undefined &&
+      session.option.accountType === "dispatcher" &&
+      getNextMoscowDispatcherLogoutAt(new Date(session.createdAt)).getTime() <=
+        Date.now()
+    ) {
+      if (sessionId !== undefined) {
+        sessions.delete(sessionId);
+      }
+      session = undefined;
+    }
 
     if (session === undefined) {
       sendJson(res, 200, { profile: null });
@@ -224,6 +237,10 @@ function buildDevProfile(
   }
 
   if (accountType === "dispatcher") {
+    const expiresAt = getNextMoscowDispatcherLogoutAt(
+      new Date(issuedAt),
+    ).toISOString();
+
     return {
       userId: "dev-user-dispatcher",
       displayName: "Dev dispatcher",
@@ -242,6 +259,7 @@ function buildDevProfile(
         capabilities,
         navigationItems: [...option.navigationItems],
         issuedAt,
+        expiresAt,
       },
       businessAccounts: [
         {

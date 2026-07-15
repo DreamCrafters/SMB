@@ -45,6 +45,7 @@ import {
   logoutAuthSession,
   type AuthSessionResult,
 } from "./services/authSession";
+import { readDispatcherAutoLogoutAt } from "./services/dispatcherSessionExpiry";
 import { isProductionAppEnv } from "./services/appEnvironment";
 import {
   requestAccessProfile,
@@ -535,6 +536,24 @@ export default function App() {
     }
   }, [accessProfile, adminTab]);
 
+  useEffect(() => {
+    if (accessProfile.status !== "ready") {
+      return;
+    }
+
+    const logoutAt = readDispatcherAutoLogoutAt(accessProfile.profile);
+
+    if (logoutAt === undefined) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void handleAutomaticDispatcherLogout();
+    }, Math.max(0, logoutAt.getTime() - Date.now()));
+
+    return () => window.clearTimeout(timeoutId);
+  }, [accessProfile]);
+
   async function handleSelectAccount(option: DevAccessOption) {
     setSessionRequest({
       status: "loading",
@@ -570,6 +589,23 @@ export default function App() {
           localDevFallback: isLocalTestFallbackEnabled,
         });
     handleSessionResult(result);
+  }
+
+  async function handleAutomaticDispatcherLogout() {
+    setSessionRequest({
+      status: "loading",
+    });
+
+    if (isProductionApp) {
+      await logoutAuthSession();
+    } else {
+      await clearDevAccessSession({
+        localDevFallback: isLocalTestFallbackEnabled,
+      });
+    }
+
+    setSessionRequest(initialSessionRequestState);
+    setRequestVersion((version) => version + 1);
   }
 
   function handleSessionResult(result: DevAccessSessionResult | AuthSessionResult) {

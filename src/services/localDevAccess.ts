@@ -8,6 +8,7 @@ import {
 } from "../contracts/accounts.js";
 import type { ServerUserProfile } from "../contracts/organization.js";
 import { navigationItemsByAccountType } from "../content.js";
+import { getNextMoscowDispatcherLogoutAt } from "./dispatcherSessionExpiry.js";
 
 const LOCAL_DEV_ACCESS_SESSION_STORAGE_KEY =
   "smb.localDevAccessSession.v1";
@@ -146,6 +147,15 @@ function readLocalDevAccessSession(): LocalDevAccessSession | null {
         return null;
       }
 
+      if (
+        option.accountType === "dispatcher" &&
+        getNextMoscowDispatcherLogoutAt(new Date(value.createdAt)).getTime() <=
+          Date.now()
+      ) {
+        clearLocalDevAccessSession();
+        return null;
+      }
+
       return {
         sessionId: value.sessionId,
         option,
@@ -234,6 +244,10 @@ function buildLocalDevProfile(
   }
 
   if (accountType === "dispatcher") {
+    const expiresAt = getNextMoscowDispatcherLogoutAt(
+      new Date(issuedAt),
+    ).toISOString();
+
     return {
       userId: "local-dev-user-dispatcher",
       displayName: "Local test dispatcher",
@@ -252,6 +266,7 @@ function buildLocalDevProfile(
         capabilities,
         navigationItems: option.navigationItems,
         issuedAt,
+        expiresAt,
       },
       businessAccounts,
       departments,
