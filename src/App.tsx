@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
@@ -144,6 +145,12 @@ import {
 } from "./services/dispatcherFeedViews";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import { formatUserShortName } from "./services/userDisplayName";
+import {
+  markToastExiting,
+  prependToast,
+  removeToast,
+  type AppToast,
+} from "./services/toastStack";
 
 type BusinessTab = "overview" | "dispatcher" | "work" | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database";
@@ -156,6 +163,8 @@ type DataEntrySubmitStateControls = {
 type DataEntrySubmitCallbacks = {
   onSuccess?: (message: string) => void;
 };
+
+type ShowToast = (title: string, message: string) => void;
 
 type DataEntrySubmitHandler = (
   event: FormEvent<HTMLFormElement>,
@@ -234,15 +243,11 @@ type DispatcherFormChoiceGroup = {
   forms: DispatcherFormDefinition[];
 };
 
-type DataEntrySubmitToast = {
-  id: number;
-  message: string;
-};
-
 type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
 
-const submitToastTimeoutMs = 4_000;
-const welcomeToastTimeoutMs = 4_000;
+const toastVisibleDurationMs = 4_000;
+const toastExitDurationMs = 260;
+const toastShiftDurationMs = 220;
 
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
@@ -381,7 +386,18 @@ export default function App() {
   const [adminViewedDispatcherFeedFilters, setAdminViewedDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
   const [isWelcomePending, setIsWelcomePending] = useState(false);
-  const [welcomeMessage, setWelcomeMessage] = useState<string>();
+  const [toasts, setToasts] = useState<AppToast[]>([]);
+  const nextToastIdRef = useRef(0);
+  const toastTimeoutIdsRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    const timeoutIds = toastTimeoutIdsRef.current;
+
+    return () => {
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      timeoutIds.clear();
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -565,23 +581,50 @@ export default function App() {
 
     const shortName = formatUserShortName(accessProfile.profile.displayName);
 
-    setWelcomeMessage(
+    handleShowToast(
+      "Добро пожаловать",
       shortName.length > 0 ? `Здравствуйте, ${shortName}!` : "Здравствуйте!",
     );
     setIsWelcomePending(false);
   }, [accessProfile, isWelcomePending]);
 
-  useEffect(() => {
-    if (welcomeMessage === undefined) {
-      return;
-    }
-
+  function scheduleToastTimeout(callback: () => void, delayMs: number) {
     const timeoutId = window.setTimeout(() => {
-      setWelcomeMessage(undefined);
-    }, welcomeToastTimeoutMs);
+      toastTimeoutIdsRef.current.delete(timeoutId);
+      callback();
+    }, delayMs);
 
-    return () => window.clearTimeout(timeoutId);
-  }, [welcomeMessage]);
+    toastTimeoutIdsRef.current.add(timeoutId);
+  }
+
+  function handleShowToast(title: string, message: string) {
+    const toastId = nextToastIdRef.current + 1;
+    nextToastIdRef.current = toastId;
+
+    setToasts((current) =>
+      prependToast(current, {
+        id: toastId,
+        title,
+        message,
+        state: "visible",
+      }),
+    );
+
+    scheduleToastTimeout(() => {
+      setToasts((current) => markToastExiting(current, toastId));
+      scheduleToastTimeout(() => {
+        setToasts((current) => removeToast(current, toastId));
+      }, toastExitDurationMs);
+    }, toastVisibleDurationMs);
+  }
+
+  function clearToastStack() {
+    toastTimeoutIdsRef.current.forEach((timeoutId) =>
+      window.clearTimeout(timeoutId),
+    );
+    toastTimeoutIdsRef.current.clear();
+    setToasts([]);
+  }
 
   async function handleSelectAccount(option: DevAccessOption) {
     setSessionRequest({
@@ -609,7 +652,7 @@ export default function App() {
 
   async function handleClearSession() {
     setIsWelcomePending(false);
-    setWelcomeMessage(undefined);
+    clearToastStack();
     setSessionRequest({
       status: "loading",
     });
@@ -624,7 +667,7 @@ export default function App() {
 
   async function handleAutomaticDispatcherLogout() {
     setIsWelcomePending(false);
-    setWelcomeMessage(undefined);
+    clearToastStack();
     setSessionRequest({
       status: "loading",
     });
@@ -647,9 +690,6 @@ export default function App() {
   ) {
     if (result.status === "ready") {
       setIsWelcomePending(action === "login");
-      if (action === "logout") {
-        setWelcomeMessage(undefined);
-      }
       setSessionRequest(initialSessionRequestState);
       setRequestVersion((version) => version + 1);
       return;
@@ -946,16 +986,7 @@ export default function App() {
         onAdminTabChange={setAdminTab}
       />
 
-      {welcomeMessage === undefined ? null : (
-        <div
-          aria-live="polite"
-          className="login-welcome-toast"
-          role="status"
-        >
-          <strong>Добро пожаловать</strong>
-          <span>{welcomeMessage}</span>
-        </div>
-      )}
+      <ToastViewport toasts={toasts} />
 
       <section
         className={`workspace${
@@ -985,6 +1016,7 @@ export default function App() {
               ? () => setAdminViewedDataEntryStatus("")
               : () => setDataEntryStatus("")
           }
+          onShowToast={handleShowToast}
           onSelectAdminAccountView={handleStartAdminAccountView}
         />
       </section>
@@ -1167,6 +1199,115 @@ function AuthScreen({
   );
 }
 
+function ToastViewport({ toasts }: { toasts: readonly AppToast[] }) {
+  const toastElementsRef = useRef(new Map<number, HTMLDivElement>());
+  const previousPositionsRef = useRef(new Map<number, number>());
+  const shiftAnimationsRef = useRef(new Map<number, Animation>());
+
+  useLayoutEffect(() => {
+    const nextPositions = new Map<number, number>();
+    const activeToastIds = new Set(toasts.map((toast) => toast.id));
+    const shouldReduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    toasts.forEach((toast) => {
+      const element = toastElementsRef.current.get(toast.id);
+
+      if (element !== undefined) {
+        nextPositions.set(toast.id, element.offsetTop);
+      }
+    });
+
+    shiftAnimationsRef.current.forEach((animation, toastId) => {
+      if (!activeToastIds.has(toastId) || shouldReduceMotion) {
+        animation.cancel();
+        shiftAnimationsRef.current.delete(toastId);
+      }
+    });
+
+    if (!shouldReduceMotion) {
+      toasts.forEach((toast) => {
+        const element = toastElementsRef.current.get(toast.id);
+        const previousTop = previousPositionsRef.current.get(toast.id);
+        const nextTop = nextPositions.get(toast.id);
+
+        if (
+          element === undefined ||
+          previousTop === undefined ||
+          nextTop === undefined ||
+          previousTop === nextTop
+        ) {
+          return;
+        }
+
+        shiftAnimationsRef.current.get(toast.id)?.cancel();
+
+        const animation = element.animate(
+          [
+            { translate: `0 ${previousTop - nextTop}px` },
+            { translate: "0 0" },
+          ],
+          {
+            duration: toastShiftDurationMs,
+            easing: "ease-out",
+          },
+        );
+
+        shiftAnimationsRef.current.set(toast.id, animation);
+        animation.onfinish = () => {
+          if (shiftAnimationsRef.current.get(toast.id) === animation) {
+            shiftAnimationsRef.current.delete(toast.id);
+          }
+        };
+      });
+    }
+
+    previousPositionsRef.current = nextPositions;
+  }, [toasts]);
+
+  useEffect(() => {
+    const shiftAnimations = shiftAnimationsRef.current;
+
+    return () => {
+      shiftAnimations.forEach((animation) => animation.cancel());
+      shiftAnimations.clear();
+    };
+  }, []);
+
+  if (toasts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-atomic="false"
+      aria-live="polite"
+      aria-relevant="additions text"
+      className="toast-viewport"
+      role="status"
+    >
+      {toasts.map((toast) => (
+        <div
+          className={`app-toast app-toast-${toast.state}`}
+          key={toast.id}
+          ref={(element) => {
+            if (element === null) {
+              toastElementsRef.current.delete(toast.id);
+              return;
+            }
+
+            toastElementsRef.current.set(toast.id, element);
+          }}
+        >
+          <strong>{toast.title}</strong>
+          <span>{toast.message}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SideRail({
   profile,
   signedInDisplayName,
@@ -1285,6 +1426,7 @@ function RoleWorkspace({
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
   onDataEntryStatusReset,
+  onShowToast,
   onSelectAdminAccountView,
 }: {
   profile: ServerUserProfile;
@@ -1302,6 +1444,7 @@ function RoleWorkspace({
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
   onDataEntryStatusReset: () => void;
+  onShowToast: ShowToast;
   onSelectAdminAccountView: (account: AdminAccountSummary) => void;
 }) {
   const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
@@ -1353,6 +1496,7 @@ function RoleWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             refreshVersion={dispatcherSubmissionVersion}
             onResetStatus={onDataEntryStatusReset}
+            onShowToast={onShowToast}
           />
         );
       }
@@ -1672,6 +1816,7 @@ function DataEntryWorkspace({
   isAdminPreviewMode,
   refreshVersion,
   onResetStatus,
+  onShowToast,
 }: {
   ariaLabel: string;
   status: string;
@@ -1683,12 +1828,10 @@ function DataEntryWorkspace({
   isAdminPreviewMode: boolean;
   refreshVersion: number;
   onResetStatus: () => void;
+  onShowToast: ShowToast;
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
-  const [submitToast, setSubmitToast] = useState<DataEntrySubmitToast | undefined>(
-    undefined,
-  );
   const formLeaveGuardRef = useRef<FormLeaveGuard | undefined>(undefined);
   const currentForm = forms.find((form) => form.id === selectedFormId);
   const isLocalTestMode =
@@ -1715,22 +1858,6 @@ function DataEntryWorkspace({
     }
   }, [forms, selectedFormId]);
 
-  useEffect(() => {
-    if (submitToast === undefined) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSubmitToast((current) =>
-        current?.id === submitToast.id ? undefined : current,
-      );
-    }, submitToastTimeoutMs);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [submitToast]);
-
   function handleSelectForm(formId: string) {
     const continueSelection = () => {
       formLeaveGuardRef.current = undefined;
@@ -1750,10 +1877,7 @@ function DataEntryWorkspace({
 
   function handleSuccessfulSubmit(message: string) {
     formLeaveGuardRef.current = undefined;
-    setSubmitToast({
-      id: Date.now(),
-      message,
-    });
+    onShowToast("Отправлено", message);
     setSelectedFormId("");
   }
 
@@ -1778,16 +1902,6 @@ function DataEntryWorkspace({
       <section className="data-entry-surface" aria-label={ariaLabel}>
         {isLocalTestMode ? (
           <p className="form-status form-status-local">{localTestModeMessage}</p>
-        ) : null}
-        {submitToast !== undefined ? (
-          <div
-            aria-live="polite"
-            className="dispatcher-submit-toast"
-            role="status"
-          >
-            <strong>Отправлено</strong>
-            <span>{submitToast.message}</span>
-          </div>
         ) : null}
         <div className="dispatcher-form-choice" aria-label="Выбор формы">
           {choiceGroups.map((group) => (
@@ -1823,16 +1937,6 @@ function DataEntryWorkspace({
 
   return (
     <section className="data-entry-surface" aria-label={ariaLabel}>
-      {submitToast !== undefined ? (
-        <div
-          aria-live="polite"
-          className="dispatcher-submit-toast"
-          role="status"
-        >
-          <strong>Отправлено</strong>
-          <span>{submitToast.message}</span>
-        </div>
-      ) : null}
       <form className="data-entry-form" onSubmit={handleSubmit}>
         <input name="formId" type="hidden" value={currentForm.id} readOnly />
         {isLocalTestMode ? (
