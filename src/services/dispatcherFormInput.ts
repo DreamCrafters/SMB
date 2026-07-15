@@ -4,6 +4,41 @@ export const decimalNumberInputTitle =
 export const integerInputPattern = "[0-9]+";
 export const integerInputTitle = "Введите целое число.";
 
+export function buildIncidentResponsibleInput({
+  currentUserDisplayName,
+  isAdminPreviewMode,
+  options,
+}: {
+  currentUserDisplayName: string;
+  isAdminPreviewMode: boolean;
+  options: readonly string[];
+}) {
+  const availableOptions = [...options];
+
+  if (isAdminPreviewMode) {
+    return {
+      defaultValue: availableOptions[0] ?? "",
+      options: availableOptions,
+    };
+  }
+
+  const dispatcherName = currentUserDisplayName.trim();
+
+  if (dispatcherName.length === 0) {
+    return {
+      defaultValue: availableOptions[0] ?? "",
+      options: availableOptions,
+    };
+  }
+
+  return {
+    defaultValue: dispatcherName,
+    options: availableOptions.includes(dispatcherName)
+      ? availableOptions
+      : [dispatcherName, ...availableOptions],
+  };
+}
+
 export function normalizeDecimalNumberInput(value: string) {
   let result = "";
   let hasDecimalSeparator = false;

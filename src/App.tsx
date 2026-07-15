@@ -60,6 +60,7 @@ import {
 } from "./services/dispatcherSubmissions";
 import { validateDispatcherPayloadForSubmit } from "./services/dispatcherPayloadValidation";
 import {
+  buildIncidentResponsibleInput,
   decimalNumberInputPattern,
   decimalNumberInputTitle,
   integerInputPattern,
@@ -808,6 +809,7 @@ export default function App() {
       <section className="workspace" aria-label="Рабочая область">
         <RoleWorkspace
           profile={visibleProfile}
+          isAdminPreviewMode={isAdminPreviewMode}
           dataEntryStatus={visibleDataEntryStatus}
           isDataEntrySubmitting={isVisibleDataEntrySubmitting}
           onDataEntrySubmit={handleVisibleDataEntrySubmit}
@@ -1110,6 +1112,7 @@ function SideRail({
 
 function RoleWorkspace({
   profile,
+  isAdminPreviewMode,
   dataEntryStatus,
   isDataEntrySubmitting,
   onDataEntrySubmit,
@@ -1124,6 +1127,7 @@ function RoleWorkspace({
   onSelectAdminAccountView,
 }: {
   profile: ServerUserProfile;
+  isAdminPreviewMode: boolean;
   dataEntryStatus: string;
   isDataEntrySubmitting: boolean;
   onDataEntrySubmit: DataEntrySubmitHandler;
@@ -1185,6 +1189,8 @@ function RoleWorkspace({
             onSubmit={onDataEntrySubmit}
             dispatcherForms={dispatcherForms}
             businessAccountId={getActiveBusinessAccountId(profile)}
+            currentUserDisplayName={profile.displayName}
+            isAdminPreviewMode={isAdminPreviewMode}
             refreshVersion={dispatcherSubmissionVersion}
             onResetStatus={onDataEntryStatusReset}
           />
@@ -1502,6 +1508,8 @@ function DataEntryWorkspace({
   onSubmit,
   dispatcherForms,
   businessAccountId,
+  currentUserDisplayName,
+  isAdminPreviewMode,
   refreshVersion,
   onResetStatus,
 }: {
@@ -1511,6 +1519,8 @@ function DataEntryWorkspace({
   onSubmit: DataEntrySubmitHandler;
   dispatcherForms: DispatcherFormsLoadState;
   businessAccountId: string;
+  currentUserDisplayName: string;
+  isAdminPreviewMode: boolean;
   refreshVersion: number;
   onResetStatus: () => void;
 }) {
@@ -1709,9 +1719,25 @@ function DataEntryWorkspace({
           <>
             <div className="dispatcher-form-fields">
               {readDispatcherFieldsByVisualSize(currentForm.fields).map(
-                (field) => (
-                  <DispatcherFormFieldInput field={field} key={field.name} />
-                ),
+                (field) => {
+                  const responsibleInput =
+                    currentForm.id === "incident" && field.name === "responsible"
+                      ? buildIncidentResponsibleInput({
+                          currentUserDisplayName,
+                          isAdminPreviewMode,
+                          options: field.options ?? [],
+                        })
+                      : undefined;
+
+                  return (
+                    <DispatcherFormFieldInput
+                      defaultValue={responsibleInput?.defaultValue}
+                      field={field}
+                      key={field.name}
+                      options={responsibleInput?.options}
+                    />
+                  );
+                },
               )}
             </div>
             <div className="form-actions">
@@ -2803,7 +2829,15 @@ function DispatcherControlledFormFieldInput({
   );
 }
 
-function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
+function DispatcherFormFieldInput({
+  defaultValue,
+  field,
+  options,
+}: {
+  defaultValue?: string;
+  field: DispatcherFormField;
+  options?: readonly string[];
+}) {
   if (field.type === "textarea") {
     return (
       <label className="dispatcher-form-field-large">
@@ -2822,9 +2856,13 @@ function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
     return (
       <label>
         <span>{field.label}</span>
-        <select name={field.name} required={field.required} defaultValue="">
+        <select
+          name={field.name}
+          required={field.required}
+          defaultValue={defaultValue ?? ""}
+        >
           <option value="">Не выбрано</option>
-          {(field.options ?? []).map((option) => (
+          {(options ?? field.options ?? []).map((option) => (
             <option value={option} key={option}>
               {option}
             </option>
@@ -2850,7 +2888,7 @@ function DispatcherFormFieldInput({ field }: { field: DispatcherFormField }) {
         placeholder={readInputPlaceholder(field)}
         maxLength={readInputMaxLength(field)}
         required={field.required}
-        defaultValue={readInputDefaultValue(field)}
+        defaultValue={defaultValue ?? readInputDefaultValue(field)}
         onChange={(event) => {
           if (field.type === "number") {
             event.currentTarget.value = normalizeDecimalNumberInput(

@@ -1,11 +1,38 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildIncidentResponsibleInput,
   normalizeIntegerForPayload,
   normalizeIntegerInput,
   normalizeDecimalNumberForPayload,
   normalizeDecimalNumberInput,
 } from "../.test-build/src/services/dispatcherFormInput.js";
+
+test("incident opening defaults to the active dispatcher even outside the reference list", () => {
+  assert.deepEqual(
+    buildIncidentResponsibleInput({
+      currentUserDisplayName: "Мария Сидорова",
+      isAdminPreviewMode: false,
+      options: ["Иван Иванов", "Пётр Петров"],
+    }),
+    {
+      defaultValue: "Мария Сидорова",
+      options: ["Мария Сидорова", "Иван Иванов", "Пётр Петров"],
+    },
+  );
+
+  assert.deepEqual(
+    buildIncidentResponsibleInput({
+      currentUserDisplayName: "Превью: Диспетчер",
+      isAdminPreviewMode: true,
+      options: ["Иван Иванов", "Пётр Петров"],
+    }),
+    {
+      defaultValue: "Иван Иванов",
+      options: ["Иван Иванов", "Пётр Петров"],
+    },
+  );
+});
 
 test("normalizeDecimalNumberInput keeps digits and one dot separator", () => {
   assert.equal(normalizeDecimalNumberInput("123"), "123");
