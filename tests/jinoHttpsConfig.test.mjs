@@ -29,3 +29,30 @@ test("Jino deploy requires and publishes the hidden Apache config", async () => 
   assert.match(deployScript, /require_file "\$app_dir\/dist\/\.htaccess"/);
   assert.match(deployScript, /cp -R "\$app_dir\/dist\/\." "\$public_dir\/"/);
 });
+
+test("Jino deploy records the published branch and commit after each environment", async () => {
+  const deployScript = await readFile(
+    new URL("scripts/deploy-jino-dual-env.sh", projectRoot),
+    "utf8",
+  );
+
+  assert.match(deployScript, /\.smb-deploy-state/);
+  assert.match(deployScript, /version=1/);
+  assert.match(deployScript, /branch=%s/);
+  assert.match(deployScript, /commit=%s/);
+  assert.match(deployScript, /deployed_at=%s/);
+  assert.match(deployScript, /git check-ref-format --branch "\$DEPLOY_BRANCH"/);
+
+  const publishIndex = deployScript.indexOf(
+    'cp -R "$app_dir/dist/." "$public_dir/"',
+  );
+  const markerIndex = deployScript.indexOf(
+    'write_deploy_state "$root_dir" "$mode"',
+  );
+
+  assert.ok(publishIndex >= 0, "publish step must exist");
+  assert.ok(
+    markerIndex > publishIndex,
+    "deploy marker must be written after publishing",
+  );
+});

@@ -29,6 +29,9 @@ die() {
   exit 1
 }
 
+git check-ref-format --branch "$DEPLOY_BRANCH" >/dev/null 2>&1 ||
+  die "Invalid SMB_DEPLOY_BRANCH: $DEPLOY_BRANCH"
+
 require_file() {
   local path="$1"
 
@@ -131,6 +134,23 @@ run_optional_tests() {
   npm test
 }
 
+write_deploy_state() {
+  local root_dir="$1"
+  local environment="$2"
+  local commit="$3"
+  local deployed_at
+  local state_file="$root_dir/.smb-deploy-state"
+  local temporary_file="${state_file}.tmp.$$"
+
+  deployed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'version=1\nenvironment=%s\nbranch=%s\ncommit=%s\ndeployed_at=%s\n' \
+    "$environment" \
+    "$DEPLOY_BRANCH" \
+    "$commit" \
+    "$deployed_at" > "$temporary_file"
+  mv "$temporary_file" "$state_file"
+}
+
 deploy_environment() {
   local label="$1"
   local mode="$2"
@@ -160,6 +180,7 @@ deploy_environment() {
   printf 'import("./app/server/dist/index.js");\n' > "$root_dir/app.js"
   mkdir -p "$root_dir/tmp"
   touch "$root_dir/tmp/restart.txt"
+  write_deploy_state "$root_dir" "$mode" "$(git -C "$app_dir" rev-parse HEAD)"
 
   log "$label" "Done. Smoke check: curl -I http://$domain/ (expect 301) && curl -i https://$domain/health"
 }

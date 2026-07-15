@@ -154,6 +154,37 @@ j53403317@584e7697571.hosting.myjino.ru
 `SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual` остаётся основным fallback и
 источником истины для серверного deploy-процесса.
 
+## Кнопка деплоя в нижней панели VS Code
+
+Локальный extension `SMB Jino Deploy` показывает справа в status bar выбранную
+ветку и независимое состояние двух сред, например:
+
+```text
+SMB Dev · T:✓ P:↑
+```
+
+- `T` — test, `P` — production;
+- `✓` — опубликован последний commit выбранной ветки из `origin`;
+- `↑` — на сайте находится другая или более старая версия;
+- `?` — новый marker ещё не появился после первого marker-backed deploy;
+- `!` — Git- или SSH-проверка сейчас недоступна.
+
+Нажатие на status bar открывает выбор: deploy только в test, только в
+production, в обе среды, смена Git-ветки, ручное обновление статусов и журнал.
+По умолчанию выбрана `Dev`; выбор сохраняется для workspace. Extension вызывает
+тот же `scripts/deploy_smb_jino.sh`, поэтому deploy разрешён только для чистой
+локальной ветки, уже совпадающей с `origin/<ветка>`.
+
+После успешной публикации `scripts/deploy-jino-dual-env.sh` атомарно записывает
+в корне каждой среды `.smb-deploy-state` с `branch`, `commit` и UTC-временем.
+Marker создаётся после копирования frontend и restart backend, поэтому status
+bar не принимает один только обновлённый HEAD серверного checkout за успешную
+публикацию сайта.
+
+Исходники extension находятся в `/Users/artemiz/plugins/smb-jino-deploy`,
+установленная копия — в каталоге VS Code extensions. После обновления локальной
+копии выполнить `Developer: Reload Window`.
+
 ## Ручная проверка отдельных frontend-сборок
 
 В test checkout:
