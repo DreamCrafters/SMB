@@ -331,6 +331,19 @@ p {
   color: #ffffff;
 }
 
+.rail-product-copy h1 {
+  margin-bottom: var(--density-2);
+}
+
+.rail-user-name {
+  margin-bottom: 0;
+  color: var(--nav-muted);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
 .eyebrow {
   margin-bottom: var(--density-1);
   color: var(--muted);
@@ -992,7 +1005,8 @@ p {
   font-weight: 800;
 }
 
-.dispatcher-submit-toast {
+.dispatcher-submit-toast,
+.login-welcome-toast {
   position: fixed;
   top: var(--density-4);
   right: var(--density-4);
@@ -1009,7 +1023,8 @@ p {
   box-shadow: var(--shadow);
 }
 
-.dispatcher-submit-toast strong {
+.dispatcher-submit-toast strong,
+.login-welcome-toast strong {
   color: var(--emerald);
   font-size: 13px;
   font-weight: 900;
@@ -1017,7 +1032,8 @@ p {
   text-transform: uppercase;
 }
 
-.dispatcher-submit-toast span {
+.dispatcher-submit-toast span,
+.login-welcome-toast span {
   color: var(--text);
   font-size: 13px;
   font-weight: 800;

@@ -143,6 +143,7 @@ import {
   type DispatcherFeedPeriod,
 } from "./services/dispatcherFeedViews";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import { formatUserShortName } from "./services/userDisplayName";
 
 type BusinessTab = "overview" | "dispatcher" | "work" | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database";
@@ -241,6 +242,7 @@ type DataEntrySubmitToast = {
 type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
 
 const submitToastTimeoutMs = 4_000;
+const welcomeToastTimeoutMs = 4_000;
 
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
@@ -378,6 +380,8 @@ export default function App() {
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
   const [adminViewedDispatcherFeedFilters, setAdminViewedDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
+  const [isWelcomePending, setIsWelcomePending] = useState(false);
+  const [welcomeMessage, setWelcomeMessage] = useState<string>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -554,6 +558,31 @@ export default function App() {
     return () => window.clearTimeout(timeoutId);
   }, [accessProfile]);
 
+  useEffect(() => {
+    if (!isWelcomePending || accessProfile.status !== "ready") {
+      return;
+    }
+
+    const shortName = formatUserShortName(accessProfile.profile.displayName);
+
+    setWelcomeMessage(
+      shortName.length > 0 ? `Здравствуйте, ${shortName}!` : "Здравствуйте!",
+    );
+    setIsWelcomePending(false);
+  }, [accessProfile, isWelcomePending]);
+
+  useEffect(() => {
+    if (welcomeMessage === undefined) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setWelcomeMessage(undefined);
+    }, welcomeToastTimeoutMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [welcomeMessage]);
+
   async function handleSelectAccount(option: DevAccessOption) {
     setSessionRequest({
       status: "loading",
@@ -563,7 +592,7 @@ export default function App() {
     const result = await selectDevAccessSession(option, {
       localDevFallback: isLocalTestFallbackEnabled,
     });
-    handleSessionResult(result);
+    handleSessionResult(result, "login");
   }
 
   async function handlePasswordLogin(credentials: {
@@ -575,10 +604,12 @@ export default function App() {
     });
 
     const result = await loginWithPassword(credentials);
-    handleSessionResult(result);
+    handleSessionResult(result, "login");
   }
 
   async function handleClearSession() {
+    setIsWelcomePending(false);
+    setWelcomeMessage(undefined);
     setSessionRequest({
       status: "loading",
     });
@@ -588,10 +619,12 @@ export default function App() {
       : await clearDevAccessSession({
           localDevFallback: isLocalTestFallbackEnabled,
         });
-    handleSessionResult(result);
+    handleSessionResult(result, "logout");
   }
 
   async function handleAutomaticDispatcherLogout() {
+    setIsWelcomePending(false);
+    setWelcomeMessage(undefined);
     setSessionRequest({
       status: "loading",
     });
@@ -608,8 +641,15 @@ export default function App() {
     setRequestVersion((version) => version + 1);
   }
 
-  function handleSessionResult(result: DevAccessSessionResult | AuthSessionResult) {
+  function handleSessionResult(
+    result: DevAccessSessionResult | AuthSessionResult,
+    action: "login" | "logout",
+  ) {
     if (result.status === "ready") {
+      setIsWelcomePending(action === "login");
+      if (action === "logout") {
+        setWelcomeMessage(undefined);
+      }
       setSessionRequest(initialSessionRequestState);
       setRequestVersion((version) => version + 1);
       return;
@@ -883,6 +923,7 @@ export default function App() {
     >
       <SideRail
         profile={visibleProfile}
+        signedInDisplayName={profile.displayName}
         isAdminPreviewMode={isAdminPreviewMode}
         onClearSession={
           viewedProfile === undefined ? handleClearSession : handleStopAdminAccountView
@@ -904,6 +945,17 @@ export default function App() {
         adminTab={adminTab}
         onAdminTabChange={setAdminTab}
       />
+
+      {welcomeMessage === undefined ? null : (
+        <div
+          aria-live="polite"
+          className="login-welcome-toast"
+          role="status"
+        >
+          <strong>Добро пожаловать</strong>
+          <span>{welcomeMessage}</span>
+        </div>
+      )}
 
       <section
         className={`workspace${
@@ -1117,6 +1169,7 @@ function AuthScreen({
 
 function SideRail({
   profile,
+  signedInDisplayName,
   isAdminPreviewMode,
   onClearSession,
   isSessionLoading,
@@ -1127,6 +1180,7 @@ function SideRail({
   onAdminTabChange,
 }: {
   profile: ServerUserProfile;
+  signedInDisplayName: string;
   isAdminPreviewMode: boolean;
   onClearSession: () => void;
   isSessionLoading: boolean;
@@ -1154,9 +1208,12 @@ function SideRail({
           </div>
         ) : null}
       </div>
-      <div>
+      <div className="rail-product-copy">
         <p className="eyebrow">платформа</p>
         <h1>{shellCopy.productName}</h1>
+        <p className="rail-user-name">
+          {formatUserShortName(signedInDisplayName)}
+        </p>
       </div>
       <nav className="primary-nav">
         {navigationItems.map((item) => {
