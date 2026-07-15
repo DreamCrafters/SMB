@@ -3110,7 +3110,11 @@ function DispatcherFeedPanel({
             </button>
           ))}
         </div>
-        <div className="dispatcher-period-picker">
+        <div
+          className={`dispatcher-period-picker${
+            filters.period === "custom" ? " has-custom-range" : ""
+          }`}
+        >
           <div className="dispatcher-period-buttons" aria-label="Период данных">
             {dispatcherFeedPeriodOptions.map((option) => (
               <button

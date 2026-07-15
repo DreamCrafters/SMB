@@ -1104,7 +1104,7 @@ p {
 
 .dispatcher-feed-controls {
   display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(520px, 1.5fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-2);
   align-items: start;
 }
@@ -1145,6 +1145,11 @@ p {
 .dispatcher-period-picker {
   display: grid;
   gap: var(--density-2);
+}
+
+.dispatcher-period-picker.has-custom-range {
+  grid-template-columns: minmax(480px, 1.4fr) minmax(320px, 1fr);
+  align-items: start;
 }
 
 .dispatcher-period-buttons {
@@ -2301,6 +2306,10 @@ p {
 @media (max-width: 1180px) {
   .ops-shell {
     grid-template-columns: 230px minmax(0, 1fr);
+  }
+
+  .dispatcher-period-picker.has-custom-range {
+    grid-template-columns: 1fr;
   }
 }
 
