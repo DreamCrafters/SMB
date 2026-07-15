@@ -128,6 +128,17 @@ SMB_SKIP_CHECKS=true SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
 
 Не использовать `SMB_SKIP_CHECKS=true` для обычного production deploy.
 
+Для текущего deploy-потока из ветки `Dev` отдельные среды можно запускать
+вручную теми же командами, которые повторяет extension:
+
+```bash
+cd ~/domains/smb.aonmou.ru/app
+SMB_DEPLOY_BRANCH=Dev SMB_DEPLOY_TARGET=production npm run deploy:jino:dual
+
+cd ~/domains/smb.aonmou.ru/app
+SMB_DEPLOY_BRANCH=Dev SMB_DEPLOY_TARGET=test npm run deploy:jino:dual
+```
+
 ## Запуск из Codex одним действием
 
 Локальный personal plugin `smb-jino-deploy` запускает тот же tracked
@@ -150,9 +161,15 @@ j53403317@584e7697571.hosting.myjino.ru
 ```
 
 Если нужен только read-only preflight, на карточке плагина выбрать действие
-`Check whether Jino is ready for an SMB dual deploy`. Ручная команда
-`SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual` остаётся основным fallback и
-источником истины для серверного deploy-процесса.
+`Check whether Jino is ready for an SMB dual deploy`. Ручные команды с
+`SMB_DEPLOY_BRANCH=Dev` и явным `SMB_DEPLOY_TARGET=test|production` остаются
+основным fallback и источником истины для серверного deploy-процесса.
+
+Обычная неинтерактивная SSH-сессия Jino не добавляет `npm` в `PATH`, хотя во
+встроенной консоли те же команды работают. Поэтому extension перед preflight и
+deploy активирует совместимый системный runtime Jino из `/opt/alt` (сейчас
+Node 22) и выводит версии Node/npm. Preflight проверяет runtime до обновления
+checkout, миграций и сборок.
 
 ## Кнопка деплоя в нижней панели VS Code
 
