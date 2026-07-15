@@ -4,6 +4,7 @@ import {
   canManageAnalyticsDatabase,
   canRequestDispatcherForms,
   canSubmitDispatcherForms,
+  resolveAllowedNavigationTab,
 } from "../.test-build/src/services/accessGuards.js";
 
 function buildProfile(accountType, capabilities) {
@@ -65,4 +66,36 @@ test("only analytics database capability grants admin database access", () => {
 
   assert.equal(canManageAnalyticsDatabase(adminProfile), true);
   assert.equal(canManageAnalyticsDatabase(ownerProfile), false);
+});
+
+test("workspace has no active tab when account has no navigation access", () => {
+  assert.equal(
+    resolveAllowedNavigationTab(
+      "overview",
+      {
+        overview: "business.overview",
+        dispatcher: "business.dispatcher",
+        work: "business.work",
+        dispatcher_form: "business.dispatcher_form",
+      },
+      [],
+    ),
+    undefined,
+  );
+});
+
+test("workspace falls back to the first allowed tab", () => {
+  assert.equal(
+    resolveAllowedNavigationTab(
+      "overview",
+      {
+        overview: "business.overview",
+        dispatcher: "business.dispatcher",
+        work: "business.work",
+        dispatcher_form: "business.dispatcher_form",
+      },
+      ["business.dispatcher"],
+    ),
+    "dispatcher",
+  );
 });

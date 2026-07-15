@@ -95,6 +95,7 @@ import {
   canManageUsers,
   canSubmitDispatcherForms,
   hasCapability,
+  resolveAllowedNavigationTab,
 } from "./services/accessGuards";
 import {
   clearAdminDatabaseTable,
@@ -802,6 +803,8 @@ export default function App() {
       : undefined;
   const isAdminPreviewMode = viewedProfile !== undefined;
   const visibleProfile = viewedProfile ?? profile;
+  const hasVisibleNavigationAccess =
+    visibleProfile.activeAccess.navigationItems.length > 0;
   const visibleOwnerTab = viewedProfile !== undefined ? adminViewedOwnerTab : ownerTab;
   const visibleDispatcherFeedFilters =
     viewedProfile === undefined
@@ -866,7 +869,12 @@ export default function App() {
         onAdminTabChange={setAdminTab}
       />
 
-      <section className="workspace" aria-label="Рабочая область">
+      <section
+        className={`workspace${
+          hasVisibleNavigationAccess ? "" : " workspace-empty"
+        }`}
+        aria-label="Рабочая область"
+      >
         <RoleWorkspace
           profile={visibleProfile}
           isAdminPreviewMode={isAdminPreviewMode}
@@ -1209,13 +1217,11 @@ function RoleWorkspace({
     work: "business.work",
     dispatcher_form: "business.dispatcher_form",
   };
-  const effectiveOwnerTab = profile.activeAccess.navigationItems.includes(
-    navigationByBusinessTab[ownerTab],
-  )
-    ? ownerTab
-    : ((Object.keys(navigationByBusinessTab) as BusinessTab[]).find((tab) =>
-        profile.activeAccess.navigationItems.includes(navigationByBusinessTab[tab]),
-      ) ?? ownerTab);
+  const effectiveOwnerTab = resolveAllowedNavigationTab(
+    ownerTab,
+    navigationByBusinessTab,
+    profile.activeAccess.navigationItems,
+  );
   const adminNavigationByTab: Record<AdminTab, AccountNavigationItem> = {
     account_preview: "admin.account_preview",
     accounts: "admin.accounts",
@@ -1239,6 +1245,7 @@ function RoleWorkspace({
         />
       );
     default:
+      if (effectiveOwnerTab === undefined) return null;
       if (effectiveOwnerTab === "work") return <WorkerWorkspace />;
       if (effectiveOwnerTab === "dispatcher_form") {
         return (

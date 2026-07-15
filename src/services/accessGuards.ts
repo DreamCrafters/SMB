@@ -1,4 +1,8 @@
-import type { AccountCapability, ServerUserProfile } from "../contracts";
+import type {
+  AccountCapability,
+  AccountNavigationItem,
+  ServerUserProfile,
+} from "../contracts";
 
 export function hasCapability(
   profile: ServerUserProfile,
@@ -24,4 +28,18 @@ export function canManageAnalyticsDatabase(profile: ServerUserProfile) {
 
 export function canManageUsers(profile: ServerUserProfile) {
   return hasCapability(profile, "platform.manage_users");
+}
+
+export function resolveAllowedNavigationTab<Tab extends string>(
+  requestedTab: Tab,
+  navigationByTab: Readonly<Record<Tab, AccountNavigationItem>>,
+  allowedNavigationItems: readonly AccountNavigationItem[],
+): Tab | undefined {
+  if (allowedNavigationItems.includes(navigationByTab[requestedTab])) {
+    return requestedTab;
+  }
+
+  return (Object.keys(navigationByTab) as Tab[]).find((tab) =>
+    allowedNavigationItems.includes(navigationByTab[tab]),
+  );
 }

@@ -463,6 +463,11 @@ p {
   padding: var(--density-4);
 }
 
+.workspace-empty {
+  width: 100%;
+  background: var(--surface-raised);
+}
+
 .status-dot {
   flex: 0 0 auto;
   width: 12px;
