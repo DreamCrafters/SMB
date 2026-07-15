@@ -127,6 +127,10 @@ SMB_SKIP_CHECKS=true SMB_DEPLOY_BRANCH=main npm run deploy:jino:dual
 ```
 
 Не использовать `SMB_SKIP_CHECKS=true` для обычного production deploy.
+При `SMB_RUN_TESTS=true` deploy использует `npm run test:jino`: frontend- и
+backend-тесты выполняются последовательно с `--test-concurrency=1`, потому что
+параллельный Node test runner превышает лимит процессов/потоков managed Jino.
+Обычный локальный `npm test` остаётся параллельным.
 
 Для текущего deploy-потока из ветки `Dev` отдельные среды можно запускать
 вручную теми же командами, которые повторяет extension:

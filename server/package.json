@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/**/*.test.js",
+    "test:jino": "npm run build && node --test --test-concurrency=1 dist/**/*.test.js",
     "db:migrate": "tsx src/db/migrate.ts",
     "auth:create-user": "tsx src/db/createAuthUser.ts"
   },

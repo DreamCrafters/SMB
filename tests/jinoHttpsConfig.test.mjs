@@ -56,3 +56,27 @@ test("Jino deploy records the published branch and commit after each environment
     "deploy marker must be written after publishing",
   );
 });
+
+test("Jino deploy runs frontend and backend tests serially", async () => {
+  const [deployScript, rootPackageText, serverPackageText] = await Promise.all([
+    readFile(new URL("scripts/deploy-jino-dual-env.sh", projectRoot), "utf8"),
+    readFile(new URL("package.json", projectRoot), "utf8"),
+    readFile(new URL("server/package.json", projectRoot), "utf8"),
+  ]);
+  const rootPackage = JSON.parse(rootPackageText);
+  const serverPackage = JSON.parse(serverPackageText);
+
+  assert.match(deployScript, /npm run test:jino/);
+  assert.match(
+    rootPackage.scripts["test:jino"],
+    /node --test --test-concurrency=1 tests\/\*\.test\.mjs/,
+  );
+  assert.match(
+    rootPackage.scripts["test:jino"],
+    /npm --workspace server run test:jino/,
+  );
+  assert.match(
+    serverPackage.scripts["test:jino"],
+    /node --test --test-concurrency=1 dist\/\*\*\/\*\.test\.js/,
+  );
+});

@@ -131,7 +131,7 @@ run_optional_tests() {
     return
   fi
 
-  npm test
+  npm run test:jino
 }
 
 write_deploy_state() {
