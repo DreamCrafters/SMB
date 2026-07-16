@@ -152,6 +152,16 @@ const adminDatabase: AdminDatabaseRepository = {
             id: "row-id",
             summary: "saved",
           },
+          editorFields: [
+            {
+              name: "summary",
+              label: "Краткое описание",
+              inputType: "textarea",
+              required: true,
+              options: [],
+              value: "saved",
+            },
+          ],
         },
       ],
       limit: 100,
@@ -817,6 +827,7 @@ test("admin database API forwards update and delete mutations for admin sessions
     values: {
       summary: "updated",
     },
+    changedByAccountId: "dev-access-admin",
   });
   assert.deepEqual(deletePayload, {
     tableName: "dispatcher_submissions",
@@ -826,8 +837,89 @@ test("admin database API forwards update and delete mutations for admin sessions
   });
   assert.deepEqual(
     auditEvents.find((event) => event.action === "data.delete")?.details,
-    [{ label: "ID записи", value: "row-id" }],
+    [],
   );
+});
+
+test("admin database mutations require the capability of the affected admin area", async () => {
+  let didUpdate = false;
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async updateRow() {
+      didUpdate = true;
+    },
+  };
+  const profile = buildProductionProfile("admin");
+  profile.activeAccess.capabilities = ["platform.manage_analytics_database"];
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/tables/app_users/rows`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+          body: JSON.stringify({
+            primaryKey: { id: "another-user" },
+            values: { status: "suspended" },
+          }),
+        },
+      );
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+    productionConfig,
+    buildAuthService({ profile }),
+  );
+
+  assert.equal(didUpdate, false);
+});
+
+test("admin database API does not disable the current administrator", async () => {
+  let didUpdate = false;
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async updateRow() {
+      didUpdate = true;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/tables/app_users/rows`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({
+            primaryKey: { id: "dev-user-admin" },
+            values: { status: "suspended" },
+          }),
+        },
+      );
+
+      assert.equal(response.status, 400);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
 });
 
 test("admin mutation rolls back when its audit event cannot be persisted", async () => {
@@ -965,12 +1057,10 @@ const adminAccount = {
   position: "dispatcher" as const,
   positionDisplayName: "Диспетчер",
   scope: {
-    kind: "department" as const,
+    kind: "business" as const,
     businessAccountId: "business-id",
-    departmentId: "department-id",
   },
   businessDisplayName: "Цех 1",
-  departmentDisplayName: "Смена А",
   capabilities: ["business.submit_dispatcher_forms" as const],
   navigationItems: ["business.dispatcher_form" as const],
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -1458,7 +1548,6 @@ test("admin accounts API creates accounts and resets passwords for admin session
   assert.equal(createInput?.login, "dispatcher-1");
   assert.equal(createInput?.password, "supersecret1");
   assert.equal(createInput?.businessAccountId, undefined);
-  assert.equal(createInput?.departmentId, undefined);
   assert.deepEqual(
     createInput?.capabilities,
     ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
@@ -1544,7 +1633,6 @@ test("admin accounts API changes an existing account position and audits access"
       kind: "business" as const,
       businessAccountId: "business-id",
     },
-    departmentDisplayName: null,
     capabilities: ["business.view_all_statistics" as const],
     navigationItems: ["business.overview" as const],
   };
@@ -3233,21 +3321,9 @@ function buildAuthService({
 }
 
 function buildProductionProfile(accountType: AccountType): ServerUserProfile {
-  const scope =
-    accountType === "admin"
-      ? {
-          kind: "platform" as const,
-        }
-      : accountType === "business_owner"
-        ? {
-            kind: "business" as const,
-            businessAccountId: "prod-business",
-          }
-        : {
-            kind: "department" as const,
-            businessAccountId: "prod-business",
-            departmentId: "prod-department",
-          };
+  const scope = accountType === "admin"
+    ? { kind: "platform" as const }
+    : { kind: "business" as const, businessAccountId: "prod-business" };
 
   return {
     userId: `prod-user-${accountType}`,
@@ -3287,18 +3363,6 @@ function buildProductionProfile(accountType: AccountType): ServerUserProfile {
               status: "active",
             },
           ],
-    departments:
-      accountType === "admin" || accountType === "business_owner"
-        ? []
-        : [
-            {
-              id: "prod-department",
-              businessAccountId: "prod-business",
-              displayName: "Production department",
-              structureMode: "current",
-            },
-          ],
-    organizationStructureMode: "current",
     receivedAt: "2026-07-09T00:00:00.000Z",
   };
 }

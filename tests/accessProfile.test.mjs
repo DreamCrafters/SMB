@@ -221,17 +221,14 @@ test("requestAccessProfile accepts a minimal valid server profile", async () => 
       positionDisplayName: "Работник",
       displayName: "Worker access",
       scope: {
-        kind: "department",
+        kind: "business",
         businessAccountId: "business-id",
-        departmentId: "department-id",
       },
       capabilities: ["business.submit_forms"],
       navigationItems: ["business.work"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
     businessAccounts: [],
-    departments: [],
-    organizationStructureMode: "current",
     receivedAt: "2026-06-18T00:00:00.000Z",
   };
 
@@ -259,17 +256,14 @@ test("requestAccessProfile accepts dispatcher profiles", async () => {
       positionDisplayName: "Диспетчер",
       displayName: "Dispatcher access",
       scope: {
-        kind: "department",
+        kind: "business",
         businessAccountId: "business-id",
-        departmentId: "department-id",
       },
       capabilities: ["business.submit_dispatcher_forms"],
       navigationItems: ["business.dispatcher_form"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
     businessAccounts: [],
-    departments: [],
-    organizationStructureMode: "current",
     receivedAt: "2026-06-18T00:00:00.000Z",
   };
 
@@ -309,17 +303,14 @@ test("requestAccessProfile rejects unknown server capabilities", async () => {
       position: "worker",
       displayName: "Worker access",
       scope: {
-        kind: "department",
+        kind: "business",
         businessAccountId: "business-id",
-        departmentId: "department-id",
       },
       capabilities: ["unknown.capability"],
       navigationItems: ["business.work"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
     businessAccounts: [],
-    departments: [],
-    organizationStructureMode: "current",
     receivedAt: "2026-06-18T00:00:00.000Z",
   };
 

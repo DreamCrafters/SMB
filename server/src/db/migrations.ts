@@ -522,6 +522,63 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "016_remove_departments",
+    statements: [
+      `
+      update account_accesses
+      set is_active = case
+            when business_account_id is null then 0
+            else is_active
+          end,
+          scope_kind = 'business',
+          department_id = null
+      where scope_kind = 'department'
+        or department_id is not null;
+      `,
+      `
+      update account_positions
+      set capabilities = json_remove(
+        capabilities,
+        json_unquote(
+          json_search(capabilities, 'one', 'business.view_department_statistics')
+        )
+      )
+      where json_contains(
+        capabilities,
+        json_quote('business.view_department_statistics')
+      );
+      `,
+      `
+      update account_accesses
+      set capabilities = json_remove(
+        capabilities,
+        json_unquote(
+          json_search(capabilities, 'one', 'business.view_department_statistics')
+        )
+      )
+      where json_contains(
+        capabilities,
+        json_quote('business.view_department_statistics')
+      );
+      `,
+      `
+      alter table account_accesses
+        drop index idx_account_accesses_scope,
+        add key idx_account_accesses_scope (
+          scope_kind,
+          business_account_id
+        );
+      `,
+      `
+      alter table account_accesses
+        drop column department_id;
+      `,
+      `
+      drop table if exists departments;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

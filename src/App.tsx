@@ -1034,7 +1034,7 @@ export default function App() {
     profile.accountType === "admin" &&
     adminTab === "account_preview" &&
     adminViewedAccount !== undefined
-      ? buildAdminPreviewProfile(adminViewedAccount, profile)
+      ? buildAdminPreviewProfile(adminViewedAccount)
       : undefined;
   const isAdminPreviewMode = viewedProfile !== undefined;
   const visibleProfile = viewedProfile ?? profile;
@@ -4529,7 +4529,7 @@ function AdminDatabaseWorkspace({
     setClearCandidate(undefined);
     setEditor({
       row,
-      values: readInitialAdminDatabaseEditorValues(row, selectedTable),
+      values: readInitialAdminDatabaseEditorValues(row),
     });
   }
 
@@ -5165,7 +5165,12 @@ function AdminDatabaseEditorModal({
   onSave: () => void;
   onValueChange: (columnName: string, value: AdminDatabaseCellValue) => void;
 }) {
-  const editableColumns = table.columns.filter((column) => column.editable);
+  const editableFields = editor.row.editorFields;
+  const hasMissingRequiredValue = editableFields.some(
+    (field) =>
+      field.required &&
+      (editor.values[field.name] ?? "").trim().length === 0,
+  );
   const editorTitleId = "admin-db-editor-title";
 
   return (
@@ -5186,7 +5191,7 @@ function AdminDatabaseEditorModal({
       >
         <div className="admin-db-editor-header">
           <div>
-            <span id={editorTitleId}>Редактирование строки</span>
+            <span id={editorTitleId}>Изменить данные</span>
             <strong>{table.label}</strong>
           </div>
           <div className="admin-db-actions">
@@ -5201,7 +5206,11 @@ function AdminDatabaseEditorModal({
             <button
               className="primary-button"
               type="button"
-              disabled={isMutating || editableColumns.length === 0}
+              disabled={
+                isMutating ||
+                editableFields.length === 0 ||
+                hasMissingRequiredValue
+              }
               onClick={onSave}
             >
               Сохранить
@@ -5209,52 +5218,56 @@ function AdminDatabaseEditorModal({
           </div>
         </div>
         <div className="admin-db-editor-grid">
-          {editableColumns.map((column) => {
-            const value = editor.values[column.name] ?? "";
-            const isNull = editor.values[column.name] === null;
-            const inputId = `admin-db-editor-${column.name}`;
+          {editableFields.map((field) => {
+            const value = editor.values[field.name] ?? "";
+            const inputId = `admin-db-editor-${field.name.replace(/[^a-z0-9_-]/gi, "-")}`;
 
             return (
-              <div className="admin-db-editor-field" key={column.name}>
+              <div className="admin-db-editor-field" key={field.name}>
                 <label htmlFor={inputId}>
-                  <span>{column.label}</span>
+                  <span>
+                    {field.label}
+                    {field.required ? <em>Обязательно</em> : null}
+                  </span>
                 </label>
-                {isMultilineDatabaseColumn(column) ? (
+                {field.inputType === "textarea" ? (
                   <textarea
                     id={inputId}
                     rows={5}
-                    disabled={isNull}
+                    required={field.required}
                     value={value}
                     onChange={(event) =>
-                      onValueChange(column.name, event.currentTarget.value)
+                      onValueChange(field.name, event.currentTarget.value)
                     }
                   />
+                ) : field.inputType === "select" ? (
+                  <select
+                    id={inputId}
+                    required={field.required}
+                    value={value}
+                    onChange={(event) =>
+                      onValueChange(field.name, event.currentTarget.value)
+                    }
+                  >
+                    {!field.required ? <option value="">Не выбрано</option> : null}
+                    {field.options.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
                   <input
                     id={inputId}
-                    type="text"
-                    disabled={isNull}
+                    type={field.inputType}
+                    required={field.required}
+                    step={field.inputType === "number" ? "any" : undefined}
                     value={value}
                     onChange={(event) =>
-                      onValueChange(column.name, event.currentTarget.value)
+                      onValueChange(field.name, event.currentTarget.value)
                     }
                   />
                 )}
-                {column.nullable ? (
-                  <label className="admin-db-null-toggle">
-                    <input
-                      type="checkbox"
-                      checked={isNull}
-                      onChange={(event) =>
-                        onValueChange(
-                          column.name,
-                          event.currentTarget.checked ? null : "",
-                        )
-                      }
-                    />
-                    <span>NULL</span>
-                  </label>
-                ) : null}
               </div>
             );
           })}
@@ -5381,16 +5394,8 @@ function buildAdminPreviewAccountForPosition(
     positionDisplayName: label,
     scope: isAdmin
       ? { kind: "platform" }
-      : accountType === "business_owner"
-        ? { kind: "business", businessAccountId: "admin-preview-business" }
-        : {
-            kind: "department",
-            businessAccountId: "admin-preview-business",
-            departmentId: "admin-preview-department",
-          },
+      : { kind: "business", businessAccountId: "admin-preview-business" },
     businessDisplayName: isAdmin ? null : "Основной бизнес",
-    departmentDisplayName:
-      accountType === "worker" || accountType === "dispatcher" ? label : null,
     capabilities: isAdmin
       ? []
       : accountCapabilities.filter((capability) => capability.startsWith("business.")),
@@ -5403,7 +5408,6 @@ function buildAdminPreviewAccountForDefinition(
   position: AdminPositionSummary,
 ): AdminAccountSummary {
   const isAdmin = position.accountType === "admin";
-  const isBusinessOwner = position.accountType === "business_owner";
   return {
     accessId: `admin-preview-${position.id}`,
     userId: `admin-preview-user-${position.id}`,
@@ -5416,15 +5420,8 @@ function buildAdminPreviewAccountForDefinition(
     positionDisplayName: position.displayName,
     scope: isAdmin
       ? { kind: "platform" }
-      : isBusinessOwner
-        ? { kind: "business", businessAccountId: "admin-preview-business" }
-        : {
-            kind: "department",
-            businessAccountId: "admin-preview-business",
-            departmentId: "admin-preview-department",
-          },
+      : { kind: "business", businessAccountId: "admin-preview-business" },
     businessDisplayName: isAdmin ? null : "Основной бизнес",
-    departmentDisplayName: isAdmin || isBusinessOwner ? null : position.displayName,
     capabilities: [...position.capabilities],
     navigationItems: [...position.navigationItems],
     createdAt: position.createdAt,
@@ -6674,11 +6671,10 @@ async function copyTextToClipboard(value: string) {
 
 function buildAdminPreviewProfile(
   account: AdminAccountSummary,
-  adminProfile: ServerUserProfile,
 ): ServerUserProfile {
   const scope = account.scope;
   const businessAccountId =
-    scope.kind === "business" || scope.kind === "department"
+    scope.kind === "business"
       ? scope.businessAccountId
       : "admin-preview-business";
   const businessAccount = {
@@ -6686,16 +6682,6 @@ function buildAdminPreviewProfile(
     displayName: account.businessDisplayName ?? "Основной бизнес",
     status: "active" as const,
   };
-  const department =
-    scope.kind === "department"
-      ? {
-          id: scope.departmentId,
-          businessAccountId,
-          displayName: account.departmentDisplayName ?? account.userDisplayName,
-          structureMode: adminProfile.organizationStructureMode,
-        }
-      : undefined;
-
   return {
     userId: account.userId,
     displayName: account.userDisplayName,
@@ -6712,8 +6698,6 @@ function buildAdminPreviewProfile(
       issuedAt: account.createdAt,
     },
     businessAccounts: [businessAccount],
-    departments: department === undefined ? [] : [department],
-    organizationStructureMode: adminProfile.organizationStructureMode,
     receivedAt: new Date().toISOString(),
   };
 }
@@ -6756,23 +6740,16 @@ function readDatabaseCellClassName(column: AdminDatabaseColumn) {
 
 function readInitialAdminDatabaseEditorValues(
   row: AdminDatabaseRow,
-  table: AdminDatabaseTable | undefined,
 ) {
   return Object.fromEntries(
-    (table?.columns ?? [])
-      .filter((column) => column.editable)
-      .map((column) => [column.name, row.values[column.name] ?? null]),
+    row.editorFields.map((field) => [field.name, field.value]),
   );
-}
-
-function isMultilineDatabaseColumn(column: AdminDatabaseColumn) {
-  return column.multiline;
 }
 
 function getActiveBusinessAccountId(profile: ServerUserProfile) {
   const scope = profile.activeAccess.scope;
 
-  if (scope.kind === "business" || scope.kind === "department") {
+  if (scope.kind === "business") {
     return scope.businessAccountId;
   }
 

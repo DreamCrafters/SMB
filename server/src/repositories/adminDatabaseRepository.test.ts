@@ -3,7 +3,32 @@ import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import { createAdminDatabaseRepository } from "./adminDatabaseRepository.js";
 
-test("admin database exposes credentials as a safe informative view", async () => {
+test("admin database catalog contains only safe editable user-facing sections", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql.replace(/\s+/g, " ").trim());
+      return [[{ row_count: 1 }], []];
+    },
+  } as unknown as DatabasePool;
+
+  const tables = await createAdminDatabaseRepository(pool).listTables();
+
+  assert.deepEqual(tables.map((table) => table.name), [
+    "app_users",
+    "business_accounts",
+    "dispatcher_submissions",
+  ]);
+  assert.ok(tables.every((table) => table.primaryKey.length > 0));
+  assert.equal(queries.length, 3);
+  assert.doesNotMatch(
+    JSON.stringify(tables),
+    /departments|account_accesses|account_positions|auth_sessions|auth_password_credentials|schema_migrations/u,
+  );
+  assert.ok(tables.every((table) => !table.canDelete && !table.canClear));
+});
+
+test("dispatcher row editor exposes real form fields without raw payload or ids", async () => {
   const queries: string[] = [];
   const pool = {
     async query(sql: string) {
@@ -15,101 +40,282 @@ test("admin database exposes credentials as a safe informative view", async () =
       }
 
       return [[{
-        user_display_name: "Администратор",
-        login: "admin",
-        password_updated_at: "2026-07-15T08:30:00.000Z",
-        // Unexpected driver fields must never cross the public projection.
-        password_hash: "password-hash-secret",
-        user_id: "user-secret-id",
+        __admin_primary_key_id: "submission-secret-id",
+        business: "Основной бизнес",
+        form: "Вход посетителя",
+        event_date: "16.07.2026",
+        summary: "Иванов Иван · Завод",
+        status: "received",
+        source: "Форма",
+        submitted_by: "Диспетчер",
+        position: "Диспетчер",
+        submitted_at: "2026-07-16T08:00:00.000Z",
+        received_at: "2026-07-16T08:00:00.000Z",
+        __admin_context_form_id: "visitor",
+        __admin_context_payload: JSON.stringify({
+          fio: "Иванов Иван",
+          position: "Инженер",
+          organization: "Завод",
+          purpose: "Переговоры",
+          whom: "Директор",
+          note: "Пропуск",
+          entryAt: "16.07.2026 11:00",
+          visitorEntryId: "must-not-leak",
+        }),
+        __admin_context_status: "received",
+        password_hash: "must-not-leak-either",
       }], []];
     },
   } as unknown as DatabasePool;
 
-  const result = await createAdminDatabaseRepository(pool).listRows(
-    "auth_password_credentials",
-  );
-  const serialized = JSON.stringify(result);
+  const result = await createAdminDatabaseRepository(pool).listRows("dispatcher_submissions");
+  const row = result.rows[0];
 
-  assert.equal(result.table.label, "Пароли пользователей");
-  assert.deepEqual(
-    result.table.columns.map((column) => column.label),
-    ["Пользователь", "Логин", "Пароль обновлён"],
-  );
-  assert.deepEqual(result.table.primaryKey, []);
-  assert.equal(result.table.canDelete, false);
-  assert.equal(result.table.canClear, false);
-  assert.doesNotMatch(serialized, /password-hash-secret|password_hash|user-secret-id/u);
-  assert.doesNotMatch(
-    queries.at(-1) ?? "",
-    /select \*|password_hash/u,
-  );
+  assert.deepEqual(row?.editorFields.map((field) => field.label), [
+    "ФИО посетителя",
+    "Должность",
+    "Организация",
+    "Цель визита",
+    "Кого посещает",
+    "Примечание",
+    "Статус записи",
+  ]);
+  assert.deepEqual(row?.editorFields.at(-1)?.options, [
+    { value: "received", label: "Получено" },
+    { value: "queued", label: "В очереди" },
+    { value: "accepted", label: "Принято" },
+    { value: "rejected", label: "Отклонено" },
+  ]);
+  assert.doesNotMatch(JSON.stringify(row), /must-not-leak|password_hash|entryAt/u);
+  assert.doesNotMatch(queries.at(-1) ?? "", /select \*/u);
 });
 
-test("admin database does not expose or mutate active session identifiers", async () => {
-  const queries: string[] = [];
+test("dispatcher row update validates form values and preserves server fields", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
   const pool = {
-    async query(sql: string) {
+    async query(sql: string, values?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      queries.push(normalized);
+      queries.push({ sql: normalized, values });
 
-      if (normalized.startsWith("select count(*)")) {
-        return [[{ row_count: 1 }], []];
+      if (normalized.startsWith("select business_account_id")) {
+        return [[{
+          business_account_id: "prod-business",
+          form_id: "visitor",
+          payload: JSON.stringify({
+            fio: "Старое имя",
+            organization: "Завод",
+            entryAt: "01.07.2026 08:30",
+            serverOwnedMarker: "preserve-me",
+          }),
+          summary: "Старое имя · Завод",
+          status: "received",
+          period: "2026-07",
+        }], []];
       }
 
-      return [[{
-        user_display_name: "Администратор",
-        login: "admin",
-        position: "Администратор",
-        created_at: "2026-07-15T08:00:00.000Z",
-        last_seen_at: "2026-07-15T08:30:00.000Z",
-        expires_at: "2026-07-16T08:00:00.000Z",
-        session_status: "active",
-        // Unexpected driver fields must never cross the public projection.
-        id: "session-token-secret",
-        user_id: "user-id",
-        access_id: "access-id",
-      }], []];
+      return [{ affectedRows: 1 }, []];
     },
   } as unknown as DatabasePool;
   const repository = createAdminDatabaseRepository(pool);
 
-  const result = await repository.listRows("auth_sessions");
-  const serialized = JSON.stringify(result);
+  await repository.updateRow({
+    tableName: "dispatcher_submissions",
+    primaryKey: { id: "submission-id" },
+    values: {
+      "payload.fio": "Новое имя",
+      "payload.organization": "Новый завод",
+      status: "accepted",
+    },
+  });
 
-  assert.equal(result.table.label, "Активные сессии");
-  assert.deepEqual(result.table.primaryKey, []);
-  assert.equal(result.table.canDelete, false);
-  assert.equal(result.table.canClear, false);
-  assert.doesNotMatch(serialized, /session-token-secret|user-id|access-id/u);
-  assert.doesNotMatch(queries.at(-1) ?? "", /sessions\.id|select \*/u);
+  const update = queries.find((query) => query.sql.startsWith("update dispatcher_submissions"));
+  const payload = JSON.parse(String(update?.values?.[4])) as Record<string, string>;
+
+  assert.equal(payload.fio, "Новое имя");
+  assert.equal(payload.organization, "Новый завод");
+  assert.equal(payload.entryAt, "01.07.2026 08:30");
+  assert.equal(payload.serverOwnedMarker, "preserve-me");
+  assert.equal(update?.values?.[7], "accepted");
   await assert.rejects(
-    repository.deleteRow({
-      tableName: "auth_sessions",
-      primaryKey: { id: "session-token-secret" },
+    repository.updateRow({
+      tableName: "dispatcher_submissions",
+      primaryKey: { id: "submission-id" },
+      values: { dedupe_key: "system-value" },
     }),
-    /does not allow deletion/u,
+    /not editable/u,
   );
 });
 
-test("admin database clears only an explicitly allowlisted section", async () => {
+test("equipment edits keep report identity and append a full report revision", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, values });
+
+      if (normalized.startsWith("select business_account_id")) {
+        return [[{
+          business_account_id: "prod-business",
+          form_id: "equipment",
+          payload: JSON.stringify({
+            reportDate: "16.07.2026",
+            reportMonth: "2026-07",
+            equipment: "Пресс №1",
+            productionTons: "10",
+          }),
+          summary: "Пресс №1 · 10 т",
+          status: "received",
+          period: "2026-07",
+        }], []];
+      }
+
+      if (normalized.startsWith("select id, business_account_id")) {
+        return [[{
+          id: "submission-id",
+          business_account_id: "prod-business",
+          form_id: "equipment",
+          payload: JSON.stringify({
+            reportDate: "16.07.2026",
+            equipment: "Пресс №1",
+            productionTons: "20",
+          }),
+          summary: "Пресс №1 · 20 т",
+          status: "received",
+          submitted_by_account_id: "dispatcher-access",
+          submitted_at: "2026-07-16T08:00:00.000Z",
+          received_at: "2026-07-16T08:00:00.000Z",
+        }], []];
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createAdminDatabaseRepository(pool);
+
+  await repository.updateRow({
+    tableName: "dispatcher_submissions",
+    primaryKey: { id: "submission-id" },
+    values: { "payload.productionTons": "20" },
+    changedByAccountId: "admin-access",
+  });
+
+  const revision = queries.find((query) =>
+    query.sql.startsWith("insert into dispatcher_equipment_report_revisions"),
+  );
+  assert.equal(revision?.values?.[1], "prod-business");
+  assert.equal(revision?.values?.[2], "16.07.2026");
+  assert.equal(revision?.values?.[3], "updated");
+  assert.equal(revision?.values?.[5], "admin-access");
+  assert.match(String(revision?.values?.[4]), /Пресс №1/u);
+
+  await assert.rejects(
+    repository.updateRow({
+      tableName: "dispatcher_submissions",
+      primaryKey: { id: "submission-id" },
+      values: { "payload.reportDate": "2026-07-17" },
+      changedByAccountId: "admin-access",
+    }),
+    /not editable/u,
+  );
+});
+
+test("user editor exposes no archive option and revokes active sessions", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, values });
+      if (normalized.startsWith("select status from app_users")) {
+        return [[{ status: "active" }], []];
+      }
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createAdminDatabaseRepository(pool);
+
+  await repository.updateRow({
+    tableName: "app_users",
+    primaryKey: { id: "user-id" },
+    values: { status: "suspended" },
+  });
+
+  assert.deepEqual(queries[1]?.values, ["suspended", "user-id"]);
+  assert.equal(queries[2]?.sql, "delete from auth_sessions where user_id = ?");
+  await assert.rejects(
+    repository.updateRow({
+      tableName: "app_users",
+      primaryKey: { id: "user-id" },
+      values: { status: "archived" },
+    }),
+    /unsupported value/u,
+  );
+});
+
+test("archived user cannot be changed through a forged database mutation", async () => {
+  let didUpdate = false;
+  const pool = {
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select status from app_users")) {
+        return [[{ status: "archived" }], []];
+      }
+      if (normalized.startsWith("update app_users")) didUpdate = true;
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAdminDatabaseRepository(pool).updateRow({
+      tableName: "app_users",
+      primaryKey: { id: "archived-user" },
+      values: { display_name: "Новое имя" },
+    }),
+    /cannot be changed/u,
+  );
+  assert.equal(didUpdate, false);
+});
+
+test("archived users stay stored but are filtered out of the database view", async () => {
   const queries: string[] = [];
   const pool = {
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push(normalized);
 
+      if (normalized.startsWith("select count(*)")) {
+        return [[{ row_count: 0 }], []];
+      }
+
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  await createAdminDatabaseRepository(pool).listRows("app_users");
+
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every((sql) => sql.includes("status <> 'archived'")));
+});
+
+test("admin database never deletes displayed business or historical data", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql.replace(/\s+/g, " ").trim());
       return [{ affectedRows: 582 }, []];
     },
   } as unknown as DatabasePool;
   const repository = createAdminDatabaseRepository(pool);
 
-  const deleted = await repository.clearTable("dispatcher_submissions");
-
-  assert.equal(deleted, 582);
-  assert.equal(queries[0], "delete from `dispatcher_submissions`");
   await assert.rejects(
-    repository.clearTable("auth_sessions"),
+    repository.clearTable("dispatcher_submissions"),
     /does not allow clearing/u,
   );
-  assert.equal(queries.length, 1);
+  await assert.rejects(
+    repository.deleteRow({
+      tableName: "dispatcher_submissions",
+      primaryKey: { id: "submission-id" },
+    }),
+    /does not allow deletion/u,
+  );
+  assert.equal(queries.length, 0);
 });

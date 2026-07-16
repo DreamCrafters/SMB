@@ -766,7 +766,10 @@ async function runAuditedMutation<T>({
 
 function buildSafeAuditDetails(values: Record<string, AdminDatabaseCellValue>) {
   return Object.entries(values).flatMap(([label, rawValue]) => {
-    if (/password|secret|token|session|hash/iu.test(label)) {
+    if (
+      /password|secret|token|session|hash/iu.test(label) ||
+      /^(?:id|.*_id|.*Id)$/u.test(label)
+    ) {
       return [];
     }
 
@@ -783,15 +786,42 @@ function buildSafeAuditDetails(values: Record<string, AdminDatabaseCellValue>) {
 
 function readAdminDatabaseFieldLabel(fieldName: string) {
   const labels: Record<string, string> = {
-    id: "ID записи",
     display_name: "Название",
+    login: "Логин",
     status: "Статус",
-    structure_mode: "Структура",
-    summary: "Краткое описание",
-    comment: "Комментарий",
+    access_status: "Доступ",
+    fio: "ФИО посетителя",
+    position: "Должность",
+    organization: "Организация",
+    purpose: "Цель визита",
+    whom: "Кого посещает",
+    note: "Примечание",
+    reportDate: "Дата отчёта",
+    equipment: "Оборудование",
+    productionTons: "Выработка",
+    downtimeReason: "Причина простоя",
+    downtimeHours: "Время простоя",
+    datetime: "Дата и время инцидента",
+    location: "Место",
+    incidentType: "Тип инцидента",
+    description: "Описание",
+    criticality: "Критичность",
+    responsible: "Ответственный",
+    immediateActions: "Оперативные меры",
+    incidentNumber: "Номер инцидента",
+    rootCauses: "Корневые причины",
+    preventiveMeasures: "Предотвращающие меры",
+    closureDateTime: "Дата и время закрытия",
+    costs: "Затраты",
+    approvedBy: "Кто утвердил",
+    closureNote: "Примечание",
   };
 
-  return labels[fieldName] ?? fieldName;
+  const publicFieldName = fieldName.startsWith("payload.")
+    ? fieldName.slice("payload.".length)
+    : fieldName;
+
+  return labels[publicFieldName] ?? publicFieldName;
 }
 
 function buildAccountAuditDetails(account: AdminAccountSummary | undefined) {
@@ -869,14 +899,8 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
 function readAdminDatabaseSectionLabel(tableName: string) {
   const labels: Record<string, string> = {
     business_accounts: "Бизнес-аккаунты",
-    departments: "Подразделения",
     app_users: "Пользователи",
-    account_positions: "Должности",
-    account_accesses: "Доступы аккаунтов",
-    auth_password_credentials: "Пароли пользователей",
-    auth_sessions: "Активные сессии",
     dispatcher_submissions: "Диспетчерские записи",
-    dispatcher_equipment_report_revisions: "Изменения отчётов оборудования",
   };
 
   return labels[tableName] ?? tableName;
@@ -1054,6 +1078,38 @@ async function handleAdminDatabaseRequest({
         return;
       }
 
+      if (
+        isUnsafeCurrentAccountDatabaseMutation(
+          route.tableName,
+          validation.value,
+          access.profile,
+        )
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "access_denied",
+            message: "Нельзя отключить текущую учётную запись через БД.",
+          },
+        });
+        return;
+      }
+
+      const missingCapability = readMissingAdminDatabaseMutationCapability(
+        route.tableName,
+        validation.value.values,
+        access.profile,
+      );
+
+      if (missingCapability !== undefined) {
+        sendJson(res, 403, {
+          error: {
+            code: "access_denied",
+            message: "Недостаточно прав для изменения выбранных данных.",
+          },
+        });
+        return;
+      }
+
       await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
@@ -1061,6 +1117,7 @@ async function handleAdminDatabaseRequest({
           tableName: route.tableName,
           primaryKey: validation.value.primaryKey,
           values: validation.value.values,
+          changedByAccountId: access.profile.activeAccess.accountId,
         }),
         buildEvent: () => ({
           actor: buildAuditActor(access.profile),
@@ -1120,6 +1177,42 @@ async function handleAdminDatabaseRequest({
   } catch (error) {
     sendAdminDatabaseError(res, error);
   }
+}
+
+function isUnsafeCurrentAccountDatabaseMutation(
+  tableName: string,
+  mutation: {
+    primaryKey: Record<string, AdminDatabaseCellValue>;
+    values: Record<string, AdminDatabaseCellValue>;
+  },
+  profile: ServerUserProfile,
+) {
+  if (
+    tableName === "app_users" &&
+    mutation.primaryKey.id === profile.userId
+  ) {
+    const status = mutation.values.status;
+    return typeof status === "string" && status !== "active";
+  }
+
+  return false;
+}
+
+function readMissingAdminDatabaseMutationCapability(
+  tableName: string,
+  values: Record<string, AdminDatabaseCellValue>,
+  profile: ServerUserProfile,
+): AccountCapability | undefined {
+  const required: AccountCapability[] = [];
+
+  if (tableName === "app_users") {
+    required.push("platform.manage_users");
+    if (values.status !== undefined) required.push("platform.manage_access");
+  } else if (tableName === "business_accounts") {
+    required.push("platform.manage_business_accounts");
+  }
+
+  return required.find((capability) => !hasProfileCapability(profile, capability));
 }
 
 async function handleAdminDispatcherImportRequest({

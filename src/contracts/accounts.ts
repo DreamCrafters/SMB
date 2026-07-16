@@ -36,7 +36,6 @@ export const accountCapabilities = [
   "platform.view_logs",
   "platform.use_debug_tools",
   "business.view_all_statistics",
-  "business.view_department_statistics",
   "business.view_notifications",
   "business.submit_forms",
   "business.submit_dispatcher_forms",
@@ -54,11 +53,6 @@ export type AccountScope =
   | {
       kind: "business";
       businessAccountId: string;
-    }
-  | {
-      kind: "department";
-      businessAccountId: string;
-      departmentId: string;
     };
 
 export type ServerIssuedAccountAccess = {

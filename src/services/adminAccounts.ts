@@ -660,8 +660,6 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     isRecord(value.scope) &&
     (typeof value.businessDisplayName === "string" ||
       value.businessDisplayName === null) &&
-    (typeof value.departmentDisplayName === "string" ||
-      value.departmentDisplayName === null) &&
     Array.isArray(value.capabilities) &&
     Array.isArray(value.navigationItems) &&
     typeof value.createdAt === "string"

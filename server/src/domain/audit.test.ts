@@ -105,8 +105,6 @@ function buildProfile({
       issuedAt: "2026-07-16T00:00:00.000Z",
     },
     businessAccounts: [],
-    departments: [],
-    organizationStructureMode: "current",
     receivedAt: "2026-07-16T00:00:00.000Z",
   };
 }

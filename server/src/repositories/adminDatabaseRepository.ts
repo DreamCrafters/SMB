@@ -1,5 +1,21 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
+import {
+  getDispatcherFormDefinition,
+  isDispatcherFormId,
+  type DispatcherFormField,
+} from "../domain/dispatcherForms.js";
+import {
+  buildDispatcherSubmissionDedupeKey,
+  buildDispatcherSubmissionSummary,
+  validateDispatcherSubmissionDraft,
+  type DispatcherSubmissionPayload,
+  type DispatcherSubmissionStatus,
+} from "../domain/dispatcherSubmission.js";
+import {
+  buildDispatcherLegacyValues,
+  recordEquipmentReportRevisionForDate,
+} from "./dispatcherSubmissionsRepository.js";
 
 export type AdminDatabaseValueFormat =
   | "text"
@@ -7,6 +23,20 @@ export type AdminDatabaseValueFormat =
   | "date"
   | "date_time"
   | "number";
+
+export type AdminDatabaseEditorInputType =
+  | "text"
+  | "textarea"
+  | "select"
+  | "number"
+  | "date"
+  | "month"
+  | "datetime-local";
+
+export type AdminDatabaseEditorOption = {
+  value: string;
+  label: string;
+};
 
 export type AdminDatabaseColumn = {
   name: string;
@@ -29,9 +59,19 @@ export type AdminDatabaseTable = {
 
 export type AdminDatabaseCellValue = string | null;
 
+export type AdminDatabaseEditorField = {
+  name: string;
+  label: string;
+  inputType: AdminDatabaseEditorInputType;
+  required: boolean;
+  options: AdminDatabaseEditorOption[];
+  value: AdminDatabaseCellValue;
+};
+
 export type AdminDatabaseRow = {
   primaryKey: Record<string, AdminDatabaseCellValue>;
   values: Record<string, AdminDatabaseCellValue>;
+  editorFields: AdminDatabaseEditorField[];
 };
 
 export type AdminDatabaseTableRows = {
@@ -45,6 +85,7 @@ export type AdminDatabaseUpdate = {
   tableName: string;
   primaryKey: Record<string, AdminDatabaseCellValue>;
   values: Record<string, AdminDatabaseCellValue>;
+  changedByAccountId?: string;
 };
 
 export type AdminDatabaseDelete = {
@@ -56,19 +97,11 @@ export type AdminDatabaseRepository = {
   listTables: () => Promise<AdminDatabaseTable[]>;
   listRows: (
     tableName: string,
-    options?: {
-      limit?: number;
-      offset?: number;
-    },
+    options?: { limit?: number; offset?: number },
   ) => Promise<AdminDatabaseTableRows>;
   updateRow: (value: AdminDatabaseUpdate) => Promise<void>;
   deleteRow: (value: AdminDatabaseDelete) => Promise<void>;
   clearTable: (tableName: string) => Promise<number>;
-};
-
-type TableRow = RowDataPacket & {
-  table_name: string;
-  table_rows: number | string | null;
 };
 
 type RawDatabaseRow = RowDataPacket & Record<string, unknown>;
@@ -76,10 +109,18 @@ type RawDatabaseRow = RowDataPacket & Record<string, unknown>;
 type AdminDatabaseViewColumn = AdminDatabaseColumn & {
   selectExpression: string;
   sourceColumn?: string;
-  dataType: "text" | "json";
+  inputType: AdminDatabaseEditorInputType;
+  options: readonly AdminDatabaseEditorOption[];
+  maxLength?: number;
+  writeValue?: (value: string) => unknown;
 };
 
 type AdminDatabasePrimaryKey = {
+  name: string;
+  selectExpression: string;
+};
+
+type AdminDatabaseContextColumn = {
   name: string;
   selectExpression: string;
 };
@@ -88,161 +129,74 @@ type AdminDatabaseView = {
   name: string;
   label: string;
   fromClause: string;
+  whereClause?: string;
   orderBy: string;
   columns: AdminDatabaseViewColumn[];
   primaryKey: AdminDatabasePrimaryKey[];
+  contextColumns?: AdminDatabaseContextColumn[];
   canDelete: boolean;
   canClear?: boolean;
 };
 
+type DispatcherEditorRow = RowDataPacket & {
+  business_account_id: string;
+  form_id: string;
+  payload: unknown;
+  summary: string;
+  status: string;
+  period: string;
+};
+
 const identifierPattern = /^[A-Za-z0-9_]+$/;
 const primaryKeyAliasPrefix = "__admin_primary_key_";
+const contextAliasPrefix = "__admin_context_";
+const userStatusOptions = options([
+  ["active", "Активен"],
+  ["suspended", "Вход отключён"],
+]);
+const businessStatusOptions = options([
+  ["active", "Активен"],
+  ["suspended", "Приостановлен"],
+  ["archived", "Архивный"],
+]);
+const submissionStatusOptions = options([
+  ["received", "Получено"],
+  ["queued", "В очереди"],
+  ["accepted", "Принято"],
+  ["rejected", "Отклонено"],
+]);
 
+// Only user-facing, safely editable projections belong here. Authentication
+// internals and append-only history stay in the database but are not shown.
 const databaseViews: AdminDatabaseView[] = [
-  {
-    name: "account_accesses",
-    label: "Доступы пользователей",
-    fromClause: `
-      account_accesses accesses
-      left join app_users users on users.id = accesses.user_id
-      left join account_positions positions on positions.id = accesses.position_code
-      left join business_accounts businesses
-        on businesses.id = accesses.business_account_id
-      left join departments on departments.id = accesses.department_id
-    `,
-    orderBy: "users.display_name asc, positions.display_name asc, accesses.created_at asc",
-    columns: [
-      viewColumn("user_display_name", "Пользователь", "users.display_name"),
-      viewColumn("login", "Логин", "users.login"),
-      viewColumn("position", "Должность", "positions.display_name"),
-      viewColumn(
-        "workspace",
-        "Кабинет",
-        accountTypeLabelExpression("accesses.account_type"),
-      ),
-      viewColumn(
-        "scope",
-        "Область доступа",
-        scopeLabelExpression("accesses.scope_kind"),
-      ),
-      viewColumn("business", "Бизнес", "businesses.display_name"),
-      viewColumn("department", "Подразделение", "departments.display_name"),
-      viewColumn(
-        "access_status",
-        "Доступ",
-        "case when accesses.is_active = 1 then 'active' else 'disabled' end",
-        { format: "status" },
-      ),
-      viewColumn("created_at", "Создан", "accesses.created_at", {
-        format: "date_time",
-      }),
-      viewColumn("updated_at", "Изменён", "accesses.updated_at", {
-        format: "date_time",
-      }),
-    ],
-    primaryKey: [],
-    canDelete: false,
-  },
-  {
-    name: "account_positions",
-    label: "Должности",
-    fromClause: "account_positions positions",
-    orderBy: "positions.display_name asc",
-    columns: [
-      viewColumn("display_name", "Должность", "positions.display_name"),
-      viewColumn(
-        "workspace",
-        "Базовый кабинет",
-        accountTypeLabelExpression("positions.account_type"),
-      ),
-      viewColumn("navigation", "Доступные вкладки", navigationLabelExpression()),
-      viewColumn(
-        "position_kind",
-        "Тип",
-        "case when positions.is_protected = 1 then 'Системная' else 'Пользовательская' end",
-      ),
-      viewColumn("created_at", "Создана", "positions.created_at", {
-        format: "date_time",
-      }),
-      viewColumn("updated_at", "Изменена", "positions.updated_at", {
-        format: "date_time",
-      }),
-    ],
-    primaryKey: [],
-    canDelete: false,
-  },
   {
     name: "app_users",
     label: "Пользователи",
     fromClause: "app_users users",
+    whereClause: "users.status <> 'archived'",
     orderBy: "users.display_name asc, users.login asc",
     columns: [
-      viewColumn("display_name", "Имя", "users.display_name"),
-      viewColumn("login", "Логин", "users.login"),
-      viewColumn("status", "Статус", "users.status", { format: "status" }),
-      viewColumn("created_at", "Создан", "users.created_at", {
-        format: "date_time",
+      viewColumn("display_name", "Имя", "users.display_name", {
+        editable: true,
+        sourceColumn: "display_name",
+        maxLength: 255,
       }),
-      viewColumn("updated_at", "Изменён", "users.updated_at", {
-        format: "date_time",
+      viewColumn("login", "Логин", "users.login", {
+        editable: true,
+        sourceColumn: "login",
+        maxLength: 190,
       }),
+      viewColumn("status", "Статус", "users.status", {
+        editable: true,
+        sourceColumn: "status",
+        format: "status",
+        inputType: "select",
+        options: userStatusOptions,
+      }),
+      viewColumn("created_at", "Создан", "users.created_at", { format: "date_time" }),
+      viewColumn("updated_at", "Изменён", "users.updated_at", { format: "date_time" }),
     ],
-    primaryKey: [],
-    canDelete: false,
-  },
-  {
-    name: "auth_password_credentials",
-    label: "Пароли пользователей",
-    fromClause: `
-      auth_password_credentials credentials
-      inner join app_users users on users.id = credentials.user_id
-    `,
-    orderBy: "users.display_name asc, users.login asc",
-    columns: [
-      viewColumn("user_display_name", "Пользователь", "users.display_name"),
-      viewColumn("login", "Логин", "users.login"),
-      viewColumn(
-        "password_updated_at",
-        "Пароль обновлён",
-        "credentials.password_updated_at",
-        { format: "date_time" },
-      ),
-    ],
-    primaryKey: [],
-    canDelete: false,
-  },
-  {
-    name: "auth_sessions",
-    label: "Активные сессии",
-    fromClause: `
-      auth_sessions sessions
-      inner join app_users users on users.id = sessions.user_id
-      inner join account_accesses accesses on accesses.id = sessions.access_id
-      left join account_positions positions on positions.id = accesses.position_code
-    `,
-    orderBy: "sessions.last_seen_at desc, sessions.created_at desc",
-    columns: [
-      viewColumn("user_display_name", "Пользователь", "users.display_name"),
-      viewColumn("login", "Логин", "users.login"),
-      viewColumn("position", "Должность", "positions.display_name"),
-      viewColumn("created_at", "Создана", "sessions.created_at", {
-        format: "date_time",
-      }),
-      viewColumn("last_seen_at", "Последняя активность", "sessions.last_seen_at", {
-        format: "date_time",
-        nullable: true,
-      }),
-      viewColumn("expires_at", "Истекает", "sessions.expires_at", {
-        format: "date_time",
-      }),
-      viewColumn(
-        "session_status",
-        "Состояние",
-        "case when sessions.expires_at > current_timestamp(3) then 'active' else 'expired' end",
-        { format: "status" },
-      ),
-    ],
-    primaryKey: [],
+    primaryKey: [{ name: "id", selectExpression: "users.id" }],
     canDelete: false,
   },
   {
@@ -254,98 +208,19 @@ const databaseViews: AdminDatabaseView[] = [
       viewColumn("display_name", "Название", "businesses.display_name", {
         editable: true,
         sourceColumn: "display_name",
+        maxLength: 255,
       }),
       viewColumn("status", "Статус", "businesses.status", {
         editable: true,
         sourceColumn: "status",
         format: "status",
+        inputType: "select",
+        options: businessStatusOptions,
       }),
-      viewColumn("created_at", "Создан", "businesses.created_at", {
-        format: "date_time",
-      }),
-      viewColumn("updated_at", "Изменён", "businesses.updated_at", {
-        format: "date_time",
-      }),
+      viewColumn("created_at", "Создан", "businesses.created_at", { format: "date_time" }),
+      viewColumn("updated_at", "Изменён", "businesses.updated_at", { format: "date_time" }),
     ],
     primaryKey: [{ name: "id", selectExpression: "businesses.id" }],
-    canDelete: false,
-  },
-  {
-    name: "departments",
-    label: "Подразделения",
-    fromClause: `
-      departments
-      inner join business_accounts businesses
-        on businesses.id = departments.business_account_id
-      left join departments parent on parent.id = departments.parent_department_id
-    `,
-    orderBy: "businesses.display_name asc, departments.display_name asc",
-    columns: [
-      viewColumn("display_name", "Подразделение", "departments.display_name", {
-        editable: true,
-        sourceColumn: "display_name",
-      }),
-      viewColumn("business", "Бизнес", "businesses.display_name"),
-      viewColumn("parent_department", "Родитель", "parent.display_name", {
-        nullable: true,
-      }),
-      viewColumn(
-        "structure_mode",
-        "Структура",
-        "departments.structure_mode",
-        {
-          editable: true,
-          sourceColumn: "structure_mode",
-          format: "status",
-        },
-      ),
-      viewColumn("created_at", "Создано", "departments.created_at", {
-        format: "date_time",
-      }),
-      viewColumn("updated_at", "Изменено", "departments.updated_at", {
-        format: "date_time",
-      }),
-    ],
-    primaryKey: [{ name: "id", selectExpression: "departments.id" }],
-    canDelete: false,
-  },
-  {
-    name: "dispatcher_equipment_report_revisions",
-    label: "Изменения отчётов оборудования",
-    fromClause: `
-      dispatcher_equipment_report_revisions revisions
-      left join business_accounts businesses
-        on businesses.id = revisions.business_account_id
-      left join account_accesses accesses
-        on accesses.id = revisions.submitted_by_account_id
-      left join app_users users on users.id = accesses.user_id
-      left join account_positions positions on positions.id = accesses.position_code
-    `,
-    orderBy: "revisions.created_at desc",
-    columns: [
-      viewColumn("business", "Бизнес", "businesses.display_name"),
-      viewColumn("report_date", "Дата отчёта", "revisions.report_date", {
-        format: "date",
-      }),
-      viewColumn(
-        "revision_status",
-        "Изменение",
-        "revisions.revision_status",
-        { format: "status" },
-      ),
-      viewColumn(
-        "equipment_count",
-        "Позиций",
-        "json_length(revisions.payload, '$.submissions')",
-        { format: "number" },
-      ),
-      viewColumn("submitted_by", "Автор", "users.display_name"),
-      viewColumn("position", "Должность", "positions.display_name"),
-      viewColumn("created_at", "Изменено", "revisions.created_at", {
-        format: "date_time",
-      }),
-    ],
-    primaryKey: [],
     canDelete: false,
   },
   {
@@ -363,103 +238,47 @@ const databaseViews: AdminDatabaseView[] = [
     orderBy: "submissions.received_at desc, submissions.id desc",
     columns: [
       viewColumn("business", "Бизнес", "businesses.display_name"),
-      viewColumn(
-        "form",
-        "Раздел",
-        dispatcherFormLabelExpression("submissions.form_id"),
-      ),
-      viewColumn("event_date", "Дата события", dispatcherEventDateExpression(), {
-        format: "date",
-      }),
-      viewColumn("summary", "Краткое описание", "submissions.summary", {
-        editable: true,
-        sourceColumn: "summary",
-        multiline: true,
-      }),
-      viewColumn("comment", "Комментарий", "submissions.comment", {
-        editable: true,
-        sourceColumn: "comment",
-        multiline: true,
-        nullable: true,
-      }),
+      viewColumn("form", "Раздел", dispatcherFormLabelExpression("submissions.form_id")),
+      viewColumn("event_date", "Дата события", dispatcherEventDateExpression(), { format: "date" }),
+      viewColumn("summary", "Краткое описание", "submissions.summary", { multiline: true }),
       viewColumn("status", "Статус", "submissions.status", {
         editable: true,
         sourceColumn: "status",
         format: "status",
+        inputType: "select",
+        options: submissionStatusOptions,
       }),
       viewColumn(
         "source",
         "Источник",
         "case when submissions.import_source_key is null then 'Форма' else 'Импорт' end",
       ),
-      viewColumn("submitted_by", "Отправитель", "users.display_name"),
-      viewColumn("position", "Должность", "positions.display_name"),
-      viewColumn("submitted_at", "Отправлено", "submissions.submitted_at", {
-        format: "date_time",
-      }),
-      viewColumn("received_at", "Получено", "submissions.received_at", {
-        format: "date_time",
-      }),
+      viewColumn("submitted_by", "Отправитель", "users.display_name", { nullable: true }),
+      viewColumn("position", "Должность", "positions.display_name", { nullable: true }),
+      viewColumn("submitted_at", "Отправлено", "submissions.submitted_at", { format: "date_time" }),
+      viewColumn("received_at", "Получено", "submissions.received_at", { format: "date_time" }),
     ],
     primaryKey: [{ name: "id", selectExpression: "submissions.id" }],
-    canDelete: true,
-    canClear: true,
-  },
-  {
-    name: "schema_migrations",
-    label: "Версии схемы",
-    fromClause: "schema_migrations migrations",
-    orderBy: "migrations.applied_at desc, migrations.id desc",
-    columns: [
-      viewColumn("migration", "Версия", "migrations.id"),
-      viewColumn("applied_at", "Применена", "migrations.applied_at", {
-        format: "date_time",
-      }),
+    contextColumns: [
+      { name: "form_id", selectExpression: "submissions.form_id" },
+      { name: "payload", selectExpression: "submissions.payload" },
+      { name: "status", selectExpression: "submissions.status" },
     ],
-    primaryKey: [],
     canDelete: false,
+    canClear: false,
   },
 ];
 
-const databaseViewByName = new Map(
-  databaseViews.map((view) => [view.name, view]),
-);
+const databaseViewByName = new Map(databaseViews.map((view) => [view.name, view]));
 
-export function createAdminDatabaseRepository(
-  pool: DatabasePool,
-): AdminDatabaseRepository {
+export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabaseRepository {
   async function listTables() {
-    const [rows] = await pool.query<TableRow[]>(
-      `
-        select table_name, table_rows
-        from information_schema.tables
-        where table_schema = database()
-          and table_type = 'BASE TABLE'
-          and table_name in (${databaseViews.map(() => "?").join(", ")})
-      `,
-      databaseViews.map((view) => view.name),
-    );
-    const rowCountByName = new Map(
-      rows.map((row) => [
-        row.table_name,
-        row.table_rows === null ? null : Number(row.table_rows),
-      ]),
-    );
-
-    return databaseViews
-      .filter((view) => rowCountByName.has(view.name))
-      .map((view) => buildPublicTable(view, rowCountByName.get(view.name) ?? null));
+    return Promise.all(databaseViews.map((view) => readPublicTable(view)));
   }
 
   async function listRows(
     tableName: string,
-    {
-      limit = 100,
-      offset = 0,
-    }: {
-      limit?: number;
-      offset?: number;
-    } = {},
+    { limit = 100, offset = 0 }: { limit?: number; offset?: number } = {},
   ) {
     const view = readView(tableName);
     const table = await readPublicTable(view);
@@ -467,18 +286,20 @@ export function createAdminDatabaseRepository(
     const safeOffset = Math.max(offset, 0);
     const selectColumns = [
       ...view.primaryKey.map(
-        (column) =>
-          `${column.selectExpression} as ${quoteIdentifier(primaryKeyAlias(column.name))}`,
+        (column) => `${column.selectExpression} as ${quoteIdentifier(primaryKeyAlias(column.name))}`,
       ),
       ...view.columns.map(
-        (column) =>
-          `${column.selectExpression} as ${quoteIdentifier(column.name)}`,
+        (column) => `${column.selectExpression} as ${quoteIdentifier(column.name)}`,
+      ),
+      ...(view.contextColumns ?? []).map(
+        (column) => `${column.selectExpression} as ${quoteIdentifier(contextAlias(column.name))}`,
       ),
     ];
     const [rows] = await pool.query<RawDatabaseRow[]>(
       `
         select ${selectColumns.join(",\n          ")}
         from ${view.fromClause}
+        ${view.whereClause === undefined ? "" : `where ${view.whereClause}`}
         order by ${view.orderBy}
         limit ?
         offset ?
@@ -496,15 +317,19 @@ export function createAdminDatabaseRepository(
 
   async function updateRow(value: AdminDatabaseUpdate) {
     const view = readView(value.tableName);
-
     assertPrimaryKey(view, value.primaryKey);
 
-    const columnByName = new Map(
-      view.columns.map((column) => [column.name, column]),
-    );
-    const updateEntries = Object.entries(value.values).filter(([, rawValue]) =>
-      rawValue !== undefined,
-    );
+    if (view.name === "dispatcher_submissions") {
+      await updateDispatcherSubmission(pool, value);
+      return;
+    }
+
+    if (view.name === "app_users") {
+      await assertUserIsEditable(pool, value.primaryKey.id);
+    }
+
+    const columnByName = new Map(view.columns.map((column) => [column.name, column]));
+    const updateEntries = Object.entries(value.values).filter(([, rawValue]) => rawValue !== undefined);
 
     if (updateEntries.length === 0) {
       throw new Error("No editable values were provided.");
@@ -525,13 +350,30 @@ export function createAdminDatabaseRepository(
     }
 
     await pool.query(
-      `
-        update ${quoteIdentifier(view.name)}
-        set ${assignments.join(", ")}
-        where ${buildPrimaryKeyWhereClause(view)}
-      `,
+      `update ${quoteIdentifier(view.name)}
+       set ${assignments.join(", ")}
+       where ${buildPrimaryKeyWhereClause(view)}`,
       [...assignmentValues, ...readPrimaryKeyValues(view, value.primaryKey)],
     );
+
+    const id = value.primaryKey.id;
+
+    if (typeof id === "string" && view.name === "app_users") {
+      await pool.query("delete from auth_sessions where user_id = ?", [id]);
+    }
+
+    if (
+      typeof id === "string" &&
+      view.name === "business_accounts" &&
+      value.values.status !== undefined
+    ) {
+      await pool.query(
+        `delete sessions from auth_sessions sessions
+         join account_accesses accesses on accesses.user_id = sessions.user_id
+         where accesses.business_account_id = ?`,
+        [id],
+      );
+    }
   }
 
   async function deleteRow(value: AdminDatabaseDelete) {
@@ -542,13 +384,10 @@ export function createAdminDatabaseRepository(
     }
 
     assertPrimaryKey(view, value.primaryKey);
-
     await pool.query(
-      `
-        delete from ${quoteIdentifier(view.name)}
-        where ${buildPrimaryKeyWhereClause(view)}
-        limit 1
-      `,
+      `delete from ${quoteIdentifier(view.name)}
+       where ${buildPrimaryKeyWhereClause(view)}
+       limit 1`,
       readPrimaryKeyValues(view, value.primaryKey),
     );
   }
@@ -560,28 +399,212 @@ export function createAdminDatabaseRepository(
       throw new Error(`Selected table does not allow clearing: ${view.name}`);
     }
 
-    const [result] = await pool.query<ResultSetHeader>(
-      `delete from ${quoteIdentifier(view.name)}`,
-    );
-
+    const [result] = await pool.query<ResultSetHeader>(`delete from ${quoteIdentifier(view.name)}`);
     return result.affectedRows;
   }
 
   async function readPublicTable(view: AdminDatabaseView) {
     const [rows] = await pool.query<Array<RowDataPacket & { row_count: number | string }>>(
-      `select count(*) as row_count from ${quoteIdentifier(view.name)}`,
+      `select count(*) as row_count from ${view.fromClause}
+       ${view.whereClause === undefined ? "" : `where ${view.whereClause}`}`,
     );
 
     return buildPublicTable(view, Number(rows[0]?.row_count ?? 0));
   }
 
-  return {
-    listTables,
-    listRows,
-    updateRow,
-    deleteRow,
-    clearTable,
-  };
+  return { listTables, listRows, updateRow, deleteRow, clearTable };
+}
+
+async function assertUserIsEditable(
+  pool: DatabasePool,
+  id: AdminDatabaseCellValue | undefined,
+) {
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error("Primary key value is missing.");
+  }
+
+  const [rows] = await pool.query<Array<RowDataPacket & { status: string }>>(
+    "select status from app_users where id = ? limit 1 for update",
+    [id],
+  );
+  const status = rows[0]?.status;
+
+  if (status === undefined) {
+    throw new Error("User was not found.");
+  }
+
+  if (status === "archived") {
+    throw new Error("Archived user cannot be changed from the database editor.");
+  }
+}
+
+async function updateDispatcherSubmission(
+  pool: DatabasePool,
+  value: AdminDatabaseUpdate,
+) {
+  const id = value.primaryKey.id;
+
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error("Primary key value is missing.");
+  }
+
+  const [rows] = await pool.query<DispatcherEditorRow[]>(
+    `select business_account_id, form_id, payload, summary, status, period
+     from dispatcher_submissions
+     where id = ?
+     limit 1`,
+    [id],
+  );
+  const current = rows[0];
+
+  if (current === undefined) {
+    throw new Error("Dispatcher submission was not found.");
+  }
+
+  const form = isDispatcherFormId(current.form_id)
+    ? getDispatcherFormDefinition(current.form_id)
+    : undefined;
+  const existingPayload = readDispatcherPayload(current.payload);
+  const allowedPayloadNames = new Set(
+    form?.fields
+      .filter((field) => isEditableDispatcherPayloadField(form.id, field.name))
+      .map((field) => `payload.${field.name}`) ?? [],
+  );
+
+  if (form?.id === "visitor_exit") {
+    allowedPayloadNames.add("payload.fio");
+    allowedPayloadNames.add("payload.organization");
+    allowedPayloadNames.add("payload.note");
+  }
+
+  const entries = Object.entries(value.values).filter(([, rawValue]) => rawValue !== undefined);
+
+  if (entries.length === 0) {
+    throw new Error("No editable values were provided.");
+  }
+
+  for (const [name] of entries) {
+    if (name !== "status" && !allowedPayloadNames.has(name)) {
+      throw new Error(`Column is not editable: ${name}`);
+    }
+  }
+
+  const requestedStatus = value.values.status;
+  const status = requestedStatus === undefined
+    ? readSubmissionStatus(current.status)
+    : readOptionValue(requestedStatus, submissionStatusOptions, "status");
+  const hasPayloadChanges = entries.some(([name]) => name.startsWith("payload."));
+  let nextPayload = { ...existingPayload };
+
+  if (hasPayloadChanges) {
+    if (form === undefined) {
+      throw new Error("Stored dispatcher form is not editable.");
+    }
+
+    const editablePayload = Object.fromEntries(
+      form.fields.flatMap((field) => {
+        const raw = value.values[`payload.${field.name}`];
+        const currentValue = toDispatcherEditorValue(existingPayload[field.name], field);
+        const nextValue = raw === undefined ? currentValue : raw;
+
+        return typeof nextValue === "string" && nextValue.trim().length > 0
+          ? [[field.name, nextValue] as const]
+          : [];
+      }),
+    );
+    const validation = validateDispatcherSubmissionDraft({
+      businessAccountId: current.business_account_id,
+      formId: form.id,
+      payload: editablePayload,
+    });
+
+    if (!validation.ok) {
+      throw new Error(validation.errors.join(" "));
+    }
+
+    for (const field of form.fields) {
+      delete nextPayload[field.name];
+    }
+
+    nextPayload = { ...nextPayload, ...validation.value.draft.payload };
+
+    if (form.id === "visitor" && existingPayload.entryAt !== undefined) {
+      nextPayload.entryAt = existingPayload.entryAt;
+    }
+
+    if (form.id === "visitor_exit" && existingPayload.exitAt !== undefined) {
+      nextPayload.exitAt = existingPayload.exitAt;
+    }
+
+    if (form.id === "visitor_exit") {
+      for (const name of ["fio", "organization", "note"] as const) {
+        const raw = value.values[`payload.${name}`];
+
+        if (raw === undefined) continue;
+        if (raw === null || raw.trim().length === 0) delete nextPayload[name];
+        else if (raw.trim().length > (name === "note" ? 2_000 : 240)) {
+          throw new Error(`${name} is too long.`);
+        } else nextPayload[name] = raw.trim();
+      }
+
+      if ((nextPayload.fio ?? "").trim().length === 0) {
+        throw new Error("fio is required.");
+      }
+    }
+  }
+
+  const summary = form === undefined
+    ? current.summary
+    : buildDispatcherSubmissionSummary(form, nextPayload);
+  const dedupeKey = isDispatcherFormId(current.form_id)
+    ? buildDispatcherSubmissionDedupeKey({
+        businessAccountId: current.business_account_id,
+        formId: current.form_id,
+        payload: nextPayload,
+      })
+    : null;
+  const legacy = buildDispatcherLegacyValues(
+    nextPayload,
+    current.form_id,
+    summary,
+    current.period,
+  );
+
+  await pool.query(
+    `update dispatcher_submissions
+     set period = ?, metric_code = ?, raw_value = ?, comment = ?,
+       payload = ?, summary = ?, dedupe_key = ?, status = ?
+     where id = ?`,
+    [
+      legacy.period,
+      legacy.metricCode,
+      legacy.rawValue,
+      legacy.comment,
+      JSON.stringify(nextPayload),
+      summary,
+      dedupeKey,
+      status,
+      id,
+    ],
+  );
+
+  if (form?.id === "equipment" && hasPayloadChanges) {
+    const reportDate = nextPayload.reportDate?.trim();
+    const submittedByAccountId = value.changedByAccountId?.trim();
+
+    if (reportDate === undefined || reportDate.length === 0) {
+      throw new Error("Equipment report date is missing.");
+    }
+    if (submittedByAccountId === undefined || submittedByAccountId.length === 0) {
+      throw new Error("Equipment report editor account is missing.");
+    }
+
+    await recordEquipmentReportRevisionForDate(pool, {
+      businessAccountId: current.business_account_id,
+      reportDate,
+      submittedByAccountId,
+    });
+  }
 }
 
 function buildPublicTable(view: AdminDatabaseView, rowCount: number | null) {
@@ -591,12 +614,7 @@ function buildPublicTable(view: AdminDatabaseView, rowCount: number | null) {
     rowCount,
     columns: view.columns.map(
       ({ name, label, format, editable, multiline, nullable }) => ({
-        name,
-        label,
-        format,
-        editable,
-        multiline,
-        nullable,
+        name, label, format, editable, multiline, nullable,
       }),
     ),
     primaryKey: view.primaryKey.map((column) => column.name),
@@ -605,7 +623,7 @@ function buildPublicTable(view: AdminDatabaseView, rowCount: number | null) {
   } satisfies AdminDatabaseTable;
 }
 
-function mapDatabaseRow(row: RawDatabaseRow, view: AdminDatabaseView) {
+function mapDatabaseRow(row: RawDatabaseRow, view: AdminDatabaseView): AdminDatabaseRow {
   return {
     primaryKey: Object.fromEntries(
       view.primaryKey.map((column) => [
@@ -614,11 +632,87 @@ function mapDatabaseRow(row: RawDatabaseRow, view: AdminDatabaseView) {
       ]),
     ),
     values: Object.fromEntries(
-      view.columns.map((column) => [
-        column.name,
-        serializeDatabaseValue(row[column.name]),
-      ]),
+      view.columns.map((column) => [column.name, serializeDatabaseValue(row[column.name])]),
     ),
+    editorFields: view.name === "dispatcher_submissions"
+      ? buildDispatcherEditorFields(row)
+      : view.columns
+          .filter((column) => column.editable)
+          .map((column) => ({
+            name: column.name,
+            label: column.label,
+            inputType: column.inputType,
+            required: !column.nullable,
+            options: [...column.options],
+            value: serializeDatabaseValue(row[column.name]),
+          })),
+  };
+}
+
+function buildDispatcherEditorFields(row: RawDatabaseRow): AdminDatabaseEditorField[] {
+  const formIdValue = row[contextAlias("form_id")];
+  const formId = isDispatcherFormId(formIdValue) ? formIdValue : undefined;
+  const form = formId === undefined ? undefined : getDispatcherFormDefinition(formId);
+  const payload = readDispatcherPayload(row[contextAlias("payload")]);
+  const fields = form?.id === "visitor_exit"
+    ? [
+        dispatcherEditorField("fio", "ФИО посетителя", "text", true, payload.fio),
+        dispatcherEditorField("organization", "Организация", "text", false, payload.organization),
+        dispatcherEditorField("note", "Примечание", "textarea", false, payload.note),
+      ]
+    : (form?.fields ?? [])
+      .filter((field) => isEditableDispatcherPayloadField(form?.id, field.name))
+      .map((field) => ({
+        name: `payload.${field.name}`,
+        label: field.label,
+        inputType: toAdminEditorInputType(field),
+        required: field.required,
+        options: (field.options ?? []).map((item) => ({ value: item, label: item })),
+        value: toDispatcherEditorValue(payload[field.name], field),
+      }));
+
+  return [
+    ...fields,
+    {
+      name: "status",
+      label: "Статус записи",
+      inputType: "select",
+      required: true,
+      options: [...submissionStatusOptions],
+      value: serializeDatabaseValue(row[contextAlias("status")]),
+    },
+  ];
+}
+
+function isEditableDispatcherPayloadField(
+  formId: string | undefined,
+  fieldName: string,
+) {
+  if (formId === "equipment") {
+    return fieldName !== "reportDate" && fieldName !== "equipment";
+  }
+
+  if (formId === "incident_close") {
+    return fieldName !== "incidentNumber";
+  }
+
+  return formId !== "visitor_exit" || fieldName !== "visitorEntryId";
+}
+
+function dispatcherEditorField(
+  name: string,
+  label: string,
+  inputType: AdminDatabaseEditorInputType,
+  required: boolean,
+  value: string | undefined,
+): AdminDatabaseEditorField {
+  return {
+    name: `payload.${name}`,
+    label,
+    inputType,
+    required,
+    options: [],
+    value: value ?? null,
   };
 }
 
@@ -626,54 +720,45 @@ function viewColumn(
   name: string,
   label: string,
   selectExpression: string,
-  options: Partial<
-    Pick<
-      AdminDatabaseViewColumn,
-      | "format"
-      | "editable"
-      | "multiline"
-      | "nullable"
-      | "sourceColumn"
-      | "dataType"
-    >
-  > = {},
+  optionsValue: Partial<Pick<
+    AdminDatabaseViewColumn,
+    | "format"
+    | "editable"
+    | "multiline"
+    | "nullable"
+    | "sourceColumn"
+    | "inputType"
+    | "options"
+    | "maxLength"
+    | "writeValue"
+  >> = {},
 ): AdminDatabaseViewColumn {
   return {
     name,
     label,
     selectExpression,
-    format: options.format ?? "text",
-    editable: options.editable ?? false,
-    multiline: options.multiline ?? false,
-    nullable: options.nullable ?? false,
-    sourceColumn: options.sourceColumn,
-    dataType: options.dataType ?? "text",
+    format: optionsValue.format ?? "text",
+    editable: optionsValue.editable ?? false,
+    multiline: optionsValue.multiline ?? false,
+    nullable: optionsValue.nullable ?? false,
+    sourceColumn: optionsValue.sourceColumn,
+    inputType: optionsValue.inputType ?? (optionsValue.multiline ? "textarea" : "text"),
+    options: optionsValue.options ?? [],
+    maxLength: optionsValue.maxLength,
+    writeValue: optionsValue.writeValue,
   };
 }
 
 function readView(tableName: string) {
   const view = databaseViewByName.get(tableName);
-
-  if (view === undefined) {
-    throw new Error("Unknown database view.");
-  }
-
+  if (view === undefined) throw new Error("Unknown database view.");
   return view;
 }
 
 function serializeDatabaseValue(value: unknown): AdminDatabaseCellValue {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  if (typeof value === "object") {
-    return JSON.stringify(value);
-  }
-
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
@@ -681,22 +766,30 @@ function normalizeDatabaseValue(
   value: AdminDatabaseCellValue,
   column: AdminDatabaseViewColumn,
 ) {
-  if (value === null) {
-    if (!column.nullable) {
-      throw new Error(`${column.name} cannot be null.`);
-    }
-
+  if (value === null || value.trim().length === 0) {
+    if (!column.nullable) throw new Error(`${column.name} cannot be empty.`);
     return null;
   }
 
-  if (column.dataType === "json") {
-    try {
-      return JSON.stringify(JSON.parse(value));
-    } catch {
-      throw new Error(`${column.name} must contain valid JSON.`);
-    }
+  const normalized = value.trim();
+  if (column.maxLength !== undefined && normalized.length > column.maxLength) {
+    throw new Error(`${column.name} is too long.`);
+  }
+  if (column.options.length > 0) {
+    readOptionValue(normalized, column.options, column.name);
   }
 
+  return column.writeValue?.(normalized) ?? normalized;
+}
+
+function readOptionValue(
+  value: AdminDatabaseCellValue,
+  allowed: readonly AdminDatabaseEditorOption[],
+  name: string,
+) {
+  if (typeof value !== "string" || !allowed.some((option) => option.value === value)) {
+    throw new Error(`${name} has an unsupported value.`);
+  }
   return value;
 }
 
@@ -704,13 +797,9 @@ function assertPrimaryKey(
   view: AdminDatabaseView,
   primaryKey: Record<string, AdminDatabaseCellValue>,
 ) {
-  if (view.primaryKey.length === 0) {
-    throw new Error("Selected table does not allow row mutations.");
-  }
-
+  if (view.primaryKey.length === 0) throw new Error("Selected table does not allow row mutations.");
   for (const column of view.primaryKey) {
     const value = primaryKey[column.name];
-
     if (value === undefined || value === null || value.length === 0) {
       throw new Error("Primary key value is missing.");
     }
@@ -718,9 +807,7 @@ function assertPrimaryKey(
 }
 
 function buildPrimaryKeyWhereClause(view: AdminDatabaseView) {
-  return view.primaryKey
-    .map((column) => `${quoteIdentifier(column.name)} = ?`)
-    .join(" and ");
+  return view.primaryKey.map((column) => `${quoteIdentifier(column.name)} = ?`).join(" and ");
 }
 
 function readPrimaryKeyValues(
@@ -734,35 +821,60 @@ function primaryKeyAlias(columnName: string) {
   return `${primaryKeyAliasPrefix}${columnName}`;
 }
 
-function quoteIdentifier(value: string) {
-  assertSafeIdentifier(value);
+function contextAlias(columnName: string) {
+  return `${contextAliasPrefix}${columnName}`;
+}
 
+function quoteIdentifier(value: string) {
+  if (!identifierPattern.test(value)) throw new Error("Unsafe database identifier.");
   return `\`${value}\``;
 }
 
-function assertSafeIdentifier(value: string) {
-  if (!identifierPattern.test(value)) {
-    throw new Error("Unsafe database identifier.");
+function options(values: ReadonlyArray<readonly [string, string]>): AdminDatabaseEditorOption[] {
+  return values.map(([value, label]) => ({ value, label }));
+}
+
+function readDispatcherPayload(value: unknown): DispatcherSubmissionPayload {
+  if (typeof value === "string") {
+    try {
+      return readDispatcherPayload(JSON.parse(value) as unknown);
+    } catch {
+      return {};
+    }
   }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
 }
 
-function accountTypeLabelExpression(column: string) {
-  return `case ${column}
-    when 'admin' then 'Администратор'
-    when 'business_owner' then 'Руководитель'
-    when 'dispatcher' then 'Диспетчер'
-    when 'worker' then 'Работник'
-    else ${column}
-  end`;
+function toAdminEditorInputType(field: DispatcherFormField): AdminDatabaseEditorInputType {
+  if (field.type === "integer") return "number";
+  return field.type;
 }
 
-function scopeLabelExpression(column: string) {
-  return `case ${column}
-    when 'platform' then 'Вся платформа'
-    when 'business' then 'Весь бизнес'
-    when 'department' then 'Подразделение'
-    else ${column}
-  end`;
+function toDispatcherEditorValue(
+  value: string | undefined,
+  field: DispatcherFormField,
+): AdminDatabaseCellValue {
+  if (value === undefined) return null;
+  if (field.type === "date") return toIsoDate(value);
+  if (field.type === "datetime-local") return toIsoDateTime(value);
+  return value;
+}
+
+function toIsoDate(value: string) {
+  const parts = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value);
+  return parts === null ? value : `${parts[3]}-${parts[2]}-${parts[1]}`;
+}
+
+function toIsoDateTime(value: string) {
+  const parts = /^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})$/.exec(value);
+  return parts === null ? value : `${parts[3]}-${parts[2]}-${parts[1]}T${parts[4]}:${parts[5]}`;
+}
+
+function readSubmissionStatus(value: string): DispatcherSubmissionStatus {
+  return readOptionValue(value, submissionStatusOptions, "status") as DispatcherSubmissionStatus;
 }
 
 function dispatcherFormLabelExpression(column: string) {
@@ -770,7 +882,7 @@ function dispatcherFormLabelExpression(column: string) {
     when 'equipment' then 'Оборудование'
     when 'incident' then 'Открытие инцидента'
     when 'incident_close' then 'Закрытие инцидента'
-    when 'visitor_entry' then 'Вход посетителя'
+    when 'visitor' then 'Вход посетителя'
     when 'visitor_exit' then 'Выход посетителя'
     else ${column}
   end`;
@@ -780,21 +892,8 @@ function dispatcherEventDateExpression() {
   return `coalesce(
     json_unquote(json_extract(submissions.payload, '$.reportDate')),
     json_unquote(json_extract(submissions.payload, '$.datetime')),
-    json_unquote(json_extract(submissions.payload, '$.entryDatetime')),
-    json_unquote(json_extract(submissions.payload, '$.exitDatetime')),
+    json_unquote(json_extract(submissions.payload, '$.entryAt')),
+    json_unquote(json_extract(submissions.payload, '$.exitAt')),
     submissions.period
-  )`;
-}
-
-function navigationLabelExpression() {
-  return `concat_ws(', ',
-    if(json_contains(positions.navigation_items, json_quote('admin.account_preview')), 'Просмотр аккаунта', null),
-    if(json_contains(positions.navigation_items, json_quote('admin.accounts')), 'Учётные записи', null),
-    if(json_contains(positions.navigation_items, json_quote('admin.database')), 'БД', null),
-    if(json_contains(positions.navigation_items, json_quote('admin.user_actions')), 'Действия пользователей', null),
-    if(json_contains(positions.navigation_items, json_quote('business.overview')), 'Обзор', null),
-    if(json_contains(positions.navigation_items, json_quote('business.dispatcher')), 'Диспетчерская', null),
-    if(json_contains(positions.navigation_items, json_quote('business.work')), 'Работа', null),
-    if(json_contains(positions.navigation_items, json_quote('business.dispatcher_form')), 'Форма', null)
   )`;
 }

@@ -69,6 +69,16 @@ test("admin database service builds relative rows endpoint without browser windo
             id: "row-id",
             summary: "text",
           },
+          editorFields: [
+            {
+              name: "payload.fio",
+              label: "ФИО посетителя",
+              inputType: "text",
+              required: true,
+              options: [],
+              value: "Иванов Иван",
+            },
+          ],
         },
       ],
       limit: 25,

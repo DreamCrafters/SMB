@@ -13,7 +13,6 @@ import { getNextMoscowDispatcherLogoutAt } from "./dispatcherSessionExpiry.js";
 const LOCAL_DEV_ACCESS_SESSION_STORAGE_KEY =
   "smb.localDevAccessSession.v1";
 const DEV_BUSINESS_ID = "dev-business-boundary";
-const DEV_DEPARTMENT_ID = "dev-department-boundary";
 
 type LocalDevAccessSession = {
   sessionId: string;
@@ -32,7 +31,6 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "platform.view_logs",
     "platform.use_debug_tools",
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.submit_forms",
     "business.submit_dispatcher_forms",
@@ -41,7 +39,6 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   ],
   business_owner: [
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.view_dispatcher_feed",
     "business.submit_forms",
@@ -183,15 +180,6 @@ function buildLocalDevProfile(
       status: "active" as const,
     },
   ];
-  const departments = [
-    {
-      id: DEV_DEPARTMENT_ID,
-      businessAccountId: DEV_BUSINESS_ID,
-      displayName: "Local test department boundary",
-      structureMode: "current" as const,
-    },
-  ];
-
   if (accountType === "admin") {
     return {
       userId: "local-dev-user-admin",
@@ -211,8 +199,6 @@ function buildLocalDevProfile(
         issuedAt,
       },
       businessAccounts,
-      departments,
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -237,8 +223,6 @@ function buildLocalDevProfile(
         issuedAt,
       },
       businessAccounts,
-      departments: [],
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -259,9 +243,8 @@ function buildLocalDevProfile(
         positionDisplayName: option.positionDisplayName,
         displayName: "Local test dispatcher access",
         scope: {
-          kind: "department",
+          kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
-          departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
         navigationItems: option.navigationItems,
@@ -269,8 +252,6 @@ function buildLocalDevProfile(
         expiresAt,
       },
       businessAccounts,
-      departments,
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -286,17 +267,14 @@ function buildLocalDevProfile(
       positionDisplayName: option.positionDisplayName,
       displayName: "Local test worker access",
       scope: {
-        kind: "department",
+        kind: "business",
         businessAccountId: DEV_BUSINESS_ID,
-        departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
       navigationItems: option.navigationItems,
       issuedAt,
     },
     businessAccounts,
-    departments,
-    organizationStructureMode: "current",
     receivedAt,
   };
 }

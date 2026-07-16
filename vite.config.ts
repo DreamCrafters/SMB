@@ -29,7 +29,6 @@ type DevSession = {
 const DEV_SESSION_COOKIE = "smb_dev_access_session";
 const DEV_SESSION_HEADER = "x-smb-dev-session";
 const DEV_BUSINESS_ID = "dev-business-boundary";
-const DEV_DEPARTMENT_ID = "dev-department-boundary";
 
 function accessProfileApi(): Plugin {
   const sessions = new Map<string, DevSession>();
@@ -191,15 +190,6 @@ function buildDevProfile(
           status: "active",
         },
       ],
-      departments: [
-        {
-          id: DEV_DEPARTMENT_ID,
-          businessAccountId: DEV_BUSINESS_ID,
-          displayName: "Server department boundary",
-          structureMode: "current",
-        },
-      ],
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -230,8 +220,6 @@ function buildDevProfile(
           status: "active",
         },
       ],
-      departments: [],
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -252,9 +240,8 @@ function buildDevProfile(
         positionDisplayName: option.positionDisplayName,
         displayName: "Dev dispatcher access",
         scope: {
-          kind: "department",
+          kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
-          departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
         navigationItems: [...option.navigationItems],
@@ -268,15 +255,6 @@ function buildDevProfile(
           status: "active",
         },
       ],
-      departments: [
-        {
-          id: DEV_DEPARTMENT_ID,
-          businessAccountId: DEV_BUSINESS_ID,
-          displayName: "Server department boundary",
-          structureMode: "current",
-        },
-      ],
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -292,9 +270,8 @@ function buildDevProfile(
       positionDisplayName: option.positionDisplayName,
       displayName: "Dev worker access",
       scope: {
-        kind: "department",
+        kind: "business",
         businessAccountId: DEV_BUSINESS_ID,
-        departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
       navigationItems: [...option.navigationItems],
@@ -307,15 +284,6 @@ function buildDevProfile(
         status: "active",
       },
     ],
-    departments: [
-      {
-        id: DEV_DEPARTMENT_ID,
-        businessAccountId: DEV_BUSINESS_ID,
-        displayName: "Server department boundary",
-        structureMode: "current",
-      },
-    ],
-    organizationStructureMode: "current",
     receivedAt,
   };
 }

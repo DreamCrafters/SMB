@@ -32,12 +32,10 @@ const account = {
   position: "dispatcher",
   positionDisplayName: "Диспетчер",
   scope: {
-    kind: "department",
+    kind: "business",
     businessAccountId: "business-id",
-    departmentId: "department-id",
   },
   businessDisplayName: "Цех 1",
-  departmentDisplayName: "Смена А",
   capabilities: ["business.submit_dispatcher_forms"],
   navigationItems: ["business.dispatcher_form"],
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -87,7 +85,7 @@ test("admin accounts service creates an account without client-generated ids", a
   });
 });
 
-test("admin accounts service drops client-managed scope names", async () => {
+test("admin accounts service sends only account fields", async () => {
   const calls = [];
 
   globalThis.fetch = async (url, init) => {
@@ -102,7 +100,6 @@ test("admin accounts service drops client-managed scope names", async () => {
     displayName: "Работник Один",
     position: "worker",
     businessDisplayName: "Основной бизнес",
-    departmentDisplayName: "Производство",
   });
 
   assert.deepEqual(JSON.parse(calls[0].init.body), {

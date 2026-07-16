@@ -63,7 +63,6 @@ const capabilitiesByNavigationItem: Record<
   "admin.account_preview": [
     "platform.manage_business_accounts",
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.submit_forms",
     "business.submit_dispatcher_forms",
@@ -75,7 +74,6 @@ const capabilitiesByNavigationItem: Record<
   "admin.user_actions": ["platform.view_audit"],
   "business.overview": [
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.view_dispatcher_feed",
   ],

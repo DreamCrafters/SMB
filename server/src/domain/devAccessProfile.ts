@@ -20,7 +20,6 @@ export type DevAccessSession = {
 };
 
 const DEV_BUSINESS_ID = "dev-business-boundary";
-const DEV_DEPARTMENT_ID = "dev-department-boundary";
 const navigationItemsByAccountType = {
   admin: [
     "admin.account_preview",
@@ -44,7 +43,6 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "platform.view_logs",
     "platform.use_debug_tools",
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.submit_forms",
     "business.submit_dispatcher_forms",
@@ -53,7 +51,6 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   ],
   business_owner: [
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.view_dispatcher_feed",
     "business.submit_forms",
@@ -112,8 +109,6 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
-      departments: [buildDevDepartment()],
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -138,8 +133,6 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         issuedAt,
       },
       businessAccounts: [buildDevBusiness()],
-      departments: [],
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -160,9 +153,8 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         positionDisplayName: option.positionDisplayName,
         displayName: "Dev dispatcher access",
         scope: {
-          kind: "department",
+          kind: "business",
           businessAccountId: DEV_BUSINESS_ID,
-          departmentId: DEV_DEPARTMENT_ID,
         },
         capabilities,
         navigationItems: [...option.navigationItems],
@@ -170,8 +162,6 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         expiresAt,
       },
       businessAccounts: [buildDevBusiness()],
-      departments: [buildDevDepartment()],
-      organizationStructureMode: "current",
       receivedAt,
     };
   }
@@ -187,17 +177,14 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
       positionDisplayName: option.positionDisplayName,
       displayName: "Dev worker access",
       scope: {
-        kind: "department",
+        kind: "business",
         businessAccountId: DEV_BUSINESS_ID,
-        departmentId: DEV_DEPARTMENT_ID,
       },
       capabilities,
       navigationItems: [...option.navigationItems],
       issuedAt,
     },
     businessAccounts: [buildDevBusiness()],
-    departments: [buildDevDepartment()],
-    organizationStructureMode: "current",
     receivedAt,
   };
 }
@@ -235,14 +222,5 @@ function buildDevBusiness() {
     id: DEV_BUSINESS_ID,
     displayName: "Server business boundary",
     status: "active",
-  };
-}
-
-function buildDevDepartment() {
-  return {
-    id: DEV_DEPARTMENT_ID,
-    businessAccountId: DEV_BUSINESS_ID,
-    displayName: "Server department boundary",
-    structureMode: "current",
   };
 }

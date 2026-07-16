@@ -23,17 +23,13 @@ test("dispatcher login stores the 07:45 MSK session expiry", async () => {
           position_code: "dispatcher",
           position_display_name: "Диспетчер",
           access_display_name: "Диспетчер",
-          scope_kind: "department",
+          scope_kind: "business",
           business_account_id: "business",
-          department_id: "department",
           capabilities: JSON.stringify(["business.submit_dispatcher_forms"]),
           navigation_items: JSON.stringify(["business.dispatcher_form"]),
           access_created_at: "2026-07-01T00:00:00.000Z",
           business_display_name: "Бизнес",
           business_status: "active",
-          department_display_name: "Диспетчерская",
-          department_structure_mode: "current",
-          parent_department_id: null,
         }], []];
       }
 

@@ -16,6 +16,24 @@ export type AdminDatabaseColumn = {
   nullable: boolean;
 };
 
+export type AdminDatabaseEditorInputType =
+  | "text"
+  | "textarea"
+  | "select"
+  | "number"
+  | "date"
+  | "month"
+  | "datetime-local";
+
+export type AdminDatabaseEditorField = {
+  name: string;
+  label: string;
+  inputType: AdminDatabaseEditorInputType;
+  required: boolean;
+  options: Array<{ value: string; label: string }>;
+  value: AdminDatabaseCellValue;
+};
+
 export type AdminDatabaseTable = {
   name: string;
   label: string;
@@ -29,6 +47,7 @@ export type AdminDatabaseTable = {
 export type AdminDatabaseRow = {
   primaryKey: Record<string, AdminDatabaseCellValue>;
   values: Record<string, AdminDatabaseCellValue>;
+  editorFields: AdminDatabaseEditorField[];
 };
 
 export type AdminDatabaseTablesResponse = {

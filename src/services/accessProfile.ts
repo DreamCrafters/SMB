@@ -364,9 +364,6 @@ function isServerUserProfile(value: unknown): value is ServerUserProfile {
     isAccountType(value.accountType) &&
     isServerIssuedAccountAccess(value.activeAccess) &&
     Array.isArray(value.businessAccounts) &&
-    Array.isArray(value.departments) &&
-    (value.organizationStructureMode === "classic" ||
-      value.organizationStructureMode === "current") &&
     typeof value.receivedAt === "string"
   );
 }

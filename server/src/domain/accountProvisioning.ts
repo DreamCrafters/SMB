@@ -5,18 +5,9 @@ export const primaryBusinessAccount = {
   displayName: "Основной бизнес",
 } as const;
 
-export const defaultDispatcherDepartment = {
-  id: "dispatch",
-  displayName: "Диспетчерская",
-} as const;
-
 export type AccountProvisioningScope = {
-  scopeKind: "platform" | "business" | "department";
+  scopeKind: "platform" | "business";
   businessAccount?: {
-    id: string;
-    displayName: string;
-  };
-  department?: {
     id: string;
     displayName: string;
   };
@@ -27,13 +18,10 @@ export type AccountProvisioningScopeInput = {
   displayName: string;
   businessAccountId?: string;
   businessDisplayName?: string;
-  departmentId?: string;
-  departmentDisplayName?: string;
 };
 
 export function resolveAccountProvisioningScope(
   input: AccountProvisioningScopeInput,
-  createId: () => string,
 ): AccountProvisioningScope {
   if (input.accountType === "admin") {
     return {
@@ -52,32 +40,8 @@ export function resolveAccountProvisioningScope(
         : businessAccountId),
   };
 
-  if (input.accountType === "business_owner") {
-    return {
-      scopeKind: "business",
-      businessAccount,
-    };
-  }
-
-  const usesDefaultDispatcherDepartment =
-    input.accountType === "dispatcher" &&
-    businessAccountId === primaryBusinessAccount.id;
-  const departmentId =
-    input.departmentId ??
-    (usesDefaultDispatcherDepartment
-      ? defaultDispatcherDepartment.id
-      : createId());
-
   return {
-    scopeKind: "department",
+    scopeKind: "business",
     businessAccount,
-    department: {
-      id: departmentId,
-      displayName:
-        input.departmentDisplayName ??
-        (input.accountType === "dispatcher"
-          ? defaultDispatcherDepartment.displayName
-          : input.displayName),
-    },
   };
 }

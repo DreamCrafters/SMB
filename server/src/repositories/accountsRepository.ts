@@ -28,7 +28,6 @@ export type AdminAccountSummary = {
   positionDisplayName: string;
   scope: AccountScope;
   businessDisplayName: string | null;
-  departmentDisplayName: string | null;
   capabilities: AccountCapability[];
   navigationItems: AccountNavigationItem[];
   createdAt: string;
@@ -68,8 +67,6 @@ export type CreateAccountInput = {
   navigationItems?: AccountNavigationItem[];
   businessAccountId?: string;
   businessDisplayName?: string;
-  departmentId?: string;
-  departmentDisplayName?: string;
   accessDisplayName?: string;
 };
 
@@ -159,8 +156,6 @@ type AccountRow = RowDataPacket & {
   scope_kind: string;
   business_account_id: string | null;
   business_display_name: string | null;
-  department_id: string | null;
-  department_display_name: string | null;
   capabilities: unknown;
   navigation_items: unknown;
   created_at: Date | string;
@@ -177,19 +172,11 @@ type PositionRow = RowDataPacket & {
   usage_count: number | string;
 };
 
-type PositionAccessRow = RowDataPacket & {
-  access_id: string;
-  user_display_name: string;
-  business_account_id: string | null;
-  department_id: string | null;
-};
-
 type AccountPositionAssignmentRow = RowDataPacket & {
   access_id: string;
   user_id: string;
   user_display_name: string;
   business_account_id: string | null;
-  department_id: string | null;
 };
 
 type DeletePositionRow = RowDataPacket & {
@@ -219,8 +206,6 @@ const accountRowSelect = `
     accesses.scope_kind,
     accesses.business_account_id,
     business.display_name as business_display_name,
-    accesses.department_id,
-    departments.display_name as department_display_name,
     positions.capabilities,
     positions.navigation_items,
     accesses.created_at
@@ -229,7 +214,6 @@ const accountRowSelect = `
   join account_positions as positions on positions.id = accesses.position_code
   left join business_accounts as business
     on business.id = accesses.business_account_id
-  left join departments on departments.id = accesses.department_id
 `;
 
 export function createAccountsRepository(
@@ -290,7 +274,7 @@ export function createAccountsRepository(
         return undefined;
       }
       if (current.account_type !== input.accountType) {
-        await updatePositionAccessScopes(connection, input, createId);
+        await updatePositionAccessScopes(connection, input);
       }
       await connection.query(
         `update account_positions
@@ -373,7 +357,7 @@ export function createAccountsRepository(
         input.navigationItems ?? navigationItemsByAccountType[input.accountType];
       const resolvedCapabilities = input.capabilities;
 
-      const scope = resolveAccountProvisioningScope(input, createId);
+      const scope = resolveAccountProvisioningScope(input);
 
       if (scope.businessAccount !== undefined) {
         await connection.query(
@@ -385,32 +369,6 @@ export function createAccountsRepository(
               status = 'active'
           `,
           [scope.businessAccount.id, scope.businessAccount.displayName],
-        );
-      }
-
-      if (
-        scope.department !== undefined &&
-        scope.businessAccount !== undefined
-      ) {
-        await connection.query(
-          `
-            insert into departments (
-              id,
-              business_account_id,
-              display_name,
-              structure_mode
-            )
-            values (?, ?, ?, 'current')
-            on duplicate key update
-              business_account_id = values(business_account_id),
-              display_name = values(display_name),
-              structure_mode = values(structure_mode)
-          `,
-          [
-            scope.department.id,
-            scope.businessAccount.id,
-            scope.department.displayName,
-          ],
         );
       }
 
@@ -452,12 +410,11 @@ export function createAccountsRepository(
             display_name,
             scope_kind,
             business_account_id,
-            department_id,
             capabilities,
             navigation_items,
             is_active
           )
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         `,
         [
           accessId,
@@ -467,7 +424,6 @@ export function createAccountsRepository(
           input.accessDisplayName ?? `${input.displayName} access`,
           scope.scopeKind,
           scope.businessAccount?.id ?? null,
-          scope.department?.id ?? null,
           JSON.stringify(resolvedCapabilities),
           JSON.stringify(resolvedNavigationItems),
         ],
@@ -654,7 +610,7 @@ export function createAccountsRepository(
       >(
         `select accesses.id as access_id, accesses.user_id,
           users.display_name as user_display_name,
-          accesses.business_account_id, accesses.department_id
+          accesses.business_account_id
          from account_accesses accesses
          join app_users users on users.id = accesses.user_id
          where accesses.id = ? and accesses.is_active = 1
@@ -702,13 +658,12 @@ export function createAccountsRepository(
         connection,
         existing,
         targetPosition.accountType,
-        createId,
       );
 
       await connection.query(
         `update account_accesses
          set account_type = ?, position_code = ?, scope_kind = ?,
-           business_account_id = ?, department_id = ?, capabilities = ?,
+           business_account_id = ?, capabilities = ?,
            navigation_items = ?
          where id = ? and is_active = 1`,
         [
@@ -716,7 +671,6 @@ export function createAccountsRepository(
           targetPosition.id,
           scope.scopeKind,
           scope.businessAccount?.id ?? null,
-          scope.department?.id ?? null,
           JSON.stringify(targetPosition.capabilities),
           JSON.stringify(targetPosition.navigationItems),
           accessId,
@@ -787,7 +741,6 @@ async function resolvePositionAssignmentScope(
   connection: PoolConnection,
   access: AccountPositionAssignmentRow,
   accountType: AccountType,
-  createId: () => string,
 ) {
   const scope = resolveAccountProvisioningScope(
     {
@@ -796,11 +749,7 @@ async function resolvePositionAssignmentScope(
       ...(access.business_account_id === null
         ? {}
         : { businessAccountId: access.business_account_id }),
-      ...(access.department_id === null
-        ? {}
-        : { departmentId: access.department_id }),
     },
-    createId,
   );
 
   if (
@@ -815,92 +764,19 @@ async function resolvePositionAssignmentScope(
     );
   }
 
-  if (access.department_id === null && scope.department !== undefined) {
-    if (scope.businessAccount === undefined) {
-      throw new Error("Department scope has no business account.");
-    }
-
-    await connection.query(
-      `insert into departments (
-        id, business_account_id, display_name, structure_mode
-      ) values (?, ?, ?, 'current')
-      on duplicate key update
-        business_account_id = values(business_account_id),
-        display_name = values(display_name),
-        structure_mode = values(structure_mode)`,
-      [
-        scope.department.id,
-        scope.businessAccount.id,
-        scope.department.displayName,
-      ],
-    );
-  }
-
   return scope;
 }
 
 async function updatePositionAccessScopes(
   connection: PoolConnection,
   input: UpdatePositionInput,
-  createId: () => string,
 ) {
-  if (input.accountType === "business_owner") {
-    await connection.query(
-      `update account_accesses
-       set account_type = ?, scope_kind = 'business', department_id = null
-       where position_code = ?`,
-      [input.accountType, input.id],
-    );
-    return;
-  }
-
-  const [accesses] = await connection.query<PositionAccessRow[]>(
-    `select accesses.id as access_id, users.display_name as user_display_name,
-      accesses.business_account_id, accesses.department_id
-     from account_accesses accesses
-     join app_users users on users.id = accesses.user_id
-     where accesses.position_code = ?`,
-    [input.id],
+  await connection.query(
+    `update account_accesses
+     set account_type = ?, scope_kind = 'business'
+     where position_code = ?`,
+    [input.accountType, input.id],
   );
-
-  for (const access of accesses) {
-    if (access.business_account_id === null) {
-      throw new Error("Stored account position scope has no business account.");
-    }
-
-    let departmentId = access.department_id;
-    if (departmentId === null) {
-      const scope = resolveAccountProvisioningScope(
-        {
-          accountType: input.accountType,
-          displayName: access.user_display_name,
-          businessAccountId: access.business_account_id,
-        },
-        createId,
-      );
-      if (scope.department === undefined || scope.businessAccount === undefined) {
-        throw new Error("Failed to resolve department scope for account position.");
-      }
-      departmentId = scope.department.id;
-      await connection.query(
-        `insert into departments (
-          id, business_account_id, display_name, structure_mode
-        ) values (?, ?, ?, 'current')
-        on duplicate key update
-          business_account_id = values(business_account_id),
-          display_name = values(display_name),
-          structure_mode = values(structure_mode)`,
-        [departmentId, scope.businessAccount.id, scope.department.displayName],
-      );
-    }
-
-    await connection.query(
-      `update account_accesses
-       set account_type = ?, scope_kind = 'department', department_id = ?
-       where id = ?`,
-      [input.accountType, departmentId, access.access_id],
-    );
-  }
 }
 
 async function readUserIdByLoginInTransaction(
@@ -928,7 +804,6 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     positionDisplayName: row.position_display_name,
     scope: buildScope(row),
     businessDisplayName: row.business_display_name,
-    departmentDisplayName: row.department_display_name,
     capabilities: readCapabilities(row.capabilities),
     navigationItems: readNavigationItems(row.navigation_items, row.account_type as AccountType),
     createdAt: toDate(row.created_at).toISOString(),
@@ -982,6 +857,10 @@ function readAdminUserStatus(value: string): AdminUserStatus {
 }
 
 function buildScope(row: AccountRow): AccountScope {
+  if (row.scope_kind === "platform") {
+    return { kind: "platform" };
+  }
+
   if (row.scope_kind === "business" && row.business_account_id !== null) {
     return {
       kind: "business",
@@ -989,19 +868,7 @@ function buildScope(row: AccountRow): AccountScope {
     };
   }
 
-  if (
-    row.scope_kind === "department" &&
-    row.business_account_id !== null &&
-    row.department_id !== null
-  ) {
-    return {
-      kind: "department",
-      businessAccountId: row.business_account_id,
-      departmentId: row.department_id,
-    };
-  }
-
-  return { kind: "platform" };
+  throw new Error("Stored account scope is not supported.");
 }
 
 function readCapabilities(value: unknown): AccountCapability[] {

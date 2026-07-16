@@ -449,7 +449,33 @@ function isAdminDatabaseRow(value: unknown) {
   return (
     isRecord(value) &&
     isDatabaseValueMap(value.primaryKey) &&
-    isDatabaseValueMap(value.values)
+    isDatabaseValueMap(value.values) &&
+    Array.isArray(value.editorFields) &&
+    value.editorFields.every(isAdminDatabaseEditorField)
+  );
+}
+
+function isAdminDatabaseEditorField(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.label === "string" &&
+    (value.inputType === "text" ||
+      value.inputType === "textarea" ||
+      value.inputType === "select" ||
+      value.inputType === "number" ||
+      value.inputType === "date" ||
+      value.inputType === "month" ||
+      value.inputType === "datetime-local") &&
+    typeof value.required === "boolean" &&
+    Array.isArray(value.options) &&
+    value.options.every(
+      (option) =>
+        isRecord(option) &&
+        typeof option.value === "string" &&
+        typeof option.label === "string",
+    ) &&
+    (typeof value.value === "string" || value.value === null)
   );
 }
 

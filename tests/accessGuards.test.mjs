@@ -17,16 +17,13 @@ function buildProfile(accountType, capabilities) {
       accountType,
       displayName: `${accountType} access`,
       scope: {
-        kind: "department",
+        kind: "business",
         businessAccountId: "business-id",
-        departmentId: "department-id",
       },
       capabilities,
       issuedAt: "2026-06-21T00:00:00.000Z",
     },
     businessAccounts: [],
-    departments: [],
-    organizationStructureMode: "current",
     receivedAt: "2026-06-21T00:00:00.000Z",
   };
 }

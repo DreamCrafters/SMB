@@ -268,6 +268,50 @@ test("user audit migration creates append-only storage and grants the report tab
   assert.match(statements[1] ?? "", /platform\.view_audit/);
 });
 
+test("department removal migration preserves accounts in their business scope", async () => {
+  const appliedIds = new Set([
+    "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
+    "003_equipment_report_revisions", "004_auth_users_sessions_accesses",
+    "005_account_positions_and_navigation", "006_account_access_levels",
+    "007_expand_non_admin_access_catalog", "008_remove_system_full_access_levels",
+    "009_remove_account_access_levels", "010_dynamic_account_positions",
+    "011_empty_worker_workspace", "012_split_manager_dispatcher_access",
+    "013_protect_used_account_positions", "014_dispatcher_spreadsheet_import_source",
+    "015_user_audit_events",
+  ]);
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [appliedIds.has(id) ? [{ id }] : [], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(
+    statements[0] ?? "",
+    /update account_accesses set is_active = case when business_account_id is null then 0 else is_active end, scope_kind = 'business', department_id = null/,
+  );
+  assert.match(statements[1] ?? "", /json_search\(capabilities, 'one', 'business\.view_department_statistics'\)/);
+  assert.match(statements[2] ?? "", /update account_accesses set capabilities = json_remove/);
+  assert.match(statements[3] ?? "", /drop index idx_account_accesses_scope/);
+  assert.match(
+    statements[3] ?? "",
+    /add key idx_account_accesses_scope \( scope_kind, business_account_id \)/,
+  );
+  assert.match(statements[4] ?? "", /alter table account_accesses drop column department_id/);
+  assert.match(statements[5] ?? "", /drop table if exists departments/);
+});
+
 function normalizeSql(sql: string) {
   return sql.replace(/\s+/g, " ").trim();
 }

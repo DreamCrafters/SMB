@@ -39,7 +39,6 @@ export const accountCapabilities = [
   "platform.view_logs",
   "platform.use_debug_tools",
   "business.view_all_statistics",
-  "business.view_department_statistics",
   "business.view_notifications",
   "business.submit_forms",
   "business.submit_dispatcher_forms",
@@ -57,11 +56,6 @@ export type AccountScope =
   | {
       kind: "business";
       businessAccountId: string;
-    }
-  | {
-      kind: "department";
-      businessAccountId: string;
-      departmentId: string;
     };
 
 export type ServerIssuedAccountAccess = {
@@ -83,22 +77,12 @@ export type BusinessAccountRef = {
   status: "active" | "suspended" | "archived";
 };
 
-export type DepartmentRef = {
-  id: string;
-  businessAccountId: string;
-  displayName: string;
-  structureMode: "classic" | "current";
-  parentDepartmentId?: string;
-};
-
 export type ServerUserProfile = {
   userId: string;
   displayName: string;
   accountType: AccountType;
   activeAccess: ServerIssuedAccountAccess;
   businessAccounts: BusinessAccountRef[];
-  departments: DepartmentRef[];
-  organizationStructureMode: "classic" | "current";
   receivedAt: string;
 };
 
@@ -140,7 +124,6 @@ export const defaultCapabilitiesByAccountType: Record<
     "platform.view_logs",
     "platform.use_debug_tools",
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.submit_forms",
     "business.submit_dispatcher_forms",
@@ -149,7 +132,6 @@ export const defaultCapabilitiesByAccountType: Record<
   ],
   business_owner: [
     "business.view_all_statistics",
-    "business.view_department_statistics",
     "business.view_notifications",
     "business.view_dispatcher_feed",
     "business.submit_forms",
@@ -293,7 +275,7 @@ export function readScopedBusinessAccountId(
 ): string | undefined {
   const scope = profile.activeAccess.scope;
 
-  if (scope.kind === "business" || scope.kind === "department") {
+  if (scope.kind === "business") {
     return scope.businessAccountId;
   }
 

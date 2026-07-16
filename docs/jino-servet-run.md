@@ -309,7 +309,7 @@ npm --workspace server run auth:create-user
 использовать отдельное действие сброса в админском интерфейсе/API.
 
 Для `business_owner`, `dispatcher` и `worker` scope ID необязательны. Например,
-диспетчера можно создать без ручного задания business/department ID:
+диспетчера можно создать без ручного задания business ID:
 
 ```bash
 SMB_AUTH_LOGIN=dispatcher \
@@ -319,9 +319,6 @@ SMB_AUTH_ACCOUNT_TYPE=dispatcher \
 npm --workspace server run auth:create-user
 ```
 
-Без scope-переменных backend автоматически назначает владельцу и диспетчеру
-общий business scope, диспетчеру — стандартное подразделение, а работнику
-создаёт отдельный department ID. `SMB_AUTH_BUSINESS_ACCOUNT_ID` и
-`SMB_AUTH_DEPARTMENT_ID` остаются необязательными явными overrides;
-`SMB_AUTH_BUSINESS_DISPLAY_NAME` и `SMB_AUTH_DEPARTMENT_DISPLAY_NAME` также
-необязательны.
+Без scope-переменных backend автоматически назначает всем неадминистративным
+аккаунтам общий business scope. `SMB_AUTH_BUSINESS_ACCOUNT_ID` и
+`SMB_AUTH_BUSINESS_DISPLAY_NAME` остаются необязательными явными overrides.

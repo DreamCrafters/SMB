@@ -2434,7 +2434,8 @@ p {
 }
 
 .admin-db-editor-field input,
-.admin-db-editor-field textarea {
+.admin-db-editor-field textarea,
+.admin-db-editor-field select {
   width: 100%;
   min-height: 38px;
   padding: 8px 10px;
@@ -2451,13 +2452,15 @@ p {
 }
 
 .admin-db-editor-field input:focus,
-.admin-db-editor-field textarea:focus {
+.admin-db-editor-field textarea:focus,
+.admin-db-editor-field select:focus {
   border-color: var(--blue-gray);
   outline: 2px solid var(--blue-gray-soft);
 }
 
 .admin-db-editor-field input:disabled,
-.admin-db-editor-field textarea:disabled {
+.admin-db-editor-field textarea:disabled,
+.admin-db-editor-field select:disabled {
   color: var(--muted);
   background: var(--surface-subtle);
 }
@@ -2467,20 +2470,6 @@ p {
   border-color: var(--line);
   color: var(--muted);
   background: var(--surface-subtle);
-}
-
-.admin-db-null-toggle {
-  display: flex;
-  gap: var(--density-1);
-  align-items: center;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.admin-db-null-toggle input {
-  width: 16px;
-  min-height: 16px;
 }
 
 .admin-db-actions-column .admin-db-actions {

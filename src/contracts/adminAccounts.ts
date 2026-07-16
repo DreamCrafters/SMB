@@ -18,7 +18,6 @@ export type AdminAccountSummary = {
   positionDisplayName: string;
   scope: AccountScope;
   businessDisplayName: string | null;
-  departmentDisplayName: string | null;
   capabilities: AccountCapability[];
   navigationItems: AccountNavigationItem[];
   createdAt: string;

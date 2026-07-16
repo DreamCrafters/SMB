@@ -77,6 +77,33 @@ export type DispatcherSubmissionsRepository = {
   readSummary: (filters?: DispatcherFeedFilters) => Promise<DispatcherFeedSummary>;
 };
 
+export async function recordEquipmentReportRevisionForDate(
+  pool: DatabasePool,
+  value: {
+    businessAccountId: string;
+    reportDate: string;
+    submittedByAccountId: string;
+  },
+) {
+  const repository = createDispatcherSubmissionsRepository(pool);
+  const submissions = await repository.listLatest({
+    businessAccountId: value.businessAccountId,
+    formId: "equipment",
+    reportDate: value.reportDate,
+    limit: dispatcherFeedPageLimit,
+  });
+
+  if (submissions.length === 0) {
+    throw new Error("Updated equipment report was not found.");
+  }
+
+  await repository.recordEquipmentReportRevision({
+    ...value,
+    status: "updated",
+    submissions,
+  });
+}
+
 export function createDispatcherSubmissionsRepository(
   pool: DatabasePool,
 ): DispatcherSubmissionsRepository {
@@ -88,7 +115,7 @@ export function createDispatcherSubmissionsRepository(
         form === undefined
           ? value.summary
           : buildDispatcherSubmissionSummary(form, draft.payload);
-      const legacyValues = buildLegacyValues(draft.payload, draft.formId, summary);
+      const legacyValues = buildDispatcherLegacyValues(draft.payload, draft.formId, summary);
       const dedupeKey = buildDispatcherSubmissionDedupeKey(draft);
       const id = randomUUID();
 
@@ -371,20 +398,21 @@ function formatReportDateForPayload(value: string) {
   return `${parts[3]}.${parts[2]}.${parts[1]}`;
 }
 
-function buildLegacyValues(
+export function buildDispatcherLegacyValues(
   payload: DispatcherSubmissionPayload,
-  formId: DispatcherFormId,
+  formId: string,
   summary: string,
+  fallbackPeriod = new Date().toISOString().slice(0, 7),
 ) {
   return {
-    period: readLegacyPeriod(payload),
+    period: readLegacyPeriod(payload, fallbackPeriod),
     metricCode: formId,
     rawValue: summary,
     comment: payload.note ?? payload.comment ?? null,
   };
 }
 
-function readLegacyPeriod(payload: DispatcherSubmissionPayload) {
+function readLegacyPeriod(payload: DispatcherSubmissionPayload, fallbackPeriod: string) {
   return (
     payload.reportMonth ??
     payload.monthYear ??
@@ -393,7 +421,7 @@ function readLegacyPeriod(payload: DispatcherSubmissionPayload) {
     readMonthFromPayloadDate(payload.datetime) ??
     readMonthFromPayloadDate(payload.closureDateTime) ??
     readMonthFromPayloadDate(payload.entryAt) ??
-    new Date().toISOString().slice(0, 7)
+    fallbackPeriod
   );
 }
 
