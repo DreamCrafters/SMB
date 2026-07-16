@@ -11,6 +11,8 @@ import type {
   SaveAdminPositionResponse,
   SetAdminAccountLoginEnabledRequest,
   SetAdminAccountLoginEnabledResponse,
+  SetAdminAccountPositionRequest,
+  SetAdminAccountPositionResponse,
   SetAdminAccountNavigationRequest,
   SetAdminAccountNavigationResponse,
 } from "../contracts";
@@ -58,6 +60,9 @@ export type SetAdminAccountLoginEnabledResult =
       userId: string;
       userStatus: "active" | "suspended";
     }
+  | AdminAccountsErrorState;
+export type SetAdminAccountPositionResult =
+  | { status: "ready"; account: AdminAccountSummary }
   | AdminAccountsErrorState;
 export type DeleteAdminAccountResult =
   | { status: "ready" }
@@ -385,6 +390,59 @@ export async function setAdminAccountLoginEnabled(
   }
 }
 
+export async function setAdminAccountPosition(
+  value: SetAdminAccountPositionRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<SetAdminAccountPositionResult> {
+  const path = `${ADMIN_ACCOUNTS_PATH}/${encodeURIComponent(value.accessId)}/position`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify({ position: value.position }),
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Сервер отклонил смену должности.",
+      );
+    }
+
+    if (isSetAdminAccountPositionResponse(payload)) {
+      return { status: "ready", account: payload.account };
+    }
+
+    return {
+      status: "error",
+      message: "Сервер вернул учётную запись в неподдерживаемом формате.",
+      code: "invalid_response",
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return { status: "error", message: "Смена должности отменена." };
+    }
+
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure("Не удалось изменить должность.", {
+        baseUrl,
+      }),
+      code: "network_error",
+    };
+  }
+}
+
 export async function setAdminAccountNavigation(
   value: SetAdminAccountNavigationRequest,
   { baseUrl, signal }: AdminAccountsRequestOptions = {},
@@ -573,6 +631,12 @@ function isSetAdminAccountLoginEnabledResponse(
     typeof value.userId === "string" &&
     (value.userStatus === "active" || value.userStatus === "suspended")
   );
+}
+
+function isSetAdminAccountPositionResponse(
+  value: unknown,
+): value is SetAdminAccountPositionResponse {
+  return isRecord(value) && isAdminAccountSummary(value.account);
 }
 
 function isSetAdminAccountNavigationResponse(

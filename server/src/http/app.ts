@@ -55,6 +55,7 @@ import {
   type AdminPositionSummary,
   type CreateAccountInput,
   type SetAccountLoginEnabledInput,
+  type SetAccountPositionInput,
 } from "../repositories/accountsRepository.js";
 import {
   createGoogleSheetsReferenceDataSource,
@@ -799,6 +800,24 @@ function buildAccountAuditDetails(account: AdminAccountSummary | undefined) {
   ];
 }
 
+function buildAccountPositionChangeAuditDetails(
+  previous: AdminAccountSummary,
+  updated: AdminAccountSummary,
+) {
+  return [
+    { label: "Пользователь", value: updated.userDisplayName },
+    { label: "Логин", value: updated.login },
+    {
+      label: "Прежняя должность",
+      value: `${previous.positionDisplayName} (${previous.position})`,
+    },
+    {
+      label: "Новая должность",
+      value: `${updated.positionDisplayName} (${updated.position})`,
+    },
+  ];
+}
+
 function buildPositionAuditDetails(position: AdminPositionSummary) {
   return [
     { label: "Должность", value: position.displayName },
@@ -1241,15 +1260,23 @@ async function handleAdminAccountsRequest({
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
 }) {
+  const accountPositionPathMatch =
+    /^\/api\/admin\/accounts\/([^/]+)\/position$/u.exec(url.pathname);
+  const accountPositionAccessId =
+    accountPositionPathMatch === null
+      ? undefined
+      : decodeURIComponent(accountPositionPathMatch[1] ?? "");
   const isLoginStatusUpdate =
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
+  const isAccountPositionUpdate =
+    accountPositionAccessId !== undefined && req.method === "PATCH";
   const isPositionRequest = url.pathname.startsWith("/api/admin/positions");
   const isAccountDelete =
     url.pathname.startsWith("/api/admin/accounts/") &&
     url.pathname !== "/api/admin/accounts/reset-password" &&
     req.method === "DELETE";
   const requiresManageAccess =
-    isLoginStatusUpdate || isPositionRequest || isAccountDelete ||
+    isLoginStatusUpdate || isAccountPositionUpdate || isPositionRequest || isAccountDelete ||
     (url.pathname === "/api/admin/accounts" && req.method === "POST");
   const access = await requireCapability(req, res, {
     config,
@@ -1258,7 +1285,7 @@ async function handleAdminAccountsRequest({
     capability: requiresManageAccess
       ? "platform.manage_access"
       : "platform.manage_users",
-    message: isLoginStatusUpdate
+    message: isLoginStatusUpdate || isAccountPositionUpdate
       ? "Управление доступом к учётным записям недоступно."
       : "Управление учётными записями недоступно.",
   });
@@ -1274,6 +1301,104 @@ async function handleAdminAccountsRequest({
         message: "Хранилище учётных записей не настроено.",
       },
     });
+    return;
+  }
+
+  if (accountPositionAccessId !== undefined) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Метод не поддерживается." },
+      });
+      return;
+    }
+
+    if (accountPositionAccessId === access.profile.activeAccess.accountId) {
+      sendJson(res, 409, {
+        error: {
+          code: "invalid_response",
+          message: "Нельзя менять должность текущей учётной записи.",
+        },
+      });
+      return;
+    }
+
+    const targetAccount = (await accounts.listAccounts()).find(
+      (account) => account.accessId === accountPositionAccessId,
+    );
+
+    if (targetAccount === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+
+    if (targetAccount.userId === access.profile.userId) {
+      sendJson(res, 409, {
+        error: {
+          code: "invalid_response",
+          message: "Нельзя менять должность текущей учётной записи.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateSetAccountPositionRequest(await readJsonBody(req));
+
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const targetPosition = (await accounts.listPositions()).find(
+      (position) => position.id === validation.value.position,
+    );
+
+    if (targetPosition === undefined) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: "Должность не найдена." },
+      });
+      return;
+    }
+
+    const positionChange = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => accounts.setAccountPosition({
+        accessId: accountPositionAccessId,
+        position: targetPosition.id,
+      }),
+      buildEvent: (change) =>
+        change === undefined ||
+        change.previous.position === change.updated.position
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.account_position_update",
+            summary: `Изменена должность учётной записи «${change.updated.userDisplayName}»`,
+            details: buildAccountPositionChangeAuditDetails(
+              change.previous,
+              change.updated,
+            ),
+            targetType: "user_account",
+            targetId: change.updated.userId,
+          },
+    });
+
+    if (positionChange === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { account: positionChange.updated });
     return;
   }
 
@@ -1845,6 +1970,35 @@ function validateSetAccountLoginEnabledRequest(input: unknown):
       userId,
       isEnabled,
     },
+  };
+}
+
+function validateSetAccountPositionRequest(input: unknown):
+  | {
+      ok: true;
+      value: Pick<SetAccountPositionInput, "position">;
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return {
+      ok: false,
+      errors: ["Payload must be a JSON object."],
+    };
+  }
+
+  if (!isAccountPosition(input.position)) {
+    return {
+      ok: false,
+      errors: ["position is not supported."],
+    };
+  }
+
+  return {
+    ok: true,
+    value: { position: input.position },
   };
 }
 

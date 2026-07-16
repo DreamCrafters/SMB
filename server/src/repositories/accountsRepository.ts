@@ -91,6 +91,16 @@ export type SetAccountNavigationInput = {
   capabilities: AccountCapability[];
 };
 
+export type SetAccountPositionInput = {
+  accessId: string;
+  position: AccountPosition;
+};
+
+export type AccountPositionChange = {
+  previous: AdminAccountSummary;
+  updated: AdminAccountSummary;
+};
+
 export type AccountLoginStatus = {
   userId: string;
   userStatus: "active" | "suspended";
@@ -109,6 +119,9 @@ export type AccountsRepository = {
   setAccountNavigation: (
     input: SetAccountNavigationInput,
   ) => Promise<AdminAccountSummary | undefined>;
+  setAccountPosition: (
+    input: SetAccountPositionInput,
+  ) => Promise<AccountPositionChange | undefined>;
   listPositions: () => Promise<AdminPositionSummary[]>;
   createPosition: (input: CreatePositionInput) => Promise<AdminPositionSummary>;
   updatePosition: (input: UpdatePositionInput) => Promise<AdminPositionSummary | undefined>;
@@ -166,6 +179,14 @@ type PositionRow = RowDataPacket & {
 
 type PositionAccessRow = RowDataPacket & {
   access_id: string;
+  user_display_name: string;
+  business_account_id: string | null;
+  department_id: string | null;
+};
+
+type AccountPositionAssignmentRow = RowDataPacket & {
+  access_id: string;
+  user_id: string;
   user_display_name: string;
   business_account_id: string | null;
   department_id: string | null;
@@ -619,6 +640,108 @@ export function createAccountsRepository(
     }
   }
 
+  async function setAccountPosition({
+    accessId,
+    position,
+  }: SetAccountPositionInput) {
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [accessRows] = await connection.query<
+        AccountPositionAssignmentRow[]
+      >(
+        `select accesses.id as access_id, accesses.user_id,
+          users.display_name as user_display_name,
+          accesses.business_account_id, accesses.department_id
+         from account_accesses accesses
+         join app_users users on users.id = accesses.user_id
+         where accesses.id = ? and accesses.is_active = 1
+         limit 1 for update`,
+        [accessId],
+      );
+      const existing = accessRows[0];
+
+      if (existing === undefined) {
+        await connection.rollback();
+        return undefined;
+      }
+
+      const previous = await readAccountByAccessId(connection, accessId);
+
+      if (previous === undefined) {
+        throw new Error("Current account access was not returned by database.");
+      }
+
+      if (previous.position === position) {
+        await connection.commit();
+        return { previous, updated: previous };
+      }
+
+      const [positionRows] = await connection.query<PositionRow[]>(
+        `select positions.id, positions.display_name, positions.account_type,
+          positions.navigation_items, positions.capabilities,
+          positions.is_protected, positions.created_at,
+          (select count(*) from account_accesses accesses
+            where accesses.position_code = positions.id) as usage_count
+         from account_positions positions
+         where positions.id = ?
+         limit 1 for update`,
+        [position],
+      );
+      const targetPositionRow = positionRows[0];
+
+      if (targetPositionRow === undefined) {
+        await connection.rollback();
+        return undefined;
+      }
+
+      const targetPosition = mapPositionRow(targetPositionRow);
+      const scope = await resolvePositionAssignmentScope(
+        connection,
+        existing,
+        targetPosition.accountType,
+        createId,
+      );
+
+      await connection.query(
+        `update account_accesses
+         set account_type = ?, position_code = ?, scope_kind = ?,
+           business_account_id = ?, department_id = ?, capabilities = ?,
+           navigation_items = ?
+         where id = ? and is_active = 1`,
+        [
+          targetPosition.accountType,
+          targetPosition.id,
+          scope.scopeKind,
+          scope.businessAccount?.id ?? null,
+          scope.department?.id ?? null,
+          JSON.stringify(targetPosition.capabilities),
+          JSON.stringify(targetPosition.navigationItems),
+          accessId,
+        ],
+      );
+      await connection.query("delete from auth_sessions where user_id = ?", [
+        existing.user_id,
+      ]);
+
+      const updated = await readAccountByAccessId(connection, accessId);
+
+      if (updated === undefined) {
+        throw new Error("Updated account access was not returned by database.");
+      }
+
+      await connection.commit();
+      return { previous, updated };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async function readUserIdByLogin(login: string) {
     const [rows] = await pool.query<IdRow[]>(
       "select id from app_users where login = ? limit 1",
@@ -652,11 +775,68 @@ export function createAccountsRepository(
     setAccountLoginEnabled,
     deleteAccount,
     setAccountNavigation,
+    setAccountPosition,
     listPositions,
     createPosition,
     updatePosition,
     deletePosition,
   };
+}
+
+async function resolvePositionAssignmentScope(
+  connection: PoolConnection,
+  access: AccountPositionAssignmentRow,
+  accountType: AccountType,
+  createId: () => string,
+) {
+  const scope = resolveAccountProvisioningScope(
+    {
+      accountType,
+      displayName: access.user_display_name,
+      ...(access.business_account_id === null
+        ? {}
+        : { businessAccountId: access.business_account_id }),
+      ...(access.department_id === null
+        ? {}
+        : { departmentId: access.department_id }),
+    },
+    createId,
+  );
+
+  if (
+    access.business_account_id === null &&
+    scope.businessAccount !== undefined
+  ) {
+    await connection.query(
+      `insert into business_accounts (id, display_name, status)
+       values (?, ?, 'active')
+       on duplicate key update status = 'active'`,
+      [scope.businessAccount.id, scope.businessAccount.displayName],
+    );
+  }
+
+  if (access.department_id === null && scope.department !== undefined) {
+    if (scope.businessAccount === undefined) {
+      throw new Error("Department scope has no business account.");
+    }
+
+    await connection.query(
+      `insert into departments (
+        id, business_account_id, display_name, structure_mode
+      ) values (?, ?, ?, 'current')
+      on duplicate key update
+        business_account_id = values(business_account_id),
+        display_name = values(display_name),
+        structure_mode = values(structure_mode)`,
+      [
+        scope.department.id,
+        scope.businessAccount.id,
+        scope.department.displayName,
+      ],
+    );
+  }
+
+  return scope;
 }
 
 async function updatePositionAccessScopes(

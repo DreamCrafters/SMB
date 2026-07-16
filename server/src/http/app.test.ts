@@ -998,6 +998,9 @@ const accounts: AccountsRepository = {
   async setAccountNavigation() {
     return adminAccount;
   },
+  async setAccountPosition() {
+    return { previous: adminAccount, updated: adminAccount };
+  },
   async listPositions() {
     return [
       {
@@ -1527,6 +1530,149 @@ test("admin accounts API suspends another user login", async () => {
   });
 });
 
+test("admin accounts API changes an existing account position and audits access", async () => {
+  let updateInput:
+    | Parameters<AccountsRepository["setAccountPosition"]>[0]
+    | undefined;
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const updatedAccount = {
+    ...adminAccount,
+    accountType: "business_owner" as const,
+    position: "business_owner" as const,
+    positionDisplayName: "Владелец бизнеса",
+    scope: {
+      kind: "business" as const,
+      businessAccountId: "business-id",
+    },
+    departmentDisplayName: null,
+    capabilities: ["business.view_all_statistics" as const],
+    navigationItems: ["business.overview" as const],
+  };
+  const lockedPreviousAccount = {
+    ...adminAccount,
+    position: "worker" as const,
+    positionDisplayName: "Работник",
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setAccountPosition(input) {
+      updateInput = input;
+      return {
+        previous: lockedPreviousAccount,
+        updated: updatedAccount,
+      };
+    },
+  };
+  const auditRepository: AuditRepository = {
+    async record(event) { recorded.push(event); },
+    async listReport() { throw new Error("not used"); },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/access-id/position`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({ position: "business_owner" }),
+        },
+      );
+      const payload = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.account)
+          ? payload.account.position
+          : undefined,
+        "business_owner",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+    undefined,
+    auditRepository,
+  );
+
+  assert.deepEqual(updateInput, {
+    accessId: "access-id",
+    position: "business_owner",
+  });
+  assert.deepEqual(
+    recorded
+      .filter((event) => event.category === "administration")
+      .map((event) => event.action),
+    ["admin.account_position_update"],
+  );
+  const positionAudit = recorded.find(
+    (event) => event.action === "admin.account_position_update",
+  );
+  assert.deepEqual(positionAudit?.details?.slice(-2), [
+    { label: "Прежняя должность", value: "Работник (worker)" },
+    {
+      label: "Новая должность",
+      value: "Владелец бизнеса (business_owner)",
+    },
+  ]);
+});
+
+test("admin accounts API does not change another access of the current login", async () => {
+  let didUpdate = false;
+  const profile = buildProductionProfile("admin");
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [{
+        ...adminAccount,
+        accessId: "current-user-secondary-access",
+        userId: profile.userId,
+      }];
+    },
+    async setAccountPosition() {
+      didUpdate = true;
+      return { previous: adminAccount, updated: adminAccount };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/current-user-secondary-access/position`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+          body: JSON.stringify({ position: "business_owner" }),
+        },
+      );
+
+      assert.equal(response.status, 409);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
+});
+
 test("admin accounts API deletes another account but not the current account", async () => {
   const deletedUserIds: string[] = [];
   const repository: AccountsRepository = {
@@ -1584,16 +1730,21 @@ test("admin accounts API rejects individual navigation changes", async () => {
   );
 });
 
-test("admin accounts API requires manage_access to change login status", async () => {
-  let didUpdate = false;
+test("admin accounts API requires manage_access to change login or position", async () => {
+  let didLoginUpdate = false;
+  let didPositionUpdate = false;
   const repository: AccountsRepository = {
     ...accounts,
     async setAccountLoginEnabled() {
-      didUpdate = true;
+      didLoginUpdate = true;
       return {
         userId: "dispatcher-user-id",
         userStatus: "suspended",
       };
+    },
+    async setAccountPosition() {
+      didPositionUpdate = true;
+      return { previous: adminAccount, updated: adminAccount };
     },
   };
   const profile = buildProductionProfile("admin");
@@ -1602,7 +1753,7 @@ test("admin accounts API requires manage_access to change login status", async (
 
   await withApiServer(
     async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+      const loginResponse = await fetch(`${baseUrl}/api/admin/accounts`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -1613,8 +1764,20 @@ test("admin accounts API requires manage_access to change login status", async (
           isEnabled: false,
         }),
       });
+      const positionResponse = await fetch(
+        `${baseUrl}/api/admin/accounts/${adminAccount.accessId}/position`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+          body: JSON.stringify({ position: "business_owner" }),
+        },
+      );
 
-      assert.equal(response.status, 403);
+      assert.equal(loginResponse.status, 403);
+      assert.equal(positionResponse.status, 403);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -1626,7 +1789,8 @@ test("admin accounts API requires manage_access to change login status", async (
     repository,
   );
 
-  assert.equal(didUpdate, false);
+  assert.equal(didLoginUpdate, false);
+  assert.equal(didPositionUpdate, false);
 });
 
 test("admin accounts API rejects disabling the current login", async () => {

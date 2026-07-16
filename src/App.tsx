@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
   type FormEvent,
@@ -79,6 +80,10 @@ import {
   normalizeIntegerInput,
 } from "./services/dispatcherFormInput";
 import {
+  initialIncidentCloseSelectionState,
+  reduceIncidentCloseSelection,
+} from "./services/dispatcherIncidentClose";
+import {
   buildEquipmentCompletionMap,
   buildEquipmentFormPayload,
   buildEquipmentReportPayloads,
@@ -129,6 +134,7 @@ import {
   requestAdminPositions,
   resetAdminAccountPassword,
   setAdminAccountLoginEnabled,
+  setAdminAccountPosition,
   updateAdminPosition,
   type AdminAccountsListResult,
   type AdminPositionsResult,
@@ -2150,8 +2156,13 @@ function DispatcherIncidentCloseFormBody({
   refreshVersion: number;
   status: string;
 }) {
-  const incidentSelectRef = useRef<HTMLSelectElement>(null);
-  const hasActivatedIncidentSelectRef = useRef(false);
+  const firstIncidentButtonRef = useRef<HTMLButtonElement>(null);
+  const selectedIncidentCardRef = useRef<HTMLDivElement>(null);
+  const hasActivatedIncidentChoiceRef = useRef(false);
+  const [selection, dispatchSelection] = useReducer(
+    reduceIncidentCloseSelection,
+    initialIncidentCloseSelectionState,
+  );
   const [incidentFeed, setIncidentFeed] = useState<DispatcherFeedLoadState>({
     status: "loading",
     message: "Загружаем инциденты.",
@@ -2159,6 +2170,7 @@ function DispatcherIncidentCloseFormBody({
   const submissions =
     incidentFeed.status === "ready" ? incidentFeed.submissions : [];
   const openIncidents = buildOpenIncidentOptions(submissions, businessAccountId);
+  const selectedIncident = selection.selectedIncident;
   const isLocalIncidentFeed =
     incidentFeed.status === "ready" && incidentFeed.source === "local_test";
   const closeFields = readDispatcherFieldsByVisualSize(
@@ -2206,48 +2218,69 @@ function DispatcherIncidentCloseFormBody({
   useEffect(() => {
     if (
       incidentFeed.status !== "ready" ||
-      hasActivatedIncidentSelectRef.current
+      hasActivatedIncidentChoiceRef.current ||
+      selectedIncident !== undefined
     ) {
       return;
     }
 
-    hasActivatedIncidentSelectRef.current = true;
+    hasActivatedIncidentChoiceRef.current = true;
     if (openIncidents.length > 0) {
-      incidentSelectRef.current?.focus();
+      firstIncidentButtonRef.current?.focus();
     }
-  }, [incidentFeed.status, openIncidents.length]);
+  }, [incidentFeed.status, openIncidents.length, selectedIncident]);
 
-  return (
+  useEffect(() => {
+    if (incidentFeed.status === "ready") {
+      dispatchSelection({
+        type: "feed_ready",
+        openIncidents,
+      });
+      return;
+    }
+
+    if (incidentFeed.status === "error") {
+      dispatchSelection({ type: "feed_unavailable" });
+    }
+  }, [businessAccountId, incidentFeed]);
+
+  useEffect(() => {
+    if (selectedIncident === undefined) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() =>
+      selectedIncidentCardRef.current?.focus(),
+    );
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [selectedIncident]);
+
+  useEffect(() => {
+    if (selection.notice.length === 0 || selectedIncident !== undefined) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() =>
+      firstIncidentButtonRef.current?.focus(),
+    );
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [selectedIncident, selection.notice]);
+
+  function handleSelectIncident(
+    incident: ReturnType<typeof buildOpenIncidentOptions>[number],
+  ) {
+    dispatchSelection({ type: "select", incident });
+  }
+
+  function handleResetIncidentSelection() {
+    dispatchSelection({ type: "reset" });
+    window.requestAnimationFrame(() => firstIncidentButtonRef.current?.focus());
+  }
+
+  const incidentFeedStatus = (
     <>
-      <div className="dispatcher-form-fields">
-        <label>
-          <span>Незакрытый инцидент</span>
-          <select
-            ref={incidentSelectRef}
-            name="incidentNumber"
-            required
-            defaultValue=""
-            disabled={openIncidents.length === 0}
-          >
-            <option value="">
-              {openIncidents.length === 0
-                ? "Нет незакрытых инцидентов"
-                : "Выберите инцидент"}
-            </option>
-            {openIncidents.map((incident) => (
-              <option
-                value={incident.incidentNumber}
-                key={incident.incidentNumber}
-              >
-                {incident.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {closeFields.map((field) => (
-          <DispatcherFormFieldInput field={field} key={field.name} />
-        ))}
-      </div>
       {incidentFeed.status === "error" ? (
         <p className="form-status">
           {readShortUserMessage(
@@ -2261,11 +2294,92 @@ function DispatcherIncidentCloseFormBody({
           Тестовый режим: список только на этом устройстве.
         </p>
       ) : null}
+    </>
+  );
+
+  if (selectedIncident === undefined) {
+    return (
+      <>
+        <section
+          className="incident-close-choice"
+          aria-labelledby="incident-close-choice-title"
+        >
+          <div className="incident-close-choice-header">
+            <strong id="incident-close-choice-title">Выберите инцидент</strong>
+            <span>Показаны только незакрытые инциденты.</span>
+          </div>
+          {incidentFeed.status === "loading" ? (
+            <p className="dispatcher-status-line">Загружаем инциденты.</p>
+          ) : null}
+          {incidentFeed.status === "ready" && openIncidents.length === 0 ? (
+            <p className="dispatcher-status-line">Нет незакрытых инцидентов.</p>
+          ) : null}
+          {openIncidents.length > 0 ? (
+            <div className="incident-close-choice-buttons">
+              {openIncidents.map((incident, index) => (
+                <button
+                  ref={index === 0 ? firstIncidentButtonRef : undefined}
+                  className="dispatcher-form-choice-button incident-close-choice-button"
+                  type="button"
+                  key={incident.incidentNumber}
+                  onClick={() => handleSelectIncident(incident)}
+                >
+                  <strong>{incident.incidentNumber}</strong>
+                  <span>{formatOpenIncidentChoiceDetails(incident)}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+        {selection.notice.length > 0 ? (
+          <p className="form-status" role="status" aria-live="polite">
+            {selection.notice}
+          </p>
+        ) : null}
+        {incidentFeedStatus}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <input
+        name="incidentNumber"
+        type="hidden"
+        value={selectedIncident.incidentNumber}
+        readOnly
+      />
+      <div
+        ref={selectedIncidentCardRef}
+        className="incident-close-selected"
+        tabIndex={-1}
+        aria-live="polite"
+      >
+        <div>
+          <span>Выбранный инцидент</span>
+          <strong>{selectedIncident.incidentNumber}</strong>
+          <small>{formatOpenIncidentChoiceDetails(selectedIncident)}</small>
+        </div>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={isSubmitting}
+          onClick={handleResetIncidentSelection}
+        >
+          Выбрать другой
+        </button>
+      </div>
+      <div className="dispatcher-form-fields">
+        {closeFields.map((field) => (
+          <DispatcherFormFieldInput field={field} key={field.name} />
+        ))}
+      </div>
+      {incidentFeedStatus}
       <div className="form-actions">
         <button
           className="primary-button"
           type="submit"
-          disabled={isSubmitting || openIncidents.length === 0}
+          disabled={isSubmitting}
         >
           {isSubmitting ? "Отправка..." : "Закрыть инцидент"}
         </button>
@@ -2273,6 +2387,21 @@ function DispatcherIncidentCloseFormBody({
       </div>
     </>
   );
+}
+
+function formatOpenIncidentChoiceDetails(
+  incident: ReturnType<typeof buildOpenIncidentOptions>[number],
+) {
+  return [
+    incident.location,
+    incident.incidentType,
+    incident.criticality,
+    `открыт ${incident.openedAt}`,
+  ]
+    .filter(
+      (value): value is string => value !== undefined && value.length > 0,
+    )
+    .join(" · ");
 }
 
 function DispatcherVisitorExitFormBody({
@@ -5297,6 +5426,12 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
   const [updatingUserId, setUpdatingUserId] = useState<string | undefined>(
     undefined,
   );
+  const [updatingPositionAccessId, setUpdatingPositionAccessId] = useState<
+    string | undefined
+  >(undefined);
+  const [accountPositionDrafts, setAccountPositionDrafts] = useState<
+    Record<string, AccountPosition>
+  >({});
   const [deletingUserId, setDeletingUserId] = useState<string>();
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
@@ -5647,6 +5782,42 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
     setRefreshVersion((version) => version + 1);
   }
 
+  async function handleSetAccountPosition(account: AdminAccountSummary) {
+    const position = accountPositionDrafts[account.accessId] ?? account.position;
+
+    if (
+      position === account.position ||
+      updatingPositionAccessId !== undefined
+    ) {
+      return;
+    }
+
+    setUpdatingPositionAccessId(account.accessId);
+    setWorkspaceStatus("");
+
+    const result = await setAdminAccountPosition({
+      accessId: account.accessId,
+      position,
+    });
+
+    setUpdatingPositionAccessId(undefined);
+
+    if (result.status !== "ready") {
+      setWorkspaceStatus(result.message);
+      return;
+    }
+
+    setAccountPositionDrafts((current) => {
+      const next = { ...current };
+      delete next[account.accessId];
+      return next;
+    });
+    setWorkspaceStatus(
+      `Должность для «${account.login}» изменена на «${result.account.positionDisplayName}». Пользователю нужно войти заново.`,
+    );
+    setRefreshVersion((version) => version + 1);
+  }
+
   async function handleDeleteAccount(account: AdminAccountSummary) {
     if (account.userId === profile.userId || deletingUserId !== undefined) {
       return;
@@ -5735,8 +5906,23 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                   const isCurrentAccount = account.userId === profile.userId;
                   const isArchived = account.userStatus === "archived";
                   const isUpdating = updatingUserId === account.userId;
+                  const isUpdatingPosition =
+                    updatingPositionAccessId === account.accessId;
+                  const selectedPosition =
+                    accountPositionDrafts[account.accessId] ?? account.position;
+                  const isPositionChangeDisabled =
+                    !canManageAccess ||
+                    isCurrentAccount ||
+                    isArchived ||
+                    positionsState.status !== "ready" ||
+                    updatingPositionAccessId !== undefined ||
+                    updatingUserId !== undefined;
                   const isToggleDisabled =
-                    !canManageAccess || isCurrentAccount || isArchived || isUpdating;
+                    !canManageAccess ||
+                    isCurrentAccount ||
+                    isArchived ||
+                    isUpdating ||
+                    updatingPositionAccessId !== undefined;
                   const toggleTitle = !canManageAccess
                     ? "Нет права изменять доступ."
                     : isCurrentAccount
@@ -5747,7 +5933,56 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
 
                   return (
                     <tr key={account.accessId}>
-                      <td>{account.positionDisplayName}</td>
+                      <td>
+                        <div className="admin-account-position-cell">
+                          <select
+                            aria-label={`Должность для ${account.login}`}
+                            value={selectedPosition}
+                            disabled={isPositionChangeDisabled}
+                            title={
+                              isCurrentAccount
+                                ? "Нельзя менять должность текущей учётной записи."
+                                : undefined
+                            }
+                            onChange={(event) => {
+                              const position = event.currentTarget
+                                .value as AccountPosition;
+                              setAccountPositionDrafts((current) => ({
+                                ...current,
+                                [account.accessId]: position,
+                              }));
+                            }}
+                          >
+                            {positionsState.status !== "ready" ||
+                            !positionsState.positions.some(
+                              (position) => position.id === account.position,
+                            ) ? (
+                              <option value={account.position}>
+                                {account.positionDisplayName}
+                              </option>
+                            ) : null}
+                            {(positionsState.status === "ready"
+                              ? positionsState.positions
+                              : []
+                            ).map((position) => (
+                              <option key={position.id} value={position.id}>
+                                {position.displayName}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                              isPositionChangeDisabled ||
+                              selectedPosition === account.position
+                            }
+                            onClick={() => handleSetAccountPosition(account)}
+                          >
+                            {isUpdatingPosition ? "Сохраняем…" : "Сохранить"}
+                          </button>
+                        </div>
+                      </td>
                       <td>{account.userDisplayName}</td>
                       <td>{account.login}</td>
                       <td>
@@ -5805,6 +6040,7 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
                             disabled={
                               !canManageAccess ||
                               isCurrentAccount ||
+                              updatingPositionAccessId !== undefined ||
                               deletingUserId === account.userId
                             }
                             onClick={() => handleDeleteAccount(account)}

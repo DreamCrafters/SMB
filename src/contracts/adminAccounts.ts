@@ -81,3 +81,12 @@ export type SetAdminAccountLoginEnabledResponse = {
   userId: string;
   userStatus: "active" | "suspended";
 };
+
+export type SetAdminAccountPositionRequest = {
+  accessId: string;
+  position: AccountPosition;
+};
+
+export type SetAdminAccountPositionResponse = {
+  account: AdminAccountSummary;
+};

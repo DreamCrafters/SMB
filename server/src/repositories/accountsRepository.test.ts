@@ -87,6 +87,269 @@ test("updatePosition changes linked business accounts to department scope", asyn
   );
 });
 
+test("setAccountPosition applies position access and revokes user sessions", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  let didCommit = false;
+  let accountReadCount = 0;
+  const connection = {
+    async beginTransaction() {},
+    async commit() { didCommit = true; },
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+
+      if (normalized.startsWith("select accesses.id as access_id, accesses.user_id")) {
+        return [[{
+          access_id: "access-dispatcher",
+          user_id: "user-dispatcher",
+          user_display_name: "Диспетчер Один",
+          business_account_id: "prod-business",
+          department_id: "dispatch",
+        }], []];
+      }
+
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "business_owner",
+          display_name: "Владелец бизнеса",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(["business.overview"]),
+          capabilities: JSON.stringify(["business.view_all_statistics"]),
+          is_protected: 1,
+          created_at: "2026-07-12T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+
+      if (normalized.startsWith("select accesses.id as access_id") && normalized.includes("where accesses.id")) {
+        const isUpdated = accountReadCount > 0;
+        accountReadCount += 1;
+        return [[{
+          access_id: "access-dispatcher",
+          user_id: "user-dispatcher",
+          login: "dispatcher-1",
+          user_display_name: "Диспетчер Один",
+          user_status: "active",
+          access_display_name: "Диспетчер Один access",
+          account_type: isUpdated ? "business_owner" : "dispatcher",
+          position_code: isUpdated ? "business_owner" : "dispatcher",
+          position_display_name: isUpdated ? "Владелец бизнеса" : "Диспетчер",
+          scope_kind: isUpdated ? "business" : "department",
+          business_account_id: "prod-business",
+          business_display_name: "Основной бизнес",
+          department_id: isUpdated ? null : "dispatch",
+          department_display_name: isUpdated ? null : "Диспетчерская",
+          capabilities: JSON.stringify(isUpdated
+            ? ["business.view_all_statistics"]
+            : ["business.submit_dispatcher_forms"]),
+          navigation_items: JSON.stringify(isUpdated
+            ? ["business.overview"]
+            : ["business.dispatcher_form"]),
+          created_at: "2026-07-10T00:00:00.000Z",
+        }], []];
+      }
+
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  const repository = createAccountsRepository(pool);
+
+  const result = await repository.setAccountPosition({
+    accessId: "access-dispatcher",
+    position: "business_owner",
+  });
+
+  assert.equal(didCommit, true);
+  assert.equal(result?.previous.position, "dispatcher");
+  assert.equal(result?.updated.position, "business_owner");
+  assert.deepEqual(
+    queries.find((query) =>
+      query.sql.startsWith("update account_accesses set account_type"),
+    )?.params,
+    [
+      "business_owner",
+      "business_owner",
+      "business",
+      "prod-business",
+      null,
+      JSON.stringify(["business.view_all_statistics"]),
+      JSON.stringify(["business.overview"]),
+      "access-dispatcher",
+    ],
+  );
+  assert.deepEqual(
+    queries.find((query) =>
+      query.sql.startsWith("delete from auth_sessions"),
+    )?.params,
+    ["user-dispatcher"],
+  );
+});
+
+test("setAccountPosition treats the locked current position as a no-op", async () => {
+  const queries: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push(normalized);
+
+      if (normalized.startsWith("select accesses.id as access_id, accesses.user_id")) {
+        return [[{
+          access_id: "access-owner",
+          user_id: "user-owner",
+          user_display_name: "Владелец Один",
+          business_account_id: "prod-business",
+          department_id: null,
+        }], []];
+      }
+
+      if (normalized.startsWith("select accesses.id as access_id")) {
+        return [[{
+          access_id: "access-owner",
+          user_id: "user-owner",
+          login: "owner-1",
+          user_display_name: "Владелец Один",
+          user_status: "active",
+          access_display_name: "Владелец Один access",
+          account_type: "business_owner",
+          position_code: "business_owner",
+          position_display_name: "Владелец бизнеса",
+          scope_kind: "business",
+          business_account_id: "prod-business",
+          business_display_name: "Основной бизнес",
+          department_id: null,
+          department_display_name: null,
+          capabilities: JSON.stringify(["business.view_all_statistics"]),
+          navigation_items: JSON.stringify(["business.overview"]),
+          created_at: "2026-07-10T00:00:00.000Z",
+        }], []];
+      }
+
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).setAccountPosition({
+    accessId: "access-owner",
+    position: "business_owner",
+  });
+
+  assert.equal(result?.previous.position, "business_owner");
+  assert.equal(result?.updated.position, "business_owner");
+  assert.equal(
+    queries.some((sql) => sql.startsWith("update account_accesses")),
+    false,
+  );
+  assert.equal(
+    queries.some((sql) => sql.startsWith("delete from auth_sessions")),
+    false,
+  );
+});
+
+test("setAccountPosition creates department scope when an administrator becomes dispatcher", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  let accountReadCount = 0;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+
+      if (normalized.startsWith("select accesses.id as access_id, accesses.user_id")) {
+        return [[{
+          access_id: "access-admin",
+          user_id: "user-admin",
+          user_display_name: "Новый диспетчер",
+          business_account_id: null,
+          department_id: null,
+        }], []];
+      }
+
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "dispatcher",
+          display_name: "Диспетчер",
+          account_type: "dispatcher",
+          navigation_items: JSON.stringify(["business.dispatcher_form"]),
+          capabilities: JSON.stringify(["business.submit_dispatcher_forms"]),
+          is_protected: 1,
+          created_at: "2026-07-12T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+
+      if (normalized.startsWith("select accesses.id as access_id") && normalized.includes("where accesses.id")) {
+        const isUpdated = accountReadCount > 0;
+        accountReadCount += 1;
+        return [[{
+          access_id: "access-admin",
+          user_id: "user-admin",
+          login: "dispatcher-new",
+          user_display_name: "Новый диспетчер",
+          user_status: "active",
+          access_display_name: "Новый диспетчер access",
+          account_type: isUpdated ? "dispatcher" : "admin",
+          position_code: isUpdated ? "dispatcher" : "admin",
+          position_display_name: isUpdated ? "Диспетчер" : "Администратор",
+          scope_kind: isUpdated ? "department" : "platform",
+          business_account_id: isUpdated ? "prod-business" : null,
+          business_display_name: isUpdated ? "Основной бизнес" : null,
+          department_id: isUpdated ? "dispatch" : null,
+          department_display_name: isUpdated ? "Диспетчерская" : null,
+          capabilities: JSON.stringify(isUpdated
+            ? ["business.submit_dispatcher_forms"]
+            : ["platform.manage_access"]),
+          navigation_items: JSON.stringify(isUpdated
+            ? ["business.dispatcher_form"]
+            : ["admin.accounts"]),
+          created_at: "2026-07-10T00:00:00.000Z",
+        }], []];
+      }
+
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).setAccountPosition({
+    accessId: "access-admin",
+    position: "dispatcher",
+  });
+
+  assert.deepEqual(result?.updated.scope, {
+    kind: "department",
+    businessAccountId: "prod-business",
+    departmentId: "dispatch",
+  });
+  assert.deepEqual(
+    queries.find((query) =>
+      query.sql.startsWith("insert into business_accounts"),
+    )?.params,
+    ["prod-business", "Основной бизнес"],
+  );
+  assert.deepEqual(
+    queries.find((query) => query.sql.startsWith("insert into departments"))
+      ?.params,
+    ["dispatch", "prod-business", "Диспетчерская"],
+  );
+});
+
 test("deletePosition deletes only an unused custom position", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let didCommit = false;

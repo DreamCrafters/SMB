@@ -23,6 +23,7 @@ export const auditEventActions = [
   "admin.account_login_enable",
   "admin.account_login_disable",
   "admin.account_password_reset",
+  "admin.account_position_update",
   "admin.position_create",
   "admin.position_update",
   "admin.position_delete",

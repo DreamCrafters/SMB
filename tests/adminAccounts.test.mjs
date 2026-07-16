@@ -9,6 +9,7 @@ import {
   requestAdminAccounts,
   requestAdminPositions,
   resetAdminAccountPassword,
+  setAdminAccountPosition,
   setAdminAccountLoginEnabled,
   setAdminAccountNavigation,
   updateAdminPosition,
@@ -251,6 +252,48 @@ test("admin accounts service enables and disables account login", async () => {
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     userId: "user-id",
     isEnabled: false,
+  });
+});
+
+test("admin accounts service assigns a new position to an existing access", async () => {
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+
+    return jsonResponse({
+      account: {
+        ...account,
+        accountType: "business_owner",
+        position: "business_owner",
+        positionDisplayName: "Владелец бизнеса",
+        scope: {
+          kind: "business",
+          businessAccountId: "business-id",
+        },
+        capabilities: ["business.view_all_statistics"],
+        navigationItems: ["business.overview"],
+      },
+    });
+  };
+
+  const result = await setAdminAccountPosition(
+    {
+      accessId: "access-id",
+      position: "business_owner",
+    },
+    { baseUrl: "http://api.test" },
+  );
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.account.position, "business_owner");
+  assert.equal(
+    calls[0].url,
+    "http://api.test/api/admin/accounts/access-id/position",
+  );
+  assert.equal(calls[0].init.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    position: "business_owner",
   });
 });
 
