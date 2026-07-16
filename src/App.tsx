@@ -290,6 +290,7 @@ type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
 const toastVisibleDurationMs = 4_000;
 const toastExitDurationMs = 260;
 const toastShiftDurationMs = 220;
+const mobileNavigationMediaQuery = "(max-width: 820px)";
 
 const initialAccessProfileState: AccessProfileLoadState = {
   status: "loading",
@@ -464,6 +465,12 @@ export default function App() {
   const [adminViewedDispatcherFeedFilters, setAdminViewedDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
   const [isWelcomePending, setIsWelcomePending] = useState(false);
+  const [isMobileNavigation, setIsMobileNavigation] = useState(() =>
+    window.matchMedia(mobileNavigationMediaQuery).matches,
+  );
+  const [isNavigationOpen, setIsNavigationOpen] = useState(() =>
+    !window.matchMedia(mobileNavigationMediaQuery).matches,
+  );
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const nextToastIdRef = useRef(0);
   const toastTimeoutIdsRef = useRef<Set<number>>(new Set());
@@ -476,6 +483,19 @@ export default function App() {
       timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       timeoutIds.clear();
     };
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(mobileNavigationMediaQuery);
+
+    function handleViewportChange(event: MediaQueryListEvent) {
+      setIsMobileNavigation(event.matches);
+      setIsNavigationOpen(!event.matches);
+    }
+
+    mediaQuery.addEventListener("change", handleViewportChange);
+
+    return () => mediaQuery.removeEventListener("change", handleViewportChange);
   }, []);
 
   useEffect(() => {
@@ -779,6 +799,7 @@ export default function App() {
 
   async function handleClearSession() {
     setIsWelcomePending(false);
+    setIsNavigationOpen(false);
     clearToastStack();
     setSessionRequest({
       status: "loading",
@@ -794,6 +815,7 @@ export default function App() {
 
   async function handleAutomaticDispatcherLogout() {
     setIsWelcomePending(false);
+    setIsNavigationOpen(false);
     clearToastStack();
     setSessionRequest({
       status: "loading",
@@ -817,6 +839,7 @@ export default function App() {
   ) {
     if (result.status === "ready") {
       setIsWelcomePending(action === "login");
+      setIsNavigationOpen(action === "login" && !isMobileNavigation);
       setSessionRequest(initialSessionRequestState);
       setRequestVersion((version) => version + 1);
       return;
@@ -1086,12 +1109,20 @@ export default function App() {
 
   return (
     <main
-      className={`ops-shell ${isAdminPreviewMode ? "ops-shell-admin-preview" : ""}`}
+      className={`ops-shell ${
+        isNavigationOpen
+          ? "ops-shell-navigation-open"
+          : "ops-shell-navigation-collapsed"
+      } ${isAdminPreviewMode ? "ops-shell-admin-preview" : ""}`}
     >
       <SideRail
         profile={visibleProfile}
         signedInDisplayName={profile.displayName}
         isAdminPreviewMode={isAdminPreviewMode}
+        isMobile={isMobileNavigation}
+        isOpen={isNavigationOpen}
+        onToggle={() => setIsNavigationOpen((current) => !current)}
+        onRequestClose={() => setIsNavigationOpen(false)}
         onClearSession={
           viewedProfile === undefined ? handleClearSession : handleStopAdminAccountView
         }
@@ -1112,6 +1143,15 @@ export default function App() {
         adminTab={adminTab}
         onAdminTabChange={setAdminTab}
       />
+
+      {isMobileNavigation && isNavigationOpen ? (
+        <button
+          aria-label="Закрыть меню"
+          className="rail-backdrop"
+          type="button"
+          onClick={() => setIsNavigationOpen(false)}
+        />
+      ) : null}
 
       <ToastViewport toasts={toasts} />
 
@@ -1439,6 +1479,10 @@ function SideRail({
   profile,
   signedInDisplayName,
   isAdminPreviewMode,
+  isMobile,
+  isOpen,
+  onToggle,
+  onRequestClose,
   onClearSession,
   isSessionLoading,
   sessionError,
@@ -1450,6 +1494,10 @@ function SideRail({
   profile: ServerUserProfile;
   signedInDisplayName: string;
   isAdminPreviewMode: boolean;
+  isMobile: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+  onRequestClose: () => void;
   onClearSession: () => void;
   isSessionLoading: boolean;
   sessionError?: string;
@@ -1458,84 +1506,215 @@ function SideRail({
   adminTab: AdminTab;
   onAdminTabChange: (tab: AdminTab) => void;
 }) {
+  const railRef = useRef<HTMLElement>(null);
+  const railBrandButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerMenuButtonRef = useRef<HTMLButtonElement>(null);
   const navigationItems = buildNavigationItems(
     profile,
     ownerTab,
     adminTab,
   );
 
+  useEffect(() => {
+    if (!isMobile || !isOpen) {
+      return;
+    }
+
+    const rail = railRef.current;
+    const previouslyFocusedElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+    const focusFrame = window.requestAnimationFrame(() => {
+      drawerMenuButtonRef.current?.focus();
+    });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onRequestClose();
+        return;
+      }
+
+      if (event.key !== "Tab" || rail === null) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        rail.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null);
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements.at(-1);
+
+      if (firstElement === undefined || lastElement === undefined) {
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+
+      if (previouslyFocusedElement?.isConnected) {
+        window.requestAnimationFrame(() => previouslyFocusedElement.focus());
+      } else {
+        window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
+      }
+    };
+  }, [isMobile, isOpen]);
+
   return (
-    <aside className="side-rail" aria-label="Основная навигация">
-      <div className="rail-brand-row">
+    <>
+      <header className="mobile-navigation-bar">
         <div className="brand-mark" aria-hidden="true">
           <img alt="" src="/nmou-vector-icon.png" />
         </div>
-        {isAdminPreviewMode ? (
-          <div className="admin-preview-mode-badge" role="status">
-            АДМИН ПРЕВЬЮ МОД
-          </div>
-        ) : null}
-      </div>
-      <div className="rail-product-copy">
-        <p className="eyebrow">платформа</p>
-        <h1>{shellCopy.productName}</h1>
-        <p className="rail-user-name">
-          {formatUserShortName(signedInDisplayName)}
-        </p>
-      </div>
-      <nav className="primary-nav">
-        {navigationItems.map((item) => {
-          const ownerTarget =
-            profile.accountType === "admin"
-              ? undefined
-              : getBusinessTabForNavigationItem(item);
-          const adminTarget =
-            profile.accountType === "admin"
-              ? getAdminTabForNavigationItem(item)
-              : undefined;
-
-          return (
-            <button
-              className={`nav-item nav-item-${item.state}`}
-              type="button"
-              aria-current={item.state === "active" ? "page" : undefined}
-              disabled={ownerTarget === undefined && adminTarget === undefined}
-              key={item.label}
-              onClick={() => {
-                if (ownerTarget !== undefined) {
-                  onOwnerTabChange(ownerTarget);
-                }
-                if (adminTarget !== undefined) {
-                  onAdminTabChange(adminTarget);
-                }
-              }}
-            >
-              <span>{item.label}</span>
-              <small>{item.description}</small>
-            </button>
-          );
-        })}
-      </nav>
-      <div className="rail-note">
-        <span>доступ</span>
-        <strong>{profile.activeAccess.positionDisplayName}</strong>
         <button
-          className="rail-logout-button"
+          aria-controls="primary-navigation"
+          aria-expanded={isOpen}
+          aria-label={isOpen ? "Закрыть меню" : "Открыть меню"}
+          className="rail-menu-toggle"
+          ref={mobileMenuButtonRef}
           type="button"
-          disabled={isSessionLoading}
-          onClick={onClearSession}
+          onClick={onToggle}
         >
-          {isAdminPreviewMode
-            ? "Выйти из превью мода"
-            : isSessionLoading
-              ? "Выходим..."
-              : "Выйти из аккаунта"}
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
         </button>
-        {sessionError === undefined ? null : (
-          <small className="rail-session-error">{sessionError}</small>
-        )}
-      </div>
-    </aside>
+      </header>
+
+      <aside
+        aria-hidden={isMobile && !isOpen ? true : undefined}
+        aria-label="Основная навигация"
+        aria-modal={isMobile && isOpen ? true : undefined}
+        className={`side-rail side-rail-${isOpen ? "open" : "collapsed"}`}
+        ref={railRef}
+        role={isMobile && isOpen ? "dialog" : undefined}
+      >
+        <div className="rail-brand-row">
+          <button
+            aria-controls="primary-navigation"
+            aria-expanded={isOpen}
+            aria-label={isOpen ? "Свернуть меню" : "Открыть меню"}
+            className="rail-brand-button"
+            ref={railBrandButtonRef}
+            title={isOpen ? "Свернуть меню" : "Открыть меню"}
+            type="button"
+            onClick={onToggle}
+          >
+            <span className="brand-mark" aria-hidden="true">
+              <img alt="" src="/nmou-vector-icon.png" />
+            </span>
+          </button>
+          {isAdminPreviewMode ? (
+            <div className="admin-preview-mode-badge" role="status">
+              АДМИН ПРЕВЬЮ МОД
+            </div>
+          ) : null}
+          <button
+            aria-controls="primary-navigation"
+            aria-expanded={isOpen}
+            aria-label={isOpen ? "Свернуть меню" : "Открыть меню"}
+            className="rail-menu-toggle"
+            ref={drawerMenuButtonRef}
+            type="button"
+            onClick={() => {
+              onToggle();
+              if (!isMobile && isOpen) {
+                window.requestAnimationFrame(() =>
+                  railBrandButtonRef.current?.focus(),
+                );
+              }
+            }}
+          >
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+          </button>
+        </div>
+        <div className="rail-product-copy">
+          <p className="eyebrow">платформа</p>
+          <h1>{shellCopy.productName}</h1>
+          <p className="rail-user-name">
+            {formatUserShortName(signedInDisplayName)}
+          </p>
+        </div>
+        <nav className="primary-nav" id="primary-navigation">
+          {navigationItems.map((item) => {
+            const ownerTarget =
+              profile.accountType === "admin"
+                ? undefined
+                : getBusinessTabForNavigationItem(item);
+            const adminTarget =
+              profile.accountType === "admin"
+                ? getAdminTabForNavigationItem(item)
+                : undefined;
+
+            return (
+              <button
+                className={`nav-item nav-item-${item.state}`}
+                type="button"
+                aria-current={item.state === "active" ? "page" : undefined}
+                disabled={ownerTarget === undefined && adminTarget === undefined}
+                key={item.label}
+                onClick={() => {
+                  if (ownerTarget !== undefined) {
+                    onOwnerTabChange(ownerTarget);
+                  }
+                  if (adminTarget !== undefined) {
+                    onAdminTabChange(adminTarget);
+                  }
+                  if (isMobile) {
+                    onRequestClose();
+                  }
+                }}
+              >
+                <span>{item.label}</span>
+                <small>{item.description}</small>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="rail-note">
+          <span>доступ</span>
+          <strong>{profile.activeAccess.positionDisplayName}</strong>
+          <button
+            className="rail-logout-button"
+            type="button"
+            disabled={isSessionLoading}
+            onClick={() => {
+              onClearSession();
+              if (isMobile) {
+                onRequestClose();
+              }
+            }}
+          >
+            {isAdminPreviewMode
+              ? "Выйти из превью мода"
+              : isSessionLoading
+                ? "Выходим..."
+                : "Выйти из аккаунта"}
+          </button>
+          {sessionError === undefined ? null : (
+            <small className="rail-session-error">{sessionError}</small>
+          )}
+        </div>
+      </aside>
+    </>
   );
 }
 

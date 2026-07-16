@@ -100,6 +100,11 @@ p {
   height: 100dvh;
   min-height: 100dvh;
   overflow: hidden;
+  transition: grid-template-columns 180ms ease;
+}
+
+.ops-shell-navigation-collapsed {
+  grid-template-columns: 86px minmax(0, 1fr);
 }
 
 .ops-shell-admin-preview::after {
@@ -283,6 +288,7 @@ p {
 
 .side-rail {
   position: sticky;
+  z-index: 20;
   top: 0;
   align-self: start;
   display: grid;
@@ -296,6 +302,14 @@ p {
   color: #f5f7f4;
   background: linear-gradient(180deg, var(--nav-strong), var(--nav));
   border-right: 1px solid rgba(255, 255, 255, 0.14);
+  transition:
+    padding 180ms ease,
+    transform 220ms ease,
+    visibility 220ms ease;
+}
+
+.mobile-navigation-bar {
+  display: none;
 }
 
 .rail-brand-row {
@@ -303,6 +317,93 @@ p {
   gap: var(--density-2);
   align-items: center;
   min-width: 0;
+}
+
+.rail-brand-button {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  color: inherit;
+  background: transparent;
+}
+
+.rail-brand-button:hover,
+.rail-brand-button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.54);
+  outline-offset: 3px;
+}
+
+.rail-menu-toggle {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.rail-menu-toggle:hover,
+.rail-menu-toggle:focus-visible {
+  border-color: rgba(255, 255, 255, 0.56);
+  background: rgba(255, 255, 255, 0.14);
+  outline: none;
+}
+
+.rail-menu-toggle span {
+  position: absolute;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.rail-menu-toggle span:first-child {
+  transform: translateY(-6px);
+}
+
+.rail-menu-toggle span:last-child {
+  transform: translateY(6px);
+}
+
+.side-rail-open .rail-menu-toggle span:first-child {
+  transform: rotate(45deg);
+}
+
+.side-rail-open .rail-menu-toggle span:nth-child(2) {
+  opacity: 0;
+}
+
+.side-rail-open .rail-menu-toggle span:last-child {
+  transform: rotate(-45deg);
+}
+
+.side-rail-collapsed {
+  grid-template-rows: auto;
+  gap: 0;
+  overflow: hidden;
+  padding: var(--density-4);
+}
+
+.side-rail-collapsed .rail-brand-row {
+  justify-content: center;
+}
+
+.side-rail-collapsed .rail-menu-toggle,
+.side-rail-collapsed .rail-product-copy,
+.side-rail-collapsed .primary-nav,
+.side-rail-collapsed .rail-note,
+.side-rail-collapsed .admin-preview-mode-badge {
+  display: none;
 }
 
 .brand-mark {
@@ -320,6 +421,10 @@ p {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.rail-backdrop {
+  display: none;
 }
 
 .auth-panel > .brand-mark {
@@ -1366,6 +1471,16 @@ p {
 @media (prefers-reduced-motion: reduce) {
   .app-toast,
   .app-toast-exiting {
+    animation-duration: 1ms;
+  }
+
+  .ops-shell,
+  .side-rail,
+  .rail-menu-toggle span {
+    transition-duration: 1ms;
+  }
+
+  .rail-backdrop {
     animation-duration: 1ms;
   }
 }
@@ -2690,6 +2805,10 @@ p {
     grid-template-columns: 230px minmax(0, 1fr);
   }
 
+  .ops-shell-navigation-collapsed {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+
   .dispatcher-period-picker.has-custom-range {
     grid-template-columns: 1fr;
   }
@@ -2709,32 +2828,102 @@ p {
     grid-template-columns: 1fr;
   }
 
-  .ops-shell {
+  .ops-shell,
+  .ops-shell-navigation-open,
+  .ops-shell-navigation-collapsed {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: 72px minmax(0, 1fr);
+  }
+
+  .mobile-navigation-bar {
+    position: relative;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    height: 72px;
+    padding: 12px var(--density-3);
+    color: #f5f7f4;
+    background: linear-gradient(90deg, var(--nav-strong), var(--nav));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 8px 24px rgba(37, 53, 63, 0.12);
+  }
+
+  .mobile-navigation-bar .brand-mark {
+    width: 48px;
+  }
+
+  .mobile-navigation-bar .rail-menu-toggle {
+    display: grid;
   }
 
   .side-rail {
-    position: static;
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    gap: var(--density-3);
-    height: auto;
-    max-height: none;
-    padding: var(--density-3);
+    position: fixed;
+    z-index: 70;
+    inset: 0 auto 0 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    gap: var(--density-4);
+    width: min(88vw, 360px);
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding: var(--density-4);
+    box-shadow: 18px 0 44px rgba(18, 28, 34, 0.28);
+    transform: translateX(-102%);
+    visibility: hidden;
+  }
+
+  .side-rail-open {
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  .side-rail-open .rail-brand-row {
+    justify-content: flex-start;
+  }
+
+  .side-rail-open .rail-menu-toggle,
+  .side-rail-open .rail-product-copy,
+  .side-rail-open .primary-nav,
+  .side-rail-open .rail-note,
+  .side-rail-open .admin-preview-mode-badge {
+    display: block;
+  }
+
+  .side-rail-open .rail-menu-toggle {
+    display: grid;
+  }
+
+  .side-rail-open .primary-nav {
+    display: grid;
+    grid-column: auto;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .side-rail h1 {
     margin-bottom: 0;
   }
 
-  .primary-nav {
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .rail-backdrop {
+    position: fixed;
+    z-index: 60;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: rgba(17, 27, 32, 0.52);
+    animation: rail-backdrop-in 180ms ease-out both;
   }
 
-  .rail-note {
-    grid-column: 1 / -1;
+  .workspace {
+    height: calc(100dvh - 72px);
+    max-height: calc(100dvh - 72px);
   }
 
   .admin-db-layout {
@@ -2766,6 +2955,16 @@ p {
     width: min(100%, 260px);
   }
 
+}
+
+@keyframes rail-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 560px) {
