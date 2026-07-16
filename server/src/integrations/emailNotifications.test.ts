@@ -249,6 +249,45 @@ test("createEmailNotificationService sends through injected mailer when enabled"
 
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0]?.to, ["common@example.com"]);
+  assert.doesNotMatch(sent[0]?.text ?? "", /Тестовое сообщение/u);
+});
+
+test("createEmailNotificationService marks every test-site message at the end", async () => {
+  const sent: EmailMessage[] = [];
+  const service = createEmailNotificationService(
+    {
+      enabled: true,
+      from: "noreply@example.com",
+      subjectPrefix: "SMB Monitor",
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpSecure: false,
+    },
+    {
+      async sendMail(message) {
+        sent.push(message);
+      },
+    },
+    "test",
+  );
+
+  await service.sendDispatcherSubmissionNotification(
+    buildSubmission("incident", { incidentNumber: "INC-2026-1" }),
+    recipients,
+  );
+  await service.sendEquipmentReportNotification(
+    [buildSubmission("equipment", { equipment: "Пресс №1" })],
+    recipients,
+    "created",
+  );
+
+  assert.equal(sent.length, 2);
+  for (const message of sent) {
+    assert.equal(
+      message.text.endsWith("\n\nПримечание: Тестовое сообщение"),
+      true,
+    );
+  }
 });
 
 function buildSubmission(

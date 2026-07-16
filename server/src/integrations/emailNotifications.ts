@@ -1,11 +1,12 @@
 import nodemailer from "nodemailer";
-import type { EmailNotificationConfig } from "../config/env.js";
+import type { EmailNotificationConfig, SmbAppEnv } from "../config/env.js";
 import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
 import {
   buildEquipmentReportNotificationSubject,
   buildEquipmentReportNotificationText,
   buildDispatcherNotificationSubject,
   buildDispatcherNotificationText,
+  appendNotificationEnvironmentNote,
   readEquipmentReportNotificationRecipients,
   readDispatcherNotificationRecipients,
   type EquipmentReportNotificationStatus,
@@ -38,6 +39,7 @@ export type EmailNotificationDependencies = {
 export function createEmailNotificationService(
   config: EmailNotificationConfig,
   dependencies: EmailNotificationDependencies = {},
+  appEnv: SmbAppEnv = "production",
 ): EmailNotificationService {
   if (!config.enabled) {
     return {
@@ -59,6 +61,7 @@ export function createEmailNotificationService(
         recipients,
         config.from,
         config.subjectPrefix,
+        appEnv,
       );
 
       if (message === undefined) {
@@ -74,6 +77,7 @@ export function createEmailNotificationService(
         config.from,
         config.subjectPrefix,
         status,
+        appEnv,
       );
 
       if (message === undefined) {
@@ -90,6 +94,7 @@ export function buildDispatcherSubmissionEmail(
   recipients: NotificationRecipients,
   from: string,
   subjectPrefix = "НМОУ Вектор",
+  appEnv: SmbAppEnv = "production",
 ): EmailMessage | undefined {
   const to = readDispatcherNotificationRecipients(submission, recipients);
 
@@ -101,7 +106,10 @@ export function buildDispatcherSubmissionEmail(
     from,
     to,
     subject: buildDispatcherNotificationSubject(submission, subjectPrefix),
-    text: buildDispatcherNotificationText(submission),
+    text: appendNotificationEnvironmentNote(
+      buildDispatcherNotificationText(submission),
+      appEnv,
+    ),
   };
 }
 
@@ -111,6 +119,7 @@ export function buildEquipmentReportEmail(
   from: string,
   subjectPrefix = "НМОУ Вектор",
   status: EquipmentReportNotificationStatus = "created",
+  appEnv: SmbAppEnv = "production",
 ): EmailMessage | undefined {
   if (submissions.length === 0) {
     return undefined;
@@ -130,7 +139,10 @@ export function buildEquipmentReportEmail(
       subjectPrefix,
       status,
     ),
-    text: buildEquipmentReportNotificationText(submissions, status),
+    text: appendNotificationEnvironmentNote(
+      buildEquipmentReportNotificationText(submissions, status),
+      appEnv,
+    ),
   };
 }
 

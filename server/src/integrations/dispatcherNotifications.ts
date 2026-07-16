@@ -3,6 +3,7 @@ import {
   type DispatcherFormField,
 } from "../domain/dispatcherForms.js";
 import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
+import type { SmbAppEnv } from "../config/env.js";
 
 export type NotificationRecipientGroups = {
   incidentAndEquipment: string[];
@@ -12,6 +13,15 @@ export type NotificationRecipientGroups = {
 };
 
 export type EquipmentReportNotificationStatus = "created" | "updated";
+
+export const testNotificationNote = "Примечание: Тестовое сообщение";
+
+export function appendNotificationEnvironmentNote(
+  text: string,
+  appEnv: SmbAppEnv,
+) {
+  return appEnv === "test" ? `${text}\n\n${testNotificationNote}` : text;
+}
 
 export function readDispatcherNotificationRecipients(
   submission: DispatcherSubmission,

@@ -117,8 +117,14 @@ export function createApiServer({
   ),
   emailNotificationService = createEmailNotificationService(
     config.emailNotifications,
+    {},
+    config.appEnv,
   ),
-  maxNotificationService = createMaxNotificationService(config.maxNotifications),
+  maxNotificationService = createMaxNotificationService(
+    config.maxNotifications,
+    {},
+    config.appEnv,
+  ),
   dispatcherSpreadsheetImport,
   audit,
   databaseTransaction,

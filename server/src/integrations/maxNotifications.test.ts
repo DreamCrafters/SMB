@@ -104,6 +104,60 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   });
 });
 
+test("createMaxNotificationService marks every test-site message at the end", async () => {
+  const sentBodies: string[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(_input, init) {
+        sentBodies.push(String(init?.body));
+        return new Response(null, { status: 200 });
+      },
+    },
+    "test",
+  );
+  const testRecipients: MaxNotificationRecipients = {
+    incidentAndEquipment: ["-1001"],
+    mechanicalDowntime: [],
+    electricalDowntime: [],
+    visitors: [],
+  };
+
+  await service.sendDispatcherSubmissionNotification(
+    buildSubmission("incident", { incidentNumber: "INC-2026-1" }),
+    testRecipients,
+  );
+  await service.sendEquipmentReportNotification(
+    [buildSubmission("equipment", { equipment: "Пресс №1" })],
+    testRecipients,
+    "created",
+  );
+  await service.sendDispatcherSubmissionNotification(
+    buildSubmission("incident", {
+      incidentNumber: "INC-2026-2",
+      description: "Д".repeat(5_000),
+    }),
+    testRecipients,
+  );
+
+  assert.equal(sentBodies.length, 3);
+  for (const body of sentBodies) {
+    assert.equal(
+      JSON.parse(body).text.endsWith(
+        "\n\nПримечание: Тестовое сообщение",
+      ),
+      true,
+    );
+  }
+  assert.equal(JSON.parse(sentBodies[2] ?? "{}").text.length, 4_000);
+});
+
 test("createMaxNotificationService sends incident closure location", async () => {
   const sent: { url: string; body: string }[] = [];
   const service = createMaxNotificationService(

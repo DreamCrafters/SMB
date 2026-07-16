@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
-import type { MaxNotificationConfig } from "../config/env.js";
+import type { MaxNotificationConfig, SmbAppEnv } from "../config/env.js";
 import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
 import {
   buildEquipmentReportNotificationText,
   buildDispatcherNotificationText,
+  appendNotificationEnvironmentNote,
   readEquipmentReportNotificationRecipients,
   readDispatcherNotificationRecipients,
   type EquipmentReportNotificationStatus,
+  testNotificationNote,
 } from "./dispatcherNotifications.js";
 import type { MaxNotificationRecipients } from "./googleSheetsReference.js";
 
@@ -51,6 +53,7 @@ const maxMessageLength = 4000;
 export function createMaxNotificationService(
   config: MaxNotificationConfig,
   dependencies: MaxNotificationDependencies = {},
+  appEnv: SmbAppEnv = "production",
 ): MaxNotificationService {
   if (!config.enabled) {
     return {
@@ -93,8 +96,9 @@ export function createMaxNotificationService(
         return;
       }
 
-      const text = trimMaxMessageText(
+      const text = buildMaxMessageText(
         withMaxSubjectPrefix(config.subjectPrefix, buildDispatcherNotificationText(submission)),
+        appEnv,
       );
       const caCertificate = await caCertificatePromise;
 
@@ -126,11 +130,12 @@ export function createMaxNotificationService(
         return;
       }
 
-      const text = trimMaxMessageText(
+      const text = buildMaxMessageText(
         withMaxSubjectPrefix(
           config.subjectPrefix,
           buildEquipmentReportNotificationText(submissions, status),
         ),
+        appEnv,
       );
       const caCertificate = await caCertificatePromise;
 
@@ -248,12 +253,19 @@ function withMaxSubjectPrefix(subjectPrefix: string, text: string) {
   return subjectPrefix.length > 0 ? `[${subjectPrefix}] ${text}` : text;
 }
 
-function trimMaxMessageText(value: string) {
-  if (value.length <= maxMessageLength) {
+function buildMaxMessageText(value: string, appEnv: SmbAppEnv) {
+  const noteLength = appEnv === "test" ? testNotificationNote.length + 2 : 0;
+  const text = trimMaxMessageText(value, maxMessageLength - noteLength);
+
+  return appendNotificationEnvironmentNote(text, appEnv);
+}
+
+function trimMaxMessageText(value: string, maxLength = maxMessageLength) {
+  if (value.length <= maxLength) {
     return value;
   }
 
-  return `${value.slice(0, maxMessageLength - 3)}...`;
+  return `${value.slice(0, maxLength - 3)}...`;
 }
 
 async function readMaxErrorBody(response: MaxHttpResponse) {
