@@ -1565,9 +1565,15 @@ p {
 
 .admin-account-position-cell {
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) auto;
+  grid-template-columns: minmax(280px, 1fr) auto;
   gap: var(--density-2);
   align-items: center;
+}
+
+.admin-account-position-cell .secondary-button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .admin-account-position-cell select {
