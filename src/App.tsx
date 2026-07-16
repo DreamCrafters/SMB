@@ -18,6 +18,7 @@ import {
   type AdminDatabaseRow,
   type AdminDatabaseTable,
   type AdminDispatcherImportPreviewResponse,
+  type AuditEventCategory,
   type DispatcherFormDefinition,
   type DispatcherFormField,
   type DispatcherFormId,
@@ -25,6 +26,8 @@ import {
   type DispatcherSubmissionPayload,
   type DevAccessOption,
   type ServerUserProfile,
+  type UserActivityActor,
+  type UserActivityEvent,
 } from "./contracts";
 import {
   accountPositionLabels,
@@ -131,6 +134,11 @@ import {
   type AdminPositionsResult,
 } from "./services/adminAccounts";
 import {
+  recordAuditScreenView,
+  requestAdminAuditReport,
+  type AdminAuditReportResult,
+} from "./services/adminAudit";
+import {
   buildDispatcherFeedDateRange,
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
@@ -153,7 +161,7 @@ import {
 } from "./services/toastStack";
 
 type BusinessTab = "overview" | "dispatcher" | "work" | "dispatcher_form";
-type AdminTab = "account_preview" | "accounts" | "database";
+type AdminTab = "account_preview" | "accounts" | "database" | "user_actions";
 
 type DataEntrySubmitStateControls = {
   setStatus: (message: string) => void;
@@ -220,6 +228,13 @@ type AdminAccountsLoadState =
       message: string;
     }
   | AdminAccountsListResult;
+
+type AdminAuditLoadState =
+  | {
+      status: "loading";
+      message: string;
+    }
+  | AdminAuditReportResult;
 
 type DevAccessOptionsLoadState =
   | { status: "loading"; message: string }
@@ -348,9 +363,44 @@ function getAdminTabForNavigationItem(item: NavigationItem): AdminTab | undefine
       return "accounts";
     case "admin.database":
       return "database";
+    case "admin.user_actions":
+      return "user_actions";
     default:
       return undefined;
   }
+}
+
+function getAdminNavigationItem(tab: AdminTab): AccountNavigationItem {
+  const navigationByTab: Record<AdminTab, AccountNavigationItem> = {
+    account_preview: "admin.account_preview",
+    accounts: "admin.accounts",
+    database: "admin.database",
+    user_actions: "admin.user_actions",
+  };
+
+  return navigationByTab[tab];
+}
+
+function getBusinessAuditScreenId(
+  accountType: AccountType,
+  activeTab: BusinessTab,
+): AccountNavigationItem | undefined {
+  if (accountType === "dispatcher") {
+    return "business.dispatcher_form";
+  }
+
+  if (accountType !== "business_owner") {
+    return undefined;
+  }
+
+  const navigationByTab: Record<BusinessTab, AccountNavigationItem> = {
+    overview: "business.overview",
+    dispatcher: "business.dispatcher",
+    work: "business.work",
+    dispatcher_form: "business.dispatcher_form",
+  };
+
+  return navigationByTab[activeTab];
 }
 
 export default function App() {
@@ -389,6 +439,7 @@ export default function App() {
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const nextToastIdRef = useRef(0);
   const toastTimeoutIdsRef = useRef<Set<number>>(new Set());
+  const lastRecordedScreenRef = useRef("");
 
   useEffect(() => {
     const timeoutIds = toastTimeoutIdsRef.current;
@@ -587,6 +638,41 @@ export default function App() {
     );
     setIsWelcomePending(false);
   }, [accessProfile, isWelcomePending]);
+
+  useEffect(() => {
+    if (accessProfile.status !== "ready") {
+      return;
+    }
+
+    const profile = accessProfile.profile;
+    const screenId = profile.accountType === "admin"
+      ? adminTab === "account_preview" && adminViewedAccount !== undefined
+        ? getBusinessAuditScreenId(
+            adminViewedAccount.accountType,
+            adminViewedOwnerTab,
+          )
+        : getAdminNavigationItem(adminTab)
+      : getBusinessAuditScreenId(profile.accountType, ownerTab);
+
+    if (screenId === undefined) {
+      return;
+    }
+
+    const screenKey = `${profile.activeAccess.accountId}:${screenId}`;
+
+    if (lastRecordedScreenRef.current === screenKey) {
+      return;
+    }
+
+    lastRecordedScreenRef.current = screenKey;
+    void recordAuditScreenView(screenId);
+  }, [
+    accessProfile,
+    adminTab,
+    adminViewedAccount,
+    adminViewedOwnerTab,
+    ownerTab,
+  ]);
 
   function scheduleToastTimeout(callback: () => void, delayMs: number) {
     const timeoutId = window.setTimeout(() => {
@@ -1462,6 +1548,7 @@ function RoleWorkspace({
     account_preview: "admin.account_preview",
     accounts: "admin.accounts",
     database: "admin.database",
+    user_actions: "admin.user_actions",
   };
   const effectiveAdminTab = profile.activeAccess.navigationItems.includes(
     adminNavigationByTab[adminTab],
@@ -1863,6 +1950,9 @@ function DataEntryWorkspace({
       formLeaveGuardRef.current = undefined;
       onResetStatus();
       setSelectedFormId(formId);
+      if (formId.length > 0) {
+        void recordAuditScreenView(`dispatcher.form.${formId}`);
+      }
     };
 
     if (
@@ -3708,7 +3798,295 @@ function AdminWorkspace({
     return <AdminAccountsWorkspace profile={profile} />;
   }
 
+  if (activeTab === "user_actions") {
+    return <AdminUserActionsWorkspace profile={profile} />;
+  }
+
   return <AdminAccountPreviewWorkspace onSelectAccountView={onSelectAccountView} />;
+}
+
+const adminAuditPageLimit = 50;
+const adminAuditCategoryOptions: readonly {
+  id: "all" | AuditEventCategory;
+  label: string;
+}[] = [
+  { id: "all", label: "Все действия" },
+  { id: "authentication", label: "Входы и выходы" },
+  { id: "form_submission", label: "Отправки форм" },
+  { id: "data_change", label: "Изменения данных" },
+  { id: "administration", label: "Административные" },
+  { id: "navigation", label: "Просмотры" },
+];
+
+function AdminUserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
+  const canViewAudit = hasCapability(profile, "platform.view_audit");
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [selectedCategory, setSelectedCategory] =
+    useState<"all" | AuditEventCategory>("all");
+  const [offset, setOffset] = useState(0);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [knownActors, setKnownActors] = useState<UserActivityActor[]>([]);
+  const [reportState, setReportState] = useState<AdminAuditLoadState>({
+    status: "loading",
+    message: "Загружаем действия пользователей.",
+  });
+
+  useEffect(() => {
+    if (!canViewAudit) {
+      setReportState({
+        status: "error",
+        message: "Просмотр действий пользователей недоступен.",
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    setReportState({
+      status: "loading",
+      message: "Загружаем действия пользователей.",
+    });
+
+    requestAdminAuditReport({
+      actorAccountId: selectedAccountId || undefined,
+      category: selectedCategory === "all" ? undefined : selectedCategory,
+      limit: adminAuditPageLimit,
+      offset,
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setReportState(result);
+      if (result.status === "ready") {
+        setKnownActors(result.actors);
+      }
+    });
+
+    return () => controller.abort();
+  }, [
+    canViewAudit,
+    selectedAccountId,
+    selectedCategory,
+    offset,
+    refreshVersion,
+  ]);
+
+  if (!canViewAudit) {
+    return (
+      <section className="admin-workspace" aria-label="Действия пользователей">
+        <p className="dispatcher-status-line">
+          Просмотр действий пользователей недоступен.
+        </p>
+      </section>
+    );
+  }
+
+  const report = reportState.status === "ready" ? reportState : undefined;
+  const total = report?.summary.total ?? 0;
+  const canGoForward = report !== undefined && offset + report.events.length < total;
+
+  return (
+    <section
+      className="admin-workspace admin-audit-workspace"
+      aria-label="Действия пользователей"
+    >
+      <header className="admin-audit-header">
+        <div>
+          <span>Отчёт</span>
+          <h2>Действия пользователей</h2>
+          <p>Входы, формы, изменения, административные действия и просмотры.</p>
+        </div>
+        <div className="admin-audit-window">
+          <strong>Последние 3 месяца</strong>
+          <small>{formatAuditEventCount(total)}</small>
+        </div>
+      </header>
+
+      <div className="admin-audit-filters" aria-label="Фильтры отчёта">
+        <label>
+          <span>Аккаунт</span>
+          <select
+            value={selectedAccountId}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setSelectedAccountId(value);
+              setOffset(0);
+            }}
+          >
+            <option value="">Все аккаунты</option>
+            {knownActors.map((actor) => (
+              <option value={actor.accountId} key={actor.accountId}>
+                {formatAuditActorOption(actor)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>Тип действия</span>
+          <select
+            value={selectedCategory}
+            onChange={(event) => {
+              const value = event.currentTarget.value as "all" | AuditEventCategory;
+              setSelectedCategory(value);
+              setOffset(0);
+            }}
+          >
+            {adminAuditCategoryOptions.map((option) => (
+              <option value={option.id} key={option.id}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          className="secondary-button admin-audit-refresh"
+          type="button"
+          onClick={() => setRefreshVersion((version) => version + 1)}
+        >
+          Обновить
+        </button>
+      </div>
+
+      {report !== undefined ? (
+        <p className="admin-audit-range-note">
+          Показаны события с {formatAuditWindowDate(report.window.from)}. Более ранние записи не удаляются.
+        </p>
+      ) : null}
+
+      {reportState.status === "loading" ? (
+        <p className="dispatcher-status-line">{reportState.message}</p>
+      ) : null}
+      {reportState.status === "error" ? (
+        <p className="dispatcher-status-line">{reportState.message}</p>
+      ) : null}
+      {report !== undefined && report.events.length === 0 ? (
+        <div className="admin-audit-empty">
+          <strong>Действий не найдено</strong>
+          <span>Измените аккаунт или тип действия.</span>
+        </div>
+      ) : null}
+      {report !== undefined && report.events.length > 0 ? (
+        <div className="admin-audit-list" role="table" aria-label="Журнал действий">
+          <div className="admin-audit-row admin-audit-row-head" role="row">
+            <span role="columnheader">Когда</span>
+            <span role="columnheader">Кто</span>
+            <span role="columnheader">Что сделал</span>
+          </div>
+          {report.events.map((event) => (
+            <AdminAuditEventRow event={event} key={event.id} />
+          ))}
+        </div>
+      ) : null}
+
+      {report !== undefined && (offset > 0 || canGoForward) ? (
+        <div className="admin-audit-pagination">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={offset === 0}
+            onClick={() => setOffset((current) => Math.max(0, current - adminAuditPageLimit))}
+          >
+            Назад
+          </button>
+          <span>
+            {offset + 1}–{Math.min(offset + report.events.length, total)} из {total}
+          </span>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!canGoForward}
+            onClick={() => setOffset((current) => current + adminAuditPageLimit)}
+          >
+            Дальше
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AdminAuditEventRow({ event }: { event: UserActivityEvent }) {
+  return (
+    <article className="admin-audit-row" role="row">
+      <time dateTime={event.occurredAt} role="cell">
+        {formatAuditOccurredAt(event.occurredAt)}
+      </time>
+      <div className="admin-audit-actor" role="cell">
+        <strong>{event.actor.displayName}</strong>
+        <small>
+          {event.actor.positionDisplayName}
+          {event.actor.login ? ` · ${event.actor.login}` : ""}
+        </small>
+      </div>
+      <div className="admin-audit-action" role="cell">
+        <span className={`admin-audit-category admin-audit-category-${event.category}`}>
+          {readAuditCategoryLabel(event.category)}
+        </span>
+        <strong>{event.summary}</strong>
+        {event.details.length > 0 ? (
+          <details>
+            <summary>Введённые данные ({event.details.length})</summary>
+            <dl>
+              {event.details.map((detail, index) => (
+                <div key={`${detail.label}-${index}`}>
+                  <dt>{detail.label}</dt>
+                  <dd>{detail.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function readAuditCategoryLabel(category: AuditEventCategory) {
+  return adminAuditCategoryOptions.find((option) => option.id === category)?.label ?? category;
+}
+
+function formatAuditActorOption(actor: UserActivityActor) {
+  const status = actor.status === "archived"
+    ? " · архив"
+    : actor.status === "suspended"
+      ? " · вход отключён"
+      : "";
+  const login = actor.login.length > 0 ? ` · ${actor.login}` : "";
+
+  return `${actor.displayName} — ${actor.positionDisplayName}${login}${status}`;
+}
+
+function formatAuditOccurredAt(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatAuditWindowDate(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatAuditEventCount(value: number) {
+  const mod100 = value % 100;
+  const mod10 = value % 10;
+  const suffix = mod100 >= 11 && mod100 <= 14
+    ? "событий"
+    : mod10 === 1
+      ? "событие"
+      : mod10 >= 2 && mod10 <= 4
+        ? "события"
+        : "событий";
+
+  return `${value} ${suffix}`;
 }
 
 function AdminAccountPreviewWorkspace({

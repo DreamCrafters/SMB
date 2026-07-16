@@ -51,6 +51,7 @@ import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   type AccountsRepository,
+  type AdminAccountSummary,
   type AdminPositionSummary,
   type CreateAccountInput,
   type SetAccountLoginEnabledInput,
@@ -71,6 +72,17 @@ import {
   DispatcherSpreadsheetImportChangedError,
   type DispatcherSpreadsheetImportService,
 } from "../integrations/dispatcherSpreadsheetImport.js";
+import {
+  buildAuditActor,
+  buildDispatcherSubmissionAuditDetails,
+  canProfileViewAuditScreen,
+  isAuditEventCategory,
+  readAuditScreen,
+  type AuditEventCategory,
+  type AuditEventDraft,
+} from "../domain/audit.js";
+import type { AuditRepository } from "../repositories/auditRepository.js";
+import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -82,6 +94,8 @@ type AppDependencies = {
   emailNotificationService?: EmailNotificationService;
   maxNotificationService?: MaxNotificationService;
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
 };
 
 type JsonPayload = Record<string, unknown> | unknown[];
@@ -105,6 +119,8 @@ export function createApiServer({
   ),
   maxNotificationService = createMaxNotificationService(config.maxNotifications),
   dispatcherSpreadsheetImport,
+  audit,
+  databaseTransaction,
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
 
@@ -126,12 +142,26 @@ export function createApiServer({
       }
 
       if (url.pathname === "/api/auth/login") {
-        await handleAuthLogin(req, res, config, authService);
+        await handleAuthLogin(
+          req,
+          res,
+          config,
+          authService,
+          audit,
+          databaseTransaction,
+        );
         return;
       }
 
       if (url.pathname === "/api/auth/logout") {
-        await handleAuthLogout(req, res, config, authService);
+        await handleAuthLogout(
+          req,
+          res,
+          config,
+          authService,
+          audit,
+          databaseTransaction,
+        );
         return;
       }
 
@@ -155,7 +185,32 @@ export function createApiServer({
           return;
         }
 
-        await handleDevAccessSession(req, res, devSessions, accounts);
+        await handleDevAccessSession(req, res, devSessions, accounts, audit);
+        return;
+      }
+
+      if (url.pathname === "/api/admin/audit-events") {
+        await handleAdminAuditReportRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          audit,
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/audit/events") {
+        await handleAuditEventRequest({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          audit,
+        });
         return;
       }
 
@@ -173,6 +228,8 @@ export function createApiServer({
           authService,
           adminDatabase,
           dispatcherSpreadsheetImport,
+          audit,
+          databaseTransaction,
         });
         return;
       }
@@ -192,6 +249,8 @@ export function createApiServer({
           devSessions,
           authService,
           accounts,
+          audit,
+          databaseTransaction,
         });
         return;
       }
@@ -271,26 +330,63 @@ export function createApiServer({
           access.profile,
           config,
         );
-        const submissions: DispatcherSubmission[] = [];
+        const submissions = await runAuditedMutation({
+          transaction: databaseTransaction,
+          audit,
+          mutate: async () => {
+            const result: DispatcherSubmission[] = [];
 
-        for (const item of validation.value.items) {
-          submissions.push(
-            await dispatcherSubmissions.create(
-              item,
-              submittedByAccountId,
-            ),
-          );
-        }
+            for (const item of validation.value.items) {
+              result.push(
+                await dispatcherSubmissions.create(item, submittedByAccountId),
+              );
+            }
 
-        if (reportStatus === "updated") {
-          await dispatcherSubmissions.recordEquipmentReportRevision({
+            if (reportStatus === "updated") {
+              await dispatcherSubmissions.recordEquipmentReportRevision({
+                businessAccountId: validation.value.businessAccountId,
+                reportDate: readEquipmentReportDate(result),
+                status: reportStatus,
+                submissions: result,
+                submittedByAccountId,
+              });
+            }
+
+            return result;
+          },
+          buildEvent: (result) => ({
+            actor: buildAuditActor(access.profile),
+            category: "form_submission",
+            action: "form.submit",
+            summary: reportStatus === "updated"
+              ? "Обновлён дневной отчёт «Оборудование»"
+              : "Отправлен дневной отчёт «Оборудование»",
+            details: [
+              {
+                label: "Дата отчета",
+                value: readEquipmentReportDate(result),
+              },
+              ...validation.value.items.flatMap((item) => {
+                const equipment = item.draft.payload.equipment ?? "Оборудование";
+
+                return buildDispatcherSubmissionAuditDetails(
+                  item.draft.formId,
+                  item.draft.payload,
+                )
+                  .filter((detail) =>
+                    detail.label !== "Дата отчета" && detail.label !== "Оборудование",
+                  )
+                  .map((detail) => ({
+                    label: `${equipment}: ${detail.label}`,
+                    value: detail.value,
+                  }));
+              }),
+            ],
             businessAccountId: validation.value.businessAccountId,
-            reportDate: readEquipmentReportDate(submissions),
-            status: reportStatus,
-            submissions,
-            submittedByAccountId,
-          });
-        }
+            targetType: "equipment_report",
+            targetId: readEquipmentReportDate(result),
+          }),
+        });
 
         await notifyDispatcherEquipmentReport(
           submissions,
@@ -408,10 +504,27 @@ export function createApiServer({
             return;
           }
 
-          const submission = await dispatcherSubmissions.create(
-            visitorStateValidation.value,
-            readSubmittedByAccountId(req, access.profile, config),
-          );
+          const submission = await runAuditedMutation({
+            transaction: databaseTransaction,
+            audit,
+            mutate: () => dispatcherSubmissions.create(
+              visitorStateValidation.value,
+              readSubmittedByAccountId(req, access.profile, config),
+            ),
+            buildEvent: (result) => ({
+              actor: buildAuditActor(access.profile),
+              category: "form_submission",
+              action: "form.submit",
+              summary: `Отправлена форма «${result.formTitle}»`,
+              details: buildDispatcherSubmissionAuditDetails(
+                result.formId,
+                result.payload,
+              ),
+              businessAccountId: result.businessAccountId,
+              targetType: "dispatcher_submission",
+              targetId: result.id,
+            }),
+          });
 
           await notifyDispatcherSubmission(
             submission,
@@ -451,6 +564,131 @@ export function createApiServer({
   });
 }
 
+async function handleAdminAuditReportRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  audit,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  audit: AuditRepository;
+}) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only GET is supported for user activity reports.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "platform.view_audit",
+    message: "Просмотр действий пользователей недоступен.",
+  });
+
+  if (access === undefined) {
+    return;
+  }
+
+  const filters = readAuditReportFilters(url);
+
+  if (!filters.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: filters.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  sendJson(res, 200, await audit.listReport(filters.value));
+}
+
+async function handleAuditEventRequest({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  audit,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  audit: AuditRepository;
+}) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only POST is supported for audit events.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireAuthentication(req, res, {
+    config,
+    devSessions,
+    authService,
+  });
+
+  if (access === undefined) {
+    return;
+  }
+
+  const payload = await readJsonBody(req);
+  const screen = isRecord(payload) ? readAuditScreen(payload.screenId) : undefined;
+
+  if (screen === undefined) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: "screenId is not supported.",
+      },
+    });
+    return;
+  }
+
+  if (!canProfileViewAuditScreen(access.profile, screen)) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Просмотр этого экрана недоступен.",
+      },
+    });
+    return;
+  }
+
+  await audit.record({
+    actor: buildAuditActor(access.profile),
+    category: "navigation",
+    action: "view.screen",
+    summary: `Открыт экран «${screen.title}»`,
+    targetType: "screen",
+    targetId: screen.id,
+    businessAccountId: readScopedBusinessAccountId(access.profile),
+  });
+
+  sendJson(res, 201, { ok: true });
+}
+
 type EquipmentReportValidationResult =
   | {
       ok: true;
@@ -464,6 +702,135 @@ type EquipmentReportValidationResult =
       errors: string[];
     };
 
+async function recordAuditEvent(
+  audit: AuditRepository,
+  event: Parameters<AuditRepository["record"]>[0],
+) {
+  await audit.record(event);
+}
+
+async function runAuditedMutation<T>({
+  transaction,
+  audit,
+  mutate,
+  buildEvent,
+}: {
+  transaction: DatabaseTransactionRunner;
+  audit: AuditRepository;
+  mutate: () => Promise<T>;
+  buildEvent: (result: T) => AuditEventDraft | undefined;
+}) {
+  return transaction.run(async () => {
+    const result = await mutate();
+    const event = buildEvent(result);
+
+    if (event !== undefined) {
+      await audit.record(event);
+    }
+
+    return result;
+  });
+}
+
+function buildSafeAuditDetails(values: Record<string, AdminDatabaseCellValue>) {
+  return Object.entries(values).flatMap(([label, rawValue]) => {
+    if (/password|secret|token|session|hash/iu.test(label)) {
+      return [];
+    }
+
+    return [{
+      label: readAdminDatabaseFieldLabel(label),
+      value: rawValue === null
+        ? "Пусто"
+        : typeof rawValue === "string"
+          ? rawValue
+          : String(rawValue),
+    }];
+  });
+}
+
+function readAdminDatabaseFieldLabel(fieldName: string) {
+  const labels: Record<string, string> = {
+    id: "ID записи",
+    display_name: "Название",
+    status: "Статус",
+    structure_mode: "Структура",
+    summary: "Краткое описание",
+    comment: "Комментарий",
+  };
+
+  return labels[fieldName] ?? fieldName;
+}
+
+function buildAccountAuditDetails(account: AdminAccountSummary | undefined) {
+  if (account === undefined) {
+    return [];
+  }
+
+  return [
+    { label: "Пользователь", value: account.userDisplayName },
+    { label: "Логин", value: account.login },
+    { label: "Должность", value: account.positionDisplayName },
+  ];
+}
+
+function buildPositionAuditDetails(position: AdminPositionSummary) {
+  return [
+    { label: "Должность", value: position.displayName },
+    { label: "Базовый кабинет", value: readAccountTypeLabel(position.accountType) },
+    {
+      label: "Вкладки",
+      value: position.navigationItems.length === 0
+        ? "Нет"
+        : position.navigationItems.map(readNavigationItemLabel).join(", "),
+    },
+  ];
+}
+
+function readAccountTypeLabel(accountType: AccountType) {
+  switch (accountType) {
+    case "admin":
+      return "Администратор";
+    case "business_owner":
+      return "Руководитель";
+    case "dispatcher":
+      return "Диспетчер";
+    case "worker":
+      return "Работник";
+  }
+}
+
+function readNavigationItemLabel(item: AccountNavigationItem) {
+  const labels: Record<AccountNavigationItem, string> = {
+    "admin.account_preview": "Просмотр аккаунта",
+    "admin.accounts": "Учётные записи",
+    "admin.database": "БД",
+    "admin.user_actions": "Действия пользователей",
+    "business.overview": "Обзор",
+    "business.dispatcher": "Диспетчерская",
+    "business.work": "Работа",
+    "business.dispatcher_form": "Форма",
+  };
+
+  return labels[item];
+}
+
+function readAdminDatabaseSectionLabel(tableName: string) {
+  const labels: Record<string, string> = {
+    business_accounts: "Бизнес-аккаунты",
+    departments: "Подразделения",
+    app_users: "Пользователи",
+    account_positions: "Должности",
+    account_accesses: "Доступы аккаунтов",
+    auth_password_credentials: "Пароли пользователей",
+    auth_sessions: "Активные сессии",
+    dispatcher_submissions: "Диспетчерские записи",
+    dispatcher_equipment_report_revisions: "Изменения отчётов оборудования",
+  };
+
+  return labels[tableName] ?? tableName;
+}
+
 async function handleAdminDatabaseRequest({
   req,
   res,
@@ -473,6 +840,8 @@ async function handleAdminDatabaseRequest({
   authService,
   adminDatabase,
   dispatcherSpreadsheetImport,
+  audit,
+  databaseTransaction,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -482,6 +851,8 @@ async function handleAdminDatabaseRequest({
   authService: AuthSessionService | undefined;
   adminDatabase: AdminDatabaseRepository | undefined;
   dispatcherSpreadsheetImport: DispatcherSpreadsheetImportService | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
 }) {
   const access = await requireCapability(req, res, {
     config,
@@ -502,6 +873,8 @@ async function handleAdminDatabaseRequest({
       url,
       access,
       dispatcherSpreadsheetImport,
+      audit,
+      databaseTransaction,
     });
     return;
   }
@@ -577,7 +950,20 @@ async function handleAdminDatabaseRequest({
         return;
       }
 
-      const deleted = await adminDatabase.clearTable(route.tableName);
+      const deleted = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => adminDatabase.clearTable(route.tableName),
+        buildEvent: (result) => ({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: "data.clear",
+          summary: `Очищен раздел «${readAdminDatabaseSectionLabel(route.tableName)}»`,
+          details: [{ label: "Удалено записей", value: String(result) }],
+          targetType: "database_section",
+          targetId: route.tableName,
+        }),
+      });
       sendJson(res, 200, { ok: true, deleted });
       return;
     }
@@ -617,10 +1003,23 @@ async function handleAdminDatabaseRequest({
         return;
       }
 
-      await adminDatabase.updateRow({
-        tableName: route.tableName,
-        primaryKey: validation.value.primaryKey,
-        values: validation.value.values,
+      await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => adminDatabase.updateRow({
+          tableName: route.tableName,
+          primaryKey: validation.value.primaryKey,
+          values: validation.value.values,
+        }),
+        buildEvent: () => ({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: "data.update",
+          summary: `Изменена запись в разделе «${readAdminDatabaseSectionLabel(route.tableName)}»`,
+          details: buildSafeAuditDetails(validation.value.values),
+          targetType: "database_row",
+          targetId: route.tableName,
+        }),
       });
       sendJson(res, 200, { ok: true });
       return;
@@ -640,9 +1039,22 @@ async function handleAdminDatabaseRequest({
         return;
       }
 
-      await adminDatabase.deleteRow({
-        tableName: route.tableName,
-        primaryKey: validation.value.primaryKey,
+      await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => adminDatabase.deleteRow({
+          tableName: route.tableName,
+          primaryKey: validation.value.primaryKey,
+        }),
+        buildEvent: () => ({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: "data.delete",
+          summary: `Удалена запись из раздела «${readAdminDatabaseSectionLabel(route.tableName)}»`,
+          details: buildSafeAuditDetails(validation.value.primaryKey),
+          targetType: "database_row",
+          targetId: route.tableName,
+        }),
       });
       sendJson(res, 200, { ok: true });
       return;
@@ -665,12 +1077,16 @@ async function handleAdminDispatcherImportRequest({
   url,
   access,
   dispatcherSpreadsheetImport,
+  audit,
+  databaseTransaction,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
   url: URL;
   access: { profile: ServerUserProfile; source: "auth" | "dev" };
   dispatcherSpreadsheetImport: DispatcherSpreadsheetImportService | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
 }) {
   if (dispatcherSpreadsheetImport === undefined) {
     sendJson(res, 503, {
@@ -699,7 +1115,19 @@ async function handleAdminDispatcherImportRequest({
         return;
       }
 
-      sendJson(res, 200, await dispatcherSpreadsheetImport.preview(validation.value));
+      const preview = await dispatcherSpreadsheetImport.preview(validation.value);
+      await recordAuditEvent(audit, {
+        actor: buildAuditActor(access.profile),
+        category: "administration",
+        action: "data.import_preview",
+        summary: "Проверен импорт диспетчерских данных",
+        details: [
+          { label: "Всего записей", value: String(preview.totalRecords) },
+          { label: "Новых записей", value: String(preview.newRecords) },
+        ],
+        targetType: "dispatcher_import",
+      });
+      sendJson(res, 200, preview);
       return;
     }
 
@@ -724,15 +1152,28 @@ async function handleAdminDispatcherImportRequest({
         return;
       }
 
-      sendJson(
-        res,
-        200,
-        await dispatcherSpreadsheetImport.execute({
+      const previewToken = validation.value.previewToken;
+      const result = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => dispatcherSpreadsheetImport.execute({
           ...validation.value,
-          previewToken: validation.value.previewToken,
+          previewToken,
           submittedByAccountId: access.profile.activeAccess.accountId,
         }),
-      );
+        buildEvent: (importResult) => ({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: "data.import",
+          summary: "Импортированы диспетчерские данные",
+          details: [
+            { label: "Добавлено записей", value: String(importResult.inserted) },
+            { label: "Пропущено записей", value: String(importResult.skipped) },
+          ],
+          targetType: "dispatcher_import",
+        }),
+      });
+      sendJson(res, 200, result);
       return;
     }
 
@@ -761,6 +1202,8 @@ async function handleAdminAccountsRequest({
   devSessions,
   authService,
   accounts,
+  audit,
+  databaseTransaction,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -769,6 +1212,8 @@ async function handleAdminAccountsRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   accounts: AccountsRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
 }) {
   const isLoginStatusUpdate =
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
@@ -819,7 +1264,25 @@ async function handleAdminAccountsRequest({
       sendJson(res, 409, { error: { code: "invalid_response", message: "Нельзя удалить текущую учётную запись." } });
       return;
     }
-    const wasDeleted = await accounts.deleteAccount(userId);
+    const targetAccount = (await accounts.listAccounts()).find(
+      (account) => account.userId === userId,
+    );
+    const wasDeleted = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => accounts.deleteAccount(userId),
+      buildEvent: (deleted) => deleted
+        ? {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.account_archive",
+            summary: `Архивирована учётная запись «${targetAccount?.userDisplayName ?? "Пользователь"}»`,
+            details: buildAccountAuditDetails(targetAccount),
+            targetType: "user_account",
+            targetId: userId,
+          }
+        : undefined,
+    });
     if (!wasDeleted) {
       sendJson(res, 404, { error: { code: "not_found", message: "Учётная запись не найдена." } });
       return;
@@ -840,7 +1303,20 @@ async function handleAdminAccountsRequest({
         sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
         return;
       }
-      const position = await accounts.createPosition(validation.value);
+      const position = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => accounts.createPosition(validation.value),
+        buildEvent: (createdPosition) => ({
+          actor: buildAuditActor(access.profile),
+          category: "administration",
+          action: "admin.position_create",
+          summary: `Создана должность «${createdPosition.displayName}»`,
+          details: buildPositionAuditDetails(createdPosition),
+          targetType: "account_position",
+          targetId: createdPosition.id,
+        }),
+      });
       sendJson(res, 201, { position });
       return;
     }
@@ -865,7 +1341,22 @@ async function handleAdminAccountsRequest({
       return;
     }
     if (req.method === "DELETE") {
-      const result = await accounts.deletePosition(id);
+      const result = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => accounts.deletePosition(id),
+        buildEvent: (deleteResult) => deleteResult === "deleted"
+          ? {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: "admin.position_delete",
+              summary: `Удалена должность «${existing.displayName}»`,
+              details: buildPositionAuditDetails(existing),
+              targetType: "account_position",
+              targetId: id,
+            }
+          : undefined,
+      });
       if (result === "in_use") {
         sendJson(res, 409, { error: { code: "invalid_response", message: "Должность используется учётными записями." } });
         return;
@@ -886,7 +1377,22 @@ async function handleAdminAccountsRequest({
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
     }
-    const position = await accounts.updatePosition({ id, ...validation.value });
+    const position = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => accounts.updatePosition({ id, ...validation.value }),
+      buildEvent: (updatedPosition) => updatedPosition === undefined
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.position_update",
+            summary: `Изменена должность «${updatedPosition.displayName}»`,
+            details: buildPositionAuditDetails(updatedPosition),
+            targetType: "account_position",
+            targetId: id,
+          },
+    });
     sendJson(res, 200, { position });
     return;
   }
@@ -928,7 +1434,20 @@ async function handleAdminAccountsRequest({
       }
 
       try {
-        const account = await accounts.createAccount(validation.value);
+        const account = await runAuditedMutation({
+          transaction: databaseTransaction,
+          audit,
+          mutate: () => accounts.createAccount(validation.value),
+          buildEvent: (createdAccount) => ({
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.account_create",
+            summary: `Создана учётная запись «${createdAccount.userDisplayName}»`,
+            details: buildAccountAuditDetails(createdAccount),
+            targetType: "user_account",
+            targetId: createdAccount.userId,
+          }),
+        });
 
         sendJson(res, 201, { account });
       } catch (error) {
@@ -967,9 +1486,27 @@ async function handleAdminAccountsRequest({
       }
 
       try {
-        const loginStatus = await accounts.setAccountLoginEnabled(
-          validation.value,
+        const targetAccount = (await accounts.listAccounts()).find(
+          (account) => account.userId === validation.value.userId,
         );
+        const loginStatus = await runAuditedMutation({
+          transaction: databaseTransaction,
+          audit,
+          mutate: () => accounts.setAccountLoginEnabled(validation.value),
+          buildEvent: (status) => status === undefined
+            ? undefined
+            : {
+                actor: buildAuditActor(access.profile),
+                category: "administration",
+                action: validation.value.isEnabled
+                  ? "admin.account_login_enable"
+                  : "admin.account_login_disable",
+                summary: `${validation.value.isEnabled ? "Включён" : "Отключён"} вход для «${targetAccount?.userDisplayName ?? "Пользователь"}»`,
+                details: buildAccountAuditDetails(targetAccount),
+                targetType: "user_account",
+                targetId: validation.value.userId,
+              },
+        });
 
         if (loginStatus === undefined) {
           sendJson(res, 404, {
@@ -1022,7 +1559,22 @@ async function handleAdminAccountsRequest({
   }
 
   try {
-    const wasReset = await accounts.resetPassword(validation.value);
+    const wasReset = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => accounts.resetPassword(validation.value),
+      buildEvent: (reset) => reset
+        ? {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.account_password_reset",
+            summary: `Сброшен пароль учётной записи «${validation.value.login}»`,
+            details: [{ label: "Логин", value: validation.value.login }],
+            targetType: "user_account",
+            targetId: validation.value.login,
+          }
+        : undefined,
+    });
 
     if (!wasReset) {
       sendJson(res, 404, {
@@ -1412,6 +1964,55 @@ function readAdminDatabasePagination(url: URL):
   }
 
   return errors.length === 0 ? { ok: true, value } : { ok: false, errors };
+}
+
+function readAuditReportFilters(url: URL):
+  | {
+      ok: true;
+      value: {
+        actorAccountId?: string;
+        category?: AuditEventCategory;
+        limit?: number;
+        offset?: number;
+      };
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  const errors: string[] = [];
+  const pagination = readAdminDatabasePagination(url);
+  const actorAccountId = readOptionalQueryParam(url, "actorAccountId")?.trim();
+  const category = readOptionalQueryParam(url, "category")?.trim();
+
+  if (!pagination.ok) {
+    errors.push(...pagination.errors);
+  }
+
+  if (actorAccountId !== undefined && (
+    actorAccountId.length === 0 || actorAccountId.length > 120
+  )) {
+    errors.push("actorAccountId must contain from 1 to 120 characters.");
+  }
+
+  if (category !== undefined && !isAuditEventCategory(category)) {
+    errors.push("category is not supported.");
+  }
+
+  if (errors.length > 0 || !pagination.ok) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      ...(actorAccountId === undefined ? {} : { actorAccountId }),
+      ...(category === undefined || !isAuditEventCategory(category)
+        ? {}
+        : { category }),
+      ...pagination.value,
+    },
+  };
 }
 
 function readAdminDatabaseMutationPayload(input: unknown):
@@ -1873,6 +2474,8 @@ async function handleAuthLogin(
   res: ServerResponse,
   config: ServerConfig,
   authService: AuthSessionService | undefined,
+  audit: AuditRepository,
+  databaseTransaction: DatabaseTransactionRunner,
 ) {
   if (req.method !== "POST") {
     sendJson(res, 405, {
@@ -1907,7 +2510,21 @@ async function handleAuthLogin(
     return;
   }
 
-  const login = await authService.login(credentials);
+  const login = await runAuditedMutation({
+    transaction: databaseTransaction,
+    audit,
+    mutate: () => authService.login(credentials),
+    buildEvent: (result) => !result.ok
+      ? undefined
+      : {
+          actor: buildAuditActor(result.session.profile, credentials.login),
+          category: "authentication",
+          action: "auth.login",
+          summary: "Выполнен вход в систему",
+          businessAccountId: readScopedBusinessAccountId(result.session.profile),
+          targetType: "auth_session",
+        },
+  });
 
   if (!login.ok) {
     sendJson(res, 401, {
@@ -1931,6 +2548,8 @@ async function handleAuthLogout(
   res: ServerResponse,
   config: ServerConfig,
   authService: AuthSessionService | undefined,
+  audit: AuditRepository,
+  databaseTransaction: DatabaseTransactionRunner,
 ) {
   if (req.method !== "POST") {
     sendJson(res, 405, {
@@ -1943,10 +2562,31 @@ async function handleAuthLogout(
   }
 
   const sessionId = readAuthSessionId(req, config);
+  await runAuditedMutation({
+    transaction: databaseTransaction,
+    audit,
+    mutate: async () => {
+      const session = sessionId === undefined
+        ? undefined
+        : await authService?.readSession(sessionId);
 
-  if (sessionId !== undefined) {
-    await authService?.deleteSession(sessionId);
-  }
+      if (sessionId !== undefined) {
+        await authService?.deleteSession(sessionId);
+      }
+
+      return session;
+    },
+    buildEvent: (session) => session === undefined
+      ? undefined
+      : {
+          actor: buildAuditActor(session.profile),
+          category: "authentication",
+          action: "auth.logout",
+          summary: "Выполнен выход из системы",
+          businessAccountId: readScopedBusinessAccountId(session.profile),
+          targetType: "auth_session",
+        },
+  });
 
   res.setHeader("set-cookie", buildExpiredAuthCookie(config));
   sendJson(res, 200, { ok: true });
@@ -1983,6 +2623,7 @@ async function handleDevAccessSession(
   res: ServerResponse,
   devSessions: Map<string, DevAccessSession>,
   accounts: AccountsRepository | undefined,
+  audit: AuditRepository,
 ) {
   if (req.method === "GET") {
     sendJson(res, 200, {
@@ -1993,6 +2634,19 @@ async function handleDevAccessSession(
 
   if (req.method === "DELETE") {
     const sessionId = readDevSessionId(req);
+    const session = sessionId === undefined ? undefined : devSessions.get(sessionId);
+
+    if (session !== undefined) {
+      const profile = buildDevProfile(session.option, session.createdAt) as ServerUserProfile;
+      await recordAuditEvent(audit, {
+        actor: buildAuditActor(profile),
+        category: "authentication",
+        action: "auth.logout",
+        summary: "Выполнен выход из системы",
+        businessAccountId: readScopedBusinessAccountId(profile),
+        targetType: "auth_session",
+      });
+    }
 
     if (sessionId !== undefined) {
       devSessions.delete(sessionId);
@@ -2050,10 +2704,21 @@ async function handleDevAccessSession(
 
   const sessionId = createDevSessionId(option.accountType);
 
-  devSessions.set(sessionId, {
+  const createdAt = new Date().toISOString();
+  const session = {
     option,
-    createdAt: new Date().toISOString(),
+    createdAt,
+  };
+  const profile = buildDevProfile(option, createdAt) as ServerUserProfile;
+  await recordAuditEvent(audit, {
+    actor: buildAuditActor(profile),
+    category: "authentication",
+    action: "auth.login",
+    summary: "Выполнен вход в систему",
+    businessAccountId: readScopedBusinessAccountId(profile),
+    targetType: "auth_session",
   });
+  devSessions.set(sessionId, session);
 
   res.setHeader(
     "set-cookie",
@@ -2100,6 +2765,30 @@ async function requireCapability(
       error: {
         code: "access_denied",
         message,
+      },
+    });
+    return undefined;
+  }
+
+  return access;
+}
+
+async function requireAuthentication(
+  req: IncomingMessage,
+  res: ServerResponse,
+  dependencies: {
+    config: ServerConfig;
+    devSessions: Map<string, DevAccessSession>;
+    authService: AuthSessionService | undefined;
+  },
+) {
+  const access = await readRequestAccess(req, dependencies);
+
+  if (access === undefined) {
+    sendJson(res, 401, {
+      error: {
+        code: "unauthenticated",
+        message: "Authentication is required.",
       },
     });
     return undefined;

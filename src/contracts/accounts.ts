@@ -16,6 +16,7 @@ export const accountNavigationItems = [
   "admin.account_preview",
   "admin.accounts",
   "admin.database",
+  "admin.user_actions",
   "business.overview",
   "business.dispatcher",
   "business.work",

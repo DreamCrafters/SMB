@@ -1,16 +1,20 @@
 import { readServerConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
 import { createDatabasePool } from "./db/pool.js";
+import { createDatabaseTransactionContext } from "./db/transactionContext.js";
 import { createApiServer } from "./http/app.js";
 import { createAdminDatabaseRepository } from "./repositories/adminDatabaseRepository.js";
 import { createAccountsRepository } from "./repositories/accountsRepository.js";
 import { createAuthSessionService } from "./repositories/authRepository.js";
 import { createDispatcherSubmissionsRepository } from "./repositories/dispatcherSubmissionsRepository.js";
 import { createDispatcherSpreadsheetImportRepository } from "./repositories/dispatcherSpreadsheetImportRepository.js";
+import { createAuditRepository } from "./repositories/auditRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
 const config = readServerConfig();
-const pool = createDatabasePool(config.databaseUrl);
+const sourcePool = createDatabasePool(config.databaseUrl);
+const database = createDatabaseTransactionContext(sourcePool);
+const pool = database.pool;
 const dispatcherSpreadsheetImportRepository =
   createDispatcherSpreadsheetImportRepository(pool);
 
@@ -26,6 +30,8 @@ const server = createApiServer({
     sessionTtlHours: config.session.ttlHours,
   }),
   dispatcherSubmissions: createDispatcherSubmissionsRepository(pool),
+  audit: createAuditRepository(pool),
+  databaseTransaction: database.transaction,
   dispatcherSpreadsheetImport: createDispatcherSpreadsheetImportService(
     config.googleSheetsReference,
     dispatcherSpreadsheetImportRepository,
@@ -38,7 +44,7 @@ server.listen(config.port, "0.0.0.0", () => {
 
 async function shutdown() {
   server.close(() => {
-    void pool.end().then(() => {
+    void sourcePool.end().then(() => {
       process.exit(0);
     });
   });

@@ -481,6 +481,47 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "015_user_audit_events",
+    statements: [
+      `
+      create table if not exists user_audit_events (
+        id char(36) not null primary key,
+        actor_user_id varchar(120) not null,
+        actor_account_id varchar(120) not null,
+        actor_login varchar(190) null,
+        actor_display_name varchar(255) not null,
+        actor_position_display_name varchar(255) not null,
+        category varchar(40) not null,
+        action varchar(80) not null,
+        outcome varchar(20) not null default 'success',
+        summary varchar(500) not null,
+        details json not null,
+        business_account_id varchar(120) null,
+        target_type varchar(80) null,
+        target_id varchar(190) null,
+        occurred_at timestamp(3) not null default current_timestamp(3),
+        key idx_user_audit_occurred (occurred_at),
+        key idx_user_audit_actor_occurred (actor_account_id, occurred_at),
+        key idx_user_audit_category_occurred (category, occurred_at)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(navigation_items, json_quote('admin.user_actions'))
+              then navigation_items
+            else json_array_append(navigation_items, '$', 'admin.user_actions')
+          end,
+          capabilities = case
+            when json_contains(capabilities, json_quote('platform.view_audit'))
+              then capabilities
+            else json_array_append(capabilities, '$', 'platform.view_audit')
+          end
+      where id = 'administrator';
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

@@ -24,6 +24,8 @@ import type {
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import type { MaxNotificationService } from "../integrations/maxNotifications.js";
 import type { DispatcherSpreadsheetImportService } from "../integrations/dispatcherSpreadsheetImport.js";
+import type { AuditRepository } from "../repositories/auditRepository.js";
+import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
@@ -407,6 +409,156 @@ test("admin database API lists tables for admin dev sessions", async () => {
   });
 });
 
+test("admin audit API returns a per-account report limited by the server", async () => {
+  let receivedFilters: Parameters<AuditRepository["listReport"]>[0];
+  const auditRepository: AuditRepository = {
+    async record() {},
+    async listReport(filters) {
+      receivedFilters = filters;
+      return {
+        events: [],
+        actors: [],
+        summary: {
+          total: 0,
+          byCategory: [
+            { category: "authentication", count: 0 },
+            { category: "navigation", count: 0 },
+            { category: "form_submission", count: 0 },
+            { category: "data_change", count: 0 },
+            { category: "administration", count: 0 },
+          ],
+        },
+        window: {
+          from: "2026-04-16T00:00:00.000Z",
+          to: "2026-07-16T00:00:00.000Z",
+        },
+        limit: filters?.limit ?? 50,
+        offset: filters?.offset ?? 0,
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const adminSessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/audit-events?actorAccountId=access-1&category=navigation&limit=25&offset=50`,
+        { headers: { "X-SMB-Dev-Session": adminSessionId } },
+      );
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(receivedFilters, {
+        actorAccountId: "access-1",
+        category: "navigation",
+        limit: 25,
+        offset: 50,
+      });
+      assert.equal(isRecord(await response.json()), true);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    auditRepository,
+  );
+});
+
+test("admin audit API rejects accounts without the audit capability", async () => {
+  const auditRepository: AuditRepository = {
+    async record() {},
+    async listReport() {
+      throw new Error("must not be called");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const dispatcherSessionId = await createDevSession(baseUrl, "dispatcher");
+      const response = await fetch(`${baseUrl}/api/admin/audit-events`, {
+        headers: { "X-SMB-Dev-Session": dispatcherSessionId },
+      });
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    auditRepository,
+  );
+});
+
+test("screen view API derives the actor from the session and allows known screens only", async () => {
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const auditRepository: AuditRepository = {
+    async record(event) {
+      recorded.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const dispatcherSessionId = await createDevSession(baseUrl, "dispatcher");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": dispatcherSessionId,
+      };
+      const response = await fetch(`${baseUrl}/api/audit/events`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          screenId: "business.dispatcher_form",
+          actorAccountId: "forged-account",
+          summary: "forged summary",
+        }),
+      });
+      const invalidResponse = await fetch(`${baseUrl}/api/audit/events`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ screenId: "admin.secret-screen" }),
+      });
+      const forbiddenResponse = await fetch(`${baseUrl}/api/audit/events`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ screenId: "admin.database" }),
+      });
+
+      assert.equal(response.status, 201);
+      assert.equal(invalidResponse.status, 400);
+      assert.equal(forbiddenResponse.status, 403);
+      const viewEvents = recorded.filter((event) => event.action === "view.screen");
+      assert.equal(viewEvents.length, 1);
+      assert.equal(viewEvents[0]?.actor.accountId, "dev-access-dispatcher");
+      assert.equal(viewEvents[0]?.summary, "Открыт экран «Выбор диспетчерской формы»");
+      assert.equal(viewEvents[0]?.targetId, "business.dispatcher_form");
+      assert.doesNotMatch(JSON.stringify(viewEvents), /forged/u);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    auditRepository,
+  );
+});
+
 test("admin dispatcher import API previews and executes for admin sessions", async () => {
   let submittedByAccountId = "";
   let previewCalls = 0;
@@ -537,6 +689,15 @@ test("admin database API forwards update and delete mutations for admin sessions
       deletePayload = value;
     },
   };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const auditRepository: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -582,6 +743,11 @@ test("admin database API forwards update and delete mutations for admin sessions
     undefined,
     undefined,
     repository,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    auditRepository,
   );
 
   assert.deepEqual(updatePayload, {
@@ -599,6 +765,77 @@ test("admin database API forwards update and delete mutations for admin sessions
       id: "row-id",
     },
   });
+  assert.deepEqual(
+    auditEvents.find((event) => event.action === "data.delete")?.details,
+    [{ label: "ID записи", value: "row-id" }],
+  );
+});
+
+test("admin mutation rolls back when its audit event cannot be persisted", async () => {
+  let updatePersisted = false;
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async updateRow() {
+      updatePersisted = true;
+    },
+  };
+  const auditRepository: AuditRepository = {
+    async record(event) {
+      if (event.action === "data.update") {
+        throw new Error("audit unavailable");
+      }
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const databaseTransaction: DatabaseTransactionRunner = {
+    async run(operation) {
+      const previousValue = updatePersisted;
+
+      try {
+        return await operation();
+      } catch (error) {
+        updatePersisted = previousValue;
+        throw error;
+      }
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({
+            primaryKey: { id: "row-id" },
+            values: { summary: "updated" },
+          }),
+        },
+      );
+
+      assert.equal(response.status, 400);
+      assert.match(JSON.stringify(await response.json()), /audit unavailable/u);
+      assert.equal(updatePersisted, false);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    auditRepository,
+    databaseTransaction,
+  );
 });
 
 test("admin database API clears a section only after exact confirmation", async () => {
@@ -1086,6 +1323,11 @@ test("admin positions API deletes only an unused position", async () => {
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {
   let createInput: Parameters<AccountsRepository["createAccount"]>[0] | undefined;
   let resetInput: Parameters<AccountsRepository["resetPassword"]>[0] | undefined;
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const auditRepository: AuditRepository = {
+    async record(event) { recorded.push(event); },
+    async listReport() { throw new Error("not used"); },
+  };
   const repository: AccountsRepository = {
     ...accounts,
     async createAccount(input) {
@@ -1142,6 +1384,8 @@ test("admin accounts API creates accounts and resets passwords for admin session
     config,
     undefined,
     repository,
+    undefined,
+    auditRepository,
   );
 
   assert.equal(createInput?.login, "dispatcher-1");
@@ -1156,6 +1400,14 @@ test("admin accounts API creates accounts and resets passwords for admin session
     login: "dispatcher-1",
     password: "newsecret1",
   });
+  assert.deepEqual(
+    recorded
+      .filter((event) => event.category === "administration")
+      .map((event) => event.action),
+    ["admin.account_create", "admin.account_password_reset"],
+  );
+  assert.match(JSON.stringify(recorded), /dispatcher-1/u);
+  assert.doesNotMatch(JSON.stringify(recorded), /supersecret1|newsecret1/u);
 });
 
 test("admin accounts API suspends another user login", async () => {
@@ -1658,6 +1910,11 @@ test("production API rejects dev access sessions", async () => {
 
 test("production API logs in and clears auth sessions", async () => {
   let deletedSessionId: string | undefined;
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const auditRepository: AuditRepository = {
+    async record(event) { recorded.push(event); },
+    async listReport() { throw new Error("not used"); },
+  };
   const authService = buildAuthService({
     loginSessionId: "prod-session",
     profile: buildProductionProfile("dispatcher"),
@@ -1707,7 +1964,17 @@ test("production API logs in and clears auth sessions", async () => {
     adminDatabase,
     productionConfig,
     authService,
+    undefined,
+    undefined,
+    auditRepository,
   );
+
+  assert.deepEqual(recorded.map((event) => event.action), [
+    "auth.login",
+    "auth.logout",
+  ]);
+  assert.equal(recorded[0]?.actor.login, "dispatcher");
+  assert.doesNotMatch(JSON.stringify(recorded), /secret|prod-session/u);
 });
 
 test("production API rejects unauthenticated dispatcher submissions and admin database", async () => {
@@ -2036,41 +2303,67 @@ test("remote API enriches incident location and responsible options from referen
 });
 
 test("remote API creates dispatcher submissions with form payload", async () => {
-  await withApiServer(async (baseUrl) => {
-    const sessionId = await createDevSession(baseUrl, "dispatcher");
-    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-SMB-Dev-Session": sessionId,
-        "X-SMB-Account-Id": "dispatcher-account",
-      },
-      body: JSON.stringify({
-        businessAccountId: "business-id",
-        formId: "equipment",
-        payload: {
-          reportDate: "2026-06-18",
-          equipment: "Пресс №1",
-          productionTons: "42",
-        },
-      }),
-    });
-    const payload = await response.json();
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const auditRepository: AuditRepository = {
+    async record(event) { recorded.push(event); },
+    async listReport() { throw new Error("not used"); },
+  };
 
-    assert.equal(response.status, 201);
-    assert.equal(
-      isRecord(payload) && isRecord(payload.submission)
-        ? payload.submission.formId
-        : undefined,
-      "equipment",
-    );
-    assert.equal(
-      isRecord(payload) && isRecord(payload.submission)
-        ? payload.submission.submittedByAccountId
-        : undefined,
-      "dispatcher-account",
-    );
-  });
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "dispatcher");
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+          "X-SMB-Account-Id": "dispatcher-account",
+        },
+        body: JSON.stringify({
+          businessAccountId: "business-id",
+          formId: "equipment",
+          payload: {
+            reportDate: "2026-06-18",
+            equipment: "Пресс №1",
+            productionTons: "42",
+          },
+        }),
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 201);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.submission)
+          ? payload.submission.formId
+          : undefined,
+        "equipment",
+      );
+      assert.equal(
+        isRecord(payload) && isRecord(payload.submission)
+          ? payload.submission.submittedByAccountId
+          : undefined,
+        "dispatcher-account",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    auditRepository,
+  );
+
+  const formEvent = recorded.find((event) => event.action === "form.submit");
+  assert.equal(formEvent?.actor.accountId, "dev-access-dispatcher");
+  assert.deepEqual(formEvent?.details, [
+    { label: "Дата отчета", value: "18.06.2026" },
+    { label: "Оборудование", value: "Пресс №1" },
+    { label: "Выработка, тонн", value: "42" },
+  ]);
 });
 
 test("remote API notifies recipients after successful incident submission", async () => {
@@ -2579,7 +2872,20 @@ async function withApiServer(
   authService?: AuthSessionService,
   accountsRepository?: AccountsRepository,
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService,
+  audit?: AuditRepository,
+  databaseTransaction?: DatabaseTransactionRunner,
 ) {
+  const directTransaction: DatabaseTransactionRunner = {
+    async run(operation) {
+      return operation();
+    },
+  };
+  const fallbackAudit: AuditRepository = {
+    async record() {},
+    async listReport() {
+      throw new Error("Audit report repository is not configured for this test.");
+    },
+  };
   const server = createApiServer({
     config: serverConfig,
     dispatcherSubmissions: repository,
@@ -2590,6 +2896,8 @@ async function withApiServer(
     emailNotificationService,
     maxNotificationService,
     dispatcherSpreadsheetImport,
+    audit: audit ?? fallbackAudit,
+    databaseTransaction: databaseTransaction ?? directTransaction,
   });
 
   server.listen(0, "127.0.0.1");

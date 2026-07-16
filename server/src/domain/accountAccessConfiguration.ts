@@ -26,7 +26,12 @@ export const navigationItemsByAccountType: Record<
   AccountType,
   AccountNavigationItem[]
 > = {
-  admin: ["admin.account_preview", "admin.accounts", "admin.database"],
+  admin: [
+    "admin.account_preview",
+    "admin.accounts",
+    "admin.database",
+    "admin.user_actions",
+  ],
   business_owner: ["business.overview", "business.dispatcher", "business.work"],
   worker: [],
   dispatcher: ["business.dispatcher_form"],
@@ -55,6 +60,7 @@ const capabilitiesByNavigationItem: Record<
   ],
   "admin.accounts": ["platform.manage_users", "platform.manage_access"],
   "admin.database": ["platform.manage_analytics_database"],
+  "admin.user_actions": ["platform.view_audit"],
   "business.overview": [
     "business.view_all_statistics",
     "business.view_department_statistics",

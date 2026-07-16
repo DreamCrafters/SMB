@@ -791,6 +791,7 @@ function navigationLabelExpression() {
     if(json_contains(positions.navigation_items, json_quote('admin.account_preview')), 'Просмотр аккаунта', null),
     if(json_contains(positions.navigation_items, json_quote('admin.accounts')), 'Учётные записи', null),
     if(json_contains(positions.navigation_items, json_quote('admin.database')), 'БД', null),
+    if(json_contains(positions.navigation_items, json_quote('admin.user_actions')), 'Действия пользователей', null),
     if(json_contains(positions.navigation_items, json_quote('business.overview')), 'Обзор', null),
     if(json_contains(positions.navigation_items, json_quote('business.dispatcher')), 'Диспетчерская', null),
     if(json_contains(positions.navigation_items, json_quote('business.work')), 'Работа', null),

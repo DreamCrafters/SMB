@@ -22,7 +22,12 @@ export type DevAccessSession = {
 const DEV_BUSINESS_ID = "dev-business-boundary";
 const DEV_DEPARTMENT_ID = "dev-department-boundary";
 const navigationItemsByAccountType = {
-  admin: ["admin.account_preview", "admin.accounts", "admin.database"],
+  admin: [
+    "admin.account_preview",
+    "admin.accounts",
+    "admin.database",
+    "admin.user_actions",
+  ],
   business_owner: ["business.overview", "business.dispatcher", "business.work"],
   worker: [],
   dispatcher: ["business.dispatcher_form"],

@@ -70,4 +70,7 @@ test("navigation selection expands only to its server capabilities", () => {
     "platform.manage_users",
     "platform.manage_access",
   ]);
+  assert.deepEqual(resolveCapabilitiesForNavigation(["admin.user_actions"]), [
+    "platform.view_audit",
+  ]);
 });

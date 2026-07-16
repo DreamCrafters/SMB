@@ -86,6 +86,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "pending",
     },
     {
+      id: "admin.user_actions",
+      label: "Действия пользователей",
+      description: "Входы, формы, изменения и просмотры",
+      state: "pending",
+    },
+    {
       id: "admin.database",
       label: "БД",
       description: "Таблицы и строки сервера",
