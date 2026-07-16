@@ -33,6 +33,7 @@ const DISPATCHER_EQUIPMENT_REPORT_PATH = "/api/dispatcher/equipment-report";
 
 const dispatcherFormIds: readonly DispatcherFormId[] = [
   "equipment",
+  "production",
   "incident",
   "incident_close",
   "visitor",
@@ -44,6 +45,7 @@ const dispatcherFormIds: readonly DispatcherFormId[] = [
 const dispatcherFieldTypes: readonly DispatcherFormFieldType[] = [
   "text",
   "number",
+  "signed-number",
   "integer",
   "date",
   "month",
@@ -218,6 +220,67 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
     ],
   },
   {
+    id: "production",
+    title: "Выработка",
+    sheetName: "Выработка",
+    summaryFields: ["reportDate", "formingDay", "sortingDay"],
+    fields: [
+      {
+        name: "reportDate",
+        label: "Дата отчета",
+        type: "date",
+        required: true,
+      },
+      ...buildLocalProductionSummaryFields("forming", "Формовка"),
+      ...buildLocalProductionSummaryFields("sorting", "Сортировка"),
+      ...buildLocalProductionRows("unformed", "Неформованная продукция", 4),
+      ...buildLocalProductionRows("chamotte", "Выпуск шамота", 1),
+      ...buildLocalJarMeasurementFields(),
+      {
+        name: "granulationPlatesInOperation",
+        label: "Участок грануляции — Количество тарелок в работе",
+        type: "integer",
+        required: false,
+      },
+      {
+        name: "granulationMillHours",
+        label: "Участок грануляции — Время работы мельницы, часов",
+        type: "number",
+        required: false,
+      },
+      {
+        name: "granulationRawOutputTons",
+        label: "Участок грануляции — Выпуск сырцовой гранулы, тонн",
+        type: "number",
+        required: false,
+      },
+      {
+        name: "granulationFraction1600Day",
+        label: "Участок грануляции — Фракция 1600, сутки",
+        type: "number",
+        required: false,
+      },
+      {
+        name: "granulationFraction1600Month",
+        label: "Участок грануляции — Фракция 1600, месяц",
+        type: "number",
+        required: false,
+      },
+      {
+        name: "granulationSamplesDay",
+        label: "Участок грануляции — Образцы, сутки",
+        type: "number",
+        required: false,
+      },
+      {
+        name: "granulationSamplesMonth",
+        label: "Участок грануляции — Образцы, месяц",
+        type: "number",
+        required: false,
+      },
+    ],
+  },
+  {
     id: "incident",
     title: "Открытие инцидента",
     sheetName: "Инциденты",
@@ -384,6 +447,97 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
     ],
   },
 ];
+
+function buildLocalProductionSummaryFields(
+  prefix: "forming" | "sorting",
+  sectionLabel: string,
+): DispatcherFormField[] {
+  return [
+    localProductionNumberField(`${prefix}Plan`, `${sectionLabel} — План`),
+    localProductionNumberField(`${prefix}Day`, `${sectionLabel} — Сутки`),
+    localProductionNumberField(`${prefix}Month`, `${sectionLabel} — Месяц`),
+    localProductionSignedNumberField(
+      `${prefix}Deviation`,
+      `${sectionLabel} — Отклонение`,
+    ),
+    {
+      name: `${prefix}ProductBrands`,
+      label: `${sectionLabel} — Марки изделий`,
+      type: "text",
+      required: false,
+      maxLength: 500,
+    },
+  ];
+}
+
+function buildLocalProductionRows(
+  prefix: "unformed" | "chamotte",
+  sectionLabel: string,
+  rowCount: number,
+): DispatcherFormField[] {
+  return Array.from({ length: rowCount }, (_, index) => {
+    const rowNumber = index + 1;
+    const rowLabel = `${sectionLabel}, строка ${rowNumber}`;
+
+    return [
+      {
+        name: `${prefix}Brand${rowNumber}`,
+        label: `${rowLabel} — Марка продукции`,
+        type: "text" as const,
+        required: false,
+      },
+      localProductionNumberField(
+        `${prefix}Plan${rowNumber}`,
+        `${rowLabel} — План`,
+      ),
+      localProductionNumberField(
+        `${prefix}Fact${rowNumber}`,
+        `${rowLabel} — Факт`,
+      ),
+      localProductionNumberField(
+        `${prefix}Month${rowNumber}`,
+        `${rowLabel} — Месяц`,
+      ),
+      localProductionSignedNumberField(
+        `${prefix}Deviation${rowNumber}`,
+        `${rowLabel} — Отклонение`,
+      ),
+    ];
+  }).flat();
+}
+
+function buildLocalJarMeasurementFields(): DispatcherFormField[] {
+  return [1, 2, 3].map((jarNumber) => ({
+    name: `jarMeasurement${jarNumber}`,
+    label: `Замеры банок — Банка ${jarNumber}`,
+    type: "text",
+    required: false,
+  }));
+}
+
+function localProductionNumberField(
+  name: string,
+  label: string,
+): DispatcherFormField {
+  return {
+    name,
+    label,
+    type: "number",
+    required: false,
+  };
+}
+
+function localProductionSignedNumberField(
+  name: string,
+  label: string,
+): DispatcherFormField {
+  return {
+    name,
+    label,
+    type: "signed-number",
+    required: false,
+  };
+}
 
 export async function requestDispatcherForms({
   baseUrl,
@@ -1171,6 +1325,23 @@ function applyLocalDispatcherFormScriptRules(
       };
     }
 
+    const validationMessage = validateDispatcherPayloadForSubmit(form, nextPayload);
+
+    if (validationMessage !== undefined) {
+      return {
+        status: "error",
+        message: validationMessage,
+        code: "invalid_response",
+      };
+    }
+
+    if (nextPayload.reportDate !== undefined) {
+      nextPayload.reportMonth = nextPayload.reportDate.slice(0, 7);
+      nextPayload.reportDate = formatLocalScriptDate(nextPayload.reportDate);
+    }
+  }
+
+  if (form.id === "production") {
     const validationMessage = validateDispatcherPayloadForSubmit(form, nextPayload);
 
     if (validationMessage !== undefined) {

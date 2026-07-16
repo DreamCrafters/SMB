@@ -101,6 +101,51 @@ test("validateDispatcherSubmissionDraft rejects empty equipment reports", () => 
   }
 });
 
+test("validateDispatcherSubmissionDraft accepts a production report and derives its month", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "production",
+    payload: {
+      reportDate: "2026-07-16",
+      formingDay: "12,5",
+      formingDeviation: "-3,5",
+      formingProductBrands: "ПБ-5, ПБ-6",
+      granulationPlatesInOperation: "2",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    assert.deepEqual(result.value.draft.payload, {
+      reportDate: "16.07.2026",
+      reportMonth: "2026-07",
+      formingDay: "12.5",
+      formingDeviation: "-3.5",
+      formingProductBrands: "ПБ-5, ПБ-6",
+      granulationPlatesInOperation: "2",
+    });
+    assert.match(result.value.summary, /16\.07\.2026/);
+    assert.match(result.value.summary, /12\.5/);
+  }
+});
+
+test("validateDispatcherSubmissionDraft rejects an empty production report", () => {
+  const result = validateDispatcherSubmissionDraft({
+    businessAccountId: "business-id",
+    formId: "production",
+    payload: {
+      reportDate: "2026-07-16",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /production report/);
+  }
+});
+
 test("validateDispatcherSubmissionDraft rejects downtime reason without positive hours", () => {
   const result = validateDispatcherSubmissionDraft({
     businessAccountId: "business-id",

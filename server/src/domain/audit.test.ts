@@ -57,6 +57,10 @@ test("client-reported views are restricted to known tabs and screens", () => {
     id: "dispatcher.form.visitor",
     title: "Форма: Вход посетителя",
   });
+  assert.deepEqual(readAuditScreen("dispatcher.form.production"), {
+    id: "dispatcher.form.production",
+    title: "Форма: Выработка",
+  });
   assert.equal(readAuditScreen("admin.secret-screen"), undefined);
 });
 

@@ -2486,6 +2486,14 @@ test("remote API returns dispatcher form definitions", async () => {
         : false,
       true,
     );
+    assert.equal(
+      isRecord(payload) && Array.isArray(payload.forms)
+        ? payload.forms.some(
+            (form) => isRecord(form) && form.id === "production",
+          )
+        : false,
+      true,
+    );
   });
 });
 

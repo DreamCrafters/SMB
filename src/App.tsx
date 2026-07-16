@@ -78,6 +78,10 @@ import {
   normalizeDecimalNumberInput,
   normalizeIntegerForPayload,
   normalizeIntegerInput,
+  normalizeSignedDecimalNumberForPayload,
+  normalizeSignedDecimalNumberInput,
+  signedDecimalNumberInputPattern,
+  signedDecimalNumberInputTitle,
 } from "./services/dispatcherFormInput";
 import {
   initialIncidentCloseSelectionState,
@@ -266,7 +270,11 @@ type DispatcherFeedFilterState = {
   dateTo: string;
 };
 
-type DispatcherFormChoiceGroupId = "equipment" | "incidents" | "visitors";
+type DispatcherFormChoiceGroupId =
+  | "production"
+  | "equipment"
+  | "incidents"
+  | "visitors";
 
 type EquipmentLocalStatusTone = "info" | "error";
 
@@ -1885,6 +1893,12 @@ function readDispatcherFormChoiceGroups(
 ): DispatcherFormChoiceGroup[] {
   const groups: DispatcherFormChoiceGroup[] = [
     {
+      id: "production",
+      title: "Производство",
+      description: "Сводка по выработке",
+      forms: readDispatcherFormsByIds(forms, ["production"]),
+    },
+    {
       id: "equipment",
       title: "Оборудование",
       description: "Ежедневная отметка",
@@ -2075,7 +2089,13 @@ function DataEntryWorkspace({
             К выбору формы
           </button>
         </div>
-        {currentForm.id === "equipment" ? (
+        {currentForm.id === "production" ? (
+          <DispatcherProductionReportFormBody
+            form={currentForm}
+            isSubmitting={isSubmitting}
+            status={status}
+          />
+        ) : currentForm.id === "equipment" ? (
           <DispatcherEquipmentFormBody
             businessAccountId={businessAccountId}
             form={currentForm}
@@ -2141,6 +2161,282 @@ function DataEntryWorkspace({
         )}
       </form>
     </section>
+  );
+}
+
+function DispatcherProductionReportFormBody({
+  form,
+  isSubmitting,
+  status,
+}: {
+  form: DispatcherFormDefinition;
+  isSubmitting: boolean;
+  status: string;
+}) {
+  const reportDateField = form.fields.find(
+    (field) => field.name === "reportDate",
+  );
+
+  return (
+    <>
+      <div className="production-report-intro">
+        <div>
+          <strong>Сводка о выполнении показателей по заводу</strong>
+          <span>Заполните известные показатели за выбранную дату.</span>
+        </div>
+        {reportDateField === undefined ? null : (
+          <DispatcherFormFieldInput field={reportDateField} />
+        )}
+      </div>
+
+      <fieldset className="production-report-section">
+        <legend>Огнеупорный цех</legend>
+        <ProductionSummaryTable
+          form={form}
+          prefix="forming"
+          title="Формовка"
+        />
+        <ProductionSummaryTable
+          form={form}
+          prefix="sorting"
+          title="Сортировка"
+        />
+      </fieldset>
+
+      <div className="production-report-split">
+        <fieldset className="production-report-section">
+          <legend>Неформованная продукция, контейнеры</legend>
+          <ProductionRowsTable form={form} prefix="unformed" rowCount={4} />
+        </fieldset>
+
+        <fieldset className="production-report-section">
+          <legend>Цех обжига шамота</legend>
+          <span className="production-report-section-note">
+            Выпуск шамота по маркам
+          </span>
+          <ProductionRowsTable form={form} prefix="chamotte" rowCount={1} />
+        </fieldset>
+      </div>
+
+      <div className="production-report-split production-report-split-bottom">
+        <fieldset className="production-report-section">
+          <legend>Замеры банок</legend>
+          <div className="production-report-table-wrap">
+            <table className="production-report-table production-report-jar-table">
+              <thead>
+                <tr>
+                  <th scope="col">Банка</th>
+                  <th scope="col">Замер</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3].map((jarNumber) => (
+                  <tr key={jarNumber}>
+                    <th scope="row">{jarNumber}</th>
+                    <td>
+                      <ProductionReportCell
+                        fieldName={`jarMeasurement${jarNumber}`}
+                        form={form}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </fieldset>
+
+        <fieldset className="production-report-section">
+          <legend>Участок грануляции</legend>
+          <ProductionGranulationTable form={form} />
+        </fieldset>
+      </div>
+
+      <div className="form-actions">
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? "Отправка..." : "Отправить"}
+        </button>
+        {status.length > 0 ? <p className="form-status">{status}</p> : null}
+      </div>
+    </>
+  );
+}
+
+function ProductionSummaryTable({
+  form,
+  prefix,
+  title,
+}: {
+  form: DispatcherFormDefinition;
+  prefix: "forming" | "sorting";
+  title: string;
+}) {
+  return (
+    <section className="production-report-subsection">
+      <h3>{title}</h3>
+      <div className="production-report-table-wrap">
+        <table className="production-report-table production-report-summary-table">
+          <thead>
+            <tr>
+              <th scope="col">План</th>
+              <th scope="col">Сутки</th>
+              <th scope="col">Месяц</th>
+              <th scope="col">Отклонение</th>
+              <th scope="col">Марки изделий</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {["Plan", "Day", "Month", "Deviation", "ProductBrands"].map(
+                (suffix) => (
+                  <td key={suffix}>
+                    <ProductionReportCell
+                      fieldName={`${prefix}${suffix}`}
+                      form={form}
+                    />
+                  </td>
+                ),
+              )}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ProductionRowsTable({
+  form,
+  prefix,
+  rowCount,
+}: {
+  form: DispatcherFormDefinition;
+  prefix: "unformed" | "chamotte";
+  rowCount: number;
+}) {
+  return (
+    <div className="production-report-table-wrap">
+      <table className="production-report-table production-report-rows-table">
+        <thead>
+          <tr>
+            <th scope="col">Марка продукции</th>
+            <th scope="col">План</th>
+            <th scope="col">Факт</th>
+            <th scope="col">Месяц</th>
+            <th scope="col">Отклонение</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rowCount }, (_, index) => index + 1).map(
+            (rowNumber) => (
+              <tr key={rowNumber}>
+                {["Brand", "Plan", "Fact", "Month", "Deviation"].map(
+                  (suffix) => (
+                    <td key={suffix}>
+                      <ProductionReportCell
+                        fieldName={`${prefix}${suffix}${rowNumber}`}
+                        form={form}
+                      />
+                    </td>
+                  ),
+                )}
+              </tr>
+            ),
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductionGranulationTable({
+  form,
+}: {
+  form: DispatcherFormDefinition;
+}) {
+  const rows: readonly {
+    title: string;
+    value?: string;
+    day?: string;
+    month?: string;
+  }[] = [
+    {
+      title: "Количество тарелок в работе",
+      value: "granulationPlatesInOperation",
+    },
+    {
+      title: "Время работы мельницы, часов",
+      value: "granulationMillHours",
+    },
+    {
+      title: "Выпуск сырцовой гранулы, тонн",
+      value: "granulationRawOutputTons",
+    },
+    {
+      title: "Фракция 1600",
+      day: "granulationFraction1600Day",
+      month: "granulationFraction1600Month",
+    },
+    {
+      title: "Образцы",
+      day: "granulationSamplesDay",
+      month: "granulationSamplesMonth",
+    },
+  ];
+
+  return (
+    <div className="production-report-table-wrap">
+      <table className="production-report-table production-report-granulation-table">
+        <thead>
+          <tr>
+            <th scope="col">Показатель</th>
+            <th scope="col">Значение</th>
+            <th scope="col">Сутки</th>
+            <th scope="col">Месяц</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.title}>
+              <th scope="row">{row.title}</th>
+              {[row.value, row.day, row.month].map((fieldName, index) => (
+                <td key={index}>
+                  {fieldName === undefined ? (
+                    <span className="production-report-empty-cell">—</span>
+                  ) : (
+                    <ProductionReportCell fieldName={fieldName} form={form} />
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductionReportCell({
+  fieldName,
+  form,
+}: {
+  fieldName: string;
+  form: DispatcherFormDefinition;
+}) {
+  const field = form.fields.find((item) => item.name === fieldName);
+
+  if (field === undefined) {
+    return null;
+  }
+
+  return (
+    <div className="production-report-cell-input" title={field.label}>
+      <DispatcherFormFieldInput field={field} />
+    </div>
   );
 }
 
@@ -3423,6 +3719,12 @@ function DispatcherFormFieldInput({
             );
           }
 
+          if (field.type === "signed-number") {
+            event.currentTarget.value = normalizeSignedDecimalNumberInput(
+              event.currentTarget.value,
+            );
+          }
+
           if (field.type === "integer") {
             event.currentTarget.value = normalizeIntegerInput(
               event.currentTarget.value,
@@ -3433,6 +3735,13 @@ function DispatcherFormFieldInput({
           if (field.type === "number") {
             event.currentTarget.value =
               normalizeDecimalNumberForPayload(event.currentTarget.value) ?? "";
+          }
+
+          if (field.type === "signed-number") {
+            event.currentTarget.value =
+              normalizeSignedDecimalNumberForPayload(
+                event.currentTarget.value,
+              ) ?? "";
           }
 
           if (field.type === "integer") {
@@ -6805,6 +7114,8 @@ function readSubmissionSuccessMessage(result: {
   }
 
   switch (result.submission.formId) {
+    case "production":
+      return "Выработка отправлена.";
     case "incident":
       return "Инцидент открыт.";
     case "incident_close":
@@ -6836,7 +7147,11 @@ function readEquipmentReportSuccessMessage(result: {
 }
 
 function readInputType(field: DispatcherFormField) {
-  if (field.type === "number" || field.type === "integer") {
+  if (
+    field.type === "number" ||
+    field.type === "signed-number" ||
+    field.type === "integer"
+  ) {
     return "text";
   }
 
@@ -6852,7 +7167,7 @@ function readInputType(field: DispatcherFormField) {
 }
 
 function readInputMode(field: DispatcherFormField) {
-  if (field.type === "number") {
+  if (field.type === "number" || field.type === "signed-number") {
     return "decimal";
   }
 
@@ -6866,6 +7181,10 @@ function readInputMode(field: DispatcherFormField) {
 function readInputPattern(field: DispatcherFormField) {
   if (field.type === "number") {
     return decimalNumberInputPattern;
+  }
+
+  if (field.type === "signed-number") {
+    return signedDecimalNumberInputPattern;
   }
 
   if (field.type === "integer") {
@@ -6884,6 +7203,10 @@ function readInputTitle(field: DispatcherFormField) {
     return decimalNumberInputTitle;
   }
 
+  if (field.type === "signed-number") {
+    return signedDecimalNumberInputTitle;
+  }
+
   if (field.type === "integer") {
     return integerInputTitle;
   }
@@ -6896,7 +7219,11 @@ function readInputPlaceholder(field: DispatcherFormField) {
     return "2026-06";
   }
 
-  if (field.type === "number" || field.type === "integer") {
+  if (
+    field.type === "number" ||
+    field.type === "signed-number" ||
+    field.type === "integer"
+  ) {
     return "0";
   }
 
@@ -6912,7 +7239,11 @@ function readInputMaxLength(field: DispatcherFormField) {
     return 240;
   }
 
-  if (field.type === "number" || field.type === "integer") {
+  if (
+    field.type === "number" ||
+    field.type === "signed-number" ||
+    field.type === "integer"
+  ) {
     return 32;
   }
 
@@ -6992,6 +7323,10 @@ function normalizeControlledFieldInput(value: string, field: DispatcherFormField
     return normalizeDecimalNumberInput(value);
   }
 
+  if (field.type === "signed-number") {
+    return normalizeSignedDecimalNumberInput(value);
+  }
+
   if (field.type === "integer") {
     return normalizeIntegerInput(value);
   }
@@ -7016,6 +7351,14 @@ function normalizeFormValue(value: string, field: DispatcherFormField) {
 
   if (field.type === "number") {
     const normalized = normalizeDecimalNumberForPayload(value);
+
+    return normalized === undefined || normalized.length === 0
+      ? undefined
+      : normalized;
+  }
+
+  if (field.type === "signed-number") {
+    const normalized = normalizeSignedDecimalNumberForPayload(value);
 
     return normalized === undefined || normalized.length === 0
       ? undefined

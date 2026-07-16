@@ -7,6 +7,7 @@ import {
   equipmentDowntimeRequiresProductionMessage,
   equipmentReserveDowntimeRequiresEightHoursMessage,
   incidentCloseRequiresOpenIncidentMessage,
+  productionRequiresIndicatorMessage,
   visitorExitRequiresEntryMessage,
   validateDispatcherPayloadForSubmit,
 } from "../.test-build/src/services/dispatcherPayloadValidation.js";
@@ -37,6 +38,16 @@ const incidentCloseForm = {
   title: "Закрытие инцидента",
   sheetName: "Инциденты",
   fields: [],
+};
+
+const productionForm = {
+  id: "production",
+  title: "Выработка",
+  sheetName: "Выработка",
+  fields: [
+    { name: "reportDate", label: "Дата отчета", type: "date", required: true },
+    { name: "formingDay", label: "Формовка — Сутки", type: "number", required: false },
+  ],
 };
 
 test("equipment payload validation requires downtime hours when reason is selected", () => {
@@ -119,6 +130,23 @@ test("dispatcher payload validation does not apply equipment rules to other form
     validateDispatcherPayloadForSubmit(incidentForm, {
       downtimeReason: "Резерв",
       downtimeHours: "0",
+    }),
+    undefined,
+  );
+});
+
+test("production payload validation requires at least one indicator", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+    }),
+    productionRequiresIndicatorMessage,
+  );
+
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+      formingDay: "12.5",
     }),
     undefined,
   );

@@ -68,6 +68,7 @@ const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const monthPattern = /^\d{4}-\d{2}$/;
 const dateTimeLocalPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 const numberPattern = /^\d+(?:\.\d+)?$/;
+const signedNumberPattern = /^-?\d+(?:\.\d+)?$/;
 const integerPattern = /^\d+$/;
 const defaultTextMaxLength = 240;
 const summaryFallback = "Запись без краткого описания";
@@ -356,6 +357,24 @@ function applyDispatcherFormScriptRules(
     }
   }
 
+  if (form.id === "production") {
+    const hasProductionData = form.fields.some(
+      (field) =>
+        field.name !== "reportDate" &&
+        nextPayload[field.name] !== undefined &&
+        nextPayload[field.name]?.trim().length > 0,
+    );
+
+    if (!hasProductionData) {
+      errors.push("production report requires at least one indicator.");
+    }
+
+    if (nextPayload.reportDate !== undefined) {
+      nextPayload.reportMonth = nextPayload.reportDate.slice(0, 7);
+      nextPayload.reportDate = formatScriptDate(nextPayload.reportDate);
+    }
+  }
+
   if (form.id === "incident") {
     if (nextPayload.datetime !== undefined) {
       nextPayload.datetime = formatScriptDateTime(nextPayload.datetime);
@@ -434,7 +453,7 @@ function readFieldValue(
   if (normalized.length === 0) {
     if (field.required) {
       errors.push(`${field.name} is required.`);
-    } else if (field.type === "number") {
+    } else if (field.type === "number" || field.type === "signed-number") {
       errors.push(`${field.name} must be a number.`);
     }
 
@@ -471,6 +490,14 @@ function readFieldValue(
     return undefined;
   }
 
+  if (
+    field.type === "signed-number" &&
+    !signedNumberPattern.test(normalized)
+  ) {
+    errors.push(`${field.name} must be a signed number.`);
+    return undefined;
+  }
+
   if (field.type === "integer" && !integerPattern.test(normalized)) {
     errors.push(`${field.name} must be an integer.`);
     return undefined;
@@ -486,6 +513,10 @@ function normalizeFieldValue(value: string, field: DispatcherFormField) {
 
   if (field.type === "number") {
     return normalizeNumberValue(value);
+  }
+
+  if (field.type === "signed-number") {
+    return normalizeSignedNumberValue(value);
   }
 
   if (field.type === "integer") {
@@ -516,6 +547,13 @@ function normalizeNumberValue(value: string) {
   }
 
   return result.endsWith(".") ? result.slice(0, -1) : result;
+}
+
+function normalizeSignedNumberValue(value: string) {
+  const isNegative = value.trimStart().startsWith("-");
+  const normalized = normalizeNumberValue(value);
+
+  return isNegative && normalized.length > 0 ? `-${normalized}` : normalized;
 }
 
 function normalizeIntegerValue(value: string) {

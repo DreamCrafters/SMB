@@ -849,7 +849,7 @@ function readDispatcherPayload(value: unknown): DispatcherSubmissionPayload {
 }
 
 function toAdminEditorInputType(field: DispatcherFormField): AdminDatabaseEditorInputType {
-  if (field.type === "integer") return "number";
+  if (field.type === "integer" || field.type === "signed-number") return "number";
   return field.type;
 }
 
@@ -880,6 +880,7 @@ function readSubmissionStatus(value: string): DispatcherSubmissionStatus {
 function dispatcherFormLabelExpression(column: string) {
   return `case ${column}
     when 'equipment' then 'Оборудование'
+    when 'production' then 'Выработка'
     when 'incident' then 'Открытие инцидента'
     when 'incident_close' then 'Закрытие инцидента'
     when 'visitor' then 'Вход посетителя'

@@ -17,6 +17,8 @@ export const visitorExitRequiresEntryMessage =
   "Выберите посетителя, который вошёл и ещё не вышел.";
 export const incidentCloseRequiresOpenIncidentMessage =
   "Выберите незакрытый инцидент.";
+export const productionRequiresIndicatorMessage =
+  "Заполните хотя бы один показатель выработки.";
 
 const equipmentReserveDowntimeReason = "Резерв";
 
@@ -26,6 +28,17 @@ export function validateDispatcherPayloadForSubmit(
 ) {
   if (form.id === "equipment") {
     return validateEquipmentPayloadForSubmit(payload);
+  }
+
+  if (
+    form.id === "production" &&
+    !form.fields.some(
+      (field) =>
+        field.name !== "reportDate" &&
+        (payload[field.name]?.trim().length ?? 0) > 0,
+    )
+  ) {
+    return productionRequiresIndicatorMessage;
   }
 
   if (

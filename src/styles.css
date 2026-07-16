@@ -687,6 +687,12 @@ p {
   grid-column: 1 / -1;
 }
 
+.dispatcher-form-choice-group-production {
+  --choice-accent: var(--amber);
+  --choice-soft: var(--amber-soft);
+  grid-column: 1 / -1;
+}
+
 .dispatcher-form-choice-group-incidents {
   --choice-accent: var(--brick);
   --choice-soft: var(--brick-soft);
@@ -864,6 +870,202 @@ p {
 
 .dispatcher-form-field-large {
   grid-column: 1 / -1;
+}
+
+.production-report-intro {
+  display: flex;
+  gap: var(--density-4);
+  align-items: end;
+  justify-content: space-between;
+  padding: var(--density-3);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--amber);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.production-report-intro > div {
+  display: grid;
+  gap: 4px;
+}
+
+.production-report-intro > div strong {
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.production-report-intro > div span,
+.production-report-section-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.production-report-intro > label {
+  flex: 0 0 220px;
+}
+
+.production-report-section {
+  display: grid;
+  min-width: 0;
+  gap: var(--density-3);
+  margin: 0;
+  padding: var(--density-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.production-report-section legend {
+  padding: 0 7px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.production-report-subsection {
+  display: grid;
+  min-width: 0;
+  gap: var(--density-1);
+}
+
+.production-report-subsection + .production-report-subsection {
+  padding-top: var(--density-2);
+  border-top: 1px solid var(--line);
+}
+
+.production-report-subsection h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.production-report-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: var(--density-3);
+  align-items: start;
+}
+
+.production-report-split-bottom {
+  grid-template-columns: minmax(230px, 0.55fr) minmax(0, 1.45fr);
+}
+
+.production-report-table-wrap {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.production-report-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.production-report-table th,
+.production-report-table td {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.production-report-table tr:last-child > * {
+  border-bottom: 0;
+}
+
+.production-report-table tr > *:last-child {
+  border-right: 0;
+}
+
+.production-report-table th {
+  padding: 8px 9px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.production-report-table td {
+  min-width: 110px;
+  padding: 0;
+  background: var(--surface-raised);
+}
+
+.production-report-summary-table th:last-child,
+.production-report-summary-table td:last-child {
+  width: 32%;
+}
+
+.production-report-rows-table th:first-child,
+.production-report-rows-table td:first-child {
+  width: 28%;
+}
+
+.production-report-cell-input label {
+  display: block;
+  gap: 0;
+}
+
+.production-report-cell-input label > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.data-entry-form .production-report-cell-input input {
+  min-height: 38px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.data-entry-form .production-report-cell-input input:focus {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--amber);
+  outline-offset: -2px;
+}
+
+.production-report-jar-table {
+  min-width: 260px;
+}
+
+.production-report-jar-table th:first-child {
+  width: 88px;
+}
+
+.production-report-granulation-table {
+  min-width: 600px;
+}
+
+.production-report-granulation-table th:first-child {
+  width: 38%;
+}
+
+.production-report-empty-cell {
+  display: grid;
+  min-height: 38px;
+  place-items: center;
+  color: var(--line-strong);
+  background: var(--surface-subtle);
 }
 
 .equipment-report-settings {
@@ -2547,6 +2749,21 @@ p {
   .admin-db-import-totals,
   .admin-db-import-sheets {
     grid-template-columns: 1fr;
+  }
+
+  .production-report-intro,
+  .production-report-split,
+  .production-report-split-bottom {
+    grid-template-columns: 1fr;
+  }
+
+  .production-report-intro {
+    display: grid;
+    align-items: start;
+  }
+
+  .production-report-intro > label {
+    width: min(100%, 260px);
   }
 
 }

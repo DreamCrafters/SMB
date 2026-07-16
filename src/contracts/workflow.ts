@@ -19,6 +19,7 @@ export type DispatcherSubmissionStatus =
 
 export type DispatcherFormId =
   | "equipment"
+  | "production"
   | "incident"
   | "incident_close"
   | "visitor"
@@ -29,6 +30,7 @@ export type DispatcherFormId =
 export type DispatcherFormFieldType =
   | "text"
   | "number"
+  | "signed-number"
   | "integer"
   | "date"
   | "month"

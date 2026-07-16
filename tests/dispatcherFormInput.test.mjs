@@ -6,6 +6,8 @@ import {
   normalizeIntegerInput,
   normalizeDecimalNumberForPayload,
   normalizeDecimalNumberInput,
+  normalizeSignedDecimalNumberForPayload,
+  normalizeSignedDecimalNumberInput,
 } from "../.test-build/src/services/dispatcherFormInput.js";
 
 test("incident opening defaults to the active dispatcher even outside the reference list", () => {
@@ -48,6 +50,13 @@ test("normalizeDecimalNumberForPayload finalizes decimal input for submit", () =
   assert.equal(normalizeDecimalNumberForPayload("12.50"), "12.50");
   assert.equal(normalizeDecimalNumberForPayload(" 12,5 кг "), "12.5");
   assert.equal(normalizeDecimalNumberForPayload(","), undefined);
+});
+
+test("signed decimal normalization preserves production deviations", () => {
+  assert.equal(normalizeSignedDecimalNumberInput("-12,5"), "-12.5");
+  assert.equal(normalizeSignedDecimalNumberInput("+,5"), "0.5");
+  assert.equal(normalizeSignedDecimalNumberForPayload("-12,"), "-12");
+  assert.equal(normalizeSignedDecimalNumberForPayload("-"), undefined);
 });
 
 test("normalizeIntegerInput matches the equipment downtime script behavior", () => {
