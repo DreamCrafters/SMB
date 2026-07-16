@@ -1591,6 +1591,7 @@ function RoleWorkspace({
         <AdminWorkspace
           profile={profile}
           activeTab={effectiveAdminTab}
+          onShowToast={onShowToast}
           onSelectAccountView={onSelectAdminAccountView}
         />
       );
@@ -3956,18 +3957,24 @@ function VisitorSummaryTable({ rows }: { rows: ReturnType<typeof buildVisitorVis
 function AdminWorkspace({
   profile,
   activeTab,
+  onShowToast,
   onSelectAccountView,
 }: {
   profile: ServerUserProfile;
   activeTab: AdminTab;
+  onShowToast: ShowToast;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
   if (activeTab === "database") {
-    return <AdminDatabaseWorkspace profile={profile} />;
+    return (
+      <AdminDatabaseWorkspace profile={profile} onShowToast={onShowToast} />
+    );
   }
 
   if (activeTab === "accounts") {
-    return <AdminAccountsWorkspace profile={profile} />;
+    return (
+      <AdminAccountsWorkspace profile={profile} onShowToast={onShowToast} />
+    );
   }
 
   if (activeTab === "user_actions") {
@@ -4384,7 +4391,13 @@ function AdminAccountPreviewButton({
   );
 }
 
-function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
+function AdminDatabaseWorkspace({
+  profile,
+  onShowToast,
+}: {
+  profile: ServerUserProfile;
+  onShowToast: ShowToast;
+}) {
   const canManageDatabase = canManageAnalyticsDatabase(profile);
   const [tablesState, setTablesState] = useState<AdminDatabaseTablesLoadState>({
     status: "loading",
@@ -4423,10 +4436,14 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
 
     const controller = new AbortController();
 
-    setTablesState({
-      status: "loading",
-      message: "Запрашиваем таблицы БД.",
-    });
+    setTablesState((current) =>
+      current.status === "ready"
+        ? current
+        : {
+            status: "loading",
+            message: "Запрашиваем таблицы БД.",
+          },
+    );
 
     requestAdminDatabaseTables({
       signal: controller.signal,
@@ -4473,10 +4490,16 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
 
     const controller = new AbortController();
 
-    setRowsState({
-      status: "loading",
-      message: "Запрашиваем строки таблицы.",
-    });
+    setRowsState((current) =>
+      current.status === "ready" &&
+      current.table.name === selectedTableName &&
+      current.offset === rowsOffset
+        ? current
+        : {
+            status: "loading",
+            message: "Запрашиваем строки таблицы.",
+          },
+    );
     setEditor(undefined);
     setDeleteCandidate(undefined);
     setClearCandidate(undefined);
@@ -4543,7 +4566,8 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
     setIsMutating(false);
 
     if (result.status === "ready") {
-      setMutationStatus("Строка БД обновлена.");
+      setMutationStatus("");
+      onShowToast("Сохранено", "Строка БД обновлена.");
       setEditor(undefined);
       setRefreshVersion((version) => version + 1);
       return;
@@ -4581,7 +4605,8 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
     setIsMutating(false);
 
     if (result.status === "ready") {
-      setMutationStatus("Строка БД удалена.");
+      setMutationStatus("");
+      onShowToast("Удалено", "Строка БД удалена.");
       setDeleteCandidate(undefined);
       setRefreshVersion((version) => version + 1);
       return;
@@ -4603,7 +4628,11 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
     setIsMutating(false);
 
     if (result.status === "ready") {
-      setMutationStatus(`Раздел очищен. Удалено записей: ${result.deleted}.`);
+      setMutationStatus("");
+      onShowToast(
+        "Раздел очищен",
+        `Удалено записей: ${result.deleted}.`,
+      );
       setClearCandidate(undefined);
       setRowsOffset(0);
       setRefreshVersion((version) => version + 1);
@@ -4626,6 +4655,7 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
   return (
     <section className="admin-workspace" aria-label="БД">
       <AdminDispatcherImportPanel
+        onShowToast={onShowToast}
         onImported={() => setRefreshVersion((version) => version + 1)}
       />
       <div className="admin-db-layout">
@@ -4727,7 +4757,13 @@ function AdminDatabaseWorkspace({ profile }: { profile: ServerUserProfile }) {
   );
 }
 
-function AdminDispatcherImportPanel({ onImported }: { onImported: () => void }) {
+function AdminDispatcherImportPanel({
+  onImported,
+  onShowToast,
+}: {
+  onImported: () => void;
+  onShowToast: ShowToast;
+}) {
   const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
   const [preview, setPreview] =
     useState<AdminDispatcherImportPreviewResponse | undefined>(undefined);
@@ -4783,7 +4819,9 @@ function AdminDispatcherImportPanel({ onImported }: { onImported: () => void }) 
     }
 
     setPreview(undefined);
-    setStatusMessage(
+    setStatusMessage("");
+    onShowToast(
+      "Импорт завершён",
       `Импорт завершён: добавлено ${result.inserted}, пропущено ${result.skipped}.`,
     );
     onImported();
@@ -5393,7 +5431,13 @@ function buildAdminPreviewAccountForDefinition(
   };
 }
 
-function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
+function AdminAccountsWorkspace({
+  profile,
+  onShowToast,
+}: {
+  profile: ServerUserProfile;
+  onShowToast: ShowToast;
+}) {
   const canManage = canManageUsers(profile);
   const canManageAccess = hasCapability(profile, "platform.manage_access");
   const [accountsState, setAccountsState] = useState<AdminAccountsLoadState>({
@@ -5450,10 +5494,14 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
 
     const controller = new AbortController();
 
-    setAccountsState({
-      status: "loading",
-      message: "Загружаем учётные записи.",
-    });
+    setAccountsState((current) =>
+      current.status === "ready"
+        ? current
+        : {
+            status: "loading",
+            message: "Загружаем учётные записи.",
+          },
+    );
 
     requestAdminAccounts({ signal: controller.signal }).then((result) => {
       if (!controller.signal.aborted) {
@@ -5584,7 +5632,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       return;
     }
     setIsPositionModalOpen(false);
-    setWorkspaceStatus(`Должность «${result.position.displayName}» сохранена.`);
+    setWorkspaceStatus("");
+    onShowToast(
+      "Сохранено",
+      `Должность «${result.position.displayName}» сохранена.`,
+    );
     setRefreshVersion((version) => version + 1);
   }
 
@@ -5604,7 +5656,8 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       setWorkspaceStatus(result.message);
       return;
     }
-    setWorkspaceStatus(`Должность «${position.displayName}» удалена.`);
+    setWorkspaceStatus("");
+    onShowToast("Удалено", `Должность «${position.displayName}» удалена.`);
     setRefreshVersion((version) => version + 1);
   }
 
@@ -5700,7 +5753,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       ...current,
       [submittedLogin]: submittedPassword,
     }));
-    setWorkspaceStatus(`Учётная запись «${result.account.login}» создана.`);
+    setWorkspaceStatus("");
+    onShowToast(
+      "Аккаунт создан",
+      `Учётная запись «${result.account.login}» создана.`,
+    );
     setForm({
       ...emptyAdminAccountForm,
       position: form.position,
@@ -5752,7 +5809,8 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       ...current,
       [submittedLogin]: submittedPassword,
     }));
-    setWorkspaceStatus(`Пароль для «${submittedLogin}» изменён.`);
+    setWorkspaceStatus("");
+    onShowToast("Пароль изменён", `Пароль для «${submittedLogin}» изменён.`);
     finishPasswordResetModal();
   }
 
@@ -5774,7 +5832,8 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       return;
     }
 
-    setWorkspaceStatus(
+    onShowToast(
+      "Доступ изменён",
       isEnabled
         ? `Доступ для «${account.login}» включён.`
         : `Доступ для «${account.login}» отключён.`,
@@ -5812,7 +5871,8 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       delete next[account.accessId];
       return next;
     });
-    setWorkspaceStatus(
+    onShowToast(
+      "Должность изменена",
       `Должность для «${account.login}» изменена на «${result.account.positionDisplayName}». Пользователю нужно войти заново.`,
     );
     setRefreshVersion((version) => version + 1);
@@ -5836,7 +5896,11 @@ function AdminAccountsWorkspace({ profile }: { profile: ServerUserProfile }) {
       setWorkspaceStatus(result.message);
       return;
     }
-    setWorkspaceStatus(`Учётная запись «${account.login}» удалена.`);
+    setWorkspaceStatus("");
+    onShowToast(
+      "Аккаунт удалён",
+      `Учётная запись «${account.login}» удалена.`,
+    );
     setRefreshVersion((version) => version + 1);
   }
 
