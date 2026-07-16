@@ -34,11 +34,13 @@ export async function requestAdminAuditReport({
   category,
   limit = 50,
   offset = 0,
+  showTechnicalDetails = true,
 }: RequestOptions & {
   actorAccountId?: string;
   category?: AuditEventCategory;
   limit?: number;
   offset?: number;
+  showTechnicalDetails?: boolean;
 } = {}): Promise<AdminAuditReportResult> {
   const endpoint = new URL(
     resolveApiEndpoint(ADMIN_AUDIT_PATH, ADMIN_AUDIT_PATH, { baseUrl }),
@@ -66,7 +68,9 @@ export async function requestAdminAuditReport({
     if (!response.ok) {
       return {
         status: "error",
-        message: readErrorMessage(payload) ?? "Не удалось загрузить действия пользователей.",
+        message: showTechnicalDetails
+          ? readErrorMessage(payload) ?? "Не удалось загрузить действия пользователей."
+          : "Не удалось загрузить действия пользователей.",
       };
     }
 
@@ -75,7 +79,9 @@ export async function requestAdminAuditReport({
     if (report === undefined) {
       return {
         status: "error",
-        message: "Сервер вернул журнал действий в неподдерживаемом формате.",
+        message: showTechnicalDetails
+          ? "Сервер вернул журнал действий в неподдерживаемом формате."
+          : "Не удалось загрузить действия пользователей.",
       };
     }
 
@@ -95,9 +101,11 @@ export async function requestAdminAuditReport({
       status: "error",
       message: isAbortError(error)
         ? "Запрос действий пользователей отменён."
-        : describeRemoteNetworkFailure("Не удалось загрузить действия пользователей.", {
-            baseUrl,
-          }),
+        : showTechnicalDetails
+          ? describeRemoteNetworkFailure("Не удалось загрузить действия пользователей.", {
+              baseUrl,
+            })
+          : "Не удалось загрузить действия пользователей.",
     };
   }
 }

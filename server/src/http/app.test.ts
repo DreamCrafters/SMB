@@ -498,6 +498,65 @@ test("admin audit API rejects accounts without the audit capability", async () =
   );
 });
 
+test("manager audit API is scoped to the authenticated business", async () => {
+  let receivedFilters: Parameters<AuditRepository["listReport"]>[0];
+  const auditRepository: AuditRepository = {
+    async record() {},
+    async listReport(filters) {
+      receivedFilters = filters;
+      return {
+        events: [],
+        actors: [],
+        summary: {
+          total: 0,
+          byCategory: [
+            { category: "authentication", count: 0 },
+            { category: "navigation", count: 0 },
+            { category: "form_submission", count: 0 },
+            { category: "data_change", count: 0 },
+            { category: "administration", count: 0 },
+          ],
+        },
+        window: {
+          from: "2026-04-16T00:00:00.000Z",
+          to: "2026-07-16T00:00:00.000Z",
+        },
+        limit: filters?.limit ?? 50,
+        offset: filters?.offset ?? 0,
+      };
+    },
+  };
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems.push("business.user_actions");
+  profile.activeAccess.capabilities.push("business.view_user_actions");
+  const authService = buildAuthService({ profile });
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/audit-events?category=navigation`,
+        { headers: { Cookie: "smb_session=prod-session" } },
+      );
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(receivedFilters, {
+        businessAccountId: "prod-business",
+        category: "navigation",
+      });
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    authService,
+    undefined,
+    undefined,
+    auditRepository,
+  );
+});
+
 test("screen view API derives the actor from the session and allows known screens only", async () => {
   const recorded: Parameters<AuditRepository["record"]>[0][] = [];
   const auditRepository: AuditRepository = {
@@ -1197,7 +1256,12 @@ test("admin positions API separates manager and dispatcher tabs", async () => {
       body: JSON.stringify({
         displayName: "Руководитель участка",
         accountType: "business_owner",
-        navigationItems: ["business.overview", "business.dispatcher", "business.work"],
+        navigationItems: [
+          "business.overview",
+          "business.dispatcher",
+          "business.work",
+          "business.user_actions",
+        ],
       }),
     });
     const managerFormResponse = await fetch(`${baseUrl}/api/admin/positions`, {

@@ -160,8 +160,21 @@ import {
   type AppToast,
 } from "./services/toastStack";
 
-type BusinessTab = "overview" | "dispatcher" | "work" | "dispatcher_form";
+type BusinessTab =
+  | "overview"
+  | "dispatcher"
+  | "work"
+  | "user_actions"
+  | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database" | "user_actions";
+
+const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
+  overview: "business.overview",
+  dispatcher: "business.dispatcher",
+  work: "business.work",
+  user_actions: "business.user_actions",
+  dispatcher_form: "business.dispatcher_form",
+};
 
 type DataEntrySubmitStateControls = {
   setStatus: (message: string) => void;
@@ -328,6 +341,12 @@ function buildNavigationItems(
       });
   }
 
+  const effectiveBusinessTab = resolveAllowedNavigationTab(
+    businessTab,
+    navigationByBusinessTab,
+    profile.activeAccess.navigationItems,
+  );
+
   return navigationItems
     .filter((item) => getBusinessTabForNavigationItem(item) !== undefined)
     .map((item) => {
@@ -335,7 +354,7 @@ function buildNavigationItems(
 
       return {
         ...item,
-        state: target === businessTab ? "active" : "pending",
+        state: target === effectiveBusinessTab ? "active" : "pending",
       };
     });
 }
@@ -348,6 +367,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "dispatcher";
     case "business.work":
       return "work";
+    case "business.user_actions":
+      return "user_actions";
     case "business.dispatcher_form":
       return "dispatcher_form";
     default:
@@ -393,14 +414,7 @@ function getBusinessAuditScreenId(
     return undefined;
   }
 
-  const navigationByTab: Record<BusinessTab, AccountNavigationItem> = {
-    overview: "business.overview",
-    dispatcher: "business.dispatcher",
-    work: "business.work",
-    dispatcher_form: "business.dispatcher_form",
-  };
-
-  return navigationByTab[activeTab];
+  return navigationByBusinessTab[activeTab];
 }
 
 export default function App() {
@@ -645,14 +659,27 @@ export default function App() {
     }
 
     const profile = accessProfile.profile;
+    const previewTab = adminViewedAccount === undefined
+      ? undefined
+      : resolveAllowedNavigationTab(
+          adminViewedOwnerTab,
+          navigationByBusinessTab,
+          adminViewedAccount.navigationItems,
+        );
+    const activeBusinessTab = resolveAllowedNavigationTab(
+      ownerTab,
+      navigationByBusinessTab,
+      profile.activeAccess.navigationItems,
+    );
     const screenId = profile.accountType === "admin"
-      ? adminTab === "account_preview" && adminViewedAccount !== undefined
-        ? getBusinessAuditScreenId(
-            adminViewedAccount.accountType,
-            adminViewedOwnerTab,
-          )
+      ? adminTab === "account_preview" &&
+        adminViewedAccount !== undefined &&
+        previewTab !== undefined
+        ? getBusinessAuditScreenId(adminViewedAccount.accountType, previewTab)
         : getAdminNavigationItem(adminTab)
-      : getBusinessAuditScreenId(profile.accountType, ownerTab);
+      : activeBusinessTab === undefined
+        ? undefined
+        : getBusinessAuditScreenId(profile.accountType, activeBusinessTab);
 
     if (screenId === undefined) {
       return;
@@ -1533,12 +1560,6 @@ function RoleWorkspace({
   onShowToast: ShowToast;
   onSelectAdminAccountView: (account: AdminAccountSummary) => void;
 }) {
-  const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
-    overview: "business.overview",
-    dispatcher: "business.dispatcher",
-    work: "business.work",
-    dispatcher_form: "business.dispatcher_form",
-  };
   const effectiveOwnerTab = resolveAllowedNavigationTab(
     ownerTab,
     navigationByBusinessTab,
@@ -1570,6 +1591,11 @@ function RoleWorkspace({
     default:
       if (effectiveOwnerTab === undefined) return null;
       if (effectiveOwnerTab === "work") return <WorkerWorkspace />;
+      if (effectiveOwnerTab === "user_actions") {
+        return isAdminPreviewMode
+          ? <UserActionsPreviewNotice />
+          : <UserActionsWorkspace profile={profile} />;
+      }
       if (effectiveOwnerTab === "dispatcher_form") {
         return (
           <DataEntryWorkspace
@@ -2124,6 +2150,8 @@ function DispatcherIncidentCloseFormBody({
   refreshVersion: number;
   status: string;
 }) {
+  const incidentSelectRef = useRef<HTMLSelectElement>(null);
+  const hasActivatedIncidentSelectRef = useRef(false);
   const [incidentFeed, setIncidentFeed] = useState<DispatcherFeedLoadState>({
     status: "loading",
     message: "Загружаем инциденты.",
@@ -2175,12 +2203,27 @@ function DispatcherIncidentCloseFormBody({
     };
   }, [refreshVersion]);
 
+  useEffect(() => {
+    if (
+      incidentFeed.status !== "ready" ||
+      hasActivatedIncidentSelectRef.current
+    ) {
+      return;
+    }
+
+    hasActivatedIncidentSelectRef.current = true;
+    if (openIncidents.length > 0) {
+      incidentSelectRef.current?.focus();
+    }
+  }, [incidentFeed.status, openIncidents.length]);
+
   return (
     <>
       <div className="dispatcher-form-fields">
         <label>
           <span>Незакрытый инцидент</span>
           <select
+            ref={incidentSelectRef}
             name="incidentNumber"
             required
             defaultValue=""
@@ -3799,7 +3842,7 @@ function AdminWorkspace({
   }
 
   if (activeTab === "user_actions") {
-    return <AdminUserActionsWorkspace profile={profile} />;
+    return <UserActionsWorkspace profile={profile} />;
   }
 
   return <AdminAccountPreviewWorkspace onSelectAccountView={onSelectAccountView} />;
@@ -3818,8 +3861,20 @@ const adminAuditCategoryOptions: readonly {
   { id: "navigation", label: "Просмотры" },
 ];
 
-function AdminUserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
-  const canViewAudit = hasCapability(profile, "platform.view_audit");
+function UserActionsPreviewNotice() {
+  return (
+    <section className="admin-workspace" aria-label="Действия пользователей">
+      <p className="dispatcher-status-line">
+        Отчёт доступен после входа в учётную запись руководителя.
+      </p>
+    </section>
+  );
+}
+
+function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
+  const canViewAudit =
+    hasCapability(profile, "platform.view_audit") ||
+    hasCapability(profile, "business.view_user_actions");
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [selectedCategory, setSelectedCategory] =
     useState<"all" | AuditEventCategory>("all");
@@ -3851,6 +3906,7 @@ function AdminUserActionsWorkspace({ profile }: { profile: ServerUserProfile }) 
       category: selectedCategory === "all" ? undefined : selectedCategory,
       limit: adminAuditPageLimit,
       offset,
+      showTechnicalDetails: profile.accountType === "admin",
       signal: controller.signal,
     }).then((result) => {
       if (controller.signal.aborted) {
@@ -3914,7 +3970,9 @@ function AdminUserActionsWorkspace({ profile }: { profile: ServerUserProfile }) 
               setOffset(0);
             }}
           >
-            <option value="">Все аккаунты</option>
+            <option value="">
+              {profile.accountType === "admin" ? "Все аккаунты" : "Все аккаунты бизнеса"}
+            </option>
             {knownActors.map((actor) => (
               <option value={actor.accountId} key={actor.accountId}>
                 {formatAuditActorOption(actor)}
@@ -5069,7 +5127,10 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   displayName: "",
   accountType: "business_owner",
   navigationItems: nonAdminNavigationItems
-    .filter(({ id }) => id !== "business.dispatcher_form")
+    .filter(
+      ({ id }) =>
+        id !== "business.dispatcher_form" && id !== "business.user_actions",
+    )
     .map(({ id }) => id),
 };
 
@@ -5090,7 +5151,9 @@ const defaultNavigationItemsByBaseCabinet: Record<
   AdminPositionFormState["accountType"],
   AccountNavigationItem[]
 > = {
-  business_owner: availableNavigationItemsByBaseCabinet.business_owner.map(({ id }) => id),
+  business_owner: availableNavigationItemsByBaseCabinet.business_owner
+    .filter(({ id }) => id !== "business.user_actions")
+    .map(({ id }) => id),
   worker: [],
   dispatcher: availableNavigationItemsByBaseCabinet.dispatcher.map(({ id }) => id),
 };

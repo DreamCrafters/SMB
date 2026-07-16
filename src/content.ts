@@ -117,6 +117,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       description: "Рабочие формы отдельно",
       state: "active",
     },
+    {
+      id: "business.user_actions",
+      label: "Действия пользователей",
+      description: "Действия сотрудников бизнеса",
+      state: "pending",
+    },
   ],
   worker: [],
   dispatcher: [

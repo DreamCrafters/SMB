@@ -591,15 +591,33 @@ async function handleAdminAuditReportRequest({
     return;
   }
 
-  const access = await requireCapability(req, res, {
+  const access = await requireAuthentication(req, res, {
     config,
     devSessions,
     authService,
-    capability: "platform.view_audit",
-    message: "Просмотр действий пользователей недоступен.",
   });
 
   if (access === undefined) {
+    return;
+  }
+
+  const canViewPlatformAudit = hasProfileCapability(
+    access.profile,
+    "platform.view_audit",
+  );
+  const businessAccountId = canViewPlatformAudit
+    ? undefined
+    : hasProfileCapability(access.profile, "business.view_user_actions")
+      ? readScopedBusinessAccountId(access.profile)
+      : undefined;
+
+  if (!canViewPlatformAudit && businessAccountId === undefined) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Просмотр действий пользователей недоступен.",
+      },
+    });
     return;
   }
 
@@ -615,7 +633,14 @@ async function handleAdminAuditReportRequest({
     return;
   }
 
-  sendJson(res, 200, await audit.listReport(filters.value));
+  sendJson(
+    res,
+    200,
+    await audit.listReport({
+      ...filters.value,
+      ...(businessAccountId === undefined ? {} : { businessAccountId }),
+    }),
+  );
 }
 
 async function handleAuditEventRequest({
@@ -809,6 +834,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.overview": "Обзор",
     "business.dispatcher": "Диспетчерская",
     "business.work": "Работа",
+    "business.user_actions": "Действия пользователей",
     "business.dispatcher_form": "Форма",
   };
 

@@ -139,6 +139,44 @@ test("audit repository lists one account only inside the server-owned three-mont
   assert.doesNotMatch(queries.map((query) => query.sql).join(" "), /delete|truncate/u);
 });
 
+test("audit repository scopes both events and account filters to one business", async () => {
+  const queries: Array<{ sql: string; values: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values: unknown[] = []) {
+      const normalized = normalizeSql(sql);
+      queries.push({ sql: normalized, values });
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createAuditRepository(pool, {
+    now: () => new Date("2026-07-16T12:30:00.000Z"),
+  });
+
+  await repository.listReport({ businessAccountId: "business-1" });
+
+  const eventQueries = queries.filter((query) =>
+    query.sql.includes("from user_audit_events"),
+  );
+  const actorQuery = queries.find((query) =>
+    query.sql.includes("from account_accesses as accesses"),
+  );
+
+  assert.equal(eventQueries.length, 2);
+  for (const query of eventQueries) {
+    assert.match(query.sql, /business_account_id = \?/u);
+    assert.equal(query.values[2], "business-1");
+  }
+  assert.match(
+    actorQuery?.sql ?? "",
+    /where accesses\.business_account_id = \?/u,
+  );
+  assert.deepEqual(actorQuery?.values, [
+    new Date("2026-04-16T12:30:00.000Z"),
+    new Date("2026-07-16T12:30:00.000Z"),
+    "business-1",
+  ]);
+});
+
 function normalizeSql(sql: string) {
   return sql.replace(/\s+/g, " ").trim();
 }

@@ -20,6 +20,7 @@ export const accountNavigationItems = [
   "business.overview",
   "business.dispatcher",
   "business.work",
+  "business.user_actions",
   "business.dispatcher_form",
 ] as const;
 
@@ -41,6 +42,7 @@ export const accountCapabilities = [
   "business.submit_dispatcher_forms",
   "business.view_dispatcher_feed",
   "business.view_own_submissions",
+  "business.view_user_actions",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];

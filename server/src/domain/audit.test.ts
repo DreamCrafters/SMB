@@ -49,6 +49,10 @@ test("client-reported views are restricted to known tabs and screens", () => {
     id: "admin.user_actions",
     title: "Действия пользователей",
   });
+  assert.deepEqual(readAuditScreen("business.user_actions"), {
+    id: "business.user_actions",
+    title: "Действия пользователей",
+  });
   assert.deepEqual(readAuditScreen("dispatcher.form.visitor"), {
     id: "dispatcher.form.visitor",
     title: "Форма: Вход посетителя",

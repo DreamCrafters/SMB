@@ -82,6 +82,22 @@ test("admin audit service sends compact filters and hides events outside the rep
   );
 });
 
+test("manager audit service hides technical network diagnostics", async () => {
+  globalThis.fetch = async () => {
+    throw new TypeError("fetch failed");
+  };
+
+  const result = await requestAdminAuditReport({
+    baseUrl: "http://api.test",
+    showTechnicalDetails: false,
+  });
+
+  assert.deepEqual(result, {
+    status: "error",
+    message: "Не удалось загрузить действия пользователей.",
+  });
+});
+
 test("screen view service sends only the allowlisted screen id", async () => {
   let request;
   globalThis.fetch = async (url, init) => {

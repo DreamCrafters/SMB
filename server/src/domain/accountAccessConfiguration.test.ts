@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accountTypeByPosition,
+  navigationItemsByAccountType,
   resolveCapabilitiesForNavigation,
   validateNavigationItemsForAccountType,
 } from "./accountAccessConfiguration.js";
@@ -13,6 +14,10 @@ test("executive positions use the business owner workspace", () => {
 });
 
 test("navigation validation rejects tabs from another workspace", () => {
+  assert.equal(
+    navigationItemsByAccountType.business_owner.includes("business.user_actions"),
+    false,
+  );
   assert.equal(
     validateNavigationItemsForAccountType("business_owner", [
       "business.overview",
@@ -38,6 +43,7 @@ test("navigation validation rejects tabs from another workspace", () => {
       "business.overview",
       "business.dispatcher",
       "business.work",
+      "business.user_actions",
     ]),
     true,
   );
@@ -72,5 +78,8 @@ test("navigation selection expands only to its server capabilities", () => {
   ]);
   assert.deepEqual(resolveCapabilitiesForNavigation(["admin.user_actions"]), [
     "platform.view_audit",
+  ]);
+  assert.deepEqual(resolveCapabilitiesForNavigation(["business.user_actions"]), [
+    "business.view_user_actions",
   ]);
 });

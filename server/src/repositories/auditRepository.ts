@@ -35,6 +35,7 @@ export type AuditActorOption = AuditActorSnapshot & {
 
 export type AuditReportFilters = {
   actorAccountId?: string;
+  businessAccountId?: string;
   category?: AuditEventCategory;
   limit?: number;
   offset?: number;
@@ -164,6 +165,12 @@ export function createAuditRepository(
       );
       const offset = Math.max(Math.trunc(filters.offset ?? 0), 0);
       const where = buildReportWhereClause(windowStart, windowEnd, filters);
+      const actorScope = filters.businessAccountId === undefined
+        ? { sql: "", values: [] }
+        : {
+            sql: "where accesses.business_account_id = ?",
+            values: [filters.businessAccountId],
+          };
 
       const [eventResult, countResult, actorResult] = await Promise.all([
         pool.query<AuditEventRow[]>(
@@ -217,6 +224,7 @@ export function createAuditRepository(
               on events.actor_account_id = accesses.id
               and events.occurred_at >= ?
               and events.occurred_at < ?
+            ${actorScope.sql}
             group by
               users.id,
               accesses.id,
@@ -226,7 +234,7 @@ export function createAuditRepository(
               users.status
             order by users.display_name asc, positions.display_name asc
           `,
-          [windowStart, windowEnd],
+          [windowStart, windowEnd, ...actorScope.values],
         ),
       ]);
 
@@ -297,6 +305,11 @@ function buildReportWhereClause(
   if (filters.actorAccountId !== undefined) {
     conditions.push("actor_account_id = ?");
     values.push(filters.actorAccountId);
+  }
+
+  if (filters.businessAccountId !== undefined) {
+    conditions.push("business_account_id = ?");
+    values.push(filters.businessAccountId);
   }
 
   if (filters.category !== undefined) {

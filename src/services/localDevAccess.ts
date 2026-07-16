@@ -68,9 +68,9 @@ const defaultPositionDefinitions: Array<{
 export const localDevAccessOptions: DevAccessOption[] =
   defaultPositionDefinitions.map((definition) => ({
     ...definition,
-    navigationItems: navigationItemsByAccountType[definition.accountType].map(
-      ({ id }) => id,
-    ),
+    navigationItems: navigationItemsByAccountType[definition.accountType]
+      .filter(({ id }) => id !== "business.user_actions")
+      .map(({ id }) => id),
     capabilities: [...accountCapabilitiesByType[definition.accountType]],
   }));
 
