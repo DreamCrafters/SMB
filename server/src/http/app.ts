@@ -33,6 +33,7 @@ import {
 } from "../domain/dispatcherSubmission.js";
 import { applyIncidentStateRules } from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
+import { buildProductionReportTables } from "../domain/productionReportTables.js";
 import {
   getDispatcherFormDefinition,
   getPublicDispatcherForms,
@@ -428,11 +429,18 @@ export function createApiServer({
             return;
           }
 
+          const productionSubmissions = await listAllProductionSubmissions(
+            dispatcherSubmissions,
+          );
+          const productionReportTables = buildProductionReportTables(
+            productionSubmissions,
+          );
           const submissions = await dispatcherSubmissions.listLatest(filters.value);
           const summary = await dispatcherSubmissions.readSummary(filters.value);
 
           sendJson(res, 200, {
             submissions,
+            productionReportTables,
             receivedAt: new Date().toISOString(),
             summary,
           });
@@ -3283,6 +3291,40 @@ function readDispatcherFeedFilters(url: URL):
     ok: true,
     value: filters,
   };
+}
+
+async function listAllProductionSubmissions(
+  repository: DispatcherSubmissionsRepository,
+) {
+  const pageLimit = 2_000;
+  const submissions: DispatcherSubmission[] = [];
+  const seenIds = new Set<string>();
+  let offset = 0;
+
+  while (true) {
+    const page = await repository.listLatest({
+      formId: "production",
+      limit: pageLimit,
+      offset,
+    });
+    let appendedCount = 0;
+
+    for (const submission of page) {
+      if (seenIds.has(submission.id)) {
+        continue;
+      }
+
+      seenIds.add(submission.id);
+      submissions.push(submission);
+      appendedCount += 1;
+    }
+
+    if (page.length < pageLimit || appendedCount === 0) {
+      return submissions;
+    }
+
+    offset += page.length;
+  }
 }
 
 function readOptionalQueryParam(url: URL, name: string) {

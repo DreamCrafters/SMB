@@ -101,8 +101,11 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
     payload: {
       reportDate: "2026-07-16",
       formingDay: "12,5",
-      formingDeviation: "-3,5",
       formingProductBrands: "ПБ-5, ПБ-6",
+      jarStart1: "120",
+      jarEnd1: "95,5",
+      granulationFraction1630Day: "3,25",
+      granulationFraction1218Day: "1,75",
       granulationPlatesInOperation: "2",
     },
   });
@@ -114,12 +117,35 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
       reportDate: "16.07.2026",
       reportMonth: "2026-07",
       formingDay: "12.5",
-      formingDeviation: "-3.5",
       formingProductBrands: "ПБ-5, ПБ-6",
+      jarStart1: "120",
+      jarEnd1: "95.5",
+      granulationFraction1630Day: "3.25",
+      granulationFraction1218Day: "1.75",
       granulationPlatesInOperation: "2",
     });
     assert.match(result.value.summary, /16\.07\.2026/);
     assert.match(result.value.summary, /12\.5/);
+  }
+});
+
+test("validateDispatcherSubmissionDraft rejects calculated production fields", () => {
+  const result = validateDispatcherSubmissionDraft({
+    formId: "production",
+    payload: {
+      reportDate: "2026-07-16",
+      formingMonth: "120",
+      unformedDeviation1: "5",
+      granulationFraction1600Month: "30",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /formingMonth/u);
+    assert.match(result.errors.join(" "), /unformedDeviation1/u);
+    assert.match(result.errors.join(" "), /granulationFraction1600Month/u);
   }
 });
 

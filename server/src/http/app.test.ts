@@ -2437,23 +2437,37 @@ test("remote API returns dispatcher form definitions", async () => {
   await withApiServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/dispatcher/forms`);
     const payload = await response.json();
+    const forms =
+      isRecord(payload) && Array.isArray(payload.forms) ? payload.forms : [];
+    const productionForm = forms.find(
+      (form) => isRecord(form) && form.id === "production",
+    );
+    const productionFieldNames =
+      isRecord(productionForm) && Array.isArray(productionForm.fields)
+        ? productionForm.fields.flatMap((field) =>
+            isRecord(field) && typeof field.name === "string"
+              ? [field.name]
+              : [],
+          )
+        : [];
 
     assert.equal(response.status, 200);
     assert.equal(Array.isArray(isRecord(payload) ? payload.forms : undefined), true);
     assert.equal(
-      isRecord(payload) && Array.isArray(payload.forms)
-        ? payload.forms.some(
-            (form) => isRecord(form) && form.id === "equipment",
-          )
-        : false,
+      forms.some((form) => isRecord(form) && form.id === "equipment"),
+      true,
+    );
+    assert.equal(productionForm !== undefined, true);
+    assert.equal(productionFieldNames.includes("formingMonth"), false);
+    assert.equal(productionFieldNames.includes("unformedDeviation1"), false);
+    assert.equal(productionFieldNames.includes("jarStart1"), true);
+    assert.equal(productionFieldNames.includes("jarEnd1"), true);
+    assert.equal(
+      productionFieldNames.includes("granulationFraction1630Day"),
       true,
     );
     assert.equal(
-      isRecord(payload) && Array.isArray(payload.forms)
-        ? payload.forms.some(
-            (form) => isRecord(form) && form.id === "production",
-          )
-        : false,
+      productionFieldNames.includes("granulationFraction1218Day"),
       true,
     );
   });
@@ -2500,6 +2514,97 @@ test("remote API passes equipment reportDate feed filters to repository", async 
       offset: 250,
     });
     assert.deepEqual(summaryFilters, listFilters);
+  }, repository);
+});
+
+test("remote API returns server-calculated production report tables", async () => {
+  const productionOffsets: number[] = [];
+  const firstProductionSubmission = {
+    id: "production-2026-07-01",
+    formId: "production" as const,
+    formTitle: "Выработка",
+    payload: {
+      reportDate: "01.07.2026",
+      formingPlan: "10",
+      formingDay: "8",
+    },
+    summary: "Выработка за 01.07.2026",
+    status: "received" as const,
+    submittedByAccountId: "dispatcher-access-id",
+    submittedAt: "2026-07-01T18:00:00.000Z",
+    receivedAt: "2026-07-01T18:00:01.000Z",
+  };
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      if (filters?.formId !== "production") {
+        return [];
+      }
+
+      productionOffsets.push(filters.offset ?? 0);
+
+      if ((filters.offset ?? 0) === 0) {
+        return Array.from({ length: 2_000 }, () => firstProductionSubmission);
+      }
+
+      return [
+        {
+          id: "production-2026-07-02",
+          formId: "production",
+          formTitle: "Выработка",
+          payload: {
+            reportDate: "02.07.2026",
+            formingPlan: "10",
+            formingDay: "12",
+          },
+          summary: "Выработка за 02.07.2026",
+          status: "received",
+          submittedByAccountId: "dispatcher-access-id",
+          submittedAt: "2026-07-02T18:00:00.000Z",
+          receivedAt: "2026-07-02T18:00:01.000Z",
+        },
+      ];
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "business_owner");
+    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      headers: {
+        "X-SMB-Dev-Session": sessionId,
+      },
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(productionOffsets, [0, 2_000]);
+    assert.deepEqual(
+      isRecord(payload) && isRecord(payload.productionReportTables)
+        ? payload.productionReportTables.forming
+        : undefined,
+      [
+        {
+          reportId: "production-2026-07-01",
+          reportDate: "2026-07-01",
+          dayPlan: 10,
+          dayFact: 8,
+          monthPlan: 10,
+          monthFact: 8,
+          deviation: -2,
+          receivedAt: "2026-07-01T18:00:01.000Z",
+        },
+        {
+          reportId: "production-2026-07-02",
+          reportDate: "2026-07-02",
+          dayPlan: 10,
+          dayFact: 12,
+          monthPlan: 20,
+          monthFact: 20,
+          deviation: 0,
+          receivedAt: "2026-07-02T18:00:01.000Z",
+        },
+      ],
+    );
   }, repository);
 });
 

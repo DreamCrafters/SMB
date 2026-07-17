@@ -2,6 +2,11 @@ import type {
   DispatcherFormId,
   DispatcherSubmission,
   DispatcherSubmissionPayload,
+  ProductionBrandMetricRow,
+  ProductionGranulationRow,
+  ProductionJarMeasurementRow,
+  ProductionMetricRow,
+  ProductionReportTables,
 } from "../contracts";
 
 export type DispatcherFeedGroup =
@@ -37,17 +42,6 @@ export type EquipmentDetailRow = {
   notes: string[];
   receivedAt: string;
   submissionCount: number;
-};
-
-export type ProductionReportRow = {
-  id: string;
-  reportDate: string;
-  formingDay?: number;
-  sortingDay?: number;
-  unformedFact?: number;
-  chamotteFact?: number;
-  granulationRawOutputTons?: number;
-  receivedAt: string;
 };
 
 export type IncidentSummaryRow = {
@@ -363,50 +357,381 @@ export function buildEquipmentDetailRows(
     .sort((left, right) => left.reportDate.localeCompare(right.reportDate));
 }
 
-export function buildProductionReportRows(
+export function buildProductionReportTables(
   submissions: DispatcherSubmission[],
   range: DateRange,
-): ProductionReportRow[] {
-  return submissions
-    .flatMap((submission) => {
-      if (submission.formId !== "production") {
-        return [];
+): ProductionReportTables {
+  const dailyReports = readLatestProductionReports(submissions);
+
+  return {
+    forming: buildProductionMetricRows(dailyReports, range, "forming"),
+    sorting: buildProductionMetricRows(dailyReports, range, "sorting"),
+    unformed: buildProductionBrandRows(dailyReports, range, "unformed", 4),
+    chamotte: buildProductionBrandRows(dailyReports, range, "chamotte", 1),
+    jars: buildProductionJarMeasurementRows(dailyReports, range),
+    granulation: buildProductionGranulationRows(dailyReports, range),
+  };
+}
+
+export function filterProductionReportTables(
+  tables: ProductionReportTables,
+  range: DateRange,
+): ProductionReportTables {
+  return {
+    forming: tables.forming.filter((row) => isDateInRange(row.reportDate, range)),
+    sorting: tables.sorting.filter((row) => isDateInRange(row.reportDate, range)),
+    unformed: tables.unformed.filter((row) => isDateInRange(row.reportDate, range)),
+    chamotte: tables.chamotte.filter((row) => isDateInRange(row.reportDate, range)),
+    jars: tables.jars.filter((row) => isDateInRange(row.reportDate, range)),
+    granulation: tables.granulation.filter((row) =>
+      isDateInRange(row.reportDate, range)),
+  };
+}
+
+type DatedProductionReport = {
+  submission: DispatcherSubmission;
+  reportDate: string;
+};
+
+function readLatestProductionReports(
+  submissions: DispatcherSubmission[],
+): DatedProductionReport[] {
+  const reportsByDate = new Map<string, DispatcherSubmission>();
+
+  for (const submission of submissions) {
+    if (submission.formId !== "production") {
+      continue;
+    }
+
+    const reportDate = readPayloadDate(submission.payload.reportDate);
+
+    if (reportDate === undefined) {
+      continue;
+    }
+
+    const current = reportsByDate.get(reportDate);
+
+    if (
+      current === undefined ||
+      readTimestamp(submission.receivedAt) > readTimestamp(current.receivedAt) ||
+      (submission.receivedAt === current.receivedAt && submission.id > current.id)
+    ) {
+      reportsByDate.set(reportDate, submission);
+    }
+  }
+
+  return [...reportsByDate.entries()]
+    .map(([reportDate, submission]) => ({ reportDate, submission }))
+    .sort((left, right) => left.reportDate.localeCompare(right.reportDate));
+}
+
+function buildProductionMetricRows(
+  reports: DatedProductionReport[],
+  range: DateRange,
+  prefix: "forming" | "sorting",
+): ProductionMetricRow[] {
+  const totalsByMonth = new Map<
+    string,
+    { plan: number; fact: number; hasPlan: boolean; hasFact: boolean }
+  >();
+  const rows: ProductionMetricRow[] = [];
+
+  for (const report of reports) {
+    const dayPlan = readNumber(report.submission.payload[`${prefix}Plan`]);
+    const dayFact = readNumber(report.submission.payload[`${prefix}Day`]);
+    const month = report.reportDate.slice(0, 7);
+    const totals = totalsByMonth.get(month) ?? {
+      plan: 0,
+      fact: 0,
+      hasPlan: false,
+      hasFact: false,
+    };
+
+    if (dayPlan !== undefined) {
+      totals.plan += dayPlan;
+      totals.hasPlan = true;
+    }
+
+    if (dayFact !== undefined) {
+      totals.fact += dayFact;
+      totals.hasFact = true;
+    }
+
+    totalsByMonth.set(month, totals);
+
+    if (
+      (dayPlan === undefined && dayFact === undefined) ||
+      !isDateInRange(report.reportDate, range)
+    ) {
+      continue;
+    }
+
+    rows.push({
+      reportId: report.submission.id,
+      reportDate: report.reportDate,
+      dayPlan,
+      dayFact,
+      monthPlan: totals.hasPlan ? totals.plan : undefined,
+      monthFact: totals.hasFact ? totals.fact : undefined,
+      deviation:
+        totals.hasPlan && totals.hasFact ? totals.fact - totals.plan : undefined,
+      receivedAt: report.submission.receivedAt,
+    });
+  }
+
+  return rows;
+}
+
+type ProductionBrandTotals = {
+  plan: number;
+  fact: number;
+  hasPlan: boolean;
+  hasFact: boolean;
+};
+
+function buildProductionBrandRows(
+  reports: DatedProductionReport[],
+  range: DateRange,
+  prefix: "unformed" | "chamotte",
+  rowCount: number,
+): ProductionBrandMetricRow[] {
+  const brandLabels = new Map<string, string>();
+  const totalsByMonthAndBrand = new Map<string, ProductionBrandTotals>();
+  const rows: ProductionBrandMetricRow[] = [];
+
+  for (const report of reports) {
+    const dailyValues = readDailyProductionBrandValues(
+      report.submission.payload,
+      prefix,
+      rowCount,
+      brandLabels,
+    );
+
+    for (const [brandKey, daily] of [...dailyValues.entries()].sort(
+      ([leftKey], [rightKey]) =>
+        (brandLabels.get(leftKey) ?? leftKey).localeCompare(
+          brandLabels.get(rightKey) ?? rightKey,
+          "ru-RU",
+        ),
+    )) {
+      const monthAndBrandKey = `${report.reportDate.slice(0, 7)}:${brandKey}`;
+      const totals = totalsByMonthAndBrand.get(monthAndBrandKey) ?? {
+        plan: 0,
+        fact: 0,
+        hasPlan: false,
+        hasFact: false,
+      };
+
+      if (daily.hasPlan) {
+        totals.plan += daily.plan;
+        totals.hasPlan = true;
       }
 
-      const reportDate = readPayloadDate(submission.payload.reportDate);
+      if (daily.hasFact) {
+        totals.fact += daily.fact;
+        totals.hasFact = true;
+      }
 
-      if (reportDate === undefined || !isDateInRange(reportDate, range)) {
+      totalsByMonthAndBrand.set(monthAndBrandKey, totals);
+
+      if (!isDateInRange(report.reportDate, range)) {
+        continue;
+      }
+
+      rows.push({
+        reportId: report.submission.id,
+        reportDate: report.reportDate,
+        brand: brandLabels.get(brandKey) ?? "Без марки",
+        dayPlan: daily.hasPlan ? daily.plan : undefined,
+        dayFact: daily.hasFact ? daily.fact : undefined,
+        monthPlan: totals.hasPlan ? totals.plan : undefined,
+        monthFact: totals.hasFact ? totals.fact : undefined,
+        deviation:
+          totals.hasPlan && totals.hasFact ? totals.fact - totals.plan : undefined,
+        receivedAt: report.submission.receivedAt,
+      });
+    }
+  }
+
+  return rows;
+}
+
+function readDailyProductionBrandValues(
+  payload: DispatcherSubmissionPayload,
+  prefix: "unformed" | "chamotte",
+  rowCount: number,
+  brandLabels: Map<string, string>,
+) {
+  const values = new Map<string, ProductionBrandTotals>();
+
+  for (let rowNumber = 1; rowNumber <= rowCount; rowNumber += 1) {
+    const plan = readNumber(payload[`${prefix}Plan${rowNumber}`]);
+    const fact = readNumber(payload[`${prefix}Fact${rowNumber}`]);
+
+    if (plan === undefined && fact === undefined) {
+      continue;
+    }
+
+    const brand = normalizeProductionBrandLabel(
+      payload[`${prefix}Brand${rowNumber}`],
+    );
+    const brandKey = brand.toLocaleLowerCase("ru-RU");
+    const value = values.get(brandKey) ?? {
+      plan: 0,
+      fact: 0,
+      hasPlan: false,
+      hasFact: false,
+    };
+
+    if (!brandLabels.has(brandKey)) {
+      brandLabels.set(brandKey, brand);
+    }
+
+    if (plan !== undefined) {
+      value.plan += plan;
+      value.hasPlan = true;
+    }
+
+    if (fact !== undefined) {
+      value.fact += fact;
+      value.hasFact = true;
+    }
+
+    values.set(brandKey, value);
+  }
+
+  return values;
+}
+
+function normalizeProductionBrandLabel(value: string | undefined) {
+  const brand = value?.trim().replace(/\s+/gu, " ") ?? "";
+
+  return brand.length > 0 ? brand : "Без марки";
+}
+
+function buildProductionJarMeasurementRows(
+  reports: DatedProductionReport[],
+  range: DateRange,
+): ProductionJarMeasurementRow[] {
+  return reports.flatMap((report) => {
+    if (!isDateInRange(report.reportDate, range)) {
+      return [];
+    }
+
+    return [1, 2, 3].flatMap((jarNumber) => {
+      const start = readNumber(report.submission.payload[`jarStart${jarNumber}`]);
+      const end = readNumber(report.submission.payload[`jarEnd${jarNumber}`]);
+
+      if (start === undefined && end === undefined) {
         return [];
       }
 
       return [
         {
-          id: submission.id,
-          reportDate,
-          formingDay: readNumber(submission.payload.formingDay),
-          sortingDay: readNumber(submission.payload.sortingDay),
-          unformedFact: sumPayloadNumbers(submission.payload, [
-            "unformedFact1",
-            "unformedFact2",
-            "unformedFact3",
-            "unformedFact4",
-          ]),
-          chamotteFact: sumPayloadNumbers(submission.payload, [
-            "chamotteFact1",
-          ]),
-          granulationRawOutputTons: readNumber(
-            submission.payload.granulationRawOutputTons,
-          ),
-          receivedAt: submission.receivedAt,
+          reportId: report.submission.id,
+          reportDate: report.reportDate,
+          jarNumber,
+          start,
+          end,
+          consumption:
+            start !== undefined && end !== undefined ? start - end : undefined,
+          receivedAt: report.submission.receivedAt,
         },
       ];
-    })
-    .sort(
-      (left, right) =>
-        right.reportDate.localeCompare(left.reportDate) ||
-        readTimestamp(right.receivedAt) - readTimestamp(left.receivedAt) ||
-        right.id.localeCompare(left.id),
-    );
+    });
+  });
+}
+
+function buildProductionGranulationRows(
+  reports: DatedProductionReport[],
+  range: DateRange,
+): ProductionGranulationRow[] {
+  const totalsByMonth = new Map<
+    string,
+    {
+      fraction1630: number;
+      fraction1218: number;
+      hasFraction1630: boolean;
+      hasFraction1218: boolean;
+    }
+  >();
+  const rows: ProductionGranulationRow[] = [];
+
+  for (const report of reports) {
+    const payload = report.submission.payload;
+    const platesInOperation = readNumber(payload.granulationPlatesInOperation);
+    const millHours = readNumber(payload.granulationMillHours);
+    const fraction1630Day = readFirstPayloadNumber(payload, [
+      "granulationFraction1630Day",
+      "granulationFraction1600Day",
+    ]);
+    const fraction1218Day = readFirstPayloadNumber(payload, [
+      "granulationFraction1218Day",
+      "granulationSamplesDay",
+    ]);
+    const month = report.reportDate.slice(0, 7);
+    const totals = totalsByMonth.get(month) ?? {
+      fraction1630: 0,
+      fraction1218: 0,
+      hasFraction1630: false,
+      hasFraction1218: false,
+    };
+
+    if (fraction1630Day !== undefined) {
+      totals.fraction1630 += fraction1630Day;
+      totals.hasFraction1630 = true;
+    }
+
+    if (fraction1218Day !== undefined) {
+      totals.fraction1218 += fraction1218Day;
+      totals.hasFraction1218 = true;
+    }
+
+    totalsByMonth.set(month, totals);
+
+    if (
+      !isDateInRange(report.reportDate, range) ||
+      (platesInOperation === undefined &&
+        millHours === undefined &&
+        fraction1630Day === undefined &&
+        fraction1218Day === undefined)
+    ) {
+      continue;
+    }
+
+    rows.push({
+      reportId: report.submission.id,
+      reportDate: report.reportDate,
+      platesInOperation,
+      millHours,
+      fraction1630Day,
+      fraction1630Month: totals.hasFraction1630
+        ? totals.fraction1630
+        : undefined,
+      fraction1218Day,
+      fraction1218Month: totals.hasFraction1218
+        ? totals.fraction1218
+        : undefined,
+      receivedAt: report.submission.receivedAt,
+    });
+  }
+
+  return rows;
+}
+
+function readFirstPayloadNumber(
+  payload: DispatcherSubmissionPayload,
+  fieldNames: string[],
+) {
+  for (const fieldName of fieldNames) {
+    const value = readNumber(payload[fieldName]);
+
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 function buildOwnerEquipmentOverview(

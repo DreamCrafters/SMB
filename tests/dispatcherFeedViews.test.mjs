@@ -8,8 +8,9 @@ import {
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
-  buildProductionReportRows,
+  buildProductionReportTables,
   buildVisitorVisitRows,
+  filterProductionReportTables,
 } from "../.test-build/src/services/dispatcherFeedViews.js";
 
 test("buildDispatcherFeedDateRange builds current incomplete periods", () => {
@@ -149,67 +150,258 @@ test("buildEquipmentDetailRows lists selected equipment rows by report date", ()
   ]);
 });
 
-test("buildProductionReportRows summarizes reports inside the selected period", () => {
-  const rows = buildProductionReportRows(
+test("buildProductionReportTables calculates monthly forming and sorting values", () => {
+  const tables = buildProductionReportTables(
     [
       buildSubmission(
-        "production-latest",
+        "production-july-1",
         "production",
         {
-          reportDate: "03.07.2026",
-          formingDay: "10.5",
-          unformedFact1: "2",
-          unformedFact2: "3.5",
-          chamotteFact1: "4",
-          granulationRawOutputTons: "1.25",
-        },
-        "2026-07-03T18:00:00.000Z",
-      ),
-      buildSubmission(
-        "production-earlier",
-        "production",
-        {
-          reportDate: "2026-07-01",
-          sortingDay: "8",
-          unformedFact1: "0",
+          reportDate: "01.07.2026",
+          formingPlan: "10",
+          formingDay: "8",
+          sortingPlan: "6",
+          sortingDay: "5",
         },
         "2026-07-01T18:00:00.000Z",
       ),
+      buildSubmission(
+        "production-july-2-stale",
+        "production",
+        {
+          reportDate: "2026-07-02",
+          formingPlan: "100",
+          formingDay: "100",
+          sortingPlan: "100",
+          sortingDay: "100",
+        },
+        "2026-07-02T17:00:00.000Z",
+      ),
+      buildSubmission(
+        "production-july-2-latest",
+        "production",
+        {
+          reportDate: "02.07.2026",
+          formingPlan: "10",
+          formingDay: "11",
+          sortingPlan: "6",
+          sortingDay: "7",
+        },
+        "2026-07-02T18:00:00.000Z",
+      ),
       buildSubmission("equipment-row", "equipment", {
-        reportDate: "03.07.2026",
+        reportDate: "02.07.2026",
         productionTons: "99",
       }),
-      buildSubmission("production-outside", "production", {
-        reportDate: "10.07.2026",
-        formingDay: "99",
-      }),
+      buildSubmission(
+        "production-june",
+        "production",
+        {
+          reportDate: "30.06.2026",
+          formingPlan: "50",
+          formingDay: "50",
+        },
+        "2026-06-30T18:00:00.000Z",
+      ),
     ],
     {
-      dateFrom: "2026-07-01",
-      dateTo: "2026-07-08",
+      dateFrom: "2026-07-02",
+      dateTo: "2026-07-31",
     },
   );
 
-  assert.deepEqual(rows, [
+  assert.deepEqual(tables.forming, [
     {
-      id: "production-latest",
-      reportDate: "2026-07-03",
-      formingDay: 10.5,
-      sortingDay: undefined,
-      unformedFact: 5.5,
-      chamotteFact: 4,
-      granulationRawOutputTons: 1.25,
-      receivedAt: "2026-07-03T18:00:00.000Z",
+      reportId: "production-july-2-latest",
+      reportDate: "2026-07-02",
+      dayPlan: 10,
+      dayFact: 11,
+      monthPlan: 20,
+      monthFact: 19,
+      deviation: -1,
+      receivedAt: "2026-07-02T18:00:00.000Z",
+    },
+  ]);
+  assert.deepEqual(tables.sorting, [
+    {
+      reportId: "production-july-2-latest",
+      reportDate: "2026-07-02",
+      dayPlan: 6,
+      dayFact: 7,
+      monthPlan: 12,
+      monthFact: 12,
+      deviation: 0,
+      receivedAt: "2026-07-02T18:00:00.000Z",
+    },
+  ]);
+});
+
+test("filterProductionReportTables keeps server-calculated monthly totals", () => {
+  const tables = buildProductionReportTables(
+    [
+      buildSubmission("production-1", "production", {
+        reportDate: "01.07.2026",
+        formingPlan: "10",
+        formingDay: "8",
+      }),
+      buildSubmission("production-2", "production", {
+        reportDate: "02.07.2026",
+        formingPlan: "10",
+        formingDay: "11",
+      }),
+    ],
+    {},
+  );
+  const filtered = filterProductionReportTables(tables, {
+    dateFrom: "2026-07-02",
+    dateTo: "2026-07-02",
+  });
+
+  assert.equal(filtered.forming.length, 1);
+  assert.equal(filtered.forming[0].reportDate, "2026-07-02");
+  assert.equal(filtered.forming[0].monthPlan, 20);
+  assert.equal(filtered.forming[0].monthFact, 19);
+});
+
+test("buildProductionReportTables groups unformed products and chamotte by brand", () => {
+  const tables = buildProductionReportTables(
+    [
+      buildSubmission("production-july-1", "production", {
+        reportDate: "01.07.2026",
+        unformedBrand1: "ПБ-5",
+        unformedPlan1: "3",
+        unformedFact1: "2",
+        chamotteBrand1: "Ш-1",
+        chamottePlan1: "4",
+        chamotteFact1: "3",
+      }),
+      buildSubmission("production-july-2", "production", {
+        reportDate: "02.07.2026",
+        unformedBrand1: " пб-5 ",
+        unformedPlan1: "2",
+        unformedFact1: "3",
+        unformedBrand2: "ПБ-6",
+        unformedPlan2: "2",
+        unformedFact2: "1",
+        unformedBrand3: "ПБ-5",
+        unformedPlan3: "1",
+        unformedFact3: "1",
+        chamotteBrand1: "Ш-1",
+        chamottePlan1: "4",
+        chamotteFact1: "5",
+      }),
+    ],
+    {
+      dateFrom: "2026-07-02",
+      dateTo: "2026-07-31",
+    },
+  );
+
+  assert.deepEqual(tables.unformed, [
+    {
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      brand: "ПБ-5",
+      dayPlan: 3,
+      dayFact: 4,
+      monthPlan: 6,
+      monthFact: 6,
+      deviation: 0,
+      receivedAt: "2026-07-04T00:00:00.000Z",
     },
     {
-      id: "production-earlier",
-      reportDate: "2026-07-01",
-      formingDay: undefined,
-      sortingDay: 8,
-      unformedFact: 0,
-      chamotteFact: undefined,
-      granulationRawOutputTons: undefined,
-      receivedAt: "2026-07-01T18:00:00.000Z",
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      brand: "ПБ-6",
+      dayPlan: 2,
+      dayFact: 1,
+      monthPlan: 2,
+      monthFact: 1,
+      deviation: -1,
+      receivedAt: "2026-07-04T00:00:00.000Z",
+    },
+  ]);
+  assert.deepEqual(tables.chamotte, [
+    {
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      brand: "Ш-1",
+      dayPlan: 4,
+      dayFact: 5,
+      monthPlan: 8,
+      monthFact: 8,
+      deviation: 0,
+      receivedAt: "2026-07-04T00:00:00.000Z",
+    },
+  ]);
+});
+
+test("buildProductionReportTables calculates jar consumption and granulation month totals", () => {
+  const tables = buildProductionReportTables(
+    [
+      buildSubmission("production-july-1", "production", {
+        reportDate: "01.07.2026",
+        granulationFraction1600Day: "1.5",
+        granulationSamplesDay: "2",
+      }),
+      buildSubmission("production-july-2", "production", {
+        reportDate: "02.07.2026",
+        jarStart1: "120",
+        jarEnd1: "95",
+        jarStart2: "80",
+        jarEnd3: "10",
+        granulationPlatesInOperation: "2",
+        granulationMillHours: "7.5",
+        granulationFraction1630Day: "2.5",
+        granulationFraction1218Day: "3",
+      }),
+    ],
+    {
+      dateFrom: "2026-07-02",
+      dateTo: "2026-07-31",
+    },
+  );
+
+  assert.deepEqual(tables.jars, [
+    {
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      jarNumber: 1,
+      start: 120,
+      end: 95,
+      consumption: 25,
+      receivedAt: "2026-07-04T00:00:00.000Z",
+    },
+    {
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      jarNumber: 2,
+      start: 80,
+      end: undefined,
+      consumption: undefined,
+      receivedAt: "2026-07-04T00:00:00.000Z",
+    },
+    {
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      jarNumber: 3,
+      start: undefined,
+      end: 10,
+      consumption: undefined,
+      receivedAt: "2026-07-04T00:00:00.000Z",
+    },
+  ]);
+  assert.deepEqual(tables.granulation, [
+    {
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      platesInOperation: 2,
+      millHours: 7.5,
+      fraction1630Day: 2.5,
+      fraction1630Month: 4,
+      fraction1218Day: 3,
+      fraction1218Month: 5,
+      receivedAt: "2026-07-04T00:00:00.000Z",
     },
   ]);
 });

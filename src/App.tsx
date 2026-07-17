@@ -25,6 +25,12 @@ import {
   type DispatcherFormId,
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
+  type ProductionBrandMetricRow,
+  type ProductionGranulationRow,
+  type ProductionJarMeasurementRow,
+  type ProductionMetricRow,
+  type ProductionReportBaseRow,
+  type ProductionReportTables,
   type DevAccessOption,
   type ServerUserProfile,
   type UserActivityActor,
@@ -156,7 +162,7 @@ import {
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
-  buildProductionReportRows,
+  filterProductionReportTables,
   buildVisitorVisitRows,
   type OwnerDispatcherOverview,
   type DispatcherFeedGroup,
@@ -271,6 +277,8 @@ type DispatcherFeedFilterState = {
   dateTo: string;
 };
 
+type ProductionReportSection = keyof ProductionReportTables;
+
 type DispatcherFormChoiceGroupId =
   | "production"
   | "equipment"
@@ -305,6 +313,15 @@ const initialSessionRequestState: SessionRequestState = {
 const initialDispatcherFeedState: DispatcherFeedLoadState = {
   status: "loading",
   message: "Загружаем историю.",
+};
+
+const emptyProductionReportTables: ProductionReportTables = {
+  forming: [],
+  sorting: [],
+  unformed: [],
+  chamotte: [],
+  jars: [],
+  granulation: [],
 };
 
 const initialDispatcherFormsState: DispatcherFormsLoadState = {
@@ -2392,7 +2409,8 @@ function DispatcherProductionReportFormBody({
               <thead>
                 <tr>
                   <th scope="col">Банка</th>
-                  <th scope="col">Замер</th>
+                  <th scope="col">Начало дня</th>
+                  <th scope="col">Конец дня</th>
                 </tr>
               </thead>
               <tbody>
@@ -2401,7 +2419,13 @@ function DispatcherProductionReportFormBody({
                     <th scope="row">{jarNumber}</th>
                     <td>
                       <ProductionReportCell
-                        fieldName={`jarMeasurement${jarNumber}`}
+                        fieldName={`jarStart${jarNumber}`}
+                        form={form}
+                      />
+                    </td>
+                    <td>
+                      <ProductionReportCell
+                        fieldName={`jarEnd${jarNumber}`}
                         form={form}
                       />
                     </td>
@@ -2450,14 +2474,12 @@ function ProductionSummaryTable({
             <tr>
               <th scope="col">План</th>
               <th scope="col">Сутки</th>
-              <th scope="col">Месяц</th>
-              <th scope="col">Отклонение</th>
               <th scope="col">Марки изделий</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              {["Plan", "Day", "Month", "Deviation", "ProductBrands"].map(
+              {["Plan", "Day", "ProductBrands"].map(
                 (suffix) => (
                   <td key={suffix}>
                     <ProductionReportCell
@@ -2492,15 +2514,13 @@ function ProductionRowsTable({
             <th scope="col">Марка продукции</th>
             <th scope="col">План</th>
             <th scope="col">Факт</th>
-            <th scope="col">Месяц</th>
-            <th scope="col">Отклонение</th>
           </tr>
         </thead>
         <tbody>
           {Array.from({ length: rowCount }, (_, index) => index + 1).map(
             (rowNumber) => (
               <tr key={rowNumber}>
-                {["Brand", "Plan", "Fact", "Month", "Deviation"].map(
+                {["Brand", "Plan", "Fact"].map(
                   (suffix) => (
                     <td key={suffix}>
                       <ProductionReportCell
@@ -2524,62 +2544,33 @@ function ProductionGranulationTable({
 }: {
   form: DispatcherFormDefinition;
 }) {
-  const rows: readonly {
-    title: string;
-    value?: string;
-    day?: string;
-    month?: string;
-  }[] = [
-    {
-      title: "Количество тарелок в работе",
-      value: "granulationPlatesInOperation",
-    },
-    {
-      title: "Время работы мельницы, часов",
-      value: "granulationMillHours",
-    },
-    {
-      title: "Выпуск сырцовой гранулы, тонн",
-      value: "granulationRawOutputTons",
-    },
-    {
-      title: "Фракция 1600",
-      day: "granulationFraction1600Day",
-      month: "granulationFraction1600Month",
-    },
-    {
-      title: "Образцы",
-      day: "granulationSamplesDay",
-      month: "granulationSamplesMonth",
-    },
-  ];
-
   return (
     <div className="production-report-table-wrap">
       <table className="production-report-table production-report-granulation-table">
         <thead>
           <tr>
-            <th scope="col">Показатель</th>
-            <th scope="col">Значение</th>
-            <th scope="col">Сутки</th>
-            <th scope="col">Месяц</th>
+            <th scope="col" rowSpan={2}>Количество тарелок в работе</th>
+            <th scope="col" rowSpan={2}>Время работы мельницы, часов</th>
+            <th scope="colgroup" colSpan={2}>Выпуск сырцовой гранулы, т</th>
+          </tr>
+          <tr>
+            <th scope="col">Фракция 16/30</th>
+            <th scope="col">Фракция 12/18</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.title}>
-              <th scope="row">{row.title}</th>
-              {[row.value, row.day, row.month].map((fieldName, index) => (
-                <td key={index}>
-                  {fieldName === undefined ? (
-                    <span className="production-report-empty-cell">—</span>
-                  ) : (
-                    <ProductionReportCell fieldName={fieldName} form={form} />
-                  )}
-                </td>
-              ))}
-            </tr>
-          ))}
+          <tr>
+            {[
+              "granulationPlatesInOperation",
+              "granulationMillHours",
+              "granulationFraction1630Day",
+              "granulationFraction1218Day",
+            ].map((fieldName) => (
+              <td key={fieldName}>
+                <ProductionReportCell fieldName={fieldName} form={form} />
+              </td>
+            ))}
+          </tr>
         </tbody>
       </table>
     </div>
@@ -3987,7 +3978,12 @@ function DispatcherFeedPanel({
     dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
   };
   const equipmentRows = buildEquipmentSummaryRows(submissions, selectedDateRange);
-  const productionRows = buildProductionReportRows(submissions, selectedDateRange);
+  const productionTables = filterProductionReportTables(
+    dispatcherFeed.status === "ready"
+      ? dispatcherFeed.productionReportTables
+      : emptyProductionReportTables,
+    selectedDateRange,
+  );
   const incidentRows = buildIncidentSummaryRows(submissions, selectedDateRange);
   const visitorRows = buildVisitorVisitRows(submissions, selectedDateRange);
   const productionForm =
@@ -3995,7 +3991,11 @@ function DispatcherFeedPanel({
       ? dispatcherForms.forms.find((form) => form.id === "production")
       : undefined;
   const visibleRowCount = {
-    production: productionRows.length,
+    production: new Set(
+      Object.values(productionTables)
+        .flat()
+        .map((row) => row.reportId),
+    ).size,
     equipment: equipmentRows.length,
     incidents: incidentRows.length,
     visitors: visitorRows.length,
@@ -4113,7 +4113,7 @@ function DispatcherFeedPanel({
       {filters.group === "production" ? (
         <ProductionReportSummaryTable
           form={productionForm}
-          rows={productionRows}
+          tables={productionTables}
           submissions={submissions}
         />
       ) : null}
@@ -4134,17 +4134,131 @@ function DispatcherFeedPanel({
   );
 }
 
+const productionReportSectionOptions: readonly {
+  id: ProductionReportSection;
+  label: string;
+}[] = [
+  { id: "forming", label: "Формовка" },
+  { id: "sorting", label: "Сортировка" },
+  { id: "unformed", label: "Неформованная продукция" },
+  { id: "chamotte", label: "Цех обжига шамота" },
+  { id: "jars", label: "Замеры банок" },
+  { id: "granulation", label: "Участок грануляции" },
+];
+
+const legacyProductionDetailFields: readonly DispatcherFormField[] = [
+  {
+    name: "formingMonth",
+    label: "Формовка — Месяц (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "formingDeviation",
+    label: "Формовка — Отклонение (старое поле)",
+    type: "signed-number",
+    required: false,
+  },
+  {
+    name: "sortingMonth",
+    label: "Сортировка — Месяц (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "sortingDeviation",
+    label: "Сортировка — Отклонение (старое поле)",
+    type: "signed-number",
+    required: false,
+  },
+  ...[1, 2, 3, 4].flatMap(
+    (rowNumber): DispatcherFormField[] => [
+      {
+        name: `unformedMonth${rowNumber}`,
+        label: `Неформованная продукция — Строка ${rowNumber}, месяц (старое поле)`,
+        type: "number",
+        required: false,
+      },
+      {
+        name: `unformedDeviation${rowNumber}`,
+        label: `Неформованная продукция — Строка ${rowNumber}, отклонение (старое поле)`,
+        type: "signed-number",
+        required: false,
+      },
+    ],
+  ),
+  {
+    name: "chamotteMonth1",
+    label: "Цех обжига шамота — Месяц (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "chamotteDeviation1",
+    label: "Цех обжига шамота — Отклонение (старое поле)",
+    type: "signed-number",
+    required: false,
+  },
+  {
+    name: "granulationRawOutputTons",
+    label: "Участок грануляции — Выпуск сырцовой гранулы, тонн (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "granulationFraction1600Day",
+    label: "Участок грануляции — Фракция 16/30, сутки (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "granulationFraction1600Month",
+    label: "Участок грануляции — Фракция 16/30, месяц (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "granulationSamplesDay",
+    label: "Участок грануляции — Фракция 12/18, сутки (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "granulationSamplesMonth",
+    label: "Участок грануляции — Фракция 12/18, месяц (старое поле)",
+    type: "number",
+    required: false,
+  },
+  ...[1, 2, 3].map(
+    (jarNumber): DispatcherFormField => ({
+      name: `jarMeasurement${jarNumber}`,
+      label: `Замеры банок — Банка ${jarNumber} (старый замер)`,
+      type: "text",
+      required: false,
+    }),
+  ),
+];
+
 function ProductionReportSummaryTable({
   form,
-  rows,
+  tables,
   submissions,
 }: {
   form: DispatcherFormDefinition | undefined;
-  rows: ReturnType<typeof buildProductionReportRows>;
+  tables: ProductionReportTables;
   submissions: DispatcherSubmission[];
 }) {
+  const [section, setSection] = useState<ProductionReportSection>(
+    () =>
+      productionReportSectionOptions.find(
+        (option) => tables[option.id].length > 0,
+      )?.id ?? "forming",
+  );
   const [detailReportId, setDetailReportId] = useState<string>();
-  const detailRow = rows.find((row) => row.id === detailReportId);
+  const selectedRows = tables[section] as ProductionReportBaseRow[];
+  const detailRow = selectedRows.find(
+    (row) => row.reportId === detailReportId,
+  );
   const detailSubmission = submissions.find(
     (submission) =>
       submission.formId === "production" && submission.id === detailReportId,
@@ -4153,11 +4267,11 @@ function ProductionReportSummaryTable({
   useEffect(() => {
     if (
       detailReportId !== undefined &&
-      !rows.some((row) => row.id === detailReportId)
+      !selectedRows.some((row) => row.reportId === detailReportId)
     ) {
       setDetailReportId(undefined);
     }
-  }, [detailReportId, rows]);
+  }, [detailReportId, selectedRows]);
 
   useEffect(() => {
     if (detailReportId === undefined) {
@@ -4177,7 +4291,11 @@ function ProductionReportSummaryTable({
     };
   }, [detailReportId]);
 
-  if (rows.length === 0) {
+  if (
+    !productionReportSectionOptions.some(
+      (option) => tables[option.id].length > 0,
+    )
+  ) {
     return (
       <p className="dispatcher-status-line">
         Нет отчётов по выработке для выбранного периода.
@@ -4187,50 +4305,54 @@ function ProductionReportSummaryTable({
 
   return (
     <>
-      <div className="dispatcher-feed-table" role="table">
-        <div
-          className="dispatcher-feed-row dispatcher-feed-row-production dispatcher-feed-head"
-          role="row"
-        >
-          <span role="columnheader">Дата отчёта</span>
-          <span role="columnheader">Формовка, сутки</span>
-          <span role="columnheader">Сортировка, сутки</span>
-          <span role="columnheader">Неформованная, факт</span>
-          <span role="columnheader">Шамот, факт</span>
-          <span role="columnheader">Сырцовая гранула, т</span>
-        </div>
-        {rows.map((row) => (
-          <div
-            className="dispatcher-feed-row dispatcher-feed-row-production"
-            role="row"
-            key={row.id}
+      <div
+        className="production-dashboard-section-tabs"
+        aria-label="Таблицы выработки"
+      >
+        {productionReportSectionOptions.map((option) => (
+          <button
+            className={`dispatcher-feed-group-button ${
+              section === option.id ? "is-active" : ""
+            }`}
+            type="button"
+            aria-pressed={section === option.id}
+            key={option.id}
+            onClick={() => setSection(option.id)}
           >
-            <span role="cell">
-              <button
-                className="production-detail-trigger"
-                type="button"
-                aria-haspopup="dialog"
-                disabled={form === undefined}
-                title={
-                  form === undefined
-                    ? "Форма выработки пока недоступна"
-                    : "Открыть полный отчёт"
-                }
-                onClick={() => setDetailReportId(row.id)}
-              >
-                {formatReportDateForDisplay(row.reportDate)}
-              </button>
-            </span>
-            <span role="cell">{formatOptionalNumber(row.formingDay)}</span>
-            <span role="cell">{formatOptionalNumber(row.sortingDay)}</span>
-            <span role="cell">{formatOptionalNumber(row.unformedFact)}</span>
-            <span role="cell">{formatOptionalNumber(row.chamotteFact)}</span>
-            <span role="cell">
-              {formatOptionalNumber(row.granulationRawOutputTons)}
-            </span>
-          </div>
+            {option.label}
+          </button>
         ))}
       </div>
+
+      {selectedRows.length === 0 ? (
+        <p className="dispatcher-status-line">
+          Нет данных для выбранной таблицы и периода.
+        </p>
+      ) : section === "forming" || section === "sorting" ? (
+        <ProductionMetricDashboardTable
+          rows={tables[section]}
+          formAvailable={form !== undefined}
+          onOpen={setDetailReportId}
+        />
+      ) : section === "unformed" || section === "chamotte" ? (
+        <ProductionBrandDashboardTable
+          rows={tables[section]}
+          formAvailable={form !== undefined}
+          onOpen={setDetailReportId}
+        />
+      ) : section === "jars" ? (
+        <ProductionJarDashboardTable
+          rows={tables.jars}
+          formAvailable={form !== undefined}
+          onOpen={setDetailReportId}
+        />
+      ) : (
+        <ProductionGranulationDashboardTable
+          rows={tables.granulation}
+          formAvailable={form !== undefined}
+          onOpen={setDetailReportId}
+        />
+      )}
 
       {form !== undefined &&
       detailRow !== undefined &&
@@ -4246,6 +4368,215 @@ function ProductionReportSummaryTable({
   );
 }
 
+function ProductionMetricDashboardTable({
+  rows,
+  formAvailable,
+  onOpen,
+}: {
+  rows: ProductionMetricRow[];
+  formAvailable: boolean;
+  onOpen: (reportId: string) => void;
+}) {
+  return (
+    <div className="production-dashboard-table-wrap">
+      <table className="production-dashboard-table">
+        <thead>
+          <tr>
+            <th scope="col">Дата</th>
+            <th scope="col">Сутки, план</th>
+            <th scope="col">Сутки, факт</th>
+            <th scope="col">Месяц, план</th>
+            <th scope="col">Месяц, факт</th>
+            <th scope="col">Разница</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.reportId}>
+              <td>
+                <ProductionReportDateButton
+                  row={row}
+                  formAvailable={formAvailable}
+                  onOpen={onOpen}
+                />
+              </td>
+              <td>{formatOptionalNumber(row.dayPlan)}</td>
+              <td>{formatOptionalNumber(row.dayFact)}</td>
+              <td>{formatOptionalNumber(row.monthPlan)}</td>
+              <td>{formatOptionalNumber(row.monthFact)}</td>
+              <td>{formatOptionalNumber(row.deviation)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductionBrandDashboardTable({
+  rows,
+  formAvailable,
+  onOpen,
+}: {
+  rows: ProductionBrandMetricRow[];
+  formAvailable: boolean;
+  onOpen: (reportId: string) => void;
+}) {
+  return (
+    <div className="production-dashboard-table-wrap">
+      <table className="production-dashboard-table production-dashboard-brand-table">
+        <thead>
+          <tr>
+            <th scope="col">Дата</th>
+            <th scope="col">Марка продукции</th>
+            <th scope="col">Сутки, план</th>
+            <th scope="col">Сутки, факт</th>
+            <th scope="col">Месяц, план</th>
+            <th scope="col">Месяц, факт</th>
+            <th scope="col">Разница</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={`${row.reportId}-${row.brand}-${index}`}>
+              <td>
+                <ProductionReportDateButton
+                  row={row}
+                  formAvailable={formAvailable}
+                  onOpen={onOpen}
+                />
+              </td>
+              <td>{row.brand}</td>
+              <td>{formatOptionalNumber(row.dayPlan)}</td>
+              <td>{formatOptionalNumber(row.dayFact)}</td>
+              <td>{formatOptionalNumber(row.monthPlan)}</td>
+              <td>{formatOptionalNumber(row.monthFact)}</td>
+              <td>{formatOptionalNumber(row.deviation)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductionJarDashboardTable({
+  rows,
+  formAvailable,
+  onOpen,
+}: {
+  rows: ProductionJarMeasurementRow[];
+  formAvailable: boolean;
+  onOpen: (reportId: string) => void;
+}) {
+  return (
+    <div className="production-dashboard-table-wrap">
+      <table className="production-dashboard-table">
+        <thead>
+          <tr>
+            <th scope="col">Дата</th>
+            <th scope="col">Банка</th>
+            <th scope="col">Начало дня</th>
+            <th scope="col">Конец дня</th>
+            <th scope="col">Расход</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.reportId}-${row.jarNumber}`}>
+              <td>
+                <ProductionReportDateButton
+                  row={row}
+                  formAvailable={formAvailable}
+                  onOpen={onOpen}
+                />
+              </td>
+              <td>{row.jarNumber}</td>
+              <td>{formatOptionalNumber(row.start)}</td>
+              <td>{formatOptionalNumber(row.end)}</td>
+              <td>{formatOptionalNumber(row.consumption)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductionGranulationDashboardTable({
+  rows,
+  formAvailable,
+  onOpen,
+}: {
+  rows: ProductionGranulationRow[];
+  formAvailable: boolean;
+  onOpen: (reportId: string) => void;
+}) {
+  return (
+    <div className="production-dashboard-table-wrap">
+      <table className="production-dashboard-table production-dashboard-granulation-table">
+        <thead>
+          <tr>
+            <th scope="col">Дата</th>
+            <th scope="col">Тарелок в работе</th>
+            <th scope="col">Мельница, ч</th>
+            <th scope="col">16/30, сутки</th>
+            <th scope="col">16/30, месяц</th>
+            <th scope="col">12/18, сутки</th>
+            <th scope="col">12/18, месяц</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.reportId}>
+              <td>
+                <ProductionReportDateButton
+                  row={row}
+                  formAvailable={formAvailable}
+                  onOpen={onOpen}
+                />
+              </td>
+              <td>{formatOptionalNumber(row.platesInOperation)}</td>
+              <td>{formatOptionalNumber(row.millHours)}</td>
+              <td>{formatOptionalNumber(row.fraction1630Day)}</td>
+              <td>{formatOptionalNumber(row.fraction1630Month)}</td>
+              <td>{formatOptionalNumber(row.fraction1218Day)}</td>
+              <td>{formatOptionalNumber(row.fraction1218Month)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductionReportDateButton({
+  row,
+  formAvailable,
+  onOpen,
+}: {
+  row: ProductionReportBaseRow;
+  formAvailable: boolean;
+  onOpen: (reportId: string) => void;
+}) {
+  return (
+    <button
+      className="production-detail-trigger"
+      type="button"
+      aria-haspopup="dialog"
+      disabled={!formAvailable}
+      title={
+        formAvailable
+          ? "Открыть полный отчёт"
+          : "Форма выработки пока недоступна"
+      }
+      onClick={() => onOpen(row.reportId)}
+    >
+      {formatReportDateForDisplay(row.reportDate)}
+    </button>
+  );
+}
+
 function ProductionReportDetailModal({
   form,
   row,
@@ -4253,11 +4584,17 @@ function ProductionReportDetailModal({
   onClose,
 }: {
   form: DispatcherFormDefinition;
-  row: ReturnType<typeof buildProductionReportRows>[number];
+  row: ProductionReportBaseRow;
   submission: DispatcherSubmission;
   onClose: () => void;
 }) {
-  const visibleFields = form.fields.filter((field) => {
+  const currentFieldNames = new Set(form.fields.map((field) => field.name));
+  const visibleFields = [
+    ...form.fields,
+    ...legacyProductionDetailFields.filter(
+      (field) => !currentFieldNames.has(field.name),
+    ),
+  ].filter((field) => {
     const value = submission.payload[field.name]?.trim();
 
     return field.name !== "reportDate" && value !== undefined && value.length > 0;

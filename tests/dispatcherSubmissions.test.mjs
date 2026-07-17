@@ -40,6 +40,15 @@ const submission = {
   receivedAt: "2026-06-18T00:00:01.000Z",
 };
 
+const emptyProductionReportTables = {
+  forming: [],
+  sorting: [],
+  unformed: [],
+  chamotte: [],
+  jars: [],
+  granulation: [],
+};
+
 test("getRemoteServerConnection reports missing remote server without URL", () => {
   const result = getRemoteServerConnection({ baseUrl: "" });
 
@@ -110,6 +119,31 @@ test("dispatcher submissions can use local test storage without remote URL", asy
 
 test("local production reports use the production form rules", async () => {
   const storage = createMemoryStorage();
+  const formsResult = await requestDispatcherForms({
+    baseUrl: "",
+    localFallback: true,
+  });
+
+  assert.equal(formsResult.status, "ready");
+
+  if (formsResult.status === "ready") {
+    const productionForm = formsResult.forms.find(
+      (form) => form.id === "production",
+    );
+    const fieldNames = productionForm?.fields.map((field) => field.name) ?? [];
+
+    assert.equal(fieldNames.includes("formingMonth"), false);
+    assert.equal(fieldNames.includes("formingDeviation"), false);
+    assert.equal(fieldNames.includes("unformedMonth1"), false);
+    assert.equal(fieldNames.includes("chamotteDeviation1"), false);
+    assert.equal(fieldNames.includes("granulationRawOutputTons"), false);
+    assert.equal(fieldNames.includes("granulationFraction1600Month"), false);
+    assert.equal(fieldNames.includes("jarStart1"), true);
+    assert.equal(fieldNames.includes("jarEnd1"), true);
+    assert.equal(fieldNames.includes("granulationFraction1630Day"), true);
+    assert.equal(fieldNames.includes("granulationFraction1218Day"), true);
+  }
+
   const emptyResult = await submitDispatcherSubmission(
     {
       formId: "production",
@@ -127,6 +161,9 @@ test("local production reports use the production form rules", async () => {
       payload: {
         reportDate: "2026-07-16",
         sortingDay: "15.5",
+        jarStart1: "120",
+        jarEnd1: "95",
+        granulationFraction1630Day: "3.25",
       },
     },
     { baseUrl: "", localFallback: true, storage },
@@ -136,6 +173,8 @@ test("local production reports use the production form rules", async () => {
   assert.equal(result.submission.formId, "production");
   assert.equal(result.submission.payload.reportDate, "16.07.2026");
   assert.equal(result.submission.payload.reportMonth, "2026-07");
+  assert.equal(result.submission.payload.jarStart1, "120");
+  assert.equal(result.submission.payload.jarEnd1, "95");
 });
 
 test("local visitor exit submissions use an open visitor entry", async () => {
@@ -665,6 +704,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
     return new Response(
       JSON.stringify({
         submissions: [submission],
+        productionReportTables: emptyProductionReportTables,
         receivedAt: "2026-06-18T00:00:02.000Z",
         summary: {
           total: 1,
@@ -695,6 +735,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
 
   assert.equal(result.status, "ready");
   assert.equal(result.submissions.length, 1);
+  assert.deepEqual(result.productionReportTables, emptyProductionReportTables);
   assert.equal(
     request.endpoint,
     "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&reportDate=2026-06-18&limit=500",
@@ -719,6 +760,7 @@ test("requestCompleteDispatcherFeed reads every history page", async () => {
     return new Response(
       JSON.stringify({
         submissions: pageSubmissions,
+        productionReportTables: emptyProductionReportTables,
         receivedAt: "2026-06-18T00:00:02.000Z",
         summary: {
           total: 3,

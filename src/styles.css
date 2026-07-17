@@ -1053,19 +1053,19 @@ p {
 
 .production-report-split {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--density-3);
   align-items: start;
 }
 
 .production-report-split-bottom {
-  grid-template-columns: minmax(230px, 0.55fr) minmax(0, 1.45fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .production-report-table-wrap {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
+  overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1073,7 +1073,7 @@ p {
 
 .production-report-table {
   width: 100%;
-  min-width: 620px;
+  min-width: 0;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -1104,19 +1104,19 @@ p {
 }
 
 .production-report-table td {
-  min-width: 110px;
+  min-width: 0;
   padding: 0;
   background: var(--surface-raised);
 }
 
 .production-report-summary-table th:last-child,
 .production-report-summary-table td:last-child {
-  width: 32%;
+  width: 44%;
 }
 
 .production-report-rows-table th:first-child,
 .production-report-rows-table td:first-child {
-  width: 28%;
+  width: 42%;
 }
 
 .production-report-cell-input label {
@@ -1136,6 +1136,8 @@ p {
 }
 
 .data-entry-form .production-report-cell-input input {
+  width: 100%;
+  min-width: 0;
   min-height: 38px;
   border: 0;
   border-radius: 0;
@@ -1150,7 +1152,7 @@ p {
 }
 
 .production-report-jar-table {
-  min-width: 260px;
+  min-width: 0;
 }
 
 .production-report-jar-table th:first-child {
@@ -1158,11 +1160,11 @@ p {
 }
 
 .production-report-granulation-table {
-  min-width: 600px;
+  min-width: 0;
 }
 
 .production-report-granulation-table th:first-child {
-  width: 38%;
+  width: 25%;
 }
 
 .production-report-empty-cell {
@@ -1734,6 +1736,60 @@ p {
 .dispatcher-feed-row-production {
   grid-template-columns: minmax(150px, 0.7fr) repeat(5, minmax(150px, 0.7fr));
   min-width: 960px;
+}
+
+.production-dashboard-section-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--density-1);
+}
+
+.production-dashboard-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.production-dashboard-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.production-dashboard-brand-table,
+.production-dashboard-granulation-table {
+  min-width: 920px;
+}
+
+.production-dashboard-table th,
+.production-dashboard-table td {
+  padding: 10px 11px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.production-dashboard-table th:last-child,
+.production-dashboard-table td:last-child {
+  border-right: 0;
+}
+
+.production-dashboard-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.production-dashboard-table th {
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .dispatcher-feed-row-incidents {
@@ -2999,6 +3055,10 @@ p {
     width: min(100%, 260px);
   }
 
+  .production-dashboard-section-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
 }
 
 @keyframes rail-backdrop-in {
@@ -3022,6 +3082,10 @@ p {
 
   .workspace {
     padding: var(--density-3);
+  }
+
+  .production-dashboard-section-tabs {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   h2 {

@@ -13,6 +13,8 @@ import type {
   DispatcherSubmissionPayload,
   DispatcherSubmissionResponse,
   DispatcherSubmissionStatus,
+  ProductionMetricRow,
+  ProductionReportTables,
 } from "../contracts";
 import {
   buildRemoteEndpoint,
@@ -21,6 +23,7 @@ import {
 } from "./remoteServer.js";
 import { validateDispatcherPayloadForSubmit } from "./dispatcherPayloadValidation.js";
 import {
+  buildProductionReportTables,
   findOpenIncidentByNumber,
   findOpenVisitorByEntryId,
   findOpenVisitorByEntryPayload,
@@ -76,6 +79,7 @@ export type DispatcherEquipmentReportReadyState = {
 export type DispatcherFeedReadyState = {
   status: "ready";
   submissions: DispatcherSubmission[];
+  productionReportTables: ProductionReportTables;
   receivedAt: string;
   summary: DispatcherFeedSummary;
   source?: "remote" | "local_test";
@@ -249,32 +253,14 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
         required: false,
       },
       {
-        name: "granulationRawOutputTons",
-        label: "Участок грануляции — Выпуск сырцовой гранулы, тонн",
+        name: "granulationFraction1630Day",
+        label: "Участок грануляции — Фракция 16/30, сутки",
         type: "number",
         required: false,
       },
       {
-        name: "granulationFraction1600Day",
-        label: "Участок грануляции — Фракция 1600, сутки",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "granulationFraction1600Month",
-        label: "Участок грануляции — Фракция 1600, месяц",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "granulationSamplesDay",
-        label: "Участок грануляции — Образцы, сутки",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "granulationSamplesMonth",
-        label: "Участок грануляции — Образцы, месяц",
+        name: "granulationFraction1218Day",
+        label: "Участок грануляции — Фракция 12/18, сутки",
         type: "number",
         required: false,
       },
@@ -455,11 +441,6 @@ function buildLocalProductionSummaryFields(
   return [
     localProductionNumberField(`${prefix}Plan`, `${sectionLabel} — План`),
     localProductionNumberField(`${prefix}Day`, `${sectionLabel} — Сутки`),
-    localProductionNumberField(`${prefix}Month`, `${sectionLabel} — Месяц`),
-    localProductionSignedNumberField(
-      `${prefix}Deviation`,
-      `${sectionLabel} — Отклонение`,
-    ),
     {
       name: `${prefix}ProductBrands`,
       label: `${sectionLabel} — Марки изделий`,
@@ -494,25 +475,21 @@ function buildLocalProductionRows(
         `${prefix}Fact${rowNumber}`,
         `${rowLabel} — Факт`,
       ),
-      localProductionNumberField(
-        `${prefix}Month${rowNumber}`,
-        `${rowLabel} — Месяц`,
-      ),
-      localProductionSignedNumberField(
-        `${prefix}Deviation${rowNumber}`,
-        `${rowLabel} — Отклонение`,
-      ),
     ];
   }).flat();
 }
 
 function buildLocalJarMeasurementFields(): DispatcherFormField[] {
-  return [1, 2, 3].map((jarNumber) => ({
-    name: `jarMeasurement${jarNumber}`,
-    label: `Замеры банок — Банка ${jarNumber}`,
-    type: "text",
-    required: false,
-  }));
+  return [1, 2, 3].flatMap((jarNumber) => [
+    localProductionNumberField(
+      `jarStart${jarNumber}`,
+      `Замеры банок — Банка ${jarNumber}, начало дня`,
+    ),
+    localProductionNumberField(
+      `jarEnd${jarNumber}`,
+      `Замеры банок — Банка ${jarNumber}, конец дня`,
+    ),
+  ]);
 }
 
 function localProductionNumberField(
@@ -527,17 +504,6 @@ function localProductionNumberField(
   };
 }
 
-function localProductionSignedNumberField(
-  name: string,
-  label: string,
-): DispatcherFormField {
-  return {
-    name,
-    label,
-    type: "signed-number",
-    required: false,
-  };
-}
 
 export async function requestDispatcherForms({
   baseUrl,
@@ -829,6 +795,7 @@ export async function requestDispatcherFeed({
       return {
         status: "ready",
         submissions: payload.submissions,
+        productionReportTables: payload.productionReportTables,
         receivedAt: payload.receivedAt,
         summary: payload.summary,
       };
@@ -1141,7 +1108,8 @@ function requestLocalDispatcherFeed({
     };
   }
 
-  const matchingSubmissions = readLocalDispatcherSubmissions(localStorage)
+  const allSubmissions = readLocalDispatcherSubmissions(localStorage);
+  const matchingSubmissions = allSubmissions
     .filter((submission) =>
       matchesLocalDispatcherFilters(submission, {
         formId,
@@ -1160,6 +1128,7 @@ function requestLocalDispatcherFeed({
   return {
     status: "ready",
     submissions,
+    productionReportTables: buildProductionReportTables(allSubmissions, {}),
     receivedAt: new Date().toISOString(),
     summary: buildLocalDispatcherSummary(matchingSubmissions),
     source: "local_test",
@@ -1705,9 +1674,82 @@ function isDispatcherFeedResponse(value: unknown): value is DispatcherFeedRespon
     isRecord(value) &&
     Array.isArray(value.submissions) &&
     value.submissions.every(isDispatcherSubmission) &&
+    isProductionReportTables(value.productionReportTables) &&
     typeof value.receivedAt === "string" &&
     isDispatcherFeedSummary(value.summary)
   );
+}
+
+function isProductionReportTables(value: unknown): value is ProductionReportTables {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.forming) &&
+    value.forming.every(isProductionMetricRow) &&
+    Array.isArray(value.sorting) &&
+    value.sorting.every(isProductionMetricRow) &&
+    Array.isArray(value.unformed) &&
+    value.unformed.every(isProductionBrandMetricRow) &&
+    Array.isArray(value.chamotte) &&
+    value.chamotte.every(isProductionBrandMetricRow) &&
+    Array.isArray(value.jars) &&
+    value.jars.every(
+      (row) =>
+        isProductionBaseRow(row) &&
+        typeof row.jarNumber === "number" &&
+        isOptionalNumber(row.start) &&
+        isOptionalNumber(row.end) &&
+        isOptionalNumber(row.consumption),
+    ) &&
+    Array.isArray(value.granulation) &&
+    value.granulation.every(
+      (row) =>
+        isProductionBaseRow(row) &&
+        isOptionalNumber(row.platesInOperation) &&
+        isOptionalNumber(row.millHours) &&
+        isOptionalNumber(row.fraction1630Day) &&
+        isOptionalNumber(row.fraction1630Month) &&
+        isOptionalNumber(row.fraction1218Day) &&
+        isOptionalNumber(row.fraction1218Month),
+    )
+  );
+}
+
+function isProductionBrandMetricRow(value: unknown) {
+  return (
+    isProductionMetricRow(value) &&
+    "brand" in value &&
+    typeof value.brand === "string"
+  );
+}
+
+function isProductionMetricRow(value: unknown): value is ProductionMetricRow {
+  return (
+    isProductionBaseRow(value) &&
+    isOptionalNumber(value.dayPlan) &&
+    isOptionalNumber(value.dayFact) &&
+    isOptionalNumber(value.monthPlan) &&
+    isOptionalNumber(value.monthFact) &&
+    isOptionalNumber(value.deviation)
+  );
+}
+
+function isProductionBaseRow(
+  value: unknown,
+): value is Record<string, unknown> & {
+  reportId: string;
+  reportDate: string;
+  receivedAt: string;
+} {
+  return (
+    isRecord(value) &&
+    typeof value.reportId === "string" &&
+    typeof value.reportDate === "string" &&
+    typeof value.receivedAt === "string"
+  );
+}
+
+function isOptionalNumber(value: unknown) {
+  return value === undefined || typeof value === "number";
 }
 
 function isDispatcherFormDefinition(

@@ -179,32 +179,14 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
         required: false,
       },
       {
-        name: "granulationRawOutputTons",
-        label: "Участок грануляции — Выпуск сырцовой гранулы, тонн",
+        name: "granulationFraction1630Day",
+        label: "Участок грануляции — Фракция 16/30, сутки",
         type: "number",
         required: false,
       },
       {
-        name: "granulationFraction1600Day",
-        label: "Участок грануляции — Фракция 1600, сутки",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "granulationFraction1600Month",
-        label: "Участок грануляции — Фракция 1600, месяц",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "granulationSamplesDay",
-        label: "Участок грануляции — Образцы, сутки",
-        type: "number",
-        required: false,
-      },
-      {
-        name: "granulationSamplesMonth",
-        label: "Участок грануляции — Образцы, месяц",
+        name: "granulationFraction1218Day",
+        label: "Участок грануляции — Фракция 12/18, сутки",
         type: "number",
         required: false,
       },
@@ -385,11 +367,6 @@ function buildProductionSummaryFields(
   return [
     productionNumberField(`${prefix}Plan`, `${sectionLabel} — План`),
     productionNumberField(`${prefix}Day`, `${sectionLabel} — Сутки`),
-    productionNumberField(`${prefix}Month`, `${sectionLabel} — Месяц`),
-    productionSignedNumberField(
-      `${prefix}Deviation`,
-      `${sectionLabel} — Отклонение`,
-    ),
     {
       name: `${prefix}ProductBrands`,
       label: `${sectionLabel} — Марки изделий`,
@@ -424,25 +401,21 @@ function buildProductionRows(
         `${prefix}Fact${rowNumber}`,
         `${rowLabel} — Факт`,
       ),
-      productionNumberField(
-        `${prefix}Month${rowNumber}`,
-        `${rowLabel} — Месяц`,
-      ),
-      productionSignedNumberField(
-        `${prefix}Deviation${rowNumber}`,
-        `${rowLabel} — Отклонение`,
-      ),
     ];
   }).flat();
 }
 
 function buildJarMeasurementFields(): DispatcherFormField[] {
-  return [1, 2, 3].map((jarNumber) => ({
-    name: `jarMeasurement${jarNumber}`,
-    label: `Замеры банок — Банка ${jarNumber}`,
-    type: "text",
-    required: false,
-  }));
+  return [1, 2, 3].flatMap((jarNumber) => [
+    productionNumberField(
+      `jarStart${jarNumber}`,
+      `Замеры банок — Банка ${jarNumber}, начало дня`,
+    ),
+    productionNumberField(
+      `jarEnd${jarNumber}`,
+      `Замеры банок — Банка ${jarNumber}, конец дня`,
+    ),
+  ]);
 }
 
 function productionNumberField(
@@ -457,17 +430,6 @@ function productionNumberField(
   };
 }
 
-function productionSignedNumberField(
-  name: string,
-  label: string,
-): DispatcherFormField {
-  return {
-    name,
-    label,
-    type: "signed-number",
-    required: false,
-  };
-}
 
 export function getDispatcherFormDefinition(formId: string) {
   return dispatcherForms.find((form) => form.id === formId);

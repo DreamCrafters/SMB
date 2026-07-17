@@ -97,8 +97,52 @@ export type DispatcherFeedSummary = {
   byForm: DispatcherFeedSummaryItem[];
 };
 
+export type ProductionReportBaseRow = {
+  reportId: string;
+  reportDate: string;
+  receivedAt: string;
+};
+
+export type ProductionMetricRow = ProductionReportBaseRow & {
+  dayPlan?: number;
+  dayFact?: number;
+  monthPlan?: number;
+  monthFact?: number;
+  deviation?: number;
+};
+
+export type ProductionBrandMetricRow = ProductionMetricRow & {
+  brand: string;
+};
+
+export type ProductionJarMeasurementRow = ProductionReportBaseRow & {
+  jarNumber: number;
+  start?: number;
+  end?: number;
+  consumption?: number;
+};
+
+export type ProductionGranulationRow = ProductionReportBaseRow & {
+  platesInOperation?: number;
+  millHours?: number;
+  fraction1630Day?: number;
+  fraction1630Month?: number;
+  fraction1218Day?: number;
+  fraction1218Month?: number;
+};
+
+export type ProductionReportTables = {
+  forming: ProductionMetricRow[];
+  sorting: ProductionMetricRow[];
+  unformed: ProductionBrandMetricRow[];
+  chamotte: ProductionBrandMetricRow[];
+  jars: ProductionJarMeasurementRow[];
+  granulation: ProductionGranulationRow[];
+};
+
 export type DispatcherFeedResponse = {
   submissions: DispatcherSubmission[];
+  productionReportTables: ProductionReportTables;
   receivedAt: string;
   summary: DispatcherFeedSummary;
 };
