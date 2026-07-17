@@ -1,7 +1,13 @@
 import { createPool, type Pool, type PoolOptions } from "mysql2/promise";
 
 export function createDatabasePool(databaseUrl: string) {
-  return createPool(buildDatabasePoolOptions(databaseUrl));
+  const pool = createPool(buildDatabasePoolOptions(databaseUrl));
+
+  pool.pool.on("connection", (connection) => {
+    connection.query("set time_zone = '+00:00'");
+  });
+
+  return pool;
 }
 
 export function buildDatabasePoolOptions(databaseUrl: string): PoolOptions {

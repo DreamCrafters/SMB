@@ -6,6 +6,7 @@ export const accountPositions = [
   "board_chair",
   "board_member",
   "general_director",
+  "economist",
   "worker",
   "dispatcher",
 ] as const;
@@ -21,6 +22,7 @@ export const accountNavigationItems = [
   "business.dispatcher",
   "business.work",
   "business.user_actions",
+  "business.production_plan",
   "business.dispatcher_form",
 ] as const;
 
@@ -41,6 +43,7 @@ export const accountCapabilities = [
   "business.view_dispatcher_feed",
   "business.view_own_submissions",
   "business.view_user_actions",
+  "business.manage_production_plan",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];

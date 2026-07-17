@@ -4,6 +4,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -31,6 +32,7 @@ import {
   type ProductionMetricRow,
   type ProductionReportBaseRow,
   type ProductionReportTables,
+  type ProductionPlanRevision,
   type DevAccessOption,
   type ServerUserProfile,
   type UserActivityActor,
@@ -169,6 +171,12 @@ import {
   type DispatcherFeedPeriod,
 } from "./services/dispatcherFeedViews";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import {
+  requestProductionDailyPlan,
+  requestProductionPlan,
+  requestProductionPlanPreview,
+  saveProductionPlan,
+} from "./services/productionPlans";
 import { formatUserShortName } from "./services/userDisplayName";
 import {
   markToastExiting,
@@ -181,6 +189,7 @@ type BusinessTab =
   | "overview"
   | "dispatcher"
   | "work"
+  | "production_plan"
   | "user_actions"
   | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database" | "user_actions";
@@ -189,6 +198,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   overview: "business.overview",
   dispatcher: "business.dispatcher",
   work: "business.work",
+  production_plan: "business.production_plan",
   user_actions: "business.user_actions",
   dispatcher_form: "business.dispatcher_form",
 };
@@ -400,6 +410,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "dispatcher";
     case "business.work":
       return "work";
+    case "business.production_plan":
+      return "production_plan";
     case "business.user_actions":
       return "user_actions";
     case "business.dispatcher_form":
@@ -1799,6 +1811,14 @@ function RoleWorkspace({
     default:
       if (effectiveOwnerTab === undefined) return null;
       if (effectiveOwnerTab === "work") return <WorkerWorkspace />;
+      if (effectiveOwnerTab === "production_plan") {
+        return (
+          <ProductionPlanWorkspace
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        );
+      }
       if (effectiveOwnerTab === "user_actions") {
         return isAdminPreviewMode
           ? <UserActionsPreviewNotice />
@@ -2076,6 +2096,338 @@ function WorkerWorkspace() {
   return <section className="owner-empty-view" aria-label="Рабочие данные" />;
 }
 
+type ProductionPlanLoadState =
+  | { status: "loading"; message: string }
+  | { status: "ready"; plan?: ProductionPlanRevision }
+  | { status: "error"; message: string };
+
+type ProductionPlanCalculation = {
+  month: string;
+  monthlyPlan: number;
+  suggestedWorkingDates: string[];
+};
+
+function ProductionPlanWorkspace({
+  isAdminPreviewMode,
+  onShowToast,
+}: {
+  isAdminPreviewMode: boolean;
+  onShowToast: ShowToast;
+}) {
+  const [month, setMonth] = useState(readCurrentMonthInputValue);
+  const [monthlyPlanInput, setMonthlyPlanInput] = useState("");
+  const [loadState, setLoadState] = useState<ProductionPlanLoadState>({
+    status: "loading",
+    message: "Загружаем план.",
+  });
+  const [calculation, setCalculation] =
+    useState<ProductionPlanCalculation>();
+  const [selectedWorkingDates, setSelectedWorkingDates] = useState<string[]>([]);
+  const [status, setStatus] = useState("");
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setCalculation(undefined);
+    setSelectedWorkingDates([]);
+    setStatus("");
+
+    if (isAdminPreviewMode) {
+      setLoadState({
+        status: "ready",
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setLoadState({ status: "loading", message: "Загружаем план." });
+    requestProductionPlan(month, { signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      if (result.status === "ready") {
+        setLoadState({ status: "ready", plan: result.plan });
+        setMonthlyPlanInput(
+          result.plan === undefined ? "" : String(result.plan.monthlyPlan),
+        );
+        return;
+      }
+
+      setLoadState({
+        status: "error",
+        message: readShortUserMessage(
+          result.message,
+          "Не удалось загрузить план.",
+        ),
+      });
+    });
+
+    return () => controller.abort();
+  }, [isAdminPreviewMode, month]);
+
+  function handleMonthChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextMonth = event.currentTarget.value;
+
+    setMonth(nextMonth);
+  }
+
+  function handleMonthlyPlanChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextValue = event.currentTarget.value;
+
+    setMonthlyPlanInput(nextValue);
+    setCalculation(undefined);
+    setSelectedWorkingDates([]);
+    setStatus("");
+  }
+
+  async function handleCalculate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const monthlyPlan = readPositiveIntegerInput(monthlyPlanInput);
+
+    if (monthlyPlan === undefined) {
+      setStatus("Введите целый месячный план больше нуля.");
+      return;
+    }
+
+    setIsCalculating(true);
+    setStatus("Считаем рабочие дни.");
+    const result = await requestProductionPlanPreview({ month, monthlyPlan });
+    setIsCalculating(false);
+
+    if (result.status === "error") {
+      setStatus(
+        readShortUserMessage(result.message, "Не удалось рассчитать рабочие дни."),
+      );
+      return;
+    }
+
+    setCalculation({
+      month: result.month,
+      monthlyPlan: result.monthlyPlan,
+      suggestedWorkingDates: result.suggestedWorkingDates,
+    });
+    setSelectedWorkingDates(result.suggestedWorkingDates);
+    setStatus(
+      `Рассчитано рабочих дней: ${result.workingDayCount}. Проверьте и подтвердите.`,
+    );
+  }
+
+  function handleWorkingDateChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const date = event.currentTarget.value;
+    const isChecked = event.currentTarget.checked;
+
+    setSelectedWorkingDates((current) =>
+      isChecked
+        ? Array.from(new Set([...current, date])).sort()
+        : current.filter((item) => item !== date),
+    );
+  }
+
+  async function handleConfirmAndSave() {
+    const monthlyPlan = readPositiveIntegerInput(monthlyPlanInput);
+
+    if (
+      calculation === undefined ||
+      calculation.month !== month ||
+      calculation.monthlyPlan !== monthlyPlan
+    ) {
+      setStatus("Сначала рассчитайте рабочие дни.");
+      return;
+    }
+
+    if (selectedWorkingDates.length === 0) {
+      setStatus("Выберите хотя бы один рабочий день.");
+      return;
+    }
+
+    setIsSaving(true);
+    setStatus("Сохраняем план.");
+    const result = await saveProductionPlan({
+      month,
+      monthlyPlan: calculation.monthlyPlan,
+      workingDates: selectedWorkingDates,
+    });
+    setIsSaving(false);
+
+    if (result.status === "error") {
+      setStatus(readShortUserMessage(result.message, "Не удалось сохранить план."));
+      return;
+    }
+
+    setLoadState({ status: "ready", plan: result.plan });
+    setStatus("План сохранён.");
+    onShowToast("План сохранён", `Рабочих дней: ${result.plan.workingDayCount}.`);
+  }
+
+  const monthDates = calculation === undefined
+    ? []
+    : buildProductionPlanMonthDates(month);
+  const selectedWorkingDateSet = new Set(selectedWorkingDates);
+
+  return (
+    <section className="production-plan-workspace" aria-label="План выработки">
+      <header className="production-plan-header">
+        <div>
+          <span>Работа экономиста</span>
+          <h2>План выработки</h2>
+        </div>
+        <p>
+          Укажите месячный план. Будни будут выбраны автоматически, затем
+          проверьте календарь и подтвердите количество рабочих дней.
+        </p>
+      </header>
+
+      {isAdminPreviewMode ? (
+        <p className="production-plan-notice">
+          В режиме просмотра расчёт и сохранение отключены.
+        </p>
+      ) : null}
+
+      <form className="production-plan-form" onSubmit={handleCalculate}>
+        <label>
+          <span>Месяц</span>
+          <input
+            disabled={isAdminPreviewMode || isCalculating || isSaving}
+            type="month"
+            value={month}
+            onChange={handleMonthChange}
+          />
+        </label>
+        <label>
+          <span>Месячный план</span>
+          <input
+            disabled={isAdminPreviewMode || isCalculating || isSaving}
+            inputMode="numeric"
+            min="1"
+            pattern="[0-9]+"
+            required
+            type="text"
+            value={monthlyPlanInput}
+            onChange={handleMonthlyPlanChange}
+          />
+        </label>
+        <button
+          className="production-plan-primary-button"
+          disabled={isAdminPreviewMode || isCalculating || isSaving}
+          type="submit"
+        >
+          {isCalculating ? "Считаем…" : "Рассчитать рабочие дни"}
+        </button>
+      </form>
+
+      {calculation !== undefined ? (
+        <section className="production-plan-confirmation" aria-label="Подтверждение рабочих дней">
+          <div className="production-plan-confirmation-head">
+            <div>
+              <span>Подтверждение</span>
+              <strong>{selectedWorkingDates.length} рабочих дней</strong>
+            </div>
+            <p>
+              Будни отмечены автоматически. Снимите праздник или добавьте
+              рабочий выходной перед сохранением.
+            </p>
+          </div>
+          <div className="production-plan-calendar" role="group" aria-label="Дни месяца">
+            {monthDates.map((item) => {
+              const isChecked = selectedWorkingDateSet.has(item.date);
+
+              return (
+                <label
+                  className={`production-plan-day ${
+                    isChecked ? "is-working" : ""
+                  } ${item.isWeekend ? "is-weekend" : ""}`}
+                  key={item.date}
+                  style={
+                    item.dayNumber === 1
+                      ? { gridColumnStart: item.calendarColumn }
+                      : undefined
+                  }
+                >
+                  <input
+                    checked={isChecked}
+                    disabled={isSaving}
+                    type="checkbox"
+                    value={item.date}
+                    onChange={handleWorkingDateChange}
+                  />
+                  <span>{item.weekdayLabel}</span>
+                  <strong>{item.dayNumber}</strong>
+                </label>
+              );
+            })}
+          </div>
+          <button
+            className="production-plan-primary-button"
+            disabled={isSaving || selectedWorkingDates.length === 0}
+            type="button"
+            onClick={handleConfirmAndSave}
+          >
+            {isSaving
+              ? "Сохраняем…"
+              : `Подтвердить ${selectedWorkingDates.length} дней и сохранить`}
+          </button>
+        </section>
+      ) : null}
+
+      {status ? <p className="form-status" role="status">{status}</p> : null}
+
+      <ProductionPlanSavedPanel state={loadState} />
+    </section>
+  );
+}
+
+function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState }) {
+  if (state.status === "loading" || state.status === "error") {
+    return <p className="production-plan-load-state">{state.message}</p>;
+  }
+
+  if (state.plan === undefined) {
+    return <p className="production-plan-load-state">На этот месяц план ещё не сохранён.</p>;
+  }
+
+  return (
+    <section className="production-plan-saved" aria-label="Сохранённый ежедневный план">
+      <div className="production-plan-saved-head">
+        <div>
+          <span>Сохранённый план</span>
+          <strong>{formatNumber(state.plan.monthlyPlan)}</strong>
+        </div>
+        <p>
+          {state.plan.workingDayCount} рабочих дней · обновлено {formatDateTime(state.plan.createdAt)}
+        </p>
+      </div>
+      <div className="production-plan-table-wrap">
+        <table className="production-plan-table">
+          <thead>
+            <tr>
+              <th scope="col">Дата</th>
+              <th scope="col">План</th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.plan.dailyPlans.map((dailyPlan, index) => (
+              <tr
+                className={index === state.plan!.dailyPlans.length - 1 ? "is-remainder" : undefined}
+                key={dailyPlan.date}
+              >
+                <td>{formatDateOnly(dailyPlan.date)}</td>
+                <td>{formatNumber(dailyPlan.value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="production-plan-formula-note">
+        До предпоследнего рабочего дня используется округление вверх; последний день — остаток.
+      </p>
+    </section>
+  );
+}
+
 function readDispatcherFormChoiceGroups(
   forms: DispatcherFormDefinition[],
 ): DispatcherFormChoiceGroup[] {
@@ -2278,6 +2630,7 @@ function DataEntryWorkspace({
         {currentForm.id === "production" ? (
           <DispatcherProductionReportFormBody
             form={currentForm}
+            isAdminPreviewMode={isAdminPreviewMode}
             isSubmitting={isSubmitting}
             status={status}
           />
@@ -2349,16 +2702,57 @@ function DataEntryWorkspace({
 
 function DispatcherProductionReportFormBody({
   form,
+  isAdminPreviewMode,
   isSubmitting,
   status,
 }: {
   form: DispatcherFormDefinition;
+  isAdminPreviewMode: boolean;
   isSubmitting: boolean;
   status: string;
 }) {
   const reportDateField = form.fields.find(
     (field) => field.name === "reportDate",
   );
+  const [reportDate, setReportDate] = useState(getTodayDateValue);
+  const [dailyPlanState, setDailyPlanState] = useState<
+    | { status: "loading" }
+    | { status: "ready"; value?: number }
+    | { status: "error"; message: string }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    if (isAdminPreviewMode || reportDate.length === 0) {
+      setDailyPlanState({ status: "ready" });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setDailyPlanState({ status: "loading" });
+    requestProductionDailyPlan(reportDate, { signal: controller.signal }).then(
+      (result) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        if (result.status === "ready") {
+          setDailyPlanState({ status: "ready", value: result.plan?.value });
+          return;
+        }
+
+        setDailyPlanState({
+          status: "error",
+          message: readShortUserMessage(
+            result.message,
+            "Не удалось загрузить общий план.",
+          ),
+        });
+      },
+    );
+
+    return () => controller.abort();
+  }, [isAdminPreviewMode, reportDate]);
 
   return (
     <>
@@ -2368,8 +2762,28 @@ function DispatcherProductionReportFormBody({
           <span>Заполните известные показатели за выбранную дату.</span>
         </div>
         {reportDateField === undefined ? null : (
-          <DispatcherFormFieldInput field={reportDateField} />
+          <DispatcherControlledFormFieldInput
+            field={reportDateField}
+            value={reportDate}
+            onBlur={() => undefined}
+            onChange={setReportDate}
+          />
         )}
+      </div>
+
+      <div className="production-report-daily-plan" aria-live="polite">
+        <span>Общий план выработки</span>
+        <strong>
+          {isAdminPreviewMode
+            ? "Не загружается в режиме просмотра"
+            : dailyPlanState.status === "loading"
+              ? "Загружаем…"
+              : dailyPlanState.status === "error"
+                ? dailyPlanState.message
+                : dailyPlanState.value === undefined
+                  ? "На эту дату не задан"
+                  : formatNumber(dailyPlanState.value)}
+        </strong>
       </div>
 
       <fieldset className="production-report-section">
@@ -6286,7 +6700,9 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   navigationItems: nonAdminNavigationItems
     .filter(
       ({ id }) =>
-        id !== "business.dispatcher_form" && id !== "business.user_actions",
+        id !== "business.dispatcher_form" &&
+        id !== "business.user_actions" &&
+        id !== "business.production_plan",
     )
     .map(({ id }) => id),
 };
@@ -6309,7 +6725,10 @@ const defaultNavigationItemsByBaseCabinet: Record<
   AccountNavigationItem[]
 > = {
   business_owner: availableNavigationItemsByBaseCabinet.business_owner
-    .filter(({ id }) => id !== "business.user_actions")
+    .filter(
+      ({ id }) =>
+        id !== "business.user_actions" && id !== "business.production_plan",
+    )
     .map(({ id }) => id),
   worker: [],
   dispatcher: availableNavigationItemsByBaseCabinet.dispatcher.map(({ id }) => id),
@@ -6327,6 +6746,7 @@ const adminAccountPositionOptions: AccountPosition[] = [
   "board_chair",
   "board_member",
   "general_director",
+  "economist",
   "worker",
   "dispatcher",
 ];
@@ -6337,6 +6757,7 @@ const accountTypeByPosition: Record<AccountPosition, AccountType> = {
   board_chair: "business_owner",
   board_member: "business_owner",
   general_director: "business_owner",
+  economist: "business_owner",
   worker: "worker",
   dispatcher: "dispatcher",
 };
@@ -8156,6 +8577,53 @@ function formatDateTime(value: string) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+function readCurrentMonthInputValue() {
+  const now = new Date();
+
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function readPositiveIntegerInput(value: string) {
+  const normalized = value.trim();
+
+  if (!/^\d+$/u.test(normalized)) {
+    return undefined;
+  }
+
+  const number = Number(normalized);
+
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+}
+
+function buildProductionPlanMonthDates(month: string) {
+  const match = /^(\d{4})-(\d{2})$/u.exec(month);
+
+  if (match === null) {
+    return [];
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const dayCount = new Date(year, monthIndex + 1, 0).getDate();
+  const weekdayFormatter = new Intl.DateTimeFormat("ru-RU", {
+    weekday: "short",
+  });
+
+  return Array.from({ length: dayCount }, (_, index) => {
+    const dayNumber = index + 1;
+    const date = new Date(year, monthIndex, dayNumber);
+    const weekday = date.getDay();
+
+    return {
+      date: `${month}-${String(dayNumber).padStart(2, "0")}`,
+      dayNumber,
+      weekdayLabel: weekdayFormatter.format(date).replace(".", ""),
+      isWeekend: weekday === 0 || weekday === 6,
+      calendarColumn: weekday === 0 ? 7 : weekday,
+    };
   });
 }
 

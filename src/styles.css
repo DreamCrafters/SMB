@@ -1012,6 +1012,29 @@ p {
   flex: 0 0 220px;
 }
 
+.production-report-daily-plan {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--density-3);
+  padding: 10px var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.production-report-daily-plan span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.production-report-daily-plan strong {
+  color: var(--ink);
+  font-size: 15px;
+  text-align: right;
+}
+
 .production-report-section {
   display: grid;
   min-width: 0;
@@ -3142,6 +3165,15 @@ p {
     display: grid;
   }
 
+  .production-report-daily-plan {
+    display: grid;
+    align-items: start;
+  }
+
+  .production-report-daily-plan strong {
+    text-align: left;
+  }
+
   .auth-status,
   .form-actions,
   .admin-db-meta,
@@ -3478,5 +3510,291 @@ p {
   .admin-audit-action dl div {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+}
+
+.production-plan-workspace {
+  display: grid;
+  gap: var(--density-4);
+  width: min(100%, 1080px);
+  margin: 0 auto;
+}
+
+.production-plan-header,
+.production-plan-confirmation,
+.production-plan-saved {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.production-plan-header {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(260px, 1.25fr);
+  gap: var(--density-4);
+  align-items: end;
+  padding: var(--density-5);
+  border-top: 3px solid var(--blue-gray);
+}
+
+.production-plan-header span,
+.production-plan-confirmation-head span,
+.production-plan-saved-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.production-plan-header h2 {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.production-plan-header p,
+.production-plan-confirmation-head p,
+.production-plan-saved-head p,
+.production-plan-formula-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.production-plan-notice,
+.production-plan-load-state {
+  margin: 0;
+  padding: var(--density-3) var(--density-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.production-plan-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(220px, 1fr) auto;
+  gap: var(--density-3);
+  align-items: end;
+  padding: var(--density-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.production-plan-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.production-plan-form label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.production-plan-form input {
+  min-height: 42px;
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-weight: 750;
+}
+
+.production-plan-form input:focus-visible,
+.production-plan-day:has(input:focus-visible) {
+  outline: 3px solid color-mix(in srgb, var(--blue-gray) 24%, transparent);
+  outline-offset: 2px;
+}
+
+.production-plan-primary-button {
+  min-height: 42px;
+  border: 1px solid var(--nav-strong);
+  border-radius: var(--radius);
+  padding: 0 17px;
+  color: #fff;
+  background: var(--nav-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.production-plan-primary-button:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.production-plan-primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.production-plan-confirmation,
+.production-plan-saved {
+  display: grid;
+  gap: var(--density-4);
+  padding: var(--density-4);
+}
+
+.production-plan-confirmation-head,
+.production-plan-saved-head {
+  display: flex;
+  gap: var(--density-4);
+  align-items: end;
+  justify-content: space-between;
+}
+
+.production-plan-confirmation-head div,
+.production-plan-saved-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.production-plan-confirmation-head strong,
+.production-plan-saved-head strong {
+  color: var(--ink);
+  font-size: 23px;
+}
+
+.production-plan-confirmation-head p,
+.production-plan-saved-head p {
+  max-width: 520px;
+}
+
+.production-plan-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(54px, 1fr));
+  gap: 7px;
+}
+
+.production-plan-day {
+  position: relative;
+  display: grid;
+  min-height: 68px;
+  align-content: space-between;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface-subtle);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.production-plan-day input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.production-plan-day span {
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.production-plan-day strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.production-plan-day.is-weekend {
+  background: var(--surface);
+}
+
+.production-plan-day.is-working {
+  border-color: var(--blue-gray);
+  color: var(--nav-strong);
+  background: color-mix(in srgb, var(--blue-gray) 11%, var(--surface));
+}
+
+.production-plan-day.is-working::after {
+  content: "Рабочий";
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  color: var(--nav-strong);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.production-plan-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.production-plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.production-plan-table th,
+.production-plan-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.production-plan-table th {
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.production-plan-table td:last-child {
+  font-weight: 900;
+}
+
+.production-plan-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.production-plan-table tr.is-remainder td {
+  color: var(--nav-strong);
+  background: color-mix(in srgb, var(--blue-gray) 8%, var(--surface));
+}
+
+@media (max-width: 760px) {
+  .production-plan-header,
+  .production-plan-form {
+    grid-template-columns: 1fr;
+  }
+
+  .production-plan-confirmation-head,
+  .production-plan-saved-head {
+    display: grid;
+  }
+
+  .production-plan-calendar {
+    grid-template-columns: repeat(7, minmax(40px, 1fr));
+    gap: 4px;
+  }
+
+  .production-plan-day {
+    min-height: 56px;
+    padding: 6px;
+  }
+
+  .production-plan-day.is-working::after {
+    display: none;
   }
 }

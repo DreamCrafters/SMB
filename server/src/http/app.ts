@@ -35,6 +35,10 @@ import { applyIncidentStateRules } from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import { buildProductionReportTables } from "../domain/productionReportTables.js";
 import {
+  buildProductionPlan,
+  buildSuggestedProductionWorkdays,
+} from "../domain/productionPlan.js";
+import {
   getDispatcherFormDefinition,
   getPublicDispatcherForms,
   isDispatcherFormId,
@@ -84,6 +88,7 @@ import {
 } from "../domain/audit.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
+import type { ProductionPlansRepository } from "../repositories/productionPlansRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -95,6 +100,7 @@ type AppDependencies = {
   emailNotificationService?: EmailNotificationService;
   maxNotificationService?: MaxNotificationService;
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
+  productionPlans?: ProductionPlansRepository;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
 };
@@ -126,6 +132,7 @@ export function createApiServer({
     config.appEnv,
   ),
   dispatcherSpreadsheetImport,
+  productionPlans,
   audit,
   databaseTransaction,
 }: AppDependencies) {
@@ -256,6 +263,25 @@ export function createApiServer({
           devSessions,
           authService,
           accounts,
+          audit,
+          databaseTransaction,
+        });
+        return;
+      }
+
+      if (
+        url.pathname === "/api/production-plans" ||
+        url.pathname === "/api/production-plans/preview" ||
+        url.pathname === "/api/production-plans/daily"
+      ) {
+        await handleProductionPlansRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          productionPlans,
           audit,
           databaseTransaction,
         });
@@ -752,6 +778,312 @@ async function runAuditedMutation<T>({
   });
 }
 
+async function handleProductionPlansRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  productionPlans,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  productionPlans: ProductionPlansRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  if (url.pathname === "/api/production-plans/daily") {
+    const access = await requireAuthentication(req, res, {
+      config,
+      devSessions,
+      authService,
+    });
+
+    if (access === undefined) {
+      return;
+    }
+
+    const canReadDailyPlan = ([
+      "business.manage_production_plan",
+      "business.submit_dispatcher_forms",
+      "business.view_dispatcher_feed",
+    ] as const satisfies readonly AccountCapability[]).some((capability) =>
+      hasProfileCapability(access.profile, capability),
+    );
+
+    if (!canReadDailyPlan) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Общий план выработки недоступен.",
+        },
+      });
+      return;
+    }
+
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для просмотра дневного плана используется GET.",
+        },
+      });
+      return;
+    }
+
+    if (productionPlans === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище планов выработки не настроено.",
+        },
+      });
+      return;
+    }
+
+    const date = url.searchParams.get("date") ?? "";
+
+    if (!isCalendarDateQueryValue(date)) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Укажите дату в формате ГГГГ-ММ-ДД.",
+        },
+      });
+      return;
+    }
+
+    const revision = await productionPlans.readLatest(date.slice(0, 7));
+    const dailyPlan = revision?.dailyPlans.find((item) => item.date === date);
+
+    sendJson(res, 200, {
+      plan: dailyPlan === undefined
+        ? null
+        : { date: dailyPlan.date, value: dailyPlan.value },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "business.manage_production_plan",
+    message: "План выработки доступен только экономисту.",
+  });
+
+  if (access === undefined) {
+    return;
+  }
+
+  if (url.pathname === "/api/production-plans/preview") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для расчёта рабочих дней используется POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = readProductionPlanPreviewInput(await readJsonBody(req));
+
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const suggestedWorkingDates = buildSuggestedProductionWorkdays(
+      validation.value.month,
+    );
+
+    sendJson(res, 200, {
+      month: validation.value.month,
+      monthlyPlan: validation.value.monthlyPlan,
+      suggestedWorkingDates,
+      workingDayCount: suggestedWorkingDates.length,
+    });
+    return;
+  }
+
+  if (productionPlans === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище планов выработки не настроено.",
+      },
+    });
+    return;
+  }
+
+  if (req.method === "GET") {
+    const month = url.searchParams.get("month") ?? "";
+
+    if (buildSuggestedProductionWorkdays(month).length === 0) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Укажите месяц в формате ГГГГ-ММ.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      plan: (await productionPlans.readLatest(month)) ?? null,
+    });
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Поддерживаются только GET и POST.",
+      },
+    });
+    return;
+  }
+
+  const validation = readProductionPlanSaveInput(await readJsonBody(req));
+
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  const planValidation = buildProductionPlan(validation.value);
+
+  if (!planValidation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: planValidation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  const revision = await runAuditedMutation({
+    transaction: databaseTransaction,
+    audit,
+    mutate: () => productionPlans.saveRevision({
+      plan: planValidation.plan,
+      createdByUserId: access.profile.userId,
+    }),
+    buildEvent: (saved) => ({
+      actor: buildAuditActor(access.profile),
+      category: "data_change",
+      action: "production_plan.save",
+      summary: `Сохранён план выработки за ${saved.month}`,
+      details: [
+        { label: "Месяц", value: saved.month },
+        { label: "Месячный план", value: String(saved.monthlyPlan) },
+        { label: "Рабочих дней", value: String(saved.workingDayCount) },
+        {
+          label: "Ежедневный план",
+          value: saved.dailyPlans
+            .map((item) => `${item.date}: ${item.value}`)
+            .join(", "),
+        },
+      ],
+      targetType: "production_plan",
+      targetId: saved.revisionId,
+    }),
+  });
+
+  sendJson(res, 201, { plan: revision });
+}
+
+type ProductionPlanPreviewInputResult =
+  | { ok: true; value: { month: string; monthlyPlan: number } }
+  | { ok: false; errors: string[] };
+
+function readProductionPlanPreviewInput(
+  value: unknown,
+): ProductionPlanPreviewInputResult {
+  if (!isRecord(value)) {
+    return { ok: false, errors: ["Передайте месяц и месячный план."] };
+  }
+
+  const unknownFields = Object.keys(value).filter(
+    (key) => key !== "month" && key !== "monthlyPlan",
+  );
+
+  if (unknownFields.length > 0) {
+    return { ok: false, errors: ["Запрос содержит неизвестные поля."] };
+  }
+
+  if (typeof value.month !== "string" || typeof value.monthlyPlan !== "number") {
+    return { ok: false, errors: ["Передайте месяц и целый месячный план."] };
+  }
+
+  return {
+    ok: true,
+    value: { month: value.month, monthlyPlan: value.monthlyPlan },
+  };
+}
+
+type ProductionPlanSaveInputResult =
+  | {
+      ok: true;
+      value: { month: string; monthlyPlan: number; workingDates: string[] };
+    }
+  | { ok: false; errors: string[] };
+
+function readProductionPlanSaveInput(
+  value: unknown,
+): ProductionPlanSaveInputResult {
+  if (!isRecord(value)) {
+    return { ok: false, errors: ["Передайте параметры плана выработки."] };
+  }
+
+  const unknownFields = Object.keys(value).filter(
+    (key) =>
+      key !== "month" && key !== "monthlyPlan" && key !== "workingDates",
+  );
+
+  if (unknownFields.length > 0) {
+    return { ok: false, errors: ["Запрос содержит неизвестные поля."] };
+  }
+
+  if (
+    typeof value.month !== "string" ||
+    typeof value.monthlyPlan !== "number" ||
+    !Array.isArray(value.workingDates) ||
+    !value.workingDates.every((date) => typeof date === "string")
+  ) {
+    return { ok: false, errors: ["Проверьте месяц, план и рабочие дни."] };
+  }
+
+  return {
+    ok: true,
+    value: {
+      month: value.month,
+      monthlyPlan: value.monthlyPlan,
+      workingDates: value.workingDates,
+    },
+  };
+}
+
 function buildSafeAuditDetails(values: Record<string, AdminDatabaseCellValue>) {
   return Object.entries(values).flatMap(([label, rawValue]) => {
     if (
@@ -878,6 +1210,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.dispatcher": "Диспетчерская",
     "business.work": "Работа",
     "business.user_actions": "Действия пользователей",
+    "business.production_plan": "План выработки",
     "business.dispatcher_form": "Форма",
   };
 
@@ -3335,6 +3668,21 @@ function readOptionalQueryParam(url: URL, name: string) {
 
 function isDateQueryValue(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isCalendarDateQueryValue(value: string) {
+  if (!isDateQueryValue(value)) {
+    return false;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 function readDevSessionId(req: IncomingMessage) {

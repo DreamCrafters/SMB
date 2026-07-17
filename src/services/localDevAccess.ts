@@ -34,6 +34,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",
     "business.view_own_submissions",
+    "business.manage_production_plan",
   ],
   business_owner: [
     "business.view_all_statistics",
@@ -56,18 +57,31 @@ const defaultPositionDefinitions: Array<{
   { position: "board_chair", positionDisplayName: "Председатель совета директоров", accountType: "business_owner" },
   { position: "board_member", positionDisplayName: "Член совета директоров", accountType: "business_owner" },
   { position: "general_director", positionDisplayName: "Генеральный директор", accountType: "business_owner" },
+  { position: "economist", positionDisplayName: "Экономист", accountType: "business_owner" },
   { position: "worker", positionDisplayName: "Работник", accountType: "worker" },
   { position: "dispatcher", positionDisplayName: "Диспетчер", accountType: "dispatcher" },
 ];
 
 export const localDevAccessOptions: DevAccessOption[] =
-  defaultPositionDefinitions.map((definition) => ({
-    ...definition,
-    navigationItems: navigationItemsByAccountType[definition.accountType]
-      .filter(({ id }) => id !== "business.user_actions")
-      .map(({ id }) => id),
-    capabilities: [...accountCapabilitiesByType[definition.accountType]],
-  }));
+  defaultPositionDefinitions.map((definition) =>
+    definition.position === "economist"
+      ? {
+          ...definition,
+          navigationItems: ["business.production_plan"],
+          capabilities: ["business.manage_production_plan"],
+        }
+      : {
+          ...definition,
+          navigationItems: navigationItemsByAccountType[definition.accountType]
+            .filter(
+              ({ id }) =>
+                id !== "business.user_actions" &&
+                id !== "business.production_plan",
+            )
+            .map(({ id }) => id),
+          capabilities: [...accountCapabilitiesByType[definition.accountType]],
+        },
+  );
 
 export function createLocalDevAccessSession(
   selection: AccountType | DevAccessOption,

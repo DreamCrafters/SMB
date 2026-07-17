@@ -11,6 +11,7 @@ export const accountTypeByPosition: Record<AccountPosition, AccountType> = {
   board_chair: "business_owner",
   board_member: "business_owner",
   general_director: "business_owner",
+  economist: "business_owner",
   worker: "worker",
   dispatcher: "dispatcher",
 };
@@ -42,6 +43,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.dispatcher",
   "business.work",
   "business.user_actions",
+  "business.production_plan",
   "business.dispatcher_form",
 ];
 
@@ -53,6 +55,7 @@ const allowedNavigationItemsByAccountType: Record<
   business_owner: [
     ...navigationItemsByAccountType.business_owner,
     "business.user_actions",
+    "business.production_plan",
   ],
 };
 
@@ -67,6 +70,7 @@ const capabilitiesByNavigationItem: Record<
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",
     "business.view_own_submissions",
+    "business.manage_production_plan",
   ],
   "admin.accounts": ["platform.manage_users", "platform.manage_access"],
   "admin.database": ["platform.manage_analytics_database"],
@@ -83,6 +87,7 @@ const capabilitiesByNavigationItem: Record<
     "business.view_own_submissions",
   ],
   "business.user_actions": ["business.view_user_actions"],
+  "business.production_plan": ["business.manage_production_plan"],
   "business.dispatcher_form": [
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",

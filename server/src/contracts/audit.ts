@@ -18,6 +18,7 @@ export const auditEventActions = [
   "data.clear",
   "data.import_preview",
   "data.import",
+  "production_plan.save",
   "admin.account_create",
   "admin.account_archive",
   "admin.account_login_enable",
@@ -41,6 +42,7 @@ export const auditTargetTypes = [
   "dispatcher_import",
   "user_account",
   "account_position",
+  "production_plan",
 ] as const;
 
 export type AuditTargetType = (typeof auditTargetTypes)[number];

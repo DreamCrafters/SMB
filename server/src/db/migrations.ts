@@ -728,6 +728,99 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "018_production_plan_revisions",
+    statements: [
+      `
+      create table if not exists production_plan_revisions (
+        id char(36) not null primary key,
+        plan_month char(7) not null,
+        monthly_plan bigint unsigned not null,
+        working_dates json not null,
+        daily_plans json not null,
+        created_by_user_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_production_plan_revisions_month_created (
+          plan_month,
+          created_at,
+          id
+        )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into account_positions (
+        id, display_name, account_type, navigation_items, capabilities, is_protected
+      )
+      select
+        'economist', 'Экономист', 'business_owner',
+        json_array('business.production_plan'),
+        json_array('business.manage_production_plan'),
+        0
+      where not exists (
+        select 1
+        from account_positions
+        where lower(trim(display_name)) = 'экономист'
+      );
+      `,
+      `
+      update account_positions
+      set account_type = 'business_owner',
+          navigation_items = case
+            when json_contains(
+              navigation_items,
+              json_quote('business.production_plan')
+            ) then navigation_items
+            else json_array_append(
+              navigation_items,
+              '$',
+              'business.production_plan'
+            )
+          end,
+          capabilities = case
+            when json_contains(
+              capabilities,
+              json_quote('business.manage_production_plan')
+            ) then capabilities
+            else json_array_append(
+              capabilities,
+              '$',
+              'business.manage_production_plan'
+            )
+          end
+      where lower(trim(display_name)) = 'экономист';
+      `,
+      `
+      update account_positions
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.manage_production_plan')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.manage_production_plan'
+        )
+      end
+      where id = 'administrator';
+      `,
+      `
+      update account_accesses accesses
+      join account_positions positions on positions.id = accesses.position_code
+      set accesses.account_type = 'business_owner',
+          accesses.scope_kind = 'organization'
+      where lower(trim(positions.display_name)) = 'экономист';
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      join account_positions positions on positions.id = accesses.position_code
+      where positions.id = 'administrator'
+        or lower(trim(positions.display_name)) = 'экономист';
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

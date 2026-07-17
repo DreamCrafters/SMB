@@ -11,6 +11,7 @@ test("executive positions use the business owner workspace", () => {
   assert.equal(accountTypeByPosition.board_chair, "business_owner");
   assert.equal(accountTypeByPosition.board_member, "business_owner");
   assert.equal(accountTypeByPosition.general_director, "business_owner");
+  assert.equal(accountTypeByPosition.economist, "business_owner");
 });
 
 test("navigation validation rejects tabs from another workspace", () => {
@@ -81,5 +82,8 @@ test("navigation selection expands only to its server capabilities", () => {
   ]);
   assert.deepEqual(resolveCapabilitiesForNavigation(["business.user_actions"]), [
     "business.view_user_actions",
+  ]);
+  assert.deepEqual(resolveCapabilitiesForNavigation(["business.production_plan"]), [
+    "business.manage_production_plan",
   ]);
 });

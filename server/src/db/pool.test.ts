@@ -1,6 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDatabasePoolOptions } from "./pool.js";
+import { buildDatabasePoolOptions, createDatabasePool } from "./pool.js";
+
+test("createDatabasePool initializes every database connection in UTC", async () => {
+  const pool = createDatabasePool(
+    "mysql://user:pass@127.0.0.1:3306/smb_monitor",
+  );
+  const queries: string[] = [];
+
+  try {
+    pool.pool.emit("connection", {
+      query(sql: string) {
+        queries.push(sql);
+      },
+    });
+
+    assert.deepEqual(queries, ["set time_zone = '+00:00'"]);
+  } finally {
+    await pool.end();
+  }
+});
 
 test("buildDatabasePoolOptions keeps TCP host and port by default", () => {
   const options = buildDatabasePoolOptions(

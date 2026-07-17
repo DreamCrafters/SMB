@@ -40,6 +40,7 @@ export const accountPositionLabels: Record<string, string> = {
   board_chair: "Председатель совета директоров",
   board_member: "Член совета директоров",
   general_director: "Генеральный директор",
+  economist: "Экономист",
   worker: "Работник",
   dispatcher: "Диспетчер",
 };
@@ -115,6 +116,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       id: "business.work",
       label: "Работа",
       description: "Рабочие формы отдельно",
+      state: "active",
+    },
+    {
+      id: "business.production_plan",
+      label: "План выработки",
+      description: "Месячный план по рабочим дням",
       state: "active",
     },
     {

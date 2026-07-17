@@ -9,6 +9,7 @@ import { createAuthSessionService } from "./repositories/authRepository.js";
 import { createDispatcherSubmissionsRepository } from "./repositories/dispatcherSubmissionsRepository.js";
 import { createDispatcherSpreadsheetImportRepository } from "./repositories/dispatcherSpreadsheetImportRepository.js";
 import { createAuditRepository } from "./repositories/auditRepository.js";
+import { createProductionPlansRepository } from "./repositories/productionPlansRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
 const config = readServerConfig();
@@ -30,6 +31,7 @@ const server = createApiServer({
     sessionTtlHours: config.session.ttlHours,
   }),
   dispatcherSubmissions: createDispatcherSubmissionsRepository(pool),
+  productionPlans: createProductionPlansRepository(pool),
   audit: createAuditRepository(pool),
   databaseTransaction: database.transaction,
   dispatcherSpreadsheetImport: createDispatcherSpreadsheetImportService(

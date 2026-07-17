@@ -182,6 +182,36 @@ test("client-local worker profile keeps the workspace empty", async () => {
   assert.deepEqual(result.profile.activeAccess.capabilities, []);
 });
 
+test("client-local economist profile gets only production planning access", async () => {
+  globalThis.window = { sessionStorage: createMemoryStorage() };
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: { message: "The page could not be found" } }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+
+  createLocalDevAccessSession({
+    position: "economist",
+    positionDisplayName: "Экономист",
+    accountType: "business_owner",
+    navigationItems: ["business.production_plan"],
+    capabilities: ["business.manage_production_plan"],
+  });
+  const result = await requestAccessProfile({
+    endpoint: "/api/access/profile",
+    localDevFallback: true,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.profile.activeAccess.position, "economist");
+  assert.deepEqual(result.profile.activeAccess.navigationItems, [
+    "business.production_plan",
+  ]);
+  assert.deepEqual(result.profile.activeAccess.capabilities, [
+    "business.manage_production_plan",
+  ]);
+});
+
 test("requestAccessProfile does not read client-local profile when fallback is disabled", async () => {
   globalThis.window = {
     sessionStorage: createMemoryStorage(),

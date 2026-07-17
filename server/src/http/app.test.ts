@@ -26,6 +26,10 @@ import type { MaxNotificationService } from "../integrations/maxNotifications.js
 import type { DispatcherSpreadsheetImportService } from "../integrations/dispatcherSpreadsheetImport.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
+import type {
+  ProductionPlanRevision,
+  ProductionPlansRepository,
+} from "../repositories/productionPlansRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
@@ -2391,6 +2395,168 @@ test("production API lets owner read feed but not submit dispatcher forms", asyn
     productionConfig,
     buildAuthService({ profile: buildProductionProfile("business_owner") }),
   );
+});
+
+test("production plan API requires economist access and saves the confirmed schedule with audit", async () => {
+  const profile = buildProductionProfile("business_owner");
+  let latest: ProductionPlanRevision | undefined;
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const productionPlans: ProductionPlansRepository = {
+    async readLatest(month) {
+      return latest?.month === month ? latest : undefined;
+    },
+    async saveRevision(input) {
+      latest = {
+        ...input.plan,
+        revisionId: "revision-1",
+        createdByUserId: input.createdByUserId,
+        createdAt: "2026-07-17T10:00:00.000Z",
+      };
+      return latest;
+    },
+  };
+  const directTransaction: DatabaseTransactionRunner = {
+    async run(operation) {
+      return operation();
+    },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    productionPlans,
+    referenceDataSource: emptyReferenceDataSource,
+    audit: {
+      async record(event) {
+        recorded.push(event);
+      },
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: directTransaction,
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const forbidden = await fetch(`${baseUrl}/api/production-plans?month=2026-07`, {
+      headers,
+    });
+    assert.equal(forbidden.status, 403);
+
+    profile.activeAccess.position = "economist";
+    profile.activeAccess.positionDisplayName = "Экономист";
+    profile.activeAccess.navigationItems = ["business.production_plan"];
+    profile.activeAccess.capabilities = ["business.manage_production_plan"];
+
+    const previewResponse = await fetch(`${baseUrl}/api/production-plans/preview`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ month: "2026-07", monthlyPlan: 1_000 }),
+    });
+    const preview = await previewResponse.json();
+    assert.equal(previewResponse.status, 200);
+    assert.equal(
+      isRecord(preview) && Array.isArray(preview.suggestedWorkingDates)
+        ? preview.suggestedWorkingDates.length
+        : undefined,
+      23,
+    );
+
+    const smallPlanPreviewResponse = await fetch(
+      `${baseUrl}/api/production-plans/preview`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ month: "2026-07", monthlyPlan: 1 }),
+      },
+    );
+    const smallPlanPreview = await smallPlanPreviewResponse.json();
+    assert.equal(smallPlanPreviewResponse.status, 200);
+    assert.equal(
+      isRecord(smallPlanPreview) &&
+        Array.isArray(smallPlanPreview.suggestedWorkingDates)
+        ? smallPlanPreview.suggestedWorkingDates.length
+        : undefined,
+      23,
+    );
+
+    const saveResponse = await fetch(`${baseUrl}/api/production-plans`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        month: "2026-07",
+        monthlyPlan: 1_000,
+        workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
+      }),
+    });
+    const saved = await saveResponse.json();
+    assert.equal(saveResponse.status, 201);
+    assert.deepEqual(
+      isRecord(saved) && isRecord(saved.plan) ? saved.plan.dailyPlans : undefined,
+      [
+        { date: "2026-07-01", value: 334 },
+        { date: "2026-07-02", value: 334 },
+        { date: "2026-07-03", value: 332 },
+      ],
+    );
+    assert.equal(latest?.createdByUserId, profile.userId);
+    assert.equal(recorded.at(-1)?.action, "production_plan.save");
+
+    for (const capability of [
+      "business.submit_dispatcher_forms",
+      "business.view_dispatcher_feed",
+    ] as const) {
+      profile.activeAccess.capabilities = [capability];
+      const dailyResponse = await fetch(
+        `${baseUrl}/api/production-plans/daily?date=2026-07-01`,
+        { headers },
+      );
+      const daily = await dailyResponse.json();
+      assert.equal(dailyResponse.status, 200);
+      assert.deepEqual(
+        isRecord(daily) ? daily.plan : undefined,
+        { date: "2026-07-01", value: 334 },
+      );
+    }
+
+    const missingDailyResponse = await fetch(
+      `${baseUrl}/api/production-plans/daily?date=2026-07-04`,
+      { headers },
+    );
+    const missingDaily = await missingDailyResponse.json();
+    assert.equal(missingDailyResponse.status, 200);
+    assert.equal(isRecord(missingDaily) ? missingDaily.plan : undefined, null);
+
+    const forbiddenSaveResponse = await fetch(`${baseUrl}/api/production-plans`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        month: "2026-07",
+        monthlyPlan: 1_000,
+        workingDates: ["2026-07-01"],
+      }),
+    });
+    assert.equal(forbiddenSaveResponse.status, 403);
+
+    profile.activeAccess.capabilities = ["business.manage_production_plan"];
+    const readResponse = await fetch(`${baseUrl}/api/production-plans?month=2026-07`, {
+      headers,
+    });
+    const read = await readResponse.json();
+    assert.equal(readResponse.status, 200);
+    assert.equal(isRecord(read) && isRecord(read.plan) ? read.plan.monthlyPlan : undefined, 1_000);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
 });
 
 test("production API keeps admin database gated by admin capability", async () => {
