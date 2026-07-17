@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   accountCapabilities,
+  productionCategories,
   type AccountNavigationItem,
   type AccountPosition,
   type AccountType,
@@ -26,7 +27,11 @@ import {
   type DispatcherFormId,
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
-  type ProductionBrandMetricRow,
+  type ProductionBrandCategoryRow,
+  type ProductionBrandCategory,
+  type ProductionBrandLabel,
+  type ProductionCategory,
+  type ProductionCategoryPlans,
   type ProductionGranulationRow,
   type ProductionJarMeasurementRow,
   type ProductionMetricRow,
@@ -177,6 +182,10 @@ import {
   requestProductionPlanPreview,
   saveProductionPlan,
 } from "./services/productionPlans";
+import {
+  createProductionBrand,
+  requestProductionBrands,
+} from "./services/productionBrands";
 import { formatUserShortName } from "./services/userDisplayName";
 import {
   markToastExiting,
@@ -2103,9 +2112,25 @@ type ProductionPlanLoadState =
 
 type ProductionPlanCalculation = {
   month: string;
-  monthlyPlan: number;
+  monthlyPlans: ProductionCategoryPlans;
   suggestedWorkingDates: string[];
 };
+
+const productionCategoryLabels: Record<ProductionCategory, string> = {
+  forming: "Формовка",
+  sorting: "Сортировка",
+  unformed: "Неформованная продукция, контейнеры",
+  chamotte: "Цех обжига шамота",
+};
+
+function createEmptyProductionPlanInputs(): Record<ProductionCategory, string> {
+  return {
+    forming: "",
+    sorting: "",
+    unformed: "",
+    chamotte: "",
+  };
+}
 
 function ProductionPlanWorkspace({
   isAdminPreviewMode,
@@ -2115,7 +2140,9 @@ function ProductionPlanWorkspace({
   onShowToast: ShowToast;
 }) {
   const [month, setMonth] = useState(readCurrentMonthInputValue);
-  const [monthlyPlanInput, setMonthlyPlanInput] = useState("");
+  const [monthlyPlanInputs, setMonthlyPlanInputs] = useState(
+    createEmptyProductionPlanInputs,
+  );
   const [loadState, setLoadState] = useState<ProductionPlanLoadState>({
     status: "loading",
     message: "Загружаем план.",
@@ -2131,6 +2158,7 @@ function ProductionPlanWorkspace({
     setCalculation(undefined);
     setSelectedWorkingDates([]);
     setStatus("");
+    setMonthlyPlanInputs(createEmptyProductionPlanInputs());
 
     if (isAdminPreviewMode) {
       setLoadState({
@@ -2149,8 +2177,15 @@ function ProductionPlanWorkspace({
 
       if (result.status === "ready") {
         setLoadState({ status: "ready", plan: result.plan });
-        setMonthlyPlanInput(
-          result.plan === undefined ? "" : String(result.plan.monthlyPlan),
+        setMonthlyPlanInputs(
+          result.plan === undefined
+            ? createEmptyProductionPlanInputs()
+            : Object.fromEntries(
+                productionCategories.map((category) => [
+                  category,
+                  String(result.plan!.monthlyPlans[category]),
+                ]),
+              ) as Record<ProductionCategory, string>,
         );
         return;
       }
@@ -2173,10 +2208,16 @@ function ProductionPlanWorkspace({
     setMonth(nextMonth);
   }
 
-  function handleMonthlyPlanChange(event: ChangeEvent<HTMLInputElement>) {
+  function handleMonthlyPlanChange(
+    category: ProductionCategory,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
     const nextValue = event.currentTarget.value;
 
-    setMonthlyPlanInput(nextValue);
+    setMonthlyPlanInputs((current) => ({
+      ...current,
+      [category]: nextValue,
+    }));
     setCalculation(undefined);
     setSelectedWorkingDates([]);
     setStatus("");
@@ -2184,16 +2225,16 @@ function ProductionPlanWorkspace({
 
   async function handleCalculate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const monthlyPlan = readPositiveIntegerInput(monthlyPlanInput);
+    const monthlyPlans = readProductionCategoryPlanInputs(monthlyPlanInputs);
 
-    if (monthlyPlan === undefined) {
-      setStatus("Введите целый месячный план больше нуля.");
+    if (monthlyPlans === undefined) {
+      setStatus("Введите целый месячный план больше нуля для каждой категории.");
       return;
     }
 
     setIsCalculating(true);
     setStatus("Считаем рабочие дни.");
-    const result = await requestProductionPlanPreview({ month, monthlyPlan });
+    const result = await requestProductionPlanPreview({ month, monthlyPlans });
     setIsCalculating(false);
 
     if (result.status === "error") {
@@ -2205,7 +2246,7 @@ function ProductionPlanWorkspace({
 
     setCalculation({
       month: result.month,
-      monthlyPlan: result.monthlyPlan,
+      monthlyPlans: result.monthlyPlans,
       suggestedWorkingDates: result.suggestedWorkingDates,
     });
     setSelectedWorkingDates(result.suggestedWorkingDates);
@@ -2228,12 +2269,16 @@ function ProductionPlanWorkspace({
   }
 
   async function handleConfirmAndSave() {
-    const monthlyPlan = readPositiveIntegerInput(monthlyPlanInput);
+    const monthlyPlans = readProductionCategoryPlanInputs(monthlyPlanInputs);
 
     if (
       calculation === undefined ||
       calculation.month !== month ||
-      calculation.monthlyPlan !== monthlyPlan
+      monthlyPlans === undefined ||
+      productionCategories.some(
+        (category) =>
+          calculation.monthlyPlans[category] !== monthlyPlans[category],
+      )
     ) {
       setStatus("Сначала рассчитайте рабочие дни.");
       return;
@@ -2248,7 +2293,7 @@ function ProductionPlanWorkspace({
     setStatus("Сохраняем план.");
     const result = await saveProductionPlan({
       month,
-      monthlyPlan: calculation.monthlyPlan,
+      monthlyPlans: calculation.monthlyPlans,
       workingDates: selectedWorkingDates,
     });
     setIsSaving(false);
@@ -2276,8 +2321,8 @@ function ProductionPlanWorkspace({
           <h2>План выработки</h2>
         </div>
         <p>
-          Укажите месячный план. Будни будут выбраны автоматически, затем
-          проверьте календарь и подтвердите количество рабочих дней.
+          Укажите месячный план отдельно для каждой категории. Будни будут
+          выбраны автоматически, затем проверьте календарь и подтвердите дни.
         </p>
       </header>
 
@@ -2297,19 +2342,23 @@ function ProductionPlanWorkspace({
             onChange={handleMonthChange}
           />
         </label>
-        <label>
-          <span>Месячный план</span>
-          <input
-            disabled={isAdminPreviewMode || isCalculating || isSaving}
-            inputMode="numeric"
-            min="1"
-            pattern="[0-9]+"
-            required
-            type="text"
-            value={monthlyPlanInput}
-            onChange={handleMonthlyPlanChange}
-          />
-        </label>
+        <div className="production-plan-category-inputs">
+          {productionCategories.map((category) => (
+            <label key={category}>
+              <span>{productionCategoryLabels[category]}</span>
+              <input
+                disabled={isAdminPreviewMode || isCalculating || isSaving}
+                inputMode="numeric"
+                min="1"
+                pattern="[0-9]+"
+                required
+                type="text"
+                value={monthlyPlanInputs[category]}
+                onChange={(event) => handleMonthlyPlanChange(category, event)}
+              />
+            </label>
+          ))}
+        </div>
         <button
           className="production-plan-primary-button"
           disabled={isAdminPreviewMode || isCalculating || isSaving}
@@ -2394,18 +2443,30 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
       <div className="production-plan-saved-head">
         <div>
           <span>Сохранённый план</span>
-          <strong>{formatNumber(state.plan.monthlyPlan)}</strong>
+          <strong>4 категории</strong>
         </div>
         <p>
           {state.plan.workingDayCount} рабочих дней · обновлено {formatDateTime(state.plan.createdAt)}
         </p>
       </div>
+      <dl className="production-plan-category-summary">
+        {productionCategories.map((category) => (
+          <div key={category}>
+            <dt>{productionCategoryLabels[category]}</dt>
+            <dd>{formatNumber(state.plan!.monthlyPlans[category])}</dd>
+          </div>
+        ))}
+      </dl>
       <div className="production-plan-table-wrap">
         <table className="production-plan-table">
           <thead>
             <tr>
               <th scope="col">Дата</th>
-              <th scope="col">План</th>
+              {productionCategories.map((category) => (
+                <th scope="col" key={category}>
+                  {productionCategoryLabels[category]}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -2415,7 +2476,11 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
                 key={dailyPlan.date}
               >
                 <td>{formatDateOnly(dailyPlan.date)}</td>
-                <td>{formatNumber(dailyPlan.value)}</td>
+                {productionCategories.map((category) => (
+                  <td key={category}>
+                    {formatNumber(dailyPlan.values[category])}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -2717,9 +2782,16 @@ function DispatcherProductionReportFormBody({
   const [reportDate, setReportDate] = useState(getTodayDateValue);
   const [dailyPlanState, setDailyPlanState] = useState<
     | { status: "loading" }
-    | { status: "ready"; value?: number }
+    | { status: "ready"; values?: ProductionCategoryPlans }
     | { status: "error"; message: string }
   >({ status: "loading" });
+  const [brandLabels, setBrandLabels] = useState<ProductionBrandLabel[]>([]);
+  const [brandLoadState, setBrandLoadState] = useState<
+    | { status: "loading" }
+    | { status: "ready" }
+    | { status: "error"; message: string }
+  >({ status: "loading" });
+  const [brandRefreshVersion, setBrandRefreshVersion] = useState(0);
 
   useEffect(() => {
     if (isAdminPreviewMode || reportDate.length === 0) {
@@ -2737,7 +2809,7 @@ function DispatcherProductionReportFormBody({
         }
 
         if (result.status === "ready") {
-          setDailyPlanState({ status: "ready", value: result.plan?.value });
+          setDailyPlanState({ status: "ready", values: result.plan?.values });
           return;
         }
 
@@ -2745,7 +2817,7 @@ function DispatcherProductionReportFormBody({
           status: "error",
           message: readShortUserMessage(
             result.message,
-            "Не удалось загрузить общий план.",
+            "Не удалось загрузить планы.",
           ),
         });
       },
@@ -2753,6 +2825,66 @@ function DispatcherProductionReportFormBody({
 
     return () => controller.abort();
   }, [isAdminPreviewMode, reportDate]);
+
+  useEffect(() => {
+    if (isAdminPreviewMode) {
+      setBrandLabels([]);
+      setBrandLoadState({ status: "ready" });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setBrandLoadState({ status: "loading" });
+    requestProductionBrands({ signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) return;
+
+      if (result.status === "ready") {
+        setBrandLabels(result.labels);
+        setBrandLoadState({ status: "ready" });
+        return;
+      }
+
+      setBrandLoadState({
+        status: "error",
+        message: readShortUserMessage(
+          result.message,
+          "Не удалось загрузить марки.",
+        ),
+      });
+    });
+
+    return () => controller.abort();
+  }, [brandRefreshVersion, isAdminPreviewMode]);
+
+  async function handleCreateBrand(
+    category: ProductionBrandCategory,
+    label: string,
+  ): Promise<ProductionBrandCreateOutcome> {
+    if (isAdminPreviewMode) {
+      return { message: "В режиме просмотра добавление отключено." };
+    }
+
+    const result = await createProductionBrand({ category, label });
+
+    if (result.status === "error") {
+      return {
+        message: readShortUserMessage(
+          result.message,
+          "Не удалось сохранить марку.",
+        ),
+      };
+    }
+
+    setBrandLabels((current) =>
+      [...current.filter((item) => item.id !== result.label.id), result.label]
+        .sort((left, right) => left.label.localeCompare(right.label, "ru-RU")),
+    );
+    return { label: result.label };
+  }
+
+  const dailyPlanValues =
+    dailyPlanState.status === "ready" ? dailyPlanState.values : undefined;
 
   return (
     <>
@@ -2772,38 +2904,74 @@ function DispatcherProductionReportFormBody({
       </div>
 
       <div className="production-report-daily-plan" aria-live="polite">
-        <span>Общий план выработки</span>
-        <strong>
-          {isAdminPreviewMode
-            ? "Не загружается в режиме просмотра"
-            : dailyPlanState.status === "loading"
-              ? "Загружаем…"
-              : dailyPlanState.status === "error"
-                ? dailyPlanState.message
-                : dailyPlanState.value === undefined
-                  ? "На эту дату не задан"
-                  : formatNumber(dailyPlanState.value)}
-        </strong>
+        <span>Планы на выбранную дату</span>
+        {isAdminPreviewMode ? (
+          <strong>Не загружаются в режиме просмотра</strong>
+        ) : dailyPlanState.status === "loading" ? (
+          <strong>Загружаем…</strong>
+        ) : dailyPlanState.status === "error" ? (
+          <strong>{dailyPlanState.message}</strong>
+        ) : dailyPlanValues === undefined ? (
+          <strong>На эту дату не заданы</strong>
+        ) : (
+          <dl className="production-report-daily-plan-list">
+            {productionCategories.map((category) => (
+              <div key={category}>
+                <dt>{productionCategoryLabels[category]}</dt>
+                <dd>{formatNumber(dailyPlanValues[category])}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
       </div>
+
+      {brandLoadState.status === "loading" ? (
+        <p className="form-status">Загружаем марки…</p>
+      ) : brandLoadState.status === "error" ? (
+        <div className="production-brand-load-error" role="alert">
+          <span>{brandLoadState.message}</span>
+          <button
+            type="button"
+            onClick={() => setBrandRefreshVersion((current) => current + 1)}
+          >
+            Повторить
+          </button>
+        </div>
+      ) : null}
 
       <fieldset className="production-report-section">
         <legend>Огнеупорный цех</legend>
         <ProductionSummaryTable
+          brandLabels={brandLabels}
+          categoryPlan={dailyPlanValues?.forming}
           form={form}
+          isAdminPreviewMode={isAdminPreviewMode}
           prefix="forming"
           title="Формовка"
+          onCreateBrand={handleCreateBrand}
         />
         <ProductionSummaryTable
+          brandLabels={brandLabels}
+          categoryPlan={dailyPlanValues?.sorting}
           form={form}
+          isAdminPreviewMode={isAdminPreviewMode}
           prefix="sorting"
           title="Сортировка"
+          onCreateBrand={handleCreateBrand}
         />
       </fieldset>
 
       <div className="production-report-split">
         <fieldset className="production-report-section">
           <legend>Неформованная продукция, контейнеры</legend>
-          <ProductionRowsTable form={form} prefix="unformed" rowCount={4} />
+          <ProductionBrandColumnsTable
+            brandLabels={brandLabels}
+            category="unformed"
+            categoryPlan={dailyPlanValues?.unformed}
+            isAdminPreviewMode={isAdminPreviewMode}
+            prefix="unformed"
+            onCreateBrand={handleCreateBrand}
+          />
         </fieldset>
 
         <fieldset className="production-report-section">
@@ -2811,7 +2979,14 @@ function DispatcherProductionReportFormBody({
           <span className="production-report-section-note">
             Выпуск шамота по маркам
           </span>
-          <ProductionRowsTable form={form} prefix="chamotte" rowCount={1} />
+          <ProductionBrandColumnsTable
+            brandLabels={brandLabels}
+            category="chamotte"
+            categoryPlan={dailyPlanValues?.chamotte}
+            isAdminPreviewMode={isAdminPreviewMode}
+            prefix="chamotte"
+            onCreateBrand={handleCreateBrand}
+          />
         </fieldset>
       </div>
 
@@ -2871,14 +3046,24 @@ function DispatcherProductionReportFormBody({
 }
 
 function ProductionSummaryTable({
+  brandLabels,
+  categoryPlan,
   form,
+  isAdminPreviewMode,
   prefix,
   title,
+  onCreateBrand,
 }: {
+  brandLabels: ProductionBrandLabel[];
+  categoryPlan?: number;
   form: DispatcherFormDefinition;
+  isAdminPreviewMode: boolean;
   prefix: "forming" | "sorting";
   title: string;
+  onCreateBrand: ProductionBrandCreator;
 }) {
+  const [brand, setBrand] = useState("");
+
   return (
     <section className="production-report-subsection">
       <h3>{title}</h3>
@@ -2887,22 +3072,35 @@ function ProductionSummaryTable({
           <thead>
             <tr>
               <th scope="col">План</th>
-              <th scope="col">Сутки</th>
-              <th scope="col">Марки изделий</th>
+              <th scope="col">Факт за сутки</th>
+              <th scope="col">Марка изделия</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              {["Plan", "Day", "ProductBrands"].map(
-                (suffix) => (
-                  <td key={suffix}>
-                    <ProductionReportCell
-                      fieldName={`${prefix}${suffix}`}
-                      form={form}
-                    />
-                  </td>
-                ),
-              )}
+              <td className="production-report-plan-cell">
+                {categoryPlan === undefined
+                  ? "Не задан"
+                  : formatNumber(categoryPlan)}
+              </td>
+              <td>
+                <ProductionReportCell
+                  fieldName={`${prefix}Day`}
+                  form={form}
+                />
+              </td>
+              <td>
+                <ProductionBrandPicker
+                  brandLabels={brandLabels}
+                  category="product"
+                  disabled={isAdminPreviewMode}
+                  name={`${prefix}ProductBrand`}
+                  selectedLabels={[]}
+                  value={brand}
+                  onChange={setBrand}
+                  onCreateBrand={onCreateBrand}
+                />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -2911,46 +3109,271 @@ function ProductionSummaryTable({
   );
 }
 
-function ProductionRowsTable({
-  form,
+type ProductionBrandCreateOutcome = {
+  label?: ProductionBrandLabel;
+  message?: string;
+};
+
+type ProductionBrandCreator = (
+  category: ProductionBrandCategory,
+  label: string,
+) => Promise<ProductionBrandCreateOutcome>;
+
+type ProductionBrandColumn = {
+  id: number;
+  brand: string;
+};
+
+function ProductionBrandColumnsTable({
+  brandLabels,
+  category,
+  categoryPlan,
+  isAdminPreviewMode,
   prefix,
-  rowCount,
+  onCreateBrand,
 }: {
-  form: DispatcherFormDefinition;
+  brandLabels: ProductionBrandLabel[];
+  category: "unformed" | "chamotte";
+  categoryPlan?: number;
+  isAdminPreviewMode: boolean;
   prefix: "unformed" | "chamotte";
-  rowCount: number;
+  onCreateBrand: ProductionBrandCreator;
 }) {
+  const [columns, setColumns] = useState<ProductionBrandColumn[]>([
+    { id: 1, brand: "" },
+  ]);
+  const nextColumnIdRef = useRef(2);
+
+  function addColumn() {
+    if (columns.length >= 50) return;
+
+    const id = nextColumnIdRef.current;
+    nextColumnIdRef.current += 1;
+    setColumns((current) => [...current, { id, brand: "" }]);
+  }
+
+  function removeColumn(id: number) {
+    setColumns((current) => current.filter((column) => column.id !== id));
+  }
+
+  function changeColumnBrand(id: number, brand: string) {
+    setColumns((current) =>
+      current.map((column) =>
+        column.id === id ? { ...column, brand } : column,
+      ),
+    );
+  }
+
+  const selectedLabels = columns
+    .map((column) => column.brand)
+    .filter((brand) => brand.length > 0);
+
   return (
-    <div className="production-report-table-wrap">
-      <table className="production-report-table production-report-rows-table">
-        <thead>
-          <tr>
-            <th scope="col">Марка продукции</th>
-            <th scope="col">План</th>
-            <th scope="col">Факт</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: rowCount }, (_, index) => index + 1).map(
-            (rowNumber) => (
-              <tr key={rowNumber}>
-                {["Brand", "Plan", "Fact"].map(
-                  (suffix) => (
-                    <td key={suffix}>
-                      <ProductionReportCell
-                        fieldName={`${prefix}${suffix}${rowNumber}`}
-                        form={form}
-                      />
-                    </td>
-                  ),
-                )}
-              </tr>
-            ),
-          )}
-        </tbody>
-      </table>
+    <div className="production-brand-columns">
+      <div className="production-report-table-wrap">
+        <table className="production-report-table production-report-brand-columns-table">
+          <thead>
+            <tr>
+              {columns.map((column, index) => (
+                <th scope="col" key={column.id}>
+                  <ProductionBrandPicker
+                    brandLabels={brandLabels}
+                    category={category}
+                    disabled={isAdminPreviewMode}
+                    name={`${prefix}Brand${column.id}`}
+                    selectedLabels={selectedLabels.filter(
+                      (label) => label !== column.brand,
+                    )}
+                    value={column.brand}
+                    onChange={(brand) => changeColumnBrand(column.id, brand)}
+                    onCreateBrand={onCreateBrand}
+                  />
+                  {columns.length > 1 ? (
+                    <button
+                      aria-label={`Удалить столбец ${index + 1}`}
+                      className="production-brand-column-remove"
+                      disabled={isAdminPreviewMode}
+                      type="button"
+                      onClick={() => removeColumn(column.id)}
+                    >
+                      Удалить
+                    </button>
+                  ) : null}
+                </th>
+              ))}
+              <th className="production-report-plan-heading" scope="col">
+                План за день
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {columns.map((column) => (
+                <td key={column.id}>
+                  <label className="production-brand-fact-input">
+                    <span>Факт по марке</span>
+                    <input
+                      aria-label={`Факт: ${column.brand || "марка не выбрана"}`}
+                      inputMode="decimal"
+                      name={`${prefix}Fact${column.id}`}
+                      pattern={decimalNumberInputPattern}
+                      title={decimalNumberInputTitle}
+                      type="text"
+                      onBlur={(event) => {
+                        event.currentTarget.value =
+                          normalizeDecimalNumberForPayload(
+                            event.currentTarget.value,
+                          ) ?? "";
+                      }}
+                      onChange={(event) => {
+                        event.currentTarget.value = normalizeDecimalNumberInput(
+                          event.currentTarget.value,
+                        );
+                      }}
+                    />
+                  </label>
+                </td>
+              ))}
+              <td className="production-report-plan-cell">
+                {categoryPlan === undefined
+                  ? "Не задан"
+                  : formatNumber(categoryPlan)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <button
+        className="production-brand-column-add"
+        disabled={isAdminPreviewMode || columns.length >= 50}
+        type="button"
+        onClick={addColumn}
+      >
+        + Добавить марку
+      </button>
     </div>
   );
+}
+
+function ProductionBrandPicker({
+  brandLabels,
+  category,
+  disabled,
+  name,
+  selectedLabels,
+  value,
+  onChange,
+  onCreateBrand,
+}: {
+  brandLabels: ProductionBrandLabel[];
+  category: ProductionBrandCategory;
+  disabled: boolean;
+  name: string;
+  selectedLabels: string[];
+  value: string;
+  onChange: (value: string) => void;
+  onCreateBrand: ProductionBrandCreator;
+}) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [status, setStatus] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const categoryLabels = brandLabels.filter(
+    (label) => label.category === category,
+  );
+  const selectedKeys = new Set(
+    selectedLabels.map((label) => normalizeProductionBrandKey(label)),
+  );
+
+  async function saveNewBrand() {
+    const normalizedLabel = newLabel.trim().replace(/\s+/gu, " ");
+
+    if (normalizedLabel.length === 0) {
+      setStatus("Введите марку.");
+      return;
+    }
+
+    setIsSaving(true);
+    setStatus("Сохраняем…");
+    const result = await onCreateBrand(category, normalizedLabel);
+    setIsSaving(false);
+
+    if (result.label === undefined) {
+      setStatus(result.message ?? "Не удалось сохранить марку.");
+      return;
+    }
+
+    onChange(result.label.label);
+    setNewLabel("");
+    setStatus("");
+    setIsAdding(false);
+  }
+
+  return (
+    <div className="production-brand-picker">
+      <select
+        aria-label="Марка"
+        disabled={disabled || isSaving}
+        name={name}
+        value={value}
+        onChange={(event) => {
+          const nextValue = event.currentTarget.value;
+
+          if (nextValue === "__add_brand__") {
+            setIsAdding(true);
+            setStatus("");
+            return;
+          }
+
+          onChange(nextValue);
+        }}
+      >
+        <option value="">Выберите марку</option>
+        {categoryLabels.map((label) => (
+          <option
+            disabled={selectedKeys.has(normalizeProductionBrandKey(label.label))}
+            key={label.id}
+            value={label.label}
+          >
+            {label.label}
+          </option>
+        ))}
+        {!disabled ? <option value="__add_brand__">+ Новая марка</option> : null}
+      </select>
+      {isAdding ? (
+        <div className="production-brand-create">
+          <input
+            aria-label="Новая марка"
+            disabled={isSaving}
+            maxLength={120}
+            placeholder="Название марки"
+            type="text"
+            value={newLabel}
+            onChange={(event) => setNewLabel(event.currentTarget.value)}
+          />
+          <button disabled={isSaving} type="button" onClick={saveNewBrand}>
+            Сохранить
+          </button>
+          <button
+            disabled={isSaving}
+            type="button"
+            onClick={() => {
+              setIsAdding(false);
+              setNewLabel("");
+              setStatus("");
+            }}
+          >
+            Отмена
+          </button>
+          {status ? <span role="status">{status}</span> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function normalizeProductionBrandKey(value: string) {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function ProductionGranulationTable({
@@ -4562,6 +4985,30 @@ const productionReportSectionOptions: readonly {
 
 const legacyProductionDetailFields: readonly DispatcherFormField[] = [
   {
+    name: "formingPlan",
+    label: "Формовка — План (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "formingProductBrands",
+    label: "Формовка — Марки изделий (старое поле)",
+    type: "text",
+    required: false,
+  },
+  {
+    name: "sortingPlan",
+    label: "Сортировка — План (старое поле)",
+    type: "number",
+    required: false,
+  },
+  {
+    name: "sortingProductBrands",
+    label: "Сортировка — Марки изделий (старое поле)",
+    type: "text",
+    required: false,
+  },
+  {
     name: "formingMonth",
     label: "Формовка — Месяц (старое поле)",
     type: "number",
@@ -4588,6 +5035,12 @@ const legacyProductionDetailFields: readonly DispatcherFormField[] = [
   ...[1, 2, 3, 4].flatMap(
     (rowNumber): DispatcherFormField[] => [
       {
+        name: `unformedPlan${rowNumber}`,
+        label: `Неформованная продукция — Строка ${rowNumber}, план (старое поле)`,
+        type: "number",
+        required: false,
+      },
+      {
         name: `unformedMonth${rowNumber}`,
         label: `Неформованная продукция — Строка ${rowNumber}, месяц (старое поле)`,
         type: "number",
@@ -4601,6 +5054,12 @@ const legacyProductionDetailFields: readonly DispatcherFormField[] = [
       },
     ],
   ),
+  {
+    name: "chamottePlan1",
+    label: "Цех обжига шамота — План (старое поле)",
+    type: "number",
+    required: false,
+  },
   {
     name: "chamotteMonth1",
     label: "Цех обжига шамота — Месяц (старое поле)",
@@ -4797,6 +5256,7 @@ function ProductionMetricDashboardTable({
         <thead>
           <tr>
             <th scope="col">Дата</th>
+            <th scope="col">Марка</th>
             <th scope="col">Сутки, план</th>
             <th scope="col">Сутки, факт</th>
             <th scope="col">Месяц, план</th>
@@ -4814,6 +5274,7 @@ function ProductionMetricDashboardTable({
                   onOpen={onOpen}
                 />
               </td>
+              <td>{row.brand ?? "—"}</td>
               <td>{formatOptionalNumber(row.dayPlan)}</td>
               <td>{formatOptionalNumber(row.dayFact)}</td>
               <td>{formatOptionalNumber(row.monthPlan)}</td>
@@ -4832,7 +5293,7 @@ function ProductionBrandDashboardTable({
   formAvailable,
   onOpen,
 }: {
-  rows: ProductionBrandMetricRow[];
+  rows: ProductionBrandCategoryRow[];
   formAvailable: boolean;
   onOpen: (reportId: string) => void;
 }) {
@@ -4842,7 +5303,7 @@ function ProductionBrandDashboardTable({
         <thead>
           <tr>
             <th scope="col">Дата</th>
-            <th scope="col">Марка продукции</th>
+            <th scope="col">Факты по маркам, сутки / месяц</th>
             <th scope="col">Сутки, план</th>
             <th scope="col">Сутки, факт</th>
             <th scope="col">Месяц, план</th>
@@ -4851,8 +5312,8 @@ function ProductionBrandDashboardTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr key={`${row.reportId}-${row.brand}-${index}`}>
+          {rows.map((row) => (
+            <tr key={row.reportId}>
               <td>
                 <ProductionReportDateButton
                   row={row}
@@ -4860,7 +5321,16 @@ function ProductionBrandDashboardTable({
                   onOpen={onOpen}
                 />
               </td>
-              <td>{row.brand}</td>
+              <td>
+                {row.facts.length === 0
+                  ? "—"
+                  : row.facts
+                      .map(
+                        (fact) =>
+                          `${fact.brand}: ${formatNumber(fact.value)} / ${formatNumber(fact.monthValue)}`,
+                      )
+                      .join("; ")}
+              </td>
               <td>{formatOptionalNumber(row.dayPlan)}</td>
               <td>{formatOptionalNumber(row.dayFact)}</td>
               <td>{formatOptionalNumber(row.monthPlan)}</td>
@@ -5005,6 +5475,7 @@ function ProductionReportDetailModal({
   const currentFieldNames = new Set(form.fields.map((field) => field.name));
   const visibleFields = [
     ...form.fields,
+    ...readDynamicProductionDetailFields(submission.payload),
     ...legacyProductionDetailFields.filter(
       (field) => !currentFieldNames.has(field.name),
     ),
@@ -5061,6 +5532,30 @@ function ProductionReportDetailModal({
       </section>
     </div>
   );
+}
+
+function readDynamicProductionDetailFields(
+  payload: DispatcherSubmissionPayload,
+): DispatcherFormField[] {
+  return Object.keys(payload).flatMap((fieldName) => {
+    const match = /^(unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
+      fieldName,
+    );
+
+    if (match === null || Number(match[3]) > 50) return [];
+
+    const section = match[1] === "unformed"
+      ? "Неформованная продукция"
+      : "Цех обжига шамота";
+    const metric = match[2] === "Brand" ? "Марка" : "Факт";
+
+    return [{
+      name: fieldName,
+      label: `${section} — ${metric} ${match[3]}`,
+      type: match[2] === "Brand" ? "text" as const : "number" as const,
+      required: false,
+    }];
+  });
 }
 
 function EquipmentSummaryTable({
@@ -8148,6 +8643,22 @@ function readDispatcherSubmissionPayload(
     }
   }
 
+  if (formDefinition.id === "production") {
+    for (const [fieldName, rawValue] of formData.entries()) {
+      if (!/^(?:unformed|chamotte)(?:Brand|Fact)(?:[1-9]|[1-4]\d|50)$/u.test(fieldName)) {
+        continue;
+      }
+
+      const value = readOptionalFormValue(rawValue);
+
+      if (value === undefined || value.length === 0) continue;
+
+      payload[fieldName] = fieldName.includes("Fact")
+        ? normalizeDecimalNumberForPayload(value) ?? value
+        : value.trim().replace(/\s+/gu, " ");
+    }
+  }
+
   if (formDefinition.id === "visitor_exit") {
     const visitorEntryId = readOptionalFormValue(formData.get("visitorEntryId"));
 
@@ -8596,6 +9107,21 @@ function readPositiveIntegerInput(value: string) {
   const number = Number(normalized);
 
   return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+}
+
+function readProductionCategoryPlanInputs(
+  inputs: Record<ProductionCategory, string>,
+): ProductionCategoryPlans | undefined {
+  const entries = productionCategories.map((category) => [
+    category,
+    readPositiveIntegerInput(inputs[category]),
+  ] as const);
+
+  if (entries.some(([, value]) => value === undefined)) {
+    return undefined;
+  }
+
+  return Object.fromEntries(entries) as ProductionCategoryPlans;
 }
 
 function buildProductionPlanMonthDates(month: string) {

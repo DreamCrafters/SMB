@@ -19,6 +19,10 @@ export const incidentCloseRequiresOpenIncidentMessage =
   "Выберите незакрытый инцидент.";
 export const productionRequiresIndicatorMessage =
   "Заполните хотя бы один показатель выработки.";
+export const productionBrandFactPairMessage =
+  "Для каждого факта выберите марку, а для выбранной марки укажите факт.";
+export const productionDuplicateBrandMessage =
+  "Одна марка не должна повторяться в одной категории.";
 
 const equipmentReserveDowntimeReason = "Резерв";
 
@@ -30,15 +34,8 @@ export function validateDispatcherPayloadForSubmit(
     return validateEquipmentPayloadForSubmit(payload);
   }
 
-  if (
-    form.id === "production" &&
-    !form.fields.some(
-      (field) =>
-        field.name !== "reportDate" &&
-        (payload[field.name]?.trim().length ?? 0) > 0,
-    )
-  ) {
-    return productionRequiresIndicatorMessage;
+  if (form.id === "production") {
+    return validateProductionPayloadForSubmit(form, payload);
   }
 
   if (
@@ -55,6 +52,56 @@ export function validateDispatcherPayloadForSubmit(
       payload.visitorEntryId.trim().length === 0)
   ) {
     return visitorExitRequiresEntryMessage;
+  }
+
+  return undefined;
+}
+
+function validateProductionPayloadForSubmit(
+  form: DispatcherFormDefinition,
+  payload: DispatcherSubmissionPayload,
+) {
+  for (const prefix of ["forming", "sorting"] as const) {
+    const fact = payload[`${prefix}Day`]?.trim() ?? "";
+    const brand = payload[`${prefix}ProductBrand`]?.trim() ?? "";
+
+    if ((fact.length > 0) !== (brand.length > 0)) {
+      return productionBrandFactPairMessage;
+    }
+  }
+
+  for (const prefix of ["unformed", "chamotte"] as const) {
+    const brands = new Set<string>();
+
+    for (let index = 1; index <= 50; index += 1) {
+      const brand = payload[`${prefix}Brand${index}`]?.trim() ?? "";
+      const fact = payload[`${prefix}Fact${index}`]?.trim() ?? "";
+
+      if ((brand.length > 0) !== (fact.length > 0)) {
+        return productionBrandFactPairMessage;
+      }
+
+      if (brand.length === 0) continue;
+
+      const brandKey = brand.replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
+
+      if (brands.has(brandKey)) {
+        return productionDuplicateBrandMessage;
+      }
+
+      brands.add(brandKey);
+    }
+  }
+
+  const hasIndicator = Object.entries(payload).some(
+    ([fieldName, value]) =>
+      fieldName !== "reportDate" &&
+      !/(?:Brand|ProductBrand)(?:\d+)?$/u.test(fieldName) &&
+      value.trim().length > 0,
+  );
+
+  if (!hasIndicator) {
+    return productionRequiresIndicatorMessage;
   }
 
   return undefined;

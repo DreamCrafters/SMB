@@ -1,36 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DispatcherSubmission } from "./dispatcherSubmission.js";
+import type { ProductionPlan } from "./productionPlan.js";
 import { buildProductionReportTables } from "./productionReportTables.js";
 
 test("buildProductionReportTables calculates server-owned production analytics", () => {
   const tables = buildProductionReportTables([
     buildSubmission("day-1", {
       reportDate: "01.07.2026",
-      formingPlan: "10",
       formingDay: "8",
-      sortingPlan: "6",
+      formingProductBrand: "ФЛ-1",
       sortingDay: "5",
+      sortingProductBrand: "СО-1",
       unformedBrand1: "ПБ-5",
-      unformedPlan1: "3",
       unformedFact1: "2",
       chamotteBrand1: "Ш-1",
-      chamottePlan1: "4",
       chamotteFact1: "3",
       granulationFraction1600Day: "1.5",
       granulationSamplesDay: "2",
     }),
     buildSubmission("day-2", {
       reportDate: "02.07.2026",
-      formingPlan: "10",
       formingDay: "11",
-      sortingPlan: "6",
+      formingProductBrand: "ФЛ-2",
       sortingDay: "7",
+      sortingProductBrand: "СО-2",
       unformedBrand1: " пб-5 ",
-      unformedPlan1: "3",
       unformedFact1: "4",
+      unformedBrand2: "ПБ-6",
+      unformedFact2: "1",
       chamotteBrand1: "Ш-1",
-      chamottePlan1: "4",
       chamotteFact1: "5",
       jarStart1: "120",
       jarEnd1: "95",
@@ -39,11 +38,12 @@ test("buildProductionReportTables calculates server-owned production analytics",
       granulationFraction1630Day: "2.5",
       granulationFraction1218Day: "3",
     }),
-  ]);
+  ], [productionPlan]);
 
   assert.deepEqual(tables.forming[1], {
     reportId: "day-2",
     reportDate: "2026-07-02",
+    brand: "ФЛ-2",
     dayPlan: 10,
     dayFact: 11,
     monthPlan: 20,
@@ -54,6 +54,7 @@ test("buildProductionReportTables calculates server-owned production analytics",
   assert.deepEqual(tables.sorting[1], {
     reportId: "day-2",
     reportDate: "2026-07-02",
+    brand: "СО-2",
     dayPlan: 6,
     dayFact: 7,
     monthPlan: 12,
@@ -64,12 +65,15 @@ test("buildProductionReportTables calculates server-owned production analytics",
   assert.deepEqual(tables.unformed[1], {
     reportId: "day-2",
     reportDate: "2026-07-02",
-    brand: "ПБ-5",
-    dayPlan: 3,
-    dayFact: 4,
-    monthPlan: 6,
-    monthFact: 6,
-    deviation: 0,
+    facts: [
+      { brand: "ПБ-5", value: 4, monthValue: 6 },
+      { brand: "ПБ-6", value: 1, monthValue: 1 },
+    ],
+    dayPlan: 7,
+    dayFact: 5,
+    monthPlan: 14,
+    monthFact: 7,
+    deviation: -7,
     receivedAt: "2026-07-02T18:00:00.000Z",
   });
   assert.equal(tables.chamotte[1]?.monthFact, 8);
@@ -91,20 +95,36 @@ test("buildProductionReportTables uses only the latest report for each date", ()
   const tables = buildProductionReportTables([
     buildSubmission(
       "stale",
-      { reportDate: "02.07.2026", formingPlan: "100", formingDay: "100" },
+      { reportDate: "02.07.2026", formingDay: "100" },
       "2026-07-02T17:00:00.000Z",
     ),
     buildSubmission(
       "latest",
-      { reportDate: "02.07.2026", formingPlan: "10", formingDay: "11" },
+      { reportDate: "02.07.2026", formingDay: "11" },
       "2026-07-02T18:00:00.000Z",
     ),
-  ]);
+  ], [productionPlan]);
 
   assert.equal(tables.forming.length, 1);
   assert.equal(tables.forming[0]?.reportId, "latest");
   assert.equal(tables.forming[0]?.monthFact, 11);
 });
+
+const productionPlan: ProductionPlan = {
+  month: "2026-07",
+  monthlyPlans: {
+    forming: 30,
+    sorting: 18,
+    unformed: 21,
+    chamotte: 12,
+  },
+  workingDayCount: 3,
+  dailyPlans: [
+    { date: "2026-07-01", values: { forming: 10, sorting: 6, unformed: 7, chamotte: 4 } },
+    { date: "2026-07-02", values: { forming: 10, sorting: 6, unformed: 7, chamotte: 4 } },
+    { date: "2026-07-03", values: { forming: 10, sorting: 6, unformed: 7, chamotte: 4 } },
+  ],
+};
 
 function buildSubmission(
   id: string,

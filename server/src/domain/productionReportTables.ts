@@ -2,6 +2,10 @@ import type {
   DispatcherSubmission,
   DispatcherSubmissionPayload,
 } from "./dispatcherSubmission.js";
+import type {
+  ProductionCategory,
+  ProductionPlan,
+} from "./productionPlan.js";
 
 export type ProductionReportBaseRow = {
   reportId: string;
@@ -10,6 +14,7 @@ export type ProductionReportBaseRow = {
 };
 
 export type ProductionMetricRow = ProductionReportBaseRow & {
+  brand?: string;
   dayPlan?: number;
   dayFact?: number;
   monthPlan?: number;
@@ -17,8 +22,16 @@ export type ProductionMetricRow = ProductionReportBaseRow & {
   deviation?: number;
 };
 
-export type ProductionBrandMetricRow = ProductionMetricRow & {
+export type ProductionBrandFact = {
   brand: string;
+  value: number;
+  monthValue: number;
+};
+
+type DailyProductionBrandFact = Omit<ProductionBrandFact, "monthValue">;
+
+export type ProductionBrandCategoryRow = ProductionMetricRow & {
+  facts: ProductionBrandFact[];
 };
 
 export type ProductionJarMeasurementRow = ProductionReportBaseRow & {
@@ -40,8 +53,8 @@ export type ProductionGranulationRow = ProductionReportBaseRow & {
 export type ProductionReportTables = {
   forming: ProductionMetricRow[];
   sorting: ProductionMetricRow[];
-  unformed: ProductionBrandMetricRow[];
-  chamotte: ProductionBrandMetricRow[];
+  unformed: ProductionBrandCategoryRow[];
+  chamotte: ProductionBrandCategoryRow[];
   jars: ProductionJarMeasurementRow[];
   granulation: ProductionGranulationRow[];
 };
@@ -60,14 +73,15 @@ type ProductionTotals = {
 
 export function buildProductionReportTables(
   submissions: DispatcherSubmission[],
+  plans: ProductionPlan[] = [],
 ): ProductionReportTables {
   const dailyReports = readLatestProductionReports(submissions);
 
   return {
-    forming: buildMetricRows(dailyReports, "forming"),
-    sorting: buildMetricRows(dailyReports, "sorting"),
-    unformed: buildBrandRows(dailyReports, "unformed", 4),
-    chamotte: buildBrandRows(dailyReports, "chamotte", 1),
+    forming: buildMetricRows(dailyReports, plans, "forming"),
+    sorting: buildMetricRows(dailyReports, plans, "sorting"),
+    unformed: buildBrandRows(dailyReports, plans, "unformed"),
+    chamotte: buildBrandRows(dailyReports, plans, "chamotte"),
     jars: buildJarRows(dailyReports),
     granulation: buildGranulationRows(dailyReports),
   };
@@ -107,96 +121,150 @@ function readLatestProductionReports(
 
 function buildMetricRows(
   reports: DatedProductionReport[],
+  plans: ProductionPlan[],
   prefix: "forming" | "sorting",
 ): ProductionMetricRow[] {
   const totalsByMonth = new Map<string, ProductionTotals>();
 
   return reports.flatMap((report) => {
-    const dayPlan = readNumber(report.submission.payload[`${prefix}Plan`]);
+    const categoryPlan = readCategoryPlan(plans, report.reportDate, prefix);
+    const legacyDayPlan = readNumber(report.submission.payload[`${prefix}Plan`]);
+    const dayPlan = categoryPlan.dayPlan ?? legacyDayPlan;
     const dayFact = readNumber(report.submission.payload[`${prefix}Day`]);
+    const brand = normalizeOptionalBrand(
+      report.submission.payload[`${prefix}ProductBrand`] ??
+        report.submission.payload[`${prefix}ProductBrands`],
+    );
     const totals = readTotals(totalsByMonth, report.reportDate.slice(0, 7));
 
-    addDailyValues(totals, dayPlan, dayFact);
+    addDailyValues(
+      totals,
+      categoryPlan.monthPlan === undefined ? legacyDayPlan : undefined,
+      dayFact,
+    );
 
     if (dayPlan === undefined && dayFact === undefined) return [];
 
     return [{
       ...readBaseRow(report),
+      ...(brand === undefined ? {} : { brand }),
       dayPlan,
       dayFact,
-      ...readMonthlyValues(totals),
+      ...readMonthlyValues(totals, categoryPlan.monthPlan),
     }];
   });
 }
 
 function buildBrandRows(
   reports: DatedProductionReport[],
+  plans: ProductionPlan[],
   prefix: "unformed" | "chamotte",
-  rowCount: number,
-): ProductionBrandMetricRow[] {
+): ProductionBrandCategoryRow[] {
+  const totalsByMonth = new Map<string, ProductionTotals>();
+  const factsByMonthAndBrand = new Map<string, number>();
   const brandLabels = new Map<string, string>();
-  const totalsByMonthAndBrand = new Map<string, ProductionTotals>();
 
   return reports.flatMap((report) => {
-    const dailyValues = readDailyBrandValues(
+    const dailyFacts = readDailyBrandFacts(
       report.submission.payload,
       prefix,
-      rowCount,
       brandLabels,
     );
+    const month = report.reportDate.slice(0, 7);
+    const facts = dailyFacts.map((fact): ProductionBrandFact => {
+      const key = `${month}:${normalizeBrand(fact.brand).toLocaleLowerCase("ru-RU")}`;
+      const monthValue = (factsByMonthAndBrand.get(key) ?? 0) + fact.value;
 
-    return [...dailyValues.entries()]
-      .sort(([leftKey], [rightKey]) =>
-        (brandLabels.get(leftKey) ?? leftKey).localeCompare(
-          brandLabels.get(rightKey) ?? rightKey,
-          "ru-RU",
-        ))
-      .map(([brandKey, daily]) => {
-        const totals = readTotals(
-          totalsByMonthAndBrand,
-          `${report.reportDate.slice(0, 7)}:${brandKey}`,
-        );
+      factsByMonthAndBrand.set(key, monthValue);
+      return { ...fact, monthValue };
+    });
+    const dayFact = facts.length === 0
+      ? undefined
+      : facts.reduce((sum, fact) => sum + fact.value, 0);
+    const categoryPlan = readCategoryPlan(plans, report.reportDate, prefix);
+    const legacyDayPlan = readLegacyBrandPlan(
+      report.submission.payload,
+      prefix,
+    );
+    const dayPlan = categoryPlan.dayPlan ?? legacyDayPlan;
+    const totals = readTotals(
+      totalsByMonth,
+      month,
+    );
 
-        addDailyValues(
-          totals,
-          daily.hasPlan ? daily.plan : undefined,
-          daily.hasFact ? daily.fact : undefined,
-        );
+    addDailyValues(
+      totals,
+      categoryPlan.monthPlan === undefined ? legacyDayPlan : undefined,
+      dayFact,
+    );
 
-        return {
-          ...readBaseRow(report),
-          brand: brandLabels.get(brandKey) ?? "Без марки",
-          dayPlan: daily.hasPlan ? daily.plan : undefined,
-          dayFact: daily.hasFact ? daily.fact : undefined,
-          ...readMonthlyValues(totals),
-        };
-      });
+    if (dayPlan === undefined && dayFact === undefined) {
+      return [];
+    }
+
+    return [{
+      ...readBaseRow(report),
+      facts,
+      dayPlan,
+      dayFact,
+      ...readMonthlyValues(totals, categoryPlan.monthPlan),
+    }];
   });
 }
 
-function readDailyBrandValues(
+function readDailyBrandFacts(
   payload: DispatcherSubmissionPayload,
   prefix: "unformed" | "chamotte",
-  rowCount: number,
   brandLabels: Map<string, string>,
-) {
-  const values = new Map<string, ProductionTotals>();
+): DailyProductionBrandFact[] {
+  const factsByBrand = new Map<string, DailyProductionBrandFact>();
 
-  for (let rowNumber = 1; rowNumber <= rowCount; rowNumber += 1) {
-    const plan = readNumber(payload[`${prefix}Plan${rowNumber}`]);
-    const fact = readNumber(payload[`${prefix}Fact${rowNumber}`]);
+  for (const [fieldName, rawFact] of Object.entries(payload)) {
+    const match = new RegExp(`^${prefix}Fact([1-9]\\d?)$`, "u").exec(fieldName);
 
-    if (plan === undefined && fact === undefined) continue;
+    if (match === null || Number(match[1]) > 50) {
+      continue;
+    }
 
-    const brand = normalizeBrand(payload[`${prefix}Brand${rowNumber}`]);
+    const value = readNumber(rawFact);
+    const brand = normalizeBrand(payload[`${prefix}Brand${match[1]}`]);
+
+    if (value === undefined || brand === "Без марки") {
+      continue;
+    }
+
     const brandKey = brand.toLocaleLowerCase("ru-RU");
-    const totals = readTotals(values, brandKey);
+    const current = factsByBrand.get(brandKey);
 
-    if (!brandLabels.has(brandKey)) brandLabels.set(brandKey, brand);
-    addDailyValues(totals, plan, fact);
+    if (!brandLabels.has(brandKey)) {
+      brandLabels.set(brandKey, brand);
+    }
+
+    factsByBrand.set(brandKey, {
+      brand: current?.brand ?? brandLabels.get(brandKey) ?? brand,
+      value: (current?.value ?? 0) + value,
+    });
   }
 
-  return values;
+  return [...factsByBrand.values()].sort((left, right) =>
+    left.brand.localeCompare(right.brand, "ru-RU"),
+  );
+}
+
+function readLegacyBrandPlan(
+  payload: DispatcherSubmissionPayload,
+  prefix: "unformed" | "chamotte",
+) {
+  const values = Object.entries(payload).flatMap(([fieldName, value]) =>
+    new RegExp(`^${prefix}Plan[1-9]\\d?$`, "u").test(fieldName)
+      ? [readNumber(value)]
+      : [],
+  );
+  const plans = values.filter((value): value is number => value !== undefined);
+
+  return plans.length === 0
+    ? undefined
+    : plans.reduce((sum, value) => sum + value, 0);
 }
 
 function buildJarRows(
@@ -318,13 +386,41 @@ function addDailyValues(
   }
 }
 
-function readMonthlyValues(totals: ProductionTotals) {
+function readMonthlyValues(
+  totals: ProductionTotals,
+  categoryMonthPlan?: number,
+) {
+  const monthPlan = categoryMonthPlan ?? (totals.hasPlan ? totals.plan : undefined);
+
   return {
-    monthPlan: totals.hasPlan ? totals.plan : undefined,
+    monthPlan,
     monthFact: totals.hasFact ? totals.fact : undefined,
     deviation:
-      totals.hasPlan && totals.hasFact ? totals.fact - totals.plan : undefined,
+      monthPlan !== undefined && totals.hasFact
+        ? totals.fact - monthPlan
+        : undefined,
   };
+}
+
+function readCategoryPlan(
+  plans: ProductionPlan[],
+  reportDate: string,
+  category: ProductionCategory,
+) {
+  const plan = plans.find((item) => item.month === reportDate.slice(0, 7));
+
+  if (plan === undefined) {
+    return {};
+  }
+
+  const dayPlan = plan.dailyPlans.find(
+    (dailyPlan) => dailyPlan.date === reportDate,
+  )?.values[category];
+  const monthPlan = plan.dailyPlans
+    .filter((dailyPlan) => dailyPlan.date <= reportDate)
+    .reduce((sum, dailyPlan) => sum + dailyPlan.values[category], 0);
+
+  return { dayPlan, monthPlan };
 }
 
 function readBaseRow(report: DatedProductionReport): ProductionReportBaseRow {
@@ -338,6 +434,11 @@ function readBaseRow(report: DatedProductionReport): ProductionReportBaseRow {
 function normalizeBrand(value: string | undefined) {
   const brand = value?.trim().replace(/\s+/gu, " ") ?? "";
   return brand.length > 0 ? brand : "Без марки";
+}
+
+function normalizeOptionalBrand(value: string | undefined) {
+  const brand = value?.trim().replace(/\s+/gu, " ") ?? "";
+  return brand.length === 0 ? undefined : brand;
 }
 
 function readFirstNumber(

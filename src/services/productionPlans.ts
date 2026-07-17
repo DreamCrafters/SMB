@@ -1,12 +1,14 @@
-import type {
-  ProductionPlanPreviewRequest,
-  ProductionPlanPreviewResponse,
-  ProductionDailyPlan,
-  ProductionDailyPlanResponse,
-  ProductionPlanResponse,
-  ProductionPlanRevision,
-  SaveProductionPlanRequest,
-} from "../contracts";
+import {
+  productionCategories,
+  type ProductionCategoryPlans,
+  type ProductionPlanPreviewRequest,
+  type ProductionPlanPreviewResponse,
+  type ProductionDailyPlan,
+  type ProductionDailyPlanResponse,
+  type ProductionPlanResponse,
+  type ProductionPlanRevision,
+  type SaveProductionPlanRequest,
+} from "../contracts/productionPlans.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
   describeRemoteNetworkFailure,
@@ -177,8 +179,7 @@ function isProductionPlanPreviewResponse(
   return (
     isRecord(value) &&
     typeof value.month === "string" &&
-    typeof value.monthlyPlan === "number" &&
-    Number.isSafeInteger(value.monthlyPlan) &&
+    isProductionCategoryPlans(value.monthlyPlans) &&
     typeof value.workingDayCount === "number" &&
     Number.isSafeInteger(value.workingDayCount) &&
     Array.isArray(value.suggestedWorkingDates) &&
@@ -201,8 +202,7 @@ function isProductionDailyPlanResponse(
     (value.plan === null ||
       (isRecord(value.plan) &&
         typeof value.plan.date === "string" &&
-        typeof value.plan.value === "number" &&
-        Number.isSafeInteger(value.plan.value)))
+        isProductionCategoryPlans(value.plan.values)))
   );
 }
 
@@ -211,8 +211,7 @@ function isProductionPlanRevision(value: unknown): value is ProductionPlanRevisi
     isRecord(value) &&
     typeof value.revisionId === "string" &&
     typeof value.month === "string" &&
-    typeof value.monthlyPlan === "number" &&
-    Number.isSafeInteger(value.monthlyPlan) &&
+    isProductionCategoryPlans(value.monthlyPlans) &&
     typeof value.workingDayCount === "number" &&
     Number.isSafeInteger(value.workingDayCount) &&
     Array.isArray(value.dailyPlans) &&
@@ -220,11 +219,24 @@ function isProductionPlanRevision(value: unknown): value is ProductionPlanRevisi
       (item) =>
         isRecord(item) &&
         typeof item.date === "string" &&
-        typeof item.value === "number" &&
-        Number.isSafeInteger(item.value),
+        isProductionCategoryPlans(item.values),
     ) &&
     typeof value.createdByUserId === "string" &&
     typeof value.createdAt === "string"
+  );
+}
+
+function isProductionCategoryPlans(
+  value: unknown,
+): value is ProductionCategoryPlans {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === productionCategories.length &&
+    productionCategories.every(
+      (category) =>
+        typeof value[category] === "number" &&
+        Number.isSafeInteger(value[category]),
+    )
   );
 }
 

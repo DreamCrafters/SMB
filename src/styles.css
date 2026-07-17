@@ -1035,6 +1035,63 @@ p {
   text-align: right;
 }
 
+.production-report-daily-plan-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 8px;
+  width: min(100%, 760px);
+  margin: 0;
+}
+
+.production-report-daily-plan-list div {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-strong);
+}
+
+.production-report-daily-plan-list dt {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.production-report-daily-plan-list dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.production-brand-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--density-2);
+  padding: 9px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.production-brand-load-error button,
+.production-brand-column-add,
+.production-brand-column-remove,
+.production-brand-create button {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
 .production-report-section {
   display: grid;
   min-width: 0;
@@ -1140,6 +1197,99 @@ p {
 .production-report-rows-table th:first-child,
 .production-report-rows-table td:first-child {
   width: 42%;
+}
+
+.production-report-plan-cell {
+  padding: 10px 12px !important;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.production-brand-columns {
+  display: grid;
+  gap: 9px;
+}
+
+.production-brand-columns .production-report-table-wrap {
+  overflow-x: auto;
+}
+
+.production-report-brand-columns-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.production-report-brand-columns-table th,
+.production-report-brand-columns-table td {
+  width: 230px;
+  min-width: 230px;
+  vertical-align: top;
+}
+
+.production-report-brand-columns-table .production-report-plan-heading,
+.production-report-brand-columns-table .production-report-plan-cell {
+  width: 150px;
+  min-width: 150px;
+}
+
+.production-brand-picker {
+  display: grid;
+  gap: 7px;
+}
+
+.production-brand-picker select,
+.production-brand-create input,
+.production-brand-fact-input input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+}
+
+.production-brand-create {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 5px;
+}
+
+.production-brand-create span {
+  grid-column: 1 / -1;
+  color: var(--danger);
+  font-size: 10px;
+  text-transform: none;
+}
+
+.production-brand-column-remove {
+  margin-top: 6px;
+}
+
+.production-brand-column-add {
+  justify-self: start;
+}
+
+.production-brand-fact-input {
+  display: block;
+}
+
+.production-brand-fact-input span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.production-brand-fact-input input {
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
 }
 
 .production-report-cell-input label {
@@ -3587,6 +3737,12 @@ p {
   background: var(--surface-subtle);
 }
 
+.production-plan-category-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(190px, 1fr));
+  gap: var(--density-2);
+}
+
 .production-plan-form label {
   display: grid;
   gap: 7px;
@@ -3669,6 +3825,36 @@ p {
 .production-plan-confirmation-head p,
 .production-plan-saved-head p {
   max-width: 520px;
+}
+
+.production-plan-category-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.production-plan-category-summary div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.production-plan-category-summary dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.production-plan-category-summary dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 900;
 }
 
 .production-plan-calendar {
@@ -3782,6 +3968,12 @@ p {
   .production-plan-confirmation-head,
   .production-plan-saved-head {
     display: grid;
+  }
+
+  .production-plan-category-inputs,
+  .production-plan-category-summary,
+  .production-report-daily-plan-list {
+    grid-template-columns: 1fr;
   }
 
   .production-plan-calendar {

@@ -237,8 +237,6 @@ const localDispatcherForms: LocalDispatcherFormDefinition[] = [
       },
       ...buildLocalProductionSummaryFields("forming", "Формовка"),
       ...buildLocalProductionSummaryFields("sorting", "Сортировка"),
-      ...buildLocalProductionRows("unformed", "Неформованная продукция", 4),
-      ...buildLocalProductionRows("chamotte", "Выпуск шамота", 1),
       ...buildLocalJarMeasurementFields(),
       {
         name: "granulationPlatesInOperation",
@@ -439,44 +437,15 @@ function buildLocalProductionSummaryFields(
   sectionLabel: string,
 ): DispatcherFormField[] {
   return [
-    localProductionNumberField(`${prefix}Plan`, `${sectionLabel} — План`),
     localProductionNumberField(`${prefix}Day`, `${sectionLabel} — Сутки`),
     {
-      name: `${prefix}ProductBrands`,
-      label: `${sectionLabel} — Марки изделий`,
+      name: `${prefix}ProductBrand`,
+      label: `${sectionLabel} — Марка изделия`,
       type: "text",
       required: false,
-      maxLength: 500,
+      maxLength: 120,
     },
   ];
-}
-
-function buildLocalProductionRows(
-  prefix: "unformed" | "chamotte",
-  sectionLabel: string,
-  rowCount: number,
-): DispatcherFormField[] {
-  return Array.from({ length: rowCount }, (_, index) => {
-    const rowNumber = index + 1;
-    const rowLabel = `${sectionLabel}, строка ${rowNumber}`;
-
-    return [
-      {
-        name: `${prefix}Brand${rowNumber}`,
-        label: `${rowLabel} — Марка продукции`,
-        type: "text" as const,
-        required: false,
-      },
-      localProductionNumberField(
-        `${prefix}Plan${rowNumber}`,
-        `${rowLabel} — План`,
-      ),
-      localProductionNumberField(
-        `${prefix}Fact${rowNumber}`,
-        `${rowLabel} — Факт`,
-      ),
-    ];
-  }).flat();
 }
 
 function buildLocalJarMeasurementFields(): DispatcherFormField[] {
@@ -1688,9 +1657,9 @@ function isProductionReportTables(value: unknown): value is ProductionReportTabl
     Array.isArray(value.sorting) &&
     value.sorting.every(isProductionMetricRow) &&
     Array.isArray(value.unformed) &&
-    value.unformed.every(isProductionBrandMetricRow) &&
+    value.unformed.every(isProductionBrandCategoryRow) &&
     Array.isArray(value.chamotte) &&
-    value.chamotte.every(isProductionBrandMetricRow) &&
+    value.chamotte.every(isProductionBrandCategoryRow) &&
     Array.isArray(value.jars) &&
     value.jars.every(
       (row) =>
@@ -1714,17 +1683,27 @@ function isProductionReportTables(value: unknown): value is ProductionReportTabl
   );
 }
 
-function isProductionBrandMetricRow(value: unknown) {
+function isProductionBrandCategoryRow(value: unknown) {
   return (
     isProductionMetricRow(value) &&
-    "brand" in value &&
-    typeof value.brand === "string"
+    "facts" in value &&
+    Array.isArray(value.facts) &&
+    value.facts.every(
+      (fact) =>
+        isRecord(fact) &&
+        typeof fact.brand === "string" &&
+        typeof fact.value === "number" &&
+        Number.isFinite(fact.value) &&
+        typeof fact.monthValue === "number" &&
+        Number.isFinite(fact.monthValue),
+    )
   );
 }
 
 function isProductionMetricRow(value: unknown): value is ProductionMetricRow {
   return (
     isProductionBaseRow(value) &&
+    (value.brand === undefined || typeof value.brand === "string") &&
     isOptionalNumber(value.dayPlan) &&
     isOptionalNumber(value.dayFact) &&
     isOptionalNumber(value.monthPlan) &&

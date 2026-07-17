@@ -44,6 +44,25 @@ test("dispatcher audit details expose only server-defined form fields", () => {
   assert.doesNotMatch(JSON.stringify(details), /password|must-never-appear|incidentNumber/u);
 });
 
+test("production audit includes server-supported dynamic brand facts", () => {
+  const details = buildDispatcherSubmissionAuditDetails("production", {
+    reportDate: "2026-07-16",
+    unformedBrand7: "МКР-1",
+    unformedFact7: "12.5",
+    chamotteBrand50: "ША-2",
+    chamotteFact50: "8",
+    unformedBrand51: "must-never-appear",
+  });
+
+  assert.deepEqual(details, [
+    { label: "Дата отчета", value: "2026-07-16" },
+    { label: "Неформованная продукция — Марка 7", value: "МКР-1" },
+    { label: "Неформованная продукция — Факт 7", value: "12.5" },
+    { label: "Цех обжига шамота — Марка 50", value: "ША-2" },
+    { label: "Цех обжига шамота — Факт 50", value: "8" },
+  ]);
+});
+
 test("client-reported views are restricted to known tabs and screens", () => {
   assert.deepEqual(readAuditScreen("admin.user_actions"), {
     id: "admin.user_actions",

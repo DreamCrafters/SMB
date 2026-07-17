@@ -1,12 +1,23 @@
+export const productionCategories = [
+  "forming",
+  "sorting",
+  "unformed",
+  "chamotte",
+] as const;
+
+export type ProductionCategory = (typeof productionCategories)[number];
+
+export type ProductionCategoryPlans = Record<ProductionCategory, number>;
+
 export type ProductionDailyPlan = {
   date: string;
-  value: number;
+  values: ProductionCategoryPlans;
 };
 
 export type ProductionPlanRevision = {
   revisionId: string;
   month: string;
-  monthlyPlan: number;
+  monthlyPlans: ProductionCategoryPlans;
   workingDayCount: number;
   dailyPlans: ProductionDailyPlan[];
   createdByUserId: string;
@@ -15,7 +26,7 @@ export type ProductionPlanRevision = {
 
 export type ProductionPlanPreviewRequest = {
   month: string;
-  monthlyPlan: number;
+  monthlyPlans: ProductionCategoryPlans;
 };
 
 export type ProductionPlanPreviewResponse = ProductionPlanPreviewRequest & {
@@ -33,4 +44,33 @@ export type ProductionPlanResponse = {
 
 export type ProductionDailyPlanResponse = {
   plan: ProductionDailyPlan | null;
+};
+
+export const productionBrandCategories = [
+  "product",
+  "unformed",
+  "chamotte",
+] as const;
+
+export type ProductionBrandCategory =
+  (typeof productionBrandCategories)[number];
+
+export type ProductionBrandLabel = {
+  id: string;
+  category: ProductionBrandCategory;
+  label: string;
+  createdAt: string;
+};
+
+export type ProductionBrandsResponse = {
+  labels: ProductionBrandLabel[];
+};
+
+export type CreateProductionBrandRequest = {
+  category: ProductionBrandCategory;
+  label: string;
+};
+
+export type ProductionBrandResponse = {
+  label: ProductionBrandLabel;
 };

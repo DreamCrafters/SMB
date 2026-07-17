@@ -27,6 +27,7 @@ import {
 } from "../domain/devAccessProfile.js";
 import {
   buildDispatcherSubmissionDedupeKey,
+  readProductionSubmissionBrandReferences,
   validateDispatcherSubmissionDraft,
   type DispatcherSubmission,
   type ValidatedDispatcherSubmissionDraft,
@@ -37,7 +38,14 @@ import { buildProductionReportTables } from "../domain/productionReportTables.js
 import {
   buildProductionPlan,
   buildSuggestedProductionWorkdays,
+  productionCategories,
+  productionCategoryLabels,
+  type ProductionCategoryPlans,
 } from "../domain/productionPlan.js";
+import {
+  normalizeProductionBrandLabelInput,
+  normalizeProductionBrandLookupLabel,
+} from "../domain/productionBrand.js";
 import {
   getDispatcherFormDefinition,
   getPublicDispatcherForms,
@@ -89,6 +97,7 @@ import {
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import type { ProductionPlansRepository } from "../repositories/productionPlansRepository.js";
+import type { ProductionBrandsRepository } from "../repositories/productionBrandsRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -101,6 +110,7 @@ type AppDependencies = {
   maxNotificationService?: MaxNotificationService;
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
   productionPlans?: ProductionPlansRepository;
+  productionBrands?: ProductionBrandsRepository;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
 };
@@ -133,6 +143,7 @@ export function createApiServer({
   ),
   dispatcherSpreadsheetImport,
   productionPlans,
+  productionBrands,
   audit,
   databaseTransaction,
 }: AppDependencies) {
@@ -282,6 +293,20 @@ export function createApiServer({
           devSessions,
           authService,
           productionPlans,
+          audit,
+          databaseTransaction,
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/production-brands") {
+        await handleProductionBrandsRequest({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          productionBrands,
           audit,
           databaseTransaction,
         });
@@ -458,8 +483,26 @@ export function createApiServer({
           const productionSubmissions = await listAllProductionSubmissions(
             dispatcherSubmissions,
           );
+          const productionPlanMonths = Array.from(
+            new Set(
+              productionSubmissions.flatMap((submission) => {
+                const month = readProductionSubmissionMonth(
+                  submission.payload,
+                );
+                return month === undefined ? [] : [month];
+              }),
+            ),
+          );
+          const productionPlanValues = productionPlans === undefined
+            ? []
+            : (await Promise.all(
+                productionPlanMonths.map((month) =>
+                  productionPlans.readLatest(month),
+                ),
+              )).filter((plan) => plan !== undefined);
           const productionReportTables = buildProductionReportTables(
             productionSubmissions,
+            productionPlanValues,
           );
           const submissions = await dispatcherSubmissions.listLatest(filters.value);
           const summary = await dispatcherSubmissions.readSummary(filters.value);
@@ -496,6 +539,59 @@ export function createApiServer({
               },
             });
             return;
+          }
+
+          if (validation.value.draft.formId === "production") {
+            if (productionBrands === undefined) {
+              sendJson(res, 503, {
+                error: {
+                  code: "server_error",
+                  message: "Справочник марок не настроен.",
+                },
+              });
+              return;
+            }
+
+            const savedLabels = await productionBrands.list();
+            const savedLabelsByKey = new Map(
+              savedLabels.map(
+                (label) =>
+                  [
+                    `${label.category}:${normalizeProductionBrandLookupLabel(label.label)}`,
+                    label,
+                  ] as const,
+              ),
+            );
+            const brandReferences = readProductionSubmissionBrandReferences(
+              validation.value.draft.payload,
+            );
+            const missingBrand = brandReferences.find(
+              (reference) =>
+                !savedLabelsByKey.has(
+                  `${reference.category}:${normalizeProductionBrandLookupLabel(reference.label)}`,
+                ),
+            );
+
+            if (missingBrand !== undefined) {
+              sendJson(res, 400, {
+                error: {
+                  code: "invalid_response",
+                  message: `Сначала сохраните марку «${missingBrand.label}» в справочник.`,
+                },
+              });
+              return;
+            }
+
+            for (const reference of brandReferences) {
+              const savedLabel = savedLabelsByKey.get(
+                `${reference.category}:${normalizeProductionBrandLookupLabel(reference.label)}`,
+              );
+
+              if (savedLabel !== undefined) {
+                validation.value.draft.payload[reference.fieldName] =
+                  savedLabel.label;
+              }
+            }
           }
 
           const history = await dispatcherSubmissions.listLatest({ limit: 2_000 });
@@ -778,6 +874,153 @@ async function runAuditedMutation<T>({
   });
 }
 
+async function handleProductionBrandsRequest({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  productionBrands,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  productionBrands: ProductionBrandsRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  const access = await requireAuthentication(req, res, {
+    config,
+    devSessions,
+    authService,
+  });
+
+  if (access === undefined) {
+    return;
+  }
+
+  const canRead = ([
+    "business.submit_dispatcher_forms",
+    "business.view_dispatcher_feed",
+    "business.manage_production_plan",
+  ] as const satisfies readonly AccountCapability[]).some((capability) =>
+    hasProfileCapability(access.profile, capability),
+  );
+
+  if (!canRead) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Справочник марок недоступен.",
+      },
+    });
+    return;
+  }
+
+  if (productionBrands === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Справочник марок не настроен.",
+      },
+    });
+    return;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 200, { labels: await productionBrands.list() });
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Поддерживаются только GET и POST.",
+      },
+    });
+    return;
+  }
+
+  if (
+    !hasProfileCapability(
+      access.profile,
+      "business.submit_dispatcher_forms",
+    )
+  ) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Добавлять марки может только диспетчер.",
+      },
+    });
+    return;
+  }
+
+  const payload = await readJsonBody(req);
+  const validation = readProductionBrandCreateInput(payload);
+
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  const result = await runAuditedMutation({
+    transaction: databaseTransaction,
+    audit,
+    mutate: () => productionBrands.create({
+      ...validation.value,
+      createdByUserId: access.profile.userId,
+    }),
+    buildEvent: (created) => created.created ? ({
+      actor: buildAuditActor(access.profile),
+      category: "data_change",
+      action: "production_brand.create",
+      summary: `Добавлена марка «${created.label.label}»`,
+      details: [
+        { label: "Справочник", value: created.label.category },
+        { label: "Марка", value: created.label.label },
+      ],
+      targetType: "production_brand",
+      targetId: created.label.id,
+    }) : undefined,
+  });
+
+  sendJson(res, result.created ? 201 : 200, { label: result.label });
+}
+
+function readProductionBrandCreateInput(payload: unknown) {
+  if (!isRecord(payload) || Array.isArray(payload)) {
+    return {
+      ok: false as const,
+      errors: ["Передайте справочник и название марки."],
+    };
+  }
+
+  const allowedFields = new Set(["category", "label"]);
+  const unexpectedFields = Object.keys(payload).filter(
+    (fieldName) => !allowedFields.has(fieldName),
+  );
+
+  if (unexpectedFields.length > 0) {
+    return {
+      ok: false as const,
+      errors: [`Неизвестные поля: ${unexpectedFields.join(", ")}.`],
+    };
+  }
+
+  return normalizeProductionBrandLabelInput(payload.category, payload.label);
+}
+
 async function handleProductionPlansRequest({
   req,
   res,
@@ -822,7 +1065,7 @@ async function handleProductionPlansRequest({
       sendJson(res, 403, {
         error: {
           code: "access_denied",
-          message: "Общий план выработки недоступен.",
+          message: "План выработки недоступен.",
         },
       });
       return;
@@ -866,7 +1109,7 @@ async function handleProductionPlansRequest({
     sendJson(res, 200, {
       plan: dailyPlan === undefined
         ? null
-        : { date: dailyPlan.date, value: dailyPlan.value },
+        : { date: dailyPlan.date, values: dailyPlan.values },
     });
     return;
   }
@@ -912,7 +1155,7 @@ async function handleProductionPlansRequest({
 
     sendJson(res, 200, {
       month: validation.value.month,
-      monthlyPlan: validation.value.monthlyPlan,
+      monthlyPlans: validation.value.monthlyPlans,
       suggestedWorkingDates,
       workingDayCount: suggestedWorkingDates.length,
     });
@@ -996,12 +1239,22 @@ async function handleProductionPlansRequest({
       summary: `Сохранён план выработки за ${saved.month}`,
       details: [
         { label: "Месяц", value: saved.month },
-        { label: "Месячный план", value: String(saved.monthlyPlan) },
+        ...productionCategories.map((category) => ({
+          label: `Месячный план — ${productionCategoryLabels[category]}`,
+          value: String(saved.monthlyPlans[category]),
+        })),
         { label: "Рабочих дней", value: String(saved.workingDayCount) },
         {
           label: "Ежедневный план",
           value: saved.dailyPlans
-            .map((item) => `${item.date}: ${item.value}`)
+            .map((item) =>
+              `${item.date}: ${productionCategories
+                .map(
+                  (category) =>
+                    `${productionCategoryLabels[category]} ${item.values[category]}`,
+                )
+                .join("; ")}`,
+            )
             .join(", "),
         },
       ],
@@ -1014,38 +1267,47 @@ async function handleProductionPlansRequest({
 }
 
 type ProductionPlanPreviewInputResult =
-  | { ok: true; value: { month: string; monthlyPlan: number } }
+  | {
+      ok: true;
+      value: { month: string; monthlyPlans: ProductionCategoryPlans };
+    }
   | { ok: false; errors: string[] };
 
 function readProductionPlanPreviewInput(
   value: unknown,
 ): ProductionPlanPreviewInputResult {
   if (!isRecord(value)) {
-    return { ok: false, errors: ["Передайте месяц и месячный план."] };
+    return { ok: false, errors: ["Передайте месяц и планы категорий."] };
   }
 
   const unknownFields = Object.keys(value).filter(
-    (key) => key !== "month" && key !== "monthlyPlan",
+    (key) => key !== "month" && key !== "monthlyPlans",
   );
 
   if (unknownFields.length > 0) {
     return { ok: false, errors: ["Запрос содержит неизвестные поля."] };
   }
 
-  if (typeof value.month !== "string" || typeof value.monthlyPlan !== "number") {
-    return { ok: false, errors: ["Передайте месяц и целый месячный план."] };
+  const monthlyPlans = readProductionCategoryPlans(value.monthlyPlans);
+
+  if (typeof value.month !== "string" || monthlyPlans === undefined) {
+    return { ok: false, errors: ["Передайте месяц и целые планы категорий."] };
   }
 
   return {
     ok: true,
-    value: { month: value.month, monthlyPlan: value.monthlyPlan },
+    value: { month: value.month, monthlyPlans },
   };
 }
 
 type ProductionPlanSaveInputResult =
   | {
       ok: true;
-      value: { month: string; monthlyPlan: number; workingDates: string[] };
+      value: {
+        month: string;
+        monthlyPlans: ProductionCategoryPlans;
+        workingDates: string[];
+      };
     }
   | { ok: false; errors: string[] };
 
@@ -1058,16 +1320,18 @@ function readProductionPlanSaveInput(
 
   const unknownFields = Object.keys(value).filter(
     (key) =>
-      key !== "month" && key !== "monthlyPlan" && key !== "workingDates",
+      key !== "month" && key !== "monthlyPlans" && key !== "workingDates",
   );
 
   if (unknownFields.length > 0) {
     return { ok: false, errors: ["Запрос содержит неизвестные поля."] };
   }
 
+  const monthlyPlans = readProductionCategoryPlans(value.monthlyPlans);
+
   if (
     typeof value.month !== "string" ||
-    typeof value.monthlyPlan !== "number" ||
+    monthlyPlans === undefined ||
     !Array.isArray(value.workingDates) ||
     !value.workingDates.every((date) => typeof date === "string")
   ) {
@@ -1078,10 +1342,35 @@ function readProductionPlanSaveInput(
     ok: true,
     value: {
       month: value.month,
-      monthlyPlan: value.monthlyPlan,
+      monthlyPlans,
       workingDates: value.workingDates,
     },
   };
+}
+
+function readProductionCategoryPlans(
+  value: unknown,
+): ProductionCategoryPlans | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const keys = Object.keys(value);
+
+  if (
+    keys.length !== productionCategories.length ||
+    !productionCategories.every(
+      (category) =>
+        typeof value[category] === "number" &&
+        Number.isSafeInteger(value[category]),
+    )
+  ) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    productionCategories.map((category) => [category, value[category]]),
+  ) as ProductionCategoryPlans;
 }
 
 function buildSafeAuditDetails(values: Record<string, AdminDatabaseCellValue>) {
@@ -3683,6 +3972,31 @@ function isCalendarDateQueryValue(value: string) {
     date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day
   );
+}
+
+function readProductionSubmissionMonth(
+  payload: DispatcherSubmission["payload"],
+) {
+  const reportMonth = payload.reportMonth?.trim();
+
+  if (reportMonth !== undefined && /^\d{4}-\d{2}$/u.test(reportMonth)) {
+    return reportMonth;
+  }
+
+  const reportDate = payload.reportDate?.trim();
+
+  if (reportDate === undefined) {
+    return undefined;
+  }
+
+  const iso = /^(\d{4})-(\d{2})-\d{2}$/u.exec(reportDate);
+
+  if (iso !== null) {
+    return `${iso[1]}-${iso[2]}`;
+  }
+
+  const russian = /^\d{2}\.(\d{2})\.(\d{4})$/u.exec(reportDate);
+  return russian === null ? undefined : `${russian[2]}-${russian[1]}`;
 }
 
 function readDevSessionId(req: IncomingMessage) {

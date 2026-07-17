@@ -141,13 +141,38 @@ export function buildDispatcherSubmissionAuditDetails(
     return [];
   }
 
-  return form.fields.flatMap((field) => {
+  const formDetails = form.fields.flatMap((field) => {
     const value = payload[field.name];
 
     return typeof value === "string" && value.length > 0
       ? [{ label: field.label, value }]
       : [];
   });
+
+  if (formId !== "production") {
+    return formDetails;
+  }
+
+  const dynamicDetails = Object.entries(payload).flatMap(
+    ([fieldName, value]) => {
+      const match = /^(unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
+        fieldName,
+      );
+
+      if (match === null || Number(match[3]) > 50 || value.length === 0) {
+        return [];
+      }
+
+      const section = match[1] === "unformed"
+        ? "Неформованная продукция"
+        : "Цех обжига шамота";
+      const metric = match[2] === "Brand" ? "Марка" : "Факт";
+
+      return [{ label: `${section} — ${metric} ${match[3]}`, value }];
+    },
+  );
+
+  return [...formDetails, ...dynamicDetails];
 }
 
 export function readAuditScreen(value: unknown): AuditScreen | undefined {

@@ -821,6 +821,34 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "019_production_category_plans_and_brands",
+    statements: [
+      `
+      alter table production_plan_revisions
+        modify column monthly_plan bigint unsigned null,
+        modify column daily_plans json null,
+        add column monthly_plans json null after plan_month,
+        add column category_daily_plans json null after daily_plans;
+      `,
+      `
+      create table production_brand_labels (
+        id char(36) not null primary key,
+        category varchar(32) not null,
+        label varchar(120) not null,
+        normalized_label varchar(120) not null,
+        created_by_user_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_production_brand_labels_category_normalized (
+          category,
+          normalized_label
+        ),
+        constraint chk_production_brand_labels_category
+          check (category in ('product', 'unformed', 'chamotte'))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

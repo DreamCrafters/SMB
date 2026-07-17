@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import type {
+  ProductionCategoryPlans,
   ProductionDailyPlan,
   ProductionPlan,
 } from "../domain/productionPlan.js";
+import { productionCategories } from "../domain/productionPlan.js";
 
 export type ProductionPlanRevision = ProductionPlan & {
   revisionId: string;
@@ -23,9 +25,9 @@ export type ProductionPlansRepository = {
 type ProductionPlanRevisionRow = RowDataPacket & {
   id: string;
   plan_month: string;
-  monthly_plan: number | string;
+  monthly_plans: unknown;
   working_dates: unknown;
-  daily_plans: unknown;
+  category_daily_plans: unknown;
   created_by_user_id: string;
   created_at: Date | string;
 };
@@ -44,10 +46,10 @@ export function createProductionPlansRepository(
 ): ProductionPlansRepository {
   async function readLatest(month: string) {
     const [rows] = await pool.query<ProductionPlanRevisionRow[]>(`
-      select id, plan_month, monthly_plan, working_dates, daily_plans,
+      select id, plan_month, monthly_plans, working_dates, category_daily_plans,
         created_by_user_id, created_at
       from production_plan_revisions
-      where plan_month = ?
+      where plan_month = ? and monthly_plans is not null
       order by created_at desc, id desc
       limit 1
     `, [month]);
@@ -70,13 +72,13 @@ export function createProductionPlansRepository(
 
     await pool.query(
       `insert into production_plan_revisions (
-        id, plan_month, monthly_plan, working_dates, daily_plans,
+        id, plan_month, monthly_plans, working_dates, category_daily_plans,
         created_by_user_id
       ) values (?, ?, ?, ?, ?, ?)`,
       [
         revision.revisionId,
         revision.month,
-        revision.monthlyPlan,
+        JSON.stringify(revision.monthlyPlans),
         JSON.stringify(workingDates),
         JSON.stringify(revision.dailyPlans),
         revision.createdByUserId,
@@ -93,7 +95,8 @@ function mapProductionPlanRevision(
   row: ProductionPlanRevisionRow,
 ): ProductionPlanRevision {
   const workingDates = readStringArray(row.working_dates);
-  const dailyPlans = readDailyPlans(row.daily_plans);
+  const monthlyPlans = readCategoryPlans(row.monthly_plans);
+  const dailyPlans = readDailyPlans(row.category_daily_plans);
 
   if (
     workingDates.length !== dailyPlans.length ||
@@ -105,7 +108,7 @@ function mapProductionPlanRevision(
   return {
     revisionId: row.id,
     month: row.plan_month,
-    monthlyPlan: Number(row.monthly_plan),
+    monthlyPlans,
     workingDayCount: workingDates.length,
     dailyPlans,
     createdByUserId: row.created_by_user_id,
@@ -133,14 +136,34 @@ function readDailyPlans(value: unknown): ProductionDailyPlan[] {
         typeof item === "object" &&
         item !== null &&
         typeof (item as Record<string, unknown>).date === "string" &&
-        typeof (item as Record<string, unknown>).value === "number" &&
-        Number.isSafeInteger((item as Record<string, unknown>).value),
+        isCategoryPlans((item as Record<string, unknown>).values),
     )
   ) {
     throw new Error("Stored production plan daily values are invalid.");
   }
 
   return parsed as ProductionDailyPlan[];
+}
+
+function readCategoryPlans(value: unknown): ProductionCategoryPlans {
+  const parsed = readJson(value);
+
+  if (!isCategoryPlans(parsed)) {
+    throw new Error("Stored production plan category values are invalid.");
+  }
+
+  return parsed;
+}
+
+function isCategoryPlans(value: unknown): value is ProductionCategoryPlans {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    productionCategories.every((category) => {
+      const plan = (value as Record<string, unknown>)[category];
+      return typeof plan === "number" && Number.isSafeInteger(plan) && plan >= 0;
+    })
+  );
 }
 
 function readJson(value: unknown) {

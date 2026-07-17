@@ -7,6 +7,10 @@ import {
   type DispatcherFormField,
   type DispatcherFormId,
 } from "./dispatcherForms.js";
+import {
+  normalizeProductionBrandLookupLabel,
+  type ProductionBrandCategory,
+} from "./productionBrand.js";
 
 export type DispatcherSubmissionStatus =
   | "received"
@@ -15,6 +19,12 @@ export type DispatcherSubmissionStatus =
   | "rejected";
 
 export type DispatcherSubmissionPayload = Record<string, string>;
+
+export type ProductionSubmissionBrandReference = {
+  category: ProductionBrandCategory;
+  fieldName: string;
+  label: string;
+};
 
 const equipmentReserveDowntimeReason = "Резерв";
 
@@ -251,7 +261,9 @@ function readPayload(
 
   const allowedFieldNames = new Set(form.fields.map((field) => field.name));
   const unknownFieldNames = Object.keys(value).filter(
-    (fieldName) => !allowedFieldNames.has(fieldName),
+    (fieldName) =>
+      !allowedFieldNames.has(fieldName) &&
+      !(form.id === "production" && isDynamicProductionFieldName(fieldName)),
   );
 
   if (unknownFieldNames.length > 0) {
@@ -265,6 +277,22 @@ function readPayload(
 
     if (fieldValue !== undefined) {
       payload[field.name] = fieldValue;
+    }
+  }
+
+  if (form.id === "production") {
+    for (const [fieldName, rawValue] of Object.entries(value)) {
+      const dynamicField = readDynamicProductionField(fieldName);
+
+      if (dynamicField === undefined) {
+        continue;
+      }
+
+      const fieldValue = readFieldValue(rawValue, dynamicField, errors);
+
+      if (fieldValue !== undefined) {
+        payload[fieldName] = fieldValue;
+      }
     }
   }
 
@@ -345,11 +373,14 @@ function applyDispatcherFormScriptRules(
   }
 
   if (form.id === "production") {
-    const hasProductionData = form.fields.some(
-      (field) =>
-        field.name !== "reportDate" &&
-        nextPayload[field.name] !== undefined &&
-        nextPayload[field.name]?.trim().length > 0,
+    validateProductionBrandFacts(nextPayload, errors);
+    const hasProductionData = Object.entries(nextPayload).some(
+      ([fieldName, value]) =>
+        fieldName !== "reportDate" &&
+        fieldName !== "reportMonth" &&
+        !fieldName.endsWith("Brand") &&
+        !/Brand\d+$/u.test(fieldName) &&
+        value.trim().length > 0,
     );
 
     if (!hasProductionData) {
@@ -399,6 +430,128 @@ function applyDispatcherFormScriptRules(
   }
 
   return nextPayload;
+}
+
+export function readProductionSubmissionBrandReferences(
+  payload: DispatcherSubmissionPayload,
+): ProductionSubmissionBrandReference[] {
+  const references: ProductionSubmissionBrandReference[] = [];
+
+  for (const fieldName of ["formingProductBrand", "sortingProductBrand"] as const) {
+    const label = payload[fieldName];
+
+    if (label !== undefined) {
+      references.push({ category: "product", fieldName, label });
+    }
+  }
+
+  for (const [fieldName, label] of Object.entries(payload)) {
+    const match = /^(unformed|chamotte)Brand([1-9]\d?)$/u.exec(fieldName);
+
+    if (match !== null && Number(match[2]) <= 50) {
+      references.push({
+        category: match[1] as "unformed" | "chamotte",
+        fieldName,
+        label,
+      });
+    }
+  }
+
+  return references;
+}
+
+function validateProductionBrandFacts(
+  payload: DispatcherSubmissionPayload,
+  errors: string[],
+) {
+  for (const prefix of ["forming", "sorting"] as const) {
+    const factField = `${prefix}Day`;
+    const brandField = `${prefix}ProductBrand`;
+    const hasFact = payload[factField] !== undefined;
+    const hasBrand = payload[brandField] !== undefined;
+
+    if (hasFact && !hasBrand) {
+      errors.push(`${brandField} is required when ${factField} is filled.`);
+    }
+
+    if (hasBrand && !hasFact) {
+      errors.push(`${factField} is required when ${brandField} is selected.`);
+    }
+  }
+
+  for (const prefix of ["unformed", "chamotte"] as const) {
+    const indexes = new Set<number>();
+
+    for (const fieldName of Object.keys(payload)) {
+      const match = new RegExp(`^${prefix}(?:Brand|Fact)([1-9]\\d?)$`, "u").exec(
+        fieldName,
+      );
+
+      if (match !== null) {
+        indexes.add(Number(match[1]));
+      }
+    }
+
+    const usedBrands = new Set<string>();
+
+    for (const index of [...indexes].sort((left, right) => left - right)) {
+      const brandField = `${prefix}Brand${index}`;
+      const factField = `${prefix}Fact${index}`;
+      const brand = payload[brandField];
+      const fact = payload[factField];
+
+      if (fact !== undefined && brand === undefined) {
+        errors.push(`${brandField} is required when ${factField} is filled.`);
+        continue;
+      }
+
+      if (brand !== undefined && fact === undefined) {
+        errors.push(`${factField} is required when ${brandField} is selected.`);
+        continue;
+      }
+
+      if (brand === undefined) {
+        continue;
+      }
+
+      const normalizedBrand = normalizeProductionBrandLookupLabel(brand);
+
+      if (usedBrands.has(normalizedBrand)) {
+        errors.push(`${prefix} brands must not repeat in one report.`);
+      }
+
+      usedBrands.add(normalizedBrand);
+    }
+  }
+}
+
+function isDynamicProductionFieldName(fieldName: string) {
+  return readDynamicProductionField(fieldName) !== undefined;
+}
+
+function readDynamicProductionField(
+  fieldName: string,
+): DispatcherFormField | undefined {
+  const match = /^(unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(fieldName);
+
+  if (match === null || Number(match[3]) > 50) {
+    return undefined;
+  }
+
+  return match[2] === "Brand"
+    ? {
+        name: fieldName,
+        label: "Марка продукции",
+        type: "text",
+        required: false,
+        maxLength: 120,
+      }
+    : {
+        name: fieldName,
+        label: "Факт по марке",
+        type: "number",
+        required: false,
+      };
 }
 
 function readFieldValue(

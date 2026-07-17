@@ -7,6 +7,8 @@ import {
   equipmentDowntimeRequiresProductionMessage,
   equipmentReserveDowntimeRequiresEightHoursMessage,
   incidentCloseRequiresOpenIncidentMessage,
+  productionBrandFactPairMessage,
+  productionDuplicateBrandMessage,
   productionRequiresIndicatorMessage,
   visitorExitRequiresEntryMessage,
   validateDispatcherPayloadForSubmit,
@@ -147,6 +149,48 @@ test("production payload validation requires at least one indicator", () => {
     validateDispatcherPayloadForSubmit(productionForm, {
       reportDate: "2026-07-16",
       formingDay: "12.5",
+      formingProductBrand: "МКР-1",
+    }),
+    undefined,
+  );
+});
+
+test("production payload validation requires a brand for every brand fact", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+      unformedFact1: "12.5",
+    }),
+    productionBrandFactPairMessage,
+  );
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+      formingProductBrand: "МКР-1",
+    }),
+    productionBrandFactPairMessage,
+  );
+});
+
+test("production payload validation rejects duplicate brands within a category", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+      unformedBrand1: "МКР-1",
+      unformedFact1: "10",
+      unformedBrand2: "  мкр-1  ",
+      unformedFact2: "5",
+    }),
+    productionDuplicateBrandMessage,
+  );
+});
+
+test("dynamic brand fact is a production indicator", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+      chamotteBrand7: "Шамот А",
+      chamotteFact7: "8",
     }),
     undefined,
   );

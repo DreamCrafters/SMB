@@ -101,7 +101,11 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
     payload: {
       reportDate: "2026-07-16",
       formingDay: "12,5",
-      formingProductBrands: "ПБ-5, ПБ-6",
+      formingProductBrand: "ПБ-5",
+      unformedBrand1: "МКР-1",
+      unformedFact1: "4,5",
+      unformedBrand2: "МКР-2",
+      unformedFact2: "3",
       jarStart1: "120",
       jarEnd1: "95,5",
       granulationFraction1630Day: "3,25",
@@ -117,7 +121,11 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
       reportDate: "16.07.2026",
       reportMonth: "2026-07",
       formingDay: "12.5",
-      formingProductBrands: "ПБ-5, ПБ-6",
+      formingProductBrand: "ПБ-5",
+      unformedBrand1: "МКР-1",
+      unformedFact1: "4.5",
+      unformedBrand2: "МКР-2",
+      unformedFact2: "3",
       jarStart1: "120",
       jarEnd1: "95.5",
       granulationFraction1630Day: "3.25",
@@ -126,6 +134,27 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
     });
     assert.match(result.value.summary, /16\.07\.2026/);
     assert.match(result.value.summary, /12\.5/);
+  }
+});
+
+test("validateDispatcherSubmissionDraft requires one unique saved-brand fact per production column", () => {
+  const result = validateDispatcherSubmissionDraft({
+    formId: "production",
+    payload: {
+      reportDate: "2026-07-16",
+      unformedBrand1: "МКР-1",
+      unformedFact1: "4",
+      unformedBrand2: " мкр-1 ",
+      unformedFact2: "3",
+      chamotteFact1: "2",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /must not repeat/u);
+    assert.match(result.errors.join(" "), /chamotteBrand1/u);
   }
 });
 

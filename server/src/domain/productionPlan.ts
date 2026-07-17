@@ -1,11 +1,29 @@
+export const productionCategories = [
+  "forming",
+  "sorting",
+  "unformed",
+  "chamotte",
+] as const;
+
+export type ProductionCategory = (typeof productionCategories)[number];
+
+export const productionCategoryLabels: Record<ProductionCategory, string> = {
+  forming: "Формовка",
+  sorting: "Сортировка",
+  unformed: "Неформованная продукция, контейнеры",
+  chamotte: "Цех обжига шамота",
+};
+
+export type ProductionCategoryPlans = Record<ProductionCategory, number>;
+
 export type ProductionDailyPlan = {
   date: string;
-  value: number;
+  values: ProductionCategoryPlans;
 };
 
 export type ProductionPlan = {
   month: string;
-  monthlyPlan: number;
+  monthlyPlans: ProductionCategoryPlans;
   workingDayCount: number;
   dailyPlans: ProductionDailyPlan[];
 };
@@ -40,15 +58,24 @@ export function buildSuggestedProductionWorkdays(month: string) {
 
 export function buildProductionPlan(input: {
   month: string;
-  monthlyPlan: number;
+  monthlyPlans: ProductionCategoryPlans;
   workingDates: string[];
 }): BuildProductionPlanResult {
   if (parseMonth(input.month) === undefined) {
     return { ok: false, errors: ["Укажите месяц в формате ГГГГ-ММ."] };
   }
 
-  if (!Number.isSafeInteger(input.monthlyPlan) || input.monthlyPlan <= 0) {
-    return { ok: false, errors: ["Месячный план должен быть целым положительным числом."] };
+  for (const category of productionCategories) {
+    const monthlyPlan = input.monthlyPlans?.[category];
+
+    if (!Number.isSafeInteger(monthlyPlan) || monthlyPlan <= 0) {
+      return {
+        ok: false,
+        errors: [
+          `Укажите целый положительный месячный план для категории «${productionCategoryLabels[category]}».`,
+        ],
+      };
+    }
   }
 
   if (input.workingDates.length === 0) {
@@ -74,17 +101,22 @@ export function buildProductionPlan(input: {
   }
 
   const orderedDates = [...input.workingDates].sort();
-  const regularDailyPlan = Math.ceil(
-    input.monthlyPlan / orderedDates.length,
+  const regularPlans = mapCategoryPlans((category) =>
+    Math.ceil(input.monthlyPlans[category] / orderedDates.length),
   );
-  const finalDailyPlan =
-    input.monthlyPlan - regularDailyPlan * (orderedDates.length - 1);
+  const finalPlans = mapCategoryPlans((category) =>
+    input.monthlyPlans[category] -
+      regularPlans[category] * (orderedDates.length - 1),
+  );
+  const invalidCategory = productionCategories.find(
+    (category) => finalPlans[category] < 0,
+  );
 
-  if (finalDailyPlan < 0) {
+  if (invalidCategory !== undefined) {
     return {
       ok: false,
       errors: [
-        "Месячный план слишком мал для выбранного количества рабочих дней.",
+        `Месячный план категории «${productionCategoryLabels[invalidCategory]}» слишком мал для выбранного количества рабочих дней.`,
       ],
     };
   }
@@ -93,17 +125,26 @@ export function buildProductionPlan(input: {
     ok: true,
     plan: {
       month: input.month,
-      monthlyPlan: input.monthlyPlan,
+      monthlyPlans: { ...input.monthlyPlans },
       workingDayCount: orderedDates.length,
       dailyPlans: orderedDates.map((date, index) => ({
         date,
-        value:
+        values: mapCategoryPlans((category) =>
           index === orderedDates.length - 1
-            ? finalDailyPlan
-            : regularDailyPlan,
+            ? finalPlans[category]
+            : regularPlans[category],
+        ),
       })),
     },
   };
+}
+
+function mapCategoryPlans(
+  readValue: (category: ProductionCategory) => number,
+): ProductionCategoryPlans {
+  return Object.fromEntries(
+    productionCategories.map((category) => [category, readValue(category)]),
+  ) as ProductionCategoryPlans;
 }
 
 function parseMonth(value: string) {

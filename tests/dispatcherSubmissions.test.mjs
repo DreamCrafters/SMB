@@ -161,6 +161,7 @@ test("local production reports use the production form rules", async () => {
       payload: {
         reportDate: "2026-07-16",
         sortingDay: "15.5",
+        sortingProductBrand: "Сорт-1",
         jarStart1: "120",
         jarEnd1: "95",
         granulationFraction1630Day: "3.25",
@@ -173,6 +174,7 @@ test("local production reports use the production form rules", async () => {
   assert.equal(result.submission.formId, "production");
   assert.equal(result.submission.payload.reportDate, "16.07.2026");
   assert.equal(result.submission.payload.reportMonth, "2026-07");
+  assert.equal(result.submission.payload.sortingProductBrand, "Сорт-1");
   assert.equal(result.submission.payload.jarStart1, "120");
   assert.equal(result.submission.payload.jarEnd1, "95");
 });

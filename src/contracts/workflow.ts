@@ -104,6 +104,7 @@ export type ProductionReportBaseRow = {
 };
 
 export type ProductionMetricRow = ProductionReportBaseRow & {
+  brand?: string;
   dayPlan?: number;
   dayFact?: number;
   monthPlan?: number;
@@ -111,8 +112,14 @@ export type ProductionMetricRow = ProductionReportBaseRow & {
   deviation?: number;
 };
 
-export type ProductionBrandMetricRow = ProductionMetricRow & {
+export type ProductionBrandFact = {
   brand: string;
+  value: number;
+  monthValue: number;
+};
+
+export type ProductionBrandCategoryRow = ProductionMetricRow & {
+  facts: ProductionBrandFact[];
 };
 
 export type ProductionJarMeasurementRow = ProductionReportBaseRow & {
@@ -134,8 +141,8 @@ export type ProductionGranulationRow = ProductionReportBaseRow & {
 export type ProductionReportTables = {
   forming: ProductionMetricRow[];
   sorting: ProductionMetricRow[];
-  unformed: ProductionBrandMetricRow[];
-  chamotte: ProductionBrandMetricRow[];
+  unformed: ProductionBrandCategoryRow[];
+  chamotte: ProductionBrandCategoryRow[];
   jars: ProductionJarMeasurementRow[];
   granulation: ProductionGranulationRow[];
 };

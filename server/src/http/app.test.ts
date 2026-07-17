@@ -30,6 +30,10 @@ import type {
   ProductionPlanRevision,
   ProductionPlansRepository,
 } from "../repositories/productionPlansRepository.js";
+import type {
+  ProductionBrandLabel,
+  ProductionBrandsRepository,
+} from "../repositories/productionBrandsRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
@@ -2459,7 +2463,15 @@ test("production plan API requires economist access and saves the confirmed sche
     const previewResponse = await fetch(`${baseUrl}/api/production-plans/preview`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ month: "2026-07", monthlyPlan: 1_000 }),
+      body: JSON.stringify({
+        month: "2026-07",
+        monthlyPlans: {
+          forming: 1_000,
+          sorting: 800,
+          unformed: 500,
+          chamotte: 200,
+        },
+      }),
     });
     const preview = await previewResponse.json();
     assert.equal(previewResponse.status, 200);
@@ -2475,7 +2487,15 @@ test("production plan API requires economist access and saves the confirmed sche
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ month: "2026-07", monthlyPlan: 1 }),
+        body: JSON.stringify({
+          month: "2026-07",
+          monthlyPlans: {
+            forming: 1,
+            sorting: 1,
+            unformed: 1,
+            chamotte: 1,
+          },
+        }),
       },
     );
     const smallPlanPreview = await smallPlanPreviewResponse.json();
@@ -2493,7 +2513,12 @@ test("production plan API requires economist access and saves the confirmed sche
       headers,
       body: JSON.stringify({
         month: "2026-07",
-        monthlyPlan: 1_000,
+        monthlyPlans: {
+          forming: 1_000,
+          sorting: 800,
+          unformed: 500,
+          chamotte: 200,
+        },
         workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
       }),
     });
@@ -2502,9 +2527,9 @@ test("production plan API requires economist access and saves the confirmed sche
     assert.deepEqual(
       isRecord(saved) && isRecord(saved.plan) ? saved.plan.dailyPlans : undefined,
       [
-        { date: "2026-07-01", value: 334 },
-        { date: "2026-07-02", value: 334 },
-        { date: "2026-07-03", value: 332 },
+        { date: "2026-07-01", values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 } },
+        { date: "2026-07-02", values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 } },
+        { date: "2026-07-03", values: { forming: 332, sorting: 266, unformed: 166, chamotte: 66 } },
       ],
     );
     assert.equal(latest?.createdByUserId, profile.userId);
@@ -2523,7 +2548,10 @@ test("production plan API requires economist access and saves the confirmed sche
       assert.equal(dailyResponse.status, 200);
       assert.deepEqual(
         isRecord(daily) ? daily.plan : undefined,
-        { date: "2026-07-01", value: 334 },
+        {
+          date: "2026-07-01",
+          values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 },
+        },
       );
     }
 
@@ -2540,7 +2568,12 @@ test("production plan API requires economist access and saves the confirmed sche
       headers,
       body: JSON.stringify({
         month: "2026-07",
-        monthlyPlan: 1_000,
+        monthlyPlans: {
+          forming: 1_000,
+          sorting: 800,
+          unformed: 500,
+          chamotte: 200,
+        },
         workingDates: ["2026-07-01"],
       }),
     });
@@ -2552,11 +2585,199 @@ test("production plan API requires economist access and saves the confirmed sche
     });
     const read = await readResponse.json();
     assert.equal(readResponse.status, 200);
-    assert.equal(isRecord(read) && isRecord(read.plan) ? read.plan.monthlyPlan : undefined, 1_000);
+    assert.deepEqual(
+      isRecord(read) && isRecord(read.plan) ? read.plan.monthlyPlans : undefined,
+      { forming: 1_000, sorting: 800, unformed: 500, chamotte: 200 },
+    );
   } finally {
     server.close();
     await once(server, "close");
   }
+});
+
+test("production brand API lets dispatcher permanently add a normalized catalog label", async () => {
+  const profile = buildProductionProfile("dispatcher");
+  const labels: ProductionBrandLabel[] = [];
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const auditRepository: AuditRepository = {
+    async record(event) {
+      recorded.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const productionBrands: ProductionBrandsRepository = {
+    async list() {
+      return labels;
+    },
+    async create(input) {
+      const existing = labels.find(
+        (label) =>
+          label.category === input.category &&
+          label.label.toLocaleLowerCase("ru-RU") === input.normalizedLabel,
+      );
+
+      if (existing !== undefined) {
+        return { label: existing, created: false };
+      }
+
+      const label = {
+        id: "brand-1",
+        category: input.category,
+        label: input.label,
+        createdAt: "2026-07-17T10:00:00.000Z",
+      };
+      labels.push(label);
+      return { label, created: true };
+    },
+  };
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const createResponse = await fetch(`${baseUrl}/api/production-brands`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        category: "unformed",
+        label: "  ПБ-5   огнеупорный  ",
+      }),
+    });
+    const created = await createResponse.json();
+
+    assert.equal(createResponse.status, 201);
+    assert.equal(
+      isRecord(created) && isRecord(created.label)
+        ? created.label.label
+        : undefined,
+      "ПБ-5 огнеупорный",
+    );
+    assert.equal(recorded.at(-1)?.action, "production_brand.create");
+
+    const duplicateResponse = await fetch(`${baseUrl}/api/production-brands`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ category: "unformed", label: "пб-5 огнеупорный" }),
+    });
+    assert.equal(duplicateResponse.status, 200);
+    assert.equal(recorded.length, 1);
+
+    const unexpectedFieldResponse = await fetch(
+      `${baseUrl}/api/production-brands`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          category: "unformed",
+          label: "ПБ-6",
+          createdByUserId: "forged-user",
+        }),
+      },
+    );
+    assert.equal(unexpectedFieldResponse.status, 400);
+    assert.equal(labels.length, 1);
+
+    const nestedLabelResponse = await fetch(
+      `${baseUrl}/api/production-brands`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ category: "unformed", label: { value: "ПБ-6" } }),
+      },
+    );
+    assert.equal(nestedLabelResponse.status, 400);
+    assert.equal(labels.length, 1);
+
+    profile.activeAccess.capabilities = ["business.view_dispatcher_feed"];
+    const listResponse = await fetch(`${baseUrl}/api/production-brands`, {
+      headers,
+    });
+    const list = await listResponse.json();
+    assert.equal(listResponse.status, 200);
+    assert.equal(
+      isRecord(list) && Array.isArray(list.labels)
+        ? list.labels.length
+        : undefined,
+      1,
+    );
+
+    const forbiddenCreate = await fetch(`${baseUrl}/api/production-brands`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ category: "chamotte", label: "Ш-1" }),
+    });
+    assert.equal(forbiddenCreate.status, 403);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined,
+  adminDatabase, productionConfig, buildAuthService({ profile }), undefined,
+  undefined, auditRepository, undefined, productionBrands);
+});
+
+test("production submission accepts only brands saved in the matching catalog", async () => {
+  const profile = buildProductionProfile("dispatcher");
+  let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async create(value, submittedByAccountId) {
+      createdDraft = value;
+      return dispatcherSubmissions.create(value, submittedByAccountId);
+    },
+  };
+  const productionBrands: ProductionBrandsRepository = {
+    async list() {
+      return [
+        { id: "product-1", category: "product", label: "ФЛ-1", createdAt: "2026-07-17T10:00:00.000Z" },
+        { id: "unformed-1", category: "unformed", label: "ПБ-5", createdAt: "2026-07-17T10:00:00.000Z" },
+      ];
+    },
+    async create() {
+      throw new Error("not used");
+    },
+  };
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const accepted = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        formId: "production",
+        payload: {
+          reportDate: "2026-07-17",
+          formingDay: "12",
+          formingProductBrand: " фл-1 ",
+          unformedBrand3: "ПБ-5",
+          unformedFact3: "8",
+        },
+      }),
+    });
+
+    assert.equal(accepted.status, 201);
+    assert.equal(createdDraft?.draft.payload.formingProductBrand, "ФЛ-1");
+    assert.equal(createdDraft?.draft.payload.unformedBrand3, "ПБ-5");
+
+    createdDraft = undefined;
+    const rejected = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        formId: "production",
+        payload: {
+          reportDate: "2026-07-17",
+          chamotteBrand1: "Ш-404",
+          chamotteFact1: "3",
+        },
+      }),
+    });
+
+    assert.equal(rejected.status, 400);
+    assert.equal(createdDraft, undefined);
+  }, repository, emptyReferenceDataSource, undefined, undefined, adminDatabase,
+  productionConfig, buildAuthService({ profile }), undefined, undefined,
+  undefined, undefined, productionBrands);
 });
 
 test("production API keeps admin database gated by admin capability", async () => {
@@ -3419,6 +3640,7 @@ async function withApiServer(
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService,
   audit?: AuditRepository,
   databaseTransaction?: DatabaseTransactionRunner,
+  productionBrands?: ProductionBrandsRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -3441,6 +3663,7 @@ async function withApiServer(
     emailNotificationService,
     maxNotificationService,
     dispatcherSpreadsheetImport,
+    productionBrands,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,
   });

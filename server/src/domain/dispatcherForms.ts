@@ -163,8 +163,6 @@ export const dispatcherForms: readonly DispatcherFormDefinition[] = [
       },
       ...buildProductionSummaryFields("forming", "Формовка"),
       ...buildProductionSummaryFields("sorting", "Сортировка"),
-      ...buildProductionRows("unformed", "Неформованная продукция", 4),
-      ...buildProductionRows("chamotte", "Выпуск шамота", 1),
       ...buildJarMeasurementFields(),
       {
         name: "granulationPlatesInOperation",
@@ -365,44 +363,15 @@ function buildProductionSummaryFields(
   sectionLabel: string,
 ): DispatcherFormField[] {
   return [
-    productionNumberField(`${prefix}Plan`, `${sectionLabel} — План`),
     productionNumberField(`${prefix}Day`, `${sectionLabel} — Сутки`),
     {
-      name: `${prefix}ProductBrands`,
-      label: `${sectionLabel} — Марки изделий`,
+      name: `${prefix}ProductBrand`,
+      label: `${sectionLabel} — Марка изделия`,
       type: "text",
       required: false,
-      maxLength: 500,
+      maxLength: 120,
     },
   ];
-}
-
-function buildProductionRows(
-  prefix: "unformed" | "chamotte",
-  sectionLabel: string,
-  rowCount: number,
-): DispatcherFormField[] {
-  return Array.from({ length: rowCount }, (_, index) => {
-    const rowNumber = index + 1;
-    const rowLabel = `${sectionLabel}, строка ${rowNumber}`;
-
-    return [
-      {
-        name: `${prefix}Brand${rowNumber}`,
-        label: `${rowLabel} — Марка продукции`,
-        type: "text" as const,
-        required: false,
-      },
-      productionNumberField(
-        `${prefix}Plan${rowNumber}`,
-        `${rowLabel} — План`,
-      ),
-      productionNumberField(
-        `${prefix}Fact${rowNumber}`,
-        `${rowLabel} — Факт`,
-      ),
-    ];
-  }).flat();
 }
 
 function buildJarMeasurementFields(): DispatcherFormField[] {

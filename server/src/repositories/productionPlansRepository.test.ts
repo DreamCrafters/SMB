@@ -13,12 +13,17 @@ test("production plans repository appends a revision and reads the latest month 
         return [[{
           id: "revision-1",
           plan_month: "2026-07",
-          monthly_plan: "100",
+          monthly_plans: JSON.stringify({
+            forming: 100,
+            sorting: 80,
+            unformed: 50,
+            chamotte: 20,
+          }),
           working_dates: JSON.stringify(["2026-07-01", "2026-07-02", "2026-07-03"]),
-          daily_plans: JSON.stringify([
-            { date: "2026-07-01", value: 34 },
-            { date: "2026-07-02", value: 34 },
-            { date: "2026-07-03", value: 32 },
+          category_daily_plans: JSON.stringify([
+            { date: "2026-07-01", values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 } },
+            { date: "2026-07-02", values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 } },
+            { date: "2026-07-03", values: { forming: 32, sorting: 26, unformed: 16, chamotte: 6 } },
           ]),
           created_by_user_id: "economist-user",
           created_at: "2026-07-17T10:00:00.000Z",
@@ -36,12 +41,17 @@ test("production plans repository appends a revision and reads the latest month 
   const saved = await repository.saveRevision({
     plan: {
       month: "2026-07",
-      monthlyPlan: 100,
+      monthlyPlans: {
+        forming: 100,
+        sorting: 80,
+        unformed: 50,
+        chamotte: 20,
+      },
       workingDayCount: 3,
       dailyPlans: [
-        { date: "2026-07-01", value: 34 },
-        { date: "2026-07-02", value: 34 },
-        { date: "2026-07-03", value: 32 },
+        { date: "2026-07-01", values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 } },
+        { date: "2026-07-02", values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 } },
+        { date: "2026-07-03", values: { forming: 32, sorting: 26, unformed: 16, chamotte: 6 } },
       ],
     },
     createdByUserId: "economist-user",
@@ -52,12 +62,12 @@ test("production plans repository appends a revision and reads the latest month 
   assert.deepEqual(queries[0]?.parameters, [
     "revision-1",
     "2026-07",
-    100,
+    JSON.stringify({ forming: 100, sorting: 80, unformed: 50, chamotte: 20 }),
     JSON.stringify(["2026-07-01", "2026-07-02", "2026-07-03"]),
     JSON.stringify([
-      { date: "2026-07-01", value: 34 },
-      { date: "2026-07-02", value: 34 },
-      { date: "2026-07-03", value: 32 },
+      { date: "2026-07-01", values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 } },
+      { date: "2026-07-02", values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 } },
+      { date: "2026-07-03", values: { forming: 32, sorting: 26, unformed: 16, chamotte: 6 } },
     ]),
     "economist-user",
   ]);

@@ -17,7 +17,12 @@ test("buildSuggestedProductionWorkdays proposes Monday through Friday dates", ()
 test("buildProductionPlan rounds up every confirmed workday except the last", () => {
   const result = buildProductionPlan({
     month: "2026-07",
-    monthlyPlan: 100,
+    monthlyPlans: {
+      forming: 100,
+      sorting: 80,
+      unformed: 50,
+      chamotte: 20,
+    },
     workingDates: ["2026-07-03", "2026-07-01", "2026-07-02"],
   });
 
@@ -25,12 +30,26 @@ test("buildProductionPlan rounds up every confirmed workday except the last", ()
     ok: true,
     plan: {
       month: "2026-07",
-      monthlyPlan: 100,
+      monthlyPlans: {
+        forming: 100,
+        sorting: 80,
+        unformed: 50,
+        chamotte: 20,
+      },
       workingDayCount: 3,
       dailyPlans: [
-        { date: "2026-07-01", value: 34 },
-        { date: "2026-07-02", value: 34 },
-        { date: "2026-07-03", value: 32 },
+        {
+          date: "2026-07-01",
+          values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 },
+        },
+        {
+          date: "2026-07-02",
+          values: { forming: 34, sorting: 27, unformed: 17, chamotte: 7 },
+        },
+        {
+          date: "2026-07-03",
+          values: { forming: 32, sorting: 26, unformed: 16, chamotte: 6 },
+        },
       ],
     },
   });
@@ -40,7 +59,12 @@ test("buildProductionPlan rejects dates outside the month and a negative remaind
   assert.deepEqual(
     buildProductionPlan({
       month: "2026-07",
-      monthlyPlan: 100,
+      monthlyPlans: {
+        forming: 100,
+        sorting: 80,
+        unformed: 50,
+        chamotte: 20,
+      },
       workingDates: ["2026-07-01", "2026-08-03"],
     }),
     { ok: false, errors: ["Все рабочие дни должны относиться к выбранному месяцу."] },
@@ -48,9 +72,32 @@ test("buildProductionPlan rejects dates outside the month and a negative remaind
   assert.deepEqual(
     buildProductionPlan({
       month: "2026-07",
-      monthlyPlan: 1,
+      monthlyPlans: {
+        forming: 100,
+        sorting: 80,
+        unformed: 50,
+        chamotte: 1,
+      },
       workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
     }),
-    { ok: false, errors: ["Месячный план слишком мал для выбранного количества рабочих дней."] },
+    { ok: false, errors: ["Месячный план категории «Цех обжига шамота» слишком мал для выбранного количества рабочих дней."] },
+  );
+});
+
+test("buildProductionPlan requires every category plan", () => {
+  assert.deepEqual(
+    buildProductionPlan({
+      month: "2026-07",
+      monthlyPlans: {
+        forming: 100,
+        sorting: 80,
+        unformed: 50,
+      } as never,
+      workingDates: ["2026-07-01"],
+    }),
+    {
+      ok: false,
+      errors: ["Укажите целый положительный месячный план для категории «Цех обжига шамота»."],
+    },
   );
 });
