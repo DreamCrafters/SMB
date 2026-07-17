@@ -165,19 +165,21 @@ export function buildEquipmentReportNotificationText(
   const reportDate = readEquipmentReportDate(submissions);
   const header =
     status === "updated"
-      ? "Отчет по оборудованию изменен!"
-      : "Отчет по оборудованию!";
+      ? "📢 Отчет по оборудованию изменен!"
+      : "📢 Новый отчет по оборудованию!";
   const lines = [
     header,
-    ...(reportDate.length === 0 ? [] : [`Дата отчета: ${reportDate}`]),
-    `Позиций в отчете: ${submissions.length}`,
+    `📊 Отчет по оборудованию${
+      reportDate.length === 0 ? "" : ` за ${reportDate}`
+    }`,
     "",
     ...submissions
       .slice()
-      .sort((left, right) =>
-        readEquipmentName(left).localeCompare(readEquipmentName(right), "ru"),
-      )
-      .flatMap((submission) => buildEquipmentReportLines(submission)),
+      .sort(compareEquipmentSubmissions)
+      .flatMap((submission, index) => [
+        ...buildEquipmentReportLines(submission, index + 1),
+        ...(index === submissions.length - 1 ? [] : [""]),
+      ]),
   ];
 
   return lines.join("\n");
@@ -244,24 +246,72 @@ function buildIncidentClosureNotificationText(submission: DispatcherSubmission) 
   ].join("\n");
 }
 
-function buildEquipmentReportLines(submission: DispatcherSubmission) {
-  let line = `${readEquipmentName(submission)}: выработка ${readPayloadValue(
+function compareEquipmentSubmissions(
+  left: DispatcherSubmission,
+  right: DispatcherSubmission,
+) {
+  const equipmentOptions =
+    getDispatcherFormDefinition("equipment")?.fields.find(
+      (field) => field.name === "equipment",
+    )?.options ?? [];
+  const readOrder = (submission: DispatcherSubmission) => {
+    const index = equipmentOptions.indexOf(readEquipmentName(submission));
+
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  const orderDifference = readOrder(left) - readOrder(right);
+
+  return orderDifference === 0
+    ? readEquipmentName(left).localeCompare(readEquipmentName(right), "ru")
+    : orderDifference;
+}
+
+function buildEquipmentReportLines(
+  submission: DispatcherSubmission,
+  position: number,
+) {
+  const lines = [`${position}. ${readEquipmentName(submission)}`];
+  const productionTons = readPositivePayloadNumber(
     submission,
     "productionTons",
-    "0",
-  )} т; простой ${readPayloadValue(submission, "downtimeHours", "0")} ч`;
-  const downtimeReason = submission.payload.downtimeReason?.trim();
-  const note = submission.payload.note?.trim();
+  );
+  const downtimeHours = readPositivePayloadNumber(
+    submission,
+    "downtimeHours",
+  );
+  const downtimeReason = readPayloadValue(submission, "downtimeReason");
+  const note = readPayloadValue(submission, "note");
 
-  if (downtimeReason !== undefined && downtimeReason.length > 0) {
-    line += `; причина: ${downtimeReason}`;
+  if (productionTons !== undefined) {
+    lines.push(`Объём (т): ${formatNotificationNumber(productionTons)}`);
   }
 
-  if (note !== undefined && note.length > 0) {
-    line += `; примечание: ${note}`;
+  if (downtimeReason.length > 0) {
+    lines.push(`Причина простоя: ${downtimeReason}`);
   }
 
-  return [line];
+  if (downtimeHours !== undefined) {
+    lines.push(`Время (ч): ${formatNotificationNumber(downtimeHours)}`);
+  }
+
+  if (note.length > 0) {
+    lines.push(`Примечание: ${note}`);
+  }
+
+  return lines;
+}
+
+function readPositivePayloadNumber(
+  submission: DispatcherSubmission,
+  fieldName: string,
+) {
+  const value = Number(readPayloadValue(submission, fieldName));
+
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function formatNotificationNumber(value: number) {
+  return String(value).replace(".", ",");
 }
 
 function buildVisitorEntryNotificationText(submission: DispatcherSubmission) {

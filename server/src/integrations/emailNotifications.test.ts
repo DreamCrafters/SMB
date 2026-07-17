@@ -100,10 +100,16 @@ test("buildDispatcherSubmissionEmail adds mechanical and electrical recipients f
     "electric@example.com",
   ]);
   assert.equal(message?.subject, "[SMB Monitor] Отчет по оборудованию: Пресс №1");
-  assert.match(message?.text ?? "", /Отчет по оборудованию!/);
-  assert.match(
-    message?.text ?? "",
-    /Пресс №1: выработка 0 т; простой 8 ч; причина: Простой по мех, эл\. части/,
+  assert.equal(
+    message?.text,
+    [
+      "📢 Новый отчет по оборудованию!",
+      "📊 Отчет по оборудованию",
+      "",
+      "1. Пресс №1",
+      "Причина простоя: Простой по мех, эл. части",
+      "Время (ч): 8",
+    ].join("\n"),
   );
   assert.doesNotMatch(message?.text ?? "", /^Форма:/m);
 });
@@ -113,14 +119,20 @@ test("buildEquipmentReportEmail sends one message with all equipment rows", () =
     [
       buildSubmission("equipment", {
         reportDate: "06.07.2026",
-        equipment: "Пресс №1",
-        productionTons: "42",
+        equipment: "Бегуны №1",
+        productionTons: "14",
       }),
       buildSubmission("equipment", {
         reportDate: "06.07.2026",
         equipment: "Пресс №2",
         downtimeReason: "Простой по мех, эл. части",
         downtimeHours: "8",
+      }),
+      buildSubmission("equipment", {
+        reportDate: "06.07.2026",
+        equipment: "Пресс №1",
+        productionTons: "42.5",
+        note: "План выполнен",
       }),
     ],
     {
@@ -143,15 +155,23 @@ test("buildEquipmentReportEmail sends one message with all equipment rows", () =
     message?.subject,
     "[SMB Monitor] Отчет по оборудованию изменен за 06.07.2026",
   );
-  assert.match(message?.text ?? "", /Отчет по оборудованию изменен!/);
-  assert.match(message?.text ?? "", /Позиций в отчете: 2/);
-  assert.match(
-    message?.text ?? "",
-    /Пресс №1: выработка 42 т; простой 0 ч/,
-  );
-  assert.match(
-    message?.text ?? "",
-    /Пресс №2: выработка 0 т; простой 8 ч; причина: Простой по мех, эл\. части/,
+  assert.equal(
+    message?.text,
+    [
+      "📢 Отчет по оборудованию изменен!",
+      "📊 Отчет по оборудованию за 06.07.2026",
+      "",
+      "1. Пресс №1",
+      "Объём (т): 42,5",
+      "Примечание: План выполнен",
+      "",
+      "2. Пресс №2",
+      "Причина простоя: Простой по мех, эл. части",
+      "Время (ч): 8",
+      "",
+      "3. Бегуны №1",
+      "Объём (т): 14",
+    ].join("\n"),
   );
 });
 

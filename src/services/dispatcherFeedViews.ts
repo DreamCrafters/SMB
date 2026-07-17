@@ -4,7 +4,11 @@ import type {
   DispatcherSubmissionPayload,
 } from "../contracts";
 
-export type DispatcherFeedGroup = "equipment" | "incidents" | "visitors";
+export type DispatcherFeedGroup =
+  | "production"
+  | "equipment"
+  | "incidents"
+  | "visitors";
 
 export type DispatcherFeedPeriod =
   | "today"
@@ -33,6 +37,17 @@ export type EquipmentDetailRow = {
   notes: string[];
   receivedAt: string;
   submissionCount: number;
+};
+
+export type ProductionReportRow = {
+  id: string;
+  reportDate: string;
+  formingDay?: number;
+  sortingDay?: number;
+  unformedFact?: number;
+  chamotteFact?: number;
+  granulationRawOutputTons?: number;
+  receivedAt: string;
 };
 
 export type IncidentSummaryRow = {
@@ -346,6 +361,52 @@ export function buildEquipmentDetailRows(
       submissionCount: row.submissionCount,
     }))
     .sort((left, right) => left.reportDate.localeCompare(right.reportDate));
+}
+
+export function buildProductionReportRows(
+  submissions: DispatcherSubmission[],
+  range: DateRange,
+): ProductionReportRow[] {
+  return submissions
+    .flatMap((submission) => {
+      if (submission.formId !== "production") {
+        return [];
+      }
+
+      const reportDate = readPayloadDate(submission.payload.reportDate);
+
+      if (reportDate === undefined || !isDateInRange(reportDate, range)) {
+        return [];
+      }
+
+      return [
+        {
+          id: submission.id,
+          reportDate,
+          formingDay: readNumber(submission.payload.formingDay),
+          sortingDay: readNumber(submission.payload.sortingDay),
+          unformedFact: sumPayloadNumbers(submission.payload, [
+            "unformedFact1",
+            "unformedFact2",
+            "unformedFact3",
+            "unformedFact4",
+          ]),
+          chamotteFact: sumPayloadNumbers(submission.payload, [
+            "chamotteFact1",
+          ]),
+          granulationRawOutputTons: readNumber(
+            submission.payload.granulationRawOutputTons,
+          ),
+          receivedAt: submission.receivedAt,
+        },
+      ];
+    })
+    .sort(
+      (left, right) =>
+        right.reportDate.localeCompare(left.reportDate) ||
+        readTimestamp(right.receivedAt) - readTimestamp(left.receivedAt) ||
+        right.id.localeCompare(left.id),
+    );
 }
 
 function buildOwnerEquipmentOverview(
@@ -1064,4 +1125,25 @@ function readNumber(value: string | undefined) {
   const numberValue = Number(value);
 
   return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
+function sumPayloadNumbers(
+  payload: DispatcherSubmissionPayload,
+  fieldNames: readonly string[],
+) {
+  let hasValue = false;
+  let total = 0;
+
+  for (const fieldName of fieldNames) {
+    const value = readNumber(payload[fieldName]);
+
+    if (value === undefined) {
+      continue;
+    }
+
+    hasValue = true;
+    total += value;
+  }
+
+  return hasValue ? total : undefined;
 }

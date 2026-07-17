@@ -8,6 +8,7 @@ import {
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
+  buildProductionReportRows,
   buildVisitorVisitRows,
 } from "../.test-build/src/services/dispatcherFeedViews.js";
 
@@ -144,6 +145,71 @@ test("buildEquipmentDetailRows lists selected equipment rows by report date", ()
     {
       reason: "Простой по мех, эл. части",
       hours: 4,
+    },
+  ]);
+});
+
+test("buildProductionReportRows summarizes reports inside the selected period", () => {
+  const rows = buildProductionReportRows(
+    [
+      buildSubmission(
+        "production-latest",
+        "production",
+        {
+          reportDate: "03.07.2026",
+          formingDay: "10.5",
+          unformedFact1: "2",
+          unformedFact2: "3.5",
+          chamotteFact1: "4",
+          granulationRawOutputTons: "1.25",
+        },
+        "2026-07-03T18:00:00.000Z",
+      ),
+      buildSubmission(
+        "production-earlier",
+        "production",
+        {
+          reportDate: "2026-07-01",
+          sortingDay: "8",
+          unformedFact1: "0",
+        },
+        "2026-07-01T18:00:00.000Z",
+      ),
+      buildSubmission("equipment-row", "equipment", {
+        reportDate: "03.07.2026",
+        productionTons: "99",
+      }),
+      buildSubmission("production-outside", "production", {
+        reportDate: "10.07.2026",
+        formingDay: "99",
+      }),
+    ],
+    {
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-08",
+    },
+  );
+
+  assert.deepEqual(rows, [
+    {
+      id: "production-latest",
+      reportDate: "2026-07-03",
+      formingDay: 10.5,
+      sortingDay: undefined,
+      unformedFact: 5.5,
+      chamotteFact: 4,
+      granulationRawOutputTons: 1.25,
+      receivedAt: "2026-07-03T18:00:00.000Z",
+    },
+    {
+      id: "production-earlier",
+      reportDate: "2026-07-01",
+      formingDay: undefined,
+      sortingDay: 8,
+      unformedFact: 0,
+      chamotteFact: undefined,
+      granulationRawOutputTons: undefined,
+      receivedAt: "2026-07-01T18:00:00.000Z",
     },
   ]);
 });

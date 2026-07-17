@@ -156,6 +156,7 @@ import {
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
+  buildProductionReportRows,
   buildVisitorVisitRows,
   type OwnerDispatcherOverview,
   type DispatcherFeedGroup,
@@ -3986,9 +3987,15 @@ function DispatcherFeedPanel({
     dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
   };
   const equipmentRows = buildEquipmentSummaryRows(submissions, selectedDateRange);
+  const productionRows = buildProductionReportRows(submissions, selectedDateRange);
   const incidentRows = buildIncidentSummaryRows(submissions, selectedDateRange);
   const visitorRows = buildVisitorVisitRows(submissions, selectedDateRange);
+  const productionForm =
+    dispatcherForms.status === "ready"
+      ? dispatcherForms.forms.find((form) => form.id === "production")
+      : undefined;
   const visibleRowCount = {
+    production: productionRows.length,
     equipment: equipmentRows.length,
     incidents: incidentRows.length,
     visitors: visitorRows.length,
@@ -4009,6 +4016,7 @@ function DispatcherFeedPanel({
       <div className="dispatcher-feed-controls">
         <div className="dispatcher-feed-group-tabs" aria-label="Раздел данных">
           {[
+            ["production", "Выработка"],
             ["equipment", "Оборудование"],
             ["incidents", "Инциденты"],
             ["visitors", "Посетители"],
@@ -4102,6 +4110,13 @@ function DispatcherFeedPanel({
           )}
         </p>
       ) : null}
+      {filters.group === "production" ? (
+        <ProductionReportSummaryTable
+          form={productionForm}
+          rows={productionRows}
+          submissions={submissions}
+        />
+      ) : null}
       {filters.group === "equipment" ? (
         <EquipmentSummaryTable
           range={selectedDateRange}
@@ -4116,6 +4131,184 @@ function DispatcherFeedPanel({
         <VisitorSummaryTable rows={visitorRows} />
       ) : null}
     </section>
+  );
+}
+
+function ProductionReportSummaryTable({
+  form,
+  rows,
+  submissions,
+}: {
+  form: DispatcherFormDefinition | undefined;
+  rows: ReturnType<typeof buildProductionReportRows>;
+  submissions: DispatcherSubmission[];
+}) {
+  const [detailReportId, setDetailReportId] = useState<string>();
+  const detailRow = rows.find((row) => row.id === detailReportId);
+  const detailSubmission = submissions.find(
+    (submission) =>
+      submission.formId === "production" && submission.id === detailReportId,
+  );
+
+  useEffect(() => {
+    if (
+      detailReportId !== undefined &&
+      !rows.some((row) => row.id === detailReportId)
+    ) {
+      setDetailReportId(undefined);
+    }
+  }, [detailReportId, rows]);
+
+  useEffect(() => {
+    if (detailReportId === undefined) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setDetailReportId(undefined);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [detailReportId]);
+
+  if (rows.length === 0) {
+    return (
+      <p className="dispatcher-status-line">
+        Нет отчётов по выработке для выбранного периода.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <div className="dispatcher-feed-table" role="table">
+        <div
+          className="dispatcher-feed-row dispatcher-feed-row-production dispatcher-feed-head"
+          role="row"
+        >
+          <span role="columnheader">Дата отчёта</span>
+          <span role="columnheader">Формовка, сутки</span>
+          <span role="columnheader">Сортировка, сутки</span>
+          <span role="columnheader">Неформованная, факт</span>
+          <span role="columnheader">Шамот, факт</span>
+          <span role="columnheader">Сырцовая гранула, т</span>
+        </div>
+        {rows.map((row) => (
+          <div
+            className="dispatcher-feed-row dispatcher-feed-row-production"
+            role="row"
+            key={row.id}
+          >
+            <span role="cell">
+              <button
+                className="production-detail-trigger"
+                type="button"
+                aria-haspopup="dialog"
+                disabled={form === undefined}
+                title={
+                  form === undefined
+                    ? "Форма выработки пока недоступна"
+                    : "Открыть полный отчёт"
+                }
+                onClick={() => setDetailReportId(row.id)}
+              >
+                {formatReportDateForDisplay(row.reportDate)}
+              </button>
+            </span>
+            <span role="cell">{formatOptionalNumber(row.formingDay)}</span>
+            <span role="cell">{formatOptionalNumber(row.sortingDay)}</span>
+            <span role="cell">{formatOptionalNumber(row.unformedFact)}</span>
+            <span role="cell">{formatOptionalNumber(row.chamotteFact)}</span>
+            <span role="cell">
+              {formatOptionalNumber(row.granulationRawOutputTons)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {form !== undefined &&
+      detailRow !== undefined &&
+      detailSubmission !== undefined ? (
+        <ProductionReportDetailModal
+          form={form}
+          row={detailRow}
+          submission={detailSubmission}
+          onClose={() => setDetailReportId(undefined)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ProductionReportDetailModal({
+  form,
+  row,
+  submission,
+  onClose,
+}: {
+  form: DispatcherFormDefinition;
+  row: ReturnType<typeof buildProductionReportRows>[number];
+  submission: DispatcherSubmission;
+  onClose: () => void;
+}) {
+  const visibleFields = form.fields.filter((field) => {
+    const value = submission.payload[field.name]?.trim();
+
+    return field.name !== "reportDate" && value !== undefined && value.length > 0;
+  });
+
+  return (
+    <div
+      className="admin-db-modal-backdrop equipment-detail-modal-backdrop"
+      role="presentation"
+      onClick={onClose}
+    >
+      <section
+        className="equipment-detail-modal production-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="production-detail-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="equipment-detail-header">
+          <div>
+            <strong id="production-detail-title">
+              Отчёт по выработке за {formatReportDateForDisplay(row.reportDate)}
+            </strong>
+            <small>Обновлено: {formatDateTime(row.receivedAt)}</small>
+          </div>
+          <button className="secondary-button" type="button" onClick={onClose}>
+            Закрыть
+          </button>
+        </div>
+
+        {visibleFields.length === 0 ? (
+          <p className="dispatcher-status-line">
+            В отчёте нет заполненных показателей.
+          </p>
+        ) : (
+          <div className="production-detail-grid" aria-label="Показатели выработки">
+            {visibleFields.map((field) => (
+              <div key={field.name}>
+                <small>{field.label}</small>
+                <strong>
+                  {formatProductionFieldValue(
+                    field,
+                    submission.payload[field.name],
+                  )}
+                </strong>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -7663,6 +7856,35 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatOptionalNumber(value: number | undefined) {
+  return value === undefined ? "—" : formatNumber(value);
+}
+
+function formatProductionFieldValue(
+  field: DispatcherFormField,
+  value: string | undefined,
+) {
+  const text = value?.trim();
+
+  if (text === undefined || text.length === 0) {
+    return "—";
+  }
+
+  if (
+    field.type === "number" ||
+    field.type === "signed-number" ||
+    field.type === "integer"
+  ) {
+    const numberValue = Number(text);
+
+    if (Number.isFinite(numberValue)) {
+      return formatNumber(numberValue);
+    }
+  }
+
+  return text;
 }
 
 function readOverviewDetailValue(value: string | undefined) {

@@ -1576,7 +1576,7 @@ p {
 
 .dispatcher-feed-group-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--density-1);
 }
 
@@ -1731,6 +1731,11 @@ p {
   grid-template-columns: minmax(180px, 1fr) minmax(130px, 0.55fr) minmax(130px, 0.55fr) minmax(360px, 1.6fr);
 }
 
+.dispatcher-feed-row-production {
+  grid-template-columns: minmax(150px, 0.7fr) repeat(5, minmax(150px, 0.7fr));
+  min-width: 960px;
+}
+
 .dispatcher-feed-row-incidents {
   grid-template-columns: minmax(120px, 0.55fr) minmax(100px, 0.45fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(420px, 1.8fr);
 }
@@ -1761,7 +1766,8 @@ p {
   text-transform: uppercase;
 }
 
-.equipment-detail-trigger {
+.equipment-detail-trigger,
+.production-detail-trigger {
   width: 100%;
   padding: 0;
   border: 0;
@@ -1777,10 +1783,18 @@ p {
 }
 
 .equipment-detail-trigger:hover,
-.equipment-detail-trigger:focus-visible {
+.equipment-detail-trigger:focus-visible,
+.production-detail-trigger:hover,
+.production-detail-trigger:focus-visible {
   color: var(--nav-strong);
   outline: 2px solid var(--blue-gray-soft);
   outline-offset: 2px;
+}
+
+.production-detail-trigger:disabled {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: wait;
 }
 
 .admin-workspace {
@@ -2670,6 +2684,44 @@ p {
   font-size: 11px;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.production-detail-modal {
+  width: min(100%, 1280px);
+}
+
+.production-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--density-2);
+}
+
+.production-detail-grid > div {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue-gray);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.production-detail-grid small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.production-detail-grid strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .admin-db-editor-header {
