@@ -28,7 +28,6 @@ test("audit repository writes safe immutable event snapshots", async () => {
     action: "form.submit",
     summary: "Отправлена форма «Вход посетителя»",
     details: [{ label: "ФИО посетителя", value: "Петров Пётр" }],
-    businessAccountId: "business-1",
     targetType: "dispatcher_submission",
     targetId: "submission-1",
   });
@@ -46,7 +45,6 @@ test("audit repository writes safe immutable event snapshots", async () => {
     "success",
     "Отправлена форма «Вход посетителя»",
     JSON.stringify([{ label: "ФИО посетителя", value: "Петров Пётр" }]),
-    "business-1",
     "dispatcher_submission",
     "submission-1",
     new Date("2026-07-16T09:30:00.000Z"),
@@ -89,7 +87,6 @@ test("audit repository lists one account only inside the server-owned three-mont
         outcome: "success",
         summary: "Открыт экран «Форма»",
         details: JSON.stringify([]),
-        business_account_id: "business-1",
         target_type: "screen",
         target_id: "business.dispatcher_form",
         occurred_at: new Date("2026-07-15T08:00:00.000Z"),
@@ -139,7 +136,7 @@ test("audit repository lists one account only inside the server-owned three-mont
   assert.doesNotMatch(queries.map((query) => query.sql).join(" "), /delete|truncate/u);
 });
 
-test("audit repository scopes both events and account filters to one business", async () => {
+test("audit repository scopes both events and account filters to the organization", async () => {
   const queries: Array<{ sql: string; values: unknown[] }> = [];
   const pool = {
     async query(sql: string, values: unknown[] = []) {
@@ -152,7 +149,7 @@ test("audit repository scopes both events and account filters to one business", 
     now: () => new Date("2026-07-16T12:30:00.000Z"),
   });
 
-  await repository.listReport({ businessAccountId: "business-1" });
+  await repository.listReport({ organizationOnly: true });
 
   const eventQueries = queries.filter((query) =>
     query.sql.includes("from user_audit_events"),
@@ -163,17 +160,15 @@ test("audit repository scopes both events and account filters to one business", 
 
   assert.equal(eventQueries.length, 2);
   for (const query of eventQueries) {
-    assert.match(query.sql, /business_account_id = \?/u);
-    assert.equal(query.values[2], "business-1");
+    assert.match(query.sql, /scope_kind = 'organization'/u);
   }
   assert.match(
     actorQuery?.sql ?? "",
-    /where accesses\.business_account_id = \?/u,
+    /where accesses\.scope_kind = 'organization'/u,
   );
   assert.deepEqual(actorQuery?.values, [
     new Date("2026-04-16T12:30:00.000Z"),
     new Date("2026-07-16T12:30:00.000Z"),
-    "business-1",
   ]);
 });
 

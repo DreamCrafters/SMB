@@ -108,7 +108,6 @@ function buildProfile({
       capabilities,
       issuedAt: "2026-07-16T00:00:00.000Z",
     },
-    businessAccounts: [],
     receivedAt: "2026-07-16T00:00:00.000Z",
   };
 }

@@ -144,9 +144,9 @@ npm --workspace server run auth:create-user
 действие сброса в админском интерфейсе/API.
 
 Для `business_owner`, `dispatcher` и `worker` достаточно тех же четырёх
-переменных с нужным `SMB_AUTH_ACCOUNT_TYPE`. Scope ID указывать необязательно:
-backend сам назначает всем неадминистративным аккаунтам общий business scope.
-`SMB_AUTH_BUSINESS_ACCOUNT_ID` нужен только как необязательный явный override.
+переменных с нужным `SMB_AUTH_ACCOUNT_TYPE`. Backend сам назначает всем
+неадминистративным аккаунтам общий organization scope; дополнительные scope ID
+и переменные бизнеса не используются.
 
 Пароль не коммитить и не выводить в ответы/логи.
 

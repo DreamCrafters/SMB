@@ -4,7 +4,6 @@ import {
   hasProfileCapability,
   isAccountNavigationItem,
   isAccountPosition,
-  readScopedBusinessAccountId,
   type AccountCapability,
   type AccountNavigationItem,
   type AccountType,
@@ -307,11 +306,7 @@ export function createApiServer({
           return;
         }
 
-        const payload = applyAuthenticatedBusinessScope(
-          await readJsonBody(req),
-          access.profile,
-          config,
-        );
+        const payload = await readJsonBody(req);
         const validation = validateDispatcherEquipmentReportRequest(payload);
 
         if (!validation.ok) {
@@ -351,7 +346,6 @@ export function createApiServer({
 
             if (reportStatus === "updated") {
               await dispatcherSubmissions.recordEquipmentReportRevision({
-                businessAccountId: validation.value.businessAccountId,
                 reportDate: readEquipmentReportDate(result),
                 status: reportStatus,
                 submissions: result,
@@ -389,7 +383,6 @@ export function createApiServer({
                   }));
               }),
             ],
-            businessAccountId: validation.value.businessAccountId,
             targetType: "equipment_report",
             targetId: readEquipmentReportDate(result),
           }),
@@ -435,13 +428,8 @@ export function createApiServer({
             return;
           }
 
-          const scopedFilters = applyAuthenticatedFeedScope(
-            filters.value,
-            access.profile,
-            config,
-          );
-          const submissions = await dispatcherSubmissions.listLatest(scopedFilters);
-          const summary = await dispatcherSubmissions.readSummary(scopedFilters);
+          const submissions = await dispatcherSubmissions.listLatest(filters.value);
+          const summary = await dispatcherSubmissions.readSummary(filters.value);
 
           sendJson(res, 200, {
             submissions,
@@ -463,11 +451,7 @@ export function createApiServer({
             return;
           }
 
-          const payload = applyAuthenticatedBusinessScope(
-            await readJsonBody(req),
-            access.profile,
-            config,
-          );
+          const payload = await readJsonBody(req);
           const validation = validateDispatcherSubmissionDraft(payload);
 
           if (!validation.ok) {
@@ -527,7 +511,6 @@ export function createApiServer({
                 result.formId,
                 result.payload,
               ),
-              businessAccountId: result.businessAccountId,
               targetType: "dispatcher_submission",
               targetId: result.id,
             }),
@@ -612,13 +595,12 @@ async function handleAdminAuditReportRequest({
     access.profile,
     "platform.view_audit",
   );
-  const businessAccountId = canViewPlatformAudit
-    ? undefined
-    : hasProfileCapability(access.profile, "business.view_user_actions")
-      ? readScopedBusinessAccountId(access.profile)
-      : undefined;
+  const canViewOrganizationAudit = hasProfileCapability(
+    access.profile,
+    "business.view_user_actions",
+  );
 
-  if (!canViewPlatformAudit && businessAccountId === undefined) {
+  if (!canViewPlatformAudit && !canViewOrganizationAudit) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
@@ -645,7 +627,7 @@ async function handleAdminAuditReportRequest({
     200,
     await audit.listReport({
       ...filters.value,
-      ...(businessAccountId === undefined ? {} : { businessAccountId }),
+      ...(canViewPlatformAudit ? {} : { organizationOnly: true }),
     }),
   );
 }
@@ -715,7 +697,6 @@ async function handleAuditEventRequest({
     summary: `Открыт экран «${screen.title}»`,
     targetType: "screen",
     targetId: screen.id,
-    businessAccountId: readScopedBusinessAccountId(access.profile),
   });
 
   sendJson(res, 201, { ok: true });
@@ -725,7 +706,6 @@ type EquipmentReportValidationResult =
   | {
       ok: true;
       value: {
-        businessAccountId: string;
         items: ValidatedDispatcherSubmissionDraft[];
       };
     }
@@ -898,7 +878,6 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
 
 function readAdminDatabaseSectionLabel(tableName: string) {
   const labels: Record<string, string> = {
-    business_accounts: "Бизнес-аккаунты",
     app_users: "Пользователи",
     dispatcher_submissions: "Диспетчерские записи",
   };
@@ -1208,8 +1187,6 @@ function readMissingAdminDatabaseMutationCapability(
   if (tableName === "app_users") {
     required.push("platform.manage_users");
     if (values.status !== undefined) required.push("platform.manage_access");
-  } else if (tableName === "business_accounts") {
-    required.push("platform.manage_business_accounts");
   }
 
   return required.find((capability) => !hasProfileCapability(profile, capability));
@@ -1877,20 +1854,11 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
     errors.push("displayName is required.");
   }
 
-  for (const field of [
-    "userId",
-    "accessId",
-    "businessAccountId",
-    "departmentId",
-    "accessDisplayName",
-    "capabilities",
-    "accountType",
-    "accessLevelId",
-    "businessDisplayName",
-    "departmentDisplayName",
-  ]) {
-    if (Object.prototype.hasOwnProperty.call(input, field)) {
-      errors.push(`${field} is managed by the server.`);
+  const allowedFields = new Set(["login", "password", "displayName", "position"]);
+
+  for (const field of Object.keys(input)) {
+    if (!allowedFields.has(field)) {
+      errors.push(`${field} is not supported.`);
     }
   }
 
@@ -2174,12 +2142,20 @@ function readAdminDispatcherImportPayload(
     typeof input.previewToken === "string" ? input.previewToken.trim() : undefined;
   const errors: string[] = [];
 
-  if (spreadsheetUrl.length === 0 || spreadsheetUrl.length > 2_000) {
-    errors.push("spreadsheetUrl is required and must be 2000 characters or less.");
+  const allowedFields = new Set(
+    requirePreviewToken
+      ? ["spreadsheetUrl", "previewToken"]
+      : ["spreadsheetUrl"],
+  );
+
+  for (const field of Object.keys(input)) {
+    if (!allowedFields.has(field)) {
+      errors.push(`${field} is not supported.`);
+    }
   }
 
-  if (input.businessAccountId !== undefined) {
-    errors.push("businessAccountId is managed by the server.");
+  if (spreadsheetUrl.length === 0 || spreadsheetUrl.length > 2_000) {
+    errors.push("spreadsheetUrl is required and must be 2000 characters or less.");
   }
 
   if (
@@ -2404,15 +2380,7 @@ function validateDispatcherEquipmentReportRequest(
     };
   }
 
-  const businessAccountId =
-    typeof input.businessAccountId === "string"
-      ? input.businessAccountId.trim()
-      : "";
   const errors: string[] = [];
-
-  if (businessAccountId.length === 0) {
-    errors.push("businessAccountId is required.");
-  }
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
     errors.push("items must contain at least one equipment report.");
@@ -2427,7 +2395,6 @@ function validateDispatcherEquipmentReportRequest(
   if (Array.isArray(input.items)) {
     input.items.forEach((payload, index) => {
       const validation = validateDispatcherSubmissionDraft({
-        businessAccountId,
         formId: "equipment",
         payload,
       });
@@ -2455,7 +2422,6 @@ function validateDispatcherEquipmentReportRequest(
   return {
     ok: true,
     value: {
-      businessAccountId,
       items,
     },
   };
@@ -2515,11 +2481,10 @@ function readEquipmentReportStatus(
   const existingKeys = new Set(
     history
       .map((submission) =>
-        buildEquipmentSubmissionKey(
-          submission.businessAccountId,
-          submission.payload.reportDate,
-          submission.payload.equipment,
-        ),
+        buildDispatcherSubmissionDedupeKey({
+          formId: "equipment",
+          payload: submission.payload,
+        }),
       )
       .filter((value): value is string => value !== undefined),
   );
@@ -2529,26 +2494,6 @@ function readEquipmentReportStatus(
   )
     ? "updated"
     : "created";
-}
-
-function buildEquipmentSubmissionKey(
-  businessAccountId: string,
-  reportDate: string | undefined,
-  equipment: string | undefined,
-) {
-  const trimmedReportDate = reportDate?.trim();
-  const trimmedEquipment = equipment?.trim();
-
-  if (
-    trimmedReportDate === undefined ||
-    trimmedReportDate.length === 0 ||
-    trimmedEquipment === undefined ||
-    trimmedEquipment.length === 0
-  ) {
-    return undefined;
-  }
-
-  return `equipment:${businessAccountId}:${trimmedReportDate}:${trimmedEquipment}`;
 }
 
 function readEquipmentReportDate(submissions: readonly DispatcherSubmission[]) {
@@ -2800,7 +2745,6 @@ async function handleAuthLogin(
           category: "authentication",
           action: "auth.login",
           summary: "Выполнен вход в систему",
-          businessAccountId: readScopedBusinessAccountId(result.session.profile),
           targetType: "auth_session",
         },
   });
@@ -2862,7 +2806,6 @@ async function handleAuthLogout(
           category: "authentication",
           action: "auth.logout",
           summary: "Выполнен выход из системы",
-          businessAccountId: readScopedBusinessAccountId(session.profile),
           targetType: "auth_session",
         },
   });
@@ -2922,7 +2865,6 @@ async function handleDevAccessSession(
         category: "authentication",
         action: "auth.logout",
         summary: "Выполнен выход из системы",
-        businessAccountId: readScopedBusinessAccountId(profile),
         targetType: "auth_session",
       });
     }
@@ -2994,7 +2936,6 @@ async function handleDevAccessSession(
     category: "authentication",
     action: "auth.login",
     summary: "Выполнен вход в систему",
-    businessAccountId: readScopedBusinessAccountId(profile),
     targetType: "auth_session",
   });
   devSessions.set(sessionId, session);
@@ -3149,48 +3090,6 @@ async function readDevAccessOptions(
     navigationItems: [...position.navigationItems],
     capabilities: [...position.capabilities],
   }));
-}
-
-function applyAuthenticatedBusinessScope(
-  payload: unknown,
-  profile: ServerUserProfile,
-  config: ServerConfig,
-) {
-  if (config.appEnv !== "production") {
-    return payload;
-  }
-
-  const businessAccountId = readScopedBusinessAccountId(profile);
-
-  if (businessAccountId === undefined || !isRecord(payload)) {
-    return payload;
-  }
-
-  return {
-    ...payload,
-    businessAccountId,
-  };
-}
-
-function applyAuthenticatedFeedScope(
-  filters: DispatcherFeedFilters,
-  profile: ServerUserProfile,
-  config: ServerConfig,
-): DispatcherFeedFilters {
-  if (config.appEnv !== "production") {
-    return filters;
-  }
-
-  const businessAccountId = readScopedBusinessAccountId(profile);
-
-  if (businessAccountId === undefined) {
-    return filters;
-  }
-
-  return {
-    ...filters,
-    businessAccountId,
-  };
 }
 
 function readLoginCredentials(payload: unknown) {

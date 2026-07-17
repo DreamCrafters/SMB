@@ -205,23 +205,20 @@ test("incident helpers list only unclosed incidents", () => {
       datetime: "03.07.2026 18:00",
       location: "Цех 2",
     }),
-    {
-      ...buildSubmission("inc-other", "incident", {
-        incidentNumber: "INC-2026-OTHER",
-      }),
-      businessAccountId: "other-business",
-    },
+    buildSubmission("inc-other", "incident", {
+      incidentNumber: "INC-2026-OTHER",
+    }),
   ];
 
-  const options = buildOpenIncidentOptions(submissions, "business-id");
+  const options = buildOpenIncidentOptions(submissions);
 
   assert.deepEqual(
     options.map((incident) => incident.incidentNumber),
-    ["INC-2026-2", "INC-2026-OLD"],
+    ["INC-2026-OTHER", "INC-2026-2", "INC-2026-OLD"],
   );
-  assert.match(options[0].label, /INC-2026-2/);
-  assert.match(options[0].label, /Высокий/);
-  assert.match(options[1].label, /INC-2026-OLD/);
+  assert.match(options[1].label, /INC-2026-2/);
+  assert.match(options[1].label, /Высокий/);
+  assert.match(options[2].label, /INC-2026-OLD/);
 });
 
 test("visitor helpers list open visitors and daily visits", () => {
@@ -324,7 +321,7 @@ test("visitor open options can be limited to entries from one day", () => {
   ];
 
   assert.deepEqual(
-    buildOpenVisitorOptions(submissions, undefined, "2026-07-04").map(
+    buildOpenVisitorOptions(submissions, "2026-07-04").map(
       (visitor) => visitor.fio,
     ),
     ["Сегодняшний посетитель"],
@@ -456,9 +453,7 @@ test("buildOwnerDispatcherOverview summarizes latest dispatcher statuses", () =>
     ),
   ];
 
-  const overview = buildOwnerDispatcherOverview(submissions, {
-    businessAccountId: "business-id",
-  });
+  const overview = buildOwnerDispatcherOverview(submissions);
 
   assert.equal(overview.equipment?.updatedAt, "2026-07-08T16:00:00.000Z");
   assert.equal(overview.equipment?.reportDate, "2026-07-08");
@@ -510,7 +505,6 @@ function buildSubmission(
 ) {
   return {
     id,
-    businessAccountId: "business-id",
     formId,
     formTitle: formId,
     payload,

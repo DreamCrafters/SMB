@@ -20,7 +20,6 @@ test.after(() => {
 });
 
 const draft = {
-  businessAccountId: "business-id",
   formId: "equipment",
   payload: {
     reportDate: "2026-06-18",
@@ -31,7 +30,6 @@ const draft = {
 
 const submission = {
   id: "submission-id",
-  businessAccountId: "business-id",
   formId: "equipment",
   formTitle: "Оборудование",
   payload: draft.payload,
@@ -114,7 +112,6 @@ test("local production reports use the production form rules", async () => {
   const storage = createMemoryStorage();
   const emptyResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "production",
       payload: { reportDate: "2026-07-16" },
     },
@@ -126,7 +123,6 @@ test("local production reports use the production form rules", async () => {
 
   const result = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "production",
       payload: {
         reportDate: "2026-07-16",
@@ -146,7 +142,6 @@ test("local visitor exit submissions use an open visitor entry", async () => {
   const storage = createMemoryStorage();
   const entryResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "visitor",
       payload: {
         fio: "Visitor Name",
@@ -164,7 +159,6 @@ test("local visitor exit submissions use an open visitor entry", async () => {
 
   const submitResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "visitor_exit",
       payload: {
         visitorEntryId: entryResult.submission.id,
@@ -190,7 +184,6 @@ test("local visitor submissions reject duplicate open entries and unknown exits"
   const storage = createMemoryStorage();
   const entryResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "visitor",
       payload: {
         fio: "Visitor Name",
@@ -205,7 +198,6 @@ test("local visitor submissions reject duplicate open entries and unknown exits"
   );
   const duplicateEntryResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "visitor",
       payload: {
         fio: "Visitor Name",
@@ -220,7 +212,6 @@ test("local visitor submissions reject duplicate open entries and unknown exits"
   );
   const unknownExitResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "visitor_exit",
       payload: {
         visitorEntryId: "missing-entry",
@@ -244,7 +235,6 @@ test("local incident close submissions can close an earlier-day open incident", 
   const storage = createMemoryStorage();
   const incidentResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "incident",
       payload: {
         datetime: "2026-07-04T10:00",
@@ -271,7 +261,6 @@ test("local incident close submissions can close an earlier-day open incident", 
 
   const closeResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "incident_close",
       payload: {
         incidentNumber,
@@ -289,7 +278,6 @@ test("local incident close submissions can close an earlier-day open incident", 
   );
   const duplicateCloseResult = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "incident_close",
       payload: {
         incidentNumber,
@@ -381,7 +369,6 @@ test("local dispatcher feed filters equipment by report date payload", async () 
 test("local equipment submissions reject downtime reason without positive hours", async () => {
   const result = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "equipment",
       payload: {
         reportDate: "2026-06-18",
@@ -405,7 +392,6 @@ test("local equipment submissions reject downtime reason without positive hours"
 test("local equipment submissions reject downtime hours without reason", async () => {
   const result = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "equipment",
       payload: {
         reportDate: "2026-06-18",
@@ -428,7 +414,6 @@ test("local equipment submissions reject downtime hours without reason", async (
 test("local equipment submissions reject reserve downtime under 8 hours", async () => {
   const result = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "equipment",
       payload: {
         reportDate: "2026-06-18",
@@ -452,7 +437,6 @@ test("local equipment submissions reject reserve downtime under 8 hours", async 
 test("local equipment submissions reject short downtime without production", async () => {
   const result = await submitDispatcherSubmission(
     {
-      businessAccountId: "business-id",
       formId: "equipment",
       payload: {
         reportDate: "2026-06-18",
@@ -502,7 +486,6 @@ test("submitDispatcherEquipmentReport posts a batch to remote server", async () 
   };
 
   const value = {
-    businessAccountId: "business-id",
     items: [
       draft.payload,
       {
@@ -533,7 +516,6 @@ test("local equipment reports update existing daily equipment rows", async () =>
   const items = await readLocalEquipmentReportItems(storage);
   const firstResult = await submitDispatcherEquipmentReport(
     {
-      businessAccountId: "business-id",
       items,
     },
     {
@@ -544,7 +526,6 @@ test("local equipment reports update existing daily equipment rows", async () =>
   );
   const secondResult = await submitDispatcherEquipmentReport(
     {
-      businessAccountId: "business-id",
       items: items.map((payload) =>
         payload.equipment === "Пресс №1"
           ? {

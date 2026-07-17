@@ -3,7 +3,6 @@ import type { GoogleSheetsReferenceConfig } from "../config/env.js";
 import {
   buildDispatcherSpreadsheetImportPlan,
   dispatcherImportSheetNames,
-  scopeDispatcherSpreadsheetImportRecords,
   type DispatcherSpreadsheetImportSheetSummary,
 } from "../domain/dispatcherSpreadsheetImport.js";
 import type {
@@ -49,20 +48,13 @@ export function createDispatcherSpreadsheetImportService(
 ): DispatcherSpreadsheetImportService {
   return {
     async preview(value) {
-      const businessAccountId = await requireSingleBusinessAccount(repository);
       const plan = await readImportPlan(config, value.spreadsheetUrl, readWorkbook);
-      const records = scopeDispatcherSpreadsheetImportRecords(
-        plan.records,
-        businessAccountId,
-      );
+      const records = plan.records;
       const uniqueRecords = deduplicateImportRecords(records);
-      const existing = await repository.findExistingSourceKeys(
-        businessAccountId,
-        uniqueRecords.records,
-      );
+      const existing = await repository.findExistingSourceKeys(uniqueRecords.records);
 
       return {
-        previewToken: buildPreviewToken(plan.fingerprint, businessAccountId),
+        previewToken: buildPreviewToken(plan.fingerprint),
         totalRecords: records.length,
         newRecords: uniqueRecords.records.length - existing.size,
         existingRecords: existing.size + uniqueRecords.duplicateCount,
@@ -72,12 +64,8 @@ export function createDispatcherSpreadsheetImportService(
     },
 
     async execute(value) {
-      const businessAccountId = await requireSingleBusinessAccount(repository);
       const plan = await readImportPlan(config, value.spreadsheetUrl, readWorkbook);
-      const expectedToken = buildPreviewToken(
-        plan.fingerprint,
-        businessAccountId,
-      );
+      const expectedToken = buildPreviewToken(plan.fingerprint);
 
       if (value.previewToken !== expectedToken) {
         throw new DispatcherSpreadsheetImportChangedError(
@@ -85,13 +73,9 @@ export function createDispatcherSpreadsheetImportService(
         );
       }
 
-      const records = scopeDispatcherSpreadsheetImportRecords(
-        plan.records,
-        businessAccountId,
-      );
+      const records = plan.records;
       const uniqueRecords = deduplicateImportRecords(records);
       const result = await repository.importRecords({
-        businessAccountId,
         submittedByAccountId: value.submittedByAccountId,
         records: uniqueRecords.records,
       });
@@ -150,26 +134,8 @@ async function readImportPlan(
   return buildDispatcherSpreadsheetImportPlan(workbook);
 }
 
-async function requireSingleBusinessAccount(
-  repository: DispatcherSpreadsheetImportRepository,
-) {
-  const accounts = await repository.listBusinessAccounts();
-
-  if (accounts.length === 0) {
-    throw new Error("Нет активного бизнес-аккаунта для импорта.");
-  }
-
-  if (accounts.length > 1) {
-    throw new Error(
-      "Импорт доступен только при одном активном бизнес-аккаунте.",
-    );
-  }
-
-  return accounts[0]?.id ?? "";
-}
-
-function buildPreviewToken(fingerprint: string, businessAccountId: string) {
+function buildPreviewToken(fingerprint: string) {
   return createHash("sha256")
-    .update(`${businessAccountId}:${fingerprint}`)
+    .update(fingerprint)
     .digest("hex");
 }

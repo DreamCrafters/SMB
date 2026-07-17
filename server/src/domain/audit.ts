@@ -47,7 +47,6 @@ export type AuditEventDraft = {
   outcome?: AuditEventOutcome;
   summary: string;
   details?: AuditEventDetail[];
-  businessAccountId?: string;
   targetType?: AuditTargetType;
   targetId?: string;
   occurredAt?: Date;

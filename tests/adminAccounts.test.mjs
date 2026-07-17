@@ -31,11 +31,7 @@ const account = {
   accountType: "dispatcher",
   position: "dispatcher",
   positionDisplayName: "Диспетчер",
-  scope: {
-    kind: "business",
-    businessAccountId: "business-id",
-  },
-  businessDisplayName: "Цех 1",
+  scope: { kind: "organization" },
   capabilities: ["business.submit_dispatcher_forms"],
   navigationItems: ["business.dispatcher_form"],
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -82,31 +78,6 @@ test("admin accounts service creates an account without client-generated ids", a
     password: "supersecret1",
     displayName: "Диспетчер Один",
     position: "dispatcher",
-  });
-});
-
-test("admin accounts service sends only account fields", async () => {
-  const calls = [];
-
-  globalThis.fetch = async (url, init) => {
-    calls.push({ url: String(url), init });
-
-    return jsonResponse({ account }, 201);
-  };
-
-  await createAdminAccount({
-    login: "worker-1",
-    password: "supersecret1",
-    displayName: "Работник Один",
-    position: "worker",
-    businessDisplayName: "Основной бизнес",
-  });
-
-  assert.deepEqual(JSON.parse(calls[0].init.body), {
-    login: "worker-1",
-    password: "supersecret1",
-    displayName: "Работник Один",
-    position: "worker",
   });
 });
 
@@ -264,10 +235,7 @@ test("admin accounts service assigns a new position to an existing access", asyn
         accountType: "business_owner",
         position: "business_owner",
         positionDisplayName: "Владелец бизнеса",
-        scope: {
-          kind: "business",
-          businessAccountId: "business-id",
-        },
+        scope: { kind: "organization" },
         capabilities: ["business.view_all_statistics"],
         navigationItems: ["business.overview"],
       },

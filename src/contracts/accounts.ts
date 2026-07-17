@@ -27,7 +27,6 @@ export const accountNavigationItems = [
 export type AccountNavigationItem = (typeof accountNavigationItems)[number];
 
 export const accountCapabilities = [
-  "platform.manage_business_accounts",
   "platform.manage_users",
   "platform.manage_access",
   "platform.manage_analytics_database",
@@ -51,8 +50,7 @@ export type AccountScope =
       kind: "platform";
     }
   | {
-      kind: "business";
-      businessAccountId: string;
+      kind: "organization";
     };
 
 export type ServerIssuedAccountAccess = {
@@ -83,7 +81,6 @@ export type AccountAccessResponse = {
 export type AccountAccessErrorCode =
   | "unauthenticated"
   | "account_disabled"
-  | "business_unavailable"
   | "access_denied";
 
 export type AccountAccessErrorResponse = {

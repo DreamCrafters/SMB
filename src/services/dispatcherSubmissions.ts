@@ -685,7 +685,6 @@ export async function submitDispatcherSubmission(
 
 export async function submitDispatcherEquipmentReport(
   value: {
-    businessAccountId: string;
     items: DispatcherSubmissionPayload[];
   },
   options: DispatcherRemoteOptions = {},
@@ -925,7 +924,6 @@ export function mergeDispatcherFeedSubmissions(
 
 function saveLocalDispatcherEquipmentReport(
   value: {
-    businessAccountId: string;
     items: DispatcherSubmissionPayload[];
   },
   options: Pick<DispatcherRemoteOptions, "storage">,
@@ -955,12 +953,10 @@ function saveLocalDispatcherEquipmentReport(
     existingSubmissions.some(
       (submission) =>
         buildLocalDispatcherSubmissionDedupeKey(
-          submission.businessAccountId,
           submission.formId,
           submission.payload,
         ) ===
         buildLocalDispatcherSubmissionDedupeKey(
-          value.businessAccountId,
           "equipment",
           payload,
         ),
@@ -973,7 +969,6 @@ function saveLocalDispatcherEquipmentReport(
   for (const payload of value.items) {
     const result = saveLocalDispatcherSubmission(
       {
-        businessAccountId: value.businessAccountId,
         formId: "equipment",
         payload,
       },
@@ -1063,7 +1058,6 @@ function saveLocalDispatcherSubmission(
   const scriptPayload = applyLocalDispatcherFormScriptRules(
     form,
     draft.payload,
-    draft.businessAccountId,
     existingSubmissions,
     new Date(receivedAt),
   );
@@ -1076,11 +1070,9 @@ function saveLocalDispatcherSubmission(
     id:
       readLocalEquipmentSubmissionDuplicate(
         existingSubmissions,
-        draft.businessAccountId,
         draft.formId,
         scriptPayload.payload,
       )?.id ?? buildLocalSubmissionId(receivedAt),
-    businessAccountId: draft.businessAccountId,
     formId: draft.formId,
     formTitle: form.title,
     payload: scriptPayload.payload,
@@ -1091,7 +1083,6 @@ function saveLocalDispatcherSubmission(
     receivedAt,
   };
   const dedupeKey = buildLocalDispatcherSubmissionDedupeKey(
-    draft.businessAccountId,
     draft.formId,
     scriptPayload.payload,
   );
@@ -1103,7 +1094,6 @@ function saveLocalDispatcherSubmission(
           ...existingSubmissions.filter(
             (item) =>
               buildLocalDispatcherSubmissionDedupeKey(
-                item.businessAccountId,
                 item.formId,
                 item.payload,
               ) !== dedupeKey,
@@ -1244,12 +1234,10 @@ function buildLocalSubmissionId(receivedAt: string) {
 
 function readLocalEquipmentSubmissionDuplicate(
   submissions: DispatcherSubmission[],
-  businessAccountId: string,
   formId: DispatcherFormId,
   payload: DispatcherSubmissionPayload,
 ) {
   const dedupeKey = buildLocalDispatcherSubmissionDedupeKey(
-    businessAccountId,
     formId,
     payload,
   );
@@ -1261,7 +1249,6 @@ function readLocalEquipmentSubmissionDuplicate(
   return submissions.find(
     (submission) =>
       buildLocalDispatcherSubmissionDedupeKey(
-        submission.businessAccountId,
         submission.formId,
         submission.payload,
       ) === dedupeKey,
@@ -1269,7 +1256,6 @@ function readLocalEquipmentSubmissionDuplicate(
 }
 
 function buildLocalDispatcherSubmissionDedupeKey(
-  businessAccountId: string,
   formId: DispatcherFormId,
   payload: DispatcherSubmissionPayload,
 ) {
@@ -1291,13 +1277,12 @@ function buildLocalDispatcherSubmissionDedupeKey(
     return null;
   }
 
-  return `equipment:${businessAccountId}:${normalizedReportDate}:${equipment}`;
+  return `equipment:${normalizedReportDate}:${equipment}`;
 }
 
 function applyLocalDispatcherFormScriptRules(
   form: LocalDispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
-  businessAccountId: string,
   existingSubmissions: DispatcherSubmission[],
   receivedAt: Date,
 ):
@@ -1374,7 +1359,6 @@ function applyLocalDispatcherFormScriptRules(
     const openIncident = findOpenIncidentByNumber(
       existingSubmissions,
       nextPayload.incidentNumber,
-      businessAccountId,
     );
 
     if (openIncident === undefined) {
@@ -1413,7 +1397,6 @@ function applyLocalDispatcherFormScriptRules(
     const duplicate = findOpenVisitorByEntryPayload(
       existingSubmissions,
       nextPayload,
-      businessAccountId,
     );
 
     if (duplicate !== undefined) {
@@ -1432,7 +1415,6 @@ function applyLocalDispatcherFormScriptRules(
     const openVisitor = findOpenVisitorByEntryId(
       existingSubmissions,
       nextPayload.visitorEntryId,
-      businessAccountId,
       formatLocalDateValueFromDate(receivedAt),
     );
 
@@ -1758,7 +1740,6 @@ function isDispatcherSubmission(value: unknown): value is DispatcherSubmission {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    typeof value.businessAccountId === "string" &&
     isDispatcherFormId(value.formId) &&
     typeof value.formTitle === "string" &&
     isDispatcherSubmissionPayload(value.payload) &&

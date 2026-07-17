@@ -27,7 +27,6 @@ export type AdminAccountSummary = {
   position: AccountPosition;
   positionDisplayName: string;
   scope: AccountScope;
-  businessDisplayName: string | null;
   capabilities: AccountCapability[];
   navigationItems: AccountNavigationItem[];
   createdAt: string;
@@ -65,8 +64,6 @@ export type CreateAccountInput = {
   position?: AccountPosition;
   capabilities: AccountCapability[];
   navigationItems?: AccountNavigationItem[];
-  businessAccountId?: string;
-  businessDisplayName?: string;
   accessDisplayName?: string;
 };
 
@@ -154,8 +151,6 @@ type AccountRow = RowDataPacket & {
   position_code: string;
   position_display_name: string;
   scope_kind: string;
-  business_account_id: string | null;
-  business_display_name: string | null;
   capabilities: unknown;
   navigation_items: unknown;
   created_at: Date | string;
@@ -175,8 +170,6 @@ type PositionRow = RowDataPacket & {
 type AccountPositionAssignmentRow = RowDataPacket & {
   access_id: string;
   user_id: string;
-  user_display_name: string;
-  business_account_id: string | null;
 };
 
 type DeletePositionRow = RowDataPacket & {
@@ -204,16 +197,12 @@ const accountRowSelect = `
     accesses.position_code,
     positions.display_name as position_display_name,
     accesses.scope_kind,
-    accesses.business_account_id,
-    business.display_name as business_display_name,
     positions.capabilities,
     positions.navigation_items,
     accesses.created_at
   from account_accesses as accesses
   join app_users as users on users.id = accesses.user_id
   join account_positions as positions on positions.id = accesses.position_code
-  left join business_accounts as business
-    on business.id = accesses.business_account_id
 `;
 
 export function createAccountsRepository(
@@ -357,20 +346,9 @@ export function createAccountsRepository(
         input.navigationItems ?? navigationItemsByAccountType[input.accountType];
       const resolvedCapabilities = input.capabilities;
 
-      const scope = resolveAccountProvisioningScope(input);
-
-      if (scope.businessAccount !== undefined) {
-        await connection.query(
-          `
-            insert into business_accounts (id, display_name, status)
-            values (?, ?, 'active')
-            on duplicate key update
-              display_name = values(display_name),
-              status = 'active'
-          `,
-          [scope.businessAccount.id, scope.businessAccount.displayName],
-        );
-      }
+      const scope = resolveAccountProvisioningScope({
+        accountType: input.accountType,
+      });
 
       const userId = createId();
 
@@ -409,12 +387,11 @@ export function createAccountsRepository(
             position_code,
             display_name,
             scope_kind,
-            business_account_id,
             capabilities,
             navigation_items,
             is_active
           )
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          values (?, ?, ?, ?, ?, ?, ?, ?, 1)
         `,
         [
           accessId,
@@ -423,7 +400,6 @@ export function createAccountsRepository(
           input.position ?? defaultPositionByAccountType[input.accountType],
           input.accessDisplayName ?? `${input.displayName} access`,
           scope.scopeKind,
-          scope.businessAccount?.id ?? null,
           JSON.stringify(resolvedCapabilities),
           JSON.stringify(resolvedNavigationItems),
         ],
@@ -608,11 +584,8 @@ export function createAccountsRepository(
       const [accessRows] = await connection.query<
         AccountPositionAssignmentRow[]
       >(
-        `select accesses.id as access_id, accesses.user_id,
-          users.display_name as user_display_name,
-          accesses.business_account_id
+        `select accesses.id as access_id, accesses.user_id
          from account_accesses accesses
-         join app_users users on users.id = accesses.user_id
          where accesses.id = ? and accesses.is_active = 1
          limit 1 for update`,
         [accessId],
@@ -654,23 +627,19 @@ export function createAccountsRepository(
       }
 
       const targetPosition = mapPositionRow(targetPositionRow);
-      const scope = await resolvePositionAssignmentScope(
-        connection,
-        existing,
-        targetPosition.accountType,
-      );
+      const scope = resolveAccountProvisioningScope({
+        accountType: targetPosition.accountType,
+      });
 
       await connection.query(
         `update account_accesses
          set account_type = ?, position_code = ?, scope_kind = ?,
-           business_account_id = ?, capabilities = ?,
-           navigation_items = ?
+           capabilities = ?, navigation_items = ?
          where id = ? and is_active = 1`,
         [
           targetPosition.accountType,
           targetPosition.id,
           scope.scopeKind,
-          scope.businessAccount?.id ?? null,
           JSON.stringify(targetPosition.capabilities),
           JSON.stringify(targetPosition.navigationItems),
           accessId,
@@ -737,43 +706,13 @@ export function createAccountsRepository(
   };
 }
 
-async function resolvePositionAssignmentScope(
-  connection: PoolConnection,
-  access: AccountPositionAssignmentRow,
-  accountType: AccountType,
-) {
-  const scope = resolveAccountProvisioningScope(
-    {
-      accountType,
-      displayName: access.user_display_name,
-      ...(access.business_account_id === null
-        ? {}
-        : { businessAccountId: access.business_account_id }),
-    },
-  );
-
-  if (
-    access.business_account_id === null &&
-    scope.businessAccount !== undefined
-  ) {
-    await connection.query(
-      `insert into business_accounts (id, display_name, status)
-       values (?, ?, 'active')
-       on duplicate key update status = 'active'`,
-      [scope.businessAccount.id, scope.businessAccount.displayName],
-    );
-  }
-
-  return scope;
-}
-
 async function updatePositionAccessScopes(
   connection: PoolConnection,
   input: UpdatePositionInput,
 ) {
   await connection.query(
     `update account_accesses
-     set account_type = ?, scope_kind = 'business'
+     set account_type = ?, scope_kind = 'organization'
      where position_code = ?`,
     [input.accountType, input.id],
   );
@@ -803,7 +742,6 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     position: readPosition(row.position_code, row.account_type as AccountType),
     positionDisplayName: row.position_display_name,
     scope: buildScope(row),
-    businessDisplayName: row.business_display_name,
     capabilities: readCapabilities(row.capabilities),
     navigationItems: readNavigationItems(row.navigation_items, row.account_type as AccountType),
     createdAt: toDate(row.created_at).toISOString(),
@@ -861,11 +799,8 @@ function buildScope(row: AccountRow): AccountScope {
     return { kind: "platform" };
   }
 
-  if (row.scope_kind === "business" && row.business_account_id !== null) {
-    return {
-      kind: "business",
-      businessAccountId: row.business_account_id,
-    };
+  if (row.scope_kind === "organization") {
+    return { kind: "organization" };
   }
 
   throw new Error("Stored account scope is not supported.");

@@ -6,7 +6,7 @@ import { createDispatcherSpreadsheetImportRepository } from "./dispatcherSpreads
 
 const record: DispatcherSpreadsheetImportRecord = {
   id: "11111111-1111-4111-8111-111111111111",
-  sourceKey: "business-main:google-sheets:sheet:equipment:hash",
+  sourceKey: "google-sheets:sheet:equipment:hash",
   formId: "equipment",
   payload: {
     reportDate: "02.06.2026",
@@ -24,7 +24,7 @@ const record: DispatcherSpreadsheetImportRecord = {
 const incidentRecord: DispatcherSpreadsheetImportRecord = {
   ...record,
   id: "22222222-2222-4222-8222-222222222222",
-  sourceKey: "business-main:google-sheets:other:incident:hash",
+  sourceKey: "google-sheets:other:incident:hash",
   formId: "incident",
   payload: {
     incidentNumber: "INC-2026-12",
@@ -44,10 +44,6 @@ test("dispatcher spreadsheet import repository inserts without overwriting confl
     async query(sql: string) {
       statements.push(sql.replace(/\s+/g, " ").trim());
 
-      if (sql.includes("select id") && sql.includes("business_accounts")) {
-        return [[{ id: "business-main" }], []];
-      }
-
       if (sql.includes("select import_source_key")) {
         return [[], []];
       }
@@ -60,7 +56,6 @@ test("dispatcher spreadsheet import repository inserts without overwriting confl
   } as unknown as DatabasePool;
   const repository = createDispatcherSpreadsheetImportRepository(pool);
   const result = await repository.importRecords({
-    businessAccountId: "business-main",
     submittedByAccountId: "admin-access",
     records: [record],
   });
@@ -68,8 +63,8 @@ test("dispatcher spreadsheet import repository inserts without overwriting confl
   assert.equal(committed, true);
   assert.equal(result.inserted, 0);
   assert.equal(result.skipped, 1);
-  assert.match(statements[2] ?? "", /^insert ignore into dispatcher_submissions/);
-  assert.doesNotMatch(statements[2] ?? "", /on duplicate key update/);
+  assert.match(statements[1] ?? "", /^insert ignore into dispatcher_submissions/);
+  assert.doesNotMatch(statements[1] ?? "", /on duplicate key update/);
 });
 
 test("dispatcher spreadsheet import repository rolls back the whole import on failure", async () => {
@@ -80,10 +75,6 @@ test("dispatcher spreadsheet import repository rolls back the whole import on fa
     async rollback() { rolledBack = true; },
     release() {},
     async query(sql: string) {
-      if (sql.includes("business_accounts")) {
-        return [[{ id: "business-main" }], []];
-      }
-
       throw new Error("write failed");
     },
   };
@@ -94,7 +85,6 @@ test("dispatcher spreadsheet import repository rolls back the whole import on fa
 
   await assert.rejects(
     repository.importRecords({
-      businessAccountId: "business-main",
       submittedByAccountId: "admin-access",
       records: [record],
     }),
@@ -103,7 +93,7 @@ test("dispatcher spreadsheet import repository rolls back the whole import on fa
   assert.equal(rolledBack, true);
 });
 
-test("dispatcher spreadsheet import repository persists a business-scoped content key", async () => {
+test("dispatcher spreadsheet import repository persists an organization-wide content key", async () => {
   let insertValues: unknown[] = [];
   const connection = {
     async beginTransaction() {},
@@ -111,10 +101,6 @@ test("dispatcher spreadsheet import repository persists a business-scoped conten
     async rollback() {},
     release() {},
     async query(sql: string, values?: unknown[]) {
-      if (sql.includes("select id") && sql.includes("business_accounts")) {
-        return [[{ id: "business-main" }], []];
-      }
-
       if (sql.includes("select import_source_key")) {
         return [[], []];
       }
@@ -132,14 +118,13 @@ test("dispatcher spreadsheet import repository persists a business-scoped conten
   } as unknown as DatabasePool;
   const repository = createDispatcherSpreadsheetImportRepository(pool);
   const result = await repository.importRecords({
-    businessAccountId: "business-main",
     submittedByAccountId: "admin-access",
     records: [incidentRecord],
   });
 
   assert.equal(result.inserted, 1);
   assert.match(
-    String(insertValues[9]),
-    /^dispatcher:business-main:incident:[a-f0-9]{64}$/u,
+    String(insertValues[8]),
+    /^dispatcher:incident:[a-f0-9]{64}$/u,
   );
 });

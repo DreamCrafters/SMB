@@ -10,7 +10,6 @@ import { applyVisitorStateRules } from "./dispatcherVisitorState.js";
 
 test("validateDispatcherSubmissionDraft accepts and trims a known form payload", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: " business-id ",
     formId: "equipment",
     payload: {
       reportDate: " 2026-06-18 ",
@@ -24,7 +23,6 @@ test("validateDispatcherSubmissionDraft accepts and trims a known form payload",
 
   if (result.ok) {
     assert.deepEqual(result.value.draft, {
-      businessAccountId: "business-id",
       formId: "equipment",
       payload: {
         reportDate: "18.06.2026",
@@ -40,7 +38,6 @@ test("validateDispatcherSubmissionDraft accepts and trims a known form payload",
 
 test("validateDispatcherSubmissionDraft rejects malformed form payloads", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "",
     formId: "equipment",
     payload: {
       reportDate: "June",
@@ -53,7 +50,6 @@ test("validateDispatcherSubmissionDraft rejects malformed form payloads", () => 
   assert.equal(result.ok, false);
 
   if (!result.ok) {
-    assert.match(result.errors.join(" "), /businessAccountId/);
     assert.match(result.errors.join(" "), /reportDate/);
     assert.match(result.errors.join(" "), /equipment/);
     assert.match(result.errors.join(" "), /productionTons/);
@@ -63,7 +59,6 @@ test("validateDispatcherSubmissionDraft rejects malformed form payloads", () => 
 
 test("validateDispatcherSubmissionDraft applies script rules for incidents", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "incident",
     payload: {
       datetime: "2026-06-18T10:30",
@@ -86,7 +81,6 @@ test("validateDispatcherSubmissionDraft applies script rules for incidents", () 
 
 test("validateDispatcherSubmissionDraft rejects empty equipment reports", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -103,7 +97,6 @@ test("validateDispatcherSubmissionDraft rejects empty equipment reports", () => 
 
 test("validateDispatcherSubmissionDraft accepts a production report and derives its month", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "production",
     payload: {
       reportDate: "2026-07-16",
@@ -132,7 +125,6 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
 
 test("validateDispatcherSubmissionDraft rejects an empty production report", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "production",
     payload: {
       reportDate: "2026-07-16",
@@ -148,7 +140,6 @@ test("validateDispatcherSubmissionDraft rejects an empty production report", () 
 
 test("validateDispatcherSubmissionDraft rejects downtime reason without positive hours", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -168,7 +159,6 @@ test("validateDispatcherSubmissionDraft rejects downtime reason without positive
 
 test("validateDispatcherSubmissionDraft rejects downtime hours without reason", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -187,7 +177,6 @@ test("validateDispatcherSubmissionDraft rejects downtime hours without reason", 
 
 test("validateDispatcherSubmissionDraft rejects reserve downtime under 8 hours", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -207,7 +196,6 @@ test("validateDispatcherSubmissionDraft rejects reserve downtime under 8 hours",
 
 test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without production", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -226,7 +214,6 @@ test("validateDispatcherSubmissionDraft rejects downtime under 8 hours without p
 
 test("validateDispatcherSubmissionDraft accepts productive downtime under 8 hours", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -242,7 +229,6 @@ test("validateDispatcherSubmissionDraft accepts productive downtime under 8 hour
 
 test("validateDispatcherSubmissionDraft accepts reserve downtime at exactly 8 hours", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -257,7 +243,6 @@ test("validateDispatcherSubmissionDraft accepts reserve downtime at exactly 8 ho
 
 test("validateDispatcherSubmissionDraft rejects downtime over 8 hours", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -275,9 +260,8 @@ test("validateDispatcherSubmissionDraft rejects downtime over 8 hours", () => {
   }
 });
 
-test("buildDispatcherSubmissionDedupeKey scopes equipment reports by business, date, and equipment", () => {
+test("buildDispatcherSubmissionDedupeKey scopes equipment reports by date and equipment", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "equipment",
     payload: {
       reportDate: "2026-06-18",
@@ -291,14 +275,13 @@ test("buildDispatcherSubmissionDedupeKey scopes equipment reports by business, d
   if (result.ok) {
     assert.equal(
       buildDispatcherSubmissionDedupeKey(result.value.draft),
-      "equipment:business-id:18.06.2026:Пресс №1",
+      "equipment:18.06.2026:Пресс №1",
     );
   }
 });
 
 test("buildDispatcherSubmissionDedupeKey protects visitor submissions", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "visitor",
     payload: {
       fio: "Visitor Name",
@@ -310,30 +293,27 @@ test("buildDispatcherSubmissionDedupeKey protects visitor submissions", () => {
   if (result.ok) {
     assert.match(
       buildDispatcherSubmissionDedupeKey(result.value.draft) ?? "",
-      /^dispatcher:business-id:visitor:[a-f0-9]{64}$/u,
+      /^dispatcher:visitor:[a-f0-9]{64}$/u,
     );
   }
 });
 
 test("buildDispatcherSubmissionDedupeKey normalizes incident identity", () => {
   const first = buildDispatcherSubmissionDedupeKey({
-    businessAccountId: "business-id",
     formId: "incident",
     payload: { incidentNumber: " INC-2026-12 " },
   });
   const second = buildDispatcherSubmissionDedupeKey({
-    businessAccountId: "business-id",
     formId: "incident",
     payload: { incidentNumber: "inc-2026-12" },
   });
 
   assert.equal(first, second);
-  assert.match(first ?? "", /^dispatcher:business-id:incident:[a-f0-9]{64}$/u);
+  assert.match(first ?? "", /^dispatcher:incident:[a-f0-9]{64}$/u);
 });
 
 test("validateDispatcherSubmissionDraft stamps visitor exit time", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "visitor_exit",
     payload: {
       visitorEntryId: "visitor-entry-id",
@@ -352,7 +332,6 @@ test("validateDispatcherSubmissionDraft stamps visitor exit time", () => {
 
 test("visitor state rules close same-timestamp entries before duplicate checks", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "visitor",
     payload: {
       fio: "Visitor Name",
@@ -383,7 +362,6 @@ test("visitor state rules close same-timestamp entries before duplicate checks",
 
 test("visitor state rules allow exit only for entries from today", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "visitor_exit",
     payload: {
       visitorEntryId: "visitor-entry-id",
@@ -423,7 +401,6 @@ test("visitor state rules allow exit only for entries from today", () => {
 
 test("incident state rules allow closure of earlier-day open incidents only", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "incident_close",
     payload: {
       incidentNumber: "INC-2026-1",
@@ -464,7 +441,6 @@ test("incident state rules allow closure of earlier-day open incidents only", ()
 
 test("validateDispatcherSubmissionDraft rejects legacy gas forms as inactive", () => {
   const result = validateDispatcherSubmissionDraft({
-    businessAccountId: "business-id",
     formId: "gas_oc",
     payload: {
       date: "2026-06-18",
@@ -481,7 +457,6 @@ test("validateDispatcherSubmissionDraft rejects legacy gas forms as inactive", (
 test("mapDispatcherSubmissionRow returns the frontend contract shape", () => {
   const result = mapDispatcherSubmissionRow({
     id: "submission-id",
-    business_account_id: "business-id",
     form_id: "visitor",
     payload: {
       entryAt: "18.06.2026 10:30",
@@ -497,7 +472,6 @@ test("mapDispatcherSubmissionRow returns the frontend contract shape", () => {
 
   assert.deepEqual(result, {
     id: "submission-id",
-    businessAccountId: "business-id",
     formId: "visitor",
     formTitle: "Вход посетителя",
     payload: {
@@ -516,7 +490,6 @@ test("mapDispatcherSubmissionRow returns the frontend contract shape", () => {
 test("mapDispatcherSubmissionRow reads MariaDB JSON payload strings", () => {
   const result = mapDispatcherSubmissionRow({
     id: "submission-id",
-    business_account_id: "business-id",
     form_id: "incident",
     payload: JSON.stringify({
       incidentNumber: "INC-2026-1",
@@ -544,7 +517,6 @@ function buildDispatcherSubmission(
 ) {
   return {
     id,
-    businessAccountId: "business-id",
     formId,
     formTitle: formId,
     payload,

@@ -35,7 +35,6 @@ test("dispatcher submissions repository ignores a duplicate non-equipment row", 
 
       return [[{
         id: "incident-id",
-        business_account_id: "business-main",
         form_id: "incident_close",
         payload: JSON.stringify({
           incidentNumber: "INC-2026-12",
@@ -53,7 +52,6 @@ test("dispatcher submissions repository ignores a duplicate non-equipment row", 
 
   await repository.create({
     draft: {
-      businessAccountId: "business-main",
       formId: "incident_close",
       payload: {
         incidentNumber: "INC-2026-12",
@@ -66,7 +64,7 @@ test("dispatcher submissions repository ignores a duplicate non-equipment row", 
   assert.match(statements[0] ?? "", /^insert ignore into dispatcher_submissions/u);
   assert.doesNotMatch(statements[0] ?? "", /on duplicate key update/u);
   assert.match(
-    String(queryValues[0]?.[9]),
-    /^dispatcher:business-main:incident_close:[a-f0-9]{64}$/u,
+    String(queryValues[0]?.[8]),
+    /^dispatcher:incident_close:[a-f0-9]{64}$/u,
   );
 });

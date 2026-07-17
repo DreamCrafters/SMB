@@ -11,13 +11,10 @@ const config = {
   authMode: "service_account",
 } as GoogleSheetsReferenceConfig;
 
-test("dispatcher spreadsheet import previews existing rows and imports scoped records", async () => {
+test("dispatcher spreadsheet import previews existing rows and imports records", async () => {
   let importedSourceKey = "";
   const repository: DispatcherSpreadsheetImportRepository = {
-    async listBusinessAccounts() {
-      return [{ id: "business-main", displayName: "Основной бизнес" }];
-    },
-    async findExistingSourceKeys(_businessAccountId, records) {
+    async findExistingSourceKeys(records) {
       return new Set(records.slice(0, 1).map((record) => record.sourceKey));
     },
     async importRecords(value) {
@@ -44,15 +41,12 @@ test("dispatcher spreadsheet import previews existing rows and imports scoped re
   assert.equal(preview.existingRecords, 1);
   assert.equal(preview.newRecords, 1);
   assert.equal(result.inserted, 2);
-  assert.match(importedSourceKey, /^business-main:/);
+  assert.match(importedSourceKey, /^google-sheets:/);
 });
 
 test("dispatcher spreadsheet import rejects commit when source changed", async () => {
   let exitAt = "10.06.2026 07:42";
   const repository: DispatcherSpreadsheetImportRepository = {
-    async listBusinessAccounts() {
-      return [{ id: "business-main", displayName: "Основной бизнес" }];
-    },
     async findExistingSourceKeys() {
       return new Set();
     },
@@ -84,9 +78,6 @@ test("dispatcher spreadsheet import rejects commit when source changed", async (
 test("dispatcher spreadsheet import collapses duplicate rows before persistence", async () => {
   let importedRecords = 0;
   const repository: DispatcherSpreadsheetImportRepository = {
-    async listBusinessAccounts() {
-      return [{ id: "business-main", displayName: "Основной бизнес" }];
-    },
     async findExistingSourceKeys() {
       return new Set();
     },
@@ -114,37 +105,6 @@ test("dispatcher spreadsheet import collapses duplicate rows before persistence"
   assert.equal(preview.existingRecords, 2);
   assert.equal(importedRecords, 2);
   assert.deepEqual(result, { totalRecords: 4, inserted: 2, skipped: 2 });
-});
-
-test("dispatcher spreadsheet import requires exactly one active business", async () => {
-  const buildService = (businessAccounts: Array<{ id: string; displayName: string }>) =>
-    createDispatcherSpreadsheetImportService(
-      config,
-      {
-        async listBusinessAccounts() {
-          return businessAccounts;
-        },
-        async findExistingSourceKeys() {
-          throw new Error("must not read import state");
-        },
-        async importRecords() {
-          throw new Error("must not import");
-        },
-      },
-      async () => buildWorkbook("10.06.2026 07:42"),
-    );
-
-  await assert.rejects(
-    buildService([]).preview({ spreadsheetUrl: "https://example.test/sheet" }),
-    /Нет активного бизнес-аккаунта/u,
-  );
-  await assert.rejects(
-    buildService([
-      { id: "business-one", displayName: "Первый" },
-      { id: "business-two", displayName: "Второй" },
-    ]).preview({ spreadsheetUrl: "https://example.test/sheet" }),
-    /только при одном активном бизнес-аккаунте/u,
-  );
 });
 
 function buildWorkbook(exitAt: string, duplicateVisitor = false) {

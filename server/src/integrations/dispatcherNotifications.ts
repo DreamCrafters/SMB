@@ -150,7 +150,6 @@ export function buildDispatcherNotificationText(
   return [
     `Форма: ${submission.formTitle}`,
     `Статус: ${submission.status}`,
-    `Бизнес-аккаунт: ${submission.businessAccountId}`,
     `Кратко: ${submission.summary}`,
     `Получено: ${submission.receivedAt}`,
     "",

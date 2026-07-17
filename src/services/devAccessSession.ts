@@ -591,7 +591,6 @@ function isAccountAccessErrorCode(value: unknown): value is AccountAccessErrorCo
   return (
     value === "unauthenticated" ||
     value === "account_disabled" ||
-    value === "business_unavailable" ||
     value === "access_denied"
   );
 }

@@ -579,6 +579,155 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "017_single_organization_scope",
+    statements: [
+      `
+      alter table dispatcher_submissions
+        drop index uniq_dispatcher_submissions_dedupe_key;
+      `,
+      `
+      update dispatcher_submissions as submissions
+      join (
+        select
+          id,
+          case
+            when row_number() over (
+              partition by candidate_key
+              order by received_at desc, id desc
+            ) = 1 then candidate_key
+            else null
+          end as next_dedupe_key
+        from (
+          select
+            id,
+            received_at,
+            case
+              when form_id = 'equipment'
+                and json_unquote(json_extract(payload, '$.reportDate')) is not null
+                and json_unquote(json_extract(payload, '$.reportDate')) <> ''
+                and json_unquote(json_extract(payload, '$.equipment')) is not null
+                and json_unquote(json_extract(payload, '$.equipment')) <> ''
+              then concat(
+                'equipment:',
+                json_unquote(json_extract(payload, '$.reportDate')),
+                ':',
+                json_unquote(json_extract(payload, '$.equipment'))
+              )
+              when dedupe_key like 'dispatcher:%'
+              then concat('dispatcher:', substring_index(dedupe_key, ':', -2))
+              else null
+            end as candidate_key
+          from dispatcher_submissions
+          where dedupe_key is not null
+        ) as candidates
+        where candidate_key is not null
+      ) as ranked on ranked.id = submissions.id
+      set submissions.dedupe_key = ranked.next_dedupe_key;
+      `,
+      `
+      alter table dispatcher_submissions
+        add unique key uniq_dispatcher_submissions_dedupe_key (dedupe_key);
+      `,
+      `
+      alter table dispatcher_submissions
+        drop index uniq_dispatcher_submissions_import_source;
+      `,
+      `
+      update dispatcher_submissions as submissions
+      join (
+        select
+          id,
+          case
+            when row_number() over (
+              partition by candidate_key
+              order by received_at desc, id desc
+            ) = 1 then candidate_key
+            else null
+          end as next_import_source_key
+        from (
+          select
+            id,
+            received_at,
+            substring(
+              import_source_key,
+              locate(':', import_source_key) + 1
+            ) as candidate_key
+          from dispatcher_submissions
+          where import_source_key is not null
+            and locate(':', import_source_key) > 0
+        ) as candidates
+      ) as ranked on ranked.id = submissions.id
+      set submissions.import_source_key = ranked.next_import_source_key;
+      `,
+      `
+      alter table dispatcher_submissions
+        add unique key uniq_dispatcher_submissions_import_source (
+          import_source_key
+        ),
+        drop index idx_dispatcher_submissions_business_received_at,
+        drop column business_account_id;
+      `,
+      `
+      alter table dispatcher_equipment_report_revisions
+        drop index idx_equipment_report_revisions_business_date,
+        drop column business_account_id,
+        add key idx_equipment_report_revisions_date_created (
+          report_date,
+          created_at
+        );
+      `,
+      `
+      alter table account_accesses
+        drop index idx_account_accesses_scope;
+      `,
+      `
+      update account_accesses
+      set scope_kind = case
+        when account_type = 'admin' then 'platform'
+        else 'organization'
+      end;
+      `,
+      `
+      alter table account_accesses
+        drop column business_account_id,
+        add key idx_account_accesses_scope (scope_kind);
+      `,
+      `
+      update account_positions
+      set capabilities = json_remove(
+        capabilities,
+        json_unquote(
+          json_search(capabilities, 'one', 'platform.manage_business_accounts')
+        )
+      )
+      where json_contains(
+        capabilities,
+        json_quote('platform.manage_business_accounts')
+      );
+      `,
+      `
+      update account_accesses
+      set capabilities = json_remove(
+        capabilities,
+        json_unquote(
+          json_search(capabilities, 'one', 'platform.manage_business_accounts')
+        )
+      )
+      where json_contains(
+        capabilities,
+        json_quote('platform.manage_business_accounts')
+      );
+      `,
+      `
+      alter table user_audit_events
+        drop column business_account_id;
+      `,
+      `
+      drop table if exists business_accounts;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

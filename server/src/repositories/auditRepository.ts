@@ -21,7 +21,6 @@ export type AuditEvent = {
   outcome: AuditEventOutcome;
   summary: string;
   details: AuditEventDetail[];
-  businessAccountId?: string;
   targetType?: AuditTargetType;
   targetId?: string;
   occurredAt: string;
@@ -35,7 +34,7 @@ export type AuditActorOption = AuditActorSnapshot & {
 
 export type AuditReportFilters = {
   actorAccountId?: string;
-  businessAccountId?: string;
+  organizationOnly?: boolean;
   category?: AuditEventCategory;
   limit?: number;
   offset?: number;
@@ -73,7 +72,6 @@ type AuditEventRow = RowDataPacket & {
   outcome: AuditEventOutcome;
   summary: string;
   details: unknown;
-  business_account_id: string | null;
   target_type: AuditTargetType | null;
   target_id: string | null;
   occurred_at: Date | string;
@@ -129,12 +127,11 @@ export function createAuditRepository(
             outcome,
             summary,
             details,
-            business_account_id,
             target_type,
             target_id,
             occurred_at
           )
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           createId(),
@@ -148,7 +145,6 @@ export function createAuditRepository(
           event.outcome ?? "success",
           event.summary.trim().slice(0, 500),
           JSON.stringify(details),
-          event.businessAccountId ?? null,
           event.targetType ?? null,
           event.targetId ?? null,
           occurredAt,
@@ -165,12 +161,9 @@ export function createAuditRepository(
       );
       const offset = Math.max(Math.trunc(filters.offset ?? 0), 0);
       const where = buildReportWhereClause(windowStart, windowEnd, filters);
-      const actorScope = filters.businessAccountId === undefined
-        ? { sql: "", values: [] }
-        : {
-            sql: "where accesses.business_account_id = ?",
-            values: [filters.businessAccountId],
-          };
+      const actorScope = filters.organizationOnly === true
+        ? { sql: "where accesses.scope_kind = 'organization'", values: [] }
+        : { sql: "", values: [] };
 
       const [eventResult, countResult, actorResult] = await Promise.all([
         pool.query<AuditEventRow[]>(
@@ -187,7 +180,6 @@ export function createAuditRepository(
               outcome,
               summary,
               details,
-              business_account_id,
               target_type,
               target_id,
               occurred_at
@@ -307,9 +299,10 @@ function buildReportWhereClause(
     values.push(filters.actorAccountId);
   }
 
-  if (filters.businessAccountId !== undefined) {
-    conditions.push("business_account_id = ?");
-    values.push(filters.businessAccountId);
+  if (filters.organizationOnly === true) {
+    conditions.push(
+      "actor_account_id in (select id from account_accesses where scope_kind = 'organization')",
+    );
   }
 
   if (filters.category !== undefined) {
@@ -338,9 +331,6 @@ function mapAuditEventRow(row: AuditEventRow): AuditEvent {
     outcome: row.outcome,
     summary: row.summary,
     details: readDetails(row.details),
-    ...(row.business_account_id === null
-      ? {}
-      : { businessAccountId: row.business_account_id }),
     ...(row.target_type === null ? {} : { targetType: row.target_type }),
     ...(row.target_id === null ? {} : { targetId: row.target_id }),
     occurredAt: toIsoString(row.occurred_at),

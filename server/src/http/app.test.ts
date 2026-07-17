@@ -92,7 +92,6 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
   async create(value, submittedByAccountId) {
     return {
       id: "submission-id",
-      businessAccountId: value.draft.businessAccountId,
       formId: value.draft.formId,
       formTitle: "Оборудование",
       payload: value.draft.payload,
@@ -220,7 +219,6 @@ const today = new Date();
 
 const openVisitorSubmission = {
   id: "visitor-entry-id",
-  businessAccountId: "business-id",
   formId: "visitor" as const,
   formTitle: "Вход посетителя",
   payload: {
@@ -237,7 +235,6 @@ const openVisitorSubmission = {
 
 const openIncidentSubmission = {
   id: "incident-id",
-  businessAccountId: "business-id",
   formId: "incident" as const,
   formTitle: "Открытие инцидента",
   payload: {
@@ -508,7 +505,7 @@ test("admin audit API rejects accounts without the audit capability", async () =
   );
 });
 
-test("manager audit API is scoped to the authenticated business", async () => {
+test("manager audit API is scoped to the organization", async () => {
   let receivedFilters: Parameters<AuditRepository["listReport"]>[0];
   const auditRepository: AuditRepository = {
     async record() {},
@@ -550,7 +547,7 @@ test("manager audit API is scoped to the authenticated business", async () => {
 
       assert.equal(response.status, 200);
       assert.deepEqual(receivedFilters, {
-        businessAccountId: "prod-business",
+        organizationOnly: true,
         category: "navigation",
       });
     },
@@ -679,22 +676,8 @@ test("admin dispatcher import API previews and executes for admin sessions", asy
           }),
         },
       );
-      const forgedBusinessResponse = await fetch(
-        `${baseUrl}/api/admin/database/imports/dispatcher/preview`,
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            spreadsheetUrl:
-              "https://docs.google.com/spreadsheets/d/source_sheet_123/edit",
-            businessAccountId: "forged-business",
-          }),
-        },
-      );
-
       assert.equal(previewResponse.status, 200);
       assert.equal(executeResponse.status, 200);
-      assert.equal(forgedBusinessResponse.status, 400);
       assert.equal(previewCalls, 1);
       assert.equal(submittedByAccountId, "dev-access-admin");
     },
@@ -1056,11 +1039,7 @@ const adminAccount = {
   accountType: "dispatcher" as AccountType,
   position: "dispatcher" as const,
   positionDisplayName: "Диспетчер",
-  scope: {
-    kind: "business" as const,
-    businessAccountId: "business-id",
-  },
-  businessDisplayName: "Цех 1",
+  scope: { kind: "organization" as const },
   capabilities: ["business.submit_dispatcher_forms" as const],
   navigationItems: ["business.dispatcher_form" as const],
   createdAt: "2026-07-10T00:00:00.000Z",
@@ -1515,7 +1494,6 @@ test("admin accounts API creates accounts and resets passwords for admin session
           password: "supersecret1",
           displayName: "Диспетчер Один",
           position: "dispatcher",
-          navigationItems: ["business.dispatcher_form"],
         }),
       });
       const resetResponse = await fetch(
@@ -1547,7 +1525,6 @@ test("admin accounts API creates accounts and resets passwords for admin session
 
   assert.equal(createInput?.login, "dispatcher-1");
   assert.equal(createInput?.password, "supersecret1");
-  assert.equal(createInput?.businessAccountId, undefined);
   assert.deepEqual(
     createInput?.capabilities,
     ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
@@ -1629,10 +1606,7 @@ test("admin accounts API changes an existing account position and audits access"
     accountType: "business_owner" as const,
     position: "business_owner" as const,
     positionDisplayName: "Владелец бизнеса",
-    scope: {
-      kind: "business" as const,
-      businessAccountId: "business-id",
-    },
+    scope: { kind: "organization" as const },
     capabilities: ["business.view_all_statistics" as const],
     navigationItems: ["business.overview" as const],
   };
@@ -2076,12 +2050,10 @@ test("admin accounts API rejects client-managed provisioning fields", async () =
           password: "supersecret1",
           displayName: "Работник Один",
           accountType: "worker",
-          businessAccountId: "client-business",
           departmentId: "client-department",
           accessDisplayName: "Privileged access",
           accessLevelId: "removed-level",
           capabilities: ["platform.manage_users"],
-          businessDisplayName: "Клиентский бизнес",
           departmentDisplayName: "Клиентское подразделение",
         }),
       });
@@ -2093,12 +2065,10 @@ test("admin accounts API rejects client-managed provisioning fields", async () =
 
       assert.equal(response.status, 400);
       assert.equal(didCreateAccount, false);
-      assert.match(message, /businessAccountId is managed by the server/);
-      assert.match(message, /accessDisplayName is managed by the server/);
-      assert.match(message, /accessLevelId is managed by the server/);
-      assert.match(message, /capabilities is managed by the server/);
-      assert.match(message, /businessDisplayName is managed by the server/);
-      assert.match(message, /departmentDisplayName is managed by the server/);
+      assert.match(message, /accessDisplayName is not supported/);
+      assert.match(message, /accessLevelId is not supported/);
+      assert.match(message, /capabilities is not supported/);
+      assert.match(message, /departmentDisplayName is not supported/);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -2133,7 +2103,6 @@ test("admin accounts API reports duplicate logins as conflict", async () => {
           password: "supersecret1",
           displayName: "Владелец Один",
           position: "business_owner",
-          navigationItems: ["business.overview", "business.dispatcher"],
         }),
       });
       const payload = await response.json();
@@ -2304,7 +2273,6 @@ test("production API rejects unauthenticated dispatcher submissions and admin da
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            businessAccountId: "client-business",
             formId: "visitor",
             payload: {
               fio: "Visitor Name",
@@ -2327,7 +2295,7 @@ test("production API rejects unauthenticated dispatcher submissions and admin da
   );
 });
 
-test("production API lets dispatcher submit with server-owned business scope", async () => {
+test("production API lets dispatcher submit in the organization scope", async () => {
   let created:
     | {
         value: ValidatedDispatcherSubmissionDraft;
@@ -2356,7 +2324,6 @@ test("production API lets dispatcher submit with server-owned business scope", a
           "X-SMB-Account-Id": "client-forged-access",
         },
         body: JSON.stringify({
-          businessAccountId: "client-forged-business",
           formId: "visitor",
           payload: {
             fio: "Visitor Name",
@@ -2365,7 +2332,6 @@ test("production API lets dispatcher submit with server-owned business scope", a
       });
 
       assert.equal(response.status, 201);
-      assert.equal(created?.value.draft.businessAccountId, "prod-business");
       assert.equal(created?.submittedByAccountId, "prod-access-dispatcher");
     },
     repository,
@@ -2406,7 +2372,6 @@ test("production API lets owner read feed but not submit dispatcher forms", asyn
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          businessAccountId: "client-business",
           formId: "visitor",
           payload: {
             fio: "Visitor Name",
@@ -2415,10 +2380,7 @@ test("production API lets owner read feed but not submit dispatcher forms", asyn
       });
 
       assert.equal(feedResponse.status, 200);
-      assert.deepEqual(listFilters, {
-        limit: 25,
-        businessAccountId: "prod-business",
-      });
+      assert.deepEqual(listFilters, { limit: 25 });
       assert.equal(submitResponse.status, 403);
     },
     repository,
@@ -2644,7 +2606,6 @@ test("remote API creates dispatcher submissions with form payload", async () => 
           "X-SMB-Account-Id": "dispatcher-account",
         },
         body: JSON.stringify({
-          businessAccountId: "business-id",
           formId: "equipment",
           payload: {
             reportDate: "2026-06-18",
@@ -2741,7 +2702,6 @@ test("remote API notifies recipients after successful incident submission", asyn
         method: "POST",
         headers,
         body: JSON.stringify({
-          businessAccountId: "business-id",
           formId: "incident",
           payload: {
             datetime: "2026-06-18T10:30",
@@ -2829,7 +2789,6 @@ test("remote API notifies visitor recipients after successful visitor submission
         method: "POST",
         headers,
         body: JSON.stringify({
-          businessAccountId: "business-id",
           formId: "visitor",
           payload: {
             fio: "Иван Иванов",
@@ -2915,7 +2874,6 @@ test("remote API sends one notification for a complete batched equipment report"
           method: "POST",
           headers,
           body: JSON.stringify({
-            businessAccountId: "business-id",
             items: buildCompleteEquipmentReport({
               "Пресс №1": {
                 productionTons: "42",
@@ -2961,7 +2919,6 @@ test("remote API rejects incomplete equipment reports", async () => {
       method: "POST",
       headers,
       body: JSON.stringify({
-        businessAccountId: "business-id",
         items: [
           {
             reportDate: "2026-06-18",
@@ -2993,7 +2950,6 @@ test("remote API records a revision when a batched equipment report changes", as
     [
       {
         id: "existing-submission-id",
-        businessAccountId: "business-id",
         formId: "equipment",
         formTitle: "Оборудование",
         payload: {
@@ -3024,7 +2980,6 @@ test("remote API records a revision when a batched equipment report changes", as
         "X-SMB-Account-Id": "dispatcher-access-id",
       },
       body: JSON.stringify({
-        businessAccountId: "business-id",
         items: buildCompleteEquipmentReport({
           "Пресс №1": {
             productionTons: "42",
@@ -3036,7 +2991,6 @@ test("remote API records a revision when a batched equipment report changes", as
 
     assert.equal(response.status, 201);
     assert.equal(isRecord(payload) ? payload.reportStatus : undefined, "updated");
-    assert.equal(revision?.businessAccountId, "business-id");
     assert.equal(revision?.reportDate, "18.06.2026");
     assert.equal(revision?.status, "updated");
     assert.equal(revision?.submittedByAccountId, "dispatcher-access-id");
@@ -3052,7 +3006,6 @@ test("remote API rejects visitor entry when the visitor is already inside", asyn
       method: "POST",
       headers,
       body: JSON.stringify({
-        businessAccountId: "business-id",
         formId: "visitor",
         payload: {
           fio: "Visitor Name",
@@ -3084,7 +3037,6 @@ test("remote API enriches visitor exit from an open visitor entry", async () => 
       method: "POST",
       headers,
       body: JSON.stringify({
-        businessAccountId: "business-id",
         formId: "visitor_exit",
         payload: {
           visitorEntryId: "visitor-entry-id",
@@ -3112,7 +3064,6 @@ test("remote API rejects incident close when the incident is not open", async ()
       method: "POST",
       headers,
       body: JSON.stringify({
-        businessAccountId: "business-id",
         formId: "incident_close",
         payload: {
           incidentNumber: "INC-2026-404",
@@ -3159,7 +3110,6 @@ test("remote API accepts incident close for an earlier-day open incident", async
       method: "POST",
       headers,
       body: JSON.stringify({
-        businessAccountId: "business-id",
         formId: "incident_close",
         payload: {
           incidentNumber: "INC-2026-1",
@@ -3261,7 +3211,6 @@ function buildRepositoryWithHistory(
 
       return {
         id: "submission-id",
-        businessAccountId: value.draft.businessAccountId,
         formId: value.draft.formId,
         formTitle: value.draft.formId,
         payload: value.draft.payload,
@@ -3331,7 +3280,7 @@ function buildAuthService({
 function buildProductionProfile(accountType: AccountType): ServerUserProfile {
   const scope = accountType === "admin"
     ? { kind: "platform" as const }
-    : { kind: "business" as const, businessAccountId: "prod-business" };
+    : { kind: "organization" as const };
 
   return {
     userId: `prod-user-${accountType}`,
@@ -3361,16 +3310,6 @@ function buildProductionProfile(accountType: AccountType): ServerUserProfile {
       issuedAt: "2026-07-09T00:00:00.000Z",
       expiresAt: "2026-07-10T00:00:00.000Z",
     },
-    businessAccounts:
-      accountType === "admin"
-        ? []
-        : [
-            {
-              id: "prod-business",
-              displayName: "Production business",
-              status: "active",
-            },
-          ],
     receivedAt: "2026-07-09T00:00:00.000Z",
   };
 }

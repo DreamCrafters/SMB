@@ -36,7 +36,6 @@ export type UserActivityEvent = {
   outcome: "success" | "failure";
   summary: string;
   details: AuditEventDetail[];
-  businessAccountId?: string;
   targetType?: AuditTargetType;
   targetId?: string;
   occurredAt: string;

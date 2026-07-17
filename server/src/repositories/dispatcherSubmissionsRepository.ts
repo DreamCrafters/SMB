@@ -21,7 +21,6 @@ import {
 export type DispatcherFeedFilters = {
   limit?: number;
   offset?: number;
-  businessAccountId?: string;
   formId?: DispatcherFormId;
   dateFrom?: string;
   dateTo?: string;
@@ -40,7 +39,6 @@ export type DispatcherFeedSummary = {
 };
 
 export type EquipmentReportRevisionDraft = {
-  businessAccountId: string;
   reportDate: string;
   status: "updated";
   submissions: readonly DispatcherSubmission[];
@@ -80,14 +78,12 @@ export type DispatcherSubmissionsRepository = {
 export async function recordEquipmentReportRevisionForDate(
   pool: DatabasePool,
   value: {
-    businessAccountId: string;
     reportDate: string;
     submittedByAccountId: string;
   },
 ) {
   const repository = createDispatcherSubmissionsRepository(pool);
   const submissions = await repository.listLatest({
-    businessAccountId: value.businessAccountId,
     formId: "equipment",
     reportDate: value.reportDate,
     limit: dispatcherFeedPageLimit,
@@ -142,7 +138,6 @@ export function createDispatcherSubmissionsRepository(
         `
           ${insertMode} into dispatcher_submissions (
             id,
-            business_account_id,
             period,
             metric_code,
             raw_value,
@@ -154,12 +149,11 @@ export function createDispatcherSubmissionsRepository(
             status,
             submitted_by_account_id
           )
-          values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
           ${duplicateUpdate}
         `,
         [
           id,
-          draft.businessAccountId,
           legacyValues.period,
           legacyValues.metricCode,
           legacyValues.rawValue,
@@ -175,7 +169,6 @@ export function createDispatcherSubmissionsRepository(
         `
           select
             id,
-            business_account_id,
             form_id,
             payload,
             summary,
@@ -203,17 +196,15 @@ export function createDispatcherSubmissionsRepository(
         `
           insert into dispatcher_equipment_report_revisions (
             id,
-            business_account_id,
             report_date,
             revision_status,
             payload,
             submitted_by_account_id
           )
-          values (?, ?, ?, ?, ?, ?)
+          values (?, ?, ?, ?, ?)
         `,
         [
           randomUUID(),
-          value.businessAccountId,
           value.reportDate,
           value.status,
           JSON.stringify({
@@ -241,7 +232,6 @@ export function createDispatcherSubmissionsRepository(
         `
           select
             id,
-            business_account_id,
             form_id,
             payload,
             summary,
@@ -306,16 +296,12 @@ async function applyPersistenceDefaults(
     ...draft,
     payload: {
       ...draft.payload,
-      incidentNumber: await readNextIncidentNumber(
-        draft.businessAccountId,
-        pool,
-      ),
+      incidentNumber: await readNextIncidentNumber(pool),
     },
   };
 }
 
 async function readNextIncidentNumber(
-  businessAccountId: string,
   pool: DatabasePool,
 ) {
   const year = String(new Date().getFullYear());
@@ -323,11 +309,10 @@ async function readNextIncidentNumber(
     `
       select json_unquote(json_extract(payload, '$.incidentNumber')) as incident_number
       from dispatcher_submissions
-      where business_account_id = ?
-        and form_id = 'incident'
+      where form_id = 'incident'
         and json_unquote(json_extract(payload, '$.incidentNumber')) like ?
     `,
-    [businessAccountId, `INC-${year}-%`],
+    [`INC-${year}-%`],
   );
   let maxSuffix = 0;
 
@@ -355,11 +340,6 @@ function buildWhereClause(filters: DispatcherFeedFilters): WhereClause {
   if (filters.formId !== undefined) {
     values.push(filters.formId);
     clauses.push("form_id = ?");
-  }
-
-  if (filters.businessAccountId !== undefined) {
-    values.push(filters.businessAccountId);
-    clauses.push("business_account_id = ?");
   }
 
   if (filters.dateFrom !== undefined) {

@@ -28,7 +28,6 @@ type DevSession = {
 
 const DEV_SESSION_COOKIE = "smb_dev_access_session";
 const DEV_SESSION_HEADER = "x-smb-dev-session";
-const DEV_BUSINESS_ID = "dev-business-boundary";
 
 function accessProfileApi(): Plugin {
   const sessions = new Map<string, DevSession>();
@@ -183,13 +182,6 @@ function buildDevProfile(
         navigationItems: [...option.navigationItems],
         issuedAt,
       },
-      businessAccounts: [
-        {
-          id: DEV_BUSINESS_ID,
-          displayName: "Server business boundary",
-          status: "active",
-        },
-      ],
       receivedAt,
     };
   }
@@ -206,20 +198,12 @@ function buildDevProfile(
         positionDisplayName: option.positionDisplayName,
         displayName: "Dev business owner access",
         scope: {
-          kind: "business",
-          businessAccountId: DEV_BUSINESS_ID,
+          kind: "organization",
         },
         capabilities,
         navigationItems: [...option.navigationItems],
         issuedAt,
       },
-      businessAccounts: [
-        {
-          id: DEV_BUSINESS_ID,
-          displayName: "Server business boundary",
-          status: "active",
-        },
-      ],
       receivedAt,
     };
   }
@@ -240,21 +224,13 @@ function buildDevProfile(
         positionDisplayName: option.positionDisplayName,
         displayName: "Dev dispatcher access",
         scope: {
-          kind: "business",
-          businessAccountId: DEV_BUSINESS_ID,
+          kind: "organization",
         },
         capabilities,
         navigationItems: [...option.navigationItems],
         issuedAt,
         expiresAt,
       },
-      businessAccounts: [
-        {
-          id: DEV_BUSINESS_ID,
-          displayName: "Server business boundary",
-          status: "active",
-        },
-      ],
       receivedAt,
     };
   }
@@ -270,20 +246,12 @@ function buildDevProfile(
       positionDisplayName: option.positionDisplayName,
       displayName: "Dev worker access",
       scope: {
-        kind: "business",
-        businessAccountId: DEV_BUSINESS_ID,
+        kind: "organization",
       },
       capabilities,
       navigationItems: [...option.navigationItems],
       issuedAt,
     },
-    businessAccounts: [
-      {
-        id: DEV_BUSINESS_ID,
-        displayName: "Server business boundary",
-        status: "active",
-      },
-    ],
     receivedAt,
   };
 }

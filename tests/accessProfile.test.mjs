@@ -220,15 +220,11 @@ test("requestAccessProfile accepts a minimal valid server profile", async () => 
       position: "worker",
       positionDisplayName: "Работник",
       displayName: "Worker access",
-      scope: {
-        kind: "business",
-        businessAccountId: "business-id",
-      },
+      scope: { kind: "organization" },
       capabilities: ["business.submit_forms"],
       navigationItems: ["business.work"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
-    businessAccounts: [],
     receivedAt: "2026-06-18T00:00:00.000Z",
   };
 
@@ -255,15 +251,11 @@ test("requestAccessProfile accepts dispatcher profiles", async () => {
       position: "dispatcher",
       positionDisplayName: "Диспетчер",
       displayName: "Dispatcher access",
-      scope: {
-        kind: "business",
-        businessAccountId: "business-id",
-      },
+      scope: { kind: "organization" },
       capabilities: ["business.submit_dispatcher_forms"],
       navigationItems: ["business.dispatcher_form"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
-    businessAccounts: [],
     receivedAt: "2026-06-18T00:00:00.000Z",
   };
 
@@ -302,15 +294,11 @@ test("requestAccessProfile rejects unknown server capabilities", async () => {
       accountType: "worker",
       position: "worker",
       displayName: "Worker access",
-      scope: {
-        kind: "business",
-        businessAccountId: "business-id",
-      },
+      scope: { kind: "organization" },
       capabilities: ["unknown.capability"],
       navigationItems: ["business.work"],
       issuedAt: "2026-06-18T00:00:00.000Z",
     },
-    businessAccounts: [],
     receivedAt: "2026-06-18T00:00:00.000Z",
   };
 

@@ -19,7 +19,6 @@ export type DispatcherSubmissionPayload = Record<string, string>;
 const equipmentReserveDowntimeReason = "Резерв";
 
 export type DispatcherSubmissionDraft = {
-  businessAccountId: string;
   formId: DispatcherFormId;
   payload: DispatcherSubmissionPayload;
 };
@@ -31,7 +30,6 @@ export type ValidatedDispatcherSubmissionDraft = {
 
 export type DispatcherSubmission = {
   id: string;
-  businessAccountId: string;
   formId: DispatcherFormId;
   formTitle: string;
   payload: DispatcherSubmissionPayload;
@@ -44,7 +42,6 @@ export type DispatcherSubmission = {
 
 export type DispatcherSubmissionRow = {
   id: string;
-  business_account_id: string;
   form_id: string;
   payload: unknown;
   summary: string;
@@ -82,12 +79,6 @@ export function validateDispatcherSubmissionDraft(input: unknown): ValidationRes
   }
 
   const errors: string[] = [];
-  const businessAccountId = readRequiredString(
-    input.businessAccountId,
-    "businessAccountId",
-    120,
-    errors,
-  );
   const formId = readFormId(input.formId, errors);
   const form =
     formId === undefined ? undefined : getDispatcherFormDefinition(formId);
@@ -110,7 +101,6 @@ export function validateDispatcherSubmissionDraft(input: unknown): ValidationRes
   }
 
   const draft = {
-    businessAccountId: businessAccountId ?? "",
     formId,
     payload,
   };
@@ -139,7 +129,6 @@ export function mapDispatcherSubmissionRow(
 
   return {
     id: row.id,
-    businessAccountId: row.business_account_id,
     formId,
     formTitle: getDispatcherFormTitle(formId),
     payload,
@@ -163,11 +152,9 @@ export function buildDispatcherSubmissionDedupeKey(
     return null;
   }
 
-  if (contentKey.startsWith("equipment:")) {
-    return `equipment:${draft.businessAccountId}:${contentKey.slice("equipment:".length)}`;
-  }
-
-  return `dispatcher:${draft.businessAccountId}:${contentKey}`;
+  return contentKey.startsWith("equipment:")
+    ? contentKey
+    : `dispatcher:${contentKey}`;
 }
 
 export function buildDispatcherSubmissionContentKey(

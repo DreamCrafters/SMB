@@ -22,7 +22,7 @@ type EquipmentDraftState = {
   >;
 };
 
-const draftStorageKeyPrefix = "smb-monitor.dispatcher-equipment-drafts.v1";
+const draftStorageKey = "smb-monitor.dispatcher-equipment-drafts.v2";
 const equipmentDraftStateVersion = 2;
 const dateFieldNames = new Set(["reportDate", "reportMonth"]);
 
@@ -31,15 +31,13 @@ export function readEquipmentOptions(form: DispatcherFormDefinition) {
 }
 
 export function readLastEquipmentOption({
-  businessAccountId,
   equipmentOptions,
   storage,
 }: {
-  businessAccountId: string;
   equipmentOptions: readonly string[];
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
-  const state = readEquipmentDraftState(storage, businessAccountId);
+  const state = readEquipmentDraftState(storage);
   const equipment = state.lastEquipment;
 
   return equipment !== undefined && equipmentOptions.includes(equipment)
@@ -48,11 +46,9 @@ export function readLastEquipmentOption({
 }
 
 export function writeLastEquipmentOption({
-  businessAccountId,
   equipment,
   storage,
 }: {
-  businessAccountId: string;
   equipment: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
@@ -60,29 +56,27 @@ export function writeLastEquipmentOption({
     return false;
   }
 
-  const state = readEquipmentDraftState(storage, businessAccountId);
+  const state = readEquipmentDraftState(storage);
 
-  return writeEquipmentDraftState(storage, businessAccountId, {
+  return writeEquipmentDraftState(storage, {
     ...state,
     lastEquipment: equipment,
   });
 }
 
 export function readEquipmentDraftPayload({
-  businessAccountId,
   equipment,
   form,
   reportDate,
   storage,
 }: {
-  businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
   reportDate: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
   const draft = readDateScopedEquipmentPayload(
-    readEquipmentDraftState(storage, businessAccountId).draftsByReportDate,
+    readEquipmentDraftState(storage).draftsByReportDate,
     reportDate,
     equipment,
   );
@@ -93,20 +87,18 @@ export function readEquipmentDraftPayload({
 }
 
 export function readEquipmentReportEntryPayload({
-  businessAccountId,
   equipment,
   form,
   reportDate,
   storage,
 }: {
-  businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
   reportDate: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
   const payload = readDateScopedEquipmentPayload(
-    readEquipmentDraftState(storage, businessAccountId)
+    readEquipmentDraftState(storage)
       .reportPayloadsByReportDate,
     reportDate,
     equipment,
@@ -118,14 +110,12 @@ export function readEquipmentReportEntryPayload({
 }
 
 export function writeEquipmentDraftPayload({
-  businessAccountId,
   equipment,
   form,
   payload,
   reportDate,
   storage,
 }: {
-  businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
   payload: DispatcherSubmissionPayload;
@@ -138,10 +128,10 @@ export function writeEquipmentDraftPayload({
     return false;
   }
 
-  const state = readEquipmentDraftState(storage, businessAccountId);
+  const state = readEquipmentDraftState(storage);
   const currentDrafts = state.draftsByReportDate[reportDateKey] ?? {};
 
-  return writeEquipmentDraftState(storage, businessAccountId, {
+  return writeEquipmentDraftState(storage, {
     ...state,
     lastEquipment: equipment,
     draftsByReportDate: {
@@ -155,14 +145,12 @@ export function writeEquipmentDraftPayload({
 }
 
 export function writeEquipmentReportEntryPayload({
-  businessAccountId,
   equipment,
   form,
   payload,
   reportDate,
   storage,
 }: {
-  businessAccountId: string;
   equipment: string;
   form: DispatcherFormDefinition;
   payload: DispatcherSubmissionPayload;
@@ -175,11 +163,11 @@ export function writeEquipmentReportEntryPayload({
     return false;
   }
 
-  const state = readEquipmentDraftState(storage, businessAccountId);
+  const state = readEquipmentDraftState(storage);
   const currentReportPayloads =
     state.reportPayloadsByReportDate[reportDateKey] ?? {};
 
-  return writeEquipmentDraftState(storage, businessAccountId, {
+  return writeEquipmentDraftState(storage, {
     ...state,
     lastEquipment: equipment,
     reportPayloadsByReportDate: {
@@ -223,19 +211,17 @@ export function buildEquipmentFormPayload({
 }
 
 export function buildEquipmentReportPayloads({
-  businessAccountId,
   equipmentOptions,
   form,
   reportDate,
   storage,
 }: {
-  businessAccountId: string;
   equipmentOptions: readonly string[];
   form: DispatcherFormDefinition;
   reportDate: string;
   storage: DispatcherEquipmentDraftStorage | undefined;
 }) {
-  const state = readEquipmentDraftState(storage, businessAccountId);
+  const state = readEquipmentDraftState(storage);
   const reportPayloadsByEquipment =
     state.reportPayloadsByReportDate[readReportDateStorageKey(reportDate)] ?? {};
   const payloads: DispatcherSubmissionPayload[] = [];
@@ -351,7 +337,6 @@ export function formatReportDateForDisplay(value: string) {
 
 function readEquipmentDraftState(
   storage: DispatcherEquipmentDraftStorage | undefined,
-  businessAccountId: string,
 ): EquipmentDraftState {
   if (storage === undefined) {
     return createEmptyEquipmentDraftState();
@@ -360,7 +345,7 @@ function readEquipmentDraftState(
   let rawValue: string | null;
 
   try {
-    rawValue = storage.getItem(buildEquipmentDraftStorageKey(businessAccountId));
+    rawValue = storage.getItem(draftStorageKey);
   } catch {
     return createEmptyEquipmentDraftState();
   }
@@ -378,7 +363,6 @@ function readEquipmentDraftState(
 
 function writeEquipmentDraftState(
   storage: DispatcherEquipmentDraftStorage | undefined,
-  businessAccountId: string,
   state: EquipmentDraftState,
 ) {
   if (storage === undefined) {
@@ -386,10 +370,7 @@ function writeEquipmentDraftState(
   }
 
   try {
-    storage.setItem(
-      buildEquipmentDraftStorageKey(businessAccountId),
-      JSON.stringify(state),
-    );
+    storage.setItem(draftStorageKey, JSON.stringify(state));
 
     return true;
   } catch {
@@ -574,10 +555,6 @@ function readCurrentReportDateStorageKey() {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${date.getFullYear()}-${month}-${day}`;
-}
-
-function buildEquipmentDraftStorageKey(businessAccountId: string) {
-  return `${draftStorageKeyPrefix}.${businessAccountId}`;
 }
 
 function createEmptyEquipmentDraftState(): EquipmentDraftState {

@@ -296,7 +296,6 @@ function buildSubmission(
 ): DispatcherSubmission {
   return {
     id: "submission-id",
-    businessAccountId: "business-id",
     formId,
     formTitle: formId,
     payload,

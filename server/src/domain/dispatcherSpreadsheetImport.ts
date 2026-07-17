@@ -181,36 +181,6 @@ export function buildDispatcherSpreadsheetImportPlan({
   };
 }
 
-export function scopeDispatcherSpreadsheetImportRecords(
-  records: readonly DispatcherSpreadsheetImportRecord[],
-  businessAccountId: string,
-) {
-  const idByOriginalId = new Map(
-    records.map((record) => [
-      record.id,
-      buildStableUuid(`${businessAccountId}:${record.sourceKey}`),
-    ]),
-  );
-
-  return records.map((record) => {
-    const id = idByOriginalId.get(record.id) ?? record.id;
-    const visitorEntryId = record.payload.visitorEntryId;
-
-    return {
-      ...record,
-      id,
-      sourceKey: `${businessAccountId}:${record.sourceKey}`,
-      payload:
-        visitorEntryId === undefined
-          ? record.payload
-          : {
-              ...record.payload,
-              visitorEntryId: idByOriginalId.get(visitorEntryId) ?? visitorEntryId,
-            },
-    };
-  });
-}
-
 function mapSheetRow({
   spreadsheetId,
   sheetName,

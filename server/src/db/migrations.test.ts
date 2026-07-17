@@ -312,6 +312,47 @@ test("department removal migration preserves accounts in their business scope", 
   assert.match(statements[5] ?? "", /drop table if exists departments/);
 });
 
+test("single organization migration preserves history and removes business storage", async () => {
+  const appliedIds = new Set([
+    "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
+    "003_equipment_report_revisions", "004_auth_users_sessions_accesses",
+    "005_account_positions_and_navigation", "006_account_access_levels",
+    "007_expand_non_admin_access_catalog", "008_remove_system_full_access_levels",
+    "009_remove_account_access_levels", "010_dynamic_account_positions",
+    "011_empty_worker_workspace", "012_split_manager_dispatcher_access",
+    "013_protect_used_account_positions", "014_dispatcher_spreadsheet_import_source",
+    "015_user_audit_events", "016_remove_departments",
+  ]);
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [appliedIds.has(id) ? [{ id }] : [], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(statements[1] ?? "", /row_number\(\) over/);
+  assert.match(statements[1] ?? "", /equipment:/);
+  assert.match(statements[4] ?? "", /next_import_source_key/);
+  assert.match(statements[5] ?? "", /drop column business_account_id/);
+  assert.match(statements[6] ?? "", /idx_equipment_report_revisions_date_created/);
+  assert.match(statements[8] ?? "", /else 'organization'/);
+  assert.match(statements[9] ?? "", /add key idx_account_accesses_scope \(scope_kind\)/);
+  assert.match(statements[12] ?? "", /alter table user_audit_events drop column business_account_id/);
+  assert.equal(statements[13], "drop table if exists business_accounts;");
+  assert.doesNotMatch(statements.join(" "), /delete from dispatcher_submissions/u);
+});
+
 function normalizeSql(sql: string) {
   return sql.replace(/\s+/g, " ").trim();
 }

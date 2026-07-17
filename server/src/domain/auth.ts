@@ -30,7 +30,6 @@ export const accountNavigationItems = [
 export type AccountNavigationItem = (typeof accountNavigationItems)[number];
 
 export const accountCapabilities = [
-  "platform.manage_business_accounts",
   "platform.manage_users",
   "platform.manage_access",
   "platform.manage_analytics_database",
@@ -54,8 +53,7 @@ export type AccountScope =
       kind: "platform";
     }
   | {
-      kind: "business";
-      businessAccountId: string;
+      kind: "organization";
     };
 
 export type ServerIssuedAccountAccess = {
@@ -71,18 +69,11 @@ export type ServerIssuedAccountAccess = {
   expiresAt?: string;
 };
 
-export type BusinessAccountRef = {
-  id: string;
-  displayName: string;
-  status: "active" | "suspended" | "archived";
-};
-
 export type ServerUserProfile = {
   userId: string;
   displayName: string;
   accountType: AccountType;
   activeAccess: ServerIssuedAccountAccess;
-  businessAccounts: BusinessAccountRef[];
   receivedAt: string;
 };
 
@@ -115,7 +106,6 @@ export const defaultCapabilitiesByAccountType: Record<
   AccountCapability[]
 > = {
   admin: [
-    "platform.manage_business_accounts",
     "platform.manage_users",
     "platform.manage_access",
     "platform.manage_analytics_database",
@@ -268,18 +258,6 @@ export function hasProfileCapability(
   capability: AccountCapability,
 ) {
   return profile?.activeAccess.capabilities.includes(capability) === true;
-}
-
-export function readScopedBusinessAccountId(
-  profile: ServerUserProfile,
-): string | undefined {
-  const scope = profile.activeAccess.scope;
-
-  if (scope.kind === "business") {
-    return scope.businessAccountId;
-  }
-
-  return undefined;
 }
 
 function createPasswordSalt() {

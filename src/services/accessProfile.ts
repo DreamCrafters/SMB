@@ -1,6 +1,7 @@
 import type {
   AccountAccessErrorCode,
   AccountCapability,
+  AccountScope,
   AccountType,
   ServerIssuedAccountAccess,
   ServerUserProfile,
@@ -363,7 +364,6 @@ function isServerUserProfile(value: unknown): value is ServerUserProfile {
     typeof value.displayName === "string" &&
     isAccountType(value.accountType) &&
     isServerIssuedAccountAccess(value.activeAccess) &&
-    Array.isArray(value.businessAccounts) &&
     typeof value.receivedAt === "string"
   );
 }
@@ -381,6 +381,7 @@ function isServerIssuedAccountAccess(value: unknown): value is ServerIssuedAccou
     typeof value.positionDisplayName === "string" &&
     value.positionDisplayName.trim().length > 0 &&
     typeof value.displayName === "string" &&
+    isAccountScope(value.scope) &&
     Array.isArray(value.capabilities) &&
     value.capabilities.every(isAccountCapability) &&
     Array.isArray(value.navigationItems) &&
@@ -392,6 +393,13 @@ function isServerIssuedAccountAccess(value: unknown): value is ServerIssuedAccou
         ),
     ) &&
     typeof value.issuedAt === "string"
+  );
+}
+
+function isAccountScope(value: unknown): value is AccountScope {
+  return (
+    isRecord(value) &&
+    (value.kind === "platform" || value.kind === "organization")
   );
 }
 
@@ -415,7 +423,6 @@ function isAccountAccessErrorCode(value: unknown): value is AccountAccessErrorCo
   return (
     value === "unauthenticated" ||
     value === "account_disabled" ||
-    value === "business_unavailable" ||
     value === "access_denied"
   );
 }

@@ -31,10 +31,7 @@ export function applyVisitorStateRules(
     };
   }
 
-  const openVisitors = buildOpenVisitorEntries(
-    history,
-    value.draft.businessAccountId,
-  );
+  const openVisitors = buildOpenVisitorEntries(history);
 
   if (value.draft.formId === "visitor") {
     const duplicate = openVisitors.find(
@@ -86,12 +83,10 @@ export function applyVisitorStateRules(
 
 function buildOpenVisitorEntries(
   submissions: DispatcherSubmission[],
-  businessAccountId: string,
 ) {
   const openEntries: OpenVisitorEntry[] = [];
 
   for (const submission of submissions
-    .filter((item) => item.businessAccountId === businessAccountId)
     .filter((item) => item.formId === "visitor" || item.formId === "visitor_exit")
     .sort(compareSubmissionsAscending)) {
     if (submission.formId === "visitor") {

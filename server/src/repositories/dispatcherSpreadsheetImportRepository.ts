@@ -1,29 +1,16 @@
-import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DispatcherSpreadsheetImportRecord } from "../domain/dispatcherSpreadsheetImport.js";
 import { buildDispatcherSubmissionDedupeKey } from "../domain/dispatcherSubmission.js";
 import type { DatabasePool } from "../db/pool.js";
 
-export type DispatcherImportBusinessAccount = {
-  id: string;
-  displayName: string;
-};
-
 export type DispatcherSpreadsheetImportRepository = {
-  listBusinessAccounts: () => Promise<DispatcherImportBusinessAccount[]>;
   findExistingSourceKeys: (
-    businessAccountId: string,
     records: readonly DispatcherSpreadsheetImportRecord[],
   ) => Promise<Set<string>>;
   importRecords: (value: {
-    businessAccountId: string;
     submittedByAccountId: string;
     records: readonly DispatcherSpreadsheetImportRecord[];
   }) => Promise<{ inserted: number; skipped: number }>;
-};
-
-type BusinessAccountRow = RowDataPacket & {
-  id: string;
-  display_name: string;
 };
 
 type ExistingImportRow = RowDataPacket & {
@@ -45,28 +32,11 @@ export function createDispatcherSpreadsheetImportRepository(
   pool: DatabasePool,
 ): DispatcherSpreadsheetImportRepository {
   return {
-    async listBusinessAccounts() {
-      const [rows] = await pool.query<BusinessAccountRow[]>(
-        `
-          select id, display_name
-          from business_accounts
-          where status = 'active'
-          order by display_name, id
-        `,
-      );
-
-      return rows.map((row) => ({
-        id: row.id,
-        displayName: row.display_name,
-      }));
-    },
-
-    async findExistingSourceKeys(businessAccountId, records) {
-      return readExistingSourceKeys(pool, businessAccountId, records);
+    async findExistingSourceKeys(records) {
+      return readExistingSourceKeys(pool, records);
     },
 
     async importRecords({
-      businessAccountId,
       submittedByAccountId,
       records,
     }) {
@@ -74,10 +44,8 @@ export function createDispatcherSpreadsheetImportRepository(
 
       try {
         await connection.beginTransaction();
-        await requireActiveBusinessAccount(connection, businessAccountId);
         const existing = await readExistingSourceKeys(
           connection,
-          businessAccountId,
           records,
         );
         const newRecords = records.filter(
@@ -87,11 +55,10 @@ export function createDispatcherSpreadsheetImportRepository(
 
         for (const chunk of chunkValues(newRecords, insertChunkSize)) {
           const rowPlaceholders = chunk
-            .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?)")
+            .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?)")
             .join(", ");
           const values = chunk.flatMap((record) => [
             record.id,
-            businessAccountId,
             record.period,
             record.formId,
             record.rawValue,
@@ -99,7 +66,7 @@ export function createDispatcherSpreadsheetImportRepository(
             record.formId,
             JSON.stringify(record.payload),
             record.summary,
-            buildBusinessDedupeKey(businessAccountId, record),
+            buildImportDedupeKey(record),
             record.sourceKey,
             submittedByAccountId,
             record.occurredAt,
@@ -109,7 +76,6 @@ export function createDispatcherSpreadsheetImportRepository(
             `
               insert ignore into dispatcher_submissions (
                 id,
-                business_account_id,
                 period,
                 metric_code,
                 raw_value,
@@ -149,7 +115,6 @@ export function createDispatcherSpreadsheetImportRepository(
 
 async function readExistingSourceKeys(
   executor: QueryExecutor,
-  businessAccountId: string,
   records: readonly DispatcherSpreadsheetImportRecord[],
 ) {
   const existing = new Set<string>();
@@ -157,7 +122,7 @@ async function readExistingSourceKeys(
   for (const chunk of chunkValues(records, queryChunkSize)) {
     const sourceKeys = chunk.map((record) => record.sourceKey);
     const dedupeKeys = chunk
-      .map((record) => buildBusinessDedupeKey(businessAccountId, record))
+      .map(buildImportDedupeKey)
       .filter((value): value is string => value !== null);
     const clauses = [
       `import_source_key in (${sourceKeys.map(() => "?").join(", ")})`,
@@ -173,9 +138,9 @@ async function readExistingSourceKeys(
       `
         select import_source_key, dedupe_key
         from dispatcher_submissions
-        where business_account_id = ? and (${clauses.join(" or ")})
+        where ${clauses.join(" or ")}
       `,
-      [businessAccountId, ...values],
+      values,
     );
     const existingSourceKeys = new Set(
       rows
@@ -189,7 +154,7 @@ async function readExistingSourceKeys(
     );
 
     for (const record of chunk) {
-      const dedupeKey = buildBusinessDedupeKey(businessAccountId, record);
+      const dedupeKey = buildImportDedupeKey(record);
 
       if (
         existingSourceKeys.has(record.sourceKey) ||
@@ -216,10 +181,8 @@ async function readExistingSourceKeys(
     `
       select form_id, payload
       from dispatcher_submissions
-      where business_account_id = ?
-        and form_id in ('incident', 'incident_close', 'visitor', 'visitor_exit')
+      where form_id in ('incident', 'incident_close', 'visitor', 'visitor_exit')
     `,
-    [businessAccountId],
   );
   const existingNaturalKeys = new Set(
     naturalRows
@@ -250,31 +213,10 @@ async function readExistingSourceKeys(
   return existing;
 }
 
-async function requireActiveBusinessAccount(
-  connection: PoolConnection,
-  businessAccountId: string,
-) {
-  const [rows] = await connection.query<RowDataPacket[]>(
-    `
-      select id
-      from business_accounts
-      where id = ? and status = 'active'
-      for update
-    `,
-    [businessAccountId],
-  );
-
-  if (rows.length === 0) {
-    throw new Error("Выбранный бизнес-аккаунт не найден или отключён.");
-  }
-}
-
-function buildBusinessDedupeKey(
-  businessAccountId: string,
+function buildImportDedupeKey(
   record: DispatcherSpreadsheetImportRecord,
 ) {
   return buildDispatcherSubmissionDedupeKey({
-    businessAccountId,
     formId: record.formId,
     payload: record.payload,
   });

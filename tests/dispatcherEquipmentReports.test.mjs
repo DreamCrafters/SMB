@@ -53,7 +53,6 @@ test("equipment draft storage keeps field values but does not keep report dates"
 
   assert.equal(
     writeEquipmentDraftPayload({
-      businessAccountId: "business-id",
       equipment: "Пресс №1",
       form: equipmentForm,
       payload: {
@@ -70,14 +69,12 @@ test("equipment draft storage keeps field values but does not keep report dates"
   );
 
   const draft = readEquipmentDraftPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     reportDate: "2026-07-03",
     storage,
   });
   const otherDateDraft = readEquipmentDraftPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     reportDate: "2026-07-04",
@@ -105,14 +102,12 @@ test("equipment draft storage remembers the last selected valid equipment", () =
   const equipmentOptions = readEquipmentOptions(equipmentForm);
 
   writeLastEquipmentOption({
-    businessAccountId: "business-id",
     equipment: "Пресс №2",
     storage,
   });
 
   assert.equal(
     readLastEquipmentOption({
-      businessAccountId: "business-id",
       equipmentOptions,
       storage,
     }),
@@ -120,7 +115,6 @@ test("equipment draft storage remembers the last selected valid equipment", () =
   );
   assert.equal(
     readLastEquipmentOption({
-      businessAccountId: "business-id",
       equipmentOptions: ["Пресс №1"],
       storage,
     }),
@@ -132,7 +126,6 @@ test("equipment report payloads only include explicitly added entries", () => {
   const storage = createMemoryStorage();
 
   writeEquipmentDraftPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     payload: {
@@ -144,7 +137,6 @@ test("equipment report payloads only include explicitly added entries", () => {
     storage,
   });
   writeEquipmentReportEntryPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №2",
     form: equipmentForm,
     payload: {
@@ -157,7 +149,6 @@ test("equipment report payloads only include explicitly added entries", () => {
   });
 
   const payloads = buildEquipmentReportPayloads({
-    businessAccountId: "business-id",
     equipmentOptions: readEquipmentOptions(equipmentForm),
     form: equipmentForm,
     reportDate: "2026-07-06",
@@ -170,7 +161,6 @@ test("equipment report payloads only include explicitly added entries", () => {
   assert.equal(payloads[0].productionTons, "7");
 
   const otherDatePayloads = buildEquipmentReportPayloads({
-    businessAccountId: "business-id",
     equipmentOptions: readEquipmentOptions(equipmentForm),
     form: equipmentForm,
     reportDate: "2026-07-07",
@@ -185,7 +175,7 @@ test("legacy equipment report payloads become drafts instead of report entries",
   const todayDate = formatDateValue(new Date());
 
   storage.setItem(
-    "smb-monitor.dispatcher-equipment-drafts.v1.business-id",
+    "smb-monitor.dispatcher-equipment-drafts.v2",
     JSON.stringify({
       reportPayloadsByEquipment: {
         "Пресс №1": {
@@ -198,14 +188,12 @@ test("legacy equipment report payloads become drafts instead of report entries",
   );
 
   const draft = readEquipmentDraftPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     reportDate: todayDate,
     storage,
   });
   const reportPayloads = buildEquipmentReportPayloads({
-    businessAccountId: "business-id",
     equipmentOptions: readEquipmentOptions(equipmentForm),
     form: equipmentForm,
     reportDate: todayDate,
@@ -223,7 +211,7 @@ test("legacy date-scoped equipment report payloads become drafts", () => {
   const storage = createMemoryStorage();
 
   storage.setItem(
-    "smb-monitor.dispatcher-equipment-drafts.v1.business-id",
+    "smb-monitor.dispatcher-equipment-drafts.v2",
     JSON.stringify({
       reportPayloadsByReportDate: {
         "2026-07-06": {
@@ -238,14 +226,12 @@ test("legacy date-scoped equipment report payloads become drafts", () => {
   );
 
   const draft = readEquipmentDraftPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     reportDate: "2026-07-06",
     storage,
   });
   const reportPayloads = buildEquipmentReportPayloads({
-    businessAccountId: "business-id",
     equipmentOptions: readEquipmentOptions(equipmentForm),
     form: equipmentForm,
     reportDate: "2026-07-06",
@@ -263,7 +249,6 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
   const storage = createMemoryStorage();
 
   writeEquipmentReportEntryPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     payload: {
@@ -275,7 +260,6 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
     storage,
   });
   writeEquipmentDraftPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     payload: {
@@ -288,14 +272,12 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
   });
 
   const reportPayload = readEquipmentReportEntryPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     reportDate: "2026-07-06",
     storage,
   });
   const draftPayload = readEquipmentDraftPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     reportDate: "2026-07-06",
@@ -316,7 +298,6 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
   );
 
   writeEquipmentReportEntryPayload({
-    businessAccountId: "business-id",
     equipment: "Пресс №1",
     form: equipmentForm,
     payload: draftPayload,
@@ -329,7 +310,6 @@ test("equipment report entries stay stable while edited drafts become dirty", ()
       currentPayload: draftPayload,
       form: equipmentForm,
       reportPayload: readEquipmentReportEntryPayload({
-        businessAccountId: "business-id",
         equipment: "Пресс №1",
         form: equipmentForm,
         reportDate: "2026-07-06",
@@ -382,7 +362,6 @@ function buildSubmission({
 }) {
   return {
     id,
-    businessAccountId: "business-id",
     formId: "equipment",
     formTitle: "Оборудование",
     payload: {

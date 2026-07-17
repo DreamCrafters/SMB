@@ -18,7 +18,6 @@ import {
   type AccountType,
   type AuthSessionService,
   type AuthenticatedSession,
-  type BusinessAccountRef,
   type ServerIssuedAccountAccess,
   type ServerUserProfile,
 } from "../domain/auth.js";
@@ -35,14 +34,11 @@ type AuthAccessRow = RowDataPacket & {
   position_display_name: string;
   access_display_name: string;
   scope_kind: string;
-  business_account_id: string | null;
   capabilities: unknown;
   navigation_items: unknown;
   access_created_at: Date | string;
   session_created_at?: Date | string;
   session_expires_at?: Date | string;
-  business_display_name: string | null;
-  business_status: string | null;
 };
 
 export function createAuthSessionService(
@@ -120,27 +116,21 @@ export function createAuthSessionService(
             positions.display_name as position_display_name,
             accesses.display_name as access_display_name,
             accesses.scope_kind,
-            accesses.business_account_id,
             positions.capabilities,
             positions.navigation_items,
             accesses.created_at as access_created_at,
             sessions.created_at as session_created_at,
-            sessions.expires_at as session_expires_at,
-            business.display_name as business_display_name,
-            business.status as business_status
+            sessions.expires_at as session_expires_at
           from auth_sessions as sessions
           join app_users as users on users.id = sessions.user_id
           join auth_password_credentials as credentials
             on credentials.user_id = users.id
           join account_accesses as accesses on accesses.id = sessions.access_id
           join account_positions as positions on positions.id = accesses.position_code
-          left join business_accounts as business
-            on business.id = accesses.business_account_id
           where sessions.id = ?
             and sessions.expires_at > current_timestamp(3)
             and users.status = 'active'
             and accesses.is_active = 1
-            and (accesses.scope_kind = 'platform' or business.status = 'active')
           limit 1
         `,
         [sessionId],
@@ -200,22 +190,16 @@ async function readLoginAccessRow(
         positions.display_name as position_display_name,
         accesses.display_name as access_display_name,
         accesses.scope_kind,
-        accesses.business_account_id,
         positions.capabilities,
         positions.navigation_items,
-        accesses.created_at as access_created_at,
-        business.display_name as business_display_name,
-        business.status as business_status
+        accesses.created_at as access_created_at
       from app_users as users
       join auth_password_credentials as credentials
         on credentials.user_id = users.id
       join account_accesses as accesses on accesses.user_id = users.id
       join account_positions as positions on positions.id = accesses.position_code
-      left join business_accounts as business
-        on business.id = accesses.business_account_id
       where users.login = ?
         and accesses.is_active = 1
-        and (accesses.scope_kind = 'platform' or business.status = 'active')
       order by accesses.created_at asc, accesses.id asc
       limit 1
     `,
@@ -239,14 +223,12 @@ function buildAuthenticatedSession(
 
 function buildProfile(row: AuthAccessRow, expiresAt: Date): ServerUserProfile {
   const activeAccess = buildAccess(row, expiresAt);
-  const businessAccounts = buildBusinessAccounts(row);
 
   return {
     userId: row.user_id,
     displayName: row.user_display_name,
     accountType: activeAccess.accountType,
     activeAccess,
-    businessAccounts,
     receivedAt: new Date().toISOString(),
   };
 }
@@ -304,28 +286,11 @@ function buildScope(row: AuthAccessRow): AccountScope {
     };
   }
 
-  if (row.scope_kind === "business" && row.business_account_id !== null) {
-    return {
-      kind: "business",
-      businessAccountId: row.business_account_id,
-    };
+  if (row.scope_kind === "organization") {
+    return { kind: "organization" };
   }
 
   throw new Error("Stored account scope is not supported.");
-}
-
-function buildBusinessAccounts(row: AuthAccessRow): BusinessAccountRef[] {
-  if (row.business_account_id === null) {
-    return [];
-  }
-
-  return [
-    {
-      id: row.business_account_id,
-      displayName: row.business_display_name ?? row.business_account_id,
-      status: readBusinessStatus(row.business_status),
-    },
-  ];
 }
 
 function readCapabilities(value: unknown): AccountCapability[] {
@@ -355,14 +320,6 @@ function safelyParseJson(value: string) {
   } catch {
     return undefined;
   }
-}
-
-function readBusinessStatus(value: string | null): BusinessAccountRef["status"] {
-  if (value === "suspended" || value === "archived") {
-    return value;
-  }
-
-  return "active";
 }
 
 function toDate(value: Date | string) {

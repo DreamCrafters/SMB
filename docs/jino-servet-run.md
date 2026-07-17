@@ -319,6 +319,5 @@ SMB_AUTH_ACCOUNT_TYPE=dispatcher \
 npm --workspace server run auth:create-user
 ```
 
-Без scope-переменных backend автоматически назначает всем неадминистративным
-аккаунтам общий business scope. `SMB_AUTH_BUSINESS_ACCOUNT_ID` и
-`SMB_AUTH_BUSINESS_DISPLAY_NAME` остаются необязательными явными overrides.
+Backend автоматически назначает всем неадминистративным аккаунтам общий
+organization scope; дополнительные scope ID и переменные бизнеса не используются.

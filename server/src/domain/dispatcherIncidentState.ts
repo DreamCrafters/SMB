@@ -30,10 +30,9 @@ export function applyIncidentStateRules(
   }
 
   const incidentNumber = value.draft.payload.incidentNumber?.trim();
-  const openIncident = buildOpenIncidentEntries(
-    history,
-    value.draft.businessAccountId,
-  ).find((entry) => entry.incidentNumber === incidentNumber);
+  const openIncident = buildOpenIncidentEntries(history).find(
+    (entry) => entry.incidentNumber === incidentNumber,
+  );
 
   if (openIncident === undefined) {
     return {
@@ -65,12 +64,10 @@ export function applyIncidentStateRules(
 
 function buildOpenIncidentEntries(
   submissions: DispatcherSubmission[],
-  businessAccountId: string,
 ) {
   const openEntries: OpenIncidentEntry[] = [];
 
   for (const submission of submissions
-    .filter((item) => item.businessAccountId === businessAccountId)
     .filter((item) => item.formId === "incident" || item.formId === "incident_close")
     .sort(compareSubmissionsAscending)) {
     if (submission.formId === "incident") {

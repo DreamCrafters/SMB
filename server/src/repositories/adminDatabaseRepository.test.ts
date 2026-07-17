@@ -16,11 +16,10 @@ test("admin database catalog contains only safe editable user-facing sections", 
 
   assert.deepEqual(tables.map((table) => table.name), [
     "app_users",
-    "business_accounts",
     "dispatcher_submissions",
   ]);
   assert.ok(tables.every((table) => table.primaryKey.length > 0));
-  assert.equal(queries.length, 3);
+  assert.equal(queries.length, 2);
   assert.doesNotMatch(
     JSON.stringify(tables),
     /departments|account_accesses|account_positions|auth_sessions|auth_password_credentials|schema_migrations/u,
@@ -41,7 +40,6 @@ test("dispatcher row editor exposes real form fields without raw payload or ids"
 
       return [[{
         __admin_primary_key_id: "submission-secret-id",
-        business: "Основной бизнес",
         form: "Вход посетителя",
         event_date: "16.07.2026",
         summary: "Иванов Иван · Завод",
@@ -97,9 +95,8 @@ test("dispatcher row update validates form values and preserves server fields", 
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, values });
 
-      if (normalized.startsWith("select business_account_id")) {
+      if (normalized.startsWith("select form_id")) {
         return [[{
-          business_account_id: "prod-business",
           form_id: "visitor",
           payload: JSON.stringify({
             fio: "Старое имя",
@@ -153,9 +150,8 @@ test("equipment edits keep report identity and append a full report revision", a
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, values });
 
-      if (normalized.startsWith("select business_account_id")) {
+      if (normalized.startsWith("select form_id")) {
         return [[{
-          business_account_id: "prod-business",
           form_id: "equipment",
           payload: JSON.stringify({
             reportDate: "16.07.2026",
@@ -169,10 +165,9 @@ test("equipment edits keep report identity and append a full report revision", a
         }], []];
       }
 
-      if (normalized.startsWith("select id, business_account_id")) {
+      if (normalized.startsWith("select id, form_id")) {
         return [[{
           id: "submission-id",
-          business_account_id: "prod-business",
           form_id: "equipment",
           payload: JSON.stringify({
             reportDate: "16.07.2026",
@@ -202,11 +197,10 @@ test("equipment edits keep report identity and append a full report revision", a
   const revision = queries.find((query) =>
     query.sql.startsWith("insert into dispatcher_equipment_report_revisions"),
   );
-  assert.equal(revision?.values?.[1], "prod-business");
-  assert.equal(revision?.values?.[2], "16.07.2026");
-  assert.equal(revision?.values?.[3], "updated");
-  assert.equal(revision?.values?.[5], "admin-access");
-  assert.match(String(revision?.values?.[4]), /Пресс №1/u);
+  assert.equal(revision?.values?.[1], "16.07.2026");
+  assert.equal(revision?.values?.[2], "updated");
+  assert.equal(revision?.values?.[4], "admin-access");
+  assert.match(String(revision?.values?.[3]), /Пресс №1/u);
 
   await assert.rejects(
     repository.updateRow({
@@ -296,7 +290,7 @@ test("archived users stay stored but are filtered out of the database view", asy
   assert.ok(queries.every((sql) => sql.includes("status <> 'archived'")));
 });
 
-test("admin database never deletes displayed business or historical data", async () => {
+test("admin database never deletes displayed historical data", async () => {
   const queries: string[] = [];
   const pool = {
     async query(sql: string) {

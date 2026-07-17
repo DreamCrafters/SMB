@@ -919,7 +919,6 @@ export default function App() {
 
     const form = event.currentTarget;
     const formData = new FormData(form);
-    const businessAccountId = getActiveBusinessAccountId(submitProfile);
     const formId = String(formData.get("formId") ?? "");
     const formDefinition =
       dispatcherForms.status === "ready"
@@ -941,7 +940,6 @@ export default function App() {
     if (formDefinition.id === "equipment") {
       const equipmentOptions = readEquipmentOptions(formDefinition);
       const equipmentReportPayloads = buildEquipmentReportPayloads({
-        businessAccountId,
         equipmentOptions,
         form: formDefinition,
         reportDate: payload.reportDate ?? getTodayDateValue(),
@@ -974,7 +972,6 @@ export default function App() {
 
       const result = await submitDispatcherEquipmentReport(
         {
-          businessAccountId,
           items: equipmentReportPayloads,
         },
         {
@@ -1017,7 +1014,6 @@ export default function App() {
 
     const result = await submitDispatcherSubmission(
       {
-        businessAccountId,
         formId: formDefinition.id,
         payload,
       },
@@ -1798,7 +1794,6 @@ function RoleWorkspace({
             isSubmitting={isDataEntrySubmitting}
             onSubmit={onDataEntrySubmit}
             dispatcherForms={dispatcherForms}
-            businessAccountId={getActiveBusinessAccountId(profile)}
             currentUserDisplayName={profile.displayName}
             isAdminPreviewMode={isAdminPreviewMode}
             refreshVersion={dispatcherSubmissionVersion}
@@ -1814,7 +1809,6 @@ function RoleWorkspace({
           dispatcherForms={dispatcherForms}
           dispatcherFeedFilters={dispatcherFeedFilters}
           onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
-          businessAccountId={getActiveBusinessAccountId(profile)}
         />
       );
   }
@@ -1826,7 +1820,6 @@ function OwnerWorkspace({
   dispatcherForms,
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
-  businessAccountId,
 }: {
   activeTab: Extract<BusinessTab, "overview" | "dispatcher">;
   dispatcherFeed: DispatcherFeedLoadState;
@@ -1835,12 +1828,10 @@ function OwnerWorkspace({
   onDispatcherFeedFiltersChange: (
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
-  businessAccountId: string;
 }) {
   if (activeTab === "overview") {
     const overview = buildOwnerDispatcherOverview(
       dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [],
-      { businessAccountId },
     );
 
     return (
@@ -2124,7 +2115,6 @@ function DataEntryWorkspace({
   isSubmitting,
   onSubmit,
   dispatcherForms,
-  businessAccountId,
   currentUserDisplayName,
   isAdminPreviewMode,
   refreshVersion,
@@ -2136,7 +2126,6 @@ function DataEntryWorkspace({
   isSubmitting: boolean;
   onSubmit: DataEntrySubmitHandler;
   dispatcherForms: DispatcherFormsLoadState;
-  businessAccountId: string;
   currentUserDisplayName: string;
   isAdminPreviewMode: boolean;
   refreshVersion: number;
@@ -2276,7 +2265,6 @@ function DataEntryWorkspace({
           />
         ) : currentForm.id === "equipment" ? (
           <DispatcherEquipmentFormBody
-            businessAccountId={businessAccountId}
             form={currentForm}
             isSubmitting={isSubmitting}
             refreshVersion={refreshVersion}
@@ -2288,14 +2276,12 @@ function DataEntryWorkspace({
           />
         ) : currentForm.id === "visitor_exit" ? (
           <DispatcherVisitorExitFormBody
-            businessAccountId={businessAccountId}
             isSubmitting={isSubmitting}
             refreshVersion={refreshVersion}
             status={status}
           />
         ) : currentForm.id === "incident_close" ? (
           <DispatcherIncidentCloseFormBody
-            businessAccountId={businessAccountId}
             form={currentForm}
             isSubmitting={isSubmitting}
             refreshVersion={refreshVersion}
@@ -2620,13 +2606,11 @@ function ProductionReportCell({
 }
 
 function DispatcherIncidentCloseFormBody({
-  businessAccountId,
   form,
   isSubmitting,
   refreshVersion,
   status,
 }: {
-  businessAccountId: string;
   form: DispatcherFormDefinition;
   isSubmitting: boolean;
   refreshVersion: number;
@@ -2645,7 +2629,7 @@ function DispatcherIncidentCloseFormBody({
   });
   const submissions =
     incidentFeed.status === "ready" ? incidentFeed.submissions : [];
-  const openIncidents = buildOpenIncidentOptions(submissions, businessAccountId);
+  const openIncidents = buildOpenIncidentOptions(submissions);
   const selectedIncident = selection.selectedIncident;
   const isLocalIncidentFeed =
     incidentFeed.status === "ready" && incidentFeed.source === "local_test";
@@ -2718,7 +2702,7 @@ function DispatcherIncidentCloseFormBody({
     if (incidentFeed.status === "error") {
       dispatchSelection({ type: "feed_unavailable" });
     }
-  }, [businessAccountId, incidentFeed]);
+  }, [incidentFeed]);
 
   useEffect(() => {
     if (selectedIncident === undefined) {
@@ -2881,12 +2865,10 @@ function formatOpenIncidentChoiceDetails(
 }
 
 function DispatcherVisitorExitFormBody({
-  businessAccountId,
   isSubmitting,
   refreshVersion,
   status,
 }: {
-  businessAccountId: string;
   isSubmitting: boolean;
   refreshVersion: number;
   status: string;
@@ -2900,7 +2882,6 @@ function DispatcherVisitorExitFormBody({
   const todayDate = getTodayDateValue();
   const openVisitors = buildOpenVisitorOptions(
     submissions,
-    businessAccountId,
     todayDate,
   );
   const isLocalVisitorFeed =
@@ -2996,7 +2977,6 @@ function DispatcherVisitorExitFormBody({
 }
 
 function DispatcherEquipmentFormBody({
-  businessAccountId,
   form,
   isSubmitting,
   refreshVersion,
@@ -3004,7 +2984,6 @@ function DispatcherEquipmentFormBody({
   onLeaveGuardChange,
   onResetStatus,
 }: {
-  businessAccountId: string;
   form: DispatcherFormDefinition;
   isSubmitting: boolean;
   refreshVersion: number;
@@ -3014,7 +2993,7 @@ function DispatcherEquipmentFormBody({
 }) {
   const equipmentOptions = readEquipmentOptions(form);
   const [payload, setPayload] = useState(() =>
-    buildInitialEquipmentFormPayload(form, businessAccountId, equipmentOptions),
+    buildInitialEquipmentFormPayload(form, equipmentOptions),
   );
   const [, setReportDraftVersion] = useState(0);
   const [equipmentLocalStatus, setEquipmentLocalStatus] = useState("");
@@ -3047,7 +3026,6 @@ function DispatcherEquipmentFormBody({
     completionMap.has(equipment),
   ).length;
   const reportPayloads = buildEquipmentReportPayloads({
-    businessAccountId,
     equipmentOptions,
     form,
     reportDate,
@@ -3070,7 +3048,6 @@ function DispatcherEquipmentFormBody({
     selectedEquipment.length === 0
       ? {}
       : readEquipmentReportEntryPayload({
-          businessAccountId,
           equipment: selectedEquipment,
           form,
           reportDate,
@@ -3101,12 +3078,12 @@ function DispatcherEquipmentFormBody({
 
   useEffect(() => {
     setPayload(
-      buildInitialEquipmentFormPayload(form, businessAccountId, equipmentOptions),
+      buildInitialEquipmentFormPayload(form, equipmentOptions),
     );
     setReportDraftVersion((version) => version + 1);
     setEquipmentLocalStatus("");
     setEquipmentLocalStatusTone("info");
-  }, [businessAccountId, form, equipmentOptions]);
+  }, [form, equipmentOptions]);
 
   useEffect(() => {
     if (!isSelectedEquipmentDirty || typeof window === "undefined") {
@@ -3179,14 +3156,12 @@ function DispatcherEquipmentFormBody({
 
     const storage = readBrowserEquipmentDraftStorage();
     const localReportPayload = readEquipmentReportEntryPayload({
-      businessAccountId,
       equipment: selectedEquipment,
       form,
       reportDate,
       storage,
     });
     const draftPayload = readEquipmentDraftPayload({
-      businessAccountId,
       equipment: selectedEquipment,
       form,
       reportDate,
@@ -3216,7 +3191,6 @@ function DispatcherEquipmentFormBody({
       });
     });
   }, [
-    businessAccountId,
     equipmentFeed.status,
     form,
     reportDate,
@@ -3279,7 +3253,6 @@ function DispatcherEquipmentFormBody({
 
     if (equipment.length > 0) {
       writeLastEquipmentOption({
-        businessAccountId,
         equipment,
         storage,
       });
@@ -3371,7 +3344,6 @@ function DispatcherEquipmentFormBody({
 
       if (field.name !== "reportDate" && equipment.length > 0) {
         writeEquipmentDraftPayload({
-          businessAccountId,
           equipment,
           form,
           payload: nextPayload,
@@ -3401,7 +3373,6 @@ function DispatcherEquipmentFormBody({
       equipment.length === 0
         ? {}
         : readEquipmentReportEntryPayload({
-            businessAccountId,
             equipment,
             form,
             reportDate,
@@ -3411,7 +3382,6 @@ function DispatcherEquipmentFormBody({
       equipment.length === 0
         ? {}
         : readEquipmentDraftPayload({
-            businessAccountId,
             equipment,
             form,
             reportDate,
@@ -3455,7 +3425,6 @@ function DispatcherEquipmentFormBody({
     }
 
     const reportPayload = readEquipmentReportEntryPayload({
-      businessAccountId,
       equipment,
       form,
       reportDate,
@@ -3470,7 +3439,6 @@ function DispatcherEquipmentFormBody({
     }
 
     writeEquipmentDraftPayload({
-      businessAccountId,
       equipment,
       form,
       payload: savedPayload,
@@ -3514,7 +3482,6 @@ function DispatcherEquipmentFormBody({
     const hadReportEntry =
       hasEquipmentReportData(
         readEquipmentReportEntryPayload({
-          businessAccountId,
           equipment,
           form,
           reportDate: entryReportDate,
@@ -3526,7 +3493,6 @@ function DispatcherEquipmentFormBody({
       );
 
     writeEquipmentDraftPayload({
-      businessAccountId,
       equipment,
       form,
       payload: entryPayload,
@@ -3534,7 +3500,6 @@ function DispatcherEquipmentFormBody({
       storage,
     });
     const isWritten = writeEquipmentReportEntryPayload({
-      businessAccountId,
       equipment,
       form,
       payload: entryPayload,
@@ -3597,14 +3562,12 @@ function DispatcherEquipmentFormBody({
             const isActive = equipment === selectedEquipment;
             const isInReport = reportEquipmentNames.has(equipment);
             const reportEntryPayload = readEquipmentReportEntryPayload({
-              businessAccountId,
               equipment,
               form,
               reportDate,
               storage: readBrowserEquipmentDraftStorage(),
             });
             const draftPayload = readEquipmentDraftPayload({
-              businessAccountId,
               equipment,
               form,
               reportDate,
@@ -5882,8 +5845,7 @@ function buildAdminPreviewAccountForPosition(
     positionDisplayName: label,
     scope: isAdmin
       ? { kind: "platform" }
-      : { kind: "business", businessAccountId: "admin-preview-business" },
-    businessDisplayName: isAdmin ? null : "Основной бизнес",
+      : { kind: "organization" },
     capabilities: isAdmin
       ? []
       : accountCapabilities.filter((capability) => capability.startsWith("business.")),
@@ -5908,8 +5870,7 @@ function buildAdminPreviewAccountForDefinition(
     positionDisplayName: position.displayName,
     scope: isAdmin
       ? { kind: "platform" }
-      : { kind: "business", businessAccountId: "admin-preview-business" },
-    businessDisplayName: isAdmin ? null : "Основной бизнес",
+      : { kind: "organization" },
     capabilities: [...position.capabilities],
     navigationItems: [...position.navigationItems],
     createdAt: position.createdAt,
@@ -7161,15 +7122,6 @@ function buildAdminPreviewProfile(
   account: AdminAccountSummary,
 ): ServerUserProfile {
   const scope = account.scope;
-  const businessAccountId =
-    scope.kind === "business"
-      ? scope.businessAccountId
-      : "admin-preview-business";
-  const businessAccount = {
-    id: businessAccountId,
-    displayName: account.businessDisplayName ?? "Основной бизнес",
-    status: "active" as const,
-  };
   return {
     userId: account.userId,
     displayName: account.userDisplayName,
@@ -7185,7 +7137,6 @@ function buildAdminPreviewProfile(
       navigationItems: [...account.navigationItems],
       issuedAt: account.createdAt,
     },
-    businessAccounts: [businessAccount],
     receivedAt: new Date().toISOString(),
   };
 }
@@ -7232,16 +7183,6 @@ function readInitialAdminDatabaseEditorValues(
   return Object.fromEntries(
     row.editorFields.map((field) => [field.name, field.value]),
   );
-}
-
-function getActiveBusinessAccountId(profile: ServerUserProfile) {
-  const scope = profile.activeAccess.scope;
-
-  if (scope.kind === "business") {
-    return scope.businessAccountId;
-  }
-
-  return profile.businessAccounts[0]?.id ?? "";
 }
 
 function readDispatcherSubmissionPayload(
@@ -7447,14 +7388,12 @@ function readInputDefaultValue(field: DispatcherFormField) {
 
 function buildInitialEquipmentFormPayload(
   form: DispatcherFormDefinition,
-  businessAccountId: string,
   equipmentOptions: readonly string[],
 ) {
   const storage = readBrowserEquipmentDraftStorage();
   const reportDate = getTodayDateValue();
   const equipment =
     readLastEquipmentOption({
-      businessAccountId,
       equipmentOptions,
       storage,
     }) ?? "";
@@ -7462,7 +7401,6 @@ function buildInitialEquipmentFormPayload(
     equipment.length === 0
       ? {}
       : readEquipmentReportEntryPayload({
-          businessAccountId,
           equipment,
           form,
           reportDate,
@@ -7472,7 +7410,6 @@ function buildInitialEquipmentFormPayload(
     equipment.length === 0
       ? {}
       : readEquipmentDraftPayload({
-          businessAccountId,
           equipment,
           form,
           reportDate,

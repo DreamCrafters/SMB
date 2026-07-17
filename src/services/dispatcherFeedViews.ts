@@ -130,10 +130,6 @@ export type DateRange = {
   dateTo?: string;
 };
 
-type OwnerDispatcherOverviewOptions = {
-  businessAccountId?: string;
-};
-
 export type OpenVisitorEntry = {
   submission: DispatcherSubmission;
   key: string;
@@ -174,19 +170,13 @@ export function buildDispatcherFeedDateRange(
 
 export function buildOwnerDispatcherOverview(
   submissions: DispatcherSubmission[],
-  options: OwnerDispatcherOverviewOptions = {},
 ): OwnerDispatcherOverview {
-  const businessSubmissions = filterSubmissionsByBusiness(
-    submissions,
-    options.businessAccountId,
-  );
-
   return {
-    equipment: buildOwnerEquipmentOverview(businessSubmissions),
-    latestIncident: buildOwnerIncidentOverview(businessSubmissions),
+    equipment: buildOwnerEquipmentOverview(submissions),
+    latestIncident: buildOwnerIncidentOverview(submissions),
     latestIncidentClosure:
-      buildOwnerIncidentClosureOverview(businessSubmissions),
-    visitors: buildOwnerVisitorsOverview(businessSubmissions),
+      buildOwnerIncidentClosureOverview(submissions),
+    visitors: buildOwnerVisitorsOverview(submissions),
   };
 }
 
@@ -619,10 +609,9 @@ export function buildVisitorVisitRows(
 
 export function buildOpenVisitorOptions(
   submissions: DispatcherSubmission[],
-  businessAccountId?: string,
   entryDate?: string,
 ): OpenVisitorOption[] {
-  return buildOpenVisitorEntries(submissions, businessAccountId, entryDate)
+  return buildOpenVisitorEntries(submissions, entryDate)
     .map(({ submission }) => ({
       entryId: submission.id,
       label: formatOpenVisitorLabel(submission.payload),
@@ -636,9 +625,8 @@ export function buildOpenVisitorOptions(
 
 export function buildOpenIncidentOptions(
   submissions: DispatcherSubmission[],
-  businessAccountId?: string,
 ): OpenIncidentOption[] {
-  return buildOpenIncidentEntries(submissions, businessAccountId)
+  return buildOpenIncidentEntries(submissions)
     .map(({ submission, incidentNumber, openedAt }) => ({
       incidentNumber,
       label: formatOpenIncidentLabel(submission.payload, incidentNumber, openedAt),
@@ -653,7 +641,6 @@ export function buildOpenIncidentOptions(
 export function findOpenIncidentByNumber(
   submissions: DispatcherSubmission[],
   incidentNumber: string | undefined,
-  businessAccountId?: string,
 ) {
   const trimmedNumber = incidentNumber?.trim();
 
@@ -661,7 +648,7 @@ export function findOpenIncidentByNumber(
     return undefined;
   }
 
-  return buildOpenIncidentEntries(submissions, businessAccountId).find(
+  return buildOpenIncidentEntries(submissions).find(
     (entry) => entry.incidentNumber === trimmedNumber,
   );
 }
@@ -669,11 +656,10 @@ export function findOpenIncidentByNumber(
 export function findOpenVisitorByEntryPayload(
   submissions: DispatcherSubmission[],
   payload: DispatcherSubmissionPayload,
-  businessAccountId?: string,
 ) {
   const visitorKey = buildVisitorKey(payload);
 
-  return buildOpenVisitorEntries(submissions, businessAccountId).find(
+  return buildOpenVisitorEntries(submissions).find(
     (entry) => entry.key === visitorKey,
   );
 }
@@ -681,31 +667,24 @@ export function findOpenVisitorByEntryPayload(
 export function findOpenVisitorByEntryId(
   submissions: DispatcherSubmission[],
   visitorEntryId: string | undefined,
-  businessAccountId?: string,
   entryDate?: string,
 ) {
   if (visitorEntryId === undefined || visitorEntryId.trim().length === 0) {
     return undefined;
   }
 
-  return buildOpenVisitorEntries(submissions, businessAccountId, entryDate).find(
+  return buildOpenVisitorEntries(submissions, entryDate).find(
     (entry) => entry.submission.id === visitorEntryId,
   );
 }
 
 function buildOpenVisitorEntries(
   submissions: DispatcherSubmission[],
-  businessAccountId?: string,
   entryDate?: string,
 ): OpenVisitorEntry[] {
   const openEntries: OpenVisitorEntry[] = [];
 
   for (const submission of submissions
-    .filter(
-      (item) =>
-        businessAccountId === undefined ||
-        item.businessAccountId === businessAccountId,
-    )
     .filter((item) => item.formId === "visitor" || item.formId === "visitor_exit")
     .sort(compareSubmissionsAscending)) {
     if (submission.formId === "visitor") {
@@ -744,16 +723,10 @@ function buildOpenVisitorEntries(
 
 function buildOpenIncidentEntries(
   submissions: DispatcherSubmission[],
-  businessAccountId?: string,
 ): OpenIncidentEntry[] {
   const openEntries: OpenIncidentEntry[] = [];
 
   for (const submission of submissions
-    .filter(
-      (item) =>
-        businessAccountId === undefined ||
-        item.businessAccountId === businessAccountId,
-    )
     .filter((item) => item.formId === "incident" || item.formId === "incident_close")
     .sort(compareSubmissionsAscending)) {
     if (submission.formId === "incident") {
@@ -936,19 +909,6 @@ function readUniqueValues(values: (string | undefined)[]) {
   }
 
   return uniqueValues;
-}
-
-function filterSubmissionsByBusiness(
-  submissions: DispatcherSubmission[],
-  businessAccountId: string | undefined,
-) {
-  if (businessAccountId === undefined) {
-    return submissions;
-  }
-
-  return submissions.filter(
-    (submission) => submission.businessAccountId === businessAccountId,
-  );
 }
 
 function findLatestSubmission(submissions: DispatcherSubmission[]) {

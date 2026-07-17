@@ -61,7 +61,6 @@ const capabilitiesByNavigationItem: Record<
   AccountCapability[]
 > = {
   "admin.account_preview": [
-    "platform.manage_business_accounts",
     "business.view_all_statistics",
     "business.view_notifications",
     "business.submit_forms",

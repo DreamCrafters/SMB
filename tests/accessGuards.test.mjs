@@ -16,14 +16,10 @@ function buildProfile(accountType, capabilities) {
       accountId: `${accountType}-access`,
       accountType,
       displayName: `${accountType} access`,
-      scope: {
-        kind: "business",
-        businessAccountId: "business-id",
-      },
+      scope: { kind: "organization" },
       capabilities,
       issuedAt: "2026-06-21T00:00:00.000Z",
     },
-    businessAccounts: [],
     receivedAt: "2026-06-21T00:00:00.000Z",
   };
 }

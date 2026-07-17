@@ -19,7 +19,6 @@ export type DevAccessSession = {
   createdAt: string;
 };
 
-const DEV_BUSINESS_ID = "dev-business-boundary";
 const navigationItemsByAccountType = {
   admin: [
     "admin.account_preview",
@@ -34,7 +33,6 @@ const navigationItemsByAccountType = {
 
 const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   admin: [
-    "platform.manage_business_accounts",
     "platform.manage_users",
     "platform.manage_access",
     "platform.manage_analytics_database",
@@ -108,7 +106,6 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         navigationItems: [...option.navigationItems],
         issuedAt,
       },
-      businessAccounts: [buildDevBusiness()],
       receivedAt,
     };
   }
@@ -125,14 +122,12 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         positionDisplayName: option.positionDisplayName,
         displayName: "Dev business owner access",
         scope: {
-          kind: "business",
-          businessAccountId: DEV_BUSINESS_ID,
+          kind: "organization",
         },
         capabilities,
         navigationItems: [...option.navigationItems],
         issuedAt,
       },
-      businessAccounts: [buildDevBusiness()],
       receivedAt,
     };
   }
@@ -153,15 +148,13 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
         positionDisplayName: option.positionDisplayName,
         displayName: "Dev dispatcher access",
         scope: {
-          kind: "business",
-          businessAccountId: DEV_BUSINESS_ID,
+          kind: "organization",
         },
         capabilities,
         navigationItems: [...option.navigationItems],
         issuedAt,
         expiresAt,
       },
-      businessAccounts: [buildDevBusiness()],
       receivedAt,
     };
   }
@@ -177,14 +170,12 @@ export function buildDevProfile(option: DevAccessOption, issuedAt: string) {
       positionDisplayName: option.positionDisplayName,
       displayName: "Dev worker access",
       scope: {
-        kind: "business",
-        businessAccountId: DEV_BUSINESS_ID,
+        kind: "organization",
       },
       capabilities,
       navigationItems: [...option.navigationItems],
       issuedAt,
     },
-    businessAccounts: [buildDevBusiness()],
     receivedAt,
   };
 }
@@ -215,12 +206,4 @@ export function isAccountType(value: unknown): value is AccountType {
     value === "worker" ||
     value === "dispatcher"
   );
-}
-
-function buildDevBusiness() {
-  return {
-    id: DEV_BUSINESS_ID,
-    displayName: "Server business boundary",
-    status: "active",
-  };
 }

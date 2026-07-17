@@ -139,7 +139,6 @@ type AdminDatabaseView = {
 };
 
 type DispatcherEditorRow = RowDataPacket & {
-  business_account_id: string;
   form_id: string;
   payload: unknown;
   summary: string;
@@ -153,11 +152,6 @@ const contextAliasPrefix = "__admin_context_";
 const userStatusOptions = options([
   ["active", "Активен"],
   ["suspended", "Вход отключён"],
-]);
-const businessStatusOptions = options([
-  ["active", "Активен"],
-  ["suspended", "Приостановлен"],
-  ["archived", "Архивный"],
 ]);
 const submissionStatusOptions = options([
   ["received", "Получено"],
@@ -200,36 +194,10 @@ const databaseViews: AdminDatabaseView[] = [
     canDelete: false,
   },
   {
-    name: "business_accounts",
-    label: "Бизнесы",
-    fromClause: "business_accounts businesses",
-    orderBy: "businesses.display_name asc",
-    columns: [
-      viewColumn("display_name", "Название", "businesses.display_name", {
-        editable: true,
-        sourceColumn: "display_name",
-        maxLength: 255,
-      }),
-      viewColumn("status", "Статус", "businesses.status", {
-        editable: true,
-        sourceColumn: "status",
-        format: "status",
-        inputType: "select",
-        options: businessStatusOptions,
-      }),
-      viewColumn("created_at", "Создан", "businesses.created_at", { format: "date_time" }),
-      viewColumn("updated_at", "Изменён", "businesses.updated_at", { format: "date_time" }),
-    ],
-    primaryKey: [{ name: "id", selectExpression: "businesses.id" }],
-    canDelete: false,
-  },
-  {
     name: "dispatcher_submissions",
     label: "Диспетчерские записи",
     fromClause: `
       dispatcher_submissions submissions
-      left join business_accounts businesses
-        on businesses.id = submissions.business_account_id
       left join account_accesses accesses
         on accesses.id = submissions.submitted_by_account_id
       left join app_users users on users.id = accesses.user_id
@@ -237,7 +205,6 @@ const databaseViews: AdminDatabaseView[] = [
     `,
     orderBy: "submissions.received_at desc, submissions.id desc",
     columns: [
-      viewColumn("business", "Бизнес", "businesses.display_name"),
       viewColumn("form", "Раздел", dispatcherFormLabelExpression("submissions.form_id")),
       viewColumn("event_date", "Дата события", dispatcherEventDateExpression(), { format: "date" }),
       viewColumn("summary", "Краткое описание", "submissions.summary", { multiline: true }),
@@ -362,18 +329,6 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
       await pool.query("delete from auth_sessions where user_id = ?", [id]);
     }
 
-    if (
-      typeof id === "string" &&
-      view.name === "business_accounts" &&
-      value.values.status !== undefined
-    ) {
-      await pool.query(
-        `delete sessions from auth_sessions sessions
-         join account_accesses accesses on accesses.user_id = sessions.user_id
-         where accesses.business_account_id = ?`,
-        [id],
-      );
-    }
   }
 
   async function deleteRow(value: AdminDatabaseDelete) {
@@ -449,7 +404,7 @@ async function updateDispatcherSubmission(
   }
 
   const [rows] = await pool.query<DispatcherEditorRow[]>(
-    `select business_account_id, form_id, payload, summary, status, period
+    `select form_id, payload, summary, status, period
      from dispatcher_submissions
      where id = ?
      limit 1`,
@@ -513,7 +468,6 @@ async function updateDispatcherSubmission(
       }),
     );
     const validation = validateDispatcherSubmissionDraft({
-      businessAccountId: current.business_account_id,
       formId: form.id,
       payload: editablePayload,
     });
@@ -558,7 +512,6 @@ async function updateDispatcherSubmission(
     : buildDispatcherSubmissionSummary(form, nextPayload);
   const dedupeKey = isDispatcherFormId(current.form_id)
     ? buildDispatcherSubmissionDedupeKey({
-        businessAccountId: current.business_account_id,
         formId: current.form_id,
         payload: nextPayload,
       })
@@ -600,7 +553,6 @@ async function updateDispatcherSubmission(
     }
 
     await recordEquipmentReportRevisionForDate(pool, {
-      businessAccountId: current.business_account_id,
       reportDate,
       submittedByAccountId,
     });

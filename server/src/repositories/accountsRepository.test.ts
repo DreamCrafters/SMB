@@ -24,7 +24,7 @@ test("listAccounts groups equal positions and sorts names within each group", as
   );
 });
 
-test("updatePosition keeps linked accounts in business scope", async () => {
+test("updatePosition keeps linked accounts in organization scope", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let didCommit = false;
   const connection = {
@@ -50,8 +50,7 @@ test("updatePosition keeps linked accounts in business scope", async () => {
       if (normalized.startsWith("select accesses.id as access_id")) {
         return [[{
           access_id: "access-manager",
-          user_display_name: "Иванов И.",
-          business_account_id: "prod-business",
+          user_id: "user-manager",
         }], []];
       }
       return [[], []];
@@ -99,8 +98,6 @@ test("setAccountPosition applies position access and revokes user sessions", asy
         return [[{
           access_id: "access-dispatcher",
           user_id: "user-dispatcher",
-          user_display_name: "Диспетчер Один",
-          business_account_id: "prod-business",
         }], []];
       }
 
@@ -130,9 +127,7 @@ test("setAccountPosition applies position access and revokes user sessions", asy
           account_type: isUpdated ? "business_owner" : "dispatcher",
           position_code: isUpdated ? "business_owner" : "dispatcher",
           position_display_name: isUpdated ? "Владелец бизнеса" : "Диспетчер",
-          scope_kind: "business",
-          business_account_id: "prod-business",
-          business_display_name: "Основной бизнес",
+          scope_kind: "organization",
           capabilities: JSON.stringify(isUpdated
             ? ["business.view_all_statistics"]
             : ["business.submit_dispatcher_forms"]),
@@ -166,8 +161,7 @@ test("setAccountPosition applies position access and revokes user sessions", asy
     [
       "business_owner",
       "business_owner",
-      "business",
-      "prod-business",
+      "organization",
       JSON.stringify(["business.view_all_statistics"]),
       JSON.stringify(["business.overview"]),
       "access-dispatcher",
@@ -196,8 +190,6 @@ test("setAccountPosition treats the locked current position as a no-op", async (
         return [[{
           access_id: "access-owner",
           user_id: "user-owner",
-          user_display_name: "Владелец Один",
-          business_account_id: "prod-business",
         }], []];
       }
 
@@ -212,9 +204,7 @@ test("setAccountPosition treats the locked current position as a no-op", async (
           account_type: "business_owner",
           position_code: "business_owner",
           position_display_name: "Владелец бизнеса",
-          scope_kind: "business",
-          business_account_id: "prod-business",
-          business_display_name: "Основной бизнес",
+          scope_kind: "organization",
           capabilities: JSON.stringify(["business.view_all_statistics"]),
           navigation_items: JSON.stringify(["business.overview"]),
           created_at: "2026-07-10T00:00:00.000Z",
@@ -245,7 +235,7 @@ test("setAccountPosition treats the locked current position as a no-op", async (
   );
 });
 
-test("setAccountPosition creates business scope when an administrator becomes dispatcher", async () => {
+test("setAccountPosition creates organization scope when an administrator becomes dispatcher", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let accountReadCount = 0;
   const connection = {
@@ -261,8 +251,6 @@ test("setAccountPosition creates business scope when an administrator becomes di
         return [[{
           access_id: "access-admin",
           user_id: "user-admin",
-          user_display_name: "Новый диспетчер",
-          business_account_id: null,
         }], []];
       }
 
@@ -292,9 +280,7 @@ test("setAccountPosition creates business scope when an administrator becomes di
           account_type: isUpdated ? "dispatcher" : "admin",
           position_code: isUpdated ? "dispatcher" : "admin",
           position_display_name: isUpdated ? "Диспетчер" : "Администратор",
-          scope_kind: isUpdated ? "business" : "platform",
-          business_account_id: isUpdated ? "prod-business" : null,
-          business_display_name: isUpdated ? "Основной бизнес" : null,
+          scope_kind: isUpdated ? "organization" : "platform",
           capabilities: JSON.stringify(isUpdated
             ? ["business.submit_dispatcher_forms"]
             : ["platform.manage_access"]),
@@ -317,15 +303,10 @@ test("setAccountPosition creates business scope when an administrator becomes di
     position: "dispatcher",
   });
 
-  assert.deepEqual(result?.updated.scope, {
-    kind: "business",
-    businessAccountId: "prod-business",
-  });
-  assert.deepEqual(
-    queries.find((query) =>
-      query.sql.startsWith("insert into business_accounts"),
-    )?.params,
-    ["prod-business", "Основной бизнес"],
+  assert.deepEqual(result?.updated.scope, { kind: "organization" });
+  assert.equal(
+    queries.some((query) => query.sql.startsWith("insert into business_accounts")),
+    false,
   );
   assert.equal(
     queries.some((query) => query.sql.startsWith("insert into departments")),
@@ -394,9 +375,7 @@ test("createAccount generates worker ids and commits all rows together", async (
       user_status: "active",
       access_display_name: "Работник Один access",
       account_type: "worker",
-      scope_kind: "business",
-      business_account_id: "prod-business",
-      business_display_name: "Основной бизнес",
+      scope_kind: "organization",
       capabilities: JSON.stringify(["business.submit_forms"]),
       created_at: "2026-07-11T00:00:00.000Z",
     },
@@ -426,14 +405,7 @@ test("createAccount generates worker ids and commits all rows together", async (
   assert.equal(database.didRollback, false);
   assert.equal(database.didRelease, true);
   assert.equal(ids.length, 0);
-  assert.deepEqual(account.scope, {
-    kind: "business",
-    businessAccountId: "prod-business",
-  });
-
-  const businessInsert = database.queries.find((query) =>
-    query.sql.includes("insert into business_accounts"),
-  );
+  assert.deepEqual(account.scope, { kind: "organization" });
   const userInsert = database.queries.find((query) =>
     query.sql.includes("insert into app_users"),
   );
@@ -441,21 +413,19 @@ test("createAccount generates worker ids and commits all rows together", async (
     query.sql.includes("insert into account_accesses"),
   );
 
-  assert.deepEqual(businessInsert?.params, ["prod-business", "Основной бизнес"]);
   assert.deepEqual(userInsert?.params, [
     "worker-user-id",
     "worker-1",
     "Работник Один",
   ]);
   assert.equal(userInsert?.sql.includes("on duplicate key update"), false);
-  assert.deepEqual(accessInsert?.params?.slice(0, 7), [
+  assert.deepEqual(accessInsert?.params?.slice(0, 6), [
     "worker-access-id",
     "worker-user-id",
     "worker",
     "worker",
     "Работник Один access",
-    "business",
-    "prod-business",
+    "organization",
   ]);
   assert.equal(accessInsert?.sql.includes("on duplicate key update"), false);
 });
@@ -516,7 +486,7 @@ test("createAccount rolls back partial provisioning when a write fails", async (
     database.queries.some((query) =>
       query.sql.includes("insert into business_accounts"),
     ),
-    true,
+    false,
   );
   assert.equal(
     database.queries.some((query) => query.sql.includes("insert into app_users")),
@@ -677,8 +647,6 @@ type FakeAccountRow = {
   access_display_name: string;
   account_type: string;
   scope_kind: string;
-  business_account_id: string | null;
-  business_display_name: string | null;
   capabilities: unknown;
   created_at: string;
 };

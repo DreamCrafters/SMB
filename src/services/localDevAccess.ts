@@ -12,7 +12,6 @@ import { getNextMoscowDispatcherLogoutAt } from "./dispatcherSessionExpiry.js";
 
 const LOCAL_DEV_ACCESS_SESSION_STORAGE_KEY =
   "smb.localDevAccessSession.v1";
-const DEV_BUSINESS_ID = "dev-business-boundary";
 
 type LocalDevAccessSession = {
   sessionId: string;
@@ -22,7 +21,6 @@ type LocalDevAccessSession = {
 
 const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   admin: [
-    "platform.manage_business_accounts",
     "platform.manage_users",
     "platform.manage_access",
     "platform.manage_analytics_database",
@@ -173,13 +171,6 @@ function buildLocalDevProfile(
   const { accountType } = option;
   const receivedAt = new Date().toISOString();
   const capabilities = option.capabilities;
-  const businessAccounts = [
-    {
-      id: DEV_BUSINESS_ID,
-      displayName: "Local test business boundary",
-      status: "active" as const,
-    },
-  ];
   if (accountType === "admin") {
     return {
       userId: "local-dev-user-admin",
@@ -198,7 +189,6 @@ function buildLocalDevProfile(
         navigationItems: option.navigationItems,
         issuedAt,
       },
-      businessAccounts,
       receivedAt,
     };
   }
@@ -215,14 +205,12 @@ function buildLocalDevProfile(
         positionDisplayName: option.positionDisplayName,
         displayName: "Local test business owner access",
         scope: {
-          kind: "business",
-          businessAccountId: DEV_BUSINESS_ID,
+          kind: "organization",
         },
         capabilities,
         navigationItems: option.navigationItems,
         issuedAt,
       },
-      businessAccounts,
       receivedAt,
     };
   }
@@ -243,15 +231,13 @@ function buildLocalDevProfile(
         positionDisplayName: option.positionDisplayName,
         displayName: "Local test dispatcher access",
         scope: {
-          kind: "business",
-          businessAccountId: DEV_BUSINESS_ID,
+          kind: "organization",
         },
         capabilities,
         navigationItems: option.navigationItems,
         issuedAt,
         expiresAt,
       },
-      businessAccounts,
       receivedAt,
     };
   }
@@ -267,14 +253,12 @@ function buildLocalDevProfile(
       positionDisplayName: option.positionDisplayName,
       displayName: "Local test worker access",
       scope: {
-        kind: "business",
-        businessAccountId: DEV_BUSINESS_ID,
+        kind: "organization",
       },
       capabilities,
       navigationItems: option.navigationItems,
       issuedAt,
     },
-    businessAccounts,
     receivedAt,
   };
 }

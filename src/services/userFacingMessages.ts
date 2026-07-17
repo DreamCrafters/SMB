@@ -49,7 +49,6 @@ const technicalMessagePatterns: readonly RegExp[] = [
   /сервер/i,
   /удал[её]н/i,
   /неподдерживаем/i,
-  /businessAccountId/i,
   /formId/i,
   /items\[/i,
   /primaryKey/i,

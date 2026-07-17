@@ -57,14 +57,12 @@ export type DispatcherFormDefinition = {
 export type DispatcherSubmissionPayload = Record<string, string>;
 
 export type DispatcherSubmissionDraft = {
-  businessAccountId: string;
   formId: DispatcherFormId;
   payload: DispatcherSubmissionPayload;
 };
 
 export type DispatcherSubmission = {
   id: string;
-  businessAccountId: string;
   formId: DispatcherFormId;
   formTitle: string;
   payload: DispatcherSubmissionPayload;

@@ -20,8 +20,6 @@ type AuthUserInput = {
   accountType: AccountType;
   position: import("../domain/auth.js").AccountPosition;
   navigationItems: import("../domain/auth.js").AccountNavigationItem[];
-  businessAccountId?: string;
-  businessDisplayName?: string;
   accessDisplayName: string;
   capabilities: AccountCapability[];
 };
@@ -46,7 +44,6 @@ function readAuthUserInput(env: NodeJS.ProcessEnv): AuthUserInput {
   const password = readRequired(env, "SMB_AUTH_PASSWORD");
   const displayName = readOptional(env.SMB_AUTH_DISPLAY_NAME) ?? login;
   const accountType = readAccountType(env.SMB_AUTH_ACCOUNT_TYPE);
-  const businessAccountId = readOptional(env.SMB_AUTH_BUSINESS_ACCOUNT_ID);
 
   return {
     login,
@@ -55,8 +52,6 @@ function readAuthUserInput(env: NodeJS.ProcessEnv): AuthUserInput {
     accountType,
     position: defaultPositionByAccountType[accountType],
     navigationItems: navigationItemsByAccountType[accountType],
-    businessAccountId,
-    businessDisplayName: readOptional(env.SMB_AUTH_BUSINESS_DISPLAY_NAME),
     accessDisplayName:
       readOptional(env.SMB_AUTH_ACCESS_DISPLAY_NAME) ?? `${displayName} access`,
     capabilities: readCapabilities(env.SMB_AUTH_CAPABILITIES, accountType),

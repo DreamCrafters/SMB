@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   buildDispatcherSpreadsheetImportPlan,
   DispatcherSpreadsheetImportFormatError,
-  scopeDispatcherSpreadsheetImportRecords,
 } from "./dispatcherSpreadsheetImport.js";
 
 const equipmentHeaders = [
@@ -181,7 +180,7 @@ test("dispatcher spreadsheet import rejects a sheet with missing columns", () =>
   );
 });
 
-test("dispatcher spreadsheet import scopes ids and visitor links by business", () => {
+test("dispatcher spreadsheet import keeps stable ids and visitor links", () => {
   const plan = buildDispatcherSpreadsheetImportPlan({
     spreadsheetId: "spreadsheet_test_999",
     rowsBySheet: {
@@ -193,16 +192,6 @@ test("dispatcher spreadsheet import scopes ids and visitor links by business", (
       ],
     },
   });
-  const firstBusiness = scopeDispatcherSpreadsheetImportRecords(
-    plan.records,
-    "business-one",
-  );
-  const secondBusiness = scopeDispatcherSpreadsheetImportRecords(
-    plan.records,
-    "business-two",
-  );
-
-  assert.notEqual(firstBusiness[0]?.id, secondBusiness[0]?.id);
-  assert.equal(firstBusiness[1]?.payload.visitorEntryId, firstBusiness[0]?.id);
-  assert.match(firstBusiness[0]?.sourceKey ?? "", /^business-one:/);
+  assert.equal(plan.records[1]?.payload.visitorEntryId, plan.records[0]?.id);
+  assert.match(plan.records[0]?.sourceKey ?? "", /^google-sheets:/);
 });

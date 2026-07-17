@@ -222,9 +222,6 @@ function readUserActivityEvent(value: unknown): UserActivityEvent | undefined {
     outcome: value.outcome,
     summary: value.summary,
     details,
-    ...(typeof value.businessAccountId === "string"
-      ? { businessAccountId: value.businessAccountId }
-      : {}),
     ...(isAuditTargetType(value.targetType) ? { targetType: value.targetType } : {}),
     ...(typeof value.targetId === "string" ? { targetId: value.targetId } : {}),
     occurredAt: value.occurredAt,
