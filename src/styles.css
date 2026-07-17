@@ -1612,11 +1612,6 @@ p {
   gap: var(--density-2);
 }
 
-.dispatcher-period-picker.has-custom-range {
-  grid-template-columns: minmax(480px, 1.4fr) minmax(320px, 1fr);
-  align-items: start;
-}
-
 .dispatcher-period-buttons {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2809,9 +2804,6 @@ p {
     grid-template-columns: 86px minmax(0, 1fr);
   }
 
-  .dispatcher-period-picker.has-custom-range {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 820px) {
