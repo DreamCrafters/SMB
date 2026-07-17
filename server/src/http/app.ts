@@ -1014,7 +1014,7 @@ function readProductionBrandCreateInput(payload: unknown) {
   if (unexpectedFields.length > 0) {
     return {
       ok: false as const,
-      errors: [`Неизвестные поля: ${unexpectedFields.join(", ")}.`],
+      errors: ["Запрос содержит неизвестные поля."],
     };
   }
 

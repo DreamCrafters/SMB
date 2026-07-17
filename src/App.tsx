@@ -3142,13 +3142,17 @@ function ProductionBrandColumnsTable({
   const [columns, setColumns] = useState<ProductionBrandColumn[]>([
     { id: 1, brand: "" },
   ]);
-  const nextColumnIdRef = useRef(2);
 
   function addColumn() {
     if (columns.length >= 50) return;
 
-    const id = nextColumnIdRef.current;
-    nextColumnIdRef.current += 1;
+    const usedIds = new Set(columns.map((column) => column.id));
+    const id = Array.from({ length: 50 }, (_, index) => index + 1).find(
+      (candidate) => !usedIds.has(candidate),
+    );
+
+    if (id === undefined) return;
+
     setColumns((current) => [...current, { id, brand: "" }]);
   }
 
