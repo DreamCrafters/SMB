@@ -3541,7 +3541,7 @@ export function ProductionSummaryTable({
               <td>
                 <ProductionReportCell
                   fieldName={`${prefix}Day`}
-                  focusOnClick
+                  focusOnMouseDown
                   form={form}
                   required={brand.length > 0}
                 />
@@ -3887,12 +3887,12 @@ function ProductionGranulationTable({
 
 function ProductionReportCell({
   fieldName,
-  focusOnClick = false,
+  focusOnMouseDown = false,
   form,
   required,
 }: {
   fieldName: string;
-  focusOnClick?: boolean;
+  focusOnMouseDown?: boolean;
   form: DispatcherFormDefinition;
   required?: boolean;
 }) {
@@ -3906,7 +3906,7 @@ function ProductionReportCell({
     <div className="production-report-cell-input" title={field.label}>
       <DispatcherFormFieldInput
         field={field}
-        focusOnClick={focusOnClick}
+        focusOnMouseDown={focusOnMouseDown}
         required={required}
       />
     </div>
@@ -5126,14 +5126,14 @@ function DispatcherControlledFormFieldInput({
 function DispatcherFormFieldInput({
   defaultValue,
   field,
-  focusOnClick = false,
+  focusOnMouseDown = false,
   options,
   required,
   onValueChange,
 }: {
   defaultValue?: string;
   field: DispatcherFormField;
-  focusOnClick?: boolean;
+  focusOnMouseDown?: boolean;
   options?: readonly string[];
   required?: boolean;
   onValueChange?: (value: string) => void;
@@ -5197,12 +5197,13 @@ function DispatcherFormFieldInput({
         maxLength={readInputMaxLength(field)}
         required={required ?? field.required}
         defaultValue={defaultValue ?? readInputDefaultValue(field)}
-        onClick={focusOnClick
+        onMouseDown={focusOnMouseDown
           ? (event) => {
               if (
                 event.currentTarget.ownerDocument.activeElement !==
                 event.currentTarget
               ) {
+                event.preventDefault();
                 event.currentTarget.focus({ preventScroll: true });
               }
             }

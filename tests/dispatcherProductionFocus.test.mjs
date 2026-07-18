@@ -3,7 +3,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
 
-test("forming and sorting facts keep focus after the first complete click", async () => {
+test("forming and sorting facts switch focus on the first mouse press", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",
     { url: "http://127.0.0.1:5173/" },
@@ -70,29 +70,37 @@ test("forming and sorting facts keep focus after the first complete click", asyn
       );
     });
 
+    let previousInput;
+
     for (const name of ["formingDay", "sortingDay"]) {
       const input = dom.window.document.querySelector(`input[name="${name}"]`);
 
       assert.ok(input instanceof dom.window.HTMLInputElement);
-      input.dispatchEvent(
-        new dom.window.MouseEvent("pointerdown", {
+      const firstPressWasNotCancelled = input.dispatchEvent(
+        new dom.window.MouseEvent("mousedown", {
           bubbles: true,
           button: 0,
-        }),
-      );
-      input.focus();
-      assert.equal(dom.window.document.activeElement, input);
-
-      input.blur();
-      assert.notEqual(dom.window.document.activeElement, input);
-      input.dispatchEvent(
-        new dom.window.MouseEvent("click", {
-          bubbles: true,
-          button: 0,
+          cancelable: true,
         }),
       );
 
+      assert.equal(firstPressWasNotCancelled, false);
       assert.equal(dom.window.document.activeElement, input);
+      if (previousInput !== undefined) {
+        assert.notEqual(dom.window.document.activeElement, previousInput);
+      }
+
+      const repeatedPressWasNotCancelled = input.dispatchEvent(
+        new dom.window.MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          cancelable: true,
+        }),
+      );
+
+      assert.equal(repeatedPressWasNotCancelled, true);
+      assert.equal(dom.window.document.activeElement, input);
+      previousInput = input;
     }
 
     await React.act(async () => root.unmount());
