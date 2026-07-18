@@ -3500,7 +3500,7 @@ function DispatcherProductionReportFormBody({
   );
 }
 
-function ProductionSummaryTable({
+export function ProductionSummaryTable({
   brandLabels,
   categoryPlan,
   form,
@@ -3541,6 +3541,7 @@ function ProductionSummaryTable({
               <td>
                 <ProductionReportCell
                   fieldName={`${prefix}Day`}
+                  focusOnClick
                   form={form}
                   required={brand.length > 0}
                 />
@@ -3886,10 +3887,12 @@ function ProductionGranulationTable({
 
 function ProductionReportCell({
   fieldName,
+  focusOnClick = false,
   form,
   required,
 }: {
   fieldName: string;
+  focusOnClick?: boolean;
   form: DispatcherFormDefinition;
   required?: boolean;
 }) {
@@ -3903,6 +3906,7 @@ function ProductionReportCell({
     <div className="production-report-cell-input" title={field.label}>
       <DispatcherFormFieldInput
         field={field}
+        focusOnClick={focusOnClick}
         required={required}
       />
     </div>
@@ -5122,12 +5126,14 @@ function DispatcherControlledFormFieldInput({
 function DispatcherFormFieldInput({
   defaultValue,
   field,
+  focusOnClick = false,
   options,
   required,
   onValueChange,
 }: {
   defaultValue?: string;
   field: DispatcherFormField;
+  focusOnClick?: boolean;
   options?: readonly string[];
   required?: boolean;
   onValueChange?: (value: string) => void;
@@ -5191,6 +5197,16 @@ function DispatcherFormFieldInput({
         maxLength={readInputMaxLength(field)}
         required={required ?? field.required}
         defaultValue={defaultValue ?? readInputDefaultValue(field)}
+        onClick={focusOnClick
+          ? (event) => {
+              if (
+                event.currentTarget.ownerDocument.activeElement !==
+                event.currentTarget
+              ) {
+                event.currentTarget.focus({ preventScroll: true });
+              }
+            }
+          : undefined}
         onChange={(event) => {
           if (field.type === "number") {
             event.currentTarget.value = normalizeDecimalNumberInput(
