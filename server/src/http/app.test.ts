@@ -3247,6 +3247,10 @@ test("remote API returns server-calculated production report tables", async () =
 
     assert.equal(response.status, 200);
     assert.deepEqual(productionOffsets, [0, 2_000]);
+    assert.equal(
+      isRecord(payload) && "productionMonthOverview" in payload,
+      true,
+    );
     assert.deepEqual(
       isRecord(payload) && isRecord(payload.productionReportTables)
         ? payload.productionReportTables.forming

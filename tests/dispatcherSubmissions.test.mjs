@@ -708,6 +708,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
       JSON.stringify({
         submissions: [submission],
         productionReportTables: emptyProductionReportTables,
+        productionMonthOverview: null,
         receivedAt: "2026-06-18T00:00:02.000Z",
         summary: {
           total: 1,
@@ -739,6 +740,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
   assert.equal(result.status, "ready");
   assert.equal(result.submissions.length, 1);
   assert.deepEqual(result.productionReportTables, emptyProductionReportTables);
+  assert.equal(result.productionMonthOverview, null);
   assert.equal(
     request.endpoint,
     "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&reportDate=2026-06-18&limit=500",
@@ -764,6 +766,7 @@ test("requestCompleteDispatcherFeed reads every history page", async () => {
       JSON.stringify({
         submissions: pageSubmissions,
         productionReportTables: emptyProductionReportTables,
+        productionMonthOverview: null,
         receivedAt: "2026-06-18T00:00:02.000Z",
         summary: {
           total: 3,

@@ -6,6 +6,7 @@ import type {
   ProductionBrandFact,
   ProductionGranulationRow,
   ProductionJarMeasurementRow,
+  ProductionMonthOverview,
   ProductionMetricRow,
   ProductionReportTables,
 } from "../contracts";
@@ -131,6 +132,7 @@ export type OwnerVisitorsOverview = {
 };
 
 export type OwnerDispatcherOverview = {
+  production?: ProductionMonthOverview;
   equipment?: OwnerEquipmentOverview;
   latestIncident?: OwnerIncidentOverview;
   latestIncidentClosure?: OwnerIncidentClosureOverview;
@@ -182,8 +184,10 @@ export function buildDispatcherFeedDateRange(
 
 export function buildOwnerDispatcherOverview(
   submissions: DispatcherSubmission[],
+  productionMonthOverview?: ProductionMonthOverview,
 ): OwnerDispatcherOverview {
   return {
+    production: productionMonthOverview,
     equipment: buildOwnerEquipmentOverview(submissions),
     latestIncident: buildOwnerIncidentOverview(submissions),
     latestIncidentClosure:
@@ -374,6 +378,41 @@ export function buildProductionReportTables(
     jars: buildProductionJarMeasurementRows(dailyReports, range),
     granulation: buildProductionGranulationRows(dailyReports, range),
   };
+}
+
+export function buildProductionMonthOverview(
+  tables: ProductionReportTables,
+  currentDate = new Date(),
+): ProductionMonthOverview | undefined {
+  const month = currentDate.toISOString().slice(0, 7);
+  let totalFact = 0;
+  let hasFact = false;
+
+  for (const rows of [
+    tables.forming,
+    tables.sorting,
+    tables.unformed,
+    tables.chamotte,
+  ]) {
+    let latestRow: ProductionMetricRow | undefined;
+
+    for (const row of rows) {
+      if (
+        row.reportDate.startsWith(month) &&
+        row.monthFact !== undefined &&
+        (latestRow === undefined || row.reportDate > latestRow.reportDate)
+      ) {
+        latestRow = row;
+      }
+    }
+
+    if (latestRow?.monthFact !== undefined) {
+      totalFact += latestRow.monthFact;
+      hasFact = true;
+    }
+  }
+
+  return hasFact ? { month, totalFact } : undefined;
 }
 
 export function filterProductionReportTables(

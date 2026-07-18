@@ -13,6 +13,7 @@ import type {
   DispatcherSubmissionPayload,
   DispatcherSubmissionResponse,
   DispatcherSubmissionStatus,
+  ProductionMonthOverview,
   ProductionMetricRow,
   ProductionReportTables,
 } from "../contracts";
@@ -23,6 +24,7 @@ import {
 } from "./remoteServer.js";
 import { validateDispatcherPayloadForSubmit } from "./dispatcherPayloadValidation.js";
 import {
+  buildProductionMonthOverview,
   buildProductionReportTables,
   findOpenIncidentByNumber,
   findOpenVisitorByEntryId,
@@ -80,6 +82,7 @@ export type DispatcherFeedReadyState = {
   status: "ready";
   submissions: DispatcherSubmission[];
   productionReportTables: ProductionReportTables;
+  productionMonthOverview: ProductionMonthOverview | null;
   receivedAt: string;
   summary: DispatcherFeedSummary;
   source?: "remote" | "local_test";
@@ -765,6 +768,7 @@ export async function requestDispatcherFeed({
         status: "ready",
         submissions: payload.submissions,
         productionReportTables: payload.productionReportTables,
+        productionMonthOverview: payload.productionMonthOverview,
         receivedAt: payload.receivedAt,
         summary: payload.summary,
       };
@@ -1094,10 +1098,14 @@ function requestLocalDispatcherFeed({
     safeOffset + readSafeLocalFeedLimit(limit),
   );
 
+  const productionReportTables = buildProductionReportTables(allSubmissions, {});
+
   return {
     status: "ready",
     submissions,
-    productionReportTables: buildProductionReportTables(allSubmissions, {}),
+    productionReportTables,
+    productionMonthOverview:
+      buildProductionMonthOverview(productionReportTables) ?? null,
     receivedAt: new Date().toISOString(),
     summary: buildLocalDispatcherSummary(matchingSubmissions),
     source: "local_test",
@@ -1648,8 +1656,21 @@ function isDispatcherFeedResponse(value: unknown): value is DispatcherFeedRespon
     Array.isArray(value.submissions) &&
     value.submissions.every(isDispatcherSubmission) &&
     isProductionReportTables(value.productionReportTables) &&
+    (value.productionMonthOverview === null ||
+      isProductionMonthOverview(value.productionMonthOverview)) &&
     typeof value.receivedAt === "string" &&
     isDispatcherFeedSummary(value.summary)
+  );
+}
+
+function isProductionMonthOverview(
+  value: unknown,
+): value is ProductionMonthOverview {
+  return (
+    isRecord(value) &&
+    /^\d{4}-\d{2}$/u.test(String(value.month)) &&
+    typeof value.totalFact === "number" &&
+    Number.isFinite(value.totalFact)
   );
 }
 

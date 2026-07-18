@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DispatcherSubmission } from "./dispatcherSubmission.js";
 import type { ProductionPlan } from "./productionPlan.js";
-import { buildProductionReportTables } from "./productionReportTables.js";
+import {
+  buildProductionMonthOverview,
+  buildProductionReportTables,
+} from "./productionReportTables.js";
 
 test("buildProductionReportTables calculates server-owned production analytics", () => {
   const tables = buildProductionReportTables([
@@ -108,6 +111,47 @@ test("buildProductionReportTables uses only the latest report for each date", ()
   assert.equal(tables.forming.length, 1);
   assert.equal(tables.forming[0]?.reportId, "latest");
   assert.equal(tables.forming[0]?.monthFact, 11);
+});
+
+test("buildProductionMonthOverview totals the four production categories for the current month", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("june", {
+      reportDate: "30.06.2026",
+      formingDay: "100",
+      sortingDay: "100",
+    }),
+    buildSubmission("day-1", {
+      reportDate: "01.07.2026",
+      formingDay: "8",
+      sortingDay: "5",
+      unformedBrand1: "ПБ-5",
+      unformedFact1: "2",
+      chamotteBrand1: "Ш-1",
+      chamotteFact1: "3",
+      granulationFraction1630Day: "50",
+    }),
+    buildSubmission("day-2", {
+      reportDate: "02.07.2026",
+      formingDay: "11",
+      sortingDay: "7",
+      unformedBrand1: "ПБ-5",
+      unformedFact1: "5",
+      chamotteBrand1: "Ш-1",
+      chamotteFact1: "5",
+      granulationFraction1630Day: "70",
+    }),
+  ]);
+
+  assert.deepEqual(
+    buildProductionMonthOverview(
+      tables,
+      new Date("2026-07-18T12:00:00.000Z"),
+    ),
+    {
+      month: "2026-07",
+      totalFact: 46,
+    },
+  );
 });
 
 const productionPlan: ProductionPlan = {

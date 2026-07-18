@@ -147,9 +147,15 @@ export type ProductionReportTables = {
   granulation: ProductionGranulationRow[];
 };
 
+export type ProductionMonthOverview = {
+  month: string;
+  totalFact: number;
+};
+
 export type DispatcherFeedResponse = {
   submissions: DispatcherSubmission[];
   productionReportTables: ProductionReportTables;
+  productionMonthOverview: ProductionMonthOverview | null;
   receivedAt: string;
   summary: DispatcherFeedSummary;
 };

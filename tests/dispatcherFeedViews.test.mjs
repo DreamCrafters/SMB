@@ -8,6 +8,7 @@ import {
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
+  buildProductionMonthOverview,
   buildProductionReportTables,
   buildVisitorVisitRows,
   filterProductionReportTables,
@@ -265,6 +266,45 @@ test("filterProductionReportTables keeps server-calculated monthly totals", () =
   assert.equal(filtered.forming[0].reportDate, "2026-07-02");
   assert.equal(filtered.forming[0].monthPlan, 20);
   assert.equal(filtered.forming[0].monthFact, 19);
+});
+
+test("buildProductionMonthOverview mirrors the server total in local test mode", () => {
+  const tables = buildProductionReportTables(
+    [
+      buildSubmission("production-july-1", "production", {
+        reportDate: "01.07.2026",
+        formingDay: "8",
+        sortingDay: "5",
+        unformedBrand1: "ПБ-5",
+        unformedFact1: "2",
+        chamotteBrand1: "Ш-1",
+        chamotteFact1: "3",
+        granulationFraction1630Day: "50",
+      }),
+      buildSubmission("production-july-2", "production", {
+        reportDate: "02.07.2026",
+        formingDay: "11",
+        sortingDay: "7",
+        unformedBrand1: "ПБ-5",
+        unformedFact1: "5",
+        chamotteBrand1: "Ш-1",
+        chamotteFact1: "5",
+        granulationFraction1630Day: "70",
+      }),
+    ],
+    {},
+  );
+
+  assert.deepEqual(
+    buildProductionMonthOverview(
+      tables,
+      new Date("2026-07-18T12:00:00.000Z"),
+    ),
+    {
+      month: "2026-07",
+      totalFact: 46,
+    },
+  );
 });
 
 test("buildProductionReportTables groups unformed products and chamotte by brand", () => {
@@ -707,8 +747,12 @@ test("buildOwnerDispatcherOverview summarizes latest dispatcher statuses", () =>
     ),
   ];
 
-  const overview = buildOwnerDispatcherOverview(submissions);
+  const overview = buildOwnerDispatcherOverview(submissions, {
+    month: "2026-07",
+    totalFact: 46,
+  });
 
+  assert.deepEqual(overview.production, { month: "2026-07", totalFact: 46 });
   assert.equal(overview.equipment?.updatedAt, "2026-07-08T16:00:00.000Z");
   assert.equal(overview.equipment?.reportDate, "2026-07-08");
   assert.deepEqual(overview.equipment?.workingCounts, [

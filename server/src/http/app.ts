@@ -34,7 +34,10 @@ import {
 } from "../domain/dispatcherSubmission.js";
 import { applyIncidentStateRules } from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
-import { buildProductionReportTables } from "../domain/productionReportTables.js";
+import {
+  buildProductionMonthOverview,
+  buildProductionReportTables,
+} from "../domain/productionReportTables.js";
 import {
   buildProductionCategoryPlan,
   buildProductionPlanDatePresets,
@@ -528,12 +531,16 @@ export function createApiServer({
             productionSubmissions,
             productionPlanValues,
           );
+          const productionMonthOverview = buildProductionMonthOverview(
+            productionReportTables,
+          );
           const submissions = await dispatcherSubmissions.listLatest(filters.value);
           const summary = await dispatcherSubmissions.readSummary(filters.value);
 
           sendJson(res, 200, {
             submissions,
             productionReportTables,
+            productionMonthOverview: productionMonthOverview ?? null,
             receivedAt: new Date().toISOString(),
             summary,
           });

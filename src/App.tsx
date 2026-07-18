@@ -1960,6 +1960,9 @@ function OwnerWorkspace({
   if (activeTab === "overview") {
     const overview = buildOwnerDispatcherOverview(
       dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [],
+      dispatcherFeed.status === "ready"
+        ? dispatcherFeed.productionMonthOverview ?? undefined
+        : undefined,
     );
 
     return (
@@ -1988,6 +1991,7 @@ function OwnerOverviewPanel({
   overview: OwnerDispatcherOverview;
 }) {
   const hasDispatcherData =
+    overview.production !== undefined ||
     overview.equipment !== undefined ||
     overview.latestIncident !== undefined ||
     overview.latestIncidentClosure !== undefined ||
@@ -2032,6 +2036,7 @@ function OwnerOverviewPanel({
       {dispatcherFeed.status === "ready" && hasDispatcherData ? (
         <div className="owner-overview-stack">
           <OwnerEquipmentOverviewBlock overview={overview} />
+          <OwnerProductionOverviewBlock overview={overview} />
           <OwnerIncidentOverviewBlock overview={overview} />
           <OwnerIncidentClosureOverviewBlock overview={overview} />
           <OwnerVisitorsOverviewBlock overview={overview} />
@@ -2056,6 +2061,28 @@ function OwnerEquipmentOverviewBlock({
           Последняя дата обновления отчета по оборудованию -{" "}
           <strong>{formatDateTime(overview.equipment.updatedAt)}</strong>.
           Работало {formatEquipmentWorkingCounts(overview.equipment.workingCounts)}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function OwnerProductionOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  return (
+    <section className="owner-overview-block" aria-label="Выработка">
+      <h3>Выработка</h3>
+      {overview.production === undefined ? (
+        <p className="owner-overview-status">
+          Нет отчётов по выработке за текущий месяц.
+        </p>
+      ) : (
+        <p className="owner-overview-lead">
+          Общая выработка за текущий месяц —{" "}
+          <strong>{formatNumber(overview.production.totalFact)} т</strong>.
         </p>
       )}
     </section>

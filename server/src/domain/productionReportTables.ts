@@ -59,6 +59,11 @@ export type ProductionReportTables = {
   granulation: ProductionGranulationRow[];
 };
 
+export type ProductionMonthOverview = {
+  month: string;
+  totalFact: number;
+};
+
 type DatedProductionReport = {
   submission: DispatcherSubmission;
   reportDate: string;
@@ -85,6 +90,41 @@ export function buildProductionReportTables(
     jars: buildJarRows(dailyReports),
     granulation: buildGranulationRows(dailyReports),
   };
+}
+
+export function buildProductionMonthOverview(
+  tables: ProductionReportTables,
+  currentDate = new Date(),
+): ProductionMonthOverview | undefined {
+  const month = currentDate.toISOString().slice(0, 7);
+  let totalFact = 0;
+  let hasFact = false;
+
+  for (const rows of [
+    tables.forming,
+    tables.sorting,
+    tables.unformed,
+    tables.chamotte,
+  ]) {
+    let latestRow: ProductionMetricRow | undefined;
+
+    for (const row of rows) {
+      if (
+        row.reportDate.startsWith(month) &&
+        row.monthFact !== undefined &&
+        (latestRow === undefined || row.reportDate > latestRow.reportDate)
+      ) {
+        latestRow = row;
+      }
+    }
+
+    if (latestRow?.monthFact !== undefined) {
+      totalFact += latestRow.monthFact;
+      hasFact = true;
+    }
+  }
+
+  return hasFact ? { month, totalFact } : undefined;
 }
 
 function readLatestProductionReports(
