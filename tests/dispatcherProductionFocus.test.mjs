@@ -3,6 +3,19 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
 
+const DOM_GLOBAL_NAMES = [
+  "document",
+  "Element",
+  "Event",
+  "HTMLElement",
+  "HTMLInputElement",
+  "MouseEvent",
+  "navigator",
+  "Node",
+  "window",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
+
 test("forming and sorting facts switch focus on the first mouse press", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",
@@ -111,25 +124,43 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
   }
 });
 
+test("DOM globals replace and restore a getter-only navigator", () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    enumerable: true,
+    get: () => ({ userAgent: "Node.js" }),
+  });
+  const previousGlobals = captureDomGlobals();
+
+  try {
+    installDomGlobals(dom.window);
+    assert.equal(globalThis.navigator, dom.window.navigator);
+
+    restoreDomGlobals(previousGlobals);
+    assert.deepEqual(
+      Object.getOwnPropertyDescriptor(globalThis, "navigator"),
+      previousGlobals.navigator,
+    );
+  } finally {
+    dom.window.close();
+    restoreGlobal("navigator", originalNavigator);
+  }
+});
+
 function captureDomGlobals() {
   return Object.fromEntries(
-    [
-      "document",
-      "Element",
-      "Event",
-      "HTMLElement",
-      "HTMLInputElement",
-      "MouseEvent",
-      "navigator",
-      "Node",
-      "window",
-      "IS_REACT_ACT_ENVIRONMENT",
-    ].map((name) => [name, globalThis[name]]),
+    DOM_GLOBAL_NAMES.map((name) => [
+      name,
+      Object.getOwnPropertyDescriptor(globalThis, name),
+    ]),
   );
 }
 
 function installDomGlobals(window) {
-  Object.assign(globalThis, {
+  const domGlobals = {
     document: window.document,
     Element: window.Element,
     Event: window.Event,
@@ -140,15 +171,28 @@ function installDomGlobals(window) {
     Node: window.Node,
     window,
     IS_REACT_ACT_ENVIRONMENT: true,
-  });
+  };
+
+  for (const [name, value] of Object.entries(domGlobals)) {
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
+  }
 }
 
 function restoreDomGlobals(previousGlobals) {
-  for (const [name, value] of Object.entries(previousGlobals)) {
-    if (value === undefined) {
-      delete globalThis[name];
-    } else {
-      globalThis[name] = value;
-    }
+  for (const [name, descriptor] of Object.entries(previousGlobals)) {
+    restoreGlobal(name, descriptor);
+  }
+}
+
+function restoreGlobal(name, descriptor) {
+  if (descriptor === undefined) {
+    delete globalThis[name];
+  } else {
+    Object.defineProperty(globalThis, name, descriptor);
   }
 }

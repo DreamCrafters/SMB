@@ -1,7 +1,17 @@
 import { readServerConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
-import { createDatabasePool } from "./db/pool.js";
-import { createDatabaseTransactionContext } from "./db/transactionContext.js";
+import {
+  createDatabasePool,
+  createDatabaseSnapshotPool,
+} from "./db/pool.js";
+import {
+  createDatabaseTransactionContext,
+  runWithDatabaseMutationLock,
+} from "./db/transactionContext.js";
+import {
+  createProductionDatabaseSnapshotService,
+  testDatabaseMutationLockName,
+} from "./db/productionSnapshot.js";
 import { createApiServer } from "./http/app.js";
 import { createAdminDatabaseRepository } from "./repositories/adminDatabaseRepository.js";
 import { createAccountsRepository } from "./repositories/accountsRepository.js";
@@ -14,14 +24,39 @@ import { createProductionBrandsRepository } from "./repositories/productionBrand
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
 const config = readServerConfig();
-const sourcePool = createDatabasePool(config.databaseUrl);
-const database = createDatabaseTransactionContext(sourcePool);
+const applicationPool = createDatabasePool(config.databaseUrl);
+const productionPool = config.productionSnapshot.enabled
+  ? createDatabaseSnapshotPool(config.productionSnapshot.sourceDatabaseUrl)
+  : undefined;
+const testSnapshotPool = config.productionSnapshot.enabled
+  ? createDatabaseSnapshotPool(config.databaseUrl)
+  : undefined;
+const productionSnapshot = productionPool === undefined
+  ? undefined
+  : createProductionDatabaseSnapshotService({
+      sourcePool: productionPool,
+      targetPool: testSnapshotPool!,
+    });
+const database = createDatabaseTransactionContext(
+  applicationPool,
+  config.productionSnapshot.enabled
+    ? { mutationLockName: testDatabaseMutationLockName }
+    : {},
+);
 const pool = database.pool;
 const dispatcherSpreadsheetImportRepository =
   createDispatcherSpreadsheetImportRepository(pool);
 
 if (config.runMigrationsOnStart) {
-  await runMigrations(pool);
+  if (config.productionSnapshot.enabled) {
+    await runWithDatabaseMutationLock({
+      pool: applicationPool,
+      lockName: testDatabaseMutationLockName,
+      operation: () => runMigrations(applicationPool),
+    });
+  } else {
+    await runMigrations(pool);
+  }
 }
 
 const server = createApiServer({
@@ -36,6 +71,7 @@ const server = createApiServer({
   productionBrands: createProductionBrandsRepository(pool),
   audit: createAuditRepository(pool),
   databaseTransaction: database.transaction,
+  productionSnapshot,
   dispatcherSpreadsheetImport: createDispatcherSpreadsheetImportService(
     config.googleSheetsReference,
     dispatcherSpreadsheetImportRepository,
@@ -48,9 +84,13 @@ server.listen(config.port, "0.0.0.0", () => {
 
 async function shutdown() {
   server.close(() => {
-    void sourcePool.end().then(() => {
-      process.exit(0);
-    });
+    void Promise.all([
+      applicationPool.end(),
+      productionPool?.end() ?? Promise.resolve(),
+      testSnapshotPool?.end() ?? Promise.resolve(),
+    ]).then(() => {
+        process.exit(0);
+      });
   });
 }
 

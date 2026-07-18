@@ -4,8 +4,10 @@ import {
   clearAdminDatabaseTable,
   deleteAdminDatabaseRow,
   mergeAdminDatabaseRows,
+  replaceTestDatabaseWithProductionSnapshot,
   requestAdminDatabaseRows,
   requestAdminDatabaseTables,
+  requestProductionSnapshotStatus,
   updateAdminDatabaseRow,
 } from "../.test-build/src/services/adminDatabase.js";
 
@@ -191,6 +193,51 @@ test("admin database service clears an allowlisted table with explicit confirmat
   assert.equal(request.init.method, "DELETE");
   assert.deepEqual(JSON.parse(request.init.body), {
     confirmation: "dispatcher_submissions",
+  });
+});
+
+test("admin database service checks and starts a production snapshot replacement", async () => {
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+
+    return calls.length === 1
+      ? jsonResponse({
+          available: true,
+          inProgress: false,
+          confirmationPhrase: "ЗАМЕНИТЬ ТЕСТОВУЮ БД",
+        })
+      : jsonResponse({
+          ok: true,
+          tableCount: 12,
+          rowCount: 345,
+          authSessionsCleared: true,
+        });
+  };
+
+  const status = await requestProductionSnapshotStatus();
+  const result = await replaceTestDatabaseWithProductionSnapshot(
+    "ЗАМЕНИТЬ ТЕСТОВУЮ БД",
+  );
+
+  assert.deepEqual(status, {
+    status: "ready",
+    available: true,
+    inProgress: false,
+    confirmationPhrase: "ЗАМЕНИТЬ ТЕСТОВУЮ БД",
+  });
+  assert.deepEqual(result, {
+    status: "ready",
+    tableCount: 12,
+    rowCount: 345,
+    authSessionsCleared: true,
+  });
+  assert.equal(calls[0].url, "/api/admin/database/production-snapshot");
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[1].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    confirmation: "ЗАМЕНИТЬ ТЕСТОВУЮ БД",
   });
 });
 

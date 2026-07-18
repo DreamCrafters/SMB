@@ -14,6 +14,7 @@ export type ServerConfig = {
   appEnv: SmbAppEnv;
   port: number;
   databaseUrl: string;
+  productionSnapshot: ProductionSnapshotConfig;
   corsOrigins: string[];
   runMigrationsOnStart: boolean;
   devAccessEnabled: boolean;
@@ -22,6 +23,16 @@ export type ServerConfig = {
   emailNotifications: EmailNotificationConfig;
   maxNotifications: MaxNotificationConfig;
 };
+
+export type ProductionSnapshotConfig =
+  | {
+      enabled: false;
+    }
+  | {
+      enabled: true;
+      sourceDatabaseUrl: string;
+      expectedTargetDatabase: string;
+    };
 
 export type SmbAppEnv = "test" | "production";
 
@@ -98,6 +109,11 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     appEnv,
     port: readPort(env.PORT),
     databaseUrl,
+    productionSnapshot: readProductionSnapshotConfig(
+      env,
+      appEnv,
+      databaseUrl,
+    ),
     corsOrigins: readList(env.CORS_ORIGIN),
     runMigrationsOnStart: env.RUN_MIGRATIONS_ON_START === "true",
     devAccessEnabled: readDevAccessEnabled(env.DEV_ACCESS_ENABLED, appEnv),
@@ -141,6 +157,86 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     emailNotifications: readEmailNotificationConfig(env),
     maxNotifications: readMaxNotificationConfig(env),
   };
+}
+
+function readProductionSnapshotConfig(
+  env: NodeJS.ProcessEnv,
+  appEnv: SmbAppEnv,
+  targetDatabaseUrl: string,
+): ProductionSnapshotConfig {
+  const enabledValue = readOptional(env.PRODUCTION_SNAPSHOT_ENABLED);
+
+  if (
+    enabledValue !== undefined &&
+    enabledValue !== "true" &&
+    enabledValue !== "false"
+  ) {
+    throw new Error("PRODUCTION_SNAPSHOT_ENABLED must be true or false.");
+  }
+
+  if (enabledValue !== "true") {
+    return { enabled: false };
+  }
+
+  if (appEnv !== "test") {
+    throw new Error(
+      "PRODUCTION_SNAPSHOT_ENABLED must not be true in production.",
+    );
+  }
+
+  const sourceDatabaseUrl = readRequired(env, "PRODUCTION_DATABASE_URL");
+  const expectedTargetDatabase = readRequired(
+    env,
+    "PRODUCTION_SNAPSHOT_TARGET_DATABASE",
+  );
+  const actualTargetDatabase = readDatabaseName(
+    targetDatabaseUrl,
+    "DATABASE_URL",
+  );
+  const sourceDatabase = readDatabaseName(
+    sourceDatabaseUrl,
+    "PRODUCTION_DATABASE_URL",
+  );
+
+  if (actualTargetDatabase !== expectedTargetDatabase) {
+    throw new Error(
+      "PRODUCTION_SNAPSHOT_TARGET_DATABASE must exactly match the DATABASE_URL database name.",
+    );
+  }
+
+  if (sourceDatabase === actualTargetDatabase) {
+    throw new Error(
+      "PRODUCTION_DATABASE_URL and DATABASE_URL must use different database names.",
+    );
+  }
+
+  return {
+    enabled: true,
+    sourceDatabaseUrl,
+    expectedTargetDatabase,
+  };
+}
+
+function readDatabaseName(value: string, key: string) {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${key} must be a valid URL.`);
+  }
+
+  if (parsed.protocol !== "mysql:" && parsed.protocol !== "mariadb:") {
+    throw new Error(`${key} must use mysql:// or mariadb://.`);
+  }
+
+  const databaseName = decodeURIComponent(parsed.pathname.slice(1));
+
+  if (databaseName.length === 0 || databaseName.includes("/")) {
+    throw new Error(`${key} must include exactly one database name.`);
+  }
+
+  return databaseName;
 }
 
 function readAppEnv(value: string | undefined): SmbAppEnv {

@@ -90,7 +90,24 @@ DEV_ACCESS_ENABLED=true
 SESSION_COOKIE_NAME=smb_test_session
 CORS_ORIGIN=https://test.smb.aonmou.ru
 DATABASE_URL=...
+PRODUCTION_SNAPSHOT_ENABLED=true
+PRODUCTION_DATABASE_URL=...
+PRODUCTION_SNAPSHOT_TARGET_DATABASE=...
 ```
+
+`PRODUCTION_DATABASE_URL` в test runtime должен использовать отдельного
+production-пользователя только для чтения. `PRODUCTION_SNAPSHOT_TARGET_DATABASE`
+должен дословно совпадать с именем test-БД из `DATABASE_URL`; production и test
+должны иметь разные имена. Эти три значения обязательны для test-deploy
+preflight, но включать функцию в production runtime запрещено.
+
+Администратор test-сайта запускает замену во вкладке `БД` только после ввода
+точной фразы подтверждения. Backend проверяет test-окружение, capability,
+совпадение миграций и структуры, InnoDB и отсутствие триггеров. Общий advisory
+lock дожидается уже начатых записей, после чего backend одной транзакцией
+заменяет строки всех test-таблиц production-снимком и оставляет `auth_sessions`
+пустой. Ошибка откатывает всю замену; production БД используется только как
+источник чтения.
 
 Секреты, пароли, service account JSON и реальные значения `.env` не коммитить.
 
@@ -151,11 +168,12 @@ SMB_DEPLOY_BRANCH=Dev SMB_DEPLOY_TARGET=test npm run deploy:jino:dual
 запускает test и production из текущей локальной ветки SMB, с тестами,
 миграциями, сборками, перезапуском и публичными smoke-проверками.
 
-До SSH-подключения плагин проверяет, что локальный checkout чистый, его HEAD
+До SSH-подключения плагин проверяет, что HEAD выбранной локальной ветки
 совпадает с `origin/<текущая-ветка>`, а точный commit содержит deploy-скрипт.
-На сервере до первой мутации проверяются оба checkout и оба набора env. Это
-позволяет безопасно пользоваться плагином из `Dev`, пока deploy-контур ещё не
-слит в `main`.
+Незакоммиченные и untracked локальные файлы не блокируют запуск и не попадают
+на сервер: deploy всегда использует commit из `origin`. На сервере до первой
+мутации проверяются оба checkout и оба набора env. Это позволяет безопасно
+пользоваться плагином из `Dev`, пока deploy-контур ещё не слит в `main`.
 
 Плагин не хранит пароль, приватный SSH-ключ или содержимое серверных `.env`.
 Для запуска без вопросов должен быть один раз настроен вход по SSH-ключу для:

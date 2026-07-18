@@ -3,6 +3,8 @@ import type {
   AdminDatabaseCellValue,
   AdminDatabaseRowsResponse,
   AdminDatabaseTablesResponse,
+  ProductionSnapshotResponse,
+  ProductionSnapshotStatusResponse,
 } from "../contracts";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -12,6 +14,8 @@ import {
 } from "./remoteServer.js";
 
 const ADMIN_DATABASE_PATH = "/api/admin/database";
+const PRODUCTION_SNAPSHOT_PATH =
+  `${ADMIN_DATABASE_PATH}/production-snapshot`;
 
 export type AdminDatabaseErrorState = {
   status: "error";
@@ -44,6 +48,14 @@ export type AdminDatabaseClearResult =
       status: "ready";
       deleted: number;
     }
+  | AdminDatabaseErrorState;
+
+export type ProductionSnapshotStatusResult =
+  | ({ status: "ready" } & ProductionSnapshotStatusResponse)
+  | AdminDatabaseErrorState;
+
+export type ProductionSnapshotMutationResult =
+  | ({ status: "ready" } & Omit<ProductionSnapshotResponse, "ok">)
   | AdminDatabaseErrorState;
 
 type AdminDatabaseRequestOptions = {
@@ -267,6 +279,127 @@ export async function clearAdminDatabaseTable(
       message: describeRemoteNetworkFailure("Не удалось очистить раздел БД.", {
         baseUrl,
       }),
+      code: "network_error",
+    };
+  }
+}
+
+export async function requestProductionSnapshotStatus({
+  baseUrl,
+  signal,
+}: AdminDatabaseRequestOptions = {}): Promise<ProductionSnapshotStatusResult> {
+  const endpoint = resolveApiEndpoint(
+    PRODUCTION_SNAPSHOT_PATH,
+    PRODUCTION_SNAPSHOT_PATH,
+    { baseUrl },
+  );
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Сервер отклонил проверку синхронизации.",
+      );
+    }
+
+    if (isProductionSnapshotStatusResponse(payload)) {
+      return { status: "ready", ...payload };
+    }
+
+    return {
+      status: "error",
+      message: "Сервер вернул неподдерживаемый статус синхронизации.",
+      code: "invalid_response",
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        status: "error",
+        message: "Проверка синхронизации отменена.",
+      };
+    }
+
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось проверить синхронизацию с production.",
+        { baseUrl },
+      ),
+      code: "network_error",
+    };
+  }
+}
+
+export async function replaceTestDatabaseWithProductionSnapshot(
+  confirmation: string,
+  { baseUrl, signal }: AdminDatabaseRequestOptions = {},
+): Promise<ProductionSnapshotMutationResult> {
+  const endpoint = resolveApiEndpoint(
+    PRODUCTION_SNAPSHOT_PATH,
+    PRODUCTION_SNAPSHOT_PATH,
+    { baseUrl },
+  );
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify({ confirmation }),
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Сервер отклонил замену тестовой БД.",
+      );
+    }
+
+    if (isProductionSnapshotResponse(payload)) {
+      return {
+        status: "ready",
+        tableCount: payload.tableCount,
+        rowCount: payload.rowCount,
+        authSessionsCleared: true,
+      };
+    }
+
+    return {
+      status: "error",
+      message: "Сервер вернул неподдерживаемый результат синхронизации.",
+      code: "invalid_response",
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        status: "error",
+        message: "Замена тестовой БД отменена.",
+      };
+    }
+
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось заменить тестовую БД.",
+        { baseUrl },
+      ),
       code: "network_error",
     };
   }
@@ -546,6 +679,32 @@ function isClearResponse(value: unknown): value is { ok: true; deleted: number }
     typeof value.deleted === "number" &&
     Number.isInteger(value.deleted) &&
     value.deleted >= 0
+  );
+}
+
+function isProductionSnapshotStatusResponse(
+  value: unknown,
+): value is ProductionSnapshotStatusResponse {
+  return (
+    isRecord(value) &&
+    typeof value.available === "boolean" &&
+    typeof value.inProgress === "boolean" &&
+    typeof value.confirmationPhrase === "string" &&
+    value.confirmationPhrase.length > 0
+  );
+}
+
+function isProductionSnapshotResponse(
+  value: unknown,
+): value is ProductionSnapshotResponse {
+  return (
+    isRecord(value) &&
+    value.ok === true &&
+    Number.isInteger(value.tableCount) &&
+    Number(value.tableCount) >= 0 &&
+    Number.isInteger(value.rowCount) &&
+    Number(value.rowCount) >= 0 &&
+    value.authSessionsCleared === true
   );
 }
 

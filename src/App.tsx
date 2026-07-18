@@ -133,11 +133,14 @@ import {
   clearAdminDatabaseTable,
   deleteAdminDatabaseRow,
   mergeAdminDatabaseRows,
+  replaceTestDatabaseWithProductionSnapshot,
   requestAdminDatabaseRows,
   requestAdminDatabaseTables,
+  requestProductionSnapshotStatus,
   updateAdminDatabaseRow,
   type AdminDatabaseRowsResult,
   type AdminDatabaseTablesResult,
+  type ProductionSnapshotStatusResult,
 } from "./services/adminDatabase";
 import {
   formatAdminDatabaseCellValue,
@@ -7169,6 +7172,12 @@ function AdminDatabaseWorkspace({
 
   return (
     <section className="admin-workspace" aria-label="БД">
+      {!isProductionApp ? (
+        <AdminProductionSnapshotPanel
+          onShowToast={onShowToast}
+          onSynchronized={() => setRefreshVersion((version) => version + 1)}
+        />
+      ) : null}
       <AdminDispatcherImportPanel
         onShowToast={onShowToast}
         onImported={() => setRefreshVersion((version) => version + 1)}
@@ -7293,6 +7302,210 @@ function AdminDatabaseWorkspace({
           ) : null}
         </div>
       </div>
+    </section>
+  );
+}
+
+function AdminProductionSnapshotPanel({
+  onSynchronized,
+  onShowToast,
+}: {
+  onSynchronized: () => void;
+  onShowToast: ShowToast;
+}) {
+  const [status, setStatus] = useState<
+    ProductionSnapshotStatusResult | { status: "loading"; message: string }
+  >({
+    status: "loading",
+    message: "Проверяем синхронизацию с production.",
+  });
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [isSynchronizing, setIsSynchronizing] = useState(false);
+  const [mutationStatus, setMutationStatus] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setStatus({
+      status: "loading",
+      message: "Проверяем синхронизацию с production.",
+    });
+    requestProductionSnapshotStatus({ signal: controller.signal }).then(
+      (result) => {
+        if (!controller.signal.aborted) {
+          setStatus(result);
+        }
+      },
+    );
+
+    return () => controller.abort();
+  }, [refreshVersion]);
+
+  function handleOpenConfirmation() {
+    setConfirmation("");
+    setMutationStatus("");
+    setIsConfirming(true);
+  }
+
+  async function handleSynchronize() {
+    if (
+      status.status !== "ready" ||
+      confirmation !== status.confirmationPhrase
+    ) {
+      return;
+    }
+
+    setIsSynchronizing(true);
+    setMutationStatus("Создаём снимок production и заменяем тестовую БД.");
+
+    const result = await replaceTestDatabaseWithProductionSnapshot(
+      confirmation,
+    );
+
+    setIsSynchronizing(false);
+
+    if (result.status === "error") {
+      setMutationStatus(result.message);
+      return;
+    }
+
+    setMutationStatus("");
+    setConfirmation("");
+    setIsConfirming(false);
+    onShowToast(
+      "Тестовая БД обновлена",
+      `${result.tableCount} таблиц · ${result.rowCount.toLocaleString("ru-RU")} строк. Активные сессии очищены.`,
+    );
+    onSynchronized();
+    setRefreshVersion((version) => version + 1);
+  }
+
+  return (
+    <section
+      className="admin-production-snapshot"
+      aria-labelledby="admin-production-snapshot-title"
+    >
+      <div className="admin-production-snapshot-heading">
+        <div>
+          <span>Только тестовая версия</span>
+          <strong id="admin-production-snapshot-title">
+            Синхронизация с production
+          </strong>
+          <small>
+            Полностью заменяет состояние тестовой БД актуальным снимком.
+          </small>
+        </div>
+
+        {status.status === "loading" ? (
+          <LoadingIndicator label="Проверяем…" variant="button" />
+        ) : status.status === "ready" && status.available ? (
+          <button
+            className="secondary-button secondary-button-danger"
+            type="button"
+            disabled={status.inProgress || isSynchronizing}
+            onClick={handleOpenConfirmation}
+          >
+            {status.inProgress ? "Синхронизация идёт" : "Заменить тестовую БД"}
+          </button>
+        ) : (
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setRefreshVersion((version) => version + 1)}
+          >
+            Проверить снова
+          </button>
+        )}
+      </div>
+
+      <p>
+        Пользователи, хеши паролей, права, формы, планы, марки и история теста
+        будут удалены и заменены данными production. Production остаётся
+        неизменной; перенесённые активные сессии будут очищены.
+      </p>
+
+      {status.status === "error" ? (
+        <p className="dispatcher-status-line">{status.message}</p>
+      ) : null}
+      {status.status === "ready" && !status.available ? (
+        <p className="dispatcher-status-line">
+          Сервер ещё не настроен для чтения снимка production.
+        </p>
+      ) : null}
+
+      {isConfirming && status.status === "ready" ? (
+        <div
+          className="admin-db-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !isSynchronizing) {
+              setIsConfirming(false);
+            }
+          }}
+        >
+          <section
+            className="admin-db-editor admin-production-snapshot-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="production-snapshot-confirm-title"
+          >
+            <div>
+              <span className="form-kicker">Необратимое действие</span>
+              <h3 id="production-snapshot-confirm-title">
+                Полностью заменить тестовую БД?
+              </h3>
+              <p>
+                Замена выполняется одной транзакцией. Если перенос завершится
+                ошибкой, сервер целиком откатит её и сохранит прежние данные.
+              </p>
+            </div>
+
+            <label className="admin-production-snapshot-confirmation">
+              <span>Введите фразу подтверждения</span>
+              <strong>{status.confirmationPhrase}</strong>
+              <input
+                autoFocus
+                type="text"
+                value={confirmation}
+                disabled={isSynchronizing}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => setConfirmation(event.currentTarget.value)}
+              />
+            </label>
+
+            {mutationStatus.length > 0 ? (
+              <p className="dispatcher-status-line">{mutationStatus}</p>
+            ) : null}
+
+            <div className="admin-db-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={isSynchronizing}
+                onClick={() => setIsConfirming(false)}
+              >
+                Отмена
+              </button>
+              <button
+                className="secondary-button secondary-button-danger"
+                type="button"
+                disabled={
+                  isSynchronizing ||
+                  confirmation !== status.confirmationPhrase
+                }
+                onClick={handleSynchronize}
+              >
+                {isSynchronizing ? (
+                  <LoadingIndicator label="Заменяем…" variant="button" />
+                ) : "Заменить полностью"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

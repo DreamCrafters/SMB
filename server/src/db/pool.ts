@@ -1,13 +1,36 @@
 import { createPool, type Pool, type PoolOptions } from "mysql2/promise";
 
 export function createDatabasePool(databaseUrl: string) {
-  const pool = createPool(buildDatabasePoolOptions(databaseUrl));
+  return createConfiguredDatabasePool(buildDatabasePoolOptions(databaseUrl));
+}
+
+export function createDatabaseSnapshotPool(databaseUrl: string) {
+  return createConfiguredDatabasePool(
+    buildDatabaseSnapshotPoolOptions(databaseUrl),
+  );
+}
+
+function createConfiguredDatabasePool(options: PoolOptions) {
+  const pool = createPool(options);
 
   pool.pool.on("connection", (connection) => {
     connection.query("set time_zone = '+00:00'");
   });
 
   return pool;
+}
+
+export function buildDatabaseSnapshotPoolOptions(
+  databaseUrl: string,
+): PoolOptions {
+  return {
+    ...buildDatabasePoolOptions(databaseUrl),
+    connectionLimit: 2,
+    supportBigNumbers: true,
+    bigNumberStrings: true,
+    jsonStrings: true,
+    dateStrings: true,
+  };
 }
 
 export function buildDatabasePoolOptions(databaseUrl: string): PoolOptions {

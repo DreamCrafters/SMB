@@ -2621,6 +2621,100 @@ p {
   background: var(--surface-raised);
 }
 
+.admin-production-snapshot {
+  display: grid;
+  gap: var(--density-3);
+  width: 100%;
+  margin-bottom: var(--density-4);
+  padding: var(--density-4);
+  border: 1px solid var(--brick);
+  border-left: 5px solid var(--brick);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.admin-production-snapshot-heading {
+  display: flex;
+  gap: var(--density-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-production-snapshot-heading div {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-production-snapshot-heading span {
+  color: var(--brick);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-production-snapshot-heading strong {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.admin-production-snapshot-heading small,
+.admin-production-snapshot > p,
+.admin-production-snapshot-modal p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-production-snapshot > p,
+.admin-production-snapshot-modal h3,
+.admin-production-snapshot-modal p {
+  margin: 0;
+}
+
+.admin-production-snapshot-modal {
+  width: min(100%, 680px);
+}
+
+.admin-production-snapshot-modal > div:first-child {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.admin-production-snapshot-confirmation {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.admin-production-snapshot-confirmation > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-production-snapshot-confirmation > strong {
+  color: var(--brick);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.admin-production-snapshot-confirmation input {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+
+.admin-production-snapshot-confirmation input:focus {
+  border-color: var(--brick);
+  outline: 2px solid color-mix(in srgb, var(--brick) 18%, transparent);
+}
+
 .admin-db-import-heading,
 .admin-db-import-confirm {
   display: flex;
@@ -3576,6 +3670,7 @@ p {
   .admin-db-editor-header,
   .admin-account-modal-header,
   .admin-accounts-password-field,
+  .admin-production-snapshot-heading,
   .admin-db-import-heading,
   .admin-db-import-confirm,
   .incident-close-selected {

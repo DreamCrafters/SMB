@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDatabasePoolOptions, createDatabasePool } from "./pool.js";
+import {
+  buildDatabasePoolOptions,
+  buildDatabaseSnapshotPoolOptions,
+  createDatabasePool,
+} from "./pool.js";
 
 test("createDatabasePool initializes every database connection in UTC", async () => {
   const pool = createDatabasePool(
@@ -46,4 +50,16 @@ test("buildDatabasePoolOptions supports Jino Unix socket connections", () => {
   assert.equal(options.user, "j53403317_robot");
   assert.equal(options.password, "secret");
   assert.equal(options.database, "j53403317_bot1");
+});
+
+test("buildDatabaseSnapshotPoolOptions preserves exact database values", () => {
+  const options = buildDatabaseSnapshotPoolOptions(
+    "mysql://user:pass@127.0.0.1:3306/smb_test?connectionLimit=8",
+  );
+
+  assert.equal(options.connectionLimit, 2);
+  assert.equal(options.supportBigNumbers, true);
+  assert.equal(options.bigNumberStrings, true);
+  assert.equal(options.jsonStrings, true);
+  assert.equal(options.dateStrings, true);
 });

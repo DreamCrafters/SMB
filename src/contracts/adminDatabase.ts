@@ -67,3 +67,16 @@ export type AdminDatabaseRowsResponse = {
   limit: number;
   offset: number;
 };
+
+export type ProductionSnapshotStatusResponse = {
+  available: boolean;
+  inProgress: boolean;
+  confirmationPhrase: string;
+};
+
+export type ProductionSnapshotResponse = {
+  ok: true;
+  tableCount: number;
+  rowCount: number;
+  authSessionsCleared: true;
+};

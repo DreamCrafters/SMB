@@ -26,6 +26,10 @@ import type { MaxNotificationService } from "../integrations/maxNotifications.js
 import type { DispatcherSpreadsheetImportService } from "../integrations/dispatcherSpreadsheetImport.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
+import {
+  productionSnapshotConfirmation,
+  type ProductionDatabaseSnapshotService,
+} from "../db/productionSnapshot.js";
 import type {
   ProductionPlanRevision,
   ProductionPlansRepository,
@@ -41,6 +45,9 @@ const config: ServerConfig = {
   appEnv: "test",
   port: 0,
   databaseUrl: "mysql://unused:unused@127.0.0.1:3306/unused",
+  productionSnapshot: {
+    enabled: false,
+  },
   corsOrigins: [
     "http://frontend.test",
     "https://smb-*-artemi-z-s-projects.vercel.app",
@@ -432,6 +439,89 @@ test("admin database API lists tables for admin dev sessions", async () => {
       "dispatcher_submissions",
     );
   });
+});
+
+test("test admin can fully replace the test database with a production snapshot", async () => {
+  let replaceCalls = 0;
+  const snapshotService: ProductionDatabaseSnapshotService = {
+    isRunning() {
+      return false;
+    },
+    async replaceTestDatabase() {
+      replaceCalls += 1;
+      return {
+        tableCount: 12,
+        rowCount: 345,
+        authSessionsCleared: true,
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
+      };
+      const statusResponse = await fetch(
+        `${baseUrl}/api/admin/database/production-snapshot`,
+        { headers },
+      );
+      const statusPayload = await statusResponse.json();
+
+      assert.equal(statusResponse.status, 200);
+      assert.equal(
+        isRecord(statusPayload) ? statusPayload.available : undefined,
+        true,
+      );
+      assert.equal(
+        isRecord(statusPayload) ? statusPayload.confirmationPhrase : undefined,
+        productionSnapshotConfirmation,
+      );
+
+      const rejectedResponse = await fetch(
+        `${baseUrl}/api/admin/database/production-snapshot`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ confirmation: "неверно" }),
+        },
+      );
+      assert.equal(rejectedResponse.status, 400);
+      assert.equal(replaceCalls, 0);
+
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/production-snapshot`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            confirmation: productionSnapshotConfirmation,
+          }),
+        },
+      );
+      const payload = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(isRecord(payload) ? payload.tableCount : undefined, 12);
+      assert.equal(isRecord(payload) ? payload.rowCount : undefined, 345);
+      assert.equal(replaceCalls, 1);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    snapshotService,
+  );
 });
 
 test("admin audit API returns a per-account report limited by the server", async () => {
@@ -3833,6 +3923,7 @@ async function withApiServer(
   audit?: AuditRepository,
   databaseTransaction?: DatabaseTransactionRunner,
   productionBrands?: ProductionBrandsRepository,
+  productionSnapshot?: ProductionDatabaseSnapshotService,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -3858,6 +3949,7 @@ async function withApiServer(
     productionBrands,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,
+    productionSnapshot,
   });
 
   server.listen(0, "127.0.0.1");

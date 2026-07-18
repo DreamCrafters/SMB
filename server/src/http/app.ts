@@ -96,6 +96,13 @@ import {
 } from "../domain/audit.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
+import {
+  productionSnapshotConfirmation,
+  ProductionSnapshotAlreadyRunningError,
+  ProductionSnapshotRestoreError,
+  ProductionSnapshotSchemaMismatchError,
+  type ProductionDatabaseSnapshotService,
+} from "../db/productionSnapshot.js";
 import type { ProductionPlansRepository } from "../repositories/productionPlansRepository.js";
 import type { ProductionBrandsRepository } from "../repositories/productionBrandsRepository.js";
 
@@ -113,6 +120,7 @@ type AppDependencies = {
   productionBrands?: ProductionBrandsRepository;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
+  productionSnapshot?: ProductionDatabaseSnapshotService;
 };
 
 type JsonPayload = Record<string, unknown> | unknown[];
@@ -146,6 +154,7 @@ export function createApiServer({
   productionBrands,
   audit,
   databaseTransaction,
+  productionSnapshot,
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
 
@@ -163,6 +172,19 @@ export function createApiServer({
 
       if (req.method === "GET" && url.pathname === "/health") {
         sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (
+        productionSnapshot?.isRunning() === true &&
+        url.pathname !== "/api/admin/database/production-snapshot"
+      ) {
+        sendJson(res, 503, {
+          error: {
+            code: "server_error",
+            message: "Тестовая БД обновляется. Повторите запрос после завершения.",
+          },
+        });
         return;
       }
 
@@ -241,6 +263,7 @@ export function createApiServer({
 
       if (
         url.pathname === "/api/admin/database" ||
+        url.pathname === "/api/admin/database/production-snapshot" ||
         url.pathname.startsWith("/api/admin/database/tables/") ||
         url.pathname.startsWith("/api/admin/database/imports/")
       ) {
@@ -255,6 +278,7 @@ export function createApiServer({
           dispatcherSpreadsheetImport,
           audit,
           databaseTransaction,
+          productionSnapshot,
         });
         return;
       }
@@ -1002,6 +1026,119 @@ async function handleProductionBrandsRequest({
   sendJson(res, result.created ? 201 : 200, { label: result.label });
 }
 
+async function handleProductionSnapshotRequest({
+  req,
+  res,
+  config,
+  productionSnapshot,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  productionSnapshot: ProductionDatabaseSnapshotService | undefined;
+}) {
+  if (config.appEnv !== "test") {
+    sendJson(res, 404, {
+      error: {
+        code: "not_found",
+        message: "Endpoint not found.",
+      },
+    });
+    return;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 200, {
+      available: productionSnapshot !== undefined,
+      inProgress: productionSnapshot?.isRunning() ?? false,
+      confirmationPhrase: productionSnapshotConfirmation,
+    });
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Only GET and POST are supported for production snapshots.",
+      },
+    });
+    return;
+  }
+
+  if (productionSnapshot === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_not_configured",
+        message: "Синхронизация с production не настроена на сервере.",
+      },
+    });
+    return;
+  }
+
+  const payload = await readJsonBody(req);
+  const confirmation = isRecord(payload) && typeof payload.confirmation === "string"
+    ? payload.confirmation
+    : "";
+
+  if (confirmation !== productionSnapshotConfirmation) {
+    sendJson(res, 400, {
+      error: {
+        code: "validation_error",
+        message: "Введите указанную фразу подтверждения без изменений.",
+      },
+    });
+    return;
+  }
+
+  try {
+    const result = await productionSnapshot.replaceTestDatabase();
+    console.info("production_snapshot.completed", {
+      tableCount: result.tableCount,
+      rowCount: result.rowCount,
+      authSessionsCleared: result.authSessionsCleared,
+    });
+
+    sendJson(res, 200, {
+      ok: true,
+      ...result,
+    });
+  } catch (error) {
+    if (error instanceof ProductionSnapshotAlreadyRunningError) {
+      sendJson(res, 409, {
+        error: {
+          code: "conflict",
+          message: "Синхронизация уже выполняется.",
+        },
+      });
+      return;
+    }
+
+    if (error instanceof ProductionSnapshotSchemaMismatchError) {
+      sendJson(res, 409, {
+        error: {
+          code: "conflict",
+          message: "Структуры test и production различаются. Сначала обновите обе среды до одной версии.",
+        },
+      });
+      return;
+    }
+
+    if (error instanceof ProductionSnapshotRestoreError) {
+      console.error("production_snapshot.restore_error", error);
+      sendJson(res, 500, {
+        error: {
+          code: "server_error",
+          message: "Не удалось заменить тестовую БД. Проверьте серверный журнал.",
+        },
+      });
+      return;
+    }
+
+    throw error;
+  }
+}
+
 function readProductionBrandCreateInput(payload: unknown) {
   if (!isRecord(payload) || Array.isArray(payload)) {
     return {
@@ -1566,6 +1703,7 @@ async function handleAdminDatabaseRequest({
   dispatcherSpreadsheetImport,
   audit,
   databaseTransaction,
+  productionSnapshot,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -1577,6 +1715,7 @@ async function handleAdminDatabaseRequest({
   dispatcherSpreadsheetImport: DispatcherSpreadsheetImportService | undefined;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
+  productionSnapshot: ProductionDatabaseSnapshotService | undefined;
 }) {
   const access = await requireCapability(req, res, {
     config,
@@ -1587,6 +1726,16 @@ async function handleAdminDatabaseRequest({
   });
 
   if (access === undefined) {
+    return;
+  }
+
+  if (url.pathname === "/api/admin/database/production-snapshot") {
+    await handleProductionSnapshotRequest({
+      req,
+      res,
+      config,
+      productionSnapshot,
+    });
     return;
   }
 

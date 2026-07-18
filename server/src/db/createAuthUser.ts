@@ -1,5 +1,9 @@
 import { readServerConfig } from "../config/env.js";
 import { createDatabasePool } from "./pool.js";
+import {
+  testDatabaseMutationLockName,
+} from "./productionSnapshot.js";
+import { runWithDatabaseMutationLock } from "./transactionContext.js";
 import { createAccountsRepository } from "../repositories/accountsRepository.js";
 import {
   defaultCapabilitiesByAccountType,
@@ -31,7 +35,15 @@ const accounts = createAccountsRepository(pool);
 try {
   const input = readAuthUserInput(process.env);
 
-  await accounts.createAccount(input);
+  if (config.productionSnapshot.enabled) {
+    await runWithDatabaseMutationLock({
+      pool,
+      lockName: testDatabaseMutationLockName,
+      operation: () => accounts.createAccount(input),
+    });
+  } else {
+    await accounts.createAccount(input);
+  }
   console.log(
     `auth_user.ready login=${input.login} accountType=${input.accountType}`,
   );

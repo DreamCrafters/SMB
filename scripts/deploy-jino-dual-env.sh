@@ -87,6 +87,10 @@ validate_environment_files() {
 
   if [[ "$mode" == "production" ]]; then
     require_env_value "$server_env" "DEV_ACCESS_ENABLED" "false"
+  else
+    require_env_value "$server_env" "PRODUCTION_SNAPSHOT_ENABLED" "true"
+    require_env_key "$server_env" "PRODUCTION_DATABASE_URL"
+    require_env_key "$server_env" "PRODUCTION_SNAPSHOT_TARGET_DATABASE"
   fi
 }
 

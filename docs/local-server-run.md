@@ -41,6 +41,7 @@ RUN_MIGRATIONS_ON_START=true
 DEV_ACCESS_ENABLED=true
 SESSION_COOKIE_NAME=smb_test_session
 SESSION_TTL_HOURS=12
+PRODUCTION_SNAPSHOT_ENABLED=false
 ```
 
 Локальный режим `test` оставляет экран выбора роли и dev-session. В режиме
@@ -173,6 +174,29 @@ Backend-команды можно запускать с явным env-файл�
 ```bash
 SMB_SERVER_ENV_FILE=server/.env.production npm --workspace server run db:migrate
 ```
+
+## Локальная проверка снимка production → test
+
+По умолчанию опасная операция отключена. Чтобы проверить её на двух локальных
+БД, в `server/.env` тестового backend-а дополнительно указать:
+
+```text
+PRODUCTION_SNAPSHOT_ENABLED=true
+PRODUCTION_DATABASE_URL=mysql://readonly_user:secret@127.0.0.1:3306/smb_production
+PRODUCTION_SNAPSHOT_TARGET_DATABASE=smb_monitor
+```
+
+`PRODUCTION_SNAPSHOT_TARGET_DATABASE` должен дословно совпадать с именем БД из
+`DATABASE_URL`, а production и test обязаны иметь разные имена БД. Для
+`PRODUCTION_DATABASE_URL` использовать отдельного пользователя production с
+правами только чтения; URL и пароль не коммитить и не выводить в логи.
+
+Операция доступна только администратору test-среды во вкладке `БД`. Backend
+требует одинаковые таблицы, DDL и историю миграций, а также InnoDB без
+триггеров. Затем он одной транзакцией заменяет строки всех test-таблиц данными
+production и оставляет `auth_sessions` пустой. Общий advisory lock не допускает
+параллельных записей; при любой ошибке транзакция целиком откатывается и прежнее
+состояние test остаётся доступным.
 
 ## Остановка
 
