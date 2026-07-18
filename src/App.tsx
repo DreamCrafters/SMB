@@ -5664,7 +5664,7 @@ const legacyProductionDetailFields: readonly DispatcherFormField[] = [
   ),
 ];
 
-function ProductionReportSummaryTable({
+export function ProductionReportSummaryTable({
   form,
   tables,
   submissions,
@@ -5673,12 +5673,13 @@ function ProductionReportSummaryTable({
   tables: ProductionReportTables;
   submissions: DispatcherSubmission[];
 }) {
+  const firstAvailableSection = productionReportSectionOptions.find(
+    (option) => tables[option.id].length > 0,
+  )?.id;
   const [section, setSection] = useState<ProductionReportSection>(
-    () =>
-      productionReportSectionOptions.find(
-        (option) => tables[option.id].length > 0,
-      )?.id ?? "forming",
+    () => firstAvailableSection ?? "forming",
   );
+  const hadAvailableSectionRef = useRef(firstAvailableSection !== undefined);
   const [detailReportId, setDetailReportId] = useState<string>();
   const selectedRows = tables[section] as ProductionReportBaseRow[];
   const detailRow = selectedRows.find(
@@ -5688,6 +5689,18 @@ function ProductionReportSummaryTable({
     (submission) =>
       submission.formId === "production" && submission.id === detailReportId,
   );
+
+  useEffect(() => {
+    if (
+      !hadAvailableSectionRef.current &&
+      firstAvailableSection !== undefined &&
+      selectedRows.length === 0
+    ) {
+      setSection(firstAvailableSection);
+    }
+
+    hadAvailableSectionRef.current = firstAvailableSection !== undefined;
+  }, [firstAvailableSection, selectedRows.length]);
 
   useEffect(() => {
     if (

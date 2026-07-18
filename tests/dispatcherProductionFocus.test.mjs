@@ -124,6 +124,90 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
   }
 });
 
+test("production dashboard selects the first section that receives live rows", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+
+  installDomGlobals(dom.window);
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  const emptyTables = {
+    forming: [],
+    sorting: [],
+    unformed: [],
+    chamotte: [],
+    jars: [],
+    granulation: [],
+  };
+
+  try {
+    const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(ProductionReportSummaryTable, {
+          form: undefined,
+          submissions: [],
+          tables: emptyTables,
+        }),
+      );
+    });
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(ProductionReportSummaryTable, {
+          form: undefined,
+          submissions: [],
+          tables: {
+            ...emptyTables,
+            unformed: [
+              {
+                reportId: "production-today",
+                reportDate: "2026-07-18",
+                receivedAt: "2026-07-18T18:00:00.000Z",
+                facts: [
+                  { brand: "ПБ-5", value: 12, monthValue: 12 },
+                ],
+                dayFact: 12,
+                monthFact: 12,
+              },
+            ],
+          },
+        }),
+      );
+    });
+
+    const activeSection = dom.window.document.querySelector(
+      '[aria-label="Таблицы выработки"] button[aria-pressed="true"]',
+    );
+
+    assert.equal(activeSection?.textContent, "Неформованная продукция");
+    assert.doesNotMatch(
+      rootElement.textContent ?? "",
+      /Нет данных для выбранной таблицы и периода/u,
+    );
+
+    await React.act(async () => root.unmount());
+  } finally {
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("DOM globals replace and restore a getter-only navigator", () => {
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
