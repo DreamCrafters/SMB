@@ -7,6 +7,7 @@ import {
   equipmentDowntimeRequiresProductionMessage,
   equipmentReserveDowntimeRequiresEightHoursMessage,
   incidentCloseRequiresOpenIncidentMessage,
+  isProductionBrandRequiredForFact,
   productionBrandFactPairMessage,
   productionDuplicateBrandMessage,
   productionRequiresIndicatorMessage,
@@ -170,6 +171,31 @@ test("production payload validation requires a brand for every brand fact", () =
     }),
     productionBrandFactPairMessage,
   );
+});
+
+test("every filled production fact, including zero, requires a brand", () => {
+  for (const fact of ["0", "12.5", " 3 "]) {
+    assert.equal(isProductionBrandRequiredForFact(fact), true);
+  }
+
+  for (const fact of [undefined, "", "   "]) {
+    assert.equal(isProductionBrandRequiredForFact(fact), false);
+  }
+
+  for (const payload of [
+    { formingDay: "0" },
+    { sortingDay: "5" },
+    { unformedFact1: "7" },
+    { chamotteFact1: "9" },
+  ]) {
+    assert.equal(
+      validateDispatcherPayloadForSubmit(productionForm, {
+        reportDate: "2026-07-16",
+        ...payload,
+      }),
+      productionBrandFactPairMessage,
+    );
+  }
 });
 
 test("production payload validation rejects duplicate brands within a category", () => {

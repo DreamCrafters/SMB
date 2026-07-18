@@ -158,6 +158,31 @@ test("validateDispatcherSubmissionDraft requires one unique saved-brand fact per
   }
 });
 
+test("validateDispatcherSubmissionDraft requires a brand for every production fact", () => {
+  const cases = [
+    { payload: { formingDay: "0" }, missingField: "formingProductBrand" },
+    { payload: { sortingDay: "5" }, missingField: "sortingProductBrand" },
+    { payload: { unformedFact1: "7" }, missingField: "unformedBrand1" },
+    { payload: { chamotteFact1: "9" }, missingField: "chamotteBrand1" },
+  ];
+
+  for (const { payload, missingField } of cases) {
+    const result = validateDispatcherSubmissionDraft({
+      formId: "production",
+      payload: {
+        reportDate: "2026-07-16",
+        ...payload,
+      },
+    });
+
+    assert.equal(result.ok, false);
+
+    if (!result.ok) {
+      assert.match(result.errors.join(" "), new RegExp(missingField, "u"));
+    }
+  }
+});
+
 test("validateDispatcherSubmissionDraft rejects calculated production fields", () => {
   const result = validateDispatcherSubmissionDraft({
     formId: "production",

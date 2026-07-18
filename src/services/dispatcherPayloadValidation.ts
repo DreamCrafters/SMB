@@ -26,6 +26,12 @@ export const productionDuplicateBrandMessage =
 
 const equipmentReserveDowntimeReason = "Резерв";
 
+export function isProductionBrandRequiredForFact(
+  fact: string | undefined,
+) {
+  return (fact?.trim().length ?? 0) > 0;
+}
+
 export function validateDispatcherPayloadForSubmit(
   form: DispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
@@ -65,7 +71,7 @@ function validateProductionPayloadForSubmit(
     const fact = payload[`${prefix}Day`]?.trim() ?? "";
     const brand = payload[`${prefix}ProductBrand`]?.trim() ?? "";
 
-    if ((fact.length > 0) !== (brand.length > 0)) {
+    if (isProductionBrandRequiredForFact(fact) !== (brand.length > 0)) {
       return productionBrandFactPairMessage;
     }
   }
@@ -77,7 +83,9 @@ function validateProductionPayloadForSubmit(
       const brand = payload[`${prefix}Brand${index}`]?.trim() ?? "";
       const fact = payload[`${prefix}Fact${index}`]?.trim() ?? "";
 
-      if ((brand.length > 0) !== (fact.length > 0)) {
+      if (
+        (brand.length > 0) !== isProductionBrandRequiredForFact(fact)
+      ) {
         return productionBrandFactPairMessage;
       }
 

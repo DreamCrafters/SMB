@@ -1253,10 +1253,17 @@ p {
   font-size: 12px;
 }
 
-.production-brand-picker select option {
-  font-family: inherit;
-  font-size: inherit;
-  font-weight: inherit;
+.production-report-brand-columns-table .production-brand-picker select {
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.production-report-brand-columns-table .production-brand-picker select option {
+  font-family:
+    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 16px;
+  font-weight: 750;
 }
 
 .production-brand-create {

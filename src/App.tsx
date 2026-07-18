@@ -82,7 +82,10 @@ import {
   type DispatcherFeedResult,
   type DispatcherFormsResult,
 } from "./services/dispatcherSubmissions";
-import { validateDispatcherPayloadForSubmit } from "./services/dispatcherPayloadValidation";
+import {
+  isProductionBrandRequiredForFact,
+  validateDispatcherPayloadForSubmit,
+} from "./services/dispatcherPayloadValidation";
 import {
   buildIncidentResponsibleInput,
   decimalNumberInputPattern,
@@ -3283,6 +3286,7 @@ function ProductionSummaryTable({
   onCreateBrand: ProductionBrandCreator;
 }) {
   const [brand, setBrand] = useState("");
+  const [hasFact, setHasFact] = useState(false);
 
   return (
     <section className="production-report-subsection">
@@ -3307,6 +3311,10 @@ function ProductionSummaryTable({
                 <ProductionReportCell
                   fieldName={`${prefix}Day`}
                   form={form}
+                  required={brand.length > 0}
+                  onValueChange={(value) =>
+                    setHasFact(isProductionBrandRequiredForFact(value))
+                  }
                 />
               </td>
               <td>
@@ -3315,6 +3323,7 @@ function ProductionSummaryTable({
                   category="product"
                   disabled={isAdminPreviewMode}
                   name={`${prefix}ProductBrand`}
+                  required={hasFact}
                   selectedLabels={[]}
                   value={brand}
                   onChange={setBrand}
@@ -3342,6 +3351,7 @@ type ProductionBrandCreator = (
 type ProductionBrandColumn = {
   id: number;
   brand: string;
+  hasFact: boolean;
 };
 
 function ProductionBrandColumnsTable({
@@ -3360,7 +3370,7 @@ function ProductionBrandColumnsTable({
   onCreateBrand: ProductionBrandCreator;
 }) {
   const [columns, setColumns] = useState<ProductionBrandColumn[]>([
-    { id: 1, brand: "" },
+    { id: 1, brand: "", hasFact: false },
   ]);
 
   function addColumn() {
@@ -3373,7 +3383,7 @@ function ProductionBrandColumnsTable({
 
     if (id === undefined) return;
 
-    setColumns((current) => [...current, { id, brand: "" }]);
+    setColumns((current) => [...current, { id, brand: "", hasFact: false }]);
   }
 
   function removeColumn(id: number) {
@@ -3384,6 +3394,16 @@ function ProductionBrandColumnsTable({
     setColumns((current) =>
       current.map((column) =>
         column.id === id ? { ...column, brand } : column,
+      ),
+    );
+  }
+
+  function changeColumnFact(id: number, fact: string) {
+    const hasFact = isProductionBrandRequiredForFact(fact);
+
+    setColumns((current) =>
+      current.map((column) =>
+        column.id === id ? { ...column, hasFact } : column,
       ),
     );
   }
@@ -3405,6 +3425,7 @@ function ProductionBrandColumnsTable({
                     category={category}
                     disabled={isAdminPreviewMode}
                     name={`${prefix}Brand${column.id}`}
+                    required={column.hasFact}
                     selectedLabels={selectedLabels.filter(
                       (label) => label !== column.brand,
                     )}
@@ -3441,18 +3462,25 @@ function ProductionBrandColumnsTable({
                       inputMode="decimal"
                       name={`${prefix}Fact${column.id}`}
                       pattern={decimalNumberInputPattern}
+                      required={column.brand.length > 0}
                       title={decimalNumberInputTitle}
                       type="text"
                       onBlur={(event) => {
-                        event.currentTarget.value =
+                        const normalizedFact =
                           normalizeDecimalNumberForPayload(
                             event.currentTarget.value,
                           ) ?? "";
+
+                        event.currentTarget.value = normalizedFact;
+                        changeColumnFact(column.id, normalizedFact);
                       }}
                       onChange={(event) => {
-                        event.currentTarget.value = normalizeDecimalNumberInput(
+                        const normalizedFact = normalizeDecimalNumberInput(
                           event.currentTarget.value,
                         );
+
+                        event.currentTarget.value = normalizedFact;
+                        changeColumnFact(column.id, normalizedFact);
                       }}
                     />
                   </label>
@@ -3484,6 +3512,7 @@ function ProductionBrandPicker({
   category,
   disabled,
   name,
+  required = false,
   selectedLabels,
   value,
   onChange,
@@ -3493,6 +3522,7 @@ function ProductionBrandPicker({
   category: ProductionBrandCategory;
   disabled: boolean;
   name: string;
+  required?: boolean;
   selectedLabels: string[];
   value: string;
   onChange: (value: string) => void;
@@ -3539,6 +3569,7 @@ function ProductionBrandPicker({
         aria-label="Марка"
         disabled={disabled || isSaving}
         name={name}
+        required={required}
         value={value}
         onChange={(event) => {
           const nextValue = event.currentTarget.value;
@@ -3641,9 +3672,13 @@ function ProductionGranulationTable({
 function ProductionReportCell({
   fieldName,
   form,
+  required,
+  onValueChange,
 }: {
   fieldName: string;
   form: DispatcherFormDefinition;
+  required?: boolean;
+  onValueChange?: (value: string) => void;
 }) {
   const field = form.fields.find((item) => item.name === fieldName);
 
@@ -3653,7 +3688,11 @@ function ProductionReportCell({
 
   return (
     <div className="production-report-cell-input" title={field.label}>
-      <DispatcherFormFieldInput field={field} />
+      <DispatcherFormFieldInput
+        field={field}
+        required={required}
+        onValueChange={onValueChange}
+      />
     </div>
   );
 }
@@ -4851,10 +4890,14 @@ function DispatcherFormFieldInput({
   defaultValue,
   field,
   options,
+  required,
+  onValueChange,
 }: {
   defaultValue?: string;
   field: DispatcherFormField;
   options?: readonly string[];
+  required?: boolean;
+  onValueChange?: (value: string) => void;
 }) {
   if (field.type === "textarea") {
     return (
@@ -4863,8 +4906,12 @@ function DispatcherFormFieldInput({
         <textarea
           name={field.name}
           rows={4}
-          required={field.required}
+          required={required ?? field.required}
           maxLength={readInputMaxLength(field)}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value;
+            onValueChange?.(nextValue);
+          }}
         />
       </label>
     );
@@ -4876,8 +4923,12 @@ function DispatcherFormFieldInput({
         <span>{field.label}</span>
         <select
           name={field.name}
-          required={field.required}
+          required={required ?? field.required}
           defaultValue={defaultValue ?? ""}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value;
+            onValueChange?.(nextValue);
+          }}
         >
           <option value="">Не выбрано</option>
           {(options ?? field.options ?? []).map((option) => (
@@ -4905,7 +4956,7 @@ function DispatcherFormFieldInput({
         title={readInputTitle(field)}
         placeholder={readInputPlaceholder(field)}
         maxLength={readInputMaxLength(field)}
-        required={field.required}
+        required={required ?? field.required}
         defaultValue={defaultValue ?? readInputDefaultValue(field)}
         onChange={(event) => {
           if (field.type === "number") {
@@ -4925,6 +4976,9 @@ function DispatcherFormFieldInput({
               event.currentTarget.value,
             );
           }
+
+          const nextValue = event.currentTarget.value;
+          onValueChange?.(nextValue);
         }}
         onBlur={(event) => {
           if (field.type === "number") {
@@ -4943,6 +4997,9 @@ function DispatcherFormFieldInput({
             event.currentTarget.value =
               normalizeIntegerForPayload(event.currentTarget.value) ?? "";
           }
+
+          const nextValue = event.currentTarget.value;
+          onValueChange?.(nextValue);
         }}
       />
     </label>
