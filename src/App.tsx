@@ -1631,7 +1631,6 @@ function SideRail({
   onAdminTabChange: (tab: AdminTab) => void;
 }) {
   const railRef = useRef<HTMLElement>(null);
-  const railBrandButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerMenuButtonRef = useRef<HTMLButtonElement>(null);
   const navigationItems = buildNavigationItems(
@@ -1730,45 +1729,29 @@ function SideRail({
         role={isMobile && isOpen ? "dialog" : undefined}
       >
         <div className="rail-brand-row">
-          <button
-            aria-controls="primary-navigation"
-            aria-expanded={isOpen}
-            aria-label={isOpen ? "Свернуть меню" : "Открыть меню"}
-            className="rail-brand-button"
-            ref={railBrandButtonRef}
-            title={isOpen ? "Свернуть меню" : "Открыть меню"}
-            type="button"
-            onClick={onToggle}
-          >
-            <span className="brand-mark" aria-hidden="true">
-              <img alt="" src="/nmou-vector-icon.png" />
-            </span>
-          </button>
+          <span className="brand-mark" aria-hidden="true">
+            <img alt="" src="/nmou-vector-icon.png" />
+          </span>
           {isAdminPreviewMode ? (
             <div className="admin-preview-mode-badge" role="status">
               АДМИН ПРЕВЬЮ МОД
             </div>
           ) : null}
-          <button
-            aria-controls="primary-navigation"
-            aria-expanded={isOpen}
-            aria-label={isOpen ? "Свернуть меню" : "Открыть меню"}
-            className="rail-menu-toggle"
-            ref={drawerMenuButtonRef}
-            type="button"
-            onClick={() => {
-              onToggle();
-              if (!isMobile && isOpen) {
-                window.requestAnimationFrame(() =>
-                  railBrandButtonRef.current?.focus(),
-                );
-              }
-            }}
-          >
-            <span aria-hidden="true" />
-            <span aria-hidden="true" />
-            <span aria-hidden="true" />
-          </button>
+          {isMobile ? (
+            <button
+              aria-controls="primary-navigation"
+              aria-expanded={isOpen}
+              aria-label="Закрыть меню"
+              className="rail-menu-toggle"
+              ref={drawerMenuButtonRef}
+              type="button"
+              onClick={onToggle}
+            >
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
         <div className="rail-product-copy">
           <p className="eyebrow">платформа</p>
