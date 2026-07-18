@@ -740,6 +740,11 @@ test("buildOwnerDispatcherOverview summarizes latest dispatcher statuses", () =>
   ]);
   assert.equal(overview.latestIncident?.incidentNumber, "INC-2026-16");
   assert.equal(overview.latestIncident?.location, "Склад готовой продукции");
+  assert.equal(overview.latestIncidentClosure?.incidentType, "Травма");
+  assert.equal(
+    overview.latestIncidentClosure?.location,
+    "Склад готовой продукции",
+  );
   assert.equal(overview.latestIncidentClosure?.approvedBy, "Фридман");
   assert.equal(overview.visitors.latestDate, "2026-07-08");
   assert.equal(overview.visitors.count, 4);

@@ -498,6 +498,7 @@ test("incident state rules allow closure of earlier-day open incidents only", ()
       incidentNumber: "INC-2026-1",
       datetime: "17.06.2026 10:30",
       location: "Цех 1",
+      incidentType: "Пожар",
     });
     const closure = buildDispatcherSubmission("incident-close-id", "incident_close", {
       incidentNumber: "INC-2026-1",
@@ -510,6 +511,7 @@ test("incident state rules allow closure of earlier-day open incidents only", ()
 
     if (openResult.ok) {
       assert.equal(openResult.value.draft.payload.location, "Цех 1");
+      assert.equal(openResult.value.draft.payload.incidentType, "Пожар");
     }
 
     assert.equal(

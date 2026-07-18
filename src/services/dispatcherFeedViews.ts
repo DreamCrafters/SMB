@@ -112,6 +112,8 @@ export type OwnerIncidentOverview = {
 export type OwnerIncidentClosureOverview = {
   updatedAt: string;
   incidentNumber: string;
+  location?: string;
+  incidentType?: string;
   rootCauses?: string;
   preventiveMeasures?: string;
   closureDateTime?: string;
@@ -839,9 +841,26 @@ function buildOwnerIncidentClosureOverview(
     return undefined;
   }
 
+  const incidentNumber =
+    latestClosure.payload.incidentNumber?.trim() || latestClosure.id;
+  const relatedIncident = findLatestSubmission(
+    submissions.filter(
+      (submission) =>
+        submission.formId === "incident" &&
+        readIncidentNumber(submission) === incidentNumber &&
+        compareSubmissionsAscending(submission, latestClosure) <= 0,
+    ),
+  );
+
   return {
     updatedAt: latestClosure.receivedAt,
-    incidentNumber: latestClosure.payload.incidentNumber?.trim() || latestClosure.id,
+    incidentNumber,
+    location:
+      latestClosure.payload.location?.trim() ||
+      relatedIncident?.payload.location?.trim(),
+    incidentType:
+      latestClosure.payload.incidentType?.trim() ||
+      relatedIncident?.payload.incidentType?.trim(),
     rootCauses: latestClosure.payload.rootCauses,
     preventiveMeasures: latestClosure.payload.preventiveMeasures,
     closureDateTime: latestClosure.payload.closureDateTime,

@@ -1317,6 +1317,10 @@ function applyLocalDispatcherFormScriptRules(
     if ((openIncident.submission.payload.location?.trim() ?? "").length > 0) {
       nextPayload.location = openIncident.submission.payload.location ?? "";
     }
+    if ((openIncident.submission.payload.incidentType?.trim() ?? "").length > 0) {
+      nextPayload.incidentType =
+        openIncident.submission.payload.incidentType ?? "";
+    }
     nextPayload.incidentStatus = "Закрыт";
 
     if (

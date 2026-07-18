@@ -42,13 +42,17 @@ export function applyIncidentStateRules(
   }
 
   const openingLocation = openIncident.submission.payload.location?.trim();
-  const payload =
-    openingLocation === undefined || openingLocation.length === 0
-      ? value.draft.payload
-      : {
-          ...value.draft.payload,
-          location: openingLocation,
-        };
+  const openingIncidentType =
+    openIncident.submission.payload.incidentType?.trim();
+  const payload = {
+    ...value.draft.payload,
+    ...(openingLocation === undefined || openingLocation.length === 0
+      ? {}
+      : { location: openingLocation }),
+    ...(openingIncidentType === undefined || openingIncidentType.length === 0
+      ? {}
+      : { incidentType: openingIncidentType }),
+  };
 
   return {
     ok: true,

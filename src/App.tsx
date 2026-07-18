@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   accountCapabilities,
   productionCategories,
@@ -83,7 +84,6 @@ import {
   type DispatcherFormsResult,
 } from "./services/dispatcherSubmissions";
 import {
-  isProductionBrandRequiredForFact,
   validateDispatcherPayloadForSubmit,
 } from "./services/dispatcherPayloadValidation";
 import {
@@ -283,6 +283,13 @@ type AdminAccountsLoadState =
       message: string;
     }
   | AdminAccountsListResult;
+
+type AdminPositionsLoadState =
+  | {
+      status: "loading";
+      message: string;
+    }
+  | AdminPositionsResult;
 
 type AdminAuditLoadState =
   | {
@@ -844,7 +851,6 @@ export default function App() {
 
   async function handleClearSession() {
     setIsWelcomePending(false);
-    setIsNavigationOpen(false);
     clearToastStack();
     setSessionRequest({
       status: "loading",
@@ -1196,6 +1202,12 @@ export default function App() {
 
       <ToastViewport toasts={toasts} />
 
+      {viewedProfile === undefined && sessionRequest.status === "loading" ? (
+        <div className="app-session-loading">
+          <LoadingIndicator label="Выходим из аккаунта…" variant="inline" />
+        </div>
+      ) : null}
+
       <section
         className={`workspace${
           hasVisibleNavigationAccess ? "" : " workspace-empty"
@@ -1358,7 +1370,12 @@ function AuthScreen({
               />
             </label>
             <button className="auth-login-button" disabled={isBusy} type="submit">
-              {sessionRequest.status === "loading" ? "Входим..." : "Войти"}
+              {sessionRequest.status === "loading" ? (
+                <LoadingIndicator
+                  label="Входим…"
+                  variant="button"
+                />
+              ) : "Войти"}
             </button>
           </form>
         ) : (
@@ -1383,7 +1400,14 @@ function AuthScreen({
                 >
                   <span>{copy?.scope ?? "test access"}</span>
                   <strong>{option.positionDisplayName}</strong>
-                  <small>{isSelecting ? "Входим..." : copy?.description}</small>
+                  <small>
+                    {isSelecting ? (
+                      <LoadingIndicator
+                        label="Входим…"
+                        variant="button"
+                      />
+                    ) : copy?.description}
+                  </small>
                 </button>
               );
             })}
@@ -1391,11 +1415,17 @@ function AuthScreen({
         )}
 
         <div className={`auth-status auth-status-${accessProfile.status}`}>
-          <span
-            className={`status-dot status-dot-${accessProfile.status}`}
-            aria-hidden="true"
-          />
-          <p>{statusMessage}</p>
+          {isBusy ? (
+            <LoadingIndicator label={statusMessage} variant="inline" />
+          ) : (
+            <>
+              <span
+                className={`status-dot status-dot-${accessProfile.status}`}
+                aria-hidden="true"
+              />
+              <p>{statusMessage}</p>
+            </>
+          )}
           {accessProfile.status === "error" ? (
             <button className="retry-button" type="button" onClick={onRetry}>
               Повторить
@@ -1404,6 +1434,59 @@ function AuthScreen({
         </div>
       </section>
     </main>
+  );
+}
+
+type LoadingIndicatorVariant = "page" | "panel" | "inline" | "button";
+
+function LoadingIndicator({
+  announce = true,
+  className,
+  label,
+  variant = "panel",
+}: {
+  announce?: boolean;
+  className?: string;
+  label: string;
+  variant?: LoadingIndicatorVariant;
+}) {
+  const isButtonIndicator = variant === "button";
+  const visualIndicator = (
+    <span
+      className={[
+        "loading-indicator",
+        `loading-indicator-${variant}`,
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-live={announce && !isButtonIndicator ? "polite" : undefined}
+      role={announce && !isButtonIndicator ? "status" : undefined}
+    >
+      <span className="loading-indicator-mark" aria-hidden="true" />
+      <span className="loading-indicator-label">{label}</span>
+    </span>
+  );
+
+  if (!announce || !isButtonIndicator || typeof document === "undefined") {
+    return visualIndicator;
+  }
+
+  return (
+    <>
+      {visualIndicator}
+      {createPortal(
+        <span
+          aria-atomic="true"
+          aria-live="polite"
+          className="loading-indicator-announcement"
+          role="status"
+        >
+          {label}
+        </span>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -1739,7 +1822,7 @@ function SideRail({
             disabled={isSessionLoading}
             onClick={() => {
               onClearSession();
-              if (isMobile) {
+              if (isMobile && isAdminPreviewMode) {
                 onRequestClose();
               }
             }}
@@ -1747,7 +1830,13 @@ function SideRail({
             {isAdminPreviewMode
               ? "Выйти из превью мода"
               : isSessionLoading
-                ? "Выходим..."
+                ? (
+                    <LoadingIndicator
+                      announce={false}
+                      label="Выходим…"
+                      variant="button"
+                    />
+                  )
                 : "Выйти из аккаунта"}
           </button>
           {sessionError === undefined ? null : (
@@ -1930,7 +2019,11 @@ function OwnerOverviewPanel({
         ) : null}
       </div>
       {dispatcherFeed.status === "loading" ? (
-        <p className="owner-overview-status">{dispatcherFeed.message}</p>
+        <LoadingIndicator
+          className="owner-overview-loading"
+          label={dispatcherFeed.message}
+          variant="panel"
+        />
       ) : null}
       {dispatcherFeed.status === "error" ? (
         <p className="owner-overview-status owner-overview-status-error">
@@ -1983,7 +2076,7 @@ function OwnerEquipmentOverviewBlock({
   );
 }
 
-function OwnerIncidentOverviewBlock({
+export function OwnerIncidentOverviewBlock({
   overview,
 }: {
   overview: OwnerDispatcherOverview;
@@ -1991,36 +2084,31 @@ function OwnerIncidentOverviewBlock({
   const incident = overview.latestIncident;
 
   return (
-    <section className="owner-overview-block" aria-label="Последний инцидент">
-      <h3>Последний инцидент</h3>
-      {incident === undefined ? (
-        <p className="owner-overview-status">Нет зарегистрированных инцидентов.</p>
-      ) : (
-        <>
-          <p className="owner-overview-lead">
-            Дата последнего инцидента -{" "}
-            <strong>{formatDateTime(incident.updatedAt)}</strong>.
-          </p>
-          <OwnerOverviewDetails
-            rows={[
-              ["Дата и время инцидента", incident.dateTime],
-              ["Место (цех/участок)", incident.location],
-              ["Тип инцидента", incident.incidentType],
+    <OwnerIncidentOverviewCard
+      ariaLabel="Последний инцидент"
+      dateLabel="Дата последнего инцидента"
+      emptyMessage="Нет зарегистрированных инцидентов."
+      incident={incident === undefined
+        ? undefined
+        : {
+            updatedAt: incident.updatedAt,
+            incidentNumber: incident.incidentNumber,
+            incidentType: incident.incidentType,
+            location: incident.location,
+            status: incident.status,
+            details: [
               ["Описание", incident.description],
               ["Критичность", incident.criticality],
               ["Ответственный за регистрацию", incident.responsible],
               ["Оперативные меры", incident.immediateActions],
-              ["Статус", incident.status],
-              ["Номер инцидента", incident.incidentNumber],
-            ]}
-          />
-        </>
-      )}
-    </section>
+            ],
+          }}
+      title="Последний инцидент"
+    />
   );
 }
 
-function OwnerIncidentClosureOverviewBlock({
+export function OwnerIncidentClosureOverviewBlock({
   overview,
 }: {
   overview: OwnerDispatcherOverview;
@@ -2028,32 +2116,141 @@ function OwnerIncidentClosureOverviewBlock({
   const closure = overview.latestIncidentClosure;
 
   return (
-    <section className="owner-overview-block" aria-label="Последнее закрытие инцидента">
-      <h3>Последнее закрытие инцидента</h3>
-      {closure === undefined ? (
-        <p className="owner-overview-status">Нет закрытых инцидентов.</p>
-      ) : (
-        <>
-          <p className="owner-overview-lead">
-            Дата последнего закрытия инцидента -{" "}
-            <strong>{formatDateTime(closure.updatedAt)}</strong>.
-          </p>
-          <OwnerOverviewDetails
-            rows={[
-              ["Номер инцидента", closure.incidentNumber],
+    <OwnerIncidentOverviewCard
+      ariaLabel="Последнее закрытие инцидента"
+      dateLabel="Дата последнего закрытия инцидента"
+      emptyMessage="Нет закрытых инцидентов."
+      incident={closure === undefined
+        ? undefined
+        : {
+            updatedAt: closure.updatedAt,
+            incidentNumber: closure.incidentNumber,
+            incidentType: closure.incidentType,
+            location: closure.location,
+            status: closure.status,
+            details: [
               ["Корневые причины", closure.rootCauses],
               ["Предотвращающие меры", closure.preventiveMeasures],
-              ["Дата и время закрытия", closure.closureDateTime],
               ["Затраты (убытки), руб", closure.costs],
               ["Кто утвердил закрытие", closure.approvedBy],
               ["Примечание", closure.closureNote],
-              ["Статус", closure.status],
-            ]}
-          />
+            ],
+          }}
+      title="Последнее закрытие инцидента"
+    />
+  );
+}
+
+type OwnerIncidentOverviewCardData = {
+  updatedAt: string;
+  incidentNumber: string;
+  incidentType?: string;
+  location?: string;
+  status: string;
+  details: [label: string, value: string | undefined][];
+};
+
+function OwnerIncidentOverviewCard({
+  ariaLabel,
+  dateLabel,
+  emptyMessage,
+  incident,
+  title,
+}: {
+  ariaLabel: string;
+  dateLabel: string;
+  emptyMessage: string;
+  incident?: OwnerIncidentOverviewCardData;
+  title: string;
+}) {
+  const age = incident === undefined
+    ? undefined
+    : formatOwnerIncidentAge(incident.updatedAt);
+
+  return (
+    <section
+      className="owner-overview-block owner-incident-overview-block"
+      aria-label={ariaLabel}
+    >
+      <h3>{title}</h3>
+      {incident === undefined ? (
+        <p className="owner-overview-status">{emptyMessage}</p>
+      ) : (
+        <>
+          <p className="owner-overview-lead owner-incident-date">
+            {dateLabel}
+            {age === undefined ? null : (
+              <> <span className="owner-incident-age">({age})</span></>
+            )}{" "}
+            — <strong>{formatDateTime(incident.updatedAt)}</strong>.
+          </p>
+          <div className="owner-incident-card">
+            <dl className="owner-incident-summary">
+              <div className="owner-incident-summary-primary">
+                <dt>Номер инцидента</dt>
+                <dd>{readOverviewDetailValue(incident.incidentNumber)}</dd>
+              </div>
+              <div>
+                <dt>Тип инцидента</dt>
+                <dd>{readOverviewDetailValue(incident.incidentType)}</dd>
+              </div>
+              <div>
+                <dt>Место (цех/участок)</dt>
+                <dd>{readOverviewDetailValue(incident.location)}</dd>
+              </div>
+              <div className="owner-incident-summary-status">
+                <dt>Статус</dt>
+                <dd>{readOverviewDetailValue(incident.status)}</dd>
+              </div>
+            </dl>
+            <OwnerOverviewDetails rows={incident.details} />
+          </div>
         </>
       )}
     </section>
   );
+}
+
+export function formatOwnerIncidentAge(
+  value: string,
+  currentDate = new Date(),
+) {
+  const eventDate = new Date(value);
+
+  if (Number.isNaN(eventDate.getTime())) {
+    return undefined;
+  }
+
+  const eventDay = Date.UTC(
+    eventDate.getFullYear(),
+    eventDate.getMonth(),
+    eventDate.getDate(),
+  );
+  const currentDay = Date.UTC(
+    currentDate.getFullYear(),
+    currentDate.getMonth(),
+    currentDate.getDate(),
+  );
+  const daysAgo = Math.max(
+    0,
+    Math.floor((currentDay - eventDay) / (24 * 60 * 60 * 1000)),
+  );
+
+  if (daysAgo === 0) {
+    return "сегодня";
+  }
+
+  const lastTwoDigits = daysAgo % 100;
+  const lastDigit = daysAgo % 10;
+  const dayWord = lastTwoDigits >= 11 && lastTwoDigits <= 14
+    ? "дней"
+    : lastDigit === 1
+      ? "день"
+      : lastDigit >= 2 && lastDigit <= 4
+        ? "дня"
+        : "дней";
+
+  return `${daysAgo} ${dayWord} назад`;
 }
 
 function OwnerVisitorsOverviewBlock({
@@ -2589,11 +2786,15 @@ function ProductionPlanWorkspace({
             </div>
           </section>
         ) : (
-          <p className="production-plan-load-state">
-            {isLoadingPresets
-              ? "Загружаем календарь."
-              : "Календарь недоступен."}
-          </p>
+          isLoadingPresets ? (
+            <LoadingIndicator
+              className="production-plan-load-state"
+              label="Загружаем календарь."
+              variant="panel"
+            />
+          ) : (
+            <p className="production-plan-load-state">Календарь недоступен.</p>
+          )
         )}
 
         <div className="production-plan-actions">
@@ -2607,9 +2808,12 @@ function ProductionPlanWorkspace({
             }
             type="submit"
           >
-            {isSaving
-              ? "Сохраняем…"
-              : `Сохранить · ${productionCategoryLabels[activeCategory]}`}
+            {isSaving ? (
+              <LoadingIndicator
+                label="Сохраняем…"
+                variant="button"
+              />
+            ) : `Сохранить · ${productionCategoryLabels[activeCategory]}`}
           </button>
         </div>
       </form>
@@ -2622,7 +2826,17 @@ function ProductionPlanWorkspace({
 }
 
 function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState }) {
-  if (state.status === "loading" || state.status === "error") {
+  if (state.status === "loading") {
+    return (
+      <LoadingIndicator
+        className="production-plan-load-state"
+        label={state.message}
+        variant="panel"
+      />
+    );
+  }
+
+  if (state.status === "error") {
     return <p className="production-plan-load-state">{state.message}</p>;
   }
 
@@ -2849,7 +3063,11 @@ function DataEntryWorkspace({
   if (dispatcherForms.status !== "ready" || forms.length === 0) {
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
-        <p className="form-status">{formsStatusMessage}</p>
+        {dispatcherForms.status === "loading" ? (
+          <LoadingIndicator label={formsStatusMessage} variant="page" />
+        ) : (
+          <p className="form-status">{formsStatusMessage}</p>
+        )}
       </section>
     );
   }
@@ -2973,7 +3191,12 @@ function DataEntryWorkspace({
                 type="submit"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "Отправка..." : "Отправить"}
+                {isSubmitting ? (
+                  <LoadingIndicator
+                    label="Отправляем…"
+                    variant="button"
+                  />
+                ) : "Отправить"}
               </button>
               {status.length > 0 ? <p className="form-status">{status}</p> : null}
             </div>
@@ -3127,7 +3350,11 @@ function DispatcherProductionReportFormBody({
         {isAdminPreviewMode ? (
           <strong>Не загружаются в режиме просмотра</strong>
         ) : dailyPlanState.status === "loading" ? (
-          <strong>Загружаем…</strong>
+          <LoadingIndicator
+            announce={false}
+            label="Загружаем планы…"
+            variant="inline"
+          />
         ) : dailyPlanState.status === "error" ? (
           <strong>{dailyPlanState.message}</strong>
         ) : dailyPlanValues === undefined ? (
@@ -3149,7 +3376,7 @@ function DispatcherProductionReportFormBody({
       </div>
 
       {brandLoadState.status === "loading" ? (
-        <p className="form-status">Загружаем марки…</p>
+        <LoadingIndicator label="Загружаем марки…" variant="panel" />
       ) : brandLoadState.status === "error" ? (
         <div className="production-brand-load-error" role="alert">
           <span>{brandLoadState.message}</span>
@@ -3260,7 +3487,12 @@ function DispatcherProductionReportFormBody({
           type="submit"
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Отправка..." : "Отправить"}
+          {isSubmitting ? (
+            <LoadingIndicator
+              label="Отправляем…"
+              variant="button"
+            />
+          ) : "Отправить"}
         </button>
         {status.length > 0 ? <p className="form-status">{status}</p> : null}
       </div>
@@ -3286,7 +3518,6 @@ function ProductionSummaryTable({
   onCreateBrand: ProductionBrandCreator;
 }) {
   const [brand, setBrand] = useState("");
-  const [hasFact, setHasFact] = useState(false);
 
   return (
     <section className="production-report-subsection">
@@ -3312,9 +3543,6 @@ function ProductionSummaryTable({
                   fieldName={`${prefix}Day`}
                   form={form}
                   required={brand.length > 0}
-                  onValueChange={(value) =>
-                    setHasFact(isProductionBrandRequiredForFact(value))
-                  }
                 />
               </td>
               <td>
@@ -3323,7 +3551,6 @@ function ProductionSummaryTable({
                   category="product"
                   disabled={isAdminPreviewMode}
                   name={`${prefix}ProductBrand`}
-                  required={hasFact}
                   selectedLabels={[]}
                   value={brand}
                   onChange={setBrand}
@@ -3351,7 +3578,6 @@ type ProductionBrandCreator = (
 type ProductionBrandColumn = {
   id: number;
   brand: string;
-  hasFact: boolean;
 };
 
 function ProductionBrandColumnsTable({
@@ -3370,7 +3596,7 @@ function ProductionBrandColumnsTable({
   onCreateBrand: ProductionBrandCreator;
 }) {
   const [columns, setColumns] = useState<ProductionBrandColumn[]>([
-    { id: 1, brand: "", hasFact: false },
+    { id: 1, brand: "" },
   ]);
 
   function addColumn() {
@@ -3383,7 +3609,7 @@ function ProductionBrandColumnsTable({
 
     if (id === undefined) return;
 
-    setColumns((current) => [...current, { id, brand: "", hasFact: false }]);
+    setColumns((current) => [...current, { id, brand: "" }]);
   }
 
   function removeColumn(id: number) {
@@ -3394,16 +3620,6 @@ function ProductionBrandColumnsTable({
     setColumns((current) =>
       current.map((column) =>
         column.id === id ? { ...column, brand } : column,
-      ),
-    );
-  }
-
-  function changeColumnFact(id: number, fact: string) {
-    const hasFact = isProductionBrandRequiredForFact(fact);
-
-    setColumns((current) =>
-      current.map((column) =>
-        column.id === id ? { ...column, hasFact } : column,
       ),
     );
   }
@@ -3425,7 +3641,6 @@ function ProductionBrandColumnsTable({
                     category={category}
                     disabled={isAdminPreviewMode}
                     name={`${prefix}Brand${column.id}`}
-                    required={column.hasFact}
                     selectedLabels={selectedLabels.filter(
                       (label) => label !== column.brand,
                     )}
@@ -3472,7 +3687,6 @@ function ProductionBrandColumnsTable({
                           ) ?? "";
 
                         event.currentTarget.value = normalizedFact;
-                        changeColumnFact(column.id, normalizedFact);
                       }}
                       onChange={(event) => {
                         const normalizedFact = normalizeDecimalNumberInput(
@@ -3480,7 +3694,6 @@ function ProductionBrandColumnsTable({
                         );
 
                         event.currentTarget.value = normalizedFact;
-                        changeColumnFact(column.id, normalizedFact);
                       }}
                     />
                   </label>
@@ -3512,7 +3725,6 @@ function ProductionBrandPicker({
   category,
   disabled,
   name,
-  required = false,
   selectedLabels,
   value,
   onChange,
@@ -3522,7 +3734,6 @@ function ProductionBrandPicker({
   category: ProductionBrandCategory;
   disabled: boolean;
   name: string;
-  required?: boolean;
   selectedLabels: string[];
   value: string;
   onChange: (value: string) => void;
@@ -3569,7 +3780,6 @@ function ProductionBrandPicker({
         aria-label="Марка"
         disabled={disabled || isSaving}
         name={name}
-        required={required}
         value={value}
         onChange={(event) => {
           const nextValue = event.currentTarget.value;
@@ -3607,7 +3817,12 @@ function ProductionBrandPicker({
             onChange={(event) => setNewLabel(event.currentTarget.value)}
           />
           <button disabled={isSaving} type="button" onClick={saveNewBrand}>
-            Сохранить
+            {isSaving ? (
+              <LoadingIndicator
+                label="Сохраняем…"
+                variant="button"
+              />
+            ) : "Сохранить"}
           </button>
           <button
             disabled={isSaving}
@@ -3673,12 +3888,10 @@ function ProductionReportCell({
   fieldName,
   form,
   required,
-  onValueChange,
 }: {
   fieldName: string;
   form: DispatcherFormDefinition;
   required?: boolean;
-  onValueChange?: (value: string) => void;
 }) {
   const field = form.fields.find((item) => item.name === fieldName);
 
@@ -3691,7 +3904,6 @@ function ProductionReportCell({
       <DispatcherFormFieldInput
         field={field}
         required={required}
-        onValueChange={onValueChange}
       />
     </div>
   );
@@ -3861,7 +4073,7 @@ function DispatcherIncidentCloseFormBody({
             <span>Показаны только незакрытые инциденты.</span>
           </div>
           {incidentFeed.status === "loading" ? (
-            <p className="dispatcher-status-line">Загружаем инциденты.</p>
+            <LoadingIndicator label="Загружаем инциденты." variant="panel" />
           ) : null}
           {incidentFeed.status === "ready" && openIncidents.length === 0 ? (
             <p className="dispatcher-status-line">Нет незакрытых инцидентов.</p>
@@ -3933,7 +4145,12 @@ function DispatcherIncidentCloseFormBody({
           type="submit"
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Отправка..." : "Закрыть инцидент"}
+          {isSubmitting ? (
+            <LoadingIndicator
+              label="Отправляем…"
+              variant="button"
+            />
+          ) : "Закрыть инцидент"}
         </button>
         {status.length > 0 ? <p className="form-status">{status}</p> : null}
       </div>
@@ -4019,6 +4236,9 @@ function DispatcherVisitorExitFormBody({
 
   return (
     <>
+      {visitorFeed.status === "loading" ? (
+        <LoadingIndicator label={visitorFeed.message} variant="panel" />
+      ) : null}
       <div className="dispatcher-form-fields dispatcher-form-fields-single">
         <label>
           <span>Посетитель</span>
@@ -4060,7 +4280,12 @@ function DispatcherVisitorExitFormBody({
           type="submit"
           disabled={isSubmitting || openVisitors.length === 0}
         >
-          {isSubmitting ? "Отправка..." : "Отметить выход"}
+          {isSubmitting ? (
+            <LoadingIndicator
+              label="Отправляем…"
+              variant="button"
+            />
+          ) : "Отметить выход"}
         </button>
         {status.length > 0 ? <p className="form-status">{status}</p> : null}
       </div>
@@ -4647,6 +4872,9 @@ function DispatcherEquipmentFormBody({
             Сохранено: {doneCount}/{equipmentOptions.length}
           </span>
         </div>
+        {equipmentFeed.status === "loading" ? (
+          <LoadingIndicator label={equipmentFeed.message} variant="panel" />
+        ) : null}
         <div className="equipment-status-grid">
           {equipmentOptions.map((equipment) => {
             const submission = completionMap.get(equipment);
@@ -4796,7 +5024,12 @@ function DispatcherEquipmentFormBody({
               : `Осталось внести позиций: ${missingReportEquipmentCount}`
           }
         >
-          {isSubmitting ? "Отправка..." : "Отправить отчет начальству"}
+          {isSubmitting ? (
+            <LoadingIndicator
+              label="Отправляем…"
+              variant="button"
+            />
+          ) : "Отправить отчет начальству"}
         </button>
         {visibleEquipmentStatus.length > 0 ? (
           <p
@@ -5207,6 +5440,14 @@ function DispatcherFeedPanel({
           <span>Обновлено: {formatDateTime(dispatcherFeed.receivedAt)}</span>
         </div>
       ) : null}
+      {dispatcherFeed.status === "loading" ? (
+        <LoadingIndicator label={dispatcherFeed.message} variant="page" />
+      ) : null}
+      {dispatcherFeed.status === "ready" &&
+      dispatcherForms.status === "loading" &&
+      filters.group === "production" ? (
+        <LoadingIndicator label={dispatcherForms.message} variant="inline" />
+      ) : null}
       {dispatcherForms.status === "error" ? (
         <p className="dispatcher-status-line">
           {readShortUserMessage(
@@ -5228,24 +5469,24 @@ function DispatcherFeedPanel({
           )}
         </p>
       ) : null}
-      {filters.group === "production" ? (
+      {dispatcherFeed.status === "ready" && filters.group === "production" ? (
         <ProductionReportSummaryTable
           form={productionForm}
           tables={productionTables}
           submissions={submissions}
         />
       ) : null}
-      {filters.group === "equipment" ? (
+      {dispatcherFeed.status === "ready" && filters.group === "equipment" ? (
         <EquipmentSummaryTable
           range={selectedDateRange}
           rows={equipmentRows}
           submissions={submissions}
         />
       ) : null}
-      {filters.group === "incidents" ? (
+      {dispatcherFeed.status === "ready" && filters.group === "incidents" ? (
         <IncidentSummaryTable rows={incidentRows} />
       ) : null}
-      {filters.group === "visitors" ? (
+      {dispatcherFeed.status === "ready" && filters.group === "visitors" ? (
         <VisitorSummaryTable rows={visitorRows} />
       ) : null}
     </section>
@@ -5584,7 +5825,7 @@ function ProductionBrandDashboardTable({
         <thead>
           <tr>
             <th scope="col">Дата</th>
-            <th scope="col">Факты по маркам, сутки / месяц</th>
+            <th scope="col">Марка</th>
             <th scope="col">Сутки, план</th>
             <th scope="col">Сутки, факт</th>
             <th scope="col">Месяц, план</th>
@@ -5605,12 +5846,7 @@ function ProductionBrandDashboardTable({
               <td>
                 {row.facts.length === 0
                   ? "—"
-                  : row.facts
-                      .map(
-                        (fact) =>
-                          `${fact.brand}: ${formatNumber(fact.value)} / ${formatNumber(fact.monthValue)}`,
-                      )
-                      .join("; ")}
+                  : row.facts.map((fact) => fact.brand).join("; ")}
               </td>
               <td>{formatOptionalNumber(row.dayPlan)}</td>
               <td>{formatOptionalNumber(row.dayFact)}</td>
@@ -6188,9 +6424,12 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
     status: "loading",
     message: "Загружаем действия пользователей.",
   });
+  const [isReportLoading, setIsReportLoading] = useState(true);
+  const preserveReportOnNextLoadRef = useRef(false);
 
   useEffect(() => {
     if (!canViewAudit) {
+      setIsReportLoading(false);
       setReportState({
         status: "error",
         message: "Просмотр действий пользователей недоступен.",
@@ -6199,10 +6438,17 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
     }
 
     const controller = new AbortController();
-    setReportState({
-      status: "loading",
-      message: "Загружаем действия пользователей.",
-    });
+    const shouldPreserveReport = preserveReportOnNextLoadRef.current;
+    preserveReportOnNextLoadRef.current = false;
+    setIsReportLoading(true);
+    setReportState((current) =>
+      shouldPreserveReport && current.status === "ready"
+        ? current
+        : {
+            status: "loading",
+            message: "Загружаем действия пользователей.",
+          },
+    );
 
     requestAdminAuditReport({
       actorAccountId: selectedAccountId || undefined,
@@ -6216,6 +6462,7 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
         return;
       }
 
+      setIsReportLoading(false);
       setReportState(result);
       if (result.status === "ready") {
         setKnownActors(result.actors);
@@ -6239,6 +6486,14 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
         </p>
       </section>
     );
+  }
+
+  function startReportQueryLoad() {
+    setIsReportLoading(true);
+    setReportState({
+      status: "loading",
+      message: "Загружаем действия пользователей.",
+    });
   }
 
   const report = reportState.status === "ready" ? reportState : undefined;
@@ -6266,9 +6521,11 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
         <label>
           <span>Аккаунт</span>
           <select
+            disabled={isReportLoading}
             value={selectedAccountId}
             onChange={(event) => {
               const value = event.currentTarget.value;
+              startReportQueryLoad();
               setSelectedAccountId(value);
               setOffset(0);
             }}
@@ -6287,9 +6544,11 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
         <label>
           <span>Тип действия</span>
           <select
+            disabled={isReportLoading}
             value={selectedCategory}
             onChange={(event) => {
               const value = event.currentTarget.value as "all" | AuditEventCategory;
+              startReportQueryLoad();
               setSelectedCategory(value);
               setOffset(0);
             }}
@@ -6303,9 +6562,19 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
         <button
           className="secondary-button admin-audit-refresh"
           type="button"
-          onClick={() => setRefreshVersion((version) => version + 1)}
+          disabled={isReportLoading}
+          onClick={() => {
+            preserveReportOnNextLoadRef.current = true;
+            setIsReportLoading(true);
+            setRefreshVersion((version) => version + 1);
+          }}
         >
-          Обновить
+          {isReportLoading && report !== undefined ? (
+            <LoadingIndicator
+              label="Обновляем…"
+              variant="button"
+            />
+          ) : "Обновить"}
         </button>
       </div>
 
@@ -6315,8 +6584,11 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
         </p>
       ) : null}
 
-      {reportState.status === "loading" ? (
-        <p className="dispatcher-status-line">{reportState.message}</p>
+      {isReportLoading && report === undefined ? (
+        <LoadingIndicator
+          label="Загружаем действия пользователей."
+          variant="page"
+        />
       ) : null}
       {reportState.status === "error" ? (
         <p className="dispatcher-status-line">{reportState.message}</p>
@@ -6345,8 +6617,11 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
           <button
             className="secondary-button"
             type="button"
-            disabled={offset === 0}
-            onClick={() => setOffset((current) => Math.max(0, current - adminAuditPageLimit))}
+            disabled={isReportLoading || offset === 0}
+            onClick={() => {
+              startReportQueryLoad();
+              setOffset((current) => Math.max(0, current - adminAuditPageLimit));
+            }}
           >
             Назад
           </button>
@@ -6356,8 +6631,11 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
           <button
             className="secondary-button"
             type="button"
-            disabled={!canGoForward}
-            onClick={() => setOffset((current) => current + adminAuditPageLimit)}
+            disabled={isReportLoading || !canGoForward}
+            onClick={() => {
+              startReportQueryLoad();
+              setOffset((current) => current + adminAuditPageLimit);
+            }}
           >
             Дальше
           </button>
@@ -6459,8 +6737,8 @@ function AdminAccountPreviewWorkspace({
     status: "loading",
     message: "Загружаем учётные записи.",
   });
-  const [positionsState, setPositionsState] = useState<AdminPositionsResult>({
-    status: "error",
+  const [positionsState, setPositionsState] = useState<AdminPositionsLoadState>({
+    status: "loading",
     message: "Загружаем должности.",
   });
   useEffect(() => {
@@ -6480,12 +6758,20 @@ function AdminAccountPreviewWorkspace({
       : [];
   const accountTypePreviews = positionsState.status === "ready"
     ? positionsState.positions.map(buildAdminPreviewAccountForDefinition)
-    : adminAccountPositionOptions.map(buildAdminPreviewAccountForPosition);
+    : positionsState.status === "error"
+      ? adminAccountPositionOptions.map(buildAdminPreviewAccountForPosition)
+      : [];
 
   return (
     <section className="admin-workspace" aria-label="Просмотр аккаунта">
       <div className="admin-account-preview-group">
         <h3>Типы аккаунтов</h3>
+        {positionsState.status === "loading" ? (
+          <LoadingIndicator label={positionsState.message} variant="panel" />
+        ) : null}
+        {positionsState.status === "error" ? (
+          <p className="dispatcher-status-line">{positionsState.message}</p>
+        ) : null}
         <div className="admin-account-switcher" aria-label="Типы аккаунтов">
           {accountTypePreviews.map((account) => (
             <AdminAccountPreviewButton
@@ -6500,7 +6786,9 @@ function AdminAccountPreviewWorkspace({
 
       <div className="admin-account-preview-group">
         <h3>Созданные аккаунты</h3>
-        {accountsState.status === "loading" ? <p>{accountsState.message}</p> : null}
+        {accountsState.status === "loading" ? (
+          <LoadingIndicator label={accountsState.message} variant="panel" />
+        ) : null}
         {accountsState.status === "error" ? (
           <p className="dispatcher-status-line">{accountsState.message}</p>
         ) : null}
@@ -6888,7 +7176,7 @@ function AdminDatabaseWorkspace({
       <div className="admin-db-layout">
         <div className="admin-db-sidebar" aria-label="Разделы БД">
           {tablesState.status === "loading" ? (
-            <p>{tablesState.message}</p>
+            <LoadingIndicator label={tablesState.message} variant="panel" />
           ) : null}
           {tablesState.status === "error" ? (
             <p className="dispatcher-status-line">{tablesState.message}</p>
@@ -6961,7 +7249,12 @@ function AdminDatabaseWorkspace({
                   disabled={isMutating}
                   onClick={handleConfirmDelete}
                 >
-                  Удалить
+                  {isMutating ? (
+                    <LoadingIndicator
+                      label="Удаляем…"
+                      variant="button"
+                    />
+                  ) : "Удалить"}
                 </button>
               </div>
             </div>
@@ -7107,7 +7400,12 @@ function AdminDispatcherImportPanel({
             spreadsheetUrl.trim().length === 0
           }
         >
-          {isPreviewing ? "Проверяем" : "Проверить таблицу"}
+          {isPreviewing ? (
+            <LoadingIndicator
+              label="Проверяем…"
+              variant="button"
+            />
+          ) : "Проверить таблицу"}
         </button>
       </form>
 
@@ -7171,7 +7469,12 @@ function AdminDispatcherImportPanel({
               disabled={isImporting || preview.newRecords === 0}
               onClick={handleExecuteImport}
             >
-              {isImporting ? "Переносим" : "Перенести в БД"}
+              {isImporting ? (
+                <LoadingIndicator
+                  label="Переносим…"
+                  variant="button"
+                />
+              ) : "Перенести в БД"}
             </button>
           </div>
         </div>
@@ -7201,6 +7504,10 @@ function AdminDatabaseRowsTable({
   onNextPage: () => void;
   onPreviousPage: () => void;
 }) {
+  if (rowsState.status === "loading") {
+    return <LoadingIndicator label={rowsState.message} variant="page" />;
+  }
+
   if (rowsState.status !== "ready") {
     return <p className="dispatcher-status-line">{rowsState.message}</p>;
   }
@@ -7434,7 +7741,12 @@ function AdminDatabaseMergeModal({
             disabled={isMutating || targetKey.length === 0}
             onClick={onConfirm}
           >
-            {isMutating ? "Объединяем" : "Слить марки"}
+            {isMutating ? (
+              <LoadingIndicator
+                label="Объединяем…"
+                variant="button"
+              />
+            ) : "Слить марки"}
           </button>
         </div>
       </section>
@@ -7494,7 +7806,12 @@ function AdminDatabaseClearModal({
             disabled={isMutating}
             onClick={onConfirm}
           >
-            {isMutating ? "Очищаем" : "Удалить все записи"}
+            {isMutating ? (
+              <LoadingIndicator
+                label="Очищаем…"
+                variant="button"
+              />
+            ) : "Удалить все записи"}
           </button>
         </div>
       </section>
@@ -7568,7 +7885,12 @@ function AdminDatabaseEditorModal({
               }
               onClick={onSave}
             >
-              Сохранить
+              {isMutating ? (
+                <LoadingIndicator
+                  label="Сохраняем…"
+                  variant="button"
+                />
+              ) : "Сохранить"}
             </button>
           </div>
         </div>
@@ -7801,8 +8123,8 @@ function AdminAccountsWorkspace({
     status: "loading",
     message: "Загружаем учётные записи.",
   });
-  const [positionsState, setPositionsState] = useState<AdminPositionsResult>({
-    status: "error",
+  const [positionsState, setPositionsState] = useState<AdminPositionsLoadState>({
+    status: "loading",
     message: "Загружаем должности.",
   });
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -8284,6 +8606,7 @@ function AdminAccountsWorkspace({
             aria-haspopup="dialog"
             className="primary-button"
             type="button"
+            disabled={positionsState.status !== "ready"}
             onClick={openCreateModal}
           >
             Новая учётная запись
@@ -8303,7 +8626,9 @@ function AdminAccountsWorkspace({
             {workspaceStatus}
           </p>
         ) : null}
-        {accountsState.status === "loading" ? <p>{accountsState.message}</p> : null}
+        {accountsState.status === "loading" ? (
+          <LoadingIndicator label={accountsState.message} variant="page" />
+        ) : null}
         {accountsState.status === "error" ? (
           <p className="dispatcher-status-line">{accountsState.message}</p>
         ) : null}
@@ -8400,7 +8725,12 @@ function AdminAccountsWorkspace({
                             }
                             onClick={() => handleSetAccountPosition(account)}
                           >
-                            {isUpdatingPosition ? "Сохраняем…" : "Сохранить"}
+                            {isUpdatingPosition ? (
+                              <LoadingIndicator
+                                label="Сохраняем…"
+                                variant="button"
+                              />
+                            ) : "Сохранить"}
                           </button>
                         </div>
                       </td>
@@ -8449,7 +8779,12 @@ function AdminAccountsWorkspace({
                             onClick={() => handleSetAccountLoginEnabled(account)}
                           >
                             {isUpdating
-                              ? "Сохраняем…"
+                              ? (
+                                  <LoadingIndicator
+                                    label="Сохраняем…"
+                                    variant="button"
+                                  />
+                                )
                               : isLoginEnabled
                                 ? "Отключить"
                                 : "Включить"}
@@ -8466,7 +8801,12 @@ function AdminAccountsWorkspace({
                             }
                             onClick={() => handleDeleteAccount(account)}
                           >
-                            {deletingUserId === account.userId ? "Удаляем…" : "Удалить"}
+                            {deletingUserId === account.userId ? (
+                              <LoadingIndicator
+                                label="Удаляем…"
+                                variant="button"
+                              />
+                            ) : "Удалить"}
                           </button>
                         </div>
                       </td>
@@ -8519,7 +8859,12 @@ function AdminAccountsWorkspace({
                           }
                           onClick={() => handleDeletePosition(position)}
                         >
-                          {deletingPositionId === position.id ? "Удаляем…" : "Удалить"}
+                          {deletingPositionId === position.id ? (
+                            <LoadingIndicator
+                              label="Удаляем…"
+                              variant="button"
+                            />
+                          ) : "Удалить"}
                         </button>
                       </div>
                     </td>
@@ -8528,7 +8873,11 @@ function AdminAccountsWorkspace({
               </tbody>
             </table>
           </div>
-        ) : <p className="dispatcher-status-line">{positionsState.message}</p>}
+        ) : positionsState.status === "loading" ? (
+          <LoadingIndicator label={positionsState.message} variant="panel" />
+        ) : (
+          <p className="dispatcher-status-line">{positionsState.message}</p>
+        )}
       </div>
 
       {isCreateModalOpen ? (
@@ -8640,7 +8989,12 @@ function AdminAccountsWorkspace({
                   type="submit"
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? "Создаём…" : "Создать"}
+                  {isSubmitting ? (
+                    <LoadingIndicator
+                      label="Создаём…"
+                      variant="button"
+                    />
+                  ) : "Создать"}
                 </button>
                 <button
                   className="secondary-button"
@@ -8719,7 +9073,14 @@ function AdminAccountsWorkspace({
                 )}
               </fieldset>
               <div className="form-actions">
-                <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? "Сохраняем…" : "Сохранить"}</button>
+                <button className="primary-button" type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <LoadingIndicator
+                      label="Сохраняем…"
+                      variant="button"
+                    />
+                  ) : "Сохранить"}
+                </button>
                 <button className="secondary-button" type="button" disabled={isSubmitting} onClick={() => setIsPositionModalOpen(false)}>Отмена</button>
                 {positionFormStatus ? <p className="form-status" role="status">{positionFormStatus}</p> : null}
               </div>
@@ -8819,7 +9180,12 @@ function AdminAccountsWorkspace({
                   disabled={resettingLogin !== undefined}
                 >
                   {resettingLogin !== undefined
-                    ? "Сохраняем…"
+                    ? (
+                        <LoadingIndicator
+                          label="Сохраняем…"
+                          variant="button"
+                        />
+                      )
                     : "Сохранить пароль"}
                 </button>
                 <button
@@ -8963,7 +9329,12 @@ function AdminAccountPasswordCell({
         disabled={isResetting}
         onClick={(event) => onReset(event.currentTarget)}
       >
-        {isResetting ? "Сброс…" : "Сбросить"}
+        {isResetting ? (
+          <LoadingIndicator
+            label="Сбрасываем…"
+            variant="button"
+          />
+        ) : "Сбросить"}
       </button>
     </div>
   );
