@@ -414,6 +414,11 @@ function readCategoryPlan(
   }
 
   const schedule = plan.schedules[category];
+
+  if (schedule === undefined) {
+    return {};
+  }
+
   const dayPlan = schedule.dailyPlans.find(
     (dailyPlan) => dailyPlan.date === reportDate,
   )?.value;

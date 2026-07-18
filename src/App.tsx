@@ -33,7 +33,6 @@ import {
   type ProductionBrandLabel,
   type ProductionCategory,
   type ProductionCategoryPlans,
-  type ProductionCategoryScheduleInputs,
   type ProductionGranulationRow,
   type ProductionJarMeasurementRow,
   type ProductionMetricRow,
@@ -2121,6 +2120,25 @@ const productionCategoryLabels: Record<ProductionCategory, string> = {
   chamotte: "Цех обжига шамота",
 };
 
+const productionPlanMonthLabels = [
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь",
+] as const;
+const productionPlanYearOptions = Array.from(
+  { length: 101 },
+  (_, index) => 2000 + index,
+);
+
 function createEmptyProductionPlanInputs(): Record<ProductionCategory, string> {
   return {
     forming: "",
@@ -2220,12 +2238,13 @@ function ProductionPlanWorkspace({
           allDates: presetsResult.allDates,
           weekdayDates: presetsResult.weekdayDates,
         });
-        setSelectedWorkingDates(
-          Object.fromEntries(
-            productionCategories.map((category) => [
-              category,
-              planResult.status === "ready" && planResult.plan !== undefined
-                ? planResult.plan.schedules[category].dailyPlans.map(
+      setSelectedWorkingDates(
+        Object.fromEntries(
+          productionCategories.map((category) => [
+            category,
+              planResult.status === "ready" &&
+                planResult.plan?.schedules[category] !== undefined
+                ? planResult.plan.schedules[category]!.dailyPlans.map(
                     (item) => item.date,
                   )
                 : presetsResult.weekdayDates,
@@ -2242,7 +2261,9 @@ function ProductionPlanWorkspace({
             : Object.fromEntries(
                 productionCategories.map((category) => [
                   category,
-                  String(planResult.plan!.schedules[category].monthlyPlan),
+                  planResult.plan!.schedules[category] === undefined
+                    ? ""
+                    : String(planResult.plan!.schedules[category]!.monthlyPlan),
                 ]),
               ) as Record<ProductionCategory, string>,
         );
@@ -2261,10 +2282,21 @@ function ProductionPlanWorkspace({
     return () => controller.abort();
   }, [isAdminPreviewMode, month]);
 
-  function handleMonthChange(event: ChangeEvent<HTMLInputElement>) {
-    const nextMonth = event.currentTarget.value;
+  function handleMonthPartChange(
+    part: "month" | "year",
+    event: ChangeEvent<HTMLSelectElement>,
+  ) {
+    const nextValue = Number(event.currentTarget.value);
+    const current = readProductionPlanMonthParts(month);
+    const nextMonth = part === "month"
+      ? formatProductionPlanMonthValue(current.year, nextValue)
+      : formatProductionPlanMonthValue(nextValue, current.month);
 
     setMonth(nextMonth);
+  }
+
+  function handleMonthShift(offset: -1 | 1) {
+    setMonth((current) => shiftProductionPlanMonth(current, offset));
   }
 
   function handleMonthlyPlanChange(
@@ -2280,7 +2312,7 @@ function ProductionPlanWorkspace({
     setStatus("");
   }
 
-  async function handleContinue(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const category = productionCategories[activeCategoryIndex];
     const monthlyPlan = readPositiveIntegerInput(monthlyPlanInputs[category]);
@@ -2299,13 +2331,29 @@ function ProductionPlanWorkspace({
       return;
     }
 
-    if (activeCategoryIndex < productionCategories.length - 1) {
-      setActiveCategoryIndex((current) => current + 1);
-      setStatus("");
+    setIsSaving(true);
+    setStatus("Сохраняем план.");
+    const result = await saveProductionPlan({
+      month,
+      category,
+      schedule: {
+        monthlyPlan,
+        workingDates: selectedWorkingDates[category],
+      },
+    });
+    setIsSaving(false);
+
+    if (result.status === "error") {
+      setStatus(readShortUserMessage(result.message, "Не удалось сохранить план."));
       return;
     }
 
-    await handleSave();
+    setLoadState({ status: "ready", plan: result.plan });
+    setStatus("");
+    onShowToast(
+      "План сохранён",
+      `${productionCategoryLabels[category]} · ${formatProductionPlanMonth(month)}`,
+    );
   }
 
   function handleWorkingDateChange(
@@ -2341,54 +2389,8 @@ function ProductionPlanWorkspace({
     setStatus("");
   }
 
-  async function handleSave() {
-    const monthlyPlans = readProductionCategoryPlanInputs(monthlyPlanInputs);
-
-    if (monthlyPlans === undefined) {
-      setStatus("Введите целый месячный план больше нуля для каждой категории.");
-      return;
-    }
-
-    const categoryWithoutDates = productionCategories.find(
-      (category) => selectedWorkingDates[category].length === 0,
-    );
-
-    if (categoryWithoutDates !== undefined) {
-      setStatus(
-        `Выберите хотя бы один день для категории «${productionCategoryLabels[categoryWithoutDates]}».`,
-      );
-      return;
-    }
-
-    const schedules = Object.fromEntries(
-      productionCategories.map((category) => [
-        category,
-        {
-          monthlyPlan: monthlyPlans[category],
-          workingDates: selectedWorkingDates[category],
-        },
-      ]),
-    ) as ProductionCategoryScheduleInputs;
-
-    setIsSaving(true);
-    setStatus("Сохраняем план.");
-    const result = await saveProductionPlan({
-      month,
-      schedules,
-    });
-    setIsSaving(false);
-
-    if (result.status === "error") {
-      setStatus(readShortUserMessage(result.message, "Не удалось сохранить план."));
-      return;
-    }
-
-    setLoadState({ status: "ready", plan: result.plan });
-    setStatus("План сохранён.");
-    onShowToast("План сохранён", "4 расписания сохранены.");
-  }
-
   const activeCategory = productionCategories[activeCategoryIndex];
+  const monthParts = readProductionPlanMonthParts(month);
   const monthDates = datePresets?.month === month
     ? buildProductionPlanMonthDates(month)
     : [];
@@ -2407,8 +2409,8 @@ function ProductionPlanWorkspace({
           <h2>План выработки</h2>
         </div>
         <p>
-          Заполните четыре категории по очереди. У каждой категории свой план
-          и свой календарь.
+          Выберите месяц и любую категорию. У каждой категории свой план и
+          собственное расписание.
         </p>
       </header>
 
@@ -2419,29 +2421,84 @@ function ProductionPlanWorkspace({
       ) : null}
 
       <ol className="production-plan-steps" aria-label="Категории плана">
-        {productionCategories.map((category, index) => (
-          <li
-            className={`${index === activeCategoryIndex ? "is-active" : ""} ${
-              index < activeCategoryIndex ? "is-complete" : ""
-            }`}
-            key={category}
-          >
-            <span>{index + 1}</span>
-            <strong>{productionCategoryLabels[category]}</strong>
-          </li>
-        ))}
+        {productionCategories.map((category, index) => {
+          const isSaved = loadState.status === "ready" &&
+            loadState.plan?.schedules[category] !== undefined;
+
+          return (
+            <li
+              className={`${index === activeCategoryIndex ? "is-active" : ""} ${
+                isSaved ? "is-complete" : ""
+              }`}
+              key={category}
+            >
+              <button
+                aria-pressed={index === activeCategoryIndex}
+                disabled={isSaving}
+                type="button"
+                onClick={() => {
+                  setActiveCategoryIndex(index);
+                  setStatus("");
+                }}
+              >
+                <span>{index + 1}</span>
+                <strong>{productionCategoryLabels[category]}</strong>
+              </button>
+            </li>
+          );
+        })}
       </ol>
 
-      <form className="production-plan-form" onSubmit={handleContinue}>
-        <label>
+      <form className="production-plan-form" onSubmit={handleSaveCategory}>
+        <div className="production-plan-month-field">
           <span>Месяц</span>
-          <input
-            disabled={isAdminPreviewMode || isLoadingPresets || isSaving}
-            type="month"
-            value={month}
-            onChange={handleMonthChange}
-          />
-        </label>
+          <div className="production-plan-month-picker">
+            <button
+              aria-label="Предыдущий месяц"
+              disabled={
+                isAdminPreviewMode ||
+                isSaving ||
+                (monthParts.year === 2000 && monthParts.month === 1)
+              }
+              type="button"
+              onClick={() => handleMonthShift(-1)}
+            >
+              ←
+            </button>
+            <select
+              aria-label="Месяц плана"
+              disabled={isAdminPreviewMode || isSaving}
+              value={monthParts.month}
+              onChange={(event) => handleMonthPartChange("month", event)}
+            >
+              {productionPlanMonthLabels.map((label, index) => (
+                <option key={label} value={index + 1}>{label}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Год плана"
+              disabled={isAdminPreviewMode || isSaving}
+              value={monthParts.year}
+              onChange={(event) => handleMonthPartChange("year", event)}
+            >
+              {productionPlanYearOptions.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            <button
+              aria-label="Следующий месяц"
+              disabled={
+                isAdminPreviewMode ||
+                isSaving ||
+                (monthParts.year === 2100 && monthParts.month === 12)
+              }
+              type="button"
+              onClick={() => handleMonthShift(1)}
+            >
+              →
+            </button>
+          </div>
+        </div>
         <label>
           <span>Месячный план · {productionCategoryLabels[activeCategory]}</span>
           <input
@@ -2463,7 +2520,7 @@ function ProductionPlanWorkspace({
           >
             <div className="production-plan-confirmation-head">
               <div>
-                <span>Расписание · шаг {activeCategoryIndex + 1} из 4</span>
+                <span>Расписание категории</span>
                 <strong>{activeWorkingDates.length} дней</strong>
               </div>
               <p>
@@ -2537,19 +2594,6 @@ function ProductionPlanWorkspace({
         )}
 
         <div className="production-plan-actions">
-          {activeCategoryIndex > 0 ? (
-            <button
-              className="production-plan-secondary-button"
-              disabled={isSaving}
-              type="button"
-              onClick={() => {
-                setActiveCategoryIndex((current) => current - 1);
-                setStatus("");
-              }}
-            >
-              Назад
-            </button>
-          ) : null}
           <button
             className="production-plan-primary-button"
             disabled={
@@ -2562,9 +2606,7 @@ function ProductionPlanWorkspace({
           >
             {isSaving
               ? "Сохраняем…"
-              : activeCategoryIndex === productionCategories.length - 1
-                ? "Сохранить все 4 плана"
-                : "Подтвердить и продолжить"}
+              : `Сохранить · ${productionCategoryLabels[activeCategory]}`}
           </button>
         </div>
       </form>
@@ -2586,26 +2628,41 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
   }
 
   const plan = state.plan;
+  const savedCategoryCount = productionCategories.filter(
+    (category) => plan.schedules[category] !== undefined,
+  ).length;
 
   return (
     <section className="production-plan-saved" aria-label="Сохранённый ежедневный план">
       <div className="production-plan-saved-head">
         <div>
-          <span>Сохранённый план</span>
-          <strong>4 независимых расписания</strong>
+          <span>Сохранённый план · {formatProductionPlanMonth(plan.month)}</span>
+          <strong>Сохранено {savedCategoryCount} из 4</strong>
         </div>
         <p>
           Обновлено {formatDateTime(plan.createdAt)}
         </p>
       </div>
       <dl className="production-plan-category-summary">
-        {productionCategories.map((category) => (
-          <div key={category}>
-            <dt>{productionCategoryLabels[category]}</dt>
-            <dd>{formatNumber(plan.schedules[category].monthlyPlan)}</dd>
-            <span>{plan.schedules[category].workingDayCount} дней</span>
-          </div>
-        ))}
+        {productionCategories.map((category) => {
+          const schedule = plan.schedules[category];
+
+          return (
+            <div key={category}>
+              <dt>{productionCategoryLabels[category]}</dt>
+              <dd>
+                {schedule === undefined
+                  ? "Не задан"
+                  : formatNumber(schedule.monthlyPlan)}
+              </dd>
+              <span>
+                {schedule === undefined
+                  ? "Можно заполнить отдельно"
+                  : `${schedule.workingDayCount} дней`}
+              </span>
+            </div>
+          );
+        })}
       </dl>
       <div className="production-plan-table-wrap">
         <table className="production-plan-table">
@@ -2625,11 +2682,11 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
                 <td>{formatDateOnly(date)}</td>
                 {productionCategories.map((category) => {
                   const schedule = plan.schedules[category];
-                  const dailyPlan = schedule.dailyPlans.find(
+                  const dailyPlan = schedule?.dailyPlans.find(
                     (item) => item.date === date,
                   );
                   const isRemainder = dailyPlan !== undefined &&
-                    schedule.dailyPlans.at(-1)?.date === date;
+                    schedule?.dailyPlans.at(-1)?.date === date;
 
                   return (
                     <td
@@ -9470,21 +9527,6 @@ function readPositiveIntegerInput(value: string) {
   return Number.isSafeInteger(number) && number > 0 ? number : undefined;
 }
 
-function readProductionCategoryPlanInputs(
-  inputs: Record<ProductionCategory, string>,
-): ProductionCategoryPlans | undefined {
-  const entries = productionCategories.map((category) => [
-    category,
-    readPositiveIntegerInput(inputs[category]),
-  ] as const);
-
-  if (entries.some(([, value]) => value === undefined)) {
-    return undefined;
-  }
-
-  return Object.fromEntries(entries) as ProductionCategoryPlans;
-}
-
 function areSameProductionPlanDates(left: string[], right: string[]) {
   return left.length === right.length &&
     left.every((date, index) => date === right[index]);
@@ -9494,10 +9536,56 @@ function readProductionPlanScheduleDates(plan: ProductionPlanRevision) {
   return Array.from(
     new Set(
       productionCategories.flatMap((category) =>
-        plan.schedules[category].dailyPlans.map((item) => item.date),
+        plan.schedules[category]?.dailyPlans.map((item) => item.date) ?? [],
       ),
     ),
   ).sort();
+}
+
+function readProductionPlanMonthParts(value: string) {
+  const match = /^(\d{4})-(\d{2})$/u.exec(value);
+  const year = Number(match?.[1]);
+  const month = Number(match?.[2]);
+
+  if (
+    Number.isInteger(year) &&
+    year >= 2000 &&
+    year <= 2100 &&
+    Number.isInteger(month) &&
+    month >= 1 &&
+    month <= 12
+  ) {
+    return { year, month };
+  }
+
+  const current = new Date();
+
+  return { year: current.getFullYear(), month: current.getMonth() + 1 };
+}
+
+function formatProductionPlanMonthValue(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function shiftProductionPlanMonth(value: string, offset: -1 | 1) {
+  const current = readProductionPlanMonthParts(value);
+  const minimum = 2000 * 12;
+  const maximum = 2100 * 12 + 11;
+  const shifted = Math.min(
+    maximum,
+    Math.max(minimum, current.year * 12 + current.month - 1 + offset),
+  );
+
+  return formatProductionPlanMonthValue(
+    Math.floor(shifted / 12),
+    shifted % 12 + 1,
+  );
+}
+
+function formatProductionPlanMonth(value: string) {
+  const { year, month } = readProductionPlanMonthParts(value);
+
+  return `${productionPlanMonthLabels[month - 1]} ${year}`;
 }
 
 function buildProductionPlanMonthDates(month: string) {

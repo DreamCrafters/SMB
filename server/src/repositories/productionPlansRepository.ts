@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import type {
+  ProductionCategory,
   ProductionCategoryDailyPlan,
   ProductionCategoryPlans,
-  ProductionCategorySchedules,
   ProductionPlan,
+  ProductionPlanSchedules,
 } from "../domain/productionPlan.js";
 import { productionCategories } from "../domain/productionPlan.js";
 
@@ -17,6 +18,9 @@ export type ProductionPlanRevision = ProductionPlan & {
 
 export type ProductionPlansRepository = {
   readLatest: (month: string) => Promise<ProductionPlanRevision | undefined>;
+  readLatestForUpdate: (
+    month: string,
+  ) => Promise<ProductionPlanRevision | undefined>;
   saveRevision: (input: {
     plan: ProductionPlan;
     createdByUserId: string;
@@ -45,18 +49,33 @@ export function createProductionPlansRepository(
     now = () => new Date(),
   }: ProductionPlansRepositoryOptions = {},
 ): ProductionPlansRepository {
-  async function readLatest(month: string) {
+  async function readLatestRevision(month: string) {
     const [rows] = await pool.query<ProductionPlanRevisionRow[]>(`
       select id, plan_month, monthly_plans, working_dates, category_daily_plans,
         created_by_user_id, created_at
       from production_plan_revisions
       where plan_month = ? and monthly_plans is not null
-      order by created_at desc, id desc
+      order by revision_sequence desc
       limit 1
     `, [month]);
     const row = rows[0];
 
     return row === undefined ? undefined : mapProductionPlanRevision(row);
+  }
+
+  function readLatest(month: string) {
+    return readLatestRevision(month);
+  }
+
+  async function readLatestForUpdate(month: string) {
+    await pool.query(
+      `insert into production_plan_month_locks (plan_month)
+        values (?)
+        on duplicate key update plan_month = values(plan_month)`,
+      [month],
+    );
+
+    return readLatestRevision(month);
   }
 
   async function saveRevision(input: {
@@ -69,11 +88,13 @@ export function createProductionPlansRepository(
       createdByUserId: input.createdByUserId,
       createdAt: now().toISOString(),
     };
-    const monthlyPlans = mapCategoryValues(
-      (category) => revision.schedules[category].monthlyPlan,
+    const monthlyPlans = mapStoredSchedules(
+      revision.schedules,
+      (schedule) => schedule.monthlyPlan,
     );
-    const storedDailyPlans = mapCategoryValues(
-      (category) => revision.schedules[category].dailyPlans,
+    const storedDailyPlans = mapStoredSchedules(
+      revision.schedules,
+      (schedule) => schedule.dailyPlans,
     );
     const workingDates = readScheduleDateUnion(revision.schedules);
 
@@ -95,7 +116,7 @@ export function createProductionPlansRepository(
     return revision;
   }
 
-  return { readLatest, saveRevision };
+  return { readLatest, readLatestForUpdate, saveRevision };
 }
 
 function mapProductionPlanRevision(
@@ -123,11 +144,15 @@ function mapProductionPlanRevision(
 
 function readCategorySchedules(
   value: unknown,
-  monthlyPlans: ProductionCategoryPlans,
-): ProductionCategorySchedules {
+  monthlyPlans: Partial<ProductionCategoryPlans>,
+): ProductionPlanSchedules {
   const parsed = readJson(value);
 
   if (isLegacyDailyPlans(parsed)) {
+    if (!isCompleteCategoryPlans(monthlyPlans)) {
+      throw new Error("Stored production plan category values are invalid.");
+    }
+
     return mapCategoryValues((category) => ({
       monthlyPlan: monthlyPlans[category],
       workingDayCount: parsed.length,
@@ -140,24 +165,27 @@ function readCategorySchedules(
 
   if (
     !isRecord(parsed) ||
-    Object.keys(parsed).length !== productionCategories.length
+    !hasValidStoredCategoryKeys(parsed) ||
+    !arraysEqual(Object.keys(parsed).sort(), Object.keys(monthlyPlans).sort())
   ) {
     throw new Error("Stored production plan daily values are invalid.");
   }
 
-  return mapCategoryValues((category) => {
+  return Object.fromEntries(Object.keys(parsed).map((category) => {
+    const typedCategory = category as (typeof productionCategories)[number];
     const dailyPlans = parsed[category];
+    const monthlyPlan = monthlyPlans[typedCategory];
 
-    if (!isCategoryDailyPlans(dailyPlans)) {
+    if (!isCategoryDailyPlans(dailyPlans) || monthlyPlan === undefined) {
       throw new Error("Stored production plan daily values are invalid.");
     }
 
-    return {
-      monthlyPlan: monthlyPlans[category],
+    return [typedCategory, {
+      monthlyPlan,
       workingDayCount: dailyPlans.length,
       dailyPlans,
-    };
-  });
+    }];
+  })) as ProductionPlanSchedules;
 }
 
 function readStringArray(value: unknown) {
@@ -182,7 +210,7 @@ function isLegacyDailyPlans(value: unknown): value is LegacyProductionDailyPlan[
       (item) =>
         isRecord(item) &&
         typeof item.date === "string" &&
-        isCategoryPlans(item.values),
+        isCompleteCategoryPlans(item.values),
     )
   );
 }
@@ -204,34 +232,67 @@ function isCategoryDailyPlans(
   );
 }
 
-function readCategoryPlans(value: unknown): ProductionCategoryPlans {
+function readCategoryPlans(value: unknown): Partial<ProductionCategoryPlans> {
   const parsed = readJson(value);
 
-  if (!isCategoryPlans(parsed)) {
+  if (!isStoredCategoryPlans(parsed)) {
     throw new Error("Stored production plan category values are invalid.");
   }
 
-  return parsed;
+  return parsed as Partial<ProductionCategoryPlans>;
 }
 
-function isCategoryPlans(value: unknown): value is ProductionCategoryPlans {
+function isCompleteCategoryPlans(value: unknown): value is ProductionCategoryPlans {
   return (
-    isRecord(value) &&
-    productionCategories.every((category) => {
-      const plan = value[category];
-      return typeof plan === "number" && Number.isSafeInteger(plan) && plan > 0;
-    })
+    isStoredCategoryPlans(value) &&
+    Object.keys(value).length === productionCategories.length
   );
 }
 
-function readScheduleDateUnion(schedules: ProductionCategorySchedules) {
+function isStoredCategoryPlans(
+  value: unknown,
+): value is Partial<ProductionCategoryPlans> {
+  if (!isRecord(value) || !hasValidStoredCategoryKeys(value)) {
+    return false;
+  }
+
+  return Object.values(value).every(
+    (plan) => typeof plan === "number" && Number.isSafeInteger(plan) && plan > 0,
+  );
+}
+
+function readScheduleDateUnion(schedules: ProductionPlanSchedules) {
   return Array.from(
     new Set(
       productionCategories.flatMap((category) =>
-        schedules[category].dailyPlans.map((item) => item.date),
+        schedules[category]?.dailyPlans.map((item) => item.date) ?? [],
       ),
     ),
   ).sort();
+}
+
+function mapStoredSchedules<Value>(
+  schedules: ProductionPlanSchedules,
+  readValue: (schedule: NonNullable<ProductionPlanSchedules[ProductionCategory]>) => Value,
+) {
+  return Object.fromEntries(
+    productionCategories.flatMap((category) => {
+      const schedule = schedules[category];
+
+      return schedule === undefined ? [] : [[category, readValue(schedule)]];
+    }),
+  ) as Partial<Record<ProductionCategory, Value>>;
+}
+
+function hasValidStoredCategoryKeys(value: Record<string, unknown>) {
+  const categories = Object.keys(value);
+
+  return (
+    categories.length > 0 &&
+    categories.every((category) =>
+      productionCategories.includes(category as ProductionCategory),
+    )
+  );
 }
 
 function mapCategoryValues<Value>(

@@ -42,9 +42,11 @@ export type ProductionCategorySchedules = Record<
   ProductionCategorySchedule
 >;
 
+export type ProductionPlanSchedules = Partial<ProductionCategorySchedules>;
+
 export type ProductionPlan = {
   month: string;
-  schedules: ProductionCategorySchedules;
+  schedules: ProductionPlanSchedules;
 };
 
 export type ProductionPlanDatePresets = {
@@ -54,6 +56,14 @@ export type ProductionPlanDatePresets = {
 
 export type BuildProductionPlanResult =
   | { ok: true; plan: ProductionPlan }
+  | { ok: false; errors: string[] };
+
+export type BuildProductionCategoryPlanResult =
+  | {
+      ok: true;
+      category: ProductionCategory;
+      schedule: ProductionCategorySchedule;
+    }
   | { ok: false; errors: string[] };
 
 export function buildProductionPlanDatePresets(
@@ -100,73 +110,17 @@ export function buildProductionPlan(input: {
   const schedules = {} as ProductionCategorySchedules;
 
   for (const category of productionCategories) {
-    const inputSchedule = input.schedules?.[category];
-    const monthlyPlan = inputSchedule?.monthlyPlan;
+    const result = buildProductionCategorySchedule(
+      input.month,
+      category,
+      input.schedules?.[category],
+    );
 
-    if (!Number.isSafeInteger(monthlyPlan) || monthlyPlan <= 0) {
-      return {
-        ok: false,
-        errors: [
-          `Укажите целый положительный месячный план для категории «${productionCategoryLabels[category]}».`,
-        ],
-      };
+    if (!result.ok) {
+      return result;
     }
 
-    const workingDates = inputSchedule.workingDates;
-
-    if (workingDates.length === 0) {
-      return {
-        ok: false,
-        errors: [
-          `Выберите хотя бы один рабочий день для категории «${productionCategoryLabels[category]}».`,
-        ],
-      };
-    }
-
-    if (new Set(workingDates).size !== workingDates.length) {
-      return {
-        ok: false,
-        errors: [
-          `Рабочие дни категории «${productionCategoryLabels[category]}» не должны повторяться.`,
-        ],
-      };
-    }
-
-    if (
-      workingDates.length > 31 ||
-      workingDates.some(
-        (date) => !isCalendarDate(date) || date.slice(0, 7) !== input.month,
-      )
-    ) {
-      return {
-        ok: false,
-        errors: [
-          `Все рабочие дни категории «${productionCategoryLabels[category]}» должны относиться к выбранному месяцу.`,
-        ],
-      };
-    }
-
-    const orderedDates = [...workingDates].sort();
-    const regularPlan = Math.ceil(monthlyPlan / orderedDates.length);
-    const finalPlan = monthlyPlan - regularPlan * (orderedDates.length - 1);
-
-    if (finalPlan < 0) {
-      return {
-        ok: false,
-        errors: [
-          `Месячный план категории «${productionCategoryLabels[category]}» слишком мал для выбранного количества рабочих дней.`,
-        ],
-      };
-    }
-
-    schedules[category] = {
-      monthlyPlan,
-      workingDayCount: orderedDates.length,
-      dailyPlans: orderedDates.map((date, index) => ({
-        date,
-        value: index === orderedDates.length - 1 ? finalPlan : regularPlan,
-      })),
-    };
+    schedules[category] = result.schedule;
   }
 
   return {
@@ -174,6 +128,105 @@ export function buildProductionPlan(input: {
     plan: {
       month: input.month,
       schedules,
+    },
+  };
+}
+
+export function buildProductionCategoryPlan(input: {
+  month: string;
+  category: ProductionCategory;
+  schedule: ProductionCategoryScheduleInput;
+}): BuildProductionCategoryPlanResult {
+  if (parseMonth(input.month) === undefined) {
+    return { ok: false, errors: ["Укажите месяц в формате ГГГГ-ММ."] };
+  }
+
+  const result = buildProductionCategorySchedule(
+    input.month,
+    input.category,
+    input.schedule,
+  );
+
+  return result.ok
+    ? { ok: true, category: input.category, schedule: result.schedule }
+    : result;
+}
+
+function buildProductionCategorySchedule(
+  month: string,
+  category: ProductionCategory,
+  inputSchedule: ProductionCategoryScheduleInput | undefined,
+): { ok: true; schedule: ProductionCategorySchedule } | { ok: false; errors: string[] } {
+  if (
+    inputSchedule === undefined ||
+    !Number.isSafeInteger(inputSchedule.monthlyPlan) ||
+    inputSchedule.monthlyPlan <= 0
+  ) {
+    return {
+      ok: false,
+      errors: [
+        `Укажите целый положительный месячный план для категории «${productionCategoryLabels[category]}».`,
+      ],
+    };
+  }
+
+  const monthlyPlan = inputSchedule.monthlyPlan;
+  const workingDates = inputSchedule.workingDates;
+
+  if (workingDates.length === 0) {
+    return {
+      ok: false,
+      errors: [
+        `Выберите хотя бы один рабочий день для категории «${productionCategoryLabels[category]}».`,
+      ],
+    };
+  }
+
+  if (new Set(workingDates).size !== workingDates.length) {
+    return {
+      ok: false,
+      errors: [
+        `Рабочие дни категории «${productionCategoryLabels[category]}» не должны повторяться.`,
+      ],
+    };
+  }
+
+  if (
+    workingDates.length > 31 ||
+    workingDates.some(
+      (date) => !isCalendarDate(date) || date.slice(0, 7) !== month,
+    )
+  ) {
+    return {
+      ok: false,
+      errors: [
+        `Все рабочие дни категории «${productionCategoryLabels[category]}» должны относиться к выбранному месяцу.`,
+      ],
+    };
+  }
+
+  const orderedDates = [...workingDates].sort();
+  const regularPlan = Math.ceil(monthlyPlan / orderedDates.length);
+  const finalPlan = monthlyPlan - regularPlan * (orderedDates.length - 1);
+
+  if (finalPlan < 0) {
+    return {
+      ok: false,
+      errors: [
+        `Месячный план категории «${productionCategoryLabels[category]}» слишком мал для выбранного количества рабочих дней.`,
+      ],
+    };
+  }
+
+  return {
+    ok: true,
+    schedule: {
+      monthlyPlan,
+      workingDayCount: orderedDates.length,
+      dailyPlans: orderedDates.map((date, index) => ({
+        date,
+        value: index === orderedDates.length - 1 ? finalPlan : regularPlan,
+      })),
     },
   };
 }

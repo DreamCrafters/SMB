@@ -89,7 +89,8 @@ test("production plan service previews, saves and reads server-owned plans", asy
   const saved = await saveProductionPlan(
     {
       month: "2026-07",
-      schedules: scheduleInputs,
+      category: "forming",
+      schedule: scheduleInputs.forming,
     },
     { baseUrl: "http://api.test" },
   );
@@ -114,6 +115,11 @@ test("production plan service previews, saves and reads server-owned plans", asy
   });
   assert.equal(calls[0].url, "http://api.test/api/production-plans/preview");
   assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    month: "2026-07",
+    category: "forming",
+    schedule: scheduleInputs.forming,
+  });
   assert.equal(calls[2].url, "http://api.test/api/production-plans?month=2026-07");
   assert.equal(
     calls[3].url,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildProductionCategoryPlan,
   buildProductionPlan,
   buildProductionPlanDatePresets,
 } from "./productionPlan.js";
@@ -13,6 +14,31 @@ test("buildProductionPlanDatePresets offers all dates and Monday through Friday"
   assert.equal(presets.allDates.at(-1), "2026-07-31");
   assert.equal(presets.weekdayDates.length, 23);
   assert.equal(presets.weekdayDates.includes("2026-07-04"), false);
+});
+
+test("buildProductionCategoryPlan validates and distributes one selected category", () => {
+  const result = buildProductionCategoryPlan({
+    month: "2026-07",
+    category: "forming",
+    schedule: {
+      monthlyPlan: 100,
+      workingDates: ["2026-07-03", "2026-07-01", "2026-07-02"],
+    },
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    category: "forming",
+    schedule: {
+      monthlyPlan: 100,
+      workingDayCount: 3,
+      dailyPlans: [
+        { date: "2026-07-01", value: 34 },
+        { date: "2026-07-02", value: 34 },
+        { date: "2026-07-03", value: 32 },
+      ],
+    },
+  });
 });
 
 test("buildProductionPlan distributes every category over its own confirmed dates", () => {

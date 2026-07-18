@@ -218,11 +218,18 @@ function isProductionPlanRevision(value: unknown): value is ProductionPlanRevisi
 }
 
 function isProductionCategorySchedules(value: unknown) {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const categories = Object.keys(value);
+
   return (
-    isRecord(value) &&
-    Object.keys(value).length === productionCategories.length &&
-    productionCategories.every((category) =>
-      isProductionCategorySchedule(value[category]),
+    categories.length > 0 &&
+    categories.every(
+      (category) =>
+        productionCategories.includes(category as (typeof productionCategories)[number]) &&
+        isProductionCategorySchedule(value[category]),
     )
   );
 }

@@ -84,6 +84,70 @@ test("production plans repository appends independent category schedules", async
   assert.deepEqual(latest, saved);
 });
 
+test("production plans repository stores a month while only some categories are configured", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const partialPlan: ProductionPlan = {
+    month: "2026-08",
+    schedules: {
+      forming: {
+        monthlyPlan: 90,
+        workingDayCount: 2,
+        dailyPlans: [
+          { date: "2026-08-03", value: 45 },
+          { date: "2026-08-04", value: 45 },
+        ],
+      },
+    },
+  };
+  const pool = buildPool(queries, {
+    id: "partial-revision",
+    plan_month: "2026-08",
+    monthly_plans: JSON.stringify({ forming: 90 }),
+    working_dates: JSON.stringify(["2026-08-03", "2026-08-04"]),
+    category_daily_plans: JSON.stringify({
+      forming: [
+        { date: "2026-08-03", value: 45 },
+        { date: "2026-08-04", value: 45 },
+      ],
+    }),
+    created_by_user_id: "economist-user",
+    created_at: "2026-07-18T10:00:00.000Z",
+  });
+  const repository = createProductionPlansRepository(pool, {
+    createId: () => "partial-revision",
+    now: () => new Date("2026-07-18T10:00:00.000Z"),
+  });
+
+  const saved = await repository.saveRevision({
+    plan: partialPlan,
+    createdByUserId: "economist-user",
+  });
+  const latest = await repository.readLatestForUpdate("2026-08");
+
+  assert.deepEqual(queries[0]?.parameters, [
+    "partial-revision",
+    "2026-08",
+    JSON.stringify({ forming: 90 }),
+    JSON.stringify(["2026-08-03", "2026-08-04"]),
+    JSON.stringify({
+      forming: [
+        { date: "2026-08-03", value: 45 },
+        { date: "2026-08-04", value: 45 },
+      ],
+    }),
+    "economist-user",
+  ]);
+  assert.match(
+    queries[1]?.sql ?? "",
+    /insert into production_plan_month_locks .* on duplicate key update/u,
+  );
+  assert.match(
+    queries[2]?.sql ?? "",
+    /order by revision_sequence desc limit 1$/u,
+  );
+  assert.deepEqual(latest, saved);
+});
+
 test("production plans repository reads legacy revisions with one shared calendar", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const pool = buildPool(queries, {
@@ -121,8 +185,8 @@ test("production plans repository reads legacy revisions with one shared calenda
 
   const latest = await repository.readLatest("2026-07");
 
-  assert.equal(latest?.schedules.forming.workingDayCount, 3);
-  assert.deepEqual(latest?.schedules.chamotte.dailyPlans, [
+  assert.equal(latest?.schedules.forming?.workingDayCount, 3);
+  assert.deepEqual(latest?.schedules.chamotte?.dailyPlans, [
     { date: "2026-07-01", value: 7 },
     { date: "2026-07-02", value: 7 },
     { date: "2026-07-03", value: 6 },

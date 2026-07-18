@@ -69,8 +69,9 @@ test(
     );
     assert.match(
       stylesSource,
-      /\.toast-viewport\s*\{[\s\S]*?position:\s*fixed;/,
+      /\.toast-viewport\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*var\(--density-4\);[^}]*right:\s*var\(--density-4\);/,
     );
+    assert.doesNotMatch(stylesSource, /\.toast-viewport\s*\{[^}]*top:/);
     assert.match(
       appSource,
       /setAccountsState\(\(current\) =>\s*current\.status === "ready"\s*\? current\s*:/,

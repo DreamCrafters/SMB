@@ -849,6 +849,27 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "020_production_plan_month_locks",
+    statements: [
+      `
+      alter table production_plan_revisions
+        add column revision_sequence bigint unsigned not null auto_increment,
+        add unique key uq_production_plan_revisions_sequence (
+          revision_sequence
+        ),
+        add key idx_production_plan_revisions_month_sequence (
+          plan_month,
+          revision_sequence
+        );
+      `,
+      `
+      create table if not exists production_plan_month_locks (
+        plan_month char(7) not null primary key
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

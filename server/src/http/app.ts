@@ -36,11 +36,12 @@ import { applyIncidentStateRules } from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import { buildProductionReportTables } from "../domain/productionReportTables.js";
 import {
-  buildProductionPlan,
+  buildProductionCategoryPlan,
   buildProductionPlanDatePresets,
   productionCategories,
   productionCategoryLabels,
-  type ProductionCategoryScheduleInputs,
+  type ProductionCategory,
+  type ProductionCategoryScheduleInput,
 } from "../domain/productionPlan.js";
 import {
   normalizeProductionBrandLabelInput,
@@ -1110,7 +1111,13 @@ async function handleProductionPlansRequest({
     const values = revision === undefined
       ? []
       : productionCategories.flatMap((category) => {
-          const dailyPlan = revision.schedules[category].dailyPlans.find(
+          const schedule = revision.schedules[category];
+
+          if (schedule === undefined) {
+            return [];
+          }
+
+          const dailyPlan = schedule.dailyPlans.find(
             (item) => item.date === date,
           );
 
@@ -1233,7 +1240,7 @@ async function handleProductionPlansRequest({
     return;
   }
 
-  const planValidation = buildProductionPlan(validation.value);
+  const planValidation = buildProductionCategoryPlan(validation.value);
 
   if (!planValidation.ok) {
     sendJson(res, 400, {
@@ -1248,37 +1255,47 @@ async function handleProductionPlansRequest({
   const revision = await runAuditedMutation({
     transaction: databaseTransaction,
     audit,
-    mutate: () => productionPlans.saveRevision({
-      plan: planValidation.plan,
-      createdByUserId: access.profile.userId,
-    }),
+    mutate: async () => {
+      const current = await productionPlans.readLatestForUpdate(
+        validation.value.month,
+      );
+
+      return productionPlans.saveRevision({
+        plan: {
+          month: validation.value.month,
+          schedules: {
+            ...current?.schedules,
+            [planValidation.category]: planValidation.schedule,
+          },
+        },
+        createdByUserId: access.profile.userId,
+      });
+    },
     buildEvent: (saved) => ({
       actor: buildAuditActor(access.profile),
       category: "data_change",
       action: "production_plan.save",
-      summary: `Сохранён план выработки за ${saved.month}`,
+      summary: `Сохранён план «${productionCategoryLabels[planValidation.category]}» за ${saved.month}`,
       details: [
         { label: "Месяц", value: saved.month },
-        ...productionCategories.flatMap((category) => {
-          const schedule = saved.schedules[category];
-
-          return [
-            {
-              label: `Месячный план — ${productionCategoryLabels[category]}`,
-              value: String(schedule.monthlyPlan),
-            },
-            {
-              label: `Рабочих дней — ${productionCategoryLabels[category]}`,
-              value: String(schedule.workingDayCount),
-            },
-            {
-              label: `Ежедневный план — ${productionCategoryLabels[category]}`,
-              value: schedule.dailyPlans
-                .map((item) => `${item.date}: ${item.value}`)
-                .join(", "),
-            },
-          ];
-        }),
+        {
+          label: "Категория",
+          value: productionCategoryLabels[planValidation.category],
+        },
+        {
+          label: "Месячный план",
+          value: String(planValidation.schedule.monthlyPlan),
+        },
+        {
+          label: "Рабочих дней",
+          value: String(planValidation.schedule.workingDayCount),
+        },
+        {
+          label: "Ежедневный план",
+          value: planValidation.schedule.dailyPlans
+            .map((item) => `${item.date}: ${item.value}`)
+            .join(", "),
+        },
       ],
       targetType: "production_plan",
       targetId: saved.revisionId,
@@ -1325,7 +1342,8 @@ type ProductionPlanSaveInputResult =
       ok: true;
       value: {
         month: string;
-        schedules: ProductionCategoryScheduleInputs;
+        category: ProductionCategory;
+        schedule: ProductionCategoryScheduleInput;
       };
     }
   | { ok: false; errors: string[] };
@@ -1338,18 +1356,23 @@ function readProductionPlanSaveInput(
   }
 
   const unknownFields = Object.keys(value).filter(
-    (key) => key !== "month" && key !== "schedules",
+    (key) => key !== "month" && key !== "category" && key !== "schedule",
   );
 
   if (unknownFields.length > 0) {
     return { ok: false, errors: ["Запрос содержит неизвестные поля."] };
   }
 
-  const schedules = readProductionCategoryScheduleInputs(value.schedules);
+  const category = typeof value.category === "string" &&
+    productionCategories.includes(value.category as ProductionCategory)
+    ? value.category as ProductionCategory
+    : undefined;
+  const schedule = readProductionCategoryScheduleInput(value.schedule);
 
   if (
     typeof value.month !== "string" ||
-    schedules === undefined
+    category === undefined ||
+    schedule === undefined
   ) {
     return { ok: false, errors: ["Проверьте месяц, планы и рабочие дни."] };
   }
@@ -1358,48 +1381,33 @@ function readProductionPlanSaveInput(
     ok: true,
     value: {
       month: value.month,
-      schedules,
+      category,
+      schedule,
     },
   };
 }
 
-function readProductionCategoryScheduleInputs(
+function readProductionCategoryScheduleInput(
   value: unknown,
-): ProductionCategoryScheduleInputs | undefined {
+): ProductionCategoryScheduleInput | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
 
-  const keys = Object.keys(value);
-
   if (
-    keys.length !== productionCategories.length ||
-    !productionCategories.every((category) => {
-      const schedule = value[category];
-
-      return (
-        isRecord(schedule) &&
-        Object.keys(schedule).length === 2 &&
-        typeof schedule.monthlyPlan === "number" &&
-        Number.isSafeInteger(schedule.monthlyPlan) &&
-        Array.isArray(schedule.workingDates) &&
-        schedule.workingDates.every((date) => typeof date === "string")
-      );
-    })
+    Object.keys(value).length !== 2 ||
+    typeof value.monthlyPlan !== "number" ||
+    !Number.isSafeInteger(value.monthlyPlan) ||
+    !Array.isArray(value.workingDates) ||
+    !value.workingDates.every((date) => typeof date === "string")
   ) {
     return undefined;
   }
 
-  return Object.fromEntries(
-    productionCategories.map((category) => {
-      const schedule = value[category] as Record<string, unknown>;
-
-      return [category, {
-        monthlyPlan: schedule.monthlyPlan as number,
-        workingDates: schedule.workingDates as string[],
-      }];
-    }),
-  ) as ProductionCategoryScheduleInputs;
+  return {
+    monthlyPlan: value.monthlyPlan,
+    workingDates: value.workingDates,
+  };
 }
 
 function buildSafeAuditDetails(values: Record<string, AdminDatabaseCellValue>) {

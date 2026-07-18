@@ -1580,7 +1580,7 @@ p {
 
 .toast-viewport {
   position: fixed;
-  top: var(--density-4);
+  bottom: var(--density-4);
   right: var(--density-4);
   z-index: 90;
   display: flex;
@@ -3686,19 +3686,27 @@ p {
 }
 
 .production-plan-steps li {
+  min-width: 0;
+}
+
+.production-plan-steps li > button {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
+  width: 100%;
   min-height: 50px;
   padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--muted);
   background: var(--surface-subtle);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.production-plan-steps li > span {
+.production-plan-steps li > button > span {
   display: grid;
   width: 28px;
   height: 28px;
@@ -3718,17 +3726,32 @@ p {
   text-transform: uppercase;
 }
 
-.production-plan-steps li.is-active,
-.production-plan-steps li.is-complete {
+.production-plan-steps li.is-active > button,
+.production-plan-steps li.is-complete > button {
   border-color: var(--blue-gray);
   color: var(--nav-strong);
   background: color-mix(in srgb, var(--blue-gray) 9%, var(--surface));
 }
 
-.production-plan-steps li.is-active > span,
-.production-plan-steps li.is-complete > span {
+.production-plan-steps li.is-active > button > span,
+.production-plan-steps li.is-complete > button > span {
   color: #fff;
   background: var(--nav-strong);
+}
+
+.production-plan-steps li > button:hover:not(:disabled),
+.production-plan-steps li > button:focus-visible {
+  border-color: var(--nav-strong);
+}
+
+.production-plan-steps li > button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--blue-gray) 24%, transparent);
+  outline-offset: 2px;
+}
+
+.production-plan-steps li > button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .production-plan-header,
@@ -3798,12 +3821,14 @@ p {
   background: var(--surface-subtle);
 }
 
-.production-plan-form > label {
+.production-plan-form > label,
+.production-plan-month-field {
   display: grid;
   gap: 7px;
 }
 
-.production-plan-form > label > span {
+.production-plan-form > label > span,
+.production-plan-month-field > span {
   color: var(--muted);
   font-size: 11px;
   font-weight: 900;
@@ -3822,10 +3847,53 @@ p {
   font-weight: 750;
 }
 
+.production-plan-month-picker {
+  display: grid;
+  grid-template-columns: 42px minmax(140px, 1fr) minmax(92px, 0.55fr) 42px;
+  gap: 7px;
+}
+
+.production-plan-month-picker select,
+.production-plan-month-picker button {
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-weight: 800;
+}
+
+.production-plan-month-picker select {
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.production-plan-month-picker button {
+  padding: 0;
+  color: var(--nav-strong);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.production-plan-month-picker button:hover:not(:disabled) {
+  border-color: var(--nav-strong);
+  background: color-mix(in srgb, var(--blue-gray) 9%, var(--surface));
+}
+
+.production-plan-month-picker select:focus-visible,
+.production-plan-month-picker button:focus-visible,
 .production-plan-form > label > input:focus-visible,
 .production-plan-day:has(input:focus-visible) {
   outline: 3px solid color-mix(in srgb, var(--blue-gray) 24%, transparent);
   outline-offset: 2px;
+}
+
+.production-plan-month-picker select:disabled,
+.production-plan-month-picker button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .production-plan-primary-button {
@@ -4120,5 +4188,9 @@ p {
 
   .production-plan-actions .production-plan-primary-button {
     min-width: 0;
+  }
+
+  .production-plan-month-picker {
+    grid-template-columns: 42px minmax(0, 1fr) minmax(88px, 0.65fr) 42px;
   }
 }

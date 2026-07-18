@@ -35,6 +35,8 @@ export type ProductionCategorySchedules = Record<
   ProductionCategorySchedule
 >;
 
+export type ProductionPlanSchedules = Partial<ProductionCategorySchedules>;
+
 export type ProductionDailyPlan = {
   date: string;
   values: Partial<ProductionCategoryPlans>;
@@ -43,7 +45,7 @@ export type ProductionDailyPlan = {
 export type ProductionPlanRevision = {
   revisionId: string;
   month: string;
-  schedules: ProductionCategorySchedules;
+  schedules: ProductionPlanSchedules;
   createdByUserId: string;
   createdAt: string;
 };
@@ -59,7 +61,8 @@ export type ProductionPlanPreviewResponse = ProductionPlanPreviewRequest & {
 
 export type SaveProductionPlanRequest = {
   month: string;
-  schedules: ProductionCategoryScheduleInputs;
+  category: ProductionCategory;
+  schedule: ProductionCategoryScheduleInput;
 };
 
 export type ProductionPlanResponse = {

@@ -2502,9 +2502,14 @@ test("production API lets owner read feed but not submit dispatcher forms", asyn
 test("production plan API saves independent category schedules with audit", async () => {
   const profile = buildProductionProfile("business_owner");
   let latest: ProductionPlanRevision | undefined;
+  let insideTransaction = false;
   const recorded: Parameters<AuditRepository["record"]>[0][] = [];
   const productionPlans: ProductionPlansRepository = {
     async readLatest(month) {
+      return latest?.month === month ? latest : undefined;
+    },
+    async readLatestForUpdate(month) {
+      assert.equal(insideTransaction, true);
       return latest?.month === month ? latest : undefined;
     },
     async saveRevision(input) {
@@ -2519,7 +2524,13 @@ test("production plan API saves independent category schedules with audit", asyn
   };
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
-      return operation();
+      insideTransaction = true;
+
+      try {
+        return await operation();
+      } finally {
+        insideTransaction = false;
+      }
     },
   };
   const server = createApiServer({
@@ -2583,23 +2594,10 @@ test("production plan API saves independent category schedules with audit", asyn
       headers,
       body: JSON.stringify({
         month: "2026-07",
-        schedules: {
-          forming: {
-            monthlyPlan: 1_000,
-            workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
-          },
-          sorting: {
-            monthlyPlan: 800,
-            workingDates: ["2026-07-01", "2026-07-02"],
-          },
-          unformed: {
-            monthlyPlan: 500,
-            workingDates: ["2026-07-04"],
-          },
-          chamotte: {
-            monthlyPlan: 200,
-            workingDates: ["2026-07-02", "2026-07-04"],
-          },
+        category: "forming",
+        schedule: {
+          monthlyPlan: 1_000,
+          workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
         },
       }),
     });
@@ -2607,17 +2605,64 @@ test("production plan API saves independent category schedules with audit", asyn
     assert.equal(saveResponse.status, 201);
     assert.deepEqual(
       isRecord(saved) && isRecord(saved.plan) && isRecord(saved.plan.schedules)
-        ? saved.plan.schedules.chamotte
+        ? saved.plan.schedules.forming
         : undefined,
       {
-        monthlyPlan: 200,
-        workingDayCount: 2,
+        monthlyPlan: 1_000,
+        workingDayCount: 3,
         dailyPlans: [
-          { date: "2026-07-02", value: 100 },
-          { date: "2026-07-04", value: 100 },
+          { date: "2026-07-01", value: 334 },
+          { date: "2026-07-02", value: 334 },
+          { date: "2026-07-03", value: 332 },
         ],
       },
     );
+
+    const partialDailyResponse = await fetch(
+      `${baseUrl}/api/production-plans/daily?date=2026-07-01`,
+      { headers },
+    );
+    const partialDaily = await partialDailyResponse.json();
+
+    assert.equal(partialDailyResponse.status, 200);
+    assert.deepEqual(isRecord(partialDaily) ? partialDaily.plan : undefined, {
+      date: "2026-07-01",
+      values: { forming: 334 },
+    });
+
+    for (const [category, schedule] of Object.entries({
+      sorting: {
+        monthlyPlan: 800,
+        workingDates: ["2026-07-01", "2026-07-02"],
+      },
+      unformed: {
+        monthlyPlan: 500,
+        workingDates: ["2026-07-04"],
+      },
+      chamotte: {
+        monthlyPlan: 200,
+        workingDates: ["2026-07-02", "2026-07-04"],
+      },
+    })) {
+      const categoryResponse = await fetch(`${baseUrl}/api/production-plans`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ month: "2026-07", category, schedule }),
+      });
+      const categoryResult = await categoryResponse.json();
+
+      assert.equal(categoryResponse.status, 201);
+      assert.equal(
+        isRecord(categoryResult) &&
+          isRecord(categoryResult.plan) &&
+          isRecord(categoryResult.plan.schedules) &&
+          isRecord(categoryResult.plan.schedules.forming)
+          ? categoryResult.plan.schedules.forming.monthlyPlan
+          : undefined,
+        1_000,
+      );
+    }
+
     assert.equal(latest?.createdByUserId, profile.userId);
     assert.equal(recorded.at(-1)?.action, "production_plan.save");
 
