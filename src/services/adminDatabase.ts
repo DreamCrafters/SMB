@@ -195,6 +195,29 @@ export async function deleteAdminDatabaseRow(
   );
 }
 
+export async function mergeAdminDatabaseRows(
+  tableName: string,
+  value: {
+    sourcePrimaryKey: Record<string, AdminDatabaseCellValue>;
+    targetPrimaryKey: Record<string, AdminDatabaseCellValue>;
+  },
+  { baseUrl, signal }: AdminDatabaseRequestOptions = {},
+): Promise<AdminDatabaseMutationResult> {
+  return mutateAdminDatabaseRow(
+    "POST",
+    tableName,
+    value,
+    { baseUrl, signal },
+    {
+      endpointSuffix: "/merge",
+      rejectedMessage: "Сервер отклонил слияние марок.",
+      invalidResponseMessage: "Сервер вернул результат слияния в неподдерживаемом формате.",
+      cancelledMessage: "Запрос слияния марок отменён.",
+      networkFailureMessage: "Не удалось слить марки.",
+    },
+  );
+}
+
 export async function clearAdminDatabaseTable(
   tableName: string,
   { baseUrl, signal }: AdminDatabaseRequestOptions = {},
@@ -250,15 +273,19 @@ export async function clearAdminDatabaseTable(
 }
 
 async function mutateAdminDatabaseRow(
-  method: "PATCH" | "DELETE",
+  method: "PATCH" | "DELETE" | "POST",
   tableName: string,
-  value: {
-    primaryKey: Record<string, AdminDatabaseCellValue>;
-    values: Record<string, AdminDatabaseCellValue>;
-  },
+  value: object,
   { baseUrl, signal }: AdminDatabaseRequestOptions,
+  messages: {
+    endpointSuffix?: string;
+    rejectedMessage?: string;
+    invalidResponseMessage?: string;
+    cancelledMessage?: string;
+    networkFailureMessage?: string;
+  } = {},
 ): Promise<AdminDatabaseMutationResult> {
-  const endpoint = buildRowsEndpoint(tableName, { baseUrl });
+  const endpoint = `${buildRowsEndpoint(tableName, { baseUrl })}${messages.endpointSuffix ?? ""}`;
 
   try {
     const response = await fetch(endpoint, {
@@ -274,7 +301,11 @@ async function mutateAdminDatabaseRow(
     const payload = await readJson(response);
 
     if (!response.ok) {
-      return readRemoteError(payload, response.status, "Сервер отклонил изменение БД.");
+      return readRemoteError(
+        payload,
+        response.status,
+        messages.rejectedMessage ?? "Сервер отклонил изменение БД.",
+      );
     }
 
     if (isOkResponse(payload)) {
@@ -285,7 +316,8 @@ async function mutateAdminDatabaseRow(
 
     return {
       status: "error",
-      message: "Сервер вернул изменение БД в неподдерживаемом формате.",
+      message: messages.invalidResponseMessage ??
+        "Сервер вернул изменение БД в неподдерживаемом формате.",
       code: "invalid_response",
       statusCode: response.status,
     };
@@ -293,15 +325,16 @@ async function mutateAdminDatabaseRow(
     if (isAbortError(error)) {
       return {
         status: "error",
-        message: "Запрос изменения БД отменён.",
+        message: messages.cancelledMessage ?? "Запрос изменения БД отменён.",
       };
     }
 
     return {
       status: "error",
-      message: describeRemoteNetworkFailure("Не удалось изменить строку БД.", {
-        baseUrl,
-      }),
+      message: describeRemoteNetworkFailure(
+        messages.networkFailureMessage ?? "Не удалось изменить строку БД.",
+        { baseUrl },
+      ),
       code: "network_error",
     };
   }
@@ -409,6 +442,8 @@ function isAdminDatabaseRowsResponse(
     isAdminDatabaseTable(value.table) &&
     Array.isArray(value.rows) &&
     value.rows.every(isAdminDatabaseRow) &&
+    Array.isArray(value.mergeTargets) &&
+    value.mergeTargets.every(isAdminDatabaseMergeTarget) &&
     typeof value.limit === "number" &&
     typeof value.offset === "number"
   );
@@ -425,7 +460,16 @@ function isAdminDatabaseTable(value: unknown) {
     Array.isArray(value.primaryKey) &&
     value.primaryKey.every((item) => typeof item === "string") &&
     typeof value.canDelete === "boolean" &&
-    typeof value.canClear === "boolean"
+    typeof value.canClear === "boolean" &&
+    typeof value.canMerge === "boolean"
+  );
+}
+
+function isAdminDatabaseMergeTarget(value: unknown) {
+  return (
+    isRecord(value) &&
+    isDatabaseValueMap(value.primaryKey) &&
+    typeof value.label === "string"
   );
 }
 

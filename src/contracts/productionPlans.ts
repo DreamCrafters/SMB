@@ -9,33 +9,57 @@ export type ProductionCategory = (typeof productionCategories)[number];
 
 export type ProductionCategoryPlans = Record<ProductionCategory, number>;
 
+export type ProductionCategoryScheduleInput = {
+  monthlyPlan: number;
+  workingDates: string[];
+};
+
+export type ProductionCategoryScheduleInputs = Record<
+  ProductionCategory,
+  ProductionCategoryScheduleInput
+>;
+
+export type ProductionCategoryDailyPlan = {
+  date: string;
+  value: number;
+};
+
+export type ProductionCategorySchedule = {
+  monthlyPlan: number;
+  workingDayCount: number;
+  dailyPlans: ProductionCategoryDailyPlan[];
+};
+
+export type ProductionCategorySchedules = Record<
+  ProductionCategory,
+  ProductionCategorySchedule
+>;
+
 export type ProductionDailyPlan = {
   date: string;
-  values: ProductionCategoryPlans;
+  values: Partial<ProductionCategoryPlans>;
 };
 
 export type ProductionPlanRevision = {
   revisionId: string;
   month: string;
-  monthlyPlans: ProductionCategoryPlans;
-  workingDayCount: number;
-  dailyPlans: ProductionDailyPlan[];
+  schedules: ProductionCategorySchedules;
   createdByUserId: string;
   createdAt: string;
 };
 
 export type ProductionPlanPreviewRequest = {
   month: string;
-  monthlyPlans: ProductionCategoryPlans;
 };
 
 export type ProductionPlanPreviewResponse = ProductionPlanPreviewRequest & {
-  suggestedWorkingDates: string[];
-  workingDayCount: number;
+  allDates: string[];
+  weekdayDates: string[];
 };
 
-export type SaveProductionPlanRequest = ProductionPlanPreviewRequest & {
-  workingDates: string[];
+export type SaveProductionPlanRequest = {
+  month: string;
+  schedules: ProductionCategoryScheduleInputs;
 };
 
 export type ProductionPlanResponse = {

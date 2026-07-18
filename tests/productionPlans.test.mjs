@@ -15,22 +15,47 @@ test.after(() => {
 
 test("production plan service previews, saves and reads server-owned plans", async () => {
   const calls = [];
-  const monthlyPlans = {
-    forming: 1_000,
-    sorting: 800,
-    unformed: 500,
-    chamotte: 200,
+  const scheduleInputs = {
+    forming: { monthlyPlan: 1_000, workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"] },
+    sorting: { monthlyPlan: 800, workingDates: ["2026-07-01", "2026-07-02"] },
+    unformed: { monthlyPlan: 500, workingDates: ["2026-07-04"] },
+    chamotte: { monthlyPlan: 200, workingDates: ["2026-07-02", "2026-07-04"] },
   };
   const plan = {
     revisionId: "revision-1",
     month: "2026-07",
-    monthlyPlans,
-    workingDayCount: 3,
-    dailyPlans: [
-      { date: "2026-07-01", values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 } },
-      { date: "2026-07-02", values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 } },
-      { date: "2026-07-03", values: { forming: 332, sorting: 266, unformed: 166, chamotte: 66 } },
-    ],
+    schedules: {
+      forming: {
+        monthlyPlan: 1_000,
+        workingDayCount: 3,
+        dailyPlans: [
+          { date: "2026-07-01", value: 334 },
+          { date: "2026-07-02", value: 334 },
+          { date: "2026-07-03", value: 332 },
+        ],
+      },
+      sorting: {
+        monthlyPlan: 800,
+        workingDayCount: 2,
+        dailyPlans: [
+          { date: "2026-07-01", value: 400 },
+          { date: "2026-07-02", value: 400 },
+        ],
+      },
+      unformed: {
+        monthlyPlan: 500,
+        workingDayCount: 1,
+        dailyPlans: [{ date: "2026-07-04", value: 500 }],
+      },
+      chamotte: {
+        monthlyPlan: 200,
+        workingDayCount: 2,
+        dailyPlans: [
+          { date: "2026-07-02", value: 100 },
+          { date: "2026-07-04", value: 100 },
+        ],
+      },
+    },
     createdByUserId: "economist-user",
     createdAt: "2026-07-17T10:00:00.000Z",
   };
@@ -40,9 +65,8 @@ test("production plan service previews, saves and reads server-owned plans", asy
     if (String(url).endsWith("/preview")) {
       return jsonResponse({
         month: "2026-07",
-        monthlyPlans,
-        workingDayCount: 23,
-        suggestedWorkingDates: ["2026-07-01", "2026-07-02"],
+        allDates: ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04"],
+        weekdayDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
       });
     }
 
@@ -50,7 +74,7 @@ test("production plan service previews, saves and reads server-owned plans", asy
       return jsonResponse({
         plan: {
           date: "2026-07-01",
-          values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 },
+          values: { forming: 334, sorting: 400 },
         },
       });
     }
@@ -59,14 +83,13 @@ test("production plan service previews, saves and reads server-owned plans", asy
   };
 
   const preview = await requestProductionPlanPreview(
-    { month: "2026-07", monthlyPlans },
+    { month: "2026-07" },
     { baseUrl: "http://api.test" },
   );
   const saved = await saveProductionPlan(
     {
       month: "2026-07",
-      monthlyPlans,
-      workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
+      schedules: scheduleInputs,
     },
     { baseUrl: "http://api.test" },
   );
@@ -78,15 +101,16 @@ test("production plan service previews, saves and reads server-owned plans", asy
   });
 
   assert.equal(preview.status, "ready");
-  assert.equal(preview.workingDayCount, 23);
+  assert.equal(preview.allDates.length, 4);
+  assert.equal(preview.weekdayDates.length, 3);
   assert.equal(saved.status, "ready");
-  assert.equal(saved.plan.dailyPlans.at(-1).values.forming, 332);
+  assert.equal(saved.plan.schedules.forming.dailyPlans.at(-1).value, 332);
   assert.equal(loaded.status, "ready");
-  assert.deepEqual(loaded.plan.monthlyPlans, monthlyPlans);
+  assert.equal(loaded.plan.schedules.chamotte.monthlyPlan, 200);
   assert.equal(daily.status, "ready");
   assert.deepEqual(daily.plan, {
     date: "2026-07-01",
-    values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 },
+    values: { forming: 334, sorting: 400 },
   });
   assert.equal(calls[0].url, "http://api.test/api/production-plans/preview");
   assert.equal(calls[0].init.method, "POST");

@@ -90,6 +90,75 @@ test("production brands repository reports an existing normalized label without 
   assert.equal(result.label.label, "Ш-1");
 });
 
+test("production brand references resolve canonically under row locks", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      const normalized = normalizeSql(sql);
+      queries.push({ sql: normalized, parameters });
+
+      if (normalized.startsWith("select id from production_brand_labels")) {
+        return [[
+          { id: "product-1" },
+          { id: "unformed-1" },
+        ], []];
+      }
+
+      if (normalized.startsWith("select id, category, label, normalized_label")) {
+        return [[
+          {
+            id: "product-1",
+            category: "product",
+            label: "ФЛ-1",
+            normalized_label: "фл-1",
+          },
+          {
+            id: "unformed-1",
+            category: "unformed",
+            label: "ПБ-5",
+            normalized_label: "пб-5",
+          },
+        ], []];
+      }
+
+      throw new Error(`Unexpected query: ${normalized}`);
+    },
+  } as unknown as DatabasePool;
+
+  const result = await createProductionBrandsRepository(pool).resolveReferences([
+    { category: "product", fieldName: "formingProductBrand", label: " фл-1 " },
+    { category: "unformed", fieldName: "unformedBrand3", label: "ПБ-5" },
+  ]);
+
+  assert.deepEqual(result, {
+    ok: true,
+    references: [
+      { fieldName: "formingProductBrand", label: "ФЛ-1" },
+      { fieldName: "unformedBrand3", label: "ПБ-5" },
+    ],
+  });
+  assert.match(queries[1]?.sql ?? "", /order by id for update$/u);
+});
+
+test("production brand reference resolution reports a removed label", async () => {
+  const pool = {
+    async query(sql: string) {
+      return sql.includes("select id from production_brand_labels")
+        ? [[], []]
+        : [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  const result = await createProductionBrandsRepository(pool).resolveReferences([
+    { category: "chamotte", fieldName: "chamotteBrand1", label: "ША-1" },
+  ]);
+
+  assert.deepEqual(result, {
+    ok: false,
+    missing: { category: "chamotte", fieldName: "chamotteBrand1", label: "ША-1" },
+  });
+});
+
 function normalizeSql(sql: string) {
   return sql.replace(/\s+/g, " ").trim();
 }

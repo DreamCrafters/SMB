@@ -413,12 +413,13 @@ function readCategoryPlan(
     return {};
   }
 
-  const dayPlan = plan.dailyPlans.find(
+  const schedule = plan.schedules[category];
+  const dayPlan = schedule.dailyPlans.find(
     (dailyPlan) => dailyPlan.date === reportDate,
-  )?.values[category];
-  const monthPlan = plan.dailyPlans
+  )?.value;
+  const monthPlan = schedule.dailyPlans
     .filter((dailyPlan) => dailyPlan.date <= reportDate)
-    .reduce((sum, dailyPlan) => sum + dailyPlan.values[category], 0);
+    .reduce((sum, dailyPlan) => sum + dailyPlan.value, 0);
 
   return { dayPlan, monthPlan };
 }

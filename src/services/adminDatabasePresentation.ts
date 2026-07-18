@@ -64,10 +64,15 @@ export function formatAdminDatabaseCellValue(
 export function hasAdminDatabaseRowActions(table: {
   primaryKey: string[];
   canDelete: boolean;
+  canMerge: boolean;
   columns: Array<{ editable: boolean }>;
 }) {
   return (
     table.primaryKey.length > 0 &&
-    (table.canDelete || table.columns.some((column) => column.editable))
+    (
+      table.canDelete ||
+      table.canMerge ||
+      table.columns.some((column) => column.editable)
+    )
   );
 }

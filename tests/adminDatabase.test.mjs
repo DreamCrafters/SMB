@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   clearAdminDatabaseTable,
   deleteAdminDatabaseRow,
+  mergeAdminDatabaseRows,
   requestAdminDatabaseRows,
   requestAdminDatabaseTables,
   updateAdminDatabaseRow,
@@ -21,6 +22,7 @@ const table = {
   primaryKey: ["id"],
   canDelete: true,
   canClear: true,
+  canMerge: false,
   columns: [
     {
       name: "summary",
@@ -81,6 +83,7 @@ test("admin database service builds relative rows endpoint without browser windo
           ],
         },
       ],
+      mergeTargets: [],
       limit: 25,
       offset: 50,
     });
@@ -138,6 +141,31 @@ test("admin database service sends update and delete mutations", async () => {
       id: "row-id",
     },
     values: {},
+  });
+});
+
+test("admin database service sends a merge between two existing rows", async () => {
+  let request;
+
+  globalThis.fetch = async (url, init) => {
+    request = { url: String(url), init };
+    return jsonResponse({ ok: true });
+  };
+
+  const result = await mergeAdminDatabaseRows("production_unformed_brands", {
+    sourcePrimaryKey: { id: "brand-source" },
+    targetPrimaryKey: { id: "brand-target" },
+  });
+
+  assert.deepEqual(result, { status: "ready" });
+  assert.equal(
+    request.url,
+    "/api/admin/database/tables/production_unformed_brands/rows/merge",
+  );
+  assert.equal(request.init.method, "POST");
+  assert.deepEqual(JSON.parse(request.init.body), {
+    sourcePrimaryKey: { id: "brand-source" },
+    targetPrimaryKey: { id: "brand-target" },
   });
 });
 

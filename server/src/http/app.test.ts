@@ -131,6 +131,7 @@ const adminDatabaseTable = {
   primaryKey: ["id"],
   canDelete: true,
   canClear: true,
+  canMerge: false,
   columns: [
     {
       name: "summary",
@@ -171,12 +172,21 @@ const adminDatabase: AdminDatabaseRepository = {
           ],
         },
       ],
+      mergeTargets: [],
       limit: 100,
       offset: 0,
     };
   },
   async updateRow() {
     // The default test repository does not need mutation assertions.
+  },
+  async mergeRows() {
+    return {
+      sourceLabel: "Исходная",
+      targetLabel: "Целевая",
+      updatedSubmissions: 0,
+      combinedFacts: 0,
+    };
   },
   async deleteRow() {
     // The default test repository does not need mutation assertions.
@@ -829,6 +839,94 @@ test("admin database API forwards update and delete mutations for admin sessions
   assert.deepEqual(
     auditEvents.find((event) => event.action === "data.delete")?.details,
     [],
+  );
+});
+
+test("admin database API merges two rows through an audited server action", async () => {
+  let mergePayload:
+    | Parameters<AdminDatabaseRepository["mergeRows"]>[0]
+    | undefined;
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async mergeRows(value) {
+      mergePayload = value;
+      return {
+        sourceLabel: "ША-1",
+        targetLabel: "ША-2",
+        updatedSubmissions: 3,
+        combinedFacts: 1,
+      };
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const auditRepository: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/tables/production_chamotte_brands/rows/merge`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({
+            sourcePrimaryKey: { id: "brand-source" },
+            targetPrimaryKey: { id: "brand-target" },
+          }),
+        },
+      );
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { ok: true });
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    auditRepository,
+  );
+
+  assert.deepEqual(mergePayload, {
+    tableName: "production_chamotte_brands",
+    sourcePrimaryKey: { id: "brand-source" },
+    targetPrimaryKey: { id: "brand-target" },
+  });
+  assert.deepEqual(
+    auditEvents.find((event) => event.action === "data.update"),
+    {
+      actor: {
+        accountId: "dev-access-admin",
+        userId: "dev-user-admin",
+        displayName: "Dev administrator",
+        positionDisplayName: "Администратор",
+      },
+      category: "data_change",
+      action: "data.update",
+      summary: "Марка «ША-1» слита в «ША-2»",
+      details: [
+        { label: "Исходная марка", value: "ША-1" },
+        { label: "Целевая марка", value: "ША-2" },
+        { label: "Обновлено отчётов", value: "3" },
+        { label: "Объединено фактов", value: "1" },
+      ],
+      targetType: "production_brand",
+      targetId: "production_chamotte_brands",
+    },
   );
 });
 
@@ -2401,7 +2499,7 @@ test("production API lets owner read feed but not submit dispatcher forms", asyn
   );
 });
 
-test("production plan API requires economist access and saves the confirmed schedule with audit", async () => {
+test("production plan API saves independent category schedules with audit", async () => {
   const profile = buildProductionProfile("business_owner");
   let latest: ProductionPlanRevision | undefined;
   const recorded: Parameters<AuditRepository["record"]>[0][] = [];
@@ -2463,49 +2561,21 @@ test("production plan API requires economist access and saves the confirmed sche
     const previewResponse = await fetch(`${baseUrl}/api/production-plans/preview`, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        month: "2026-07",
-        monthlyPlans: {
-          forming: 1_000,
-          sorting: 800,
-          unformed: 500,
-          chamotte: 200,
-        },
-      }),
+      body: JSON.stringify({ month: "2026-07" }),
     });
     const preview = await previewResponse.json();
     assert.equal(previewResponse.status, 200);
     assert.equal(
-      isRecord(preview) && Array.isArray(preview.suggestedWorkingDates)
-        ? preview.suggestedWorkingDates.length
+      isRecord(preview) && Array.isArray(preview.weekdayDates)
+        ? preview.weekdayDates.length
         : undefined,
       23,
     );
-
-    const smallPlanPreviewResponse = await fetch(
-      `${baseUrl}/api/production-plans/preview`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          month: "2026-07",
-          monthlyPlans: {
-            forming: 1,
-            sorting: 1,
-            unformed: 1,
-            chamotte: 1,
-          },
-        }),
-      },
-    );
-    const smallPlanPreview = await smallPlanPreviewResponse.json();
-    assert.equal(smallPlanPreviewResponse.status, 200);
     assert.equal(
-      isRecord(smallPlanPreview) &&
-        Array.isArray(smallPlanPreview.suggestedWorkingDates)
-        ? smallPlanPreview.suggestedWorkingDates.length
+      isRecord(preview) && Array.isArray(preview.allDates)
+        ? preview.allDates.length
         : undefined,
-      23,
+      31,
     );
 
     const saveResponse = await fetch(`${baseUrl}/api/production-plans`, {
@@ -2513,24 +2583,40 @@ test("production plan API requires economist access and saves the confirmed sche
       headers,
       body: JSON.stringify({
         month: "2026-07",
-        monthlyPlans: {
-          forming: 1_000,
-          sorting: 800,
-          unformed: 500,
-          chamotte: 200,
+        schedules: {
+          forming: {
+            monthlyPlan: 1_000,
+            workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
+          },
+          sorting: {
+            monthlyPlan: 800,
+            workingDates: ["2026-07-01", "2026-07-02"],
+          },
+          unformed: {
+            monthlyPlan: 500,
+            workingDates: ["2026-07-04"],
+          },
+          chamotte: {
+            monthlyPlan: 200,
+            workingDates: ["2026-07-02", "2026-07-04"],
+          },
         },
-        workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
       }),
     });
     const saved = await saveResponse.json();
     assert.equal(saveResponse.status, 201);
     assert.deepEqual(
-      isRecord(saved) && isRecord(saved.plan) ? saved.plan.dailyPlans : undefined,
-      [
-        { date: "2026-07-01", values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 } },
-        { date: "2026-07-02", values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 } },
-        { date: "2026-07-03", values: { forming: 332, sorting: 266, unformed: 166, chamotte: 66 } },
-      ],
+      isRecord(saved) && isRecord(saved.plan) && isRecord(saved.plan.schedules)
+        ? saved.plan.schedules.chamotte
+        : undefined,
+      {
+        monthlyPlan: 200,
+        workingDayCount: 2,
+        dailyPlans: [
+          { date: "2026-07-02", value: 100 },
+          { date: "2026-07-04", value: 100 },
+        ],
+      },
     );
     assert.equal(latest?.createdByUserId, profile.userId);
     assert.equal(recorded.at(-1)?.action, "production_plan.save");
@@ -2550,13 +2636,24 @@ test("production plan API requires economist access and saves the confirmed sche
         isRecord(daily) ? daily.plan : undefined,
         {
           date: "2026-07-01",
-          values: { forming: 334, sorting: 267, unformed: 167, chamotte: 67 },
+          values: { forming: 334, sorting: 400 },
         },
       );
     }
 
-    const missingDailyResponse = await fetch(
+    const fourthDayResponse = await fetch(
       `${baseUrl}/api/production-plans/daily?date=2026-07-04`,
+      { headers },
+    );
+    const fourthDay = await fourthDayResponse.json();
+    assert.equal(fourthDayResponse.status, 200);
+    assert.deepEqual(isRecord(fourthDay) ? fourthDay.plan : undefined, {
+      date: "2026-07-04",
+      values: { unformed: 500, chamotte: 100 },
+    });
+
+    const missingDailyResponse = await fetch(
+      `${baseUrl}/api/production-plans/daily?date=2026-07-05`,
       { headers },
     );
     const missingDaily = await missingDailyResponse.json();
@@ -2568,13 +2665,12 @@ test("production plan API requires economist access and saves the confirmed sche
       headers,
       body: JSON.stringify({
         month: "2026-07",
-        monthlyPlans: {
-          forming: 1_000,
-          sorting: 800,
-          unformed: 500,
-          chamotte: 200,
+        schedules: {
+          forming: { monthlyPlan: 1_000, workingDates: ["2026-07-01"] },
+          sorting: { monthlyPlan: 800, workingDates: ["2026-07-01"] },
+          unformed: { monthlyPlan: 500, workingDates: ["2026-07-01"] },
+          chamotte: { monthlyPlan: 200, workingDates: ["2026-07-01"] },
         },
-        workingDates: ["2026-07-01"],
       }),
     });
     assert.equal(forbiddenSaveResponse.status, 403);
@@ -2586,8 +2682,14 @@ test("production plan API requires economist access and saves the confirmed sche
     const read = await readResponse.json();
     assert.equal(readResponse.status, 200);
     assert.deepEqual(
-      isRecord(read) && isRecord(read.plan) ? read.plan.monthlyPlans : undefined,
-      { forming: 1_000, sorting: 800, unformed: 500, chamotte: 200 },
+      isRecord(read) && isRecord(read.plan) && isRecord(read.plan.schedules)
+        && isRecord(read.plan.schedules.sorting)
+        ? read.plan.schedules.sorting.dailyPlans
+        : undefined,
+      [
+        { date: "2026-07-01", value: 400 },
+        { date: "2026-07-02", value: 400 },
+      ],
     );
   } finally {
     server.close();
@@ -2610,6 +2712,15 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
   const productionBrands: ProductionBrandsRepository = {
     async list() {
       return labels;
+    },
+    async resolveReferences(references) {
+      return {
+        ok: true,
+        references: references.map((reference) => ({
+          fieldName: reference.fieldName,
+          label: reference.label,
+        })),
+      };
     },
     async create(input) {
       const existing = labels.find(
@@ -2717,6 +2828,7 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
 test("production submission accepts only brands saved in the matching catalog", async () => {
   const profile = buildProductionProfile("dispatcher");
   let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
+  let insideTransaction = false;
   const repository: DispatcherSubmissionsRepository = {
     ...dispatcherSubmissions,
     async create(value, submittedByAccountId) {
@@ -2731,8 +2843,43 @@ test("production submission accepts only brands saved in the matching catalog", 
         { id: "unformed-1", category: "unformed", label: "ПБ-5", createdAt: "2026-07-17T10:00:00.000Z" },
       ];
     },
+    async resolveReferences(references) {
+      assert.equal(insideTransaction, true);
+      const labels = await this.list();
+      const resolved = references.map((reference) => ({
+        reference,
+        saved: labels.find(
+          (label) =>
+            label.category === reference.category &&
+            label.label.toLocaleLowerCase("ru-RU") ===
+              reference.label.trim().toLocaleLowerCase("ru-RU"),
+        ),
+      }));
+      const missing = resolved.find((item) => item.saved === undefined)?.reference;
+
+      return missing === undefined
+        ? {
+            ok: true,
+            references: resolved.map((item) => ({
+              fieldName: item.reference.fieldName,
+              label: item.saved?.label ?? item.reference.label,
+            })),
+          }
+        : { ok: false, missing };
+    },
     async create() {
       throw new Error("not used");
+    },
+  };
+  const transaction: DatabaseTransactionRunner = {
+    async run(operation) {
+      insideTransaction = true;
+
+      try {
+        return await operation();
+      } finally {
+        insideTransaction = false;
+      }
     },
   };
   await withApiServer(async (baseUrl) => {
@@ -2777,7 +2924,7 @@ test("production submission accepts only brands saved in the matching catalog", 
     assert.equal(createdDraft, undefined);
   }, repository, emptyReferenceDataSource, undefined, undefined, adminDatabase,
   productionConfig, buildAuthService({ profile }), undefined, undefined,
-  undefined, undefined, productionBrands);
+  undefined, transaction, productionBrands);
 });
 
 test("production API keeps admin database gated by admin capability", async () => {

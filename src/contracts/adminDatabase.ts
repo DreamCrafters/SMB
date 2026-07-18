@@ -42,6 +42,12 @@ export type AdminDatabaseTable = {
   primaryKey: string[];
   canDelete: boolean;
   canClear: boolean;
+  canMerge: boolean;
+};
+
+export type AdminDatabaseMergeTarget = {
+  primaryKey: Record<string, AdminDatabaseCellValue>;
+  label: string;
 };
 
 export type AdminDatabaseRow = {
@@ -57,6 +63,7 @@ export type AdminDatabaseTablesResponse = {
 export type AdminDatabaseRowsResponse = {
   table: AdminDatabaseTable;
   rows: AdminDatabaseRow[];
+  mergeTargets: AdminDatabaseMergeTarget[];
   limit: number;
   offset: number;
 };

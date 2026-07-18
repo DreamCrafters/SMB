@@ -1,5 +1,6 @@
 import {
   productionCategories,
+  type ProductionCategorySchedule,
   type ProductionCategoryPlans,
   type ProductionPlanPreviewRequest,
   type ProductionPlanPreviewResponse,
@@ -179,11 +180,10 @@ function isProductionPlanPreviewResponse(
   return (
     isRecord(value) &&
     typeof value.month === "string" &&
-    isProductionCategoryPlans(value.monthlyPlans) &&
-    typeof value.workingDayCount === "number" &&
-    Number.isSafeInteger(value.workingDayCount) &&
-    Array.isArray(value.suggestedWorkingDates) &&
-    value.suggestedWorkingDates.every((date) => typeof date === "string")
+    Array.isArray(value.allDates) &&
+    value.allDates.every((date) => typeof date === "string") &&
+    Array.isArray(value.weekdayDates) &&
+    value.weekdayDates.every((date) => typeof date === "string")
   );
 }
 
@@ -202,7 +202,7 @@ function isProductionDailyPlanResponse(
     (value.plan === null ||
       (isRecord(value.plan) &&
         typeof value.plan.date === "string" &&
-        isProductionCategoryPlans(value.plan.values)))
+        isProductionDailyCategoryPlans(value.plan.values)))
   );
 }
 
@@ -211,29 +211,60 @@ function isProductionPlanRevision(value: unknown): value is ProductionPlanRevisi
     isRecord(value) &&
     typeof value.revisionId === "string" &&
     typeof value.month === "string" &&
-    isProductionCategoryPlans(value.monthlyPlans) &&
-    typeof value.workingDayCount === "number" &&
-    Number.isSafeInteger(value.workingDayCount) &&
-    Array.isArray(value.dailyPlans) &&
-    value.dailyPlans.every(
-      (item) =>
-        isRecord(item) &&
-        typeof item.date === "string" &&
-        isProductionCategoryPlans(item.values),
-    ) &&
+    isProductionCategorySchedules(value.schedules) &&
     typeof value.createdByUserId === "string" &&
     typeof value.createdAt === "string"
   );
 }
 
-function isProductionCategoryPlans(
-  value: unknown,
-): value is ProductionCategoryPlans {
+function isProductionCategorySchedules(value: unknown) {
   return (
     isRecord(value) &&
     Object.keys(value).length === productionCategories.length &&
-    productionCategories.every(
+    productionCategories.every((category) =>
+      isProductionCategorySchedule(value[category]),
+    )
+  );
+}
+
+function isProductionCategorySchedule(
+  value: unknown,
+): value is ProductionCategorySchedule {
+  return (
+    isRecord(value) &&
+    typeof value.monthlyPlan === "number" &&
+    Number.isSafeInteger(value.monthlyPlan) &&
+    value.monthlyPlan > 0 &&
+    typeof value.workingDayCount === "number" &&
+    Number.isSafeInteger(value.workingDayCount) &&
+    value.workingDayCount > 0 &&
+    Array.isArray(value.dailyPlans) &&
+    value.dailyPlans.length === value.workingDayCount &&
+    value.dailyPlans.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.date === "string" &&
+        typeof item.value === "number" &&
+        Number.isSafeInteger(item.value) &&
+        item.value >= 0,
+    )
+  );
+}
+
+function isProductionDailyCategoryPlans(
+  value: unknown,
+): value is Partial<ProductionCategoryPlans> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const keys = Object.keys(value);
+
+  return (
+    keys.length > 0 &&
+    keys.every(
       (category) =>
+        productionCategories.includes(category as (typeof productionCategories)[number]) &&
         typeof value[category] === "number" &&
         Number.isSafeInteger(value[category]),
     )

@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import type {
+  ProductionCategoryDailyPlan,
   ProductionCategoryPlans,
-  ProductionDailyPlan,
+  ProductionCategorySchedules,
   ProductionPlan,
 } from "../domain/productionPlan.js";
 import { productionCategories } from "../domain/productionPlan.js";
@@ -68,7 +69,13 @@ export function createProductionPlansRepository(
       createdByUserId: input.createdByUserId,
       createdAt: now().toISOString(),
     };
-    const workingDates = input.plan.dailyPlans.map(({ date }) => date);
+    const monthlyPlans = mapCategoryValues(
+      (category) => revision.schedules[category].monthlyPlan,
+    );
+    const storedDailyPlans = mapCategoryValues(
+      (category) => revision.schedules[category].dailyPlans,
+    );
+    const workingDates = readScheduleDateUnion(revision.schedules);
 
     await pool.query(
       `insert into production_plan_revisions (
@@ -78,9 +85,9 @@ export function createProductionPlansRepository(
       [
         revision.revisionId,
         revision.month,
-        JSON.stringify(revision.monthlyPlans),
+        JSON.stringify(monthlyPlans),
         JSON.stringify(workingDates),
-        JSON.stringify(revision.dailyPlans),
+        JSON.stringify(storedDailyPlans),
         revision.createdByUserId,
       ],
     );
@@ -96,24 +103,61 @@ function mapProductionPlanRevision(
 ): ProductionPlanRevision {
   const workingDates = readStringArray(row.working_dates);
   const monthlyPlans = readCategoryPlans(row.monthly_plans);
-  const dailyPlans = readDailyPlans(row.category_daily_plans);
+  const schedules = readCategorySchedules(
+    row.category_daily_plans,
+    monthlyPlans,
+  );
 
-  if (
-    workingDates.length !== dailyPlans.length ||
-    dailyPlans.some((item, index) => item.date !== workingDates[index])
-  ) {
+  if (!arraysEqual(workingDates, readScheduleDateUnion(schedules))) {
     throw new Error("Stored production plan dates are inconsistent.");
   }
 
   return {
     revisionId: row.id,
     month: row.plan_month,
-    monthlyPlans,
-    workingDayCount: workingDates.length,
-    dailyPlans,
+    schedules,
     createdByUserId: row.created_by_user_id,
     createdAt: new Date(row.created_at).toISOString(),
   };
+}
+
+function readCategorySchedules(
+  value: unknown,
+  monthlyPlans: ProductionCategoryPlans,
+): ProductionCategorySchedules {
+  const parsed = readJson(value);
+
+  if (isLegacyDailyPlans(parsed)) {
+    return mapCategoryValues((category) => ({
+      monthlyPlan: monthlyPlans[category],
+      workingDayCount: parsed.length,
+      dailyPlans: parsed.map((item) => ({
+        date: item.date,
+        value: item.values[category],
+      })),
+    }));
+  }
+
+  if (
+    !isRecord(parsed) ||
+    Object.keys(parsed).length !== productionCategories.length
+  ) {
+    throw new Error("Stored production plan daily values are invalid.");
+  }
+
+  return mapCategoryValues((category) => {
+    const dailyPlans = parsed[category];
+
+    if (!isCategoryDailyPlans(dailyPlans)) {
+      throw new Error("Stored production plan daily values are invalid.");
+    }
+
+    return {
+      monthlyPlan: monthlyPlans[category],
+      workingDayCount: dailyPlans.length,
+      dailyPlans,
+    };
+  });
 }
 
 function readStringArray(value: unknown) {
@@ -126,23 +170,38 @@ function readStringArray(value: unknown) {
   return parsed;
 }
 
-function readDailyPlans(value: unknown): ProductionDailyPlan[] {
-  const parsed = readJson(value);
+type LegacyProductionDailyPlan = {
+  date: string;
+  values: ProductionCategoryPlans;
+};
 
-  if (
-    !Array.isArray(parsed) ||
-    !parsed.every(
+function isLegacyDailyPlans(value: unknown): value is LegacyProductionDailyPlan[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
       (item) =>
-        typeof item === "object" &&
-        item !== null &&
-        typeof (item as Record<string, unknown>).date === "string" &&
-        isCategoryPlans((item as Record<string, unknown>).values),
+        isRecord(item) &&
+        typeof item.date === "string" &&
+        isCategoryPlans(item.values),
     )
-  ) {
-    throw new Error("Stored production plan daily values are invalid.");
-  }
+  );
+}
 
-  return parsed as ProductionDailyPlan[];
+function isCategoryDailyPlans(
+  value: unknown,
+): value is ProductionCategoryDailyPlan[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.date === "string" &&
+        typeof item.value === "number" &&
+        Number.isSafeInteger(item.value) &&
+        item.value >= 0,
+    )
+  );
 }
 
 function readCategoryPlans(value: unknown): ProductionCategoryPlans {
@@ -157,13 +216,34 @@ function readCategoryPlans(value: unknown): ProductionCategoryPlans {
 
 function isCategoryPlans(value: unknown): value is ProductionCategoryPlans {
   return (
-    typeof value === "object" &&
-    value !== null &&
+    isRecord(value) &&
     productionCategories.every((category) => {
-      const plan = (value as Record<string, unknown>)[category];
-      return typeof plan === "number" && Number.isSafeInteger(plan) && plan >= 0;
+      const plan = value[category];
+      return typeof plan === "number" && Number.isSafeInteger(plan) && plan > 0;
     })
   );
+}
+
+function readScheduleDateUnion(schedules: ProductionCategorySchedules) {
+  return Array.from(
+    new Set(
+      productionCategories.flatMap((category) =>
+        schedules[category].dailyPlans.map((item) => item.date),
+      ),
+    ),
+  ).sort();
+}
+
+function mapCategoryValues<Value>(
+  readValue: (category: (typeof productionCategories)[number]) => Value,
+) {
+  return Object.fromEntries(
+    productionCategories.map((category) => [category, readValue(category)]),
+  ) as Record<(typeof productionCategories)[number], Value>;
+}
+
+function arraysEqual(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function readJson(value: unknown) {
@@ -176,4 +256,8 @@ function readJson(value: unknown) {
   } catch {
     throw new Error("Stored production plan JSON is invalid.");
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

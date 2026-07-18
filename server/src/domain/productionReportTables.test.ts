@@ -112,18 +112,43 @@ test("buildProductionReportTables uses only the latest report for each date", ()
 
 const productionPlan: ProductionPlan = {
   month: "2026-07",
-  monthlyPlans: {
-    forming: 30,
-    sorting: 18,
-    unformed: 21,
-    chamotte: 12,
+  schedules: {
+    forming: {
+      monthlyPlan: 30,
+      workingDayCount: 3,
+      dailyPlans: [
+        { date: "2026-07-01", value: 10 },
+        { date: "2026-07-02", value: 10 },
+        { date: "2026-07-03", value: 10 },
+      ],
+    },
+    sorting: {
+      monthlyPlan: 18,
+      workingDayCount: 3,
+      dailyPlans: [
+        { date: "2026-07-01", value: 6 },
+        { date: "2026-07-02", value: 6 },
+        { date: "2026-07-03", value: 6 },
+      ],
+    },
+    unformed: {
+      monthlyPlan: 21,
+      workingDayCount: 3,
+      dailyPlans: [
+        { date: "2026-07-01", value: 7 },
+        { date: "2026-07-02", value: 7 },
+        { date: "2026-07-03", value: 7 },
+      ],
+    },
+    chamotte: {
+      monthlyPlan: 12,
+      workingDayCount: 2,
+      dailyPlans: [
+        { date: "2026-07-02", value: 6 },
+        { date: "2026-07-03", value: 6 },
+      ],
+    },
   },
-  workingDayCount: 3,
-  dailyPlans: [
-    { date: "2026-07-01", values: { forming: 10, sorting: 6, unformed: 7, chamotte: 4 } },
-    { date: "2026-07-02", values: { forming: 10, sorting: 6, unformed: 7, chamotte: 4 } },
-    { date: "2026-07-03", values: { forming: 10, sorting: 6, unformed: 7, chamotte: 4 } },
-  ],
 };
 
 function buildSubmission(

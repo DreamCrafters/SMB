@@ -23,6 +23,7 @@ test("admin database presentation only enables declared row actions", () => {
     hasAdminDatabaseRowActions({
       primaryKey: [],
       canDelete: false,
+      canMerge: false,
       columns: [
         {
           editable: false,
@@ -35,11 +36,21 @@ test("admin database presentation only enables declared row actions", () => {
     hasAdminDatabaseRowActions({
       primaryKey: ["id"],
       canDelete: false,
+      canMerge: false,
       columns: [
         {
           editable: true,
         },
       ],
+    }),
+    true,
+  );
+  assert.equal(
+    hasAdminDatabaseRowActions({
+      primaryKey: ["id"],
+      canDelete: false,
+      canMerge: true,
+      columns: [{ editable: false }],
     }),
     true,
   );

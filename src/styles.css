@@ -1253,6 +1253,12 @@ p {
   font-size: 12px;
 }
 
+.production-brand-picker select option {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
 .production-brand-create {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -3670,6 +3676,61 @@ p {
   margin: 0 auto;
 }
 
+.production-plan-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.production-plan-steps li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 50px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface-subtle);
+}
+
+.production-plan-steps li > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.production-plan-steps strong {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.production-plan-steps li.is-active,
+.production-plan-steps li.is-complete {
+  border-color: var(--blue-gray);
+  color: var(--nav-strong);
+  background: color-mix(in srgb, var(--blue-gray) 9%, var(--surface));
+}
+
+.production-plan-steps li.is-active > span,
+.production-plan-steps li.is-complete > span {
+  color: #fff;
+  background: var(--nav-strong);
+}
+
 .production-plan-header,
 .production-plan-confirmation,
 .production-plan-saved {
@@ -3728,7 +3789,7 @@ p {
 
 .production-plan-form {
   display: grid;
-  grid-template-columns: minmax(180px, 0.75fr) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(220px, 1fr);
   gap: var(--density-3);
   align-items: end;
   padding: var(--density-4);
@@ -3737,25 +3798,19 @@ p {
   background: var(--surface-subtle);
 }
 
-.production-plan-category-inputs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(190px, 1fr));
-  gap: var(--density-2);
-}
-
-.production-plan-form label {
+.production-plan-form > label {
   display: grid;
   gap: 7px;
 }
 
-.production-plan-form label > span {
+.production-plan-form > label > span {
   color: var(--muted);
   font-size: 11px;
   font-weight: 900;
   text-transform: uppercase;
 }
 
-.production-plan-form input {
+.production-plan-form > label > input {
   min-height: 42px;
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -3767,7 +3822,7 @@ p {
   font-weight: 750;
 }
 
-.production-plan-form input:focus-visible,
+.production-plan-form > label > input:focus-visible,
 .production-plan-day:has(input:focus-visible) {
   outline: 3px solid color-mix(in srgb, var(--blue-gray) 24%, transparent);
   outline-offset: 2px;
@@ -3795,11 +3850,40 @@ p {
   opacity: 0.55;
 }
 
+.production-plan-secondary-button {
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0 17px;
+  color: var(--nav-strong);
+  background: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.production-plan-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.production-plan-actions .production-plan-primary-button {
+  min-width: 230px;
+}
+
 .production-plan-confirmation,
 .production-plan-saved {
   display: grid;
   gap: var(--density-4);
   padding: var(--density-4);
+}
+
+.production-plan-form .production-plan-confirmation,
+.production-plan-form .production-plan-load-state {
+  grid-column: 1 / -1;
 }
 
 .production-plan-confirmation-head,
@@ -3825,6 +3909,37 @@ p {
 .production-plan-confirmation-head p,
 .production-plan-saved-head p {
   max-width: 520px;
+}
+
+.production-plan-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.production-plan-presets button {
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0 14px;
+  color: var(--nav-strong);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.production-plan-presets button.is-active {
+  border-color: var(--nav-strong);
+  color: #fff;
+  background: var(--nav-strong);
+}
+
+.production-plan-presets button:disabled,
+.production-plan-secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .production-plan-category-summary {
@@ -3855,6 +3970,12 @@ p {
   color: var(--ink);
   font-size: 17px;
   font-weight: 900;
+}
+
+.production-plan-category-summary div > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .production-plan-calendar {
@@ -3946,7 +4067,7 @@ p {
   text-transform: uppercase;
 }
 
-.production-plan-table td:last-child {
+.production-plan-table td:not(:first-child) {
   font-weight: 900;
 }
 
@@ -3954,7 +4075,7 @@ p {
   border-bottom: 0;
 }
 
-.production-plan-table tr.is-remainder td {
+.production-plan-table td.is-remainder {
   color: var(--nav-strong);
   background: color-mix(in srgb, var(--blue-gray) 8%, var(--surface));
 }
@@ -3965,12 +4086,15 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .production-plan-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .production-plan-confirmation-head,
   .production-plan-saved-head {
     display: grid;
   }
 
-  .production-plan-category-inputs,
   .production-plan-category-summary,
   .production-report-daily-plan-list {
     grid-template-columns: 1fr;
@@ -3988,5 +4112,13 @@ p {
 
   .production-plan-day.is-working::after {
     display: none;
+  }
+
+  .production-plan-actions {
+    display: grid;
+  }
+
+  .production-plan-actions .production-plan-primary-button {
+    min-width: 0;
   }
 }

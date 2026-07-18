@@ -18,6 +18,7 @@ import {
   type AdminPositionSummary,
   type AdminDatabaseCellValue,
   type AdminDatabaseColumn,
+  type AdminDatabaseMergeTarget,
   type AdminDatabaseRow,
   type AdminDatabaseTable,
   type AdminDispatcherImportPreviewResponse,
@@ -32,12 +33,14 @@ import {
   type ProductionBrandLabel,
   type ProductionCategory,
   type ProductionCategoryPlans,
+  type ProductionCategoryScheduleInputs,
   type ProductionGranulationRow,
   type ProductionJarMeasurementRow,
   type ProductionMetricRow,
   type ProductionReportBaseRow,
   type ProductionReportTables,
   type ProductionPlanRevision,
+  type ProductionPlanPreviewResponse,
   type DevAccessOption,
   type ServerUserProfile,
   type UserActivityActor,
@@ -127,6 +130,7 @@ import {
 import {
   clearAdminDatabaseTable,
   deleteAdminDatabaseRow,
+  mergeAdminDatabaseRows,
   requestAdminDatabaseRows,
   requestAdminDatabaseTables,
   updateAdminDatabaseRow,
@@ -2110,12 +2114,6 @@ type ProductionPlanLoadState =
   | { status: "ready"; plan?: ProductionPlanRevision }
   | { status: "error"; message: string };
 
-type ProductionPlanCalculation = {
-  month: string;
-  monthlyPlans: ProductionCategoryPlans;
-  suggestedWorkingDates: string[];
-};
-
 const productionCategoryLabels: Record<ProductionCategory, string> = {
   forming: "Формовка",
   sorting: "Сортировка",
@@ -2129,6 +2127,18 @@ function createEmptyProductionPlanInputs(): Record<ProductionCategory, string> {
     sorting: "",
     unformed: "",
     chamotte: "",
+  };
+}
+
+function createEmptyProductionPlanDateSelections(): Record<
+  ProductionCategory,
+  string[]
+> {
+  return {
+    forming: [],
+    sorting: [],
+    unformed: [],
+    chamotte: [],
   };
 }
 
@@ -2147,20 +2157,36 @@ function ProductionPlanWorkspace({
     status: "loading",
     message: "Загружаем план.",
   });
-  const [calculation, setCalculation] =
-    useState<ProductionPlanCalculation>();
-  const [selectedWorkingDates, setSelectedWorkingDates] = useState<string[]>([]);
+  const [datePresets, setDatePresets] =
+    useState<ProductionPlanPreviewResponse>();
+  const [selectedWorkingDates, setSelectedWorkingDates] = useState(
+    createEmptyProductionPlanDateSelections,
+  );
+  const [activeCategoryIndex, setActiveCategoryIndex] = useState(0);
   const [status, setStatus] = useState("");
-  const [isCalculating, setIsCalculating] = useState(false);
+  const [isLoadingPresets, setIsLoadingPresets] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    setCalculation(undefined);
-    setSelectedWorkingDates([]);
+    setDatePresets(undefined);
+    setSelectedWorkingDates(createEmptyProductionPlanDateSelections());
+    setActiveCategoryIndex(0);
     setStatus("");
     setMonthlyPlanInputs(createEmptyProductionPlanInputs());
 
     if (isAdminPreviewMode) {
+      const dates = buildProductionPlanMonthDates(month);
+      const allDates = dates.map((item) => item.date);
+      const weekdayDates = dates
+        .filter((item) => !item.isWeekend)
+        .map((item) => item.date);
+
+      setDatePresets({ month, allDates, weekdayDates });
+      setSelectedWorkingDates(
+        Object.fromEntries(
+          productionCategories.map((category) => [category, weekdayDates]),
+        ) as Record<ProductionCategory, string[]>,
+      );
       setLoadState({
         status: "ready",
       });
@@ -2170,20 +2196,53 @@ function ProductionPlanWorkspace({
     const controller = new AbortController();
 
     setLoadState({ status: "loading", message: "Загружаем план." });
-    requestProductionPlan(month, { signal: controller.signal }).then((result) => {
+    setIsLoadingPresets(true);
+    Promise.all([
+      requestProductionPlan(month, { signal: controller.signal }),
+      requestProductionPlanPreview({ month }, { signal: controller.signal }),
+    ]).then(([planResult, presetsResult]) => {
       if (controller.signal.aborted) {
         return;
       }
 
-      if (result.status === "ready") {
-        setLoadState({ status: "ready", plan: result.plan });
+      setIsLoadingPresets(false);
+
+      if (presetsResult.status === "error") {
+        setStatus(
+          readShortUserMessage(
+            presetsResult.message,
+            "Не удалось загрузить календарь.",
+          ),
+        );
+      } else {
+        setDatePresets({
+          month: presetsResult.month,
+          allDates: presetsResult.allDates,
+          weekdayDates: presetsResult.weekdayDates,
+        });
+        setSelectedWorkingDates(
+          Object.fromEntries(
+            productionCategories.map((category) => [
+              category,
+              planResult.status === "ready" && planResult.plan !== undefined
+                ? planResult.plan.schedules[category].dailyPlans.map(
+                    (item) => item.date,
+                  )
+                : presetsResult.weekdayDates,
+            ]),
+          ) as Record<ProductionCategory, string[]>,
+        );
+      }
+
+      if (planResult.status === "ready") {
+        setLoadState({ status: "ready", plan: planResult.plan });
         setMonthlyPlanInputs(
-          result.plan === undefined
+          planResult.plan === undefined
             ? createEmptyProductionPlanInputs()
             : Object.fromEntries(
                 productionCategories.map((category) => [
                   category,
-                  String(result.plan!.monthlyPlans[category]),
+                  String(planResult.plan!.schedules[category].monthlyPlan),
                 ]),
               ) as Record<ProductionCategory, string>,
         );
@@ -2193,7 +2252,7 @@ function ProductionPlanWorkspace({
       setLoadState({
         status: "error",
         message: readShortUserMessage(
-          result.message,
+          planResult.message,
           "Не удалось загрузить план.",
         ),
       });
@@ -2218,41 +2277,35 @@ function ProductionPlanWorkspace({
       ...current,
       [category]: nextValue,
     }));
-    setCalculation(undefined);
-    setSelectedWorkingDates([]);
     setStatus("");
   }
 
-  async function handleCalculate(event: FormEvent<HTMLFormElement>) {
+  async function handleContinue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const monthlyPlans = readProductionCategoryPlanInputs(monthlyPlanInputs);
+    const category = productionCategories[activeCategoryIndex];
+    const monthlyPlan = readPositiveIntegerInput(monthlyPlanInputs[category]);
 
-    if (monthlyPlans === undefined) {
-      setStatus("Введите целый месячный план больше нуля для каждой категории.");
-      return;
-    }
-
-    setIsCalculating(true);
-    setStatus("Считаем рабочие дни.");
-    const result = await requestProductionPlanPreview({ month, monthlyPlans });
-    setIsCalculating(false);
-
-    if (result.status === "error") {
+    if (monthlyPlan === undefined) {
       setStatus(
-        readShortUserMessage(result.message, "Не удалось рассчитать рабочие дни."),
+        `Введите целый месячный план больше нуля для категории «${productionCategoryLabels[category]}».`,
       );
       return;
     }
 
-    setCalculation({
-      month: result.month,
-      monthlyPlans: result.monthlyPlans,
-      suggestedWorkingDates: result.suggestedWorkingDates,
-    });
-    setSelectedWorkingDates(result.suggestedWorkingDates);
-    setStatus(
-      `Рассчитано рабочих дней: ${result.workingDayCount}. Проверьте и подтвердите.`,
-    );
+    if (selectedWorkingDates[category].length === 0) {
+      setStatus(
+        `Выберите хотя бы один день для категории «${productionCategoryLabels[category]}».`,
+      );
+      return;
+    }
+
+    if (activeCategoryIndex < productionCategories.length - 1) {
+      setActiveCategoryIndex((current) => current + 1);
+      setStatus("");
+      return;
+    }
+
+    await handleSave();
   }
 
   function handleWorkingDateChange(
@@ -2260,41 +2313,68 @@ function ProductionPlanWorkspace({
   ) {
     const date = event.currentTarget.value;
     const isChecked = event.currentTarget.checked;
+    const category = productionCategories[activeCategoryIndex];
 
-    setSelectedWorkingDates((current) =>
-      isChecked
-        ? Array.from(new Set([...current, date])).sort()
-        : current.filter((item) => item !== date),
-    );
+    setSelectedWorkingDates((current) => ({
+      ...current,
+      [category]: isChecked
+        ? Array.from(new Set([...current[category], date])).sort()
+        : current[category].filter((item) => item !== date),
+    }));
+    setStatus("");
   }
 
-  async function handleConfirmAndSave() {
+  function handleApplyPreset(preset: "all" | "weekdays") {
+    if (datePresets === undefined) {
+      return;
+    }
+
+    const category = productionCategories[activeCategoryIndex];
+    const dates = preset === "all"
+      ? datePresets.allDates
+      : datePresets.weekdayDates;
+
+    setSelectedWorkingDates((current) => ({
+      ...current,
+      [category]: dates,
+    }));
+    setStatus("");
+  }
+
+  async function handleSave() {
     const monthlyPlans = readProductionCategoryPlanInputs(monthlyPlanInputs);
 
-    if (
-      calculation === undefined ||
-      calculation.month !== month ||
-      monthlyPlans === undefined ||
-      productionCategories.some(
-        (category) =>
-          calculation.monthlyPlans[category] !== monthlyPlans[category],
-      )
-    ) {
-      setStatus("Сначала рассчитайте рабочие дни.");
+    if (monthlyPlans === undefined) {
+      setStatus("Введите целый месячный план больше нуля для каждой категории.");
       return;
     }
 
-    if (selectedWorkingDates.length === 0) {
-      setStatus("Выберите хотя бы один рабочий день.");
+    const categoryWithoutDates = productionCategories.find(
+      (category) => selectedWorkingDates[category].length === 0,
+    );
+
+    if (categoryWithoutDates !== undefined) {
+      setStatus(
+        `Выберите хотя бы один день для категории «${productionCategoryLabels[categoryWithoutDates]}».`,
+      );
       return;
     }
+
+    const schedules = Object.fromEntries(
+      productionCategories.map((category) => [
+        category,
+        {
+          monthlyPlan: monthlyPlans[category],
+          workingDates: selectedWorkingDates[category],
+        },
+      ]),
+    ) as ProductionCategoryScheduleInputs;
 
     setIsSaving(true);
     setStatus("Сохраняем план.");
     const result = await saveProductionPlan({
       month,
-      monthlyPlans: calculation.monthlyPlans,
-      workingDates: selectedWorkingDates,
+      schedules,
     });
     setIsSaving(false);
 
@@ -2305,13 +2385,19 @@ function ProductionPlanWorkspace({
 
     setLoadState({ status: "ready", plan: result.plan });
     setStatus("План сохранён.");
-    onShowToast("План сохранён", `Рабочих дней: ${result.plan.workingDayCount}.`);
+    onShowToast("План сохранён", "4 расписания сохранены.");
   }
 
-  const monthDates = calculation === undefined
-    ? []
-    : buildProductionPlanMonthDates(month);
-  const selectedWorkingDateSet = new Set(selectedWorkingDates);
+  const activeCategory = productionCategories[activeCategoryIndex];
+  const monthDates = datePresets?.month === month
+    ? buildProductionPlanMonthDates(month)
+    : [];
+  const activeWorkingDates = selectedWorkingDates[activeCategory];
+  const selectedWorkingDateSet = new Set(activeWorkingDates);
+  const isAllDatesPreset = datePresets !== undefined &&
+    areSameProductionPlanDates(activeWorkingDates, datePresets.allDates);
+  const isWeekdaysPreset = datePresets !== undefined &&
+    areSameProductionPlanDates(activeWorkingDates, datePresets.weekdayDates);
 
   return (
     <section className="production-plan-workspace" aria-label="План выработки">
@@ -2321,8 +2407,8 @@ function ProductionPlanWorkspace({
           <h2>План выработки</h2>
         </div>
         <p>
-          Укажите месячный план отдельно для каждой категории. Будни будут
-          выбраны автоматически, затем проверьте календарь и подтвердите дни.
+          Заполните четыре категории по очереди. У каждой категории свой план
+          и свой календарь.
         </p>
       </header>
 
@@ -2332,95 +2418,156 @@ function ProductionPlanWorkspace({
         </p>
       ) : null}
 
-      <form className="production-plan-form" onSubmit={handleCalculate}>
+      <ol className="production-plan-steps" aria-label="Категории плана">
+        {productionCategories.map((category, index) => (
+          <li
+            className={`${index === activeCategoryIndex ? "is-active" : ""} ${
+              index < activeCategoryIndex ? "is-complete" : ""
+            }`}
+            key={category}
+          >
+            <span>{index + 1}</span>
+            <strong>{productionCategoryLabels[category]}</strong>
+          </li>
+        ))}
+      </ol>
+
+      <form className="production-plan-form" onSubmit={handleContinue}>
         <label>
           <span>Месяц</span>
           <input
-            disabled={isAdminPreviewMode || isCalculating || isSaving}
+            disabled={isAdminPreviewMode || isLoadingPresets || isSaving}
             type="month"
             value={month}
             onChange={handleMonthChange}
           />
         </label>
-        <div className="production-plan-category-inputs">
-          {productionCategories.map((category) => (
-            <label key={category}>
-              <span>{productionCategoryLabels[category]}</span>
-              <input
-                disabled={isAdminPreviewMode || isCalculating || isSaving}
-                inputMode="numeric"
-                min="1"
-                pattern="[0-9]+"
-                required
-                type="text"
-                value={monthlyPlanInputs[category]}
-                onChange={(event) => handleMonthlyPlanChange(category, event)}
-              />
-            </label>
-          ))}
-        </div>
-        <button
-          className="production-plan-primary-button"
-          disabled={isAdminPreviewMode || isCalculating || isSaving}
-          type="submit"
-        >
-          {isCalculating ? "Считаем…" : "Рассчитать рабочие дни"}
-        </button>
-      </form>
+        <label>
+          <span>Месячный план · {productionCategoryLabels[activeCategory]}</span>
+          <input
+            disabled={isAdminPreviewMode || isLoadingPresets || isSaving}
+            inputMode="numeric"
+            min="1"
+            pattern="[0-9]+"
+            required
+            type="text"
+            value={monthlyPlanInputs[activeCategory]}
+            onChange={(event) => handleMonthlyPlanChange(activeCategory, event)}
+          />
+        </label>
 
-      {calculation !== undefined ? (
-        <section className="production-plan-confirmation" aria-label="Подтверждение рабочих дней">
-          <div className="production-plan-confirmation-head">
-            <div>
-              <span>Подтверждение</span>
-              <strong>{selectedWorkingDates.length} рабочих дней</strong>
+        {datePresets !== undefined ? (
+          <section
+            className="production-plan-confirmation"
+            aria-label={`Расписание — ${productionCategoryLabels[activeCategory]}`}
+          >
+            <div className="production-plan-confirmation-head">
+              <div>
+                <span>Расписание · шаг {activeCategoryIndex + 1} из 4</span>
+                <strong>{activeWorkingDates.length} дней</strong>
+              </div>
+              <p>
+                Выберите готовое расписание, затем при необходимости добавьте
+                или снимите отдельные дни.
+              </p>
             </div>
-            <p>
-              Будни отмечены автоматически. Снимите праздник или добавьте
-              рабочий выходной перед сохранением.
-            </p>
-          </div>
-          <div className="production-plan-calendar" role="group" aria-label="Дни месяца">
-            {monthDates.map((item) => {
-              const isChecked = selectedWorkingDateSet.has(item.date);
+            <div
+              className="production-plan-presets"
+              aria-label="Пресеты расписания"
+            >
+              <button
+                aria-pressed={isAllDatesPreset}
+                className={isAllDatesPreset ? "is-active" : undefined}
+                disabled={isAdminPreviewMode || isSaving}
+                type="button"
+                onClick={() => handleApplyPreset("all")}
+              >
+                Все дни
+              </button>
+              <button
+                aria-pressed={isWeekdaysPreset}
+                className={isWeekdaysPreset ? "is-active" : undefined}
+                disabled={isAdminPreviewMode || isSaving}
+                type="button"
+                onClick={() => handleApplyPreset("weekdays")}
+              >
+                Только рабочие
+              </button>
+            </div>
+            <div
+              className="production-plan-calendar"
+              role="group"
+              aria-label="Дни месяца"
+            >
+              {monthDates.map((item) => {
+                const isChecked = selectedWorkingDateSet.has(item.date);
 
-              return (
-                <label
-                  className={`production-plan-day ${
-                    isChecked ? "is-working" : ""
-                  } ${item.isWeekend ? "is-weekend" : ""}`}
-                  key={item.date}
-                  style={
-                    item.dayNumber === 1
-                      ? { gridColumnStart: item.calendarColumn }
-                      : undefined
-                  }
-                >
-                  <input
-                    checked={isChecked}
-                    disabled={isSaving}
-                    type="checkbox"
-                    value={item.date}
-                    onChange={handleWorkingDateChange}
-                  />
-                  <span>{item.weekdayLabel}</span>
-                  <strong>{item.dayNumber}</strong>
-                </label>
-              );
-            })}
-          </div>
+                return (
+                  <label
+                    className={`production-plan-day ${
+                      isChecked ? "is-working" : ""
+                    } ${item.isWeekend ? "is-weekend" : ""}`}
+                    key={item.date}
+                    style={
+                      item.dayNumber === 1
+                        ? { gridColumnStart: item.calendarColumn }
+                        : undefined
+                    }
+                  >
+                    <input
+                      checked={isChecked}
+                      disabled={isAdminPreviewMode || isSaving}
+                      type="checkbox"
+                      value={item.date}
+                      onChange={handleWorkingDateChange}
+                    />
+                    <span>{item.weekdayLabel}</span>
+                    <strong>{item.dayNumber}</strong>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+        ) : (
+          <p className="production-plan-load-state">
+            {isLoadingPresets
+              ? "Загружаем календарь."
+              : "Календарь недоступен."}
+          </p>
+        )}
+
+        <div className="production-plan-actions">
+          {activeCategoryIndex > 0 ? (
+            <button
+              className="production-plan-secondary-button"
+              disabled={isSaving}
+              type="button"
+              onClick={() => {
+                setActiveCategoryIndex((current) => current - 1);
+                setStatus("");
+              }}
+            >
+              Назад
+            </button>
+          ) : null}
           <button
             className="production-plan-primary-button"
-            disabled={isSaving || selectedWorkingDates.length === 0}
-            type="button"
-            onClick={handleConfirmAndSave}
+            disabled={
+              isAdminPreviewMode ||
+              isLoadingPresets ||
+              isSaving ||
+              activeWorkingDates.length === 0
+            }
+            type="submit"
           >
             {isSaving
               ? "Сохраняем…"
-              : `Подтвердить ${selectedWorkingDates.length} дней и сохранить`}
+              : activeCategoryIndex === productionCategories.length - 1
+                ? "Сохранить все 4 плана"
+                : "Подтвердить и продолжить"}
           </button>
-        </section>
-      ) : null}
+        </div>
+      </form>
 
       {status ? <p className="form-status" role="status">{status}</p> : null}
 
@@ -2438,22 +2585,25 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
     return <p className="production-plan-load-state">На этот месяц план ещё не сохранён.</p>;
   }
 
+  const plan = state.plan;
+
   return (
     <section className="production-plan-saved" aria-label="Сохранённый ежедневный план">
       <div className="production-plan-saved-head">
         <div>
           <span>Сохранённый план</span>
-          <strong>4 категории</strong>
+          <strong>4 независимых расписания</strong>
         </div>
         <p>
-          {state.plan.workingDayCount} рабочих дней · обновлено {formatDateTime(state.plan.createdAt)}
+          Обновлено {formatDateTime(plan.createdAt)}
         </p>
       </div>
       <dl className="production-plan-category-summary">
         {productionCategories.map((category) => (
           <div key={category}>
             <dt>{productionCategoryLabels[category]}</dt>
-            <dd>{formatNumber(state.plan!.monthlyPlans[category])}</dd>
+            <dd>{formatNumber(plan.schedules[category].monthlyPlan)}</dd>
+            <span>{plan.schedules[category].workingDayCount} дней</span>
           </div>
         ))}
       </dl>
@@ -2470,17 +2620,26 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
             </tr>
           </thead>
           <tbody>
-            {state.plan.dailyPlans.map((dailyPlan, index) => (
-              <tr
-                className={index === state.plan!.dailyPlans.length - 1 ? "is-remainder" : undefined}
-                key={dailyPlan.date}
-              >
-                <td>{formatDateOnly(dailyPlan.date)}</td>
-                {productionCategories.map((category) => (
-                  <td key={category}>
-                    {formatNumber(dailyPlan.values[category])}
-                  </td>
-                ))}
+            {readProductionPlanScheduleDates(plan).map((date) => (
+              <tr key={date}>
+                <td>{formatDateOnly(date)}</td>
+                {productionCategories.map((category) => {
+                  const schedule = plan.schedules[category];
+                  const dailyPlan = schedule.dailyPlans.find(
+                    (item) => item.date === date,
+                  );
+                  const isRemainder = dailyPlan !== undefined &&
+                    schedule.dailyPlans.at(-1)?.date === date;
+
+                  return (
+                    <td
+                      className={isRemainder ? "is-remainder" : undefined}
+                      key={category}
+                    >
+                      {dailyPlan === undefined ? "—" : formatNumber(dailyPlan.value)}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -2782,7 +2941,7 @@ function DispatcherProductionReportFormBody({
   const [reportDate, setReportDate] = useState(getTodayDateValue);
   const [dailyPlanState, setDailyPlanState] = useState<
     | { status: "loading" }
-    | { status: "ready"; values?: ProductionCategoryPlans }
+    | { status: "ready"; values?: Partial<ProductionCategoryPlans> }
     | { status: "error"; message: string }
   >({ status: "loading" });
   const [brandLabels, setBrandLabels] = useState<ProductionBrandLabel[]>([]);
@@ -2918,7 +3077,11 @@ function DispatcherProductionReportFormBody({
             {productionCategories.map((category) => (
               <div key={category}>
                 <dt>{productionCategoryLabels[category]}</dt>
-                <dd>{formatNumber(dailyPlanValues[category])}</dd>
+                <dd>
+                  {dailyPlanValues[category] === undefined
+                    ? "Не задан"
+                    : formatNumber(dailyPlanValues[category])}
+                </dd>
               </div>
             ))}
           </dl>
@@ -6309,6 +6472,13 @@ function AdminDatabaseWorkspace({
   >(undefined);
   const [deleteCandidate, setDeleteCandidate] =
     useState<AdminDatabaseRow | undefined>(undefined);
+  const [mergeCandidate, setMergeCandidate] = useState<
+    | {
+        row: AdminDatabaseRow;
+        targetKey: string;
+      }
+    | undefined
+  >(undefined);
   const [clearCandidate, setClearCandidate] =
     useState<AdminDatabaseTable | undefined>(undefined);
   const [mutationStatus, setMutationStatus] = useState("");
@@ -6392,6 +6562,7 @@ function AdminDatabaseWorkspace({
     );
     setEditor(undefined);
     setDeleteCandidate(undefined);
+    setMergeCandidate(undefined);
     setClearCandidate(undefined);
 
     requestAdminDatabaseRows(selectedTableName, {
@@ -6416,6 +6587,7 @@ function AdminDatabaseWorkspace({
   function handleStartEdit(row: AdminDatabaseRow) {
     setMutationStatus("");
     setDeleteCandidate(undefined);
+    setMergeCandidate(undefined);
     setClearCandidate(undefined);
     setEditor({
       row,
@@ -6469,6 +6641,7 @@ function AdminDatabaseWorkspace({
   function handleStartDelete(row: AdminDatabaseRow) {
     setMutationStatus("");
     setEditor(undefined);
+    setMergeCandidate(undefined);
     setClearCandidate(undefined);
     setDeleteCandidate(row);
   }
@@ -6477,6 +6650,7 @@ function AdminDatabaseWorkspace({
     setMutationStatus("");
     setEditor(undefined);
     setDeleteCandidate(undefined);
+    setMergeCandidate(undefined);
     setClearCandidate(table);
   }
 
@@ -6498,6 +6672,55 @@ function AdminDatabaseWorkspace({
       setMutationStatus("");
       onShowToast("Удалено", "Строка БД удалена.");
       setDeleteCandidate(undefined);
+      setRefreshVersion((version) => version + 1);
+      return;
+    }
+
+    setMutationStatus(result.message);
+  }
+
+  function handleStartMerge(row: AdminDatabaseRow) {
+    setMutationStatus("");
+    setEditor(undefined);
+    setDeleteCandidate(undefined);
+    setClearCandidate(undefined);
+    setMergeCandidate({ row, targetKey: "" });
+  }
+
+  async function handleConfirmMerge() {
+    if (
+      mergeCandidate === undefined ||
+      selectedTableName.length === 0 ||
+      rowsState.status !== "ready"
+    ) {
+      return;
+    }
+
+    const target = rowsState.mergeTargets.find(
+      (item) => formatDatabasePrimaryKey(item.primaryKey) === mergeCandidate.targetKey,
+    );
+
+    if (target === undefined) {
+      setMutationStatus("Выберите целевую марку.");
+      return;
+    }
+
+    const sourceLabel = mergeCandidate.row.values.label ?? "Марка";
+    setIsMutating(true);
+    setMutationStatus("Объединяем марки.");
+
+    const result = await mergeAdminDatabaseRows(selectedTableName, {
+      sourcePrimaryKey: mergeCandidate.row.primaryKey,
+      targetPrimaryKey: target.primaryKey,
+    });
+
+    setIsMutating(false);
+
+    if (result.status === "ready") {
+      setMutationStatus("");
+      onShowToast("Марки объединены", `${sourceLabel} → ${target.label}`);
+      setMergeCandidate(undefined);
+      setRowsOffset(0);
       setRefreshVersion((version) => version + 1);
       return;
     }
@@ -6576,6 +6799,7 @@ function AdminDatabaseWorkspace({
           <AdminDatabaseRowsTable
             rowsState={rowsState}
             onEdit={handleStartEdit}
+            onMerge={handleStartMerge}
             onDelete={handleStartDelete}
             onClear={handleStartClear}
             onNextPage={() =>
@@ -6627,6 +6851,25 @@ function AdminDatabaseWorkspace({
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {selectedTable !== undefined &&
+          rowsState.status === "ready" &&
+          mergeCandidate !== undefined ? (
+            <AdminDatabaseMergeModal
+              table={selectedTable}
+              source={mergeCandidate.row}
+              targets={rowsState.mergeTargets}
+              targetKey={mergeCandidate.targetKey}
+              isMutating={isMutating}
+              onCancel={() => setMergeCandidate(undefined)}
+              onConfirm={handleConfirmMerge}
+              onTargetChange={(targetKey) =>
+                setMergeCandidate((current) =>
+                  current === undefined ? current : { ...current, targetKey },
+                )
+              }
+            />
           ) : null}
 
           {clearCandidate !== undefined ? (
@@ -6830,6 +7073,7 @@ function AdminDispatcherImportPanel({
 function AdminDatabaseRowsTable({
   rowsState,
   onEdit,
+  onMerge,
   onDelete,
   onClear,
   onNextPage,
@@ -6837,6 +7081,7 @@ function AdminDatabaseRowsTable({
 }: {
   rowsState: AdminDatabaseRowsLoadState;
   onEdit: (row: AdminDatabaseRow) => void;
+  onMerge: (row: AdminDatabaseRow) => void;
   onDelete: (row: AdminDatabaseRow) => void;
   onClear: (table: AdminDatabaseTable) => void;
   onNextPage: () => void;
@@ -6956,6 +7201,16 @@ function AdminDatabaseRowsTable({
                           Править
                         </button>
                       ) : null}
+                      {rowsState.table.canMerge ? (
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={rowsState.mergeTargets.length < 2}
+                          onClick={() => onMerge(row)}
+                        >
+                          Слить
+                        </button>
+                      ) : null}
                       {rowsState.table.canDelete ? (
                         <button
                           className="secondary-button secondary-button-danger"
@@ -6974,6 +7229,102 @@ function AdminDatabaseRowsTable({
         </table>
       </div>
     </>
+  );
+}
+
+function AdminDatabaseMergeModal({
+  table,
+  source,
+  targets,
+  targetKey,
+  isMutating,
+  onCancel,
+  onConfirm,
+  onTargetChange,
+}: {
+  table: AdminDatabaseTable;
+  source: AdminDatabaseRow;
+  targets: AdminDatabaseMergeTarget[];
+  targetKey: string;
+  isMutating: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  onTargetChange: (targetKey: string) => void;
+}) {
+  const sourceKey = formatDatabasePrimaryKey(source.primaryKey);
+  const availableTargets = targets.filter(
+    (target) => formatDatabasePrimaryKey(target.primaryKey) !== sourceKey,
+  );
+  const sourceLabel = source.values.label ?? "Выбранная марка";
+  const titleId = "admin-db-merge-title";
+
+  return (
+    <div
+      className="admin-db-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !isMutating) {
+          onCancel();
+        }
+      }}
+    >
+      <section
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="admin-db-editor admin-db-clear-dialog"
+        role="dialog"
+      >
+        <div className="admin-db-clear-copy">
+          <span>Слияние марок</span>
+          <strong id={titleId}>Куда перенести «{sourceLabel}»?</strong>
+          <p>
+            Все сохранённые факты исходной марки перейдут к выбранной марке из раздела
+            «{table.label}». Исходная марка исчезнет из справочника. Прошлая история аудита
+            не переписывается, слияние будет записано отдельно.
+          </p>
+        </div>
+        <div className="admin-db-editor-field">
+          <label htmlFor="admin-db-merge-target">Целевая марка</label>
+          <select
+            id="admin-db-merge-target"
+            value={targetKey}
+            disabled={isMutating}
+            onChange={(event) => {
+              const nextTargetKey = event.currentTarget.value;
+              onTargetChange(nextTargetKey);
+            }}
+          >
+            <option value="">Выберите существующую марку</option>
+            {availableTargets.map((target) => {
+              const key = formatDatabasePrimaryKey(target.primaryKey);
+              return (
+                <option value={key} key={key}>
+                  {target.label}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+        <div className="admin-db-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={isMutating}
+            onClick={onCancel}
+          >
+            Отмена
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={isMutating || targetKey.length === 0}
+            onClick={onConfirm}
+          >
+            {isMutating ? "Объединяем" : "Слить марки"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -8600,7 +8951,13 @@ function formatRowsPage(rowsState: Extract<AdminDatabaseRowsLoadState, { status:
 }
 
 function formatPrimaryKey(row: AdminDatabaseRow) {
-  const entries = Object.entries(row.primaryKey);
+  return formatDatabasePrimaryKey(row.primaryKey);
+}
+
+function formatDatabasePrimaryKey(
+  primaryKey: Record<string, AdminDatabaseCellValue>,
+) {
+  const entries = Object.entries(primaryKey);
 
   if (entries.length === 0) {
     return "без primary key";
@@ -9126,6 +9483,21 @@ function readProductionCategoryPlanInputs(
   }
 
   return Object.fromEntries(entries) as ProductionCategoryPlans;
+}
+
+function areSameProductionPlanDates(left: string[], right: string[]) {
+  return left.length === right.length &&
+    left.every((date, index) => date === right[index]);
+}
+
+function readProductionPlanScheduleDates(plan: ProductionPlanRevision) {
+  return Array.from(
+    new Set(
+      productionCategories.flatMap((category) =>
+        plan.schedules[category].dailyPlans.map((item) => item.date),
+      ),
+    ),
+  ).sort();
 }
 
 function buildProductionPlanMonthDates(month: string) {
