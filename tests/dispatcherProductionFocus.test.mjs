@@ -208,13 +208,15 @@ test("production dashboard selects the first section that receives live rows", a
   }
 });
 
-test("production form loads the latest saved report for the selected date", { timeout: 30_000 }, async () => {
+test("production form loads the latest saved report for the selected date", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",
     { url: "http://127.0.0.1:5173/" },
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
+  const initialDateRequestStarted = createDeferred();
+  const initialDateResponseRelease = createDeferred();
   const selectedDateRequestStarted = createDeferred();
   const selectedDateResponseRelease = createDeferred();
   const emptyDateRequestStarted = createDeferred();
@@ -296,6 +298,8 @@ test("production form loads the latest saved report for the selected date", { ti
     }
 
     if (url.includes("/api/dispatcher/submissions")) {
+      initialDateRequestStarted.resolve();
+      await initialDateResponseRelease.promise;
       return jsonResponse({
         submissions: [],
         productionReportTables: emptyProductionTables(),
@@ -315,13 +319,14 @@ test("production form loads the latest saved report for the selected date", { ti
     logLevel: "silent",
     server: { middlewareMode: true },
   });
+  let root;
 
   try {
     const { DispatcherProductionReportFormBody } = await vite.ssrLoadModule(
       "/src/App.tsx",
     );
     const rootElement = dom.window.document.getElementById("root");
-    const root = createRoot(rootElement);
+    root = createRoot(rootElement);
     const form = buildProductionFormDefinition();
 
     await React.act(async () => {
@@ -339,6 +344,14 @@ test("production form loads the latest saved report for the selected date", { ti
         ),
       );
     });
+    await waitForSignal(
+      initialDateRequestStarted.promise,
+      "The initial production report request did not start",
+    );
+    await React.act(async () => {
+      initialDateResponseRelease.resolve();
+      await initialDateResponseRelease.promise;
+    });
 
     const reportDateInput = rootElement.querySelector(
       'input[name="reportDate"]',
@@ -350,7 +363,10 @@ test("production form loads the latest saved report for the selected date", { ti
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    await selectedDateRequestStarted.promise;
+    await waitForSignal(
+      selectedDateRequestStarted.promise,
+      "The saved production report request did not start",
+    );
     assert.ok(
       requestedUrls.some(
         (url) =>
@@ -398,7 +414,10 @@ test("production form loads the latest saved report for the selected date", { ti
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    await emptyDateRequestStarted.promise;
+    await waitForSignal(
+      emptyDateRequestStarted.promise,
+      "The empty production report request did not start",
+    );
     assert.ok(
       requestedUrls.some((url) => url.includes("reportDate=2026-07-17")),
       "The empty production report was not requested for the selected date",
@@ -419,7 +438,14 @@ test("production form loads the latest saved report for the selected date", { ti
     );
 
     await React.act(async () => root.unmount());
+    root = undefined;
   } finally {
+    initialDateResponseRelease.resolve();
+    selectedDateResponseRelease.resolve();
+    emptyDateResponseRelease.resolve();
+    if (root !== undefined) {
+      await React.act(async () => root.unmount());
+    }
     globalThis.fetch = previousFetch;
     await vite.close();
     dom.window.close();
@@ -565,6 +591,21 @@ function createDeferred() {
   });
 
   return { promise, resolve };
+}
+
+async function waitForSignal(signal, failureMessage) {
+  let timeoutId;
+
+  try {
+    await Promise.race([
+      signal,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(failureMessage)), 20_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function restoreGlobal(name, descriptor) {
