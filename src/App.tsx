@@ -3257,7 +3257,7 @@ export function DispatcherProductionReportFormBody({
   >({ status: "loading" });
 
   useEffect(() => {
-    if (isAdminPreviewMode || reportDate.length === 0) {
+    if (reportDate.length === 0) {
       setReportLoadState({ status: "ready" });
       return;
     }
@@ -3297,7 +3297,7 @@ export function DispatcherProductionReportFormBody({
   }, [isAdminPreviewMode, reportDate]);
 
   useEffect(() => {
-    if (isAdminPreviewMode || reportDate.length === 0) {
+    if (reportDate.length === 0) {
       setDailyPlanState({ status: "ready" });
       return;
     }
@@ -3330,12 +3330,6 @@ export function DispatcherProductionReportFormBody({
   }, [isAdminPreviewMode, reportDate]);
 
   useEffect(() => {
-    if (isAdminPreviewMode) {
-      setBrandLabels([]);
-      setBrandLoadState({ status: "ready" });
-      return;
-    }
-
     const controller = new AbortController();
 
     setBrandLoadState({ status: "loading" });
@@ -3411,9 +3405,7 @@ export function DispatcherProductionReportFormBody({
 
       <div className="production-report-daily-plan" aria-live="polite">
         <span>Планы на выбранную дату</span>
-        {isAdminPreviewMode ? (
-          <strong>Не загружаются в режиме просмотра</strong>
-        ) : dailyPlanState.status === "loading" ? (
+        {dailyPlanState.status === "loading" ? (
           <LoadingIndicator
             announce={false}
             label="Загружаем планы…"

@@ -208,7 +208,11 @@ test("production dashboard selects the first section that receives live rows", a
   }
 });
 
-test("production form loads the latest saved report for the selected date", async () => {
+for (const { label, isAdminPreviewMode } of [
+  { label: "dispatcher mode", isAdminPreviewMode: false },
+  { label: "admin preview", isAdminPreviewMode: true },
+]) {
+test(`production form loads all saved data by date in ${label}`, async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",
     { url: "http://127.0.0.1:5173/" },
@@ -239,7 +243,17 @@ test("production form loads the latest saved report for the selected date", asyn
     }
 
     if (url.includes("/api/production-plans/daily")) {
-      return jsonResponse({ plan: null });
+      return jsonResponse({
+        plan: {
+          date: "2026-07-18",
+          values: {
+            forming: 8,
+            sorting: 7,
+            unformed: 6,
+            chamotte: 5,
+          },
+        },
+      });
     }
 
     if (
@@ -339,7 +353,7 @@ test("production form loads the latest saved report for the selected date", asyn
           null,
           React.createElement(DispatcherProductionReportFormBody, {
             form,
-            isAdminPreviewMode: false,
+            isAdminPreviewMode,
             isSubmitting: false,
             onResetStatus: () => undefined,
             status: "",
@@ -410,6 +424,16 @@ test("production form loads the latest saved report for the selected date", asyn
       "2",
     );
     assert.match(rootElement.textContent ?? "", /Внести изменения/u);
+    assert.ok(
+      requestedUrls.some((url) => url.includes("/api/production-plans/daily")),
+    );
+    assert.ok(
+      requestedUrls.some((url) => url.includes("/api/production-brands")),
+    );
+    assert.match(
+      rootElement.querySelector(".production-report-daily-plan")?.textContent ?? "",
+      /Формовка8.*Сортировка7.*Неформованная продукция, контейнеры6.*Цех обжига шамота5/u,
+    );
 
     await React.act(async () => {
       setNativeInputValue(reportDateInput, "2026-07-17");
@@ -462,6 +486,7 @@ test("production form loads the latest saved report for the selected date", asyn
     restoreDomGlobals(previousGlobals);
   }
 });
+}
 
 test("DOM globals replace and restore a getter-only navigator", () => {
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
