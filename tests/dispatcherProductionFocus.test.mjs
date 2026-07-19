@@ -238,6 +238,7 @@ test("production form loads the latest saved report for the selected date", asyn
       url.includes("formId=production") &&
       url.includes("reportDate=2026-07-18")
     ) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
       return jsonResponse({
         submissions: [
           {
@@ -273,6 +274,7 @@ test("production form loads the latest saved report for the selected date", asyn
     }
 
     if (url.includes("/api/dispatcher/submissions")) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
       return jsonResponse({
         submissions: [],
         productionReportTables: emptyProductionTables(),
@@ -326,9 +328,14 @@ test("production form loads the latest saved report for the selected date", asyn
       reportDateInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
-      await Promise.resolve();
-      await Promise.resolve();
     });
+    await waitForDomCondition(
+      React,
+      () =>
+        rootElement.querySelector('input[name="formingDay"]')?.value ===
+        "12.5",
+      "Saved production values were not rendered for the selected date",
+    );
 
     assert.equal(
       rootElement.querySelector('input[name="formingDay"]')?.value,
@@ -363,9 +370,15 @@ test("production form loads the latest saved report for the selected date", asyn
       reportDateInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
-      await Promise.resolve();
-      await Promise.resolve();
     });
+    await waitForDomCondition(
+      React,
+      () =>
+        /За выбранную дату данные ещё не внесены/u.test(
+          rootElement.textContent ?? "",
+        ),
+      "The empty production state was not rendered for the selected date",
+    );
 
     assert.equal(
       rootElement.querySelector('input[name="formingDay"]')?.value,
@@ -515,6 +528,20 @@ function setNativeInputValue(input, value) {
   )?.set;
 
   setter.call(input, value);
+}
+
+async function waitForDomCondition(React, condition, failureMessage) {
+  const deadline = Date.now() + 2_000;
+
+  while (!condition()) {
+    if (Date.now() >= deadline) {
+      assert.fail(failureMessage);
+    }
+
+    await React.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
 }
 
 function restoreGlobal(name, descriptor) {
