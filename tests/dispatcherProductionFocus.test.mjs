@@ -215,6 +215,7 @@ test("production form loads the latest saved report for the selected date", asyn
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
   const initialDateRequestStarted = createDeferred();
   const initialDateResponseRelease = createDeferred();
   const selectedDateRequestStarted = createDeferred();
@@ -314,14 +315,16 @@ test("production form loads the latest saved report for the selected date", asyn
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  let vite;
   let root;
 
   try {
+    process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:3000";
+    vite = await createServer({
+      appType: "custom",
+      logLevel: "silent",
+      server: { middlewareMode: true },
+    });
     const { DispatcherProductionReportFormBody } = await vite.ssrLoadModule(
       "/src/App.tsx",
     );
@@ -447,7 +450,14 @@ test("production form loads the latest saved report for the selected date", asyn
       await React.act(async () => root.unmount());
     }
     globalThis.fetch = previousFetch;
-    await vite.close();
+    if (vite !== undefined) {
+      await vite.close();
+    }
+    if (previousRemoteApiUrl === undefined) {
+      delete process.env.VITE_SMB_REMOTE_API_URL;
+    } else {
+      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+    }
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
