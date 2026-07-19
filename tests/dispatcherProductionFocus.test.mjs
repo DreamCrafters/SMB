@@ -215,10 +215,14 @@ test("production form loads the latest saved report for the selected date", asyn
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
+  const selectedDateResponseRelease = createDeferred();
+  const emptyDateResponseRelease = createDeferred();
+  const requestedUrls = [];
 
   installDomGlobals(dom.window);
   globalThis.fetch = async (endpoint) => {
     const url = String(endpoint);
+    requestedUrls.push(url);
 
     if (url.includes("/api/production-brands")) {
       return jsonResponse({
@@ -238,7 +242,7 @@ test("production form loads the latest saved report for the selected date", asyn
       url.includes("formId=production") &&
       url.includes("reportDate=2026-07-18")
     ) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await selectedDateResponseRelease.promise;
       return jsonResponse({
         submissions: [
           {
@@ -273,8 +277,21 @@ test("production form loads the latest saved report for the selected date", asyn
       });
     }
 
+    if (
+      url.includes("/api/dispatcher/submissions") &&
+      url.includes("reportDate=2026-07-17")
+    ) {
+      await emptyDateResponseRelease.promise;
+      return jsonResponse({
+        submissions: [],
+        productionReportTables: emptyProductionTables(),
+        productionMonthOverview: null,
+        receivedAt: "2026-07-17T00:00:00.000Z",
+        summary: { total: 0, byForm: [] },
+      });
+    }
+
     if (url.includes("/api/dispatcher/submissions")) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
       return jsonResponse({
         submissions: [],
         productionReportTables: emptyProductionTables(),
@@ -329,13 +346,18 @@ test("production form loads the latest saved report for the selected date", asyn
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    await waitForDomCondition(
-      React,
-      () =>
-        rootElement.querySelector('input[name="formingDay"]')?.value ===
-        "12.5",
-      "Saved production values were not rendered for the selected date",
+    assert.ok(
+      requestedUrls.some(
+        (url) =>
+          url.includes("formId=production") &&
+          url.includes("reportDate=2026-07-18"),
+      ),
+      "The saved production report was not requested for the selected date",
     );
+    await React.act(async () => {
+      selectedDateResponseRelease.resolve();
+      await selectedDateResponseRelease.promise;
+    });
 
     assert.equal(
       rootElement.querySelector('input[name="formingDay"]')?.value,
@@ -371,14 +393,14 @@ test("production form loads the latest saved report for the selected date", asyn
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    await waitForDomCondition(
-      React,
-      () =>
-        /За выбранную дату данные ещё не внесены/u.test(
-          rootElement.textContent ?? "",
-        ),
-      "The empty production state was not rendered for the selected date",
+    assert.ok(
+      requestedUrls.some((url) => url.includes("reportDate=2026-07-17")),
+      "The empty production report was not requested for the selected date",
     );
+    await React.act(async () => {
+      emptyDateResponseRelease.resolve();
+      await emptyDateResponseRelease.promise;
+    });
 
     assert.equal(
       rootElement.querySelector('input[name="formingDay"]')?.value,
@@ -530,18 +552,13 @@ function setNativeInputValue(input, value) {
   setter.call(input, value);
 }
 
-async function waitForDomCondition(React, condition, failureMessage) {
-  const deadline = Date.now() + 2_000;
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((promiseResolve) => {
+    resolve = promiseResolve;
+  });
 
-  while (!condition()) {
-    if (Date.now() >= deadline) {
-      assert.fail(failureMessage);
-    }
-
-    await React.act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    });
-  }
+  return { promise, resolve };
 }
 
 function restoreGlobal(name, descriptor) {
