@@ -488,6 +488,111 @@ test(`production form loads all saved data by date in ${label}`, async () => {
 });
 }
 
+test("production monthly plan input keeps digits only", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+  const requestsStarted = createDeferred();
+  const responsesRelease = createDeferred();
+  const requestedKinds = new Set();
+
+  installDomGlobals(dom.window);
+  globalThis.fetch = async (endpoint, init) => {
+    const url = String(endpoint);
+
+    if (url.includes("/api/production-plans/preview")) {
+      requestedKinds.add("preview");
+      if (requestedKinds.size === 2) requestsStarted.resolve();
+      await responsesRelease.promise;
+      const month = JSON.parse(String(init?.body)).month;
+
+      return jsonResponse({
+        month,
+        allDates: [`${month}-01`],
+        weekdayDates: [`${month}-01`],
+      });
+    }
+
+    if (url.includes("/api/production-plans?month=")) {
+      requestedKinds.add("plan");
+      if (requestedKinds.size === 2) requestsStarted.resolve();
+      await responsesRelease.promise;
+      return jsonResponse({ plan: null });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  };
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  let vite;
+  let root;
+
+  try {
+    process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:3000";
+    vite = await createServer({
+      appType: "custom",
+      logLevel: "silent",
+      server: { middlewareMode: true },
+    });
+    const { ProductionPlanWorkspace } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(ProductionPlanWorkspace, {
+          isAdminPreviewMode: false,
+          onShowToast: () => undefined,
+        }),
+      );
+    });
+    await waitForSignal(
+      requestsStarted.promise,
+      "The production plan requests did not start",
+    );
+    await React.act(async () => {
+      responsesRelease.resolve();
+      await responsesRelease.promise;
+    });
+
+    const planInput = rootElement.querySelector('input[inputmode="numeric"]');
+
+    assert.ok(planInput instanceof dom.window.HTMLInputElement);
+    assert.equal(planInput.disabled, false);
+    await React.act(async () => {
+      setNativeInputValue(planInput, "12abc,5");
+      planInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(planInput.value, "125");
+
+    await React.act(async () => root.unmount());
+    root = undefined;
+  } finally {
+    responsesRelease.resolve();
+    if (root !== undefined) {
+      await React.act(async () => root.unmount());
+    }
+    globalThis.fetch = previousFetch;
+    if (vite !== undefined) {
+      await vite.close();
+    }
+    if (previousRemoteApiUrl === undefined) {
+      delete process.env.VITE_SMB_REMOTE_API_URL;
+    } else {
+      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+    }
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("DOM globals replace and restore a getter-only navigator", () => {
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   const dom = new JSDOM("<!doctype html><html><body></body></html>");

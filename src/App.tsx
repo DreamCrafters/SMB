@@ -2373,7 +2373,7 @@ function createEmptyProductionPlanDateSelections(): Record<
   };
 }
 
-function ProductionPlanWorkspace({
+export function ProductionPlanWorkspace({
   isAdminPreviewMode,
   onShowToast,
 }: {
@@ -2516,7 +2516,7 @@ function ProductionPlanWorkspace({
     category: ProductionCategory,
     event: ChangeEvent<HTMLInputElement>,
   ) {
-    const nextValue = event.currentTarget.value;
+    const nextValue = event.currentTarget.value.replace(/\D/gu, "");
 
     setMonthlyPlanInputs((current) => ({
       ...current,
