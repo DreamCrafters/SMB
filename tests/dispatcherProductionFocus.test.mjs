@@ -208,14 +208,16 @@ test("production dashboard selects the first section that receives live rows", a
   }
 });
 
-test("production form loads the latest saved report for the selected date", async () => {
+test("production form loads the latest saved report for the selected date", { timeout: 30_000 }, async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",
     { url: "http://127.0.0.1:5173/" },
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
+  const selectedDateRequestStarted = createDeferred();
   const selectedDateResponseRelease = createDeferred();
+  const emptyDateRequestStarted = createDeferred();
   const emptyDateResponseRelease = createDeferred();
   const requestedUrls = [];
 
@@ -242,6 +244,7 @@ test("production form loads the latest saved report for the selected date", asyn
       url.includes("formId=production") &&
       url.includes("reportDate=2026-07-18")
     ) {
+      selectedDateRequestStarted.resolve();
       await selectedDateResponseRelease.promise;
       return jsonResponse({
         submissions: [
@@ -281,6 +284,7 @@ test("production form loads the latest saved report for the selected date", asyn
       url.includes("/api/dispatcher/submissions") &&
       url.includes("reportDate=2026-07-17")
     ) {
+      emptyDateRequestStarted.resolve();
       await emptyDateResponseRelease.promise;
       return jsonResponse({
         submissions: [],
@@ -346,6 +350,7 @@ test("production form loads the latest saved report for the selected date", asyn
         new dom.window.Event("input", { bubbles: true }),
       );
     });
+    await selectedDateRequestStarted.promise;
     assert.ok(
       requestedUrls.some(
         (url) =>
@@ -393,6 +398,7 @@ test("production form loads the latest saved report for the selected date", asyn
         new dom.window.Event("input", { bubbles: true }),
       );
     });
+    await emptyDateRequestStarted.promise;
     assert.ok(
       requestedUrls.some((url) => url.includes("reportDate=2026-07-17")),
       "The empty production report was not requested for the selected date",
