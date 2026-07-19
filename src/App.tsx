@@ -3148,6 +3148,7 @@ function DataEntryWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             isSubmitting={isSubmitting}
             status={status}
+            onResetStatus={onResetStatus}
           />
         ) : currentForm.id === "equipment" ? (
           <DispatcherEquipmentFormBody
@@ -3220,15 +3221,17 @@ function DataEntryWorkspace({
   );
 }
 
-function DispatcherProductionReportFormBody({
+export function DispatcherProductionReportFormBody({
   form,
   isAdminPreviewMode,
   isSubmitting,
+  onResetStatus,
   status,
 }: {
   form: DispatcherFormDefinition;
   isAdminPreviewMode: boolean;
   isSubmitting: boolean;
+  onResetStatus: () => void;
   status: string;
 }) {
   const reportDateField = form.fields.find(
@@ -3247,6 +3250,51 @@ function DispatcherProductionReportFormBody({
     | { status: "error"; message: string }
   >({ status: "loading" });
   const [brandRefreshVersion, setBrandRefreshVersion] = useState(0);
+  const [reportLoadState, setReportLoadState] = useState<
+    | { status: "loading" }
+    | { status: "ready"; submission?: DispatcherSubmission }
+    | { status: "error"; message: string }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    if (isAdminPreviewMode || reportDate.length === 0) {
+      setReportLoadState({ status: "ready" });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setReportLoadState({ status: "loading" });
+    requestDispatcherFeed({
+      formId: "production",
+      reportDate,
+      limit: 1,
+      localFallback: true,
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) return;
+
+      if (result.status === "ready") {
+        setReportLoadState({
+          status: "ready",
+          submission: result.submissions.find(
+            (submission) => submission.formId === "production",
+          ),
+        });
+        return;
+      }
+
+      setReportLoadState({
+        status: "error",
+        message: readShortUserMessage(
+          result.message,
+          "Не удалось загрузить данные за выбранную дату.",
+        ),
+      });
+    });
+
+    return () => controller.abort();
+  }, [isAdminPreviewMode, reportDate]);
 
   useEffect(() => {
     if (isAdminPreviewMode || reportDate.length === 0) {
@@ -3353,7 +3401,10 @@ function DispatcherProductionReportFormBody({
             field={reportDateField}
             value={reportDate}
             onBlur={() => undefined}
-            onChange={setReportDate}
+            onChange={(nextReportDate) => {
+              onResetStatus();
+              setReportDate(nextReportDate);
+            }}
           />
         )}
       </div>
@@ -3388,15 +3439,83 @@ function DispatcherProductionReportFormBody({
         )}
       </div>
 
+      {reportLoadState.status === "loading" ? (
+        <LoadingIndicator
+          label="Загружаем данные за выбранную дату…"
+          variant="panel"
+        />
+      ) : reportLoadState.status === "error" ? (
+        <p className="form-status" role="alert">
+          {reportLoadState.message}
+        </p>
+      ) : (
+        <ProductionReportEditor
+          key={`${reportDate}:${reportLoadState.submission?.id ?? "new"}`}
+          brandLabels={brandLabels}
+          brandLoadState={brandLoadState}
+          dailyPlanValues={dailyPlanValues}
+          form={form}
+          initialSubmission={reportLoadState.submission}
+          isAdminPreviewMode={isAdminPreviewMode}
+          isSubmitting={isSubmitting}
+          status={status}
+          onCreateBrand={handleCreateBrand}
+          onRetryBrands={() =>
+            setBrandRefreshVersion((current) => current + 1)
+          }
+        />
+      )}
+    </>
+  );
+}
+
+function ProductionReportEditor({
+  brandLabels,
+  brandLoadState,
+  dailyPlanValues,
+  form,
+  initialSubmission,
+  isAdminPreviewMode,
+  isSubmitting,
+  status,
+  onCreateBrand,
+  onRetryBrands,
+}: {
+  brandLabels: ProductionBrandLabel[];
+  brandLoadState:
+    | { status: "loading" }
+    | { status: "ready" }
+    | { status: "error"; message: string };
+  dailyPlanValues?: Partial<ProductionCategoryPlans>;
+  form: DispatcherFormDefinition;
+  initialSubmission?: DispatcherSubmission;
+  isAdminPreviewMode: boolean;
+  isSubmitting: boolean;
+  status: string;
+  onCreateBrand: ProductionBrandCreator;
+  onRetryBrands: () => void;
+}) {
+  const initialPayload = initialSubmission?.payload;
+
+  return (
+    <>
+      {initialSubmission === undefined ? (
+        <p className="dispatcher-status-line">
+          За выбранную дату данные ещё не внесены.
+        </p>
+      ) : (
+        <p className="dispatcher-status-line" role="status">
+          Загружены сохранённые данные. После отправки изменения станут новой
+          версией отчёта.
+        </p>
+      )}
+
       {brandLoadState.status === "loading" ? (
         <LoadingIndicator label="Загружаем марки…" variant="panel" />
       ) : brandLoadState.status === "error" ? (
         <div className="production-brand-load-error" role="alert">
           <span>{brandLoadState.message}</span>
-          <button
-            type="button"
-            onClick={() => setBrandRefreshVersion((current) => current + 1)}
-          >
+          <button type="button" onClick={onRetryBrands}>
             Повторить
           </button>
         </div>
@@ -3408,19 +3527,21 @@ function DispatcherProductionReportFormBody({
           brandLabels={brandLabels}
           categoryPlan={dailyPlanValues?.forming}
           form={form}
+          initialPayload={initialPayload}
           isAdminPreviewMode={isAdminPreviewMode}
           prefix="forming"
           title="Формовка"
-          onCreateBrand={handleCreateBrand}
+          onCreateBrand={onCreateBrand}
         />
         <ProductionSummaryTable
           brandLabels={brandLabels}
           categoryPlan={dailyPlanValues?.sorting}
           form={form}
+          initialPayload={initialPayload}
           isAdminPreviewMode={isAdminPreviewMode}
           prefix="sorting"
           title="Сортировка"
-          onCreateBrand={handleCreateBrand}
+          onCreateBrand={onCreateBrand}
         />
       </fieldset>
 
@@ -3431,9 +3552,10 @@ function DispatcherProductionReportFormBody({
             brandLabels={brandLabels}
             category="unformed"
             categoryPlan={dailyPlanValues?.unformed}
+            initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
             prefix="unformed"
-            onCreateBrand={handleCreateBrand}
+            onCreateBrand={onCreateBrand}
           />
         </fieldset>
 
@@ -3446,9 +3568,10 @@ function DispatcherProductionReportFormBody({
             brandLabels={brandLabels}
             category="chamotte"
             categoryPlan={dailyPlanValues?.chamotte}
+            initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
             prefix="chamotte"
-            onCreateBrand={handleCreateBrand}
+            onCreateBrand={onCreateBrand}
           />
         </fieldset>
       </div>
@@ -3471,12 +3594,14 @@ function DispatcherProductionReportFormBody({
                     <th scope="row">{jarNumber}</th>
                     <td>
                       <ProductionReportCell
+                        defaultValue={initialPayload?.[`jarStart${jarNumber}`]}
                         fieldName={`jarStart${jarNumber}`}
                         form={form}
                       />
                     </td>
                     <td>
                       <ProductionReportCell
+                        defaultValue={initialPayload?.[`jarEnd${jarNumber}`]}
                         fieldName={`jarEnd${jarNumber}`}
                         form={form}
                       />
@@ -3490,7 +3615,10 @@ function DispatcherProductionReportFormBody({
 
         <fieldset className="production-report-section">
           <legend>Участок грануляции</legend>
-          <ProductionGranulationTable form={form} />
+          <ProductionGranulationTable
+            form={form}
+            initialPayload={initialPayload}
+          />
         </fieldset>
       </div>
 
@@ -3498,14 +3626,15 @@ function DispatcherProductionReportFormBody({
         <button
           className="primary-button"
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || brandLoadState.status !== "ready"}
         >
           {isSubmitting ? (
-            <LoadingIndicator
-              label="Отправляем…"
-              variant="button"
-            />
-          ) : "Отправить"}
+            <LoadingIndicator label="Отправляем…" variant="button" />
+          ) : initialSubmission === undefined ? (
+            "Отправить"
+          ) : (
+            "Внести изменения"
+          )}
         </button>
         {status.length > 0 ? <p className="form-status">{status}</p> : null}
       </div>
@@ -3517,6 +3646,7 @@ export function ProductionSummaryTable({
   brandLabels,
   categoryPlan,
   form,
+  initialPayload,
   isAdminPreviewMode,
   prefix,
   title,
@@ -3525,12 +3655,15 @@ export function ProductionSummaryTable({
   brandLabels: ProductionBrandLabel[];
   categoryPlan?: number;
   form: DispatcherFormDefinition;
+  initialPayload?: DispatcherSubmissionPayload;
   isAdminPreviewMode: boolean;
   prefix: "forming" | "sorting";
   title: string;
   onCreateBrand: ProductionBrandCreator;
 }) {
-  const [brand, setBrand] = useState("");
+  const [brand, setBrand] = useState(
+    () => initialPayload?.[`${prefix}ProductBrand`] ?? "",
+  );
 
   return (
     <section className="production-report-subsection">
@@ -3553,6 +3686,7 @@ export function ProductionSummaryTable({
               </td>
               <td>
                 <ProductionReportCell
+                  defaultValue={initialPayload?.[`${prefix}Day`]}
                   fieldName={`${prefix}Day`}
                   focusOnMouseDown
                   form={form}
@@ -3598,6 +3732,7 @@ function ProductionBrandColumnsTable({
   brandLabels,
   category,
   categoryPlan,
+  initialPayload,
   isAdminPreviewMode,
   prefix,
   onCreateBrand,
@@ -3605,13 +3740,14 @@ function ProductionBrandColumnsTable({
   brandLabels: ProductionBrandLabel[];
   category: "unformed" | "chamotte";
   categoryPlan?: number;
+  initialPayload?: DispatcherSubmissionPayload;
   isAdminPreviewMode: boolean;
   prefix: "unformed" | "chamotte";
   onCreateBrand: ProductionBrandCreator;
 }) {
-  const [columns, setColumns] = useState<ProductionBrandColumn[]>([
-    { id: 1, brand: "" },
-  ]);
+  const [columns, setColumns] = useState<ProductionBrandColumn[]>(() =>
+    readProductionBrandColumns(initialPayload, prefix),
+  );
 
   function addColumn() {
     if (columns.length >= 50) return;
@@ -3688,6 +3824,7 @@ function ProductionBrandColumnsTable({
                     <span>Факт по марке</span>
                     <input
                       aria-label={`Факт: ${column.brand || "марка не выбрана"}`}
+                      defaultValue={initialPayload?.[`${prefix}Fact${column.id}`]}
                       inputMode="decimal"
                       name={`${prefix}Fact${column.id}`}
                       pattern={decimalNumberInputPattern}
@@ -3732,6 +3869,34 @@ function ProductionBrandColumnsTable({
       </button>
     </div>
   );
+}
+
+function readProductionBrandColumns(
+  payload: DispatcherSubmissionPayload | undefined,
+  prefix: "unformed" | "chamotte",
+): ProductionBrandColumn[] {
+  const fieldPattern = new RegExp(`^${prefix}(?:Brand|Fact)(\\d+)$`, "u");
+  const ids = new Set<number>();
+
+  for (const fieldName of Object.keys(payload ?? {})) {
+    const match = fieldPattern.exec(fieldName);
+    const id = match === null ? undefined : Number(match[1]);
+
+    if (id !== undefined && Number.isInteger(id) && id >= 1 && id <= 50) {
+      ids.add(id);
+    }
+  }
+
+  if (ids.size === 0) {
+    return [{ id: 1, brand: "" }];
+  }
+
+  return [...ids]
+    .sort((left, right) => left - right)
+    .map((id) => ({
+      id,
+      brand: payload?.[`${prefix}Brand${id}`] ?? "",
+    }));
 }
 
 function ProductionBrandPicker({
@@ -3862,8 +4027,10 @@ function normalizeProductionBrandKey(value: string) {
 
 function ProductionGranulationTable({
   form,
+  initialPayload,
 }: {
   form: DispatcherFormDefinition;
+  initialPayload?: DispatcherSubmissionPayload;
 }) {
   return (
     <div className="production-report-table-wrap">
@@ -3888,7 +4055,11 @@ function ProductionGranulationTable({
               "granulationFraction1218Day",
             ].map((fieldName) => (
               <td key={fieldName}>
-                <ProductionReportCell fieldName={fieldName} form={form} />
+                <ProductionReportCell
+                  defaultValue={initialPayload?.[fieldName]}
+                  fieldName={fieldName}
+                  form={form}
+                />
               </td>
             ))}
           </tr>
@@ -3899,11 +4070,13 @@ function ProductionGranulationTable({
 }
 
 function ProductionReportCell({
+  defaultValue,
   fieldName,
   focusOnMouseDown = false,
   form,
   required,
 }: {
+  defaultValue?: string;
   fieldName: string;
   focusOnMouseDown?: boolean;
   form: DispatcherFormDefinition;
@@ -3918,6 +4091,7 @@ function ProductionReportCell({
   return (
     <div className="production-report-cell-input" title={field.label}>
       <DispatcherFormFieldInput
+        defaultValue={defaultValue}
         field={field}
         focusOnMouseDown={focusOnMouseDown}
         required={required}

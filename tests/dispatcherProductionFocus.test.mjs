@@ -208,6 +208,184 @@ test("production dashboard selects the first section that receives live rows", a
   }
 });
 
+test("production form loads the latest saved report for the selected date", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+
+  installDomGlobals(dom.window);
+  globalThis.fetch = async (endpoint) => {
+    const url = String(endpoint);
+
+    if (url.includes("/api/production-brands")) {
+      return jsonResponse({
+        labels: [
+          buildBrandLabel("product-1", "product", "МКР-1"),
+          buildBrandLabel("unformed-1", "unformed", "ПБ-5"),
+        ],
+      });
+    }
+
+    if (url.includes("/api/production-plans/daily")) {
+      return jsonResponse({ plan: null });
+    }
+
+    if (
+      url.includes("/api/dispatcher/submissions") &&
+      url.includes("formId=production") &&
+      url.includes("reportDate=2026-07-18")
+    ) {
+      return jsonResponse({
+        submissions: [
+          {
+            id: "production-2026-07-18-latest",
+            formId: "production",
+            formTitle: "Выработка",
+            payload: {
+              reportDate: "18.07.2026",
+              formingDay: "12.5",
+              formingProductBrand: "МКР-1",
+              unformedBrand3: "ПБ-5",
+              unformedFact3: "4",
+              jarStart1: "10",
+              granulationFraction1630Day: "2",
+            },
+            summary: "Выработка за 18.07.2026",
+            status: "received",
+            submittedByAccountId: "dispatcher-1",
+            submittedAt: "2026-07-18T18:00:00.000Z",
+            receivedAt: "2026-07-18T18:00:01.000Z",
+          },
+        ],
+        productionReportTables: emptyProductionTables(),
+        productionMonthOverview: null,
+        receivedAt: "2026-07-18T18:00:02.000Z",
+        summary: {
+          total: 1,
+          byForm: [
+            { formId: "production", formTitle: "Выработка", count: 1 },
+          ],
+        },
+      });
+    }
+
+    if (url.includes("/api/dispatcher/submissions")) {
+      return jsonResponse({
+        submissions: [],
+        productionReportTables: emptyProductionTables(),
+        productionMonthOverview: null,
+        receivedAt: "2026-07-19T00:00:00.000Z",
+        summary: { total: 0, byForm: [] },
+      });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  };
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { DispatcherProductionReportFormBody } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    const form = buildProductionFormDefinition();
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(
+          "form",
+          null,
+          React.createElement(DispatcherProductionReportFormBody, {
+            form,
+            isAdminPreviewMode: false,
+            isSubmitting: false,
+            onResetStatus: () => undefined,
+            status: "",
+          }),
+        ),
+      );
+    });
+
+    const reportDateInput = rootElement.querySelector(
+      'input[name="reportDate"]',
+    );
+
+    await React.act(async () => {
+      setNativeInputValue(reportDateInput, "2026-07-18");
+      reportDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    assert.equal(
+      rootElement.querySelector('input[name="formingDay"]')?.value,
+      "12.5",
+    );
+    assert.equal(
+      rootElement.querySelector('select[name="formingProductBrand"]')?.value,
+      "МКР-1",
+    );
+    assert.equal(
+      rootElement.querySelector('select[name="unformedBrand3"]')?.value,
+      "ПБ-5",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="unformedFact3"]')?.value,
+      "4",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="jarStart1"]')?.value,
+      "10",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'input[name="granulationFraction1630Day"]',
+      )?.value,
+      "2",
+    );
+    assert.match(rootElement.textContent ?? "", /Внести изменения/u);
+
+    await React.act(async () => {
+      setNativeInputValue(reportDateInput, "2026-07-17");
+      reportDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    assert.equal(
+      rootElement.querySelector('input[name="formingDay"]')?.value,
+      "",
+    );
+    assert.doesNotMatch(rootElement.textContent ?? "", /Внести изменения/u);
+    assert.match(
+      rootElement.textContent ?? "",
+      /За выбранную дату данные ещё не внесены/u,
+    );
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("DOM globals replace and restore a getter-only navigator", () => {
   const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
@@ -271,6 +449,72 @@ function restoreDomGlobals(previousGlobals) {
   for (const [name, descriptor] of Object.entries(previousGlobals)) {
     restoreGlobal(name, descriptor);
   }
+}
+
+function jsonResponse(payload) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function buildBrandLabel(id, category, label) {
+  return {
+    id,
+    category,
+    label,
+    createdAt: "2026-07-01T00:00:00.000Z",
+  };
+}
+
+function emptyProductionTables() {
+  return {
+    forming: [],
+    sorting: [],
+    unformed: [],
+    chamotte: [],
+    jars: [],
+    granulation: [],
+  };
+}
+
+function buildProductionFormDefinition() {
+  const numberField = (name, label = name) => ({
+    name,
+    label,
+    type: "number",
+    required: false,
+  });
+
+  return {
+    id: "production",
+    title: "Выработка",
+    description: "",
+    fields: [
+      { name: "reportDate", label: "Дата отчета", type: "date", required: true },
+      numberField("formingDay"),
+      numberField("sortingDay"),
+      numberField("jarStart1"),
+      numberField("jarEnd1"),
+      numberField("jarStart2"),
+      numberField("jarEnd2"),
+      numberField("jarStart3"),
+      numberField("jarEnd3"),
+      numberField("granulationPlatesInOperation"),
+      numberField("granulationMillHours"),
+      numberField("granulationFraction1630Day"),
+      numberField("granulationFraction1218Day"),
+    ],
+  };
+}
+
+function setNativeInputValue(input, value) {
+  const setter = Object.getOwnPropertyDescriptor(
+    input.ownerDocument.defaultView.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+
+  setter.call(input, value);
 }
 
 function restoreGlobal(name, descriptor) {
