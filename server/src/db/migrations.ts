@@ -870,6 +870,176 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "021_refractory_report_revisions",
+    statements: [
+      `
+      create table if not exists refractory_report_keys (
+        report_type varchar(32) not null,
+        report_date date not null,
+        shift_number tinyint unsigned not null,
+        primary key (report_type, report_date, shift_number),
+        constraint chk_refractory_report_keys_type
+          check (report_type in ('cosh', 'equipment', 'firing')),
+        constraint chk_refractory_report_keys_shift
+          check (shift_number in (1, 2))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists refractory_report_revisions (
+        id char(36) not null primary key,
+        report_type varchar(32) not null,
+        report_date date not null,
+        shift_number tinyint unsigned not null,
+        revision_number int unsigned not null,
+        status varchar(24) not null,
+        payload json not null,
+        totals json not null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        master_display_name varchar(255) not null,
+        submitted_at timestamp(3) not null default current_timestamp(3),
+        reviewed_by_user_id varchar(120) null,
+        reviewed_by_account_id varchar(120) null,
+        reviewer_display_name varchar(255) null,
+        reviewed_at timestamp(3) null,
+        rejection_comment text null,
+        unique key uq_refractory_report_revision (
+          report_type,
+          report_date,
+          shift_number,
+          revision_number
+        ),
+        key idx_refractory_report_pending (status, submitted_at, id),
+        key idx_refractory_report_shift (
+          report_date,
+          shift_number,
+          report_type,
+          revision_number
+        ),
+        constraint fk_refractory_report_key
+          foreign key (report_type, report_date, shift_number)
+          references refractory_report_keys (
+            report_type,
+            report_date,
+            shift_number
+          )
+          on delete restrict,
+        constraint chk_refractory_report_revision_type
+          check (report_type in ('cosh', 'equipment', 'firing')),
+        constraint chk_refractory_report_revision_shift
+          check (shift_number in (1, 2)),
+        constraint chk_refractory_report_revision_status
+          check (status in ('pending', 'rejected', 'approved'))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      update account_positions
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.review_refractory_reports')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.review_refractory_reports'
+        )
+      end
+      where json_contains(
+        navigation_items,
+        json_quote('business.dispatcher_form')
+      );
+      `,
+      `
+      update account_accesses
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.review_refractory_reports')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.review_refractory_reports'
+        )
+      end
+      where json_contains(
+        navigation_items,
+        json_quote('business.dispatcher_form')
+      );
+      `,
+      `
+      update account_positions
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.submit_refractory_reports')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.submit_refractory_reports'
+        )
+      end
+      where id = 'administrator';
+      `,
+      `
+      update account_positions
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.review_refractory_reports')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.review_refractory_reports'
+        )
+      end
+      where id = 'administrator';
+      `,
+      `
+      update account_accesses
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.submit_refractory_reports')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.submit_refractory_reports'
+        )
+      end
+      where position_code = 'administrator';
+      `,
+      `
+      update account_accesses
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.review_refractory_reports')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.review_refractory_reports'
+        )
+      end
+      where position_code = 'administrator';
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      where json_contains(
+        accesses.navigation_items,
+        json_quote('business.dispatcher_form')
+      ) or accesses.position_code = 'administrator';
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

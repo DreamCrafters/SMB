@@ -26,6 +26,7 @@ export const accountNavigationItems = [
   "business.work",
   "business.user_actions",
   "business.production_plan",
+  "business.refractory_shop",
   "business.dispatcher_form",
 ] as const;
 
@@ -47,6 +48,8 @@ export const accountCapabilities = [
   "business.view_own_submissions",
   "business.view_user_actions",
   "business.manage_production_plan",
+  "business.submit_refractory_reports",
+  "business.review_refractory_reports",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];
@@ -123,6 +126,8 @@ export const defaultCapabilitiesByAccountType: Record<
     "business.view_dispatcher_feed",
     "business.view_own_submissions",
     "business.manage_production_plan",
+    "business.submit_refractory_reports",
+    "business.review_refractory_reports",
   ],
   business_owner: [
     "business.view_all_statistics",
@@ -135,6 +140,7 @@ export const defaultCapabilitiesByAccountType: Record<
   dispatcher: [
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",
+    "business.review_refractory_reports",
   ],
 };
 

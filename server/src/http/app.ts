@@ -50,6 +50,12 @@ import {
   normalizeProductionBrandLabelInput,
 } from "../domain/productionBrand.js";
 import {
+  validateRefractoryReportDecision,
+  validateRefractoryReportSubmission,
+  type RefractoryReportType,
+  type RefractoryShiftNumber,
+} from "../domain/refractoryReport.js";
+import {
   getDispatcherFormDefinition,
   getPublicDispatcherForms,
   isDispatcherFormId,
@@ -108,6 +114,14 @@ import {
 } from "../db/productionSnapshot.js";
 import type { ProductionPlansRepository } from "../repositories/productionPlansRepository.js";
 import type { ProductionBrandsRepository } from "../repositories/productionBrandsRepository.js";
+import {
+  RefractoryReportAlreadyReviewedError,
+  RefractoryReportNotFoundError,
+  RefractoryReportPendingError,
+  RefractoryReportSelfReviewError,
+  toPublicRefractoryReportRevision,
+  type RefractoryReportsRepository,
+} from "../repositories/refractoryReportsRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -121,6 +135,7 @@ type AppDependencies = {
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsRepository;
+  refractoryReports?: RefractoryReportsRepository;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   productionSnapshot?: ProductionDatabaseSnapshotService;
@@ -155,6 +170,7 @@ export function createApiServer({
   dispatcherSpreadsheetImport,
   productionPlans,
   productionBrands,
+  refractoryReports,
   audit,
   databaseTransaction,
   productionSnapshot,
@@ -334,6 +350,25 @@ export function createApiServer({
           devSessions,
           authService,
           productionBrands,
+          audit,
+          databaseTransaction,
+        });
+        return;
+      }
+
+      if (
+        url.pathname === "/api/refractory-reports" ||
+        url.pathname === "/api/refractory-reports/pending" ||
+        /^\/api\/refractory-reports\/[^/]+\/decision$/u.test(url.pathname)
+      ) {
+        await handleRefractoryReportsRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          refractoryReports,
           audit,
           databaseTransaction,
         });
@@ -710,6 +745,272 @@ export function createApiServer({
       });
     }
   });
+}
+
+const refractoryReportLabels: Record<RefractoryReportType, string> = {
+  cosh: "ЦОШ",
+  equipment: "Оборудование и выпуск сырца",
+  firing: "Печное отделение",
+};
+
+async function handleRefractoryReportsRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  refractoryReports,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  refractoryReports: RefractoryReportsRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  const access = await requireAuthentication(req, res, {
+    config,
+    devSessions,
+    authService,
+  });
+  if (access === undefined) return;
+
+  const canSubmit = hasProfileCapability(
+    access.profile,
+    "business.submit_refractory_reports",
+  );
+  const canReview = hasProfileCapability(
+    access.profile,
+    "business.review_refractory_reports",
+  );
+  if (!canSubmit && !canReview) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Таблицы огнеупорного цеха недоступны.",
+      },
+    });
+    return;
+  }
+  if (refractoryReports === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище таблиц огнеупорного цеха не настроено.",
+      },
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/refractory-reports/pending") {
+    if (req.method !== "GET" || !canReview) {
+      sendJson(res, req.method === "GET" ? 403 : 405, {
+        error: {
+          code: "access_denied",
+          message: req.method === "GET"
+            ? "Подтверждение таблиц доступно диспетчеру."
+            : "Для очереди подтверждения используется GET.",
+        },
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      reports: (await refractoryReports.listPending()).map(
+        toPublicRefractoryReportRevision,
+      ),
+    });
+    return;
+  }
+
+  const decisionMatch = /^\/api\/refractory-reports\/([^/]+)\/decision$/u.exec(
+    url.pathname,
+  );
+  if (decisionMatch !== null) {
+    if (req.method !== "POST" || !canReview) {
+      sendJson(res, req.method === "POST" ? 403 : 405, {
+        error: {
+          code: "access_denied",
+          message: req.method === "POST"
+            ? "Подтверждение таблиц доступно диспетчеру."
+            : "Для решения по таблице используется POST.",
+        },
+      });
+      return;
+    }
+    const reportId = decisionMatch[1];
+    if (!/^[a-zA-Z0-9-]{1,120}$/u.test(reportId)) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: "Неверный номер таблицы." },
+      });
+      return;
+    }
+    const validation = validateRefractoryReportDecision(await readJsonBody(req));
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    try {
+      const report = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => refractoryReports.review({
+          reportId,
+          decision: validation.value,
+          reviewerUserId: access.profile.userId,
+          reviewerAccountId: access.profile.activeAccess.accountId,
+          reviewerDisplayName: access.profile.displayName,
+        }),
+        buildEvent: (saved) => ({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: validation.value.decision === "approve"
+            ? "refractory_report.approve"
+            : "refractory_report.reject",
+          summary: validation.value.decision === "approve"
+            ? `Подтверждена таблица ОЦ «${refractoryReportLabels[saved.reportType]}»`
+            : `Возвращена на доработку таблица ОЦ «${refractoryReportLabels[saved.reportType]}»`,
+          details: [
+            { label: "Дата отчёта", value: saved.reportDate },
+            { label: "Смена", value: String(saved.shiftNumber) },
+            { label: "Ревизия", value: String(saved.revisionNumber) },
+            ...(validation.value.decision === "reject"
+              ? [{ label: "Причина", value: validation.value.comment }]
+              : []),
+          ],
+          targetType: "refractory_report",
+          targetId: saved.id,
+        }),
+      });
+      sendJson(res, 200, {
+        report: toPublicRefractoryReportRevision(report),
+      });
+    } catch (error) {
+      if (error instanceof RefractoryReportNotFoundError) {
+        sendJson(res, 404, {
+          error: { code: "not_found", message: "Таблица не найдена." },
+        });
+        return;
+      }
+      if (error instanceof RefractoryReportAlreadyReviewedError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "По этой таблице уже принято решение.",
+          },
+        });
+        return;
+      }
+      if (error instanceof RefractoryReportSelfReviewError) {
+        sendJson(res, 409, {
+          error: {
+            code: "access_denied",
+            message: "Нельзя подтвердить собственную таблицу.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  if (req.method === "GET") {
+    const reportDate = url.searchParams.get("date") ?? "";
+    const shiftNumber = Number(url.searchParams.get("shift"));
+    if (
+      !isCalendarDateQueryValue(reportDate) ||
+      (shiftNumber !== 1 && shiftNumber !== 2)
+    ) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Укажите дату и смену таблиц ОЦ.",
+        },
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      reports: (await refractoryReports.listLatestForShift({
+        reportDate,
+        shiftNumber: shiftNumber as RefractoryShiftNumber,
+      })).map(toPublicRefractoryReportRevision),
+    });
+    return;
+  }
+
+  if (req.method !== "POST" || !canSubmit) {
+    sendJson(res, req.method === "POST" ? 403 : 405, {
+      error: {
+        code: "access_denied",
+        message: req.method === "POST"
+          ? "Отправка таблиц ОЦ недоступна."
+          : "Поддерживаются только GET и POST.",
+      },
+    });
+    return;
+  }
+  const validation = validateRefractoryReportSubmission(await readJsonBody(req));
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  try {
+    const report = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => refractoryReports.submit({
+        report: validation.value,
+        submittedByUserId: access.profile.userId,
+        submittedByAccountId: access.profile.activeAccess.accountId,
+        masterDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (saved) => ({
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "refractory_report.submit",
+        summary: `Отправлена таблица ОЦ «${refractoryReportLabels[saved.reportType]}»`,
+        details: [
+          { label: "Дата отчёта", value: saved.reportDate },
+          { label: "Смена", value: String(saved.shiftNumber) },
+          { label: "Ревизия", value: String(saved.revisionNumber) },
+        ],
+        targetType: "refractory_report",
+        targetId: saved.id,
+      }),
+    });
+    sendJson(res, 201, {
+      report: toPublicRefractoryReportRevision(report),
+    });
+  } catch (error) {
+    if (error instanceof RefractoryReportPendingError) {
+      sendJson(res, 409, {
+        error: {
+          code: "invalid_response",
+          message: "Эта таблица уже ожидает подтверждения диспетчера.",
+        },
+      });
+      return;
+    }
+    throw error;
+  }
 }
 
 async function handleAdminAuditReportRequest({
@@ -1667,6 +1968,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.work": "Работа",
     "business.user_actions": "Действия пользователей",
     "business.production_plan": "План выработки",
+    "business.refractory_shop": "Огнеупорный цех",
     "business.dispatcher_form": "Форма",
   };
 

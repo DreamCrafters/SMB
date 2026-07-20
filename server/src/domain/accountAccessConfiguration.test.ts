@@ -64,6 +64,7 @@ test("all non-admin account types share one navigation catalog", () => {
     validateNavigationItemsForAccountType("dispatcher", [
       "business.overview",
       "business.production_plan",
+      "business.refractory_shop",
     ]),
     true,
   );
@@ -90,5 +91,13 @@ test("navigation selection expands only to its server capabilities", () => {
   ]);
   assert.deepEqual(resolveCapabilitiesForNavigation(["business.production_plan"]), [
     "business.manage_production_plan",
+  ]);
+  assert.deepEqual(resolveCapabilitiesForNavigation(["business.refractory_shop"]), [
+    "business.submit_refractory_reports",
+  ]);
+  assert.deepEqual(resolveCapabilitiesForNavigation(["business.dispatcher_form"]), [
+    "business.submit_dispatcher_forms",
+    "business.view_dispatcher_feed",
+    "business.review_refractory_reports",
   ]);
 });

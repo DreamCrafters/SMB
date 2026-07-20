@@ -11,9 +11,10 @@ test("every non-admin position uses the complete unified workspace catalog", asy
     [
       "business.overview",
       "business.dispatcher",
-      "business.work",
-      "business.production_plan",
-      "business.user_actions",
+    "business.work",
+    "business.production_plan",
+    "business.refractory_shop",
+    "business.user_actions",
       "business.dispatcher_form",
     ],
   );

@@ -41,6 +41,7 @@ import {
   type ProductionReportTables,
   type ProductionPlanRevision,
   type ProductionPlanPreviewResponse,
+  type RefractoryReportRevision,
   type DevAccessOption,
   type ServerUserProfile,
   type UserActivityActor,
@@ -202,12 +203,18 @@ import {
   removeToast,
   type AppToast,
 } from "./services/toastStack";
+import {
+  RefractoryReviewQueue,
+  RefractoryShopWorkspace,
+} from "./RefractoryReports";
+import { requestPendingRefractoryReports } from "./services/refractoryReports";
 
 type BusinessTab =
   | "overview"
   | "dispatcher"
   | "work"
   | "production_plan"
+  | "refractory_shop"
   | "user_actions"
   | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database" | "user_actions";
@@ -217,6 +224,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   dispatcher: "business.dispatcher",
   work: "business.work",
   production_plan: "business.production_plan",
+  refractory_shop: "business.refractory_shop",
   user_actions: "business.user_actions",
   dispatcher_form: "business.dispatcher_form",
 };
@@ -439,6 +447,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "work";
     case "business.production_plan":
       return "production_plan";
+    case "business.refractory_shop":
+      return "refractory_shop";
     case "business.user_actions":
       return "user_actions";
     case "business.dispatcher_form":
@@ -507,6 +517,12 @@ export default function App() {
   );
   const [dispatcherForms, setDispatcherForms] =
     useState<DispatcherFormsLoadState>(initialDispatcherFormsState);
+  const [pendingRefractoryReports, setPendingRefractoryReports] = useState<
+    RefractoryReportRevision[]
+  >([]);
+  const [refractoryQueueError, setRefractoryQueueError] = useState("");
+  const knownPendingRefractoryIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedPendingRefractoryRef = useRef(false);
   const [dispatcherSubmissionVersion, setDispatcherSubmissionVersion] = useState(0);
   const [dispatcherFeedFilters, setDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
@@ -690,6 +706,80 @@ export default function App() {
 
     return () => {
       controller.abort();
+    };
+  }, [accessProfile]);
+
+  useEffect(() => {
+    if (
+      accessProfile.status !== "ready" ||
+      !hasCapability(
+        accessProfile.profile,
+        "business.review_refractory_reports",
+      )
+    ) {
+      setPendingRefractoryReports([]);
+      setRefractoryQueueError("");
+      knownPendingRefractoryIdsRef.current = new Set();
+      hasLoadedPendingRefractoryRef.current = false;
+      return;
+    }
+
+    let isActive = true;
+    let isLoading = false;
+    let controller: AbortController | undefined;
+
+    async function loadPendingReports() {
+      if (isLoading) return;
+      isLoading = true;
+      controller?.abort();
+      controller = new AbortController();
+      const result = await requestPendingRefractoryReports({
+        signal: controller.signal,
+      });
+      isLoading = false;
+      if (!isActive || controller.signal.aborted) return;
+
+      if (result.status === "error") {
+        setRefractoryQueueError(
+          readShortUserMessage(
+            result.message,
+            "Не удалось проверить таблицы ОЦ.",
+          ),
+        );
+        return;
+      }
+
+      const nextIds = new Set(result.reports.map((report) => report.id));
+      const newReports = result.reports.filter(
+        (report) => !knownPendingRefractoryIdsRef.current.has(report.id),
+      );
+
+      if (!hasLoadedPendingRefractoryRef.current && result.reports.length > 0) {
+        handleShowToast(
+          "Ожидают подтверждения",
+          `Таблицы огнеупорного цеха: ${result.reports.length}.`,
+        );
+      } else if (newReports.length > 0) {
+        handleShowToast(
+          "Новая таблица ОЦ",
+          newReports.length === 1
+            ? "Поступила таблица на подтверждение."
+            : `Поступило таблиц: ${newReports.length}.`,
+        );
+      }
+
+      hasLoadedPendingRefractoryRef.current = true;
+      knownPendingRefractoryIdsRef.current = nextIds;
+      setRefractoryQueueError("");
+      setPendingRefractoryReports(result.reports);
+    }
+
+    void loadPendingReports();
+    const intervalId = window.setInterval(loadPendingReports, 5_000);
+    return () => {
+      isActive = false;
+      controller?.abort();
+      window.clearInterval(intervalId);
     };
   }, [accessProfile]);
 
@@ -921,6 +1011,13 @@ export default function App() {
       ...current,
       ...patch,
     }));
+  }
+
+  function handleRefractoryReportResolved(reportId: string) {
+    knownPendingRefractoryIdsRef.current.delete(reportId);
+    setPendingRefractoryReports((current) =>
+      current.filter((report) => report.id !== reportId),
+    );
   }
 
   function handleStartAdminAccountView(account: AdminAccountSummary) {
@@ -1185,6 +1282,9 @@ export default function App() {
         }
         adminTab={adminTab}
         onAdminTabChange={setAdminTab}
+        pendingRefractoryCount={
+          isAdminPreviewMode ? 0 : pendingRefractoryReports.length
+        }
       />
 
       {isMobileNavigation && isNavigationOpen ? (
@@ -1234,6 +1334,9 @@ export default function App() {
           }
           onShowToast={handleShowToast}
           onSelectAdminAccountView={handleStartAdminAccountView}
+          pendingRefractoryReports={pendingRefractoryReports}
+          refractoryQueueError={refractoryQueueError}
+          onRefractoryReportResolved={handleRefractoryReportResolved}
         />
       </section>
     </main>
@@ -1610,6 +1713,7 @@ function SideRail({
   onOwnerTabChange,
   adminTab,
   onAdminTabChange,
+  pendingRefractoryCount,
 }: {
   profile: ServerUserProfile;
   signedInDisplayName: string;
@@ -1625,6 +1729,7 @@ function SideRail({
   onOwnerTabChange: (tab: BusinessTab) => void;
   adminTab: AdminTab;
   onAdminTabChange: (tab: AdminTab) => void;
+  pendingRefractoryCount: number;
 }) {
   const railRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -1786,7 +1891,15 @@ function SideRail({
                   }
                 }}
               >
-                <span>{item.label}</span>
+                <span>
+                  {item.label}
+                  {item.id === "business.dispatcher_form" &&
+                  pendingRefractoryCount > 0 ? (
+                    <b className="nav-notification-count">
+                      {pendingRefractoryCount}
+                    </b>
+                  ) : null}
+                </span>
                 <small>{item.description}</small>
               </button>
             );
@@ -1843,6 +1956,9 @@ function RoleWorkspace({
   onDataEntryStatusReset,
   onShowToast,
   onSelectAdminAccountView,
+  pendingRefractoryReports,
+  refractoryQueueError,
+  onRefractoryReportResolved,
 }: {
   profile: ServerUserProfile;
   isAdminPreviewMode: boolean;
@@ -1861,6 +1977,9 @@ function RoleWorkspace({
   onDataEntryStatusReset: () => void;
   onShowToast: ShowToast;
   onSelectAdminAccountView: (account: AdminAccountSummary) => void;
+  pendingRefractoryReports: RefractoryReportRevision[];
+  refractoryQueueError: string;
+  onRefractoryReportResolved: (reportId: string) => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
     ownerTab,
@@ -1902,6 +2021,15 @@ function RoleWorkspace({
           />
         );
       }
+      if (effectiveOwnerTab === "refractory_shop") {
+        return (
+          <RefractoryShopWorkspace
+            profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        );
+      }
       if (effectiveOwnerTab === "user_actions") {
         return isAdminPreviewMode
           ? <UserActionsPreviewNotice />
@@ -1920,6 +2048,13 @@ function RoleWorkspace({
             refreshVersion={dispatcherSubmissionVersion}
             onResetStatus={onDataEntryStatusReset}
             onShowToast={onShowToast}
+            pendingRefractoryReports={
+              isAdminPreviewMode ? [] : pendingRefractoryReports
+            }
+            refractoryQueueError={
+              isAdminPreviewMode ? "" : refractoryQueueError
+            }
+            onRefractoryReportResolved={onRefractoryReportResolved}
           />
         );
       }
@@ -2997,6 +3132,9 @@ function DataEntryWorkspace({
   refreshVersion,
   onResetStatus,
   onShowToast,
+  pendingRefractoryReports,
+  refractoryQueueError,
+  onRefractoryReportResolved,
 }: {
   ariaLabel: string;
   status: string;
@@ -3008,6 +3146,9 @@ function DataEntryWorkspace({
   refreshVersion: number;
   onResetStatus: () => void;
   onShowToast: ShowToast;
+  pendingRefractoryReports: RefractoryReportRevision[];
+  refractoryQueueError: string;
+  onRefractoryReportResolved: (reportId: string) => void;
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
@@ -3026,6 +3167,16 @@ function DataEntryWorkspace({
         : dispatcherForms.message;
   const localTestModeMessage =
     "Тестовый режим: данные сохраняются только на этом устройстве.";
+  const reviewQueue = (
+    <RefractoryReviewQueue
+      reports={pendingRefractoryReports}
+      errorMessage={
+        refractoryQueueError.length > 0 ? refractoryQueueError : undefined
+      }
+      onResolved={onRefractoryReportResolved}
+      onShowToast={onShowToast}
+    />
+  );
 
   useEffect(() => {
     if (
@@ -3072,6 +3223,7 @@ function DataEntryWorkspace({
   if (dispatcherForms.status !== "ready" || forms.length === 0) {
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
+        {reviewQueue}
         {dispatcherForms.status === "loading" ? (
           <LoadingIndicator label={formsStatusMessage} variant="page" />
         ) : (
@@ -3086,6 +3238,7 @@ function DataEntryWorkspace({
 
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
+        {reviewQueue}
         {isLocalTestMode ? (
           <p className="form-status form-status-local">{localTestModeMessage}</p>
         ) : null}
@@ -3123,6 +3276,7 @@ function DataEntryWorkspace({
 
   return (
     <section className="data-entry-surface" aria-label={ariaLabel}>
+      {reviewQueue}
       <form className="data-entry-form" onSubmit={handleSubmit}>
         <input name="formId" type="hidden" value={currentForm.id} readOnly />
         {isLocalTestMode ? (

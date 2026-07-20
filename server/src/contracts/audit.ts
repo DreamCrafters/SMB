@@ -20,6 +20,9 @@ export const auditEventActions = [
   "data.import",
   "production_plan.save",
   "production_brand.create",
+  "refractory_report.submit",
+  "refractory_report.approve",
+  "refractory_report.reject",
   "admin.account_create",
   "admin.account_archive",
   "admin.account_login_enable",
@@ -45,6 +48,7 @@ export const auditTargetTypes = [
   "account_position",
   "production_plan",
   "production_brand",
+  "refractory_report",
 ] as const;
 
 export type AuditTargetType = (typeof auditTargetTypes)[number];

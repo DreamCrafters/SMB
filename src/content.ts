@@ -125,6 +125,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "active",
     },
     {
+      id: "business.refractory_shop",
+      label: "Огнеупорный цех",
+      description: "Три сменные таблицы ОЦ",
+      state: "active",
+    },
+    {
       id: "business.user_actions",
       label: "Действия пользователей",
       description: "Действия сотрудников бизнеса",

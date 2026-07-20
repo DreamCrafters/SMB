@@ -160,6 +160,7 @@ test("requestAccessProfile reads a client-local profile when the local profile e
   assert.equal(result.profile.accountType, "dispatcher");
   assert.deepEqual(result.profile.activeAccess.capabilities, [
     "business.submit_dispatcher_forms",
+    "business.review_refractory_reports",
   ]);
 });
 

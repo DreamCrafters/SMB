@@ -38,6 +38,10 @@ import type {
   ProductionBrandLabel,
   ProductionBrandsRepository,
 } from "../repositories/productionBrandsRepository.js";
+import type {
+  RefractoryReportRevision,
+  RefractoryReportsRepository,
+} from "../repositories/refractoryReportsRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
@@ -377,6 +381,7 @@ test("remote API creates and reads dev access sessions by header", async () => {
     assert.deepEqual(readProfileCapabilities(profilePayload), [
       "business.submit_dispatcher_forms",
       "business.view_dispatcher_feed",
+      "business.review_refractory_reports",
     ]);
   });
 });
@@ -1525,6 +1530,7 @@ test("admin positions API accepts every business tab but rejects admin tabs", as
           "business.work",
           "business.user_actions",
           "business.production_plan",
+          "business.refractory_shop",
           "business.dispatcher_form",
         ],
       }),
@@ -1584,6 +1590,7 @@ test("admin positions API updates a protected non-admin position without changin
     "business.view_notifications",
     "business.view_dispatcher_feed",
     "business.submit_dispatcher_forms",
+    "business.review_refractory_reports",
   ]);
 });
 
@@ -3927,6 +3934,142 @@ test("remote API accepts incident close for an earlier-day open incident", async
   }, repository);
 });
 
+test("refractory reports are submitted and reviewed independently through protected API", async () => {
+  let stored: RefractoryReportRevision | undefined;
+  const repository: RefractoryReportsRepository = {
+    async submit(input) {
+      stored = {
+        id: "refractory-1",
+        ...input.report,
+        revisionNumber: 1,
+        status: "pending",
+        submittedByUserId: input.submittedByUserId,
+        submittedByAccountId: input.submittedByAccountId,
+        masterDisplayName: input.masterDisplayName,
+        submittedAt: "2026-07-20T20:30:00.000Z",
+      };
+      return stored;
+    },
+    async listLatestForShift() {
+      return stored === undefined ? [] : [stored];
+    },
+    async listPending() {
+      return stored?.status === "pending" ? [stored] : [];
+    },
+    async review(input) {
+      assert.equal(input.reviewerAccountId, "prod-access-dispatcher");
+      assert.equal(input.decision.decision, "approve");
+      stored = {
+        ...stored!,
+        status: "approved",
+        reviewerDisplayName: input.reviewerDisplayName,
+        reviewedAt: "2026-07-20T20:35:00.000Z",
+      };
+      return stored;
+    },
+  };
+  const operatorProfile = buildProductionProfile("worker");
+  operatorProfile.displayName = "Мастер ОЦ";
+  operatorProfile.activeAccess.navigationItems = ["business.refractory_shop"];
+  operatorProfile.activeAccess.capabilities = [
+    "business.submit_refractory_reports",
+  ];
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/refractory-reports`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: "smb_session=prod-session",
+        },
+        body: JSON.stringify({
+          reportType: "firing",
+          reportDate: "2026-07-20",
+          shiftNumber: 2,
+          payload: {
+            rows: [{
+              productBrand: "ША",
+              quantityPieces: 100,
+              rejectCracksPieces: 2,
+            }],
+          },
+        }),
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 201);
+      assert.equal(stored?.masterDisplayName, "Мастер ОЦ");
+      assert.equal(
+        (stored?.totals as { rejectTotalPieces?: number } | undefined)
+          ?.rejectTotalPieces,
+        2,
+      );
+      assert.equal(
+        isRecord(payload) && isRecord(payload.report)
+          ? "submittedByAccountId" in payload.report
+          : true,
+        false,
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: operatorProfile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    repository,
+  );
+
+  const dispatcherProfile = buildProductionProfile("dispatcher");
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = {
+        "Content-Type": "application/json",
+        Cookie: "smb_session=prod-session",
+      };
+      const pendingResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/pending`,
+        { headers },
+      );
+      const invalidRejectResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/refractory-1/decision`,
+        { method: "POST", headers, body: JSON.stringify({ decision: "reject" }) },
+      );
+      const approvalResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/refractory-1/decision`,
+        { method: "POST", headers, body: JSON.stringify({ decision: "approve" }) },
+      );
+
+      assert.equal(pendingResponse.status, 200);
+      assert.equal(invalidRejectResponse.status, 400);
+      assert.equal(approvalResponse.status, 200);
+      assert.equal(stored?.status, "approved");
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile: dispatcherProfile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    repository,
+  );
+});
+
 async function withApiServer(
   callback: (baseUrl: string) => Promise<void>,
   repository = dispatcherSubmissions,
@@ -3942,6 +4085,7 @@ async function withApiServer(
   databaseTransaction?: DatabaseTransactionRunner,
   productionBrands?: ProductionBrandsRepository,
   productionSnapshot?: ProductionDatabaseSnapshotService,
+  refractoryReports?: RefractoryReportsRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -3965,6 +4109,7 @@ async function withApiServer(
     maxNotificationService,
     dispatcherSpreadsheetImport,
     productionBrands,
+    refractoryReports,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,
     productionSnapshot,

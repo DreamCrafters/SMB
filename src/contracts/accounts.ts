@@ -23,6 +23,7 @@ export const accountNavigationItems = [
   "business.work",
   "business.user_actions",
   "business.production_plan",
+  "business.refractory_shop",
   "business.dispatcher_form",
 ] as const;
 
@@ -44,6 +45,8 @@ export const accountCapabilities = [
   "business.view_own_submissions",
   "business.view_user_actions",
   "business.manage_production_plan",
+  "business.submit_refractory_reports",
+  "business.review_refractory_reports",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];
