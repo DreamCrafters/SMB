@@ -1541,7 +1541,7 @@ function readProductionCategoryScheduleInput(
   if (
     Object.keys(value).length !== 2 ||
     typeof value.monthlyPlan !== "number" ||
-    !Number.isSafeInteger(value.monthlyPlan) ||
+    !Number.isFinite(value.monthlyPlan) ||
     !Array.isArray(value.workingDates) ||
     !value.workingDates.every((date) => typeof date === "string")
   ) {

@@ -159,18 +159,21 @@ function buildProductionCategorySchedule(
 ): { ok: true; schedule: ProductionCategorySchedule } | { ok: false; errors: string[] } {
   if (
     inputSchedule === undefined ||
-    !Number.isSafeInteger(inputSchedule.monthlyPlan) ||
-    inputSchedule.monthlyPlan <= 0
+    !Number.isFinite(inputSchedule.monthlyPlan) ||
+    inputSchedule.monthlyPlan <= 0 ||
+    readDecimalPlaces(inputSchedule.monthlyPlan) > 2 ||
+    !Number.isSafeInteger(Math.round(inputSchedule.monthlyPlan * 100))
   ) {
     return {
       ok: false,
       errors: [
-        `Укажите целый положительный месячный план для категории «${productionCategoryLabels[category]}».`,
+        `Укажите положительный месячный план максимум с двумя знаками после запятой для категории «${productionCategoryLabels[category]}».`,
       ],
     };
   }
 
   const monthlyPlan = inputSchedule.monthlyPlan;
+  const monthlyPlanHundredths = Math.round(monthlyPlan * 100);
   const workingDates = inputSchedule.workingDates;
 
   if (workingDates.length === 0) {
@@ -206,10 +209,13 @@ function buildProductionCategorySchedule(
   }
 
   const orderedDates = [...workingDates].sort();
-  const regularPlan = Math.ceil(monthlyPlan / orderedDates.length);
-  const finalPlan = monthlyPlan - regularPlan * (orderedDates.length - 1);
+  const regularPlan = Math.ceil(
+    monthlyPlanHundredths / (orderedDates.length * 100),
+  );
+  const finalPlanHundredths = monthlyPlanHundredths -
+    regularPlan * (orderedDates.length - 1) * 100;
 
-  if (finalPlan < 0) {
+  if (finalPlanHundredths < 0) {
     return {
       ok: false,
       errors: [
@@ -225,10 +231,20 @@ function buildProductionCategorySchedule(
       workingDayCount: orderedDates.length,
       dailyPlans: orderedDates.map((date, index) => ({
         date,
-        value: index === orderedDates.length - 1 ? finalPlan : regularPlan,
+        value: index === orderedDates.length - 1
+          ? finalPlanHundredths / 100
+          : regularPlan,
       })),
     },
   };
+}
+
+function readDecimalPlaces(value: number) {
+  const [coefficient, exponentText] = String(value).toLowerCase().split("e");
+  const fractionLength = coefficient?.split(".")[1]?.length ?? 0;
+  const exponent = exponentText === undefined ? 0 : Number(exponentText);
+
+  return Math.max(0, Math.min(100, fractionLength - exponent));
 }
 
 function parseMonth(value: string) {

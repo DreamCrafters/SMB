@@ -2351,6 +2351,9 @@ const productionPlanYearOptions = Array.from(
   { length: 101 },
   (_, index) => 2000 + index,
 );
+const productionPlanDecimalInputPattern = "[0-9]+([.][0-9]{0,2})?";
+const productionPlanDecimalInputTitle =
+  "Введите положительное число максимум с двумя знаками после запятой.";
 
 function createEmptyProductionPlanInputs(): Record<ProductionCategory, string> {
   return {
@@ -2516,7 +2519,7 @@ export function ProductionPlanWorkspace({
     category: ProductionCategory,
     event: ChangeEvent<HTMLInputElement>,
   ) {
-    const nextValue = event.currentTarget.value.replace(/\D/gu, "");
+    const nextValue = normalizeProductionPlanInput(event.currentTarget.value);
 
     setMonthlyPlanInputs((current) => ({
       ...current,
@@ -2528,11 +2531,11 @@ export function ProductionPlanWorkspace({
   async function handleSaveCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const category = productionCategories[activeCategoryIndex];
-    const monthlyPlan = readPositiveIntegerInput(monthlyPlanInputs[category]);
+    const monthlyPlan = readPositiveDecimalInput(monthlyPlanInputs[category]);
 
     if (monthlyPlan === undefined) {
       setStatus(
-        `Введите целый месячный план больше нуля для категории «${productionCategoryLabels[category]}».`,
+        `Введите месячный план больше нуля, максимум с двумя знаками после запятой для категории «${productionCategoryLabels[category]}».`,
       );
       return;
     }
@@ -2716,10 +2719,10 @@ export function ProductionPlanWorkspace({
           <span>Месячный план · {productionCategoryLabels[activeCategory]}</span>
           <input
             disabled={isAdminPreviewMode || isLoadingPresets || isSaving}
-            inputMode="numeric"
-            min="1"
-            pattern="[0-9]+"
+            inputMode="decimal"
+            pattern={productionPlanDecimalInputPattern}
             required
+            title={productionPlanDecimalInputTitle}
             type="text"
             value={monthlyPlanInputs[activeCategory]}
             onChange={(event) => handleMonthlyPlanChange(activeCategory, event)}
@@ -10362,16 +10365,28 @@ function readCurrentMonthInputValue() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function readPositiveIntegerInput(value: string) {
-  const normalized = value.trim();
+function readPositiveDecimalInput(value: string) {
+  const normalized = normalizeDecimalNumberForPayload(value);
 
-  if (!/^\d+$/u.test(normalized)) {
+  if (
+    normalized === undefined ||
+    !/^\d+(?:\.\d{1,2})?$/u.test(normalized)
+  ) {
     return undefined;
   }
 
   const number = Number(normalized);
 
-  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
+function normalizeProductionPlanInput(value: string) {
+  const normalized = normalizeDecimalNumberInput(value);
+  const [integerPart, fractionPart] = normalized.split(".");
+
+  return fractionPart === undefined
+    ? integerPart
+    : `${integerPart}.${fractionPart.slice(0, 2)}`;
 }
 
 function areSameProductionPlanDates(left: string[], right: string[]) {

@@ -210,7 +210,7 @@ function isLegacyDailyPlans(value: unknown): value is LegacyProductionDailyPlan[
       (item) =>
         isRecord(item) &&
         typeof item.date === "string" &&
-        isCompleteCategoryPlans(item.values),
+        isCompleteIntegerCategoryPlans(item.values),
     )
   );
 }
@@ -222,12 +222,14 @@ function isCategoryDailyPlans(
     Array.isArray(value) &&
     value.length > 0 &&
     value.every(
-      (item) =>
+      (item, index) =>
         isRecord(item) &&
         typeof item.date === "string" &&
         typeof item.value === "number" &&
-        Number.isSafeInteger(item.value) &&
-        item.value >= 0,
+        Number.isFinite(item.value) &&
+        item.value >= 0 &&
+        readDecimalPlaces(item.value) <= 2 &&
+        (index === value.length - 1 || Number.isSafeInteger(item.value)),
     )
   );
 }
@@ -249,6 +251,22 @@ function isCompleteCategoryPlans(value: unknown): value is ProductionCategoryPla
   );
 }
 
+function isCompleteIntegerCategoryPlans(
+  value: unknown,
+): value is ProductionCategoryPlans {
+  return (
+    isRecord(value) &&
+    hasValidStoredCategoryKeys(value) &&
+    Object.keys(value).length === productionCategories.length &&
+    Object.values(value).every(
+      (plan) =>
+        typeof plan === "number" &&
+        Number.isSafeInteger(plan) &&
+        plan > 0,
+    )
+  );
+}
+
 function isStoredCategoryPlans(
   value: unknown,
 ): value is Partial<ProductionCategoryPlans> {
@@ -257,8 +275,20 @@ function isStoredCategoryPlans(
   }
 
   return Object.values(value).every(
-    (plan) => typeof plan === "number" && Number.isSafeInteger(plan) && plan > 0,
+    (plan) =>
+      typeof plan === "number" &&
+      Number.isFinite(plan) &&
+      plan > 0 &&
+      readDecimalPlaces(plan) <= 2,
   );
+}
+
+function readDecimalPlaces(value: number) {
+  const [coefficient, exponentText] = String(value).toLowerCase().split("e");
+  const fractionLength = coefficient?.split(".")[1]?.length ?? 0;
+  const exponent = exponentText === undefined ? 0 : Number(exponentText);
+
+  return Math.max(0, fractionLength - exponent);
 }
 
 function readScheduleDateUnion(schedules: ProductionPlanSchedules) {

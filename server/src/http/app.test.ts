@@ -2686,7 +2686,7 @@ test("production plan API saves independent category schedules with audit", asyn
         month: "2026-07",
         category: "forming",
         schedule: {
-          monthlyPlan: 1_000,
+          monthlyPlan: 1_000.25,
           workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
         },
       }),
@@ -2698,12 +2698,12 @@ test("production plan API saves independent category schedules with audit", asyn
         ? saved.plan.schedules.forming
         : undefined,
       {
-        monthlyPlan: 1_000,
+        monthlyPlan: 1_000.25,
         workingDayCount: 3,
         dailyPlans: [
           { date: "2026-07-01", value: 334 },
           { date: "2026-07-02", value: 334 },
-          { date: "2026-07-03", value: 332 },
+          { date: "2026-07-03", value: 332.25 },
         ],
       },
     );
@@ -2749,7 +2749,7 @@ test("production plan API saves independent category schedules with audit", asyn
           isRecord(categoryResult.plan.schedules.forming)
           ? categoryResult.plan.schedules.forming.monthlyPlan
           : undefined,
-        1_000,
+        1_000.25,
       );
     }
 

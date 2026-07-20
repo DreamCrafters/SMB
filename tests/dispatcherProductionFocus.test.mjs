@@ -488,7 +488,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
 });
 }
 
-test("production monthly plan input keeps digits only", async () => {
+test("production monthly plan input accepts comma and dot with two decimal places", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",
     { url: "http://127.0.0.1:5173/" },
@@ -562,7 +562,7 @@ test("production monthly plan input keeps digits only", async () => {
       await responsesRelease.promise;
     });
 
-    const planInput = rootElement.querySelector('input[inputmode="numeric"]');
+    const planInput = rootElement.querySelector('input[inputmode="decimal"]');
 
     assert.ok(planInput instanceof dom.window.HTMLInputElement);
     assert.equal(planInput.disabled, false);
@@ -570,7 +570,13 @@ test("production monthly plan input keeps digits only", async () => {
       setNativeInputValue(planInput, "12abc,5");
       planInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
-    assert.equal(planInput.value, "125");
+    assert.equal(planInput.value, "12.5");
+
+    await React.act(async () => {
+      setNativeInputValue(planInput, "12.756");
+      planInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(planInput.value, "12.75");
 
     await React.act(async () => root.unmount());
     root = undefined;

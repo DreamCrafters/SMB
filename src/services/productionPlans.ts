@@ -237,24 +237,32 @@ function isProductionCategorySchedules(value: unknown) {
 function isProductionCategorySchedule(
   value: unknown,
 ): value is ProductionCategorySchedule {
-  return (
-    isRecord(value) &&
-    typeof value.monthlyPlan === "number" &&
-    Number.isSafeInteger(value.monthlyPlan) &&
-    value.monthlyPlan > 0 &&
-    typeof value.workingDayCount === "number" &&
-    Number.isSafeInteger(value.workingDayCount) &&
-    value.workingDayCount > 0 &&
-    Array.isArray(value.dailyPlans) &&
-    value.dailyPlans.length === value.workingDayCount &&
-    value.dailyPlans.every(
-      (item) =>
-        isRecord(item) &&
-        typeof item.date === "string" &&
-        typeof item.value === "number" &&
-        Number.isSafeInteger(item.value) &&
-        item.value >= 0,
-    )
+  if (
+    !isRecord(value) ||
+    typeof value.monthlyPlan !== "number" ||
+    !Number.isFinite(value.monthlyPlan) ||
+    value.monthlyPlan <= 0 ||
+    readDecimalPlaces(value.monthlyPlan) > 2 ||
+    typeof value.workingDayCount !== "number" ||
+    !Number.isSafeInteger(value.workingDayCount) ||
+    value.workingDayCount <= 0 ||
+    !Array.isArray(value.dailyPlans) ||
+    value.dailyPlans.length !== value.workingDayCount
+  ) {
+    return false;
+  }
+
+  const dailyPlans = value.dailyPlans;
+
+  return dailyPlans.every(
+    (item, index) =>
+      isRecord(item) &&
+      typeof item.date === "string" &&
+      typeof item.value === "number" &&
+      Number.isFinite(item.value) &&
+      item.value >= 0 &&
+      readDecimalPlaces(item.value) <= 2 &&
+      (index === dailyPlans.length - 1 || Number.isSafeInteger(item.value)),
   );
 }
 
@@ -273,9 +281,19 @@ function isProductionDailyCategoryPlans(
       (category) =>
         productionCategories.includes(category as (typeof productionCategories)[number]) &&
         typeof value[category] === "number" &&
-        Number.isSafeInteger(value[category]),
+        Number.isFinite(value[category]) &&
+        value[category] >= 0 &&
+        readDecimalPlaces(value[category]) <= 2,
     )
   );
+}
+
+function readDecimalPlaces(value: number) {
+  const [coefficient, exponentText] = String(value).toLowerCase().split("e");
+  const fractionLength = coefficient?.split(".")[1]?.length ?? 0;
+  const exponent = exponentText === undefined ? 0 : Number(exponentText);
+
+  return Math.max(0, fractionLength - exponent);
 }
 
 function readRemoteError(

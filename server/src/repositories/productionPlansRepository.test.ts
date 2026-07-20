@@ -8,12 +8,12 @@ const plan: ProductionPlan = {
   month: "2026-07",
   schedules: {
     forming: {
-      monthlyPlan: 100,
+      monthlyPlan: 100.25,
       workingDayCount: 3,
       dailyPlans: [
         { date: "2026-07-01", value: 34 },
         { date: "2026-07-02", value: 34 },
-        { date: "2026-07-03", value: 32 },
+        { date: "2026-07-03", value: 32.25 },
       ],
     },
     sorting: {

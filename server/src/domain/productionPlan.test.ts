@@ -41,6 +41,50 @@ test("buildProductionCategoryPlan validates and distributes one selected categor
   });
 });
 
+test("buildProductionCategoryPlan keeps every day integer except the final decimal remainder", () => {
+  const result = buildProductionCategoryPlan({
+    month: "2026-07",
+    category: "forming",
+    schedule: {
+      monthlyPlan: 100.1,
+      workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"],
+    },
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    category: "forming",
+    schedule: {
+      monthlyPlan: 100.1,
+      workingDayCount: 3,
+      dailyPlans: [
+        { date: "2026-07-01", value: 34 },
+        { date: "2026-07-02", value: 34 },
+        { date: "2026-07-03", value: 32.1 },
+      ],
+    },
+  });
+});
+
+test("buildProductionCategoryPlan rejects more than two decimal places", () => {
+  assert.deepEqual(
+    buildProductionCategoryPlan({
+      month: "2026-07",
+      category: "forming",
+      schedule: {
+        monthlyPlan: 100.123,
+        workingDates: ["2026-07-01"],
+      },
+    }),
+    {
+      ok: false,
+      errors: [
+        "Укажите положительный месячный план максимум с двумя знаками после запятой для категории «Формовка».",
+      ],
+    },
+  );
+});
+
 test("buildProductionPlan distributes every category over its own confirmed dates", () => {
   const result = buildProductionPlan({
     month: "2026-07",
@@ -169,7 +213,7 @@ test("buildProductionPlan requires a plan and at least one date for every catego
     {
       ok: false,
       errors: [
-        "Укажите целый положительный месячный план для категории «Цех обжига шамота».",
+        "Укажите положительный месячный план максимум с двумя знаками после запятой для категории «Цех обжига шамота».",
       ],
     },
   );

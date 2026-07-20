@@ -16,7 +16,7 @@ test.after(() => {
 test("production plan service previews, saves and reads server-owned plans", async () => {
   const calls = [];
   const scheduleInputs = {
-    forming: { monthlyPlan: 1_000, workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"] },
+    forming: { monthlyPlan: 1_000.25, workingDates: ["2026-07-01", "2026-07-02", "2026-07-03"] },
     sorting: { monthlyPlan: 800, workingDates: ["2026-07-01", "2026-07-02"] },
     unformed: { monthlyPlan: 500, workingDates: ["2026-07-04"] },
     chamotte: { monthlyPlan: 200, workingDates: ["2026-07-02", "2026-07-04"] },
@@ -26,12 +26,12 @@ test("production plan service previews, saves and reads server-owned plans", asy
     month: "2026-07",
     schedules: {
       forming: {
-        monthlyPlan: 1_000,
+        monthlyPlan: 1_000.25,
         workingDayCount: 3,
         dailyPlans: [
           { date: "2026-07-01", value: 334 },
           { date: "2026-07-02", value: 334 },
-          { date: "2026-07-03", value: 332 },
+          { date: "2026-07-03", value: 332.25 },
         ],
       },
       sorting: {
@@ -105,7 +105,7 @@ test("production plan service previews, saves and reads server-owned plans", asy
   assert.equal(preview.allDates.length, 4);
   assert.equal(preview.weekdayDates.length, 3);
   assert.equal(saved.status, "ready");
-  assert.equal(saved.plan.schedules.forming.dailyPlans.at(-1).value, 332);
+  assert.equal(saved.plan.schedules.forming.dailyPlans.at(-1).value, 332.25);
   assert.equal(loaded.status, "ready");
   assert.equal(loaded.plan.schedules.chamotte.monthlyPlan, 200);
   assert.equal(daily.status, "ready");
