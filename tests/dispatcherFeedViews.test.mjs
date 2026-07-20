@@ -477,6 +477,37 @@ test("buildIncidentSummaryRows keeps incidents not closed before range start", (
   assert.equal(rows[0].status, "closed");
 });
 
+test("buildIncidentSummaryRows can show every unclosed incident regardless of age", () => {
+  const rows = buildIncidentSummaryRows(
+    [
+      buildSubmission("inc-old-open", "incident", {
+        incidentNumber: "INC-2025-1",
+        datetime: "10.12.2025 10:00",
+      }),
+      buildSubmission("inc-closed", "incident", {
+        incidentNumber: "INC-2026-1",
+        datetime: "01.07.2026 10:00",
+      }),
+      buildSubmission("close-1", "incident_close", {
+        incidentNumber: "INC-2026-1",
+        closureDateTime: "02.07.2026 10:00",
+      }),
+      buildSubmission("inc-current-open", "incident", {
+        incidentNumber: "INC-2026-2",
+        datetime: "15.07.2026 10:00",
+      }),
+    ],
+    {},
+    "open",
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.incidentNumber),
+    ["INC-2026-2", "INC-2025-1"],
+  );
+  assert.ok(rows.every((row) => row.status === "open"));
+});
+
 test("incident helpers list only unclosed incidents", () => {
   const submissions = [
     buildSubmission("inc-1", "incident", {

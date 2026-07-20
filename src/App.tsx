@@ -310,6 +310,7 @@ type DispatcherFeedFilterState = {
   period: DispatcherFeedPeriod;
   dateFrom: string;
   dateTo: string;
+  incidentView: "period" | "all_open";
 };
 
 type ProductionReportSection = keyof ProductionReportTables;
@@ -369,6 +370,7 @@ const initialDispatcherFeedFilters: DispatcherFeedFilterState = {
   period: "custom",
   dateFrom: "",
   dateTo: "",
+  incidentView: "period",
 };
 
 const dispatcherFeedPeriodOptions: readonly {
@@ -5499,7 +5501,7 @@ function DispatcherMonthFieldInput({ field }: { field: DispatcherFormField }) {
   );
 }
 
-function DispatcherFeedPanel({
+export function DispatcherFeedPanel({
   dispatcherFeed,
   dispatcherForms,
   filters,
@@ -5518,6 +5520,8 @@ function DispatcherFeedPanel({
     dateFrom: filters.dateFrom.length > 0 ? filters.dateFrom : undefined,
     dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
   };
+  const showAllOpenIncidents =
+    filters.group === "incidents" && filters.incidentView === "all_open";
   const equipmentRows = buildEquipmentSummaryRows(submissions, selectedDateRange);
   const productionTables = filterProductionReportTables(
     dispatcherFeed.status === "ready"
@@ -5525,7 +5529,11 @@ function DispatcherFeedPanel({
       : emptyProductionReportTables,
     selectedDateRange,
   );
-  const incidentRows = buildIncidentSummaryRows(submissions, selectedDateRange);
+  const incidentRows = buildIncidentSummaryRows(
+    submissions,
+    showAllOpenIncidents ? {} : selectedDateRange,
+    showAllOpenIncidents ? "open" : "all",
+  );
   const visitorRows = buildVisitorVisitRows(submissions, selectedDateRange);
   const productionForm =
     dispatcherForms.status === "ready"
@@ -5549,6 +5557,7 @@ function DispatcherFeedPanel({
       period,
       dateFrom: range.dateFrom ?? "",
       dateTo: range.dateTo ?? "",
+      incidentView: "period",
     });
   }
 
@@ -5578,22 +5587,45 @@ function DispatcherFeedPanel({
           ))}
         </div>
         <div className="dispatcher-period-picker">
-          <div className="dispatcher-period-buttons" aria-label="Период данных">
+          <div
+            className={`dispatcher-period-buttons ${
+              filters.group === "incidents"
+                ? "dispatcher-period-buttons-incidents"
+                : ""
+            }`}
+            aria-label="Период данных"
+          >
             {dispatcherFeedPeriodOptions.map((option) => (
               <button
                 className={`dispatcher-period-button ${
-                  filters.period === option.id ? "is-active" : ""
+                  filters.period === option.id && !showAllOpenIncidents
+                    ? "is-active"
+                    : ""
                 }`}
                 type="button"
-                aria-pressed={filters.period === option.id}
+                aria-pressed={
+                  filters.period === option.id && !showAllOpenIncidents
+                }
                 key={option.id}
                 onClick={() => handlePeriodChange(option.id)}
               >
                 {option.label}
               </button>
             ))}
+            {filters.group === "incidents" ? (
+              <button
+                className={`dispatcher-period-button ${
+                  showAllOpenIncidents ? "is-active" : ""
+                }`}
+                type="button"
+                aria-pressed={showAllOpenIncidents}
+                onClick={() => onFiltersChange({ incidentView: "all_open" })}
+              >
+                Все незакрытые
+              </button>
+            ) : null}
           </div>
-          {filters.period === "custom" ? (
+          {filters.period === "custom" && !showAllOpenIncidents ? (
             <div className="dispatcher-custom-date-range">
               <label>
                 <span>С даты</span>
@@ -5674,7 +5706,10 @@ function DispatcherFeedPanel({
         />
       ) : null}
       {dispatcherFeed.status === "ready" && filters.group === "incidents" ? (
-        <IncidentSummaryTable rows={incidentRows} />
+        <IncidentSummaryTable
+          rows={incidentRows}
+          showAllOpen={showAllOpenIncidents}
+        />
       ) : null}
       {dispatcherFeed.status === "ready" && filters.group === "visitors" ? (
         <VisitorSummaryTable rows={visitorRows} />
@@ -6492,9 +6527,21 @@ function formatEquipmentDetailPeriod(
   return "Все доступные даты";
 }
 
-function IncidentSummaryTable({ rows }: { rows: ReturnType<typeof buildIncidentSummaryRows> }) {
+function IncidentSummaryTable({
+  rows,
+  showAllOpen,
+}: {
+  rows: ReturnType<typeof buildIncidentSummaryRows>;
+  showAllOpen: boolean;
+}) {
   if (rows.length === 0) {
-    return <p className="dispatcher-status-line">Нет инцидентов для выбранного периода.</p>;
+    return (
+      <p className="dispatcher-status-line">
+        {showAllOpen
+          ? "Незакрытых инцидентов нет."
+          : "Нет инцидентов для выбранного периода."}
+      </p>
+    );
   }
 
   return (

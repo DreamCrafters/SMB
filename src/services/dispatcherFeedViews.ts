@@ -58,6 +58,8 @@ export type IncidentSummaryRow = {
   approvedBy?: string;
 };
 
+export type IncidentSummaryStatusFilter = "all" | "open";
+
 export type OpenIncidentOption = {
   incidentNumber: string;
   label: string;
@@ -945,6 +947,7 @@ function buildOwnerVisitorsOverview(
 export function buildIncidentSummaryRows(
   submissions: DispatcherSubmission[],
   range: DateRange,
+  statusFilter: IncidentSummaryStatusFilter = "all",
 ): IncidentSummaryRow[] {
   const openings = submissions
     .filter((submission) => submission.formId === "incident")
@@ -994,6 +997,10 @@ export function buildIncidentSummaryRows(
     .filter((row) => {
       const openedAt = row.openedAtTime;
       const closedAt = row.closedAtTime;
+
+      if (statusFilter === "open" && row.status !== "open") {
+        return false;
+      }
 
       if (end !== undefined && openedAt !== undefined && openedAt > end) {
         return false;

@@ -2019,6 +2019,10 @@ p {
   gap: var(--density-1);
 }
 
+.dispatcher-period-buttons-incidents {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .dispatcher-custom-date-range {
   display: grid;
   grid-template-columns: repeat(2, minmax(150px, 1fr));
