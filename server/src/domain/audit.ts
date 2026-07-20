@@ -1,7 +1,4 @@
-import {
-  dispatcherForms,
-  type DispatcherFormId,
-} from "./dispatcherForms.js";
+import { dispatcherForms, type DispatcherFormId } from "./dispatcherForms.js";
 import {
   hasProfileCapability,
   type AccountNavigationItem,
@@ -71,12 +68,16 @@ const navigationScreens: readonly AuditScreen[] = [
   { id: "business.dispatcher_form", title: "Выбор диспетчерской формы" },
 ];
 
-const dispatcherFormScreens: readonly AuditScreen[] = dispatcherForms.map(
-  (form) => ({
+const dispatcherFormScreens: readonly AuditScreen[] = [
+  ...dispatcherForms.map((form) => ({
     id: `dispatcher.form.${form.id}`,
     title: `Форма: ${form.title}`,
-  }),
-);
+  })),
+  {
+    id: "dispatcher.refractory_review",
+    title: "Подтверждение таблиц огнеупорного цеха",
+  },
+];
 
 const auditScreenById = new Map(
   [...navigationScreens, ...dispatcherFormScreens].map((screen) => [
@@ -164,9 +165,10 @@ export function buildDispatcherSubmissionAuditDetails(
         return [];
       }
 
-      const section = match[1] === "unformed"
-        ? "Неформованная продукция"
-        : "Цех обжига шамота";
+      const section =
+        match[1] === "unformed"
+          ? "Неформованная продукция"
+          : "Цех обжига шамота";
       const metric = match[2] === "Brand" ? "Марка" : "Факт";
 
       return [{ label: `${section} — ${metric} ${match[3]}`, value }];

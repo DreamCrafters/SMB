@@ -728,7 +728,6 @@ export function RefractoryReviewQueue({
     );
   }
 
-  if (reports.length === 0 && errorMessage === undefined) return null;
   return (
     <section
       className="refractory-review-queue"
@@ -744,78 +743,82 @@ export function RefractoryReviewQueue({
       {errorMessage === undefined ? null : (
         <p className="form-status">{errorMessage}</p>
       )}
-      <div className="refractory-review-list">
-        {reports.map((report) => (
-          <article className="refractory-review-card" key={report.id}>
-            <header>
-              <div>
-                <strong>{refractoryReportLabels[report.reportType]}</strong>
-                <span>
-                  {formatDate(report.reportDate)} · смена {report.shiftNumber} ·
-                  ревизия {report.revisionNumber}
-                </span>
-              </div>
-              <small>Мастер: {report.masterDisplayName}</small>
-            </header>
-            <ReportPreview report={report} />
-            <Totals values={report.totals} />
-            {rejectingId === report.id ? (
-              <label className="refractory-reject-comment">
-                <span>Причина возврата</span>
-                <textarea
-                  maxLength={2000}
-                  value={comment}
-                  onChange={(event) => setComment(event.currentTarget.value)}
-                />
-              </label>
-            ) : null}
-            <div className="refractory-review-actions">
-              <button
-                className="primary-button"
-                type="button"
-                disabled={busyId.length > 0}
-                onClick={() => void decide(report, "approve")}
-              >
-                Подтвердить
-              </button>
+      {reports.length === 0 ? (
+        <p className="form-status">Сейчас нет таблиц, ожидающих решения.</p>
+      ) : (
+        <div className="refractory-review-list">
+          {reports.map((report) => (
+            <article className="refractory-review-card" key={report.id}>
+              <header>
+                <div>
+                  <strong>{refractoryReportLabels[report.reportType]}</strong>
+                  <span>
+                    {formatDate(report.reportDate)} · смена {report.shiftNumber}{" "}
+                    · ревизия {report.revisionNumber}
+                  </span>
+                </div>
+                <small>Мастер: {report.masterDisplayName}</small>
+              </header>
+              <ReportPreview report={report} />
+              <Totals values={report.totals} />
               {rejectingId === report.id ? (
-                <>
-                  <button
-                    className="secondary-button secondary-button-danger"
-                    type="button"
-                    disabled={busyId.length > 0}
-                    onClick={() => void decide(report, "reject")}
-                  >
-                    Вернуть
-                  </button>
+                <label className="refractory-reject-comment">
+                  <span>Причина возврата</span>
+                  <textarea
+                    maxLength={2000}
+                    value={comment}
+                    onChange={(event) => setComment(event.currentTarget.value)}
+                  />
+                </label>
+              ) : null}
+              <div className="refractory-review-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={busyId.length > 0}
+                  onClick={() => void decide(report, "approve")}
+                >
+                  Подтвердить
+                </button>
+                {rejectingId === report.id ? (
+                  <>
+                    <button
+                      className="secondary-button secondary-button-danger"
+                      type="button"
+                      disabled={busyId.length > 0}
+                      onClick={() => void decide(report, "reject")}
+                    >
+                      Вернуть
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        setRejectingId("");
+                        setComment("");
+                      }}
+                    >
+                      Отмена
+                    </button>
+                  </>
+                ) : (
                   <button
                     className="secondary-button"
                     type="button"
+                    disabled={busyId.length > 0}
                     onClick={() => {
-                      setRejectingId("");
-                      setComment("");
+                      setRejectingId(report.id);
+                      setStatus("");
                     }}
                   >
-                    Отмена
+                    Вернуть на доработку
                   </button>
-                </>
-              ) : (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={busyId.length > 0}
-                  onClick={() => {
-                    setRejectingId(report.id);
-                    setStatus("");
-                  }}
-                >
-                  Вернуть на доработку
-                </button>
-              )}
-            </div>
-          </article>
-        ))}
-      </div>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
       {status.length > 0 ? <p className="form-status">{status}</p> : null}
     </section>
   );

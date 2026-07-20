@@ -1011,6 +1011,12 @@ p {
   grid-column: 1 / -1;
 }
 
+.dispatcher-form-choice-group-refractory {
+  --choice-accent: var(--amber);
+  --choice-soft: var(--amber-soft);
+  grid-column: 1 / -1;
+}
+
 .dispatcher-form-choice-group-incidents {
   --choice-accent: var(--brick);
   --choice-soft: var(--brick-soft);
@@ -1071,6 +1077,34 @@ p {
   font-weight: 900;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.dispatcher-form-choice-button-refractory {
+  position: relative;
+  gap: 6px;
+  padding-right: 56px;
+}
+
+.dispatcher-form-choice-button-refractory small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dispatcher-form-choice-button-refractory b {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  display: inline-grid;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
+  place-items: center;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  color: #fff;
+  background: var(--brick);
+  font-size: 12px;
 }
 
 .incident-close-choice {

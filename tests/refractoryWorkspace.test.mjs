@@ -18,7 +18,7 @@ const DOM_GLOBAL_NAMES = [
 
 test("refractory workspace opens one of three independent table buttons", async () => {
   const dom = new JSDOM(
-    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
   );
   const previousGlobals = captureDomGlobals();
@@ -56,23 +56,24 @@ test("refractory workspace opens one of three independent table buttons", async 
     };
 
     await React.act(async () => {
-      root.render(React.createElement(RefractoryShopWorkspace, {
-        profile,
-        isAdminPreviewMode: true,
-        onShowToast() {},
-      }));
+      root.render(
+        React.createElement(RefractoryShopWorkspace, {
+          profile,
+          isAdminPreviewMode: true,
+          onShowToast() {},
+        }),
+      );
     });
 
     const menuButtons = Array.from(
       rootElement.querySelectorAll(".refractory-report-menu button"),
     );
-    assert.deepEqual(menuButtons.map((button) => button.querySelector("span")?.textContent), [
-      "ЦОШ",
-      "Оборудование и выпуск сырца",
-      "Печное отделение",
-    ]);
+    assert.deepEqual(
+      menuButtons.map((button) => button.querySelector("span")?.textContent),
+      ["ЦОШ", "Оборудование и выпуск сырца", "Печное отделение"],
+    );
     assert.equal(
-      rootElement.querySelector('input[readonly]')?.value,
+      rootElement.querySelector("input[readonly]")?.value,
       "Иванов Иван Иванович",
     );
 
@@ -91,6 +92,103 @@ test("refractory workspace opens one of three independent table buttons", async 
     restoreDomGlobals(previousGlobals);
   }
 });
+
+test("dispatcher opens pending refractory reports from a separate choice button", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { DataEntryWorkspace } = await vite.ssrLoadModule("/src/App.tsx");
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(DataEntryWorkspace, {
+          ariaLabel: "Внесение данных диспетчером",
+          status: "",
+          isSubmitting: false,
+          onSubmit() {},
+          dispatcherForms: {
+            status: "ready",
+            source: "remote",
+            forms: [],
+          },
+          currentUserDisplayName: "Диспетчер",
+          isAdminPreviewMode: false,
+          refreshVersion: 0,
+          onResetStatus() {},
+          onShowToast() {},
+          pendingRefractoryReports: [buildPendingReport()],
+          refractoryQueueError: "",
+          onRefractoryReportResolved() {},
+        }),
+      );
+    });
+
+    assert.equal(
+      rootElement.querySelector(
+        'section[aria-label="Таблицы ОЦ на подтверждение"]',
+      ),
+      null,
+    );
+    const queueButton = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent.includes("Таблицы огнеупорного цеха"),
+    );
+    assert.ok(queueButton);
+    assert.match(queueButton.textContent, /Ожидают решения: 1/u);
+
+    await React.act(async () => queueButton.click());
+    assert.ok(
+      rootElement.querySelector(
+        'section[aria-label="Таблицы ОЦ на подтверждение"]',
+      ),
+    );
+    assert.ok(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent === "К выбору формы",
+      ),
+    );
+
+    await React.act(async () => root.unmount());
+  } finally {
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+function buildPendingReport() {
+  return {
+    id: "report-1",
+    reportType: "cosh",
+    reportDate: "2026-07-21",
+    shiftNumber: 1,
+    revisionNumber: 1,
+    status: "pending",
+    payload: { kilnNumber: "1" },
+    totals: {
+      chamotteOutputTons: 0,
+      bunkerFillTons: 0,
+      chamotteSupplyTons: 0,
+      baggingTons: 0,
+      scrapRemovalTons: 0,
+    },
+    masterDisplayName: "Мастер ОЦ",
+    submittedAt: "2026-07-21T08:30:00.000Z",
+  };
+}
 
 function captureDomGlobals() {
   return Object.fromEntries(

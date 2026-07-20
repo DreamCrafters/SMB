@@ -41,7 +41,10 @@ test("dispatcher audit details expose only server-defined form fields", () => {
     { label: "Ответственный за регистрацию", value: "Иванов И.И." },
     { label: "Оперативные меры", value: "Остановили участок" },
   ]);
-  assert.doesNotMatch(JSON.stringify(details), /password|must-never-appear|incidentNumber/u);
+  assert.doesNotMatch(
+    JSON.stringify(details),
+    /password|must-never-appear|incidentNumber/u,
+  );
 });
 
 test("production audit includes server-supported dynamic brand facts", () => {
@@ -80,6 +83,10 @@ test("client-reported views are restricted to known tabs and screens", () => {
     id: "dispatcher.form.production",
     title: "Форма: Выработка",
   });
+  assert.deepEqual(readAuditScreen("dispatcher.refractory_review"), {
+    id: "dispatcher.refractory_review",
+    title: "Подтверждение таблиц огнеупорного цеха",
+  });
   assert.equal(readAuditScreen("admin.secret-screen"), undefined);
 });
 
@@ -93,13 +100,16 @@ test("screen views must be available to the active account or its admin preview"
     capabilities: ["platform.manage_users"],
   });
   const dispatcherForm = readAuditScreen("dispatcher.form.incident");
+  const refractoryReview = readAuditScreen("dispatcher.refractory_review");
   const adminDatabase = readAuditScreen("admin.database");
   const businessOverview = readAuditScreen("business.overview");
 
   assert.ok(dispatcherForm !== undefined);
+  assert.ok(refractoryReview !== undefined);
   assert.ok(adminDatabase !== undefined);
   assert.ok(businessOverview !== undefined);
   assert.equal(canProfileViewAuditScreen(dispatcher, dispatcherForm), true);
+  assert.equal(canProfileViewAuditScreen(dispatcher, refractoryReview), true);
   assert.equal(canProfileViewAuditScreen(dispatcher, adminDatabase), false);
   assert.equal(canProfileViewAuditScreen(admin, businessOverview), true);
   assert.equal(canProfileViewAuditScreen(admin, adminDatabase), false);

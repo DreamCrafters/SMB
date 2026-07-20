@@ -3121,7 +3121,7 @@ function readDispatcherFieldsByVisualSize(
   ];
 }
 
-function DataEntryWorkspace({
+export function DataEntryWorkspace({
   ariaLabel,
   status,
   isSubmitting,
@@ -3152,6 +3152,7 @@ function DataEntryWorkspace({
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
+  const [isRefractoryReviewOpen, setIsRefractoryReviewOpen] = useState(false);
   const formLeaveGuardRef = useRef<FormLeaveGuard | undefined>(undefined);
   const currentForm = forms.find((form) => form.id === selectedFormId);
   const isLocalTestMode =
@@ -3192,6 +3193,7 @@ function DataEntryWorkspace({
     const continueSelection = () => {
       formLeaveGuardRef.current = undefined;
       onResetStatus();
+      setIsRefractoryReviewOpen(false);
       setSelectedFormId(formId);
       if (formId.length > 0) {
         void recordAuditScreenView(`dispatcher.form.${formId}`);
@@ -3220,10 +3222,42 @@ function DataEntryWorkspace({
     });
   }
 
+  function handleOpenRefractoryReview() {
+    formLeaveGuardRef.current = undefined;
+    onResetStatus();
+    setSelectedFormId("");
+    setIsRefractoryReviewOpen(true);
+    void recordAuditScreenView("dispatcher.refractory_review");
+  }
+
+  if (isRefractoryReviewOpen) {
+    return (
+      <section className="data-entry-surface" aria-label={ariaLabel}>
+        <div className="dispatcher-form-toolbar">
+          <strong>Таблицы огнеупорного цеха</strong>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setIsRefractoryReviewOpen(false)}
+          >
+            К выбору формы
+          </button>
+        </div>
+        {reviewQueue}
+      </section>
+    );
+  }
+
   if (dispatcherForms.status !== "ready" || forms.length === 0) {
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
-        {reviewQueue}
+        <div className="dispatcher-form-choice" aria-label="Выбор формы">
+          <RefractoryReviewChoice
+            hasError={refractoryQueueError.length > 0}
+            pendingCount={pendingRefractoryReports.length}
+            onOpen={handleOpenRefractoryReview}
+          />
+        </div>
         {dispatcherForms.status === "loading" ? (
           <LoadingIndicator label={formsStatusMessage} variant="page" />
         ) : (
@@ -3238,11 +3272,15 @@ function DataEntryWorkspace({
 
     return (
       <section className="data-entry-surface" aria-label={ariaLabel}>
-        {reviewQueue}
         {isLocalTestMode ? (
           <p className="form-status form-status-local">{localTestModeMessage}</p>
         ) : null}
         <div className="dispatcher-form-choice" aria-label="Выбор формы">
+          <RefractoryReviewChoice
+            hasError={refractoryQueueError.length > 0}
+            pendingCount={pendingRefractoryReports.length}
+            onOpen={handleOpenRefractoryReview}
+          />
           {choiceGroups.map((group) => (
             <section
               className={`dispatcher-form-choice-group dispatcher-form-choice-group-${group.id}`}
@@ -3276,7 +3314,6 @@ function DataEntryWorkspace({
 
   return (
     <section className="data-entry-surface" aria-label={ariaLabel}>
-      {reviewQueue}
       <form className="data-entry-form" onSubmit={handleSubmit}>
         <input name="formId" type="hidden" value={currentForm.id} readOnly />
         {isLocalTestMode ? (
@@ -3367,6 +3404,42 @@ function DataEntryWorkspace({
           </>
         )}
       </form>
+    </section>
+  );
+}
+
+function RefractoryReviewChoice({
+  hasError,
+  pendingCount,
+  onOpen,
+}: {
+  hasError: boolean;
+  pendingCount: number;
+  onOpen: () => void;
+}) {
+  return (
+    <section className="dispatcher-form-choice-group dispatcher-form-choice-group-refractory">
+      <div className="dispatcher-form-choice-group-header">
+        <span>Подтверждение</span>
+        <small>Отдельная очередь входящих таблиц</small>
+      </div>
+      <div className="dispatcher-form-choice-buttons">
+        <button
+          className="dispatcher-form-choice-button dispatcher-form-choice-button-refractory"
+          type="button"
+          onClick={onOpen}
+        >
+          <span>Таблицы огнеупорного цеха</span>
+          <small>
+            {hasError
+              ? "Не удалось проверить очередь"
+              : pendingCount > 0
+                ? `Ожидают решения: ${pendingCount}`
+                : "Нет ожидающих таблиц"}
+          </small>
+          {pendingCount > 0 ? <b aria-hidden="true">{pendingCount}</b> : null}
+        </button>
+      </div>
     </section>
   );
 }
