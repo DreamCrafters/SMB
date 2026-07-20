@@ -1291,7 +1291,7 @@ const accounts: AccountsRepository = {
     ];
   },
   async createPosition(input) {
-    return { id: "created-position", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: "created-position", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async updatePosition(input) {
     return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
@@ -1444,13 +1444,13 @@ test("admin access levels API is removed", async () => {
   );
 });
 
-test("admin positions API creates a position from a supported base cabinet", async () => {
+test("admin positions API creates a position with tabs from the unified workspace", async () => {
   let createdInput: Parameters<AccountsRepository["createPosition"]>[0] | undefined;
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
       createdInput = input;
-      return { id: "position-chief", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-chief", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -1461,26 +1461,24 @@ test("admin positions API creates a position from a supported base cabinet", asy
       headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
       body: JSON.stringify({
         displayName: "Главный инженер",
-        accountType: "business_owner",
-        navigationItems: ["business.overview", "business.dispatcher"],
+        navigationItems: ["business.overview", "business.dispatcher_form"],
       }),
     });
 
     assert.equal(response.status, 201);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 
-  assert.equal(createdInput?.accountType, "business_owner");
-  assert.deepEqual(createdInput?.navigationItems, ["business.overview", "business.dispatcher"]);
+  assert.deepEqual(createdInput?.navigationItems, ["business.overview", "business.dispatcher_form"]);
   assert.equal(createdInput?.capabilities.includes("business.view_dispatcher_feed"), true);
 });
 
-test("admin positions API keeps the worker workspace empty", async () => {
+test("admin positions API requires a tab and rejects the removed base cabinet field", async () => {
   const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-worker", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-worker", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -1490,92 +1488,70 @@ test("admin positions API keeps the worker workspace empty", async () => {
     const emptyResponse = await fetch(`${baseUrl}/api/admin/positions`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ displayName: "Работник склада", accountType: "worker", navigationItems: [] }),
+      body: JSON.stringify({ displayName: "Работник склада", navigationItems: [] }),
     });
-    const ownerAccessResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+    const legacyBaseResponse = await fetch(`${baseUrl}/api/admin/positions`, {
       method: "POST",
       headers,
       body: JSON.stringify({ displayName: "Работник с обзором", accountType: "worker", navigationItems: ["business.overview"] }),
     });
 
-    assert.equal(emptyResponse.status, 201);
-    assert.equal(ownerAccessResponse.status, 400);
+    assert.equal(emptyResponse.status, 400);
+    assert.equal(legacyBaseResponse.status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 
-  assert.equal(created.length, 1);
-  assert.deepEqual(created[0]?.navigationItems, []);
-  assert.deepEqual(created[0]?.capabilities, []);
+  assert.equal(created.length, 0);
 });
 
-test("admin positions API separates manager and dispatcher tabs", async () => {
+test("admin positions API accepts every business tab but rejects admin tabs", async () => {
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
-      return { id: "position-split", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-shared", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "admin");
     const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
-    const managerResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+    const businessResponse = await fetch(`${baseUrl}/api/admin/positions`, {
       method: "POST",
       headers,
       body: JSON.stringify({
-        displayName: "Руководитель участка",
-        accountType: "business_owner",
+        displayName: "Универсальная должность",
         navigationItems: [
           "business.overview",
           "business.dispatcher",
           "business.work",
           "business.user_actions",
+          "business.production_plan",
+          "business.dispatcher_form",
         ],
       }),
     });
-    const managerFormResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+    const adminResponse = await fetch(`${baseUrl}/api/admin/positions`, {
       method: "POST",
       headers,
       body: JSON.stringify({
-        displayName: "Руководитель с формой",
-        accountType: "business_owner",
-        navigationItems: ["business.dispatcher_form"],
-      }),
-    });
-    const dispatcherResponse = await fetch(`${baseUrl}/api/admin/positions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        displayName: "Старший диспетчер",
-        accountType: "dispatcher",
-        navigationItems: ["business.dispatcher_form"],
-      }),
-    });
-    const dispatcherOverviewResponse = await fetch(`${baseUrl}/api/admin/positions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        displayName: "Диспетчер с обзором",
-        accountType: "dispatcher",
-        navigationItems: ["business.overview"],
+        displayName: "Недопустимая должность",
+        navigationItems: ["admin.database"],
       }),
     });
 
-    assert.equal(managerResponse.status, 201);
-    assert.equal(managerFormResponse.status, 400);
-    assert.equal(dispatcherResponse.status, 201);
-    assert.equal(dispatcherOverviewResponse.status, 400);
+    assert.equal(businessResponse.status, 201);
+    assert.equal(adminResponse.status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 
-test("admin positions API changes the base cabinet after creation", async () => {
+test("admin positions API updates a protected non-admin position without changing its technical type", async () => {
   let updateInput: Parameters<AccountsRepository["updatePosition"]>[0] | undefined;
   const existingPosition = {
     id: "position-custom",
     displayName: "Начальник смены",
-    accountType: "business_owner" as const,
-    navigationItems: ["business.overview" as const],
-    capabilities: ["business.view_all_statistics" as const],
-    isProtected: false,
+    accountType: "dispatcher" as const,
+    navigationItems: ["business.dispatcher_form" as const],
+    capabilities: ["business.submit_dispatcher_forms" as const],
+    isProtected: true,
     usageCount: 2,
     createdAt: "2026-07-12T00:00:00.000Z",
   };
@@ -1595,20 +1571,58 @@ test("admin positions API changes the base cabinet after creation", async () => 
       headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
       body: JSON.stringify({
         displayName: "Диспетчер смены",
-        accountType: "dispatcher",
-        navigationItems: ["business.dispatcher_form"],
+        navigationItems: ["business.overview", "business.dispatcher_form"],
       }),
     });
 
     assert.equal(response.status, 200);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 
-  assert.equal(updateInput?.accountType, "dispatcher");
-  assert.deepEqual(updateInput?.navigationItems, ["business.dispatcher_form"]);
+  assert.deepEqual(updateInput?.navigationItems, ["business.overview", "business.dispatcher_form"]);
   assert.deepEqual(updateInput?.capabilities, [
-    "business.submit_dispatcher_forms",
+    "business.view_all_statistics",
+    "business.view_notifications",
     "business.view_dispatcher_feed",
+    "business.submit_dispatcher_forms",
   ]);
+});
+
+test("admin positions API keeps the administrator outside the unified workspace", async () => {
+  let didUpdate = false;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listPositions() {
+      return [{
+        id: "administrator",
+        displayName: "Администратор",
+        accountType: "admin",
+        navigationItems: ["admin.accounts"],
+        capabilities: ["platform.manage_users", "platform.manage_access"],
+        isProtected: true,
+        usageCount: 1,
+        createdAt: "2026-07-12T00:00:00.000Z",
+      }];
+    },
+    async updatePosition() {
+      didUpdate = true;
+      return undefined;
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/administrator`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
+      body: JSON.stringify({
+        displayName: "Администратор",
+        navigationItems: ["business.overview"],
+      }),
+    });
+
+    assert.equal(response.status, 409);
+    assert.equal(didUpdate, false);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 
 test("admin positions API deletes only an unused position", async () => {

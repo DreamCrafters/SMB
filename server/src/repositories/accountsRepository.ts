@@ -43,15 +43,15 @@ export type AdminPositionSummary = {
   createdAt: string;
 };
 
-export type CreatePositionInput = Omit<
-  AdminPositionSummary,
-  "id" | "isProtected" | "usageCount" | "createdAt"
->;
+export type CreatePositionInput = {
+  displayName: string;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
+};
 
 export type UpdatePositionInput = {
   id: string;
   displayName: string;
-  accountType: Exclude<AccountType, "admin">;
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
 };
@@ -235,14 +235,15 @@ export function createAccountsRepository(
 
   async function createPosition(input: CreatePositionInput) {
     const id = `position-${createId()}`;
+    const accountType = "business_owner" as const;
     await pool.query(
       `insert into account_positions (
         id, display_name, account_type, navigation_items, capabilities, is_protected
       ) values (?, ?, ?, ?, ?, 0)`,
-      [id, input.displayName, input.accountType,
+      [id, input.displayName, accountType,
         JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities)],
     );
-    return { id, ...input, isProtected: false, usageCount: 0, createdAt: new Date().toISOString() };
+    return { id, ...input, accountType, isProtected: false, usageCount: 0, createdAt: new Date().toISOString() };
   }
 
   async function updatePosition(input: UpdatePositionInput) {
@@ -262,14 +263,11 @@ export function createAccountsRepository(
         await connection.rollback();
         return undefined;
       }
-      if (current.account_type !== input.accountType) {
-        await updatePositionAccessScopes(connection, input);
-      }
       await connection.query(
         `update account_positions
-         set display_name = ?, account_type = ?, navigation_items = ?, capabilities = ?
+         set display_name = ?, navigation_items = ?, capabilities = ?
          where id = ?`,
-        [input.displayName, input.accountType, JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities), input.id],
+        [input.displayName, JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities), input.id],
       );
       await connection.query(
         `delete sessions from auth_sessions sessions
@@ -279,7 +277,6 @@ export function createAccountsRepository(
       );
       await connection.commit();
       return { ...mapPositionRow(current), displayName: input.displayName,
-        accountType: input.accountType,
         navigationItems: input.navigationItems, capabilities: input.capabilities };
     } catch (error) {
       await connection.rollback();
@@ -704,18 +701,6 @@ export function createAccountsRepository(
     updatePosition,
     deletePosition,
   };
-}
-
-async function updatePositionAccessScopes(
-  connection: PoolConnection,
-  input: UpdatePositionInput,
-) {
-  await connection.query(
-    `update account_accesses
-     set account_type = ?, scope_kind = 'organization'
-     where position_code = ?`,
-    [input.accountType, input.id],
-  );
 }
 
 async function readUserIdByLoginInTransaction(

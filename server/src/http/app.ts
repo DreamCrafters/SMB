@@ -14,7 +14,7 @@ import {
 import {
   accountTypeByPosition,
   resolveCapabilitiesForNavigation,
-  validateNavigationItemsForAccountType,
+  validateNonAdminNavigationItems,
 } from "../domain/accountAccessConfiguration.js";
 import {
   buildDefaultDevAccessOptions,
@@ -1647,7 +1647,6 @@ function buildAccountPositionChangeAuditDetails(
 function buildPositionAuditDetails(position: AdminPositionSummary) {
   return [
     { label: "Должность", value: position.displayName },
-    { label: "Базовый кабинет", value: readAccountTypeLabel(position.accountType) },
     {
       label: "Вкладки",
       value: position.navigationItems.length === 0
@@ -1655,19 +1654,6 @@ function buildPositionAuditDetails(position: AdminPositionSummary) {
         : position.navigationItems.map(readNavigationItemLabel).join(", "),
     },
   ];
-}
-
-function readAccountTypeLabel(accountType: AccountType) {
-  switch (accountType) {
-    case "admin":
-      return "Администратор";
-    case "business_owner":
-      return "Руководитель";
-    case "dispatcher":
-      return "Диспетчер";
-    case "worker":
-      return "Работник";
-  }
 }
 
 function readNavigationItemLabel(item: AccountNavigationItem) {
@@ -2438,8 +2424,8 @@ async function handleAdminAccountsRequest({
       sendJson(res, 404, { error: { code: "not_found", message: "Должность не найдена." } });
       return;
     }
-    if (existing.isProtected) {
-      sendJson(res, 409, { error: { code: "invalid_response", message: "Системную должность нельзя изменить или удалить." } });
+    if (existing.accountType === "admin" || (req.method === "DELETE" && existing.isProtected)) {
+      sendJson(res, 409, { error: { code: "invalid_response", message: "Эту системную должность нельзя изменить или удалить." } });
       return;
     }
     if (req.method === "DELETE") {
@@ -2766,7 +2752,6 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
 function validateCreatePositionRequest(input: unknown):
   | { ok: true; value: {
       displayName: string;
-      accountType: "business_owner" | "worker" | "dispatcher";
       navigationItems: AccountNavigationItem[];
       capabilities: AccountCapability[];
     } }
@@ -2775,31 +2760,27 @@ function validateCreatePositionRequest(input: unknown):
     return { ok: false, errors: ["Payload must be a JSON object."] };
   }
 
+  const unknownFields = Object.keys(input).filter(
+    (key) => key !== "displayName" && key !== "navigationItems",
+  );
   const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
-  const accountType = input.accountType;
   const navigationItems = Array.isArray(input.navigationItems) ? input.navigationItems : [];
   const errors: string[] = [];
-  const isAllowedBase =
-    accountType === "business_owner" || accountType === "worker" || accountType === "dispatcher";
 
+  if (unknownFields.length > 0) {
+    errors.push("Запрос содержит неизвестные поля.");
+  }
   if (displayName.length === 0 || displayName.length > 160) {
     errors.push("Укажите название должности.");
   }
-  if (!isAllowedBase) {
-    errors.push("Выберите базовый кабинет.");
-  }
-  if (isAllowedBase && accountType === "worker" && navigationItems.length > 0) {
-    errors.push("Кабинет работника пока не поддерживает вкладки.");
-  } else if (
-    isAllowedBase &&
-    accountType !== "worker" &&
-    (navigationItems.length === 0 ||
-      !navigationItems.every(isAccountNavigationItem) ||
-      !validateNavigationItemsForAccountType(accountType, navigationItems))
+  if (
+    navigationItems.length === 0 ||
+    !navigationItems.every(isAccountNavigationItem) ||
+    !validateNonAdminNavigationItems(navigationItems)
   ) {
     errors.push("Выберите хотя бы одну доступную вкладку.");
   }
-  if (errors.length > 0 || !isAllowedBase) {
+  if (errors.length > 0) {
     return { ok: false, errors };
   }
 
@@ -2807,7 +2788,6 @@ function validateCreatePositionRequest(input: unknown):
     ok: true,
     value: {
       displayName,
-      accountType,
       navigationItems,
       capabilities: resolveCapabilitiesForNavigation(navigationItems),
     },
@@ -2815,7 +2795,7 @@ function validateCreatePositionRequest(input: unknown):
 }
 
 function validateUpdatePositionRequest(input: unknown, _existing: AdminPositionSummary):
-  | { ok: true; value: { displayName: string; accountType: "business_owner" | "worker" | "dispatcher"; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
+  | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
   const validation = validateCreatePositionRequest(input);
   if (!validation.ok) {
@@ -2826,7 +2806,6 @@ function validateUpdatePositionRequest(input: unknown, _existing: AdminPositionS
     ok: true,
     value: {
       displayName: validation.value.displayName,
-      accountType: validation.value.accountType,
       navigationItems: validation.value.navigationItems,
       capabilities: validation.value.capabilities,
     },

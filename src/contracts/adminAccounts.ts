@@ -47,7 +47,6 @@ export type AdminPositionSummary = {
 export type AdminPositionsListResponse = { positions: AdminPositionSummary[] };
 export type SaveAdminPositionRequest = {
   displayName: string;
-  accountType: "business_owner" | "worker" | "dispatcher";
   navigationItems: AccountNavigationItem[];
 };
 export type SaveAdminPositionResponse = { position: AdminPositionSummary };

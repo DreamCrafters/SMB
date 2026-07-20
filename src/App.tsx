@@ -473,17 +473,8 @@ function getAdminNavigationItem(tab: AdminTab): AccountNavigationItem {
 }
 
 function getBusinessAuditScreenId(
-  accountType: AccountType,
   activeTab: BusinessTab,
 ): AccountNavigationItem | undefined {
-  if (accountType === "dispatcher") {
-    return "business.dispatcher_form";
-  }
-
-  if (accountType !== "business_owner") {
-    return undefined;
-  }
-
   return navigationByBusinessTab[activeTab];
 }
 
@@ -764,11 +755,11 @@ export default function App() {
       ? adminTab === "account_preview" &&
         adminViewedAccount !== undefined &&
         previewTab !== undefined
-        ? getBusinessAuditScreenId(adminViewedAccount.accountType, previewTab)
+        ? getBusinessAuditScreenId(previewTab)
         : getAdminNavigationItem(adminTab)
       : activeBusinessTab === undefined
         ? undefined
-        : getBusinessAuditScreenId(profile.accountType, activeBusinessTab);
+        : getBusinessAuditScreenId(activeBusinessTab);
 
     if (screenId === undefined) {
       return;
@@ -8398,13 +8389,11 @@ const emptyAdminAccountForm: AdminAccountFormState = {
 type AdminPositionFormState = {
   id?: string;
   displayName: string;
-  accountType: "business_owner" | "worker" | "dispatcher";
   navigationItems: AccountNavigationItem[];
 };
 
 const emptyAdminPositionForm: AdminPositionFormState = {
   displayName: "",
-  accountType: "business_owner",
   navigationItems: nonAdminNavigationItems
     .filter(
       ({ id }) =>
@@ -8413,39 +8402,6 @@ const emptyAdminPositionForm: AdminPositionFormState = {
         id !== "business.production_plan",
     )
     .map(({ id }) => id),
-};
-
-const availableNavigationItemsByBaseCabinet: Record<
-  AdminPositionFormState["accountType"],
-  NavigationItem[]
-> = {
-  business_owner: nonAdminNavigationItems.filter(
-    ({ id }) => id !== "business.dispatcher_form",
-  ),
-  worker: [],
-  dispatcher: nonAdminNavigationItems.filter(
-    ({ id }) => id === "business.dispatcher_form",
-  ),
-};
-
-const defaultNavigationItemsByBaseCabinet: Record<
-  AdminPositionFormState["accountType"],
-  AccountNavigationItem[]
-> = {
-  business_owner: availableNavigationItemsByBaseCabinet.business_owner
-    .filter(
-      ({ id }) =>
-        id !== "business.user_actions" && id !== "business.production_plan",
-    )
-    .map(({ id }) => id),
-  worker: [],
-  dispatcher: availableNavigationItemsByBaseCabinet.dispatcher.map(({ id }) => id),
-};
-
-const baseCabinetLabels: Record<AdminPositionFormState["accountType"], string> = {
-  business_owner: "Руководитель",
-  worker: "Работник",
-  dispatcher: "Диспетчер",
 };
 
 const adminAccountPositionOptions: AccountPosition[] = [
@@ -8698,11 +8654,8 @@ function AdminAccountsWorkspace({
     setPositionForm(position === undefined ? emptyAdminPositionForm : {
       id: position.id,
       displayName: position.displayName,
-      accountType: position.accountType as AdminPositionFormState["accountType"],
       navigationItems: position.navigationItems.filter((id) =>
-        availableNavigationItemsByBaseCabinet[
-          position.accountType as AdminPositionFormState["accountType"]
-        ].some((item) => item.id === id),
+        nonAdminNavigationItems.some((item) => item.id === id),
       ),
     });
     setPositionFormStatus("");
@@ -8713,7 +8666,7 @@ function AdminAccountsWorkspace({
     event.preventDefault();
     if (
       positionForm.displayName.trim().length === 0 ||
-      (positionForm.accountType !== "worker" && positionForm.navigationItems.length === 0)
+      positionForm.navigationItems.length === 0
     ) {
       setPositionFormStatus("Укажите название и выберите хотя бы одну вкладку.");
       return;
@@ -8721,7 +8674,6 @@ function AdminAccountsWorkspace({
     setIsSubmitting(true);
     const value = {
       displayName: positionForm.displayName.trim(),
-      accountType: positionForm.accountType,
       navigationItems: positionForm.navigationItems,
     };
     const result = positionForm.id === undefined
@@ -9249,12 +9201,11 @@ function AdminAccountsWorkspace({
         {positionsState.status === "ready" ? (
           <div className="admin-db-table-scroll">
             <table className="admin-db-data-table admin-positions-table">
-              <thead><tr><th>Должность</th><th>Базовый кабинет</th><th>Вкладки слева</th><th>Аккаунты</th><th /></tr></thead>
+              <thead><tr><th>Должность</th><th>Вкладки слева</th><th>Аккаунты</th><th /></tr></thead>
               <tbody>
                 {positionsState.positions.map((position) => (
                   <tr key={position.id}>
                     <td>{position.displayName}</td>
-                    <td>{position.accountType === "admin" ? "Администратор" : baseCabinetLabels[position.accountType]}</td>
                     <td>{position.navigationItems.map((id) =>
                       [...navigationItemsByAccountType.admin, ...nonAdminNavigationItems].find((item) => item.id === id)?.label ?? id
                     ).join(", ")}</td>
@@ -9264,7 +9215,7 @@ function AdminAccountsWorkspace({
                         <button
                           className="secondary-button"
                           type="button"
-                          disabled={!canManageAccess || position.isProtected}
+                          disabled={!canManageAccess || position.accountType === "admin"}
                           onClick={() => openPositionModal(position)}
                         >
                           Изменить
@@ -9454,45 +9405,24 @@ function AdminAccountsWorkspace({
                   setPositionForm((current) => ({ ...current, displayName }));
                 }} required />
               </label>
-              <label>
-                <span>Базовый кабинет</span>
-                <select value={positionForm.accountType} onChange={(event) => {
-                  const accountType = event.currentTarget.value as AdminPositionFormState["accountType"];
-                  setPositionForm((current) => ({
-                    ...current,
-                    accountType,
-                    navigationItems: [...defaultNavigationItemsByBaseCabinet[accountType]],
-                  }));
-                }}>
-                  {(Object.keys(baseCabinetLabels) as AdminPositionFormState["accountType"][]).map((type) => (
-                    <option key={type} value={type}>{baseCabinetLabels[type]}</option>
-                  ))}
-                </select>
-              </label>
               <fieldset className="admin-account-navigation-fieldset">
                 <legend>Доступ к вкладкам слева</legend>
-                {positionForm.accountType === "worker" ? (
-                  <p className="admin-position-empty-workspace-copy">
-                    Кабинет работника пока пуст. Вкладки для него недоступны.
-                  </p>
-                ) : (
-                  <div className="admin-account-navigation-grid">
-                    {availableNavigationItemsByBaseCabinet[positionForm.accountType].map((item) => (
-                      <label key={item.id} className="admin-account-navigation-option">
-                        <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
-                          const isChecked = event.currentTarget.checked;
-                          setPositionForm((current) => ({
-                            ...current,
-                            navigationItems: isChecked
-                              ? Array.from(new Set([...current.navigationItems, item.id]))
-                              : current.navigationItems.filter((id) => id !== item.id),
-                          }));
-                        }} />
-                        <span>{formatNavigationItemLabel(item)}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                <div className="admin-account-navigation-grid">
+                  {nonAdminNavigationItems.map((item) => (
+                    <label key={item.id} className="admin-account-navigation-option">
+                      <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
+                        const isChecked = event.currentTarget.checked;
+                        setPositionForm((current) => ({
+                          ...current,
+                          navigationItems: isChecked
+                            ? Array.from(new Set([...current.navigationItems, item.id]))
+                            : current.navigationItems.filter((id) => id !== item.id),
+                        }));
+                      }} />
+                      <span>{formatNavigationItemLabel(item)}</span>
+                    </label>
+                  ))}
+                </div>
               </fieldset>
               <div className="form-actions">
                 <button className="primary-button" type="submit" disabled={isSubmitting}>

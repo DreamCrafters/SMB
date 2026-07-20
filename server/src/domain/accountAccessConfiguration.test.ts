@@ -14,7 +14,7 @@ test("executive positions use the business owner workspace", () => {
   assert.equal(accountTypeByPosition.economist, "business_owner");
 });
 
-test("navigation validation rejects tabs from another workspace", () => {
+test("all non-admin account types share one navigation catalog", () => {
   assert.equal(
     navigationItemsByAccountType.business_owner.includes("business.user_actions"),
     false,
@@ -31,13 +31,13 @@ test("navigation validation rejects tabs from another workspace", () => {
     ]),
     false,
   );
-  assert.equal(validateNavigationItemsForAccountType("worker", []), true);
+  assert.equal(validateNavigationItemsForAccountType("worker", []), false);
   assert.equal(
     validateNavigationItemsForAccountType("worker", [
       "business.overview",
       "business.dispatcher_form",
     ]),
-    false,
+    true,
   );
   assert.equal(
     validateNavigationItemsForAccountType("business_owner", [
@@ -52,7 +52,7 @@ test("navigation validation rejects tabs from another workspace", () => {
     validateNavigationItemsForAccountType("business_owner", [
       "business.dispatcher_form",
     ]),
-    false,
+    true,
   );
   assert.equal(
     validateNavigationItemsForAccountType("dispatcher", [
@@ -63,7 +63,12 @@ test("navigation validation rejects tabs from another workspace", () => {
   assert.equal(
     validateNavigationItemsForAccountType("dispatcher", [
       "business.overview",
+      "business.production_plan",
     ]),
+    true,
+  );
+  assert.equal(
+    validateNavigationItemsForAccountType("dispatcher", ["admin.database"]),
     false,
   );
   assert.equal(

@@ -24,7 +24,7 @@ test("listAccounts groups equal positions and sorts names within each group", as
   );
 });
 
-test("updatePosition keeps linked accounts in organization scope", async () => {
+test("updatePosition preserves the technical account type and refreshes linked sessions", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let didCommit = false;
   const connection = {
@@ -64,20 +64,19 @@ test("updatePosition keeps linked accounts in organization scope", async () => {
   const result = await repository.updatePosition({
     id: "position-manager",
     displayName: "Диспетчер участка",
-    accountType: "dispatcher",
     navigationItems: ["business.dispatcher_form"],
     capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
   });
 
   assert.equal(didCommit, true);
-  assert.equal(result?.accountType, "dispatcher");
-  assert.deepEqual(
-    queries.find((query) => query.sql.startsWith("update account_accesses set account_type"))?.params,
-    ["dispatcher", "position-manager"],
+  assert.equal(result?.accountType, "business_owner");
+  assert.equal(
+    queries.some((query) => query.sql.startsWith("update account_accesses set account_type")),
+    false,
   );
   assert.deepEqual(
-    queries.find((query) => query.sql.startsWith("update account_positions set display_name"))?.params?.slice(0, 2),
-    ["Диспетчер участка", "dispatcher"],
+    queries.find((query) => query.sql.startsWith("update account_positions set display_name"))?.params?.slice(0, 1),
+    ["Диспетчер участка"],
   );
 });
 

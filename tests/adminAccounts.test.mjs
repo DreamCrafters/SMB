@@ -100,7 +100,7 @@ test("admin account login precheck is trimmed and case-insensitive", () => {
   assert.equal(hasAdminAccountLogin([account], "dispatcher-2"), false);
 });
 
-test("admin positions service lists and creates positions with a base cabinet", async () => {
+test("admin positions service lists and creates positions without a base cabinet", async () => {
   const position = {
     id: "position-chief-engineer",
     displayName: "Главный инженер",
@@ -120,16 +120,19 @@ test("admin positions service lists and creates positions with a base cabinet", 
   const list = await requestAdminPositions({ baseUrl: "http://api.test" });
   const created = await createAdminPosition({
     displayName: "Главный инженер",
-    accountType: "business_owner",
-    navigationItems: ["business.overview", "business.dispatcher"],
+    navigationItems: ["business.overview", "business.dispatcher_form"],
   }, { baseUrl: "http://api.test" });
 
   assert.equal(list.status, "ready");
   assert.equal(created.status, "ready");
   assert.equal(calls[1].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    displayName: "Главный инженер",
+    navigationItems: ["business.overview", "business.dispatcher_form"],
+  });
 });
 
-test("admin positions service sends a changed base cabinet", async () => {
+test("admin positions service updates only the title and unified tabs", async () => {
   const calls = [];
   const position = {
     id: "position-chief-engineer",
@@ -148,13 +151,15 @@ test("admin positions service sends a changed base cabinet", async () => {
 
   const result = await updateAdminPosition(position.id, {
     displayName: position.displayName,
-    accountType: "dispatcher",
-    navigationItems: ["business.dispatcher_form"],
+    navigationItems: ["business.overview", "business.dispatcher_form"],
   }, { baseUrl: "http://api.test" });
 
   assert.equal(result.status, "ready");
   assert.equal(calls[0].init.method, "PATCH");
-  assert.equal(JSON.parse(calls[0].init.body).accountType, "dispatcher");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    displayName: "Диспетчер производства",
+    navigationItems: ["business.overview", "business.dispatcher_form"],
+  });
 });
 
 test("admin positions service deletes an unused position", async () => {
