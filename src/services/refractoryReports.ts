@@ -4,6 +4,7 @@ import {
   type RefractoryReportDecision,
   type RefractoryReportRevision,
   type RefractoryReportSubmission,
+  type RefractoryReportType,
   type RefractoryShiftNumber,
 } from "../contracts/refractoryReports.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
@@ -16,6 +17,15 @@ import {
 const REPORTS_PATH = "/api/refractory-reports";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
+export type ReturnedRefractoryReportCounts = Readonly<
+  Record<RefractoryReportType, number>
+>;
+export const emptyReturnedRefractoryReportCounts:
+  ReturnedRefractoryReportCounts = {
+    cosh: 0,
+    equipment: 0,
+    firing: 0,
+  };
 export type RefractoryFieldErrorDetail = {
   fieldPath: string;
   message: string;
@@ -128,6 +138,15 @@ export function buildRefractoryStatusMap(
 export function countReturnedRefractoryReports(
   reports: readonly RefractoryReportRevision[],
 ) {
+  return Object.values(countReturnedRefractoryReportsByType(reports)).reduce(
+    (total, count) => total + count,
+    0,
+  );
+}
+
+export function countReturnedRefractoryReportsByType(
+  reports: readonly RefractoryReportRevision[],
+): ReturnedRefractoryReportCounts {
   const latestReports = new Map<string, RefractoryReportRevision>();
 
   for (const report of reports) {
@@ -146,9 +165,19 @@ export function countReturnedRefractoryReports(
     }
   }
 
-  return Array.from(latestReports.values()).filter(
-    (report) => report.status === "rejected",
-  ).length;
+  const counts: Record<RefractoryReportType, number> = {
+    cosh: 0,
+    equipment: 0,
+    firing: 0,
+  };
+
+  for (const report of latestReports.values()) {
+    if (report.status === "rejected") {
+      counts[report.reportType] += 1;
+    }
+  }
+
+  return counts;
 }
 
 export async function decideRefractoryReport(

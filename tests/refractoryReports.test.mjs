@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildRefractoryDecisionNotifications,
   countReturnedRefractoryReports,
+  countReturnedRefractoryReportsByType,
   decideRefractoryReport,
   requestOwnRefractoryReports,
   requestPendingRefractoryReports,
@@ -143,35 +144,39 @@ test("refractory decision notifications report approvals and rejection comments"
 });
 
 test("refractory return count includes only latest revisions awaiting correction", () => {
-  assert.equal(
-    countReturnedRefractoryReports([
-      buildReport({
-        id: "superseded-rejection",
-        reportType: "cosh",
-        revisionNumber: 1,
-        status: "rejected",
-      }),
-      buildReport({
-        id: "resent-report",
-        reportType: "cosh",
-        revisionNumber: 2,
-        status: "pending",
-      }),
-      buildReport({
-        id: "returned-report",
-        reportType: "equipment",
-        revisionNumber: 1,
-        status: "rejected",
-      }),
-      buildReport({
-        id: "approved-report",
-        reportType: "firing",
-        revisionNumber: 1,
-        status: "approved",
-      }),
-    ]),
-    1,
-  );
+  const reports = [
+    buildReport({
+      id: "superseded-rejection",
+      reportType: "cosh",
+      revisionNumber: 1,
+      status: "rejected",
+    }),
+    buildReport({
+      id: "resent-report",
+      reportType: "cosh",
+      revisionNumber: 2,
+      status: "pending",
+    }),
+    buildReport({
+      id: "returned-report",
+      reportType: "equipment",
+      revisionNumber: 1,
+      status: "rejected",
+    }),
+    buildReport({
+      id: "approved-report",
+      reportType: "firing",
+      revisionNumber: 1,
+      status: "approved",
+    }),
+  ];
+
+  assert.equal(countReturnedRefractoryReports(reports), 1);
+  assert.deepEqual(countReturnedRefractoryReportsByType(reports), {
+    cosh: 0,
+    equipment: 1,
+    firing: 0,
+  });
 });
 
 test("refractory report service rejects malformed server totals", async () => {

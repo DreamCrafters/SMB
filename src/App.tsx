@@ -210,9 +210,11 @@ import {
 import {
   buildRefractoryDecisionNotifications,
   buildRefractoryStatusMap,
-  countReturnedRefractoryReports,
+  countReturnedRefractoryReportsByType,
+  emptyReturnedRefractoryReportCounts,
   requestOwnRefractoryReports,
   requestPendingRefractoryReports,
+  type ReturnedRefractoryReportCounts,
 } from "./services/refractoryReports";
 
 type BusinessTab =
@@ -533,7 +535,12 @@ export default function App() {
     Map<string, RefractoryReportRevision["status"]>
   >(new Map());
   const hasLoadedOwnRefractoryRef = useRef(false);
-  const [returnedRefractoryCount, setReturnedRefractoryCount] = useState(0);
+  const [returnedRefractoryCounts, setReturnedRefractoryCounts] = useState(
+    emptyReturnedRefractoryReportCounts,
+  );
+  const returnedRefractoryCount = Object.values(
+    returnedRefractoryCounts,
+  ).reduce((total, count) => total + count, 0);
   const [refractoryDecisionVersion, setRefractoryDecisionVersion] = useState(0);
   const [dispatcherSubmissionVersion, setDispatcherSubmissionVersion] = useState(0);
   const [dispatcherFeedFilters, setDispatcherFeedFilters] =
@@ -731,7 +738,7 @@ export default function App() {
     ) {
       knownOwnRefractoryStatusesRef.current = new Map();
       hasLoadedOwnRefractoryRef.current = false;
-      setReturnedRefractoryCount(0);
+      setReturnedRefractoryCounts(emptyReturnedRefractoryReportCounts);
       return;
     }
 
@@ -768,8 +775,8 @@ export default function App() {
       knownOwnRefractoryStatusesRef.current = buildRefractoryStatusMap(
         result.reports,
       );
-      setReturnedRefractoryCount(
-        countReturnedRefractoryReports(result.reports),
+      setReturnedRefractoryCounts(
+        countReturnedRefractoryReportsByType(result.reports),
       );
       hasLoadedOwnRefractoryRef.current = true;
     }
@@ -1414,6 +1421,11 @@ export default function App() {
           pendingRefractoryReports={pendingRefractoryReports}
           refractoryQueueError={refractoryQueueError}
           refractoryDecisionVersion={refractoryDecisionVersion}
+          returnedRefractoryCounts={
+            isAdminPreviewMode
+              ? emptyReturnedRefractoryReportCounts
+              : returnedRefractoryCounts
+          }
           onRefractoryReportResolved={handleRefractoryReportResolved}
         />
       </section>
@@ -2044,6 +2056,7 @@ function RoleWorkspace({
   pendingRefractoryReports,
   refractoryQueueError,
   refractoryDecisionVersion,
+  returnedRefractoryCounts,
   onRefractoryReportResolved,
 }: {
   profile: ServerUserProfile;
@@ -2066,6 +2079,7 @@ function RoleWorkspace({
   pendingRefractoryReports: RefractoryReportRevision[];
   refractoryQueueError: string;
   refractoryDecisionVersion: number;
+  returnedRefractoryCounts: ReturnedRefractoryReportCounts;
   onRefractoryReportResolved: (reportId: string) => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
@@ -2115,6 +2129,7 @@ function RoleWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
             decisionRefreshVersion={refractoryDecisionVersion}
+            returnedReportCounts={returnedRefractoryCounts}
           />
         );
       }

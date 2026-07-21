@@ -45,6 +45,7 @@ test("refractory workspace opens one of three independent table buttons", async 
           profile: buildOperatorProfile(),
           isAdminPreviewMode: true,
           onShowToast() {},
+          returnedReportCounts: { cosh: 0, equipment: 1, firing: 0 },
         }),
       );
     });
@@ -53,8 +54,28 @@ test("refractory workspace opens one of three independent table buttons", async 
       rootElement.querySelectorAll(".refractory-report-menu button"),
     );
     assert.deepEqual(
-      menuButtons.map((button) => button.querySelector("span")?.textContent),
+      menuButtons.map(
+        (button) =>
+          button.querySelector(".refractory-report-label")?.textContent,
+      ),
       ["ЦОШ", "Оборудование и выпуск сырца", "Печное отделение"],
+    );
+    assert.equal(
+      menuButtons[0].querySelector(".refractory-report-return-count"),
+      null,
+    );
+    assert.equal(
+      menuButtons[1].querySelector(".refractory-report-return-count")
+        ?.textContent,
+      "1",
+    );
+    assert.match(
+      menuButtons[1].getAttribute("aria-label") ?? "",
+      /Возвращено на доработку: 1/u,
+    );
+    assert.equal(
+      menuButtons[2].querySelector(".refractory-report-return-count"),
+      null,
     );
     assert.equal(
       rootElement.querySelector("input[readonly]")?.value,

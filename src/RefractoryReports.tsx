@@ -13,8 +13,10 @@ import {
 } from "./contracts";
 import {
   decideRefractoryReport,
+  emptyReturnedRefractoryReportCounts,
   requestRefractoryReports,
   submitRefractoryReport,
+  type ReturnedRefractoryReportCounts,
 } from "./services/refractoryReports";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import { readRefractoryShiftContext } from "./services/refractoryShift";
@@ -52,11 +54,13 @@ export function RefractoryShopWorkspace({
   isAdminPreviewMode,
   onShowToast,
   decisionRefreshVersion = 0,
+  returnedReportCounts = emptyReturnedRefractoryReportCounts,
 }: {
   profile: ServerUserProfile;
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
   decisionRefreshVersion?: number;
+  returnedReportCounts?: ReturnedRefractoryReportCounts;
 }) {
   const initialShift = readRefractoryShiftContext();
   const [reportDate, setReportDate] = useState(initialShift.reportDate);
@@ -227,8 +231,18 @@ export function RefractoryShopWorkspace({
       <div className="refractory-report-menu" aria-label="Выбор таблицы">
         {reportTypes.map((reportType) => {
           const report = reports.find((item) => item.reportType === reportType);
+          const returnedCount = returnedReportCounts[reportType];
+          const reportStatusLabel =
+            report === undefined
+              ? "Не отправлено"
+              : reportStatusLabels[report.status];
           return (
             <button
+              aria-label={`${refractoryReportLabels[reportType]}. ${reportStatusLabel}.${
+                returnedCount > 0
+                  ? ` Возвращено на доработку: ${returnedCount}.`
+                  : ""
+              }`}
               className={reportType === activeType ? "is-active" : undefined}
               type="button"
               key={reportType}
@@ -239,12 +253,20 @@ export function RefractoryShopWorkspace({
                 setHasError(false);
               }}
             >
-              <span>{refractoryReportLabels[reportType]}</span>
-              <small>
-                {report === undefined
-                  ? "Не отправлено"
-                  : reportStatusLabels[report.status]}
-              </small>
+              <span className="refractory-report-menu-heading">
+                <span className="refractory-report-label">
+                  {refractoryReportLabels[reportType]}
+                </span>
+                {returnedCount > 0 ? (
+                  <b
+                    className="refractory-report-return-count"
+                    aria-hidden="true"
+                  >
+                    {returnedCount}
+                  </b>
+                ) : null}
+              </span>
+              <small>{reportStatusLabel}</small>
             </button>
           );
         })}
