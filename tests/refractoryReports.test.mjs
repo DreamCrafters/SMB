@@ -5,6 +5,7 @@ import {
   countReturnedRefractoryReports,
   countReturnedRefractoryReportsByType,
   decideRefractoryReport,
+  listReturnedRefractoryShifts,
   requestOwnRefractoryReports,
   requestPendingRefractoryReports,
   requestRefractoryReports,
@@ -194,6 +195,9 @@ test("refractory return count includes only latest revisions awaiting correction
       firing: 0,
     },
   );
+  assert.deepEqual(listReturnedRefractoryShifts(reports), [
+    { reportDate: "2026-07-20", shiftNumber: 2 },
+  ]);
 });
 
 test("refractory report service rejects malformed server totals", async () => {

@@ -20,6 +20,10 @@ type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 export type ReturnedRefractoryReportCounts = Readonly<
   Record<RefractoryReportType, number>
 >;
+export type ReturnedRefractoryShift = {
+  reportDate: string;
+  shiftNumber: RefractoryShiftNumber;
+};
 type RefractoryReportShiftFilter = {
   reportDate: string;
   shiftNumber: RefractoryShiftNumber;
@@ -152,6 +156,52 @@ export function countReturnedRefractoryReportsByType(
   reports: readonly RefractoryReportRevision[],
   shiftFilter?: RefractoryReportShiftFilter,
 ): ReturnedRefractoryReportCounts {
+  const latestReports = selectLatestRefractoryReports(reports);
+  const counts: Record<RefractoryReportType, number> = {
+    cosh: 0,
+    equipment: 0,
+    firing: 0,
+  };
+
+  for (const report of latestReports) {
+    if (
+      report.status === "rejected" &&
+      (shiftFilter === undefined ||
+        (report.reportDate === shiftFilter.reportDate &&
+          report.shiftNumber === shiftFilter.shiftNumber))
+    ) {
+      counts[report.reportType] += 1;
+    }
+  }
+
+  return counts;
+}
+
+export function listReturnedRefractoryShifts(
+  reports: readonly RefractoryReportRevision[],
+): ReturnedRefractoryShift[] {
+  const shifts = new Map<string, ReturnedRefractoryShift>();
+
+  for (const report of selectLatestRefractoryReports(reports)) {
+    if (report.status !== "rejected") continue;
+
+    const shift = {
+      reportDate: report.reportDate,
+      shiftNumber: report.shiftNumber,
+    };
+    shifts.set(`${shift.reportDate}:${shift.shiftNumber}`, shift);
+  }
+
+  return Array.from(shifts.values()).sort(
+    (left, right) =>
+      right.reportDate.localeCompare(left.reportDate) ||
+      right.shiftNumber - left.shiftNumber,
+  );
+}
+
+function selectLatestRefractoryReports(
+  reports: readonly RefractoryReportRevision[],
+) {
   const latestReports = new Map<string, RefractoryReportRevision>();
 
   for (const report of reports) {
@@ -170,24 +220,7 @@ export function countReturnedRefractoryReportsByType(
     }
   }
 
-  const counts: Record<RefractoryReportType, number> = {
-    cosh: 0,
-    equipment: 0,
-    firing: 0,
-  };
-
-  for (const report of latestReports.values()) {
-    if (
-      report.status === "rejected" &&
-      (shiftFilter === undefined ||
-        (report.reportDate === shiftFilter.reportDate &&
-          report.shiftNumber === shiftFilter.shiftNumber))
-    ) {
-      counts[report.reportType] += 1;
-    }
-  }
-
-  return counts;
+  return latestReports.values();
 }
 
 export async function decideRefractoryReport(

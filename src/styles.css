@@ -4582,6 +4582,11 @@ p {
   line-height: 1;
 }
 
+.nav-item small.nav-notification-detail {
+  color: var(--brick-soft);
+  font-weight: 800;
+}
+
 .refractory-workspace,
 .refractory-review-queue {
   display: grid;

@@ -183,6 +183,9 @@ test("refractory navigation shows the number of reports returned for correction"
           onAdminTabChange() {},
           pendingRefractoryCount: 0,
           returnedRefractoryCount: 2,
+          returnedRefractoryShifts: [
+            { reportDate: "2026-07-20", shiftNumber: 2 },
+          ],
         }),
       );
     });
@@ -194,6 +197,10 @@ test("refractory navigation shows the number of reports returned for correction"
     assert.equal(
       refractoryButton.querySelector(".nav-notification-count")?.textContent,
       "2",
+    );
+    assert.match(
+      refractoryButton.textContent,
+      /Исправить за 20\.07\.2026 · смена 2/,
     );
 
     await React.act(async () => root.unmount());

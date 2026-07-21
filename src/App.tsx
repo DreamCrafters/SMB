@@ -212,8 +212,10 @@ import {
   buildRefractoryStatusMap,
   countReturnedRefractoryReportsByType,
   emptyReturnedRefractoryReportCounts,
+  listReturnedRefractoryShifts,
   requestOwnRefractoryReports,
   requestPendingRefractoryReports,
+  type ReturnedRefractoryShift,
 } from "./services/refractoryReports";
 
 type BusinessTab =
@@ -537,6 +539,9 @@ export default function App() {
   const [returnedRefractoryCounts, setReturnedRefractoryCounts] = useState(
     emptyReturnedRefractoryReportCounts,
   );
+  const [returnedRefractoryShifts, setReturnedRefractoryShifts] = useState<
+    ReturnedRefractoryShift[]
+  >([]);
   const returnedRefractoryCount = Object.values(
     returnedRefractoryCounts,
   ).reduce((total, count) => total + count, 0);
@@ -738,6 +743,7 @@ export default function App() {
       knownOwnRefractoryStatusesRef.current = new Map();
       hasLoadedOwnRefractoryRef.current = false;
       setReturnedRefractoryCounts(emptyReturnedRefractoryReportCounts);
+      setReturnedRefractoryShifts([]);
       return;
     }
 
@@ -776,6 +782,9 @@ export default function App() {
       );
       setReturnedRefractoryCounts(
         countReturnedRefractoryReportsByType(result.reports),
+      );
+      setReturnedRefractoryShifts(
+        listReturnedRefractoryShifts(result.reports),
       );
       hasLoadedOwnRefractoryRef.current = true;
     }
@@ -1368,6 +1377,9 @@ export default function App() {
         returnedRefractoryCount={
           isAdminPreviewMode ? 0 : returnedRefractoryCount
         }
+        returnedRefractoryShifts={
+          isAdminPreviewMode ? [] : returnedRefractoryShifts
+        }
       />
 
       {isMobileNavigation && isNavigationOpen ? (
@@ -1799,6 +1811,7 @@ export function SideRail({
   onAdminTabChange,
   pendingRefractoryCount,
   returnedRefractoryCount,
+  returnedRefractoryShifts,
 }: {
   profile: ServerUserProfile;
   signedInDisplayName: string;
@@ -1816,6 +1829,7 @@ export function SideRail({
   onAdminTabChange: (tab: AdminTab) => void;
   pendingRefractoryCount: number;
   returnedRefractoryCount: number;
+  returnedRefractoryShifts: readonly ReturnedRefractoryShift[];
 }) {
   const railRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -1992,6 +2006,17 @@ export function SideRail({
                   ) : null}
                 </span>
                 <small>{item.description}</small>
+                {item.id === "business.refractory_shop"
+                  ? returnedRefractoryShifts.map((shift) => (
+                      <small
+                        className="nav-notification-detail"
+                        key={`${shift.reportDate}:${shift.shiftNumber}`}
+                      >
+                        Исправить за {formatDateOnly(shift.reportDate)} · смена{" "}
+                        {shift.shiftNumber}
+                      </small>
+                    ))
+                  : null}
               </button>
             );
           })}
