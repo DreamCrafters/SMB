@@ -162,7 +162,12 @@ export function RefractoryShopWorkspace({
       invalidInputs[0]?.focus();
       setHasError(true);
       setStatus(
-        readShortUserMessage(result.message, "Не удалось отправить таблицу."),
+        result.details !== undefined && result.details.length > 0
+          ? formatRefractoryFormErrors(result.details)
+          : readShortUserMessage(
+              result.message,
+              "Не удалось отправить таблицу.",
+            ),
       );
       return;
     }
@@ -495,20 +500,20 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
 }
 
 const equipmentColumns = [
-  ["productBrand", "Марка изделия", "text"],
-  ["outputNorm", "Норма выработки", "number"],
-  ["actualPieces", "Факт, шт.", "integer"],
-  ["actualTons", "Факт, т", "number"],
-  ["workedHours", "Работа, ч", "number"],
-  ["mechanicalRepairHours", "Мех. ремонт", "number"],
-  ["electricalRepairHours", "Эл. ремонт", "number"],
-  ["carriageReplacementHours", "Замена каретки", "number"],
-  ["brandReplacementHours", "Замена марки", "number"],
-  ["moldReplacementHours", "Замена формы", "number"],
-  ["reserveHours", "Резерв", "number"],
-  ["workerAbsenceHours", "Нет рабочего/сменщика", "number"],
-  ["rawMaterialAbsenceHours", "Нет сырья", "number"],
-  ["note", "Примечание", "text"],
+  ["productBrand", "Марка изделия", "text", "text"],
+  ["outputNorm", "Норма выработки", "number", "medium"],
+  ["actualPieces", "Факт, шт.", "integer", "narrow"],
+  ["actualTons", "Факт, т", "number", "narrow"],
+  ["workedHours", "Работа, ч", "number", "narrow"],
+  ["mechanicalRepairHours", "Мех. ремонт", "number", "compact"],
+  ["electricalRepairHours", "Эл. ремонт", "number", "compact"],
+  ["carriageReplacementHours", "Замена каретки", "number", "medium"],
+  ["brandReplacementHours", "Замена марки", "number", "medium"],
+  ["moldReplacementHours", "Замена формы", "number", "medium"],
+  ["reserveHours", "Резерв", "number", "narrow"],
+  ["workerAbsenceHours", "Нет рабочего/сменщика", "number", "wide"],
+  ["rawMaterialAbsenceHours", "Нет сырья", "number", "compact"],
+  ["note", "Примечание", "text", "text"],
 ] as const;
 
 function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
@@ -519,14 +524,23 @@ function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
     <div className="refractory-form-sections">
       <ReportSection title="Работа оборудования и выпуск сырца формованных огнеупоров">
         <div className="refractory-table-wrap">
-          <table className="refractory-input-table">
+          <table className="refractory-input-table refractory-input-table-equipment">
             <thead>
               <tr>
-                <th>Оборудование</th>
-                {equipmentColumns.map(([, label]) => (
-                  <th key={label}>{label}</th>
+                <th className="refractory-equipment-column-name">
+                  Оборудование
+                </th>
+                {equipmentColumns.map(([field, label, , width]) => (
+                  <th
+                    className={`refractory-equipment-column-${width}`}
+                    key={field}
+                  >
+                    {label}
+                  </th>
                 ))}
-                <th>Простой всего</th>
+                <th className="refractory-equipment-column-compact">
+                  Простой всего
+                </th>
               </tr>
             </thead>
             <tbody>

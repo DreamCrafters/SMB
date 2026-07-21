@@ -41,13 +41,13 @@ export function validateRefractoryForm(
 }
 
 export function formatRefractoryFormErrors(
-  errors: readonly RefractoryFormFieldError[],
+  errors: readonly { message: string }[],
 ) {
   if (errors.length === 0) return "";
 
-  return `Проверьте выделенные поля. ${errors
+  return `Проверьте выделенные поля.\n${errors
     .map((error) => error.message)
-    .join(" ")}`;
+    .join("\n")}`;
 }
 
 export function clearRefractoryFieldError(control: RefractoryFormControl) {

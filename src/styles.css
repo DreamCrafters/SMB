@@ -1823,6 +1823,7 @@ p {
   color: var(--brick);
   background: var(--brick-soft);
   font-weight: 900;
+  white-space: pre-line;
 }
 
 .form-status-local {
@@ -4791,6 +4792,13 @@ p {
   min-width: 720px;
 }
 
+.refractory-input-table-equipment {
+  min-width: 1520px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
 .refractory-input-table-firing {
   min-width: 1350px;
 }
@@ -4820,6 +4828,59 @@ p {
   min-width: 170px;
 }
 
+.refractory-input-table-equipment th,
+.refractory-input-table-equipment td {
+  padding: 6px;
+}
+
+.refractory-input-table-equipment th:not(:first-child) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.refractory-input-table-equipment .refractory-equipment-column-name {
+  width: 156px;
+  min-width: 156px;
+}
+
+.refractory-equipment-column-text {
+  width: 110px;
+}
+
+.refractory-equipment-column-medium {
+  width: 92px;
+}
+
+.refractory-equipment-column-compact {
+  width: 86px;
+}
+
+.refractory-equipment-column-narrow {
+  width: 78px;
+}
+
+.refractory-equipment-column-wide {
+  width: 120px;
+}
+
+.refractory-input-table-equipment thead th:first-child,
+.refractory-input-table-equipment tbody th:first-child {
+  position: sticky;
+  left: 0;
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.refractory-input-table-equipment thead th:first-child {
+  z-index: 3;
+  background: var(--surface-subtle);
+}
+
+.refractory-input-table-equipment tbody th:first-child {
+  z-index: 2;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
 .refractory-input-table input {
   width: 100%;
   min-width: 82px;
@@ -4829,6 +4890,11 @@ p {
   color: var(--ink);
   background: var(--surface);
   font: inherit;
+}
+
+.refractory-input-table-equipment input {
+  min-width: 0;
+  padding: 6px;
 }
 
 .refractory-field input[aria-invalid="true"],

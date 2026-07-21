@@ -2,9 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import {
+  formatRefractoryFormErrors,
   markRefractoryServerFieldErrors,
   validateRefractoryForm,
 } from "../.test-build/src/services/refractoryFormValidation.js";
+
+test("refractory validation puts every error on a separate line", () => {
+  assert.equal(
+    formatRefractoryFormErrors([
+      { message: "Первая ошибка." },
+      { message: "Вторая ошибка." },
+    ]),
+    "Проверьте выделенные поля.\nПервая ошибка.\nВторая ошибка.",
+  );
+});
 
 test("refractory numeric validation covers integer, precision, and range rules", () => {
   const { form, document } = buildForm(`
