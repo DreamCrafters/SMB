@@ -210,6 +210,7 @@ import {
 import {
   buildRefractoryDecisionNotifications,
   buildRefractoryStatusMap,
+  countReturnedRefractoryReports,
   requestOwnRefractoryReports,
   requestPendingRefractoryReports,
 } from "./services/refractoryReports";
@@ -532,6 +533,7 @@ export default function App() {
     Map<string, RefractoryReportRevision["status"]>
   >(new Map());
   const hasLoadedOwnRefractoryRef = useRef(false);
+  const [returnedRefractoryCount, setReturnedRefractoryCount] = useState(0);
   const [refractoryDecisionVersion, setRefractoryDecisionVersion] = useState(0);
   const [dispatcherSubmissionVersion, setDispatcherSubmissionVersion] = useState(0);
   const [dispatcherFeedFilters, setDispatcherFeedFilters] =
@@ -729,6 +731,7 @@ export default function App() {
     ) {
       knownOwnRefractoryStatusesRef.current = new Map();
       hasLoadedOwnRefractoryRef.current = false;
+      setReturnedRefractoryCount(0);
       return;
     }
 
@@ -764,6 +767,9 @@ export default function App() {
 
       knownOwnRefractoryStatusesRef.current = buildRefractoryStatusMap(
         result.reports,
+      );
+      setReturnedRefractoryCount(
+        countReturnedRefractoryReports(result.reports),
       );
       hasLoadedOwnRefractoryRef.current = true;
     }
@@ -1353,6 +1359,9 @@ export default function App() {
         pendingRefractoryCount={
           isAdminPreviewMode ? 0 : pendingRefractoryReports.length
         }
+        returnedRefractoryCount={
+          isAdminPreviewMode ? 0 : returnedRefractoryCount
+        }
       />
 
       {isMobileNavigation && isNavigationOpen ? (
@@ -1767,7 +1776,7 @@ function ToastViewport({ toasts }: { toasts: readonly AppToast[] }) {
   );
 }
 
-function SideRail({
+export function SideRail({
   profile,
   signedInDisplayName,
   isAdminPreviewMode,
@@ -1783,6 +1792,7 @@ function SideRail({
   adminTab,
   onAdminTabChange,
   pendingRefractoryCount,
+  returnedRefractoryCount,
 }: {
   profile: ServerUserProfile;
   signedInDisplayName: string;
@@ -1799,6 +1809,7 @@ function SideRail({
   adminTab: AdminTab;
   onAdminTabChange: (tab: AdminTab) => void;
   pendingRefractoryCount: number;
+  returnedRefractoryCount: number;
 }) {
   const railRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -1940,6 +1951,12 @@ function SideRail({
               profile.accountType === "admin"
                 ? getAdminTabForNavigationItem(item)
                 : undefined;
+            const notificationCount =
+              item.id === "business.dispatcher_form"
+                ? pendingRefractoryCount
+                : item.id === "business.refractory_shop"
+                  ? returnedRefractoryCount
+                  : 0;
 
             return (
               <button
@@ -1962,10 +1979,9 @@ function SideRail({
               >
                 <span>
                   {item.label}
-                  {item.id === "business.dispatcher_form" &&
-                  pendingRefractoryCount > 0 ? (
+                  {notificationCount > 0 ? (
                     <b className="nav-notification-count">
-                      {pendingRefractoryCount}
+                      {notificationCount}
                     </b>
                   ) : null}
                 </span>

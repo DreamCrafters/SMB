@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildRefractoryDecisionNotifications,
+  countReturnedRefractoryReports,
   decideRefractoryReport,
   requestOwnRefractoryReports,
   requestPendingRefractoryReports,
@@ -138,6 +139,38 @@ test("refractory decision notifications report approvals and rejection comments"
           "Печное отделение · 20.07.2026 · смена 2. Причина: Уточните выпуск шамота",
       },
     ],
+  );
+});
+
+test("refractory return count includes only latest revisions awaiting correction", () => {
+  assert.equal(
+    countReturnedRefractoryReports([
+      buildReport({
+        id: "superseded-rejection",
+        reportType: "cosh",
+        revisionNumber: 1,
+        status: "rejected",
+      }),
+      buildReport({
+        id: "resent-report",
+        reportType: "cosh",
+        revisionNumber: 2,
+        status: "pending",
+      }),
+      buildReport({
+        id: "returned-report",
+        reportType: "equipment",
+        revisionNumber: 1,
+        status: "rejected",
+      }),
+      buildReport({
+        id: "approved-report",
+        reportType: "firing",
+        revisionNumber: 1,
+        status: "approved",
+      }),
+    ]),
+    1,
   );
 });
 

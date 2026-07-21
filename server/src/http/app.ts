@@ -1012,6 +1012,7 @@ async function handleRefractoryReportsRequest({
       error: {
         code: "invalid_response",
         message: validation.errors.join(" "),
+        details: validation.fieldErrors ?? [],
       },
     });
     return;

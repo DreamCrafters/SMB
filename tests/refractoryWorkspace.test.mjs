@@ -7,6 +7,7 @@ const DOM_GLOBAL_NAMES = [
   "document",
   "Element",
   "Event",
+  "FormData",
   "HTMLElement",
   "HTMLInputElement",
   "MouseEvent",
@@ -37,28 +38,11 @@ test("refractory workspace opens one of three independent table buttons", async 
     );
     const rootElement = dom.window.document.getElementById("root");
     const root = createRoot(rootElement);
-    const profile = {
-      userId: "operator-user",
-      displayName: "Иванов Иван Иванович",
-      accountType: "worker",
-      activeAccess: {
-        accountId: "operator-access",
-        accountType: "worker",
-        position: "refractory-operator",
-        positionDisplayName: "Мастер ОЦ",
-        displayName: "Мастер ОЦ",
-        scope: { kind: "organization" },
-        capabilities: ["business.submit_refractory_reports"],
-        navigationItems: ["business.refractory_shop"],
-        issuedAt: "2026-07-21T08:00:00.000Z",
-      },
-      receivedAt: "2026-07-21T08:00:00.000Z",
-    };
 
     await React.act(async () => {
       root.render(
         React.createElement(RefractoryShopWorkspace, {
-          profile,
+          profile: buildOperatorProfile(),
           isAdminPreviewMode: true,
           onShowToast() {},
         }),
@@ -84,6 +68,65 @@ test("refractory workspace opens one of three independent table buttons", async 
       ),
     );
     assert.equal(rootElement.querySelectorAll("form").length, 1);
+
+    await React.act(async () => root.unmount());
+  } finally {
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+test("refractory navigation shows the number of reports returned for correction", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { SideRail } = await vite.ssrLoadModule("/src/App.tsx");
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(SideRail, {
+          profile: buildOperatorProfile(),
+          signedInDisplayName: "Иванов Иван Иванович",
+          isAdminPreviewMode: false,
+          isMobile: false,
+          isOpen: true,
+          onToggle() {},
+          onRequestClose() {},
+          onClearSession() {},
+          isSessionLoading: false,
+          ownerTab: "refractory_shop",
+          onOwnerTabChange() {},
+          adminTab: "account_preview",
+          onAdminTabChange() {},
+          pendingRefractoryCount: 0,
+          returnedRefractoryCount: 2,
+        }),
+      );
+    });
+
+    const refractoryButton = Array.from(
+      rootElement.querySelectorAll(".primary-nav button"),
+    ).find((button) => button.textContent.includes("Огнеупорный цех"));
+    assert.ok(refractoryButton);
+    assert.equal(
+      refractoryButton.querySelector(".nav-notification-count")?.textContent,
+      "2",
+    );
 
     await React.act(async () => root.unmount());
   } finally {
@@ -188,6 +231,133 @@ test("dispatcher opens pending refractory reports from a separate choice button"
   }
 });
 
+test("refractory report highlights invalid numeric fields with a clear message", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  installDomGlobals(dom.window);
+  const previousFetch = globalThis.fetch;
+  let postCount = 0;
+  globalThis.fetch = async (_input, init) => {
+    if (init?.method === "POST") postCount += 1;
+    return new Response(
+      JSON.stringify(
+        init?.method === "POST"
+          ? {
+              error: {
+                code: "invalid_response",
+                message: "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+                details: [
+                  {
+                    fieldPath: "formed.0.workedHours",
+                    message:
+                      "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+                  },
+                ],
+              },
+            }
+          : { reports: [] },
+      ),
+      {
+        status: init?.method === "POST" ? 400 : 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  };
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { RefractoryShopWorkspace } = await vite.ssrLoadModule(
+      "/src/RefractoryReports.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(RefractoryShopWorkspace, {
+          profile: buildOperatorProfile(),
+          isAdminPreviewMode: false,
+          onShowToast() {},
+        }),
+      );
+    });
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".refractory-report-form") !== null,
+    );
+
+    const menuButtons = Array.from(
+      rootElement.querySelectorAll(".refractory-report-menu button"),
+    );
+    await React.act(async () => menuButtons[1].click());
+    const workedHours = rootElement.querySelector(
+      'input[aria-label="Пресс СМ-1085 №1: Работа, ч"]',
+    );
+    assert.ok(workedHours);
+
+    await React.act(async () => {
+      setNativeInputValue(workedHours, "4ч,5");
+      workedHours.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(workedHours.value, "4.5");
+
+    setNativeInputValue(workedHours, "42");
+    const form = rootElement.querySelector(".refractory-report-form");
+    await React.act(async () => {
+      form.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    assert.equal(postCount, 0);
+    assert.equal(workedHours.getAttribute("aria-invalid"), "true");
+    assert.match(
+      rootElement.querySelector(".form-status-error")?.textContent ?? "",
+      /Работа, ч.*от 0 до 24/u,
+    );
+    assert.doesNotMatch(rootElement.textContent, /workedHours/u);
+
+    await React.act(async () => {
+      setNativeInputValue(workedHours, "4");
+      workedHours.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(workedHours.hasAttribute("aria-invalid"), false);
+
+    await React.act(async () => {
+      form.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    assert.equal(postCount, 1);
+    assert.equal(workedHours.getAttribute("aria-invalid"), "true");
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+function setNativeInputValue(input, value) {
+  const setter = Object.getOwnPropertyDescriptor(
+    input.ownerDocument.defaultView.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+
+  setter.call(input, value);
+}
+
 function buildPendingReport() {
   return {
     id: "report-1",
@@ -209,6 +379,34 @@ function buildPendingReport() {
   };
 }
 
+function buildOperatorProfile() {
+  return {
+    userId: "operator-user",
+    displayName: "Иванов Иван Иванович",
+    accountType: "worker",
+    activeAccess: {
+      accountId: "operator-access",
+      accountType: "worker",
+      position: "refractory-operator",
+      positionDisplayName: "Мастер ОЦ",
+      displayName: "Мастер ОЦ",
+      scope: { kind: "organization" },
+      capabilities: ["business.submit_refractory_reports"],
+      navigationItems: ["business.refractory_shop"],
+      issuedAt: "2026-07-21T08:00:00.000Z",
+    },
+    receivedAt: "2026-07-21T08:00:00.000Z",
+  };
+}
+
+async function waitFor(React, predicate) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await React.act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  assert.fail("Timed out waiting for refractory workspace state.");
+}
+
 function captureDomGlobals() {
   return Object.fromEntries(
     DOM_GLOBAL_NAMES.map((name) => [
@@ -223,6 +421,7 @@ function installDomGlobals(window) {
     document: window.document,
     Element: window.Element,
     Event: window.Event,
+    FormData: window.FormData,
     HTMLElement: window.HTMLElement,
     HTMLInputElement: window.HTMLInputElement,
     MouseEvent: window.MouseEvent,

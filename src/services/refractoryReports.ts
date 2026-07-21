@@ -16,10 +16,15 @@ import {
 const REPORTS_PATH = "/api/refractory-reports";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
+export type RefractoryFieldErrorDetail = {
+  fieldPath: string;
+  message: string;
+};
 type ErrorResult = {
   status: "error";
   message: string;
   code?: RemoteServerErrorCode;
+  details?: RefractoryFieldErrorDetail[];
 };
 export type RefractoryReportsResult =
   | { status: "ready"; reports: RefractoryReportRevision[] }
@@ -118,6 +123,32 @@ export function buildRefractoryStatusMap(
   reports: readonly RefractoryReportRevision[],
 ) {
   return new Map(reports.map((report) => [report.id, report.status] as const));
+}
+
+export function countReturnedRefractoryReports(
+  reports: readonly RefractoryReportRevision[],
+) {
+  const latestReports = new Map<string, RefractoryReportRevision>();
+
+  for (const report of reports) {
+    const reportKey = [
+      report.reportType,
+      report.reportDate,
+      report.shiftNumber,
+    ].join(":");
+    const latestReport = latestReports.get(reportKey);
+
+    if (
+      latestReport === undefined ||
+      report.revisionNumber > latestReport.revisionNumber
+    ) {
+      latestReports.set(reportKey, report);
+    }
+  }
+
+  return Array.from(latestReports.values()).filter(
+    (report) => report.status === "rejected",
+  ).length;
 }
 
 export async function decideRefractoryReport(
@@ -254,6 +285,10 @@ function readRemoteError(payload: unknown): ErrorResult {
       ...(typeof payload.error.code === "string"
         ? { code: payload.error.code as RemoteServerErrorCode }
         : {}),
+      ...(Array.isArray(payload.error.details) &&
+          payload.error.details.every(isFieldErrorDetail)
+        ? { details: payload.error.details }
+        : {}),
     };
   }
   return invalidResponse();
@@ -265,6 +300,14 @@ function invalidResponse(): ErrorResult {
     message: "Сервер вернул таблицы ОЦ в неподдерживаемом формате.",
     code: "invalid_response",
   };
+}
+
+function isFieldErrorDetail(
+  value: unknown,
+): value is RefractoryFieldErrorDetail {
+  return isRecord(value) &&
+    typeof value.fieldPath === "string" &&
+    typeof value.message === "string";
 }
 
 async function readJson(response: Response) {

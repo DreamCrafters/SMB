@@ -4107,6 +4107,41 @@ test("refractory reports are submitted and reviewed independently through protec
 
   await withApiServer(
     async (baseUrl) => {
+      const invalidResponse = await fetch(
+        `${baseUrl}/api/refractory-reports`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: "smb_session=prod-session",
+          },
+          body: JSON.stringify({
+            reportType: "equipment",
+            reportDate: "2026-07-20",
+            shiftNumber: 2,
+            payload: {
+              formedRows: [{
+                equipment: "Пресс СМ-1085 №1",
+                workedHours: 42,
+              }],
+              unformedRows: [],
+            },
+          }),
+        },
+      );
+      const invalidPayload = await invalidResponse.json();
+
+      assert.equal(invalidResponse.status, 400);
+      assert.deepEqual(
+        isRecord(invalidPayload) && isRecord(invalidPayload.error)
+          ? invalidPayload.error.details
+          : undefined,
+        [{
+          fieldPath: "formed.0.workedHours",
+          message: "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+        }],
+      );
+
       const response = await fetch(`${baseUrl}/api/refractory-reports`, {
         method: "POST",
         headers: {

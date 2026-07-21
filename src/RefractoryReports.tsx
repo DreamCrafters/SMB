@@ -18,6 +18,20 @@ import {
 } from "./services/refractoryReports";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import { readRefractoryShiftContext } from "./services/refractoryShift";
+import {
+  decimalNumberInputPattern,
+  decimalNumberInputTitle,
+  integerInputPattern,
+  integerInputTitle,
+  normalizeDecimalNumberInput,
+  normalizeIntegerInput,
+} from "./services/dispatcherFormInput";
+import {
+  clearRefractoryFieldError,
+  formatRefractoryFormErrors,
+  markRefractoryServerFieldErrors,
+  validateRefractoryForm,
+} from "./services/refractoryFormValidation";
 
 const reportTypes: readonly RefractoryReportType[] = [
   "cosh",
@@ -55,6 +69,7 @@ export function RefractoryShopWorkspace({
     "loading",
   );
   const [status, setStatus] = useState("");
+  const [hasError, setHasError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isCorrectionMode, setIsCorrectionMode] = useState(false);
@@ -62,6 +77,7 @@ export function RefractoryShopWorkspace({
   useEffect(() => {
     setIsCorrectionMode(false);
     setStatus("");
+    setHasError(false);
     if (isAdminPreviewMode) {
       setReports([]);
       setLoadState("ready");
@@ -79,6 +95,7 @@ export function RefractoryShopWorkspace({
         setLoadState("ready");
       } else {
         setLoadState("error");
+        setHasError(true);
         setStatus(
           readShortUserMessage(
             result.message,
@@ -107,15 +124,24 @@ export function RefractoryShopWorkspace({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isLocked) return;
+    const form = event.currentTarget;
+    const fieldErrors = validateRefractoryForm(form);
+    if (fieldErrors.length > 0) {
+      setHasError(true);
+      setStatus(formatRefractoryFormErrors(fieldErrors));
+      fieldErrors[0]?.input.focus();
+      return;
+    }
     let submission: RefractoryReportSubmission;
     try {
       submission = buildSubmission(
         activeType,
         reportDate,
         shiftNumber,
-        new FormData(event.currentTarget),
+        new FormData(form),
       );
     } catch (error) {
+      setHasError(true);
       setStatus(
         error instanceof Error
           ? error.message
@@ -124,15 +150,23 @@ export function RefractoryShopWorkspace({
       return;
     }
     setIsSubmitting(true);
+    setHasError(false);
     setStatus("Отправляем таблицу диспетчеру.");
     const result = await submitRefractoryReport(submission);
     setIsSubmitting(false);
     if (result.status === "error") {
+      const invalidInputs = markRefractoryServerFieldErrors(
+        form,
+        result.details ?? [],
+      );
+      invalidInputs[0]?.focus();
+      setHasError(true);
       setStatus(
         readShortUserMessage(result.message, "Не удалось отправить таблицу."),
       );
       return;
     }
+    setHasError(false);
     setStatus("Таблица отправлена на подтверждение.");
     setIsCorrectionMode(false);
     setRefreshVersion((value) => value + 1);
@@ -197,6 +231,7 @@ export function RefractoryShopWorkspace({
                 setActiveType(reportType);
                 setIsCorrectionMode(false);
                 setStatus("");
+                setHasError(false);
               }}
             >
               <span>{refractoryReportLabels[reportType]}</span>
@@ -216,6 +251,7 @@ export function RefractoryShopWorkspace({
         <form
           className="refractory-report-form"
           key={`${activeType}:${activeReport?.id ?? "new"}:${isCorrectionMode}`}
+          noValidate
           onSubmit={handleSubmit}
         >
           <RefractoryReportState
@@ -260,7 +296,11 @@ export function RefractoryShopWorkspace({
                 {isSubmitting ? "Отправляем…" : "Отправить диспетчеру"}
               </button>
             ) : null}
-            {status.length > 0 ? <p className="form-status">{status}</p> : null}
+            {status.length > 0 ? (
+              <p className={`form-status${hasError ? " form-status-error" : ""}`}>
+                {status}
+              </p>
+            ) : null}
           </div>
           {activeReport === undefined ? null : (
             <Totals values={activeReport.totals} />
@@ -499,13 +539,24 @@ function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
                     <th scope="row">{equipment}</th>
                     {equipmentColumns.map(([field, label, kind]) => (
                       <td key={field}>
-                        <input
-                          aria-label={`${equipment}: ${label}`}
-                          defaultValue={row?.[field] ?? ""}
-                          inputMode={kind === "text" ? undefined : "decimal"}
-                          name={`formed.${rowIndex}.${field}`}
-                          type="text"
-                        />
+                        {kind !== "text" ? (
+                          <RefractoryNumberInput
+                            aria-label={`${equipment}: ${label}`}
+                            defaultValue={row?.[field] ?? ""}
+                            name={`formed.${rowIndex}.${field}`}
+                            integer={kind === "integer"}
+                            max={field.endsWith("Hours") ? 24 : undefined}
+                          />
+                        ) : (
+                          <input
+                            aria-label={`${equipment}: ${label}`}
+                            data-refractory-label={`${equipment}: ${label}`}
+                            defaultValue={row?.[field] ?? ""}
+                            maxLength={field === "note" ? 2000 : 120}
+                            name={`formed.${rowIndex}.${field}`}
+                            type="text"
+                          />
+                        )}
                       </td>
                     ))}
                     <td className="refractory-calculated">
@@ -537,27 +588,34 @@ function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
                     <td>
                       <input
                         aria-label={`Марка неформованных огнеупоров ${index + 1}`}
+                        data-refractory-label={`Марка изделия, строка ${index + 1}`}
+                        data-refractory-row-brand
+                        maxLength={120}
                         name={`unformed.${index}.productBrand`}
                         defaultValue={row?.productBrand ?? ""}
+                        onChange={(event) =>
+                          clearRefractoryFieldError(event.currentTarget)
+                        }
                       />
                     </td>
                     <td>
-                      <input
-                        inputMode="decimal"
+                      <RefractoryNumberInput
+                        aria-label={`Норма, контейнеры, строка ${index + 1}`}
                         name={`unformed.${index}.outputNormContainers`}
                         defaultValue={row?.outputNormContainers ?? ""}
                       />
                     </td>
                     <td>
-                      <input
-                        inputMode="numeric"
+                      <RefractoryNumberInput
+                        aria-label={`Факт, контейнеры, строка ${index + 1}`}
+                        integer
                         name={`unformed.${index}.actualContainers`}
                         defaultValue={row?.actualContainers ?? ""}
                       />
                     </td>
                     <td>
-                      <input
-                        inputMode="decimal"
+                      <RefractoryNumberInput
+                        aria-label={`Факт, т, строка ${index + 1}`}
                         name={`unformed.${index}.actualTons`}
                         defaultValue={row?.actualTons ?? ""}
                       />
@@ -581,14 +639,14 @@ function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
 }
 
 const firingColumns = [
-  ["quantityPieces", "Количество, шт."],
-  ["palletCount", "Поддоны"],
-  ["goodTonsAverageWeight", "Годные, т (ср. вес)"],
-  ["goodTonsWeighed", "Годные, т (взвешено)"],
-  ["rejectUnderburnPieces", "Недожог"],
-  ["rejectCracksPieces", "Трещины"],
-  ["rejectFusionPieces", "Сплав"],
-  ["rejectChipsPieces", "Сколы"],
+  ["quantityPieces", "Количество, шт.", true],
+  ["palletCount", "Поддоны", true],
+  ["goodTonsAverageWeight", "Годные, т (ср. вес)", false],
+  ["goodTonsWeighed", "Годные, т (взвешено)", false],
+  ["rejectUnderburnPieces", "Недожог", true],
+  ["rejectCracksPieces", "Трещины", true],
+  ["rejectFusionPieces", "Сплав", true],
+  ["rejectChipsPieces", "Сколы", true],
 ] as const;
 
 function FiringForm({ payload }: { payload?: RefractoryFiringPayload }) {
@@ -617,15 +675,22 @@ function FiringForm({ payload }: { payload?: RefractoryFiringPayload }) {
                   <tr key={index}>
                     <td>
                       <input
+                        aria-label={`Марка изделия, строка ${index + 1}`}
+                        data-refractory-label={`Марка изделия, строка ${index + 1}`}
+                        data-refractory-row-brand
+                        maxLength={120}
                         name={`firing.${index}.productBrand`}
                         defaultValue={row?.productBrand ?? ""}
+                        onChange={(event) =>
+                          clearRefractoryFieldError(event.currentTarget)
+                        }
                       />
                     </td>
-                    {firingColumns.map(([field, label]) => (
+                    {firingColumns.map(([field, label, integer]) => (
                       <td key={field}>
-                        <input
+                        <RefractoryNumberInput
                           aria-label={`${label}, строка ${index + 1}`}
-                          inputMode="decimal"
+                          integer={integer}
                           name={`firing.${index}.${field}`}
                           defaultValue={row?.[field] ?? ""}
                         />
@@ -636,6 +701,9 @@ function FiringForm({ payload }: { payload?: RefractoryFiringPayload }) {
                     </td>
                     <td>
                       <input
+                        aria-label={`Примечание, строка ${index + 1}`}
+                        data-refractory-label={`Примечание, строка ${index + 1}`}
+                        maxLength={2000}
                         name={`firing.${index}.note`}
                         defaultValue={row?.note ?? ""}
                       />
@@ -660,12 +728,14 @@ function FiringForm({ payload }: { payload?: RefractoryFiringPayload }) {
             name="calcinationHours"
             label="Время обжига, часов"
             value={payload?.calcinationHours}
+            max={24}
           />
           <NumberField
             name="sorterCount"
             label="Количество сортировщиков"
             value={payload?.sorterCount}
             integer
+            max={1000}
           />
           <label className="refractory-field refractory-field-wide">
             <span>Причина невыполнения плана</span>
@@ -910,7 +980,13 @@ function Field({
   return (
     <label className="refractory-field">
       <span>{label}</span>
-      <input name={name} defaultValue={value ?? ""} />
+      <input
+        aria-label={label}
+        data-refractory-label={label}
+        name={name}
+        defaultValue={value ?? ""}
+        maxLength={120}
+      />
     </label>
   );
 }
@@ -920,21 +996,61 @@ function NumberField({
   label,
   value,
   integer = false,
+  max,
 }: {
   name: string;
   label: string;
   value?: number;
   integer?: boolean;
+  max?: number;
 }) {
   return (
     <label className="refractory-field">
       <span>{label}</span>
-      <input
-        inputMode={integer ? "numeric" : "decimal"}
+      <RefractoryNumberInput
+        aria-label={label}
+        integer={integer}
+        max={max}
         name={name}
         defaultValue={value ?? ""}
       />
     </label>
+  );
+}
+
+function RefractoryNumberInput({
+  "aria-label": ariaLabel,
+  defaultValue,
+  integer = false,
+  max,
+  name,
+}: {
+  "aria-label": string;
+  defaultValue: string | number;
+  integer?: boolean;
+  max?: number;
+  name: string;
+}) {
+  return (
+    <input
+      aria-label={ariaLabel}
+      data-refractory-label={ariaLabel}
+      data-refractory-max={max}
+      data-refractory-number={integer ? "integer" : "decimal"}
+      defaultValue={defaultValue}
+      inputMode={integer ? "numeric" : "decimal"}
+      maxLength={20}
+      name={name}
+      pattern={integer ? integerInputPattern : decimalNumberInputPattern}
+      title={integer ? integerInputTitle : decimalNumberInputTitle}
+      type="text"
+      onChange={(event) => {
+        event.currentTarget.value = integer
+          ? normalizeIntegerInput(event.currentTarget.value)
+          : normalizeDecimalNumberInput(event.currentTarget.value);
+        clearRefractoryFieldError(event.currentTarget);
+      }}
+    />
   );
 }
 
@@ -950,7 +1066,13 @@ function TimeField({
   return (
     <label className="refractory-field">
       <span>{label}</span>
-      <input type="time" name={name} defaultValue={value ?? ""} />
+      <input
+        aria-label={label}
+        data-refractory-label={label}
+        type="time"
+        name={name}
+        defaultValue={value ?? ""}
+      />
     </label>
   );
 }

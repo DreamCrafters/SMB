@@ -201,7 +201,26 @@ export type ValidatedRefractoryReportSubmission =
 
 export type RefractoryValidationResult =
   | { ok: true; value: ValidatedRefractoryReportSubmission }
-  | { ok: false; errors: string[] };
+  | {
+      ok: false;
+      errors: string[];
+      fieldErrors?: RefractoryFieldValidationError[];
+    };
+
+export type RefractoryFieldValidationError = {
+  fieldPath: string;
+  message: string;
+};
+
+type RefractoryValidationIssue = {
+  message: string;
+  fieldPath?: string;
+};
+
+type RefractoryValidationFailure = Extract<
+  RefractoryValidationResult,
+  { ok: false }
+>;
 
 export type RefractoryReportDecision =
   | { decision: "approve" }
@@ -236,6 +255,53 @@ const downtimeFields = [
   "workerAbsenceHours",
   "rawMaterialAbsenceHours",
 ] as const satisfies readonly (keyof RefractoryEquipmentRow)[];
+
+const refractoryFieldLabels: Record<string, string> = {
+  actualContainers: "Факт, контейнеры",
+  actualPieces: "Факт, шт.",
+  actualTons: "Факт, т",
+  brandReplacementHours: "Замена марки",
+  bunkerNumber: "Номер бункера РЦ",
+  calcinationHours: "Время обжига, часов",
+  carriageReplacementHours: "Замена каретки",
+  electricalRepairHours: "Эл. ремонт",
+  furnaceIgnitionTime: "Розжиг печи",
+  furnaceStopTime: "Остановка печи",
+  goodTonsAverageWeight: "Годные, т (ср. вес)",
+  goodTonsWeighed: "Годные, т (взвешено)",
+  jarNumber: "Номер банки",
+  jarTransitionTime: "Переход на банку",
+  kilnNumber: "Номер вращающейся печи",
+  loadingBucketsPerHour: "Загрузка, ковшей/час",
+  loadingStartTime: "Начало загрузки",
+  mechanicalRepairHours: "Мех. ремонт",
+  moldReplacementHours: "Замена формы",
+  note: "Примечание",
+  outputNorm: "Норма выработки",
+  outputNormContainers: "Норма, контейнеры",
+  palletCount: "Поддоны",
+  planFailureReason: "Причина невыполнения плана",
+  productBrand: "Марка изделия",
+  productName: "Наименование",
+  quantity: "Количество, т",
+  quantityPieces: "Количество, шт.",
+  rawMaterialAbsenceHours: "Нет сырья",
+  rejectChipsPieces: "Сколы",
+  rejectCracksPieces: "Трещины",
+  rejectFusionPieces: "Сплав",
+  rejectUnderburnPieces: "Недожог",
+  reserveHours: "Резерв",
+  scrapRemovalTons: "Вывоз брака из бункера РЦ, т",
+  shbo: "ШБО, т",
+  shgr1: "ШГР-1, т",
+  shgr2: "ШГР-2, т",
+  shki: "ШКИ, т",
+  sorterCount: "Количество сортировщиков",
+  totalLoadingBuckets: "Всего загружено ковшей",
+  workedHours: "Работа, ч",
+  workerAbsenceHours: "Нет рабочего/сменщика",
+  bunkerTransitionTime: "Переход на бункер РЦ",
+};
 
 export function validateRefractoryReportSubmission(
   input: unknown,
@@ -364,7 +430,7 @@ function validateCoshPayload(
   input: unknown,
 ):
   | { ok: true; value: RefractoryCoshPayload }
-  | { ok: false; errors: string[] } {
+  | RefractoryValidationFailure {
   if (!isRecord(input) || Array.isArray(input)) {
     return invalid("Заполните таблицу ЦОШ.");
   }
@@ -402,7 +468,7 @@ function validateCoshPayload(
     return invalid("Таблица ЦОШ содержит неизвестные поля.");
   }
 
-  const errors: string[] = [];
+  const errors: RefractoryValidationIssue[] = [];
   const payload: RefractoryCoshPayload = {};
   for (const field of scalarTextFields) {
     readOptionalText(
@@ -410,12 +476,12 @@ function validateCoshPayload(
       payload,
       field,
       field === "note" ? 2_000 : 120,
-      0,
+      undefined,
       errors,
     );
   }
   for (const field of numberFields) {
-    readOptionalNumber(input, payload, field, 0, errors, {
+    readOptionalNumber(input, payload, field, undefined, errors, {
       integer: field !== "scrapRemovalTons",
     });
   }
@@ -426,7 +492,11 @@ function validateCoshPayload(
       typeof value !== "string" ||
       !/^([01]\d|2[0-3]):[0-5]\d$/u.test(value)
     ) {
-      errors.push(`Поле «${field}» должно содержать время в формате ЧЧ:ММ.`);
+      addValidationIssue(
+        errors,
+        `Поле «${readRefractoryFieldLabel(field)}»: укажите время в формате ЧЧ:ММ.`,
+        field,
+      );
     } else {
       payload[field] = value;
     }
@@ -436,6 +506,7 @@ function validateCoshPayload(
     input.chamotteOutput,
     ["shbo", "shgr1", "shgr2", "shki"],
     "Выпуск шамота",
+    "chamotteOutput",
     errors,
   );
   payload.jarMeasurements = readJarMeasurements(input.jarMeasurements, errors);
@@ -450,7 +521,7 @@ function validateCoshPayload(
     input.chamotteSupply,
     "source",
     ["I", "II", "III", "street"],
-    "Подача шамота в ОЦ",
+    "Подача шамота в огнеупорный цех",
     errors,
   ) as RefractoryCoshPayload["chamotteSupply"];
   payload.bagging = readBagging(input.bagging, errors);
@@ -474,12 +545,12 @@ function validateCoshPayload(
     }
   }
 
-  if (Object.keys(payload).length === 0) {
-    errors.push("Заполните хотя бы одно поле таблицы.");
+  if (Object.keys(payload).length === 0 && errors.length === 0) {
+    addValidationIssue(errors, "Заполните хотя бы одно поле таблицы.");
   }
 
   return errors.length > 0
-    ? { ok: false, errors }
+    ? buildValidationFailure(errors)
     : { ok: true, value: payload };
 }
 
@@ -487,7 +558,8 @@ function readNumberRecord<Key extends string>(
   input: unknown,
   keys: readonly Key[],
   label: string,
-  errors: string[],
+  fieldPathPrefix: string,
+  errors: RefractoryValidationIssue[],
 ): Partial<Record<Key, number>> | undefined {
   if (input === undefined || input === null) return undefined;
   if (
@@ -495,24 +567,26 @@ function readNumberRecord<Key extends string>(
     Array.isArray(input) ||
     unexpectedKeys(input, keys).length > 0
   ) {
-    errors.push(`${label}: неверный формат.`);
+    addValidationIssue(errors, `${label}: неверный формат.`);
     return undefined;
   }
 
   const result: Partial<Record<Key, number>> = {};
   for (const key of keys) {
-    readOptionalNumber(input, result, key, 0, errors);
+    readOptionalNumber(input, result, key, undefined, errors, {
+      fieldPath: `${fieldPathPrefix}.${key}`,
+    });
   }
   return result;
 }
 
 function readJarMeasurements(
   input: unknown,
-  errors: string[],
+  errors: RefractoryValidationIssue[],
 ): RefractoryCoshPayload["jarMeasurements"] {
   if (input === undefined || input === null) return undefined;
   if (!Array.isArray(input) || input.length > 3) {
-    errors.push("Замеры банок переданы в неверном формате.");
+    addValidationIssue(errors, "Замеры банок переданы в неверном формате.");
     return undefined;
   }
 
@@ -530,13 +604,16 @@ function readJarMeasurements(
       value.values.length === 0 ||
       value.values.some((entry) => !isValidNumber(entry))
     ) {
-      errors.push(`Замеры банки ${index + 1} заполнены неверно.`);
+      addValidationIssue(
+        errors,
+        `Замеры банки ${index + 1} заполнены неверно.`,
+      );
       continue;
     }
     rows.push({ jarNumber: value.jarNumber, values: value.values as number[] });
   }
   if (new Set(rows.map((row) => row.jarNumber)).size !== rows.length) {
-    errors.push("Номер банки в замерах не должен повторяться.");
+    addValidationIssue(errors, "Номер банки в замерах не должен повторяться.");
   }
   return rows;
 }
@@ -546,11 +623,11 @@ function readNamedQuantityRows(
   identityField: "bunker" | "source",
   identities: readonly string[],
   label: string,
-  errors: string[],
+  errors: RefractoryValidationIssue[],
 ): Array<Record<string, unknown>> | undefined {
   if (input === undefined || input === null) return undefined;
   if (!Array.isArray(input) || input.length > identities.length) {
-    errors.push(`${label}: строки переданы в неверном формате.`);
+    addValidationIssue(errors, `${label}: строки переданы в неверном формате.`);
     return undefined;
   }
 
@@ -563,26 +640,37 @@ function readNamedQuantityRows(
         0 ||
       !identities.includes(value[identityField] as string)
     ) {
-      errors.push(`${label}, строка ${index + 1}: неверный формат.`);
+      addValidationIssue(
+        errors,
+        `${label}, строка ${index + 1}: неверный формат.`,
+      );
       continue;
     }
     const row: Record<string, unknown> = {
       [identityField]: value[identityField],
     };
-    readOptionalText(value, row, "productName", 120, index, errors);
-    readOptionalNumber(value, row, "quantity", index, errors);
+    const identity = String(value[identityField]);
+    const fieldPathPrefix = identityField === "bunker" ? "bunker" : "supply";
+    readOptionalText(value, row, "productName", 120, index, errors, {
+      section: label,
+      fieldPath: `${fieldPathPrefix}.${identity}.productName`,
+    });
+    readOptionalNumber(value, row, "quantity", index, errors, {
+      section: label,
+      fieldPath: `${fieldPathPrefix}.${identity}.quantity`,
+    });
     if (Object.keys(row).length === 1) continue;
     rows.push(row);
   }
   if (new Set(rows.map((row) => row[identityField])).size !== rows.length) {
-    errors.push(`${label}: строки не должны повторяться.`);
+    addValidationIssue(errors, `${label}: строки не должны повторяться.`);
   }
   return rows;
 }
 
 function readBagging(
   input: unknown,
-  errors: string[],
+  errors: RefractoryValidationIssue[],
 ): RefractoryCoshPayload["bagging"] {
   if (input === undefined || input === null) return undefined;
   if (
@@ -590,12 +678,16 @@ function readBagging(
     Array.isArray(input) ||
     unexpectedKeys(input, ["jarNumber", "quantity"]).length > 0
   ) {
-    errors.push("Фасовка передана в неверном формате.");
+    addValidationIssue(errors, "Фасовка передана в неверном формате.");
     return undefined;
   }
   const result: NonNullable<RefractoryCoshPayload["bagging"]> = {};
-  readOptionalText(input, result, "jarNumber", 120, 0, errors);
-  readOptionalNumber(input, result, "quantity", 0, errors);
+  readOptionalText(input, result, "jarNumber", 120, undefined, errors, {
+    fieldPath: "bagging.jarNumber",
+  });
+  readOptionalNumber(input, result, "quantity", undefined, errors, {
+    fieldPath: "bagging.quantity",
+  });
   return result;
 }
 
@@ -628,7 +720,7 @@ function validateEquipmentPayload(
   input: unknown,
 ):
   | { ok: true; value: RefractoryEquipmentPayload }
-  | { ok: false; errors: string[] } {
+  | RefractoryValidationFailure {
   if (!isRecord(input) || Array.isArray(input)) {
     return invalid("Заполните таблицу оборудования.");
   }
@@ -649,7 +741,7 @@ function validateEquipmentPayload(
     return invalid("В таблице слишком много строк неформованных огнеупоров.");
   }
 
-  const errors: string[] = [];
+  const errors: RefractoryValidationIssue[] = [];
   const formedRows = input.formedRows.flatMap((row, index) => {
     const value = readEquipmentRow(row, index, errors);
     return value === undefined ? [] : [value];
@@ -662,25 +754,32 @@ function validateEquipmentPayload(
   if (
     new Set(formedRows.map((row) => row.equipment)).size !== formedRows.length
   ) {
-    errors.push("Оборудование не должно повторяться.");
+    addValidationIssue(errors, "Оборудование не должно повторяться.");
   }
 
-  if (formedRows.length === 0 && unformedRows.length === 0) {
-    errors.push("Заполните хотя бы одну строку таблицы.");
+  if (
+    formedRows.length === 0 &&
+    unformedRows.length === 0 &&
+    errors.length === 0
+  ) {
+    addValidationIssue(errors, "Заполните хотя бы одну строку таблицы.");
   }
 
   return errors.length > 0
-    ? { ok: false, errors }
+    ? buildValidationFailure(errors)
     : { ok: true, value: { formedRows, unformedRows } };
 }
 
 function readEquipmentRow(
   input: unknown,
   index: number,
-  errors: string[],
+  errors: RefractoryValidationIssue[],
 ): RefractoryEquipmentRow | undefined {
   if (!isRecord(input) || Array.isArray(input)) {
-    errors.push(`Строка оборудования ${index + 1} имеет неверный формат.`);
+    addValidationIssue(
+      errors,
+      `Строка оборудования ${index + 1} имеет неверный формат.`,
+    );
     return undefined;
   }
 
@@ -692,7 +791,10 @@ function readEquipmentRow(
   ];
 
   if (unexpectedKeys(input, allowedFields).length > 0) {
-    errors.push(`Строка оборудования ${index + 1} содержит неизвестные поля.`);
+    addValidationIssue(
+      errors,
+      `Строка оборудования ${index + 1} содержит неизвестные поля.`,
+    );
     return undefined;
   }
 
@@ -701,7 +803,8 @@ function readEquipmentRow(
       input.equipment as RefractoryEquipmentName,
     )
   ) {
-    errors.push(
+    addValidationIssue(
+      errors,
       `Строка оборудования ${index + 1}: выберите оборудование из списка.`,
     );
     return undefined;
@@ -712,13 +815,18 @@ function readEquipmentRow(
   } = {
     equipment: input.equipment as RefractoryEquipmentName,
   };
-  readOptionalText(input, row, "productBrand", 120, index, errors);
-  readOptionalText(input, row, "note", 2_000, index, errors);
+  readOptionalText(input, row, "productBrand", 120, index, errors, {
+    fieldPath: `formed.${index}.productBrand`,
+  });
+  readOptionalText(input, row, "note", 2_000, index, errors, {
+    fieldPath: `formed.${index}.note`,
+  });
 
   for (const field of equipmentNumberFields) {
     readOptionalNumber(input, row, field, index, errors, {
       integer: field === "actualPieces",
-      max: field.endsWith("Hours") ? 24 : 1_000_000_000,
+      ...(field.endsWith("Hours") ? { max: 24 } : {}),
+      fieldPath: `formed.${index}.${field}`,
     });
   }
 
@@ -742,10 +850,11 @@ function readEquipmentRow(
 function readUnformedRow(
   input: unknown,
   index: number,
-  errors: string[],
+  errors: RefractoryValidationIssue[],
 ): RefractoryUnformedRow | undefined {
   if (!isRecord(input) || Array.isArray(input)) {
-    errors.push(
+    addValidationIssue(
+      errors,
       `Строка неформованных огнеупоров ${index + 1} имеет неверный формат.`,
     );
     return undefined;
@@ -759,26 +868,38 @@ function readUnformedRow(
       "actualTons",
     ]).length > 0
   ) {
-    errors.push(
+    addValidationIssue(
+      errors,
       `Строка неформованных огнеупоров ${index + 1} содержит неизвестные поля.`,
     );
     return undefined;
   }
 
   const row: Partial<RefractoryUnformedRow> = {};
-  readOptionalText(input, row, "productBrand", 120, index, errors);
-  readOptionalNumber(input, row, "outputNormContainers", index, errors);
+  readOptionalText(input, row, "productBrand", 120, index, errors, {
+    fieldPath: `unformed.${index}.productBrand`,
+  });
+  readOptionalNumber(input, row, "outputNormContainers", index, errors, {
+    fieldPath: `unformed.${index}.outputNormContainers`,
+  });
   readOptionalNumber(input, row, "actualContainers", index, errors, {
     integer: true,
+    fieldPath: `unformed.${index}.actualContainers`,
   });
-  readOptionalNumber(input, row, "actualTons", index, errors);
+  readOptionalNumber(input, row, "actualTons", index, errors, {
+    fieldPath: `unformed.${index}.actualTons`,
+  });
 
   if (Object.keys(row).length === 0) {
     return undefined;
   }
 
   if (row.productBrand === undefined) {
-    errors.push(`Строка неформованных огнеупоров ${index + 1}: укажите марку.`);
+    addValidationIssue(
+      errors,
+      `Строка неформованных огнеупоров ${index + 1}: укажите марку.`,
+      `unformed.${index}.productBrand`,
+    );
     return undefined;
   }
 
@@ -802,7 +923,7 @@ function validateFiringPayload(
   input: unknown,
 ):
   | { ok: true; value: RefractoryFiringPayload }
-  | { ok: false; errors: string[] } {
+  | RefractoryValidationFailure {
   if (!isRecord(input) || Array.isArray(input)) {
     return invalid("Заполните таблицу печного отделения.");
   }
@@ -822,7 +943,7 @@ function validateFiringPayload(
     return invalid("Строки печного отделения переданы в неверном формате.");
   }
 
-  const errors: string[] = [];
+  const errors: RefractoryValidationIssue[] = [];
   const rows = input.rows.flatMap((row, index) => {
     const value = readFiringRow(row, index, errors);
     return value === undefined ? [] : [value];
@@ -831,36 +952,47 @@ function validateFiringPayload(
     rows: RefractoryFiringRow[];
   } = { rows };
 
-  readOptionalNumber(input, payload, "calcinationHours", 0, errors, {
+  readOptionalNumber(input, payload, "calcinationHours", undefined, errors, {
     max: 24,
   });
-  readOptionalNumber(input, payload, "sorterCount", 0, errors, {
+  readOptionalNumber(input, payload, "sorterCount", undefined, errors, {
     integer: true,
     max: 1_000,
   });
-  readOptionalText(input, payload, "planFailureReason", 2_000, 0, errors);
+  readOptionalText(
+    input,
+    payload,
+    "planFailureReason",
+    2_000,
+    undefined,
+    errors,
+  );
 
   if (
     rows.length === 0 &&
     payload.calcinationHours === undefined &&
     payload.sorterCount === undefined &&
-    payload.planFailureReason === undefined
+    payload.planFailureReason === undefined &&
+    errors.length === 0
   ) {
-    errors.push("Заполните хотя бы одну строку таблицы.");
+    addValidationIssue(errors, "Заполните хотя бы одну строку таблицы.");
   }
 
   return errors.length > 0
-    ? { ok: false, errors }
+    ? buildValidationFailure(errors)
     : { ok: true, value: payload as RefractoryFiringPayload };
 }
 
 function readFiringRow(
   input: unknown,
   index: number,
-  errors: string[],
+  errors: RefractoryValidationIssue[],
 ): RefractoryFiringRow | undefined {
   if (!isRecord(input) || Array.isArray(input)) {
-    errors.push(`Строка печного отделения ${index + 1} имеет неверный формат.`);
+    addValidationIssue(
+      errors,
+      `Строка печного отделения ${index + 1} имеет неверный формат.`,
+    );
     return undefined;
   }
 
@@ -878,15 +1010,20 @@ function readFiringRow(
   if (
     unexpectedKeys(input, ["productBrand", "note", ...numberFields]).length > 0
   ) {
-    errors.push(
+    addValidationIssue(
+      errors,
       `Строка печного отделения ${index + 1} содержит неизвестные поля.`,
     );
     return undefined;
   }
 
   const row: Partial<RefractoryFiringRow> = {};
-  readOptionalText(input, row, "productBrand", 120, index, errors);
-  readOptionalText(input, row, "note", 2_000, index, errors);
+  readOptionalText(input, row, "productBrand", 120, index, errors, {
+    fieldPath: `firing.${index}.productBrand`,
+  });
+  readOptionalText(input, row, "note", 2_000, index, errors, {
+    fieldPath: `firing.${index}.note`,
+  });
 
   for (const field of numberFields) {
     readOptionalNumber(input, row, field, index, errors, {
@@ -894,6 +1031,7 @@ function readFiringRow(
         field === "quantityPieces" ||
         field === "palletCount" ||
         field.startsWith("reject"),
+      fieldPath: `firing.${index}.${field}`,
     });
   }
 
@@ -902,8 +1040,10 @@ function readFiringRow(
   }
 
   if (row.productBrand === undefined) {
-    errors.push(
+    addValidationIssue(
+      errors,
       `Строка печного отделения ${index + 1}: укажите марку изделия.`,
+      `firing.${index}.productBrand`,
     );
     return undefined;
   }
@@ -948,8 +1088,9 @@ function readOptionalText<Row extends object>(
   output: Partial<Row>,
   field: keyof Row & string,
   maxLength: number,
-  index: number,
-  errors: string[],
+  index: number | undefined,
+  errors: RefractoryValidationIssue[],
+  options: { fieldPath?: string; section?: string } = {},
 ) {
   const value = input[field];
 
@@ -962,7 +1103,11 @@ function readOptionalText<Row extends object>(
     value.trim().length === 0 ||
     value.trim().length > maxLength
   ) {
-    errors.push(`Строка ${index + 1}: поле «${field}» заполнено неверно.`);
+    addValidationIssue(
+      errors,
+      `${formatRefractoryFieldLocation(field, index, options.section)}: проверьте значение.`,
+      options.fieldPath ?? field,
+    );
     return;
   }
 
@@ -973,9 +1118,14 @@ function readOptionalNumber<Row extends object>(
   input: Record<string, unknown>,
   output: Partial<Row>,
   field: keyof Row & string,
-  index: number,
-  errors: string[],
-  options: { integer?: boolean; max?: number } = {},
+  index: number | undefined,
+  errors: RefractoryValidationIssue[],
+  options: {
+    fieldPath?: string;
+    integer?: boolean;
+    max?: number;
+    section?: string;
+  } = {},
 ) {
   const value = input[field];
 
@@ -983,21 +1133,94 @@ function readOptionalNumber<Row extends object>(
     return;
   }
 
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0 ||
-    value > (options.max ?? 1_000_000_000) ||
-    (options.integer === true && !Number.isSafeInteger(value)) ||
-    readDecimalPlaces(value) > 3
-  ) {
-    errors.push(
-      `Строка ${index + 1}: поле «${field}» должно быть неотрицательным числом.`,
+  const location = formatRefractoryFieldLocation(
+    field,
+    index,
+    options.section,
+  );
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    addValidationIssue(
+      errors,
+      `${location}: введите число цифрами.`,
+      options.fieldPath ?? field,
+    );
+    return;
+  }
+
+  const maximum = options.max ?? 1_000_000_000;
+  if (value < 0 || value > maximum) {
+    const valueKind = options.integer === true ? "целое число" : "число";
+    addValidationIssue(
+      errors,
+      `${location}: укажите ${valueKind} от 0 до ${formatRefractoryLimit(maximum)}.`,
+      options.fieldPath ?? field,
+    );
+    return;
+  }
+
+  if (options.integer === true && !Number.isSafeInteger(value)) {
+    addValidationIssue(
+      errors,
+      `${location}: укажите целое число без знаков после запятой.`,
+      options.fieldPath ?? field,
+    );
+    return;
+  }
+
+  if (readDecimalPlaces(value) > 3) {
+    addValidationIssue(
+      errors,
+      `${location}: укажите не более трёх знаков после запятой.`,
+      options.fieldPath ?? field,
     );
     return;
   }
 
   (output as Record<string, unknown>)[field] = value;
+}
+
+function readRefractoryFieldLabel(field: string) {
+  return refractoryFieldLabels[field] ?? "Поле таблицы";
+}
+
+function formatRefractoryFieldLocation(
+  field: string,
+  index: number | undefined,
+  section?: string,
+) {
+  const fieldPart = `«${readRefractoryFieldLabel(field)}»`;
+  if (index === undefined) return `Поле ${fieldPart}`;
+  const rowPart = `строка ${index + 1}, ${fieldPart}`;
+  return section === undefined
+    ? `Строка ${index + 1}, ${fieldPart}`
+    : `${section}, ${rowPart}`;
+}
+
+function formatRefractoryLimit(value: number) {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/gu, " ");
+}
+
+function addValidationIssue(
+  issues: RefractoryValidationIssue[],
+  message: string,
+  fieldPath?: string,
+) {
+  issues.push({ message, ...(fieldPath === undefined ? {} : { fieldPath }) });
+}
+
+function buildValidationFailure(
+  issues: RefractoryValidationIssue[],
+): RefractoryValidationFailure {
+  const fieldErrors = issues.flatMap((issue) =>
+    issue.fieldPath === undefined
+      ? []
+      : [{ fieldPath: issue.fieldPath, message: issue.message }]
+  );
+  return {
+    ok: false,
+    errors: issues.map((issue) => issue.message),
+    ...(fieldErrors.length === 0 ? {} : { fieldErrors }),
+  };
 }
 
 function isValidNumber(value: unknown): value is number {

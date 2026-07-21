@@ -4831,6 +4831,15 @@ p {
   font: inherit;
 }
 
+.refractory-field input[aria-invalid="true"],
+.refractory-field textarea[aria-invalid="true"],
+.refractory-input-table input[aria-invalid="true"],
+.refractory-input-table textarea[aria-invalid="true"] {
+  border-color: var(--brick);
+  background: color-mix(in srgb, var(--brick) 7%, var(--surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brick) 18%, transparent);
+}
+
 .refractory-calculated {
   color: var(--nav-strong);
   background: color-mix(in srgb, var(--blue-gray) 8%, var(--surface));

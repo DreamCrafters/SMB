@@ -240,15 +240,28 @@ export function createRefractoryReportsRepository(
 
     async listRecentForSubmitter(input) {
       const [rows] = await pool.query<RefractoryReportRow[]>(
-        `select ${selectRevisionFields}
-         from refractory_report_revisions
-         where submitted_by_account_id = ?
+        `select ${selectRevisionFieldsWithAlias}
+         from refractory_report_revisions revisions
+         join (
+           select
+             report_type,
+             report_date,
+             shift_number,
+             max(revision_number) as revision_number
+           from refractory_report_revisions
+           group by report_type, report_date, shift_number
+         ) latest
+           on latest.report_type = revisions.report_type
+          and latest.report_date = revisions.report_date
+          and latest.shift_number = revisions.shift_number
+          and latest.revision_number = revisions.revision_number
+         where revisions.submitted_by_account_id = ?
            and (
-             status = 'pending'
-             or reviewed_at >= current_timestamp(3) - interval 30 day
+             revisions.status in ('pending', 'rejected')
+             or revisions.reviewed_at >= current_timestamp(3) - interval 30 day
            )
-         order by coalesce(reviewed_at, submitted_at) desc, id desc
-         limit 200`,
+         order by coalesce(revisions.reviewed_at, revisions.submitted_at) desc,
+                  revisions.id desc`,
         [input.submittedByAccountId],
       );
       return rows.map(mapRevision);

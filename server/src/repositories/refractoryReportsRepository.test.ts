@@ -85,7 +85,7 @@ test("repository prevents the submitting user from reviewing through another acc
   );
 });
 
-test("repository lists pending and recently reviewed reports for one submitting account", async () => {
+test("repository keeps every latest returned report and recent decisions for one submitting account", async () => {
   let querySql = "";
   let queryParameters: unknown[] = [];
   const pool = {
@@ -102,8 +102,10 @@ test("repository lists pending and recently reviewed reports for one submitting 
   });
 
   assert.equal(reports[0]?.id, "report-1");
-  assert.match(querySql, /submitted_by_account_id = \?/u);
-  assert.match(querySql, /status = 'pending'/u);
-  assert.match(querySql, /reviewed_at >=/u);
+  assert.match(querySql, /max\(revision_number\)/u);
+  assert.match(querySql, /revisions\.submitted_by_account_id = \?/u);
+  assert.match(querySql, /revisions\.status in \('pending', 'rejected'\)/u);
+  assert.match(querySql, /revisions\.reviewed_at >=/u);
+  assert.doesNotMatch(querySql, /limit 200/u);
   assert.deepEqual(queryParameters, ["operator-account"]);
 });

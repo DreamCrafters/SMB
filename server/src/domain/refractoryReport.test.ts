@@ -205,3 +205,104 @@ test("report validation rejects negative values and empty reports", () => {
   assert.equal(negative.ok, false);
   assert.equal(empty.ok, false);
 });
+
+test("equipment validation names invalid fields in Russian", () => {
+  const result = validateRefractoryReportSubmission({
+    reportType: "equipment",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {
+      formedRows: [{
+        equipment: "Пресс СМ-1085 №1",
+        workedHours: 42,
+        mechanicalRepairHours: "ремонт",
+      }],
+      unformedRows: [],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.deepEqual(result.errors, [
+    "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+    "Строка 1, «Мех. ремонт»: введите число цифрами.",
+  ]);
+  assert.deepEqual(result.fieldErrors, [
+    {
+      fieldPath: "formed.0.workedHours",
+      message: "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+    },
+    {
+      fieldPath: "formed.0.mechanicalRepairHours",
+      message: "Строка 1, «Мех. ремонт»: введите число цифрами.",
+    },
+  ]);
+  assert.doesNotMatch(result.errors.join(" "), /workedHours|mechanicalRepairHours/u);
+});
+
+test("scalar and section validation errors keep their visible context", () => {
+  const firing = validateRefractoryReportSubmission({
+    reportType: "firing",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: { rows: [], calcinationHours: 25 },
+  });
+  const cosh = validateRefractoryReportSubmission({
+    reportType: "cosh",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {
+      loadingBucketsPerHour: 1_000_000_001,
+      bunkerFill: [{ bunker: "I", quantity: "много" }],
+    },
+  });
+  const precision = validateRefractoryReportSubmission({
+    reportType: "firing",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {
+      rows: [{ productBrand: "ША", goodTonsWeighed: 12.3456 }],
+    },
+  });
+
+  assert.deepEqual(firing, {
+    ok: false,
+    errors: [
+      "Поле «Время обжига, часов»: укажите число от 0 до 24.",
+    ],
+    fieldErrors: [{
+      fieldPath: "calcinationHours",
+      message: "Поле «Время обжига, часов»: укажите число от 0 до 24.",
+    }],
+  });
+  assert.deepEqual(cosh, {
+    ok: false,
+    errors: [
+      "Поле «Загрузка, ковшей/час»: укажите целое число от 0 до 1 000 000 000.",
+      "Наполнение бункеров РЦ, строка 1, «Количество, т»: введите число цифрами.",
+    ],
+    fieldErrors: [
+      {
+        fieldPath: "loadingBucketsPerHour",
+        message:
+          "Поле «Загрузка, ковшей/час»: укажите целое число от 0 до 1 000 000 000.",
+      },
+      {
+        fieldPath: "bunker.I.quantity",
+        message:
+          "Наполнение бункеров РЦ, строка 1, «Количество, т»: введите число цифрами.",
+      },
+    ],
+  });
+  assert.deepEqual(precision, {
+    ok: false,
+    errors: [
+      "Строка 1, «Годные, т (взвешено)»: укажите не более трёх знаков после запятой.",
+    ],
+    fieldErrors: [{
+      fieldPath: "firing.0.goodTonsWeighed",
+      message:
+        "Строка 1, «Годные, т (взвешено)»: укажите не более трёх знаков после запятой.",
+    }],
+  });
+});
