@@ -33,12 +33,12 @@ import {
   markRefractoryServerFieldErrors,
   validateRefractoryForm,
 } from "./services/refractoryFormValidation";
-import { ProductBrandPicker } from "./ProductBrandPicker";
-import { LoadingIndicator } from "./LoadingIndicator";
 import {
-  useProductionBrands,
-  type ProductBrandCreator,
-} from "./useProductionBrands";
+  ProductBrandCreateControl,
+  ProductBrandPicker,
+} from "./ProductBrandPicker";
+import { LoadingIndicator } from "./LoadingIndicator";
+import { useProductionBrands } from "./useProductionBrands";
 
 const reportTypes: readonly RefractoryReportType[] = [
   "cosh",
@@ -307,6 +307,11 @@ export function RefractoryShopWorkspace({
             onStartCorrection={() => setIsCorrectionMode(true)}
           />
           <fieldset disabled={isLocked || isSubmitting}>
+            {activeType === "cosh" ||
+            isAdminPreviewMode ||
+            nomenclatureState.status !== "ready" ? null : (
+              <ProductBrandCreateControl onCreateBrand={handleCreateBrand} />
+            )}
             {activeType === "cosh" ? (
               <CoshForm
                 payload={
@@ -318,7 +323,6 @@ export function RefractoryShopWorkspace({
             ) : activeType === "equipment" ? (
               <EquipmentForm
                 brandLabels={brandLabels}
-                onCreateBrand={handleCreateBrand}
                 payload={
                   activeReport?.reportType === "equipment"
                     ? activeReport.payload
@@ -328,7 +332,6 @@ export function RefractoryShopWorkspace({
             ) : (
               <FiringForm
                 brandLabels={brandLabels}
-                onCreateBrand={handleCreateBrand}
                 payload={
                   activeReport?.reportType === "firing"
                     ? activeReport.payload
@@ -546,7 +549,7 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
 }
 
 const equipmentColumns = [
-  ["productBrand", "Марка изделия", "text", "text"],
+  ["productBrand", "Марка изделия", "text", "brand"],
   ["outputNorm", "Норма выработки", "number", "medium"],
   ["actualPieces", "Факт, шт.", "integer", "narrow"],
   ["actualTons", "Факт, т", "number", "narrow"],
@@ -565,11 +568,9 @@ const equipmentColumns = [
 function EquipmentForm({
   brandLabels = [],
   payload,
-  onCreateBrand,
 }: {
   brandLabels?: string[];
   payload?: RefractoryEquipmentPayload;
-  onCreateBrand?: ProductBrandCreator;
 }) {
   const [unformedCount, setUnformedCount] = useState(
     Math.max(1, payload?.unformedRows.length ?? 1),
@@ -613,7 +614,6 @@ function EquipmentForm({
                             defaultValue={row?.productBrand}
                             labels={brandLabels}
                             name={`formed.${rowIndex}.productBrand`}
-                            onCreateBrand={onCreateBrand}
                             onInputChange={clearRefractoryFieldError}
                           />
                         ) : kind !== "text" ? (
@@ -670,7 +670,6 @@ function EquipmentForm({
                         name={`unformed.${index}.productBrand`}
                         defaultValue={row?.productBrand ?? ""}
                         labels={brandLabels}
-                        onCreateBrand={onCreateBrand}
                         onInputChange={clearRefractoryFieldError}
                       />
                     </td>
@@ -728,11 +727,9 @@ const firingColumns = [
 function FiringForm({
   brandLabels = [],
   payload,
-  onCreateBrand,
 }: {
   brandLabels?: string[];
   payload?: RefractoryFiringPayload;
-  onCreateBrand?: ProductBrandCreator;
 }) {
   const [rowCount, setRowCount] = useState(
     Math.max(1, payload?.rows.length ?? 1),
@@ -764,7 +761,6 @@ function FiringForm({
                         name={`firing.${index}.productBrand`}
                         defaultValue={row?.productBrand ?? ""}
                         labels={brandLabels}
-                        onCreateBrand={onCreateBrand}
                         onInputChange={clearRefractoryFieldError}
                       />
                     </td>

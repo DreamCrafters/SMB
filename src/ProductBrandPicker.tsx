@@ -17,7 +17,6 @@ export function ProductBrandPicker({
   selectedLabels = [],
   value,
   onChange,
-  onCreateBrand,
   onInputChange,
 }: {
   ariaLabel?: string;
@@ -31,15 +30,10 @@ export function ProductBrandPicker({
   selectedLabels?: readonly string[];
   value?: string;
   onChange?: (value: string) => void;
-  onCreateBrand?: ProductBrandCreator;
   onInputChange?: (input: HTMLInputElement) => void;
 }) {
   const listId = `product-brand-options-${useId().replaceAll(":", "")}`;
   const [internalValue, setInternalValue] = useState(defaultValue);
-  const [isAdding, setIsAdding] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
-  const [status, setStatus] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
   const currentValue = value ?? internalValue;
   const selectedKeys = new Set(selectedLabels.map(normalizeProductBrandKey));
   const availableLabels = labels.filter(
@@ -53,32 +47,6 @@ export function ProductBrandPicker({
     onChange?.(nextValue);
   }
 
-  async function saveNewBrand() {
-    if (onCreateBrand === undefined) return;
-
-    const normalizedLabel = newLabel.trim().replace(/\s+/gu, " ");
-
-    if (normalizedLabel.length === 0) {
-      setStatus("Введите марку.");
-      return;
-    }
-
-    setIsSaving(true);
-    setStatus("Сохраняем…");
-    const result = await onCreateBrand(normalizedLabel);
-    setIsSaving(false);
-
-    if (result.label === undefined) {
-      setStatus(result.message ?? "Не удалось сохранить марку.");
-      return;
-    }
-
-    changeValue(result.label);
-    setNewLabel("");
-    setStatus("");
-    setIsAdding(false);
-  }
-
   return (
     <div className="production-brand-picker">
       <div className="production-brand-search-row">
@@ -87,7 +55,7 @@ export function ProductBrandPicker({
           autoComplete="off"
           data-refractory-label={dataLabel}
           data-refractory-row-brand={isRefractoryRowBrand ? "true" : undefined}
-          disabled={disabled || isSaving}
+          disabled={disabled}
           id={id}
           list={listId}
           maxLength={120}
@@ -101,55 +69,112 @@ export function ProductBrandPicker({
             onInputChange?.(event.currentTarget);
           }}
         />
-        {onCreateBrand === undefined || disabled ? null : (
-          <button
-            aria-label="Добавить новую марку"
-            className="production-brand-create-open"
-            disabled={isSaving}
-            type="button"
-            onClick={() => {
-              setIsAdding(true);
-              setStatus("");
-            }}
-          >
-            + Новая
-          </button>
-        )}
       </div>
       <datalist id={listId}>
         {availableLabels.map((label) => (
           <option key={normalizeProductBrandKey(label)} value={label} />
         ))}
       </datalist>
+    </div>
+  );
+}
+
+export function ProductBrandCreateControl({
+  disabled = false,
+  onCreateBrand,
+}: {
+  disabled?: boolean;
+  onCreateBrand: ProductBrandCreator;
+}) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [status, setStatus] = useState("");
+  const [hasError, setHasError] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function saveNewBrand() {
+    const normalizedLabel = newLabel.trim().replace(/\s+/gu, " ");
+
+    if (normalizedLabel.length === 0) {
+      setHasError(true);
+      setStatus("Введите марку.");
+      return;
+    }
+
+    setIsSaving(true);
+    setHasError(false);
+    setStatus("Сохраняем…");
+    const result = await onCreateBrand(normalizedLabel);
+    setIsSaving(false);
+
+    if (result.label === undefined) {
+      setHasError(true);
+      setStatus(result.message ?? "Не удалось сохранить марку.");
+      return;
+    }
+
+    setNewLabel("");
+    setHasError(false);
+    setStatus(`Марка «${result.label}» добавлена.`);
+    setIsAdding(false);
+  }
+
+  return (
+    <div className="production-brand-create-control">
+      <button
+        aria-label="Добавить новую марку"
+        className="secondary-button production-brand-create-open"
+        disabled={disabled || isSaving}
+        type="button"
+        onClick={() => {
+          setIsAdding(true);
+          setHasError(false);
+          setStatus("");
+        }}
+      >
+        + Новая марка
+      </button>
       {isAdding ? (
         <div className="production-brand-create">
           <input
             aria-label="Новая марка"
-            disabled={isSaving}
+            disabled={disabled || isSaving}
             maxLength={120}
             placeholder="Название марки"
             type="text"
             value={newLabel}
             onChange={(event) => setNewLabel(event.currentTarget.value)}
           />
-          <button disabled={isSaving} type="button" onClick={saveNewBrand}>
+          <button
+            disabled={disabled || isSaving}
+            type="button"
+            onClick={saveNewBrand}
+          >
             {isSaving ? (
               <LoadingIndicator label="Сохраняем…" variant="button" />
             ) : "Сохранить"}
           </button>
           <button
-            disabled={isSaving}
+            disabled={disabled || isSaving}
             type="button"
             onClick={() => {
               setIsAdding(false);
               setNewLabel("");
+              setHasError(false);
               setStatus("");
             }}
           >
             Отмена
           </button>
-          {status ? <span role="status">{status}</span> : null}
         </div>
+      ) : null}
+      {status ? (
+        <span
+          className={`production-brand-create-status${hasError ? " is-error" : ""}`}
+          role="status"
+        >
+          {status}
+        </span>
       ) : null}
     </div>
   );

@@ -1483,13 +1483,15 @@ p {
 
 .production-brand-picker {
   display: grid;
+  width: 100%;
+  min-width: 0;
   gap: 7px;
 }
 
 .production-brand-search-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px;
+  display: block;
+  width: 100%;
+  min-width: 0;
 }
 
 .production-brand-search-row > input,
@@ -1517,17 +1519,29 @@ p {
   white-space: nowrap;
 }
 
+.production-brand-create-control {
+  display: grid;
+  width: 100%;
+  justify-items: start;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
 .production-brand-create {
   display: grid;
+  width: min(100%, 560px);
   grid-template-columns: 1fr auto auto;
   gap: 5px;
 }
 
-.production-brand-create span {
-  grid-column: 1 / -1;
-  color: var(--danger);
+.production-brand-create-status {
+  color: var(--muted);
   font-size: 10px;
   text-transform: none;
+}
+
+.production-brand-create-status.is-error {
+  color: var(--danger);
 }
 
 .production-brand-column-remove {
@@ -4845,7 +4859,7 @@ p {
 }
 
 .refractory-input-table-equipment {
-  min-width: 1520px;
+  min-width: 1600px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -4897,6 +4911,10 @@ p {
 
 .refractory-equipment-column-text {
   width: 110px;
+}
+
+.refractory-equipment-column-brand {
+  width: 180px;
 }
 
 .refractory-equipment-column-medium {

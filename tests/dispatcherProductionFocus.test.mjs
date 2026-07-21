@@ -431,6 +431,17 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       rootElement.querySelector(".production-report-daily-plan")?.textContent ?? "",
       /Формовка8.*Сортировка7.*Неформованная продукция, контейнеры6.*Цех обжига шамота5/u,
     );
+    const addBrandButtons = rootElement.querySelectorAll(
+      'button[aria-label="Добавить новую марку"]',
+    );
+    assert.equal(addBrandButtons.length, isAdminPreviewMode ? 0 : 1);
+    if (!isAdminPreviewMode) {
+      assert.ok(
+        addBrandButtons[0].compareDocumentPosition(
+          rootElement.querySelector(".production-report-table-wrap"),
+        ) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }
 
     await React.act(async () => {
       setNativeInputValue(reportDateInput, "2026-07-17");

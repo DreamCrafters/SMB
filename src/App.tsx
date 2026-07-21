@@ -190,7 +190,10 @@ import {
   requestProductionPlanPreview,
   saveProductionPlan,
 } from "./services/productionPlans";
-import { ProductBrandPicker } from "./ProductBrandPicker";
+import {
+  ProductBrandCreateControl,
+  ProductBrandPicker,
+} from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
   useProductionBrands,
@@ -3753,6 +3756,10 @@ function ProductionReportEditor({
         </div>
       ) : null}
 
+      {isAdminPreviewMode || brandLoadState.status !== "ready" ? null : (
+        <ProductBrandCreateControl onCreateBrand={onCreateBrand} />
+      )}
+
       <fieldset className="production-report-section">
         <legend>Огнеупорный цех</legend>
         <ProductionSummaryTable
@@ -3763,7 +3770,6 @@ function ProductionReportEditor({
           isAdminPreviewMode={isAdminPreviewMode}
           prefix="forming"
           title="Формовка"
-          onCreateBrand={onCreateBrand}
         />
         <ProductionSummaryTable
           brandLabels={brandLabels}
@@ -3773,7 +3779,6 @@ function ProductionReportEditor({
           isAdminPreviewMode={isAdminPreviewMode}
           prefix="sorting"
           title="Сортировка"
-          onCreateBrand={onCreateBrand}
         />
       </fieldset>
 
@@ -3786,7 +3791,6 @@ function ProductionReportEditor({
             initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
             prefix="unformed"
-            onCreateBrand={onCreateBrand}
           />
         </fieldset>
 
@@ -3801,7 +3805,6 @@ function ProductionReportEditor({
             initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
             prefix="chamotte"
-            onCreateBrand={onCreateBrand}
           />
         </fieldset>
       </div>
@@ -3880,7 +3883,6 @@ export function ProductionSummaryTable({
   isAdminPreviewMode,
   prefix,
   title,
-  onCreateBrand,
 }: {
   brandLabels: ProductionBrandLabel[];
   categoryPlan?: number;
@@ -3889,7 +3891,6 @@ export function ProductionSummaryTable({
   isAdminPreviewMode: boolean;
   prefix: "forming" | "sorting";
   title: string;
-  onCreateBrand: ProductBrandCreator;
 }) {
   const [brand, setBrand] = useState(
     () => initialPayload?.[`${prefix}ProductBrand`] ?? "",
@@ -3931,7 +3932,6 @@ export function ProductionSummaryTable({
                   selectedLabels={[]}
                   value={brand}
                   onChange={setBrand}
-                  onCreateBrand={onCreateBrand}
                 />
               </td>
             </tr>
@@ -3953,14 +3953,12 @@ function ProductionBrandColumnsTable({
   initialPayload,
   isAdminPreviewMode,
   prefix,
-  onCreateBrand,
 }: {
   brandLabels: ProductionBrandLabel[];
   categoryPlan?: number;
   initialPayload?: DispatcherSubmissionPayload;
   isAdminPreviewMode: boolean;
   prefix: "unformed" | "chamotte";
-  onCreateBrand: ProductBrandCreator;
 }) {
   const [columns, setColumns] = useState<ProductionBrandColumn[]>(() =>
     readProductionBrandColumns(initialPayload, prefix),
@@ -4012,7 +4010,6 @@ function ProductionBrandColumnsTable({
                     )}
                     value={column.brand}
                     onChange={(brand) => changeColumnBrand(column.id, brand)}
-                    onCreateBrand={onCreateBrand}
                   />
                   {columns.length > 1 ? (
                     <button

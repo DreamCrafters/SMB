@@ -150,10 +150,23 @@ test("refractory workspace opens one of three independent table buttons", async 
       "Гранулы 0-5",
     ]);
     assert.equal(formedBrand.getAttribute("placeholder"), "Поиск марки");
-    const addBrandButton = rootElement.querySelector(
+    const addBrandButtons = rootElement.querySelectorAll(
       'button[aria-label="Добавить новую марку"]',
     );
+    assert.equal(addBrandButtons.length, 1);
+    const addBrandButton = addBrandButtons[0];
     assert.ok(addBrandButton);
+    assert.equal(
+      formedBrand
+        .closest(".production-brand-picker")
+        ?.querySelector('button[aria-label="Добавить новую марку"]'),
+      null,
+    );
+    assert.ok(
+      addBrandButton.compareDocumentPosition(
+        rootElement.querySelector(".refractory-table-wrap"),
+      ) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     await React.act(async () => addBrandButton.click());
     const newBrandInput = rootElement.querySelector(
       'input[aria-label="Новая марка"]',
@@ -170,7 +183,10 @@ test("refractory workspace opens one of three independent table buttons", async 
     ).find((button) => button.textContent === "Сохранить");
     assert.ok(saveBrandButton);
     await React.act(async () => saveBrandButton.click());
-    await waitFor(React, () => formedBrand.value === "Новая марка");
+    await waitFor(React, () =>
+      readBrandOptions(formedBrand, rootElement).includes("Новая марка"),
+    );
+    assert.equal(formedBrand.value, "Старая марка");
     assert.equal(rootElement.querySelectorAll("form").length, 1);
 
     await React.act(async () => menuButtons[2].click());
