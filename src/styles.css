@@ -4803,9 +4803,30 @@ p {
 
 .refractory-table-wrap {
   max-width: 100%;
-  overflow-x: auto;
+  max-height: min(68vh, 760px);
+  overflow: auto;
+  padding-bottom: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  background: var(--surface-raised);
+  scrollbar-color: var(--blue-gray) var(--surface-subtle);
+  scrollbar-gutter: stable;
+}
+
+.refractory-table-wrap::-webkit-scrollbar {
+  width: 12px;
+  height: 14px;
+}
+
+.refractory-table-wrap::-webkit-scrollbar-track,
+.refractory-table-wrap::-webkit-scrollbar-corner {
+  background: var(--surface-subtle);
+}
+
+.refractory-table-wrap::-webkit-scrollbar-thumb {
+  border: 3px solid var(--surface-subtle);
+  border-radius: 999px;
+  background: var(--blue-gray);
 }
 
 .refractory-input-table {
