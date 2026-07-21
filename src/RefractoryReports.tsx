@@ -12,11 +12,10 @@ import {
   type ServerUserProfile,
 } from "./contracts";
 import {
+  countReturnedRefractoryReportsByType,
   decideRefractoryReport,
-  emptyReturnedRefractoryReportCounts,
   requestRefractoryReports,
   submitRefractoryReport,
-  type ReturnedRefractoryReportCounts,
 } from "./services/refractoryReports";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import { readRefractoryShiftContext } from "./services/refractoryShift";
@@ -54,13 +53,11 @@ export function RefractoryShopWorkspace({
   isAdminPreviewMode,
   onShowToast,
   decisionRefreshVersion = 0,
-  returnedReportCounts = emptyReturnedRefractoryReportCounts,
 }: {
   profile: ServerUserProfile;
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
   decisionRefreshVersion?: number;
-  returnedReportCounts?: ReturnedRefractoryReportCounts;
 }) {
   const initialShift = readRefractoryShiftContext();
   const [reportDate, setReportDate] = useState(initialShift.reportDate);
@@ -124,6 +121,10 @@ export function RefractoryShopWorkspace({
     isAdminPreviewMode ||
     activeReport?.status === "pending" ||
     (activeReport?.status === "approved" && !isCorrectionMode);
+  const returnedReportCounts = countReturnedRefractoryReportsByType(reports, {
+    reportDate,
+    shiftNumber,
+  });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

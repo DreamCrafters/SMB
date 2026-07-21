@@ -23,6 +23,7 @@ test("refractory workspace opens one of three independent table buttons", async 
     { url: "http://127.0.0.1:5173/" },
   );
   const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -36,6 +37,24 @@ test("refractory workspace opens one of three independent table buttons", async 
     const { RefractoryShopWorkspace } = await vite.ssrLoadModule(
       "/src/RefractoryReports.tsx",
     );
+    const { readRefractoryShiftContext } = await vite.ssrLoadModule(
+      "/src/services/refractoryShift.ts",
+    );
+    const initialShift = readRefractoryShiftContext();
+    const returnedReport = buildReturnedReport({
+      reportDate: initialShift.reportDate,
+      shiftNumber: initialShift.shiftNumber,
+    });
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      const isReturnedShift =
+        url.searchParams.get("date") === returnedReport.reportDate &&
+        url.searchParams.get("shift") === String(returnedReport.shiftNumber);
+      return new Response(
+        JSON.stringify({ reports: isReturnedShift ? [returnedReport] : [] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
     const rootElement = dom.window.document.getElementById("root");
     const root = createRoot(rootElement);
 
@@ -43,12 +62,16 @@ test("refractory workspace opens one of three independent table buttons", async 
       root.render(
         React.createElement(RefractoryShopWorkspace, {
           profile: buildOperatorProfile(),
-          isAdminPreviewMode: true,
+          isAdminPreviewMode: false,
           onShowToast() {},
-          returnedReportCounts: { cosh: 0, equipment: 1, firing: 0 },
         }),
       );
     });
+    await waitFor(
+      React,
+      () =>
+        rootElement.querySelector(".refractory-report-return-count") !== null,
+    );
 
     const menuButtons = Array.from(
       rootElement.querySelectorAll(".refractory-report-menu button"),
@@ -77,6 +100,29 @@ test("refractory workspace opens one of three independent table buttons", async 
       menuButtons[2].querySelector(".refractory-report-return-count"),
       null,
     );
+
+    const reportDateInput = rootElement.querySelector('input[type="date"]');
+    assert.ok(reportDateInput);
+    const otherDate =
+      initialShift.reportDate === "2026-07-20"
+        ? "2026-07-21"
+        : "2026-07-20";
+    await React.act(async () => {
+      setNativeInputValue(reportDateInput, otherDate);
+      reportDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    await waitFor(
+      React,
+      () =>
+        rootElement.querySelector(".refractory-report-return-count") === null,
+    );
+    assert.equal(
+      menuButtons[1].querySelector(".refractory-report-return-count"),
+      null,
+    );
+
     assert.equal(
       rootElement.querySelector("input[readonly]")?.value,
       "Иванов Иван Иванович",
@@ -92,6 +138,7 @@ test("refractory workspace opens one of three independent table buttons", async 
 
     await React.act(async () => root.unmount());
   } finally {
+    globalThis.fetch = previousFetch;
     await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
@@ -397,6 +444,19 @@ function buildPendingReport() {
     },
     masterDisplayName: "Мастер ОЦ",
     submittedAt: "2026-07-21T08:30:00.000Z",
+  };
+}
+
+function buildReturnedReport(overrides = {}) {
+  return {
+    ...buildPendingReport(),
+    id: "returned-report",
+    reportType: "equipment",
+    status: "rejected",
+    payload: { formedRows: [], unformedRows: [] },
+    totals: {},
+    rejectionComment: "Уточните данные",
+    ...overrides,
   };
 }
 

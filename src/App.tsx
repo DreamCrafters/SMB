@@ -214,7 +214,6 @@ import {
   emptyReturnedRefractoryReportCounts,
   requestOwnRefractoryReports,
   requestPendingRefractoryReports,
-  type ReturnedRefractoryReportCounts,
 } from "./services/refractoryReports";
 
 type BusinessTab =
@@ -1421,11 +1420,6 @@ export default function App() {
           pendingRefractoryReports={pendingRefractoryReports}
           refractoryQueueError={refractoryQueueError}
           refractoryDecisionVersion={refractoryDecisionVersion}
-          returnedRefractoryCounts={
-            isAdminPreviewMode
-              ? emptyReturnedRefractoryReportCounts
-              : returnedRefractoryCounts
-          }
           onRefractoryReportResolved={handleRefractoryReportResolved}
         />
       </section>
@@ -2056,7 +2050,6 @@ function RoleWorkspace({
   pendingRefractoryReports,
   refractoryQueueError,
   refractoryDecisionVersion,
-  returnedRefractoryCounts,
   onRefractoryReportResolved,
 }: {
   profile: ServerUserProfile;
@@ -2079,7 +2072,6 @@ function RoleWorkspace({
   pendingRefractoryReports: RefractoryReportRevision[];
   refractoryQueueError: string;
   refractoryDecisionVersion: number;
-  returnedRefractoryCounts: ReturnedRefractoryReportCounts;
   onRefractoryReportResolved: (reportId: string) => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
@@ -2129,7 +2121,6 @@ function RoleWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
             decisionRefreshVersion={refractoryDecisionVersion}
-            returnedReportCounts={returnedRefractoryCounts}
           />
         );
       }

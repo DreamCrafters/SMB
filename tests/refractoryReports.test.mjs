@@ -172,11 +172,28 @@ test("refractory return count includes only latest revisions awaiting correction
   ];
 
   assert.equal(countReturnedRefractoryReports(reports), 1);
-  assert.deepEqual(countReturnedRefractoryReportsByType(reports), {
-    cosh: 0,
-    equipment: 1,
-    firing: 0,
-  });
+  assert.deepEqual(
+    countReturnedRefractoryReportsByType(reports, {
+      reportDate: "2026-07-20",
+      shiftNumber: 2,
+    }),
+    {
+      cosh: 0,
+      equipment: 1,
+      firing: 0,
+    },
+  );
+  assert.deepEqual(
+    countReturnedRefractoryReportsByType(reports, {
+      reportDate: "2026-07-21",
+      shiftNumber: 2,
+    }),
+    {
+      cosh: 0,
+      equipment: 0,
+      firing: 0,
+    },
+  );
 });
 
 test("refractory report service rejects malformed server totals", async () => {

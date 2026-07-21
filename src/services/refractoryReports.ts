@@ -20,6 +20,10 @@ type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 export type ReturnedRefractoryReportCounts = Readonly<
   Record<RefractoryReportType, number>
 >;
+type RefractoryReportShiftFilter = {
+  reportDate: string;
+  shiftNumber: RefractoryShiftNumber;
+};
 export const emptyReturnedRefractoryReportCounts:
   ReturnedRefractoryReportCounts = {
     cosh: 0,
@@ -146,6 +150,7 @@ export function countReturnedRefractoryReports(
 
 export function countReturnedRefractoryReportsByType(
   reports: readonly RefractoryReportRevision[],
+  shiftFilter?: RefractoryReportShiftFilter,
 ): ReturnedRefractoryReportCounts {
   const latestReports = new Map<string, RefractoryReportRevision>();
 
@@ -172,7 +177,12 @@ export function countReturnedRefractoryReportsByType(
   };
 
   for (const report of latestReports.values()) {
-    if (report.status === "rejected") {
+    if (
+      report.status === "rejected" &&
+      (shiftFilter === undefined ||
+        (report.reportDate === shiftFilter.reportDate &&
+          report.shiftNumber === shiftFilter.shiftNumber))
+    ) {
       counts[report.reportType] += 1;
     }
   }
