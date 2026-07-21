@@ -15,7 +15,9 @@ import {
 import type { MaxNotificationRecipients } from "./googleSheetsReference.js";
 import {
   buildRefractoryNotificationText,
+  buildRefractoryReviewRequestText,
   dedupeRefractoryMaxRecipients,
+  type RefractoryNotificationKind,
 } from "./refractoryNotifications.js";
 
 export type MaxNotificationService = {
@@ -31,6 +33,7 @@ export type MaxNotificationService = {
   sendRefractoryReportNotification: (
     report: RefractoryReportNotification,
     recipients: readonly string[],
+    notificationKind: RefractoryNotificationKind,
   ) => Promise<void>;
 };
 
@@ -164,23 +167,40 @@ export function createMaxNotificationService(
         recipientCount: userIds.length,
       });
     },
-    async sendRefractoryReportNotification(report, recipients) {
+    async sendRefractoryReportNotification(
+      report,
+      recipients,
+      notificationKind,
+    ) {
       const userIds = dedupeRefractoryMaxRecipients(recipients);
+      const logPrefix = notificationKind === "approved"
+        ? "refractory_notifications"
+        : "refractory_review_notifications";
 
       if (userIds.length === 0) {
-        console.warn("refractory_notifications.max_no_recipients", {
+        console.warn(`${logPrefix}.max_no_recipients`, {
           reportType: report.reportType,
         });
         return;
       }
 
-      const texts = buildMaxMessageTexts(
-        withMaxSubjectPrefix(
-          config.subjectPrefix,
-          buildRefractoryNotificationText(report),
-        ),
-        appEnv,
-      );
+      const texts = notificationKind === "approved"
+        ? buildMaxMessageTexts(
+            withMaxSubjectPrefix(
+              config.subjectPrefix,
+              buildRefractoryNotificationText(report),
+            ),
+            appEnv,
+          )
+        : [
+            buildMaxMessageText(
+              withMaxSubjectPrefix(
+                config.subjectPrefix,
+                buildRefractoryReviewRequestText(report),
+              ),
+              appEnv,
+            ),
+          ];
       const caCertificate = await caCertificatePromise;
 
       await Promise.all(
@@ -196,7 +216,7 @@ export function createMaxNotificationService(
           }
         }),
       );
-      console.info("refractory_notifications.max_sent", {
+      console.info(`${logPrefix}.max_sent`, {
         reportType: report.reportType,
         recipientIdType: config.recipientIdType,
         recipientCount: userIds.length,

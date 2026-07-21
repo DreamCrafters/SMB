@@ -10,6 +10,8 @@ export type DispatcherReferenceData = {
   maxNotificationRecipients: MaxNotificationRecipients;
   refractoryNotificationRecipients: string[];
   refractoryMaxNotificationRecipients: string[];
+  refractoryReviewNotificationRecipients: string[];
+  refractoryReviewMaxNotificationRecipients: string[];
 };
 
 export type NotificationRecipients = NotificationRecipientGroups;
@@ -78,6 +80,8 @@ const emptyReferenceData: DispatcherReferenceData = {
   },
   refractoryNotificationRecipients: [],
   refractoryMaxNotificationRecipients: [],
+  refractoryReviewNotificationRecipients: [],
+  refractoryReviewMaxNotificationRecipients: [],
 };
 const googleSheetsReadonlyScope =
   "https://www.googleapis.com/auth/spreadsheets.readonly";
@@ -134,6 +138,8 @@ export function createGoogleSheetsReferenceDataSource(
             rows,
             config.refractoryNotificationEmailColumns ?? [],
             config.refractoryMaxUserIdColumns ?? [],
+            config.refractoryReviewNotificationEmailColumns ?? [],
+            config.refractoryReviewMaxUserIdColumns ?? [],
           ),
         };
       } catch (error) {
@@ -538,6 +544,8 @@ function readRefractoryNotificationRecipientsFromRows(
   rows: string[][],
   emailColumnLabels: readonly string[],
   maxUserIdColumnLabels: readonly string[],
+  reviewEmailColumnLabels: readonly string[],
+  reviewMaxUserIdColumnLabels: readonly string[],
 ) {
   return {
     refractoryNotificationRecipients: readEmailsFromColumnRows(
@@ -548,6 +556,16 @@ function readRefractoryNotificationRecipientsFromRows(
     refractoryMaxNotificationRecipients: readMaxUserIdsFromColumnRows(
       rows,
       maxUserIdColumnLabels,
+      notificationRecipientRanges.refractory,
+    ),
+    refractoryReviewNotificationRecipients: readEmailsFromColumnRows(
+      rows,
+      reviewEmailColumnLabels,
+      notificationRecipientRanges.refractory,
+    ),
+    refractoryReviewMaxNotificationRecipients: readMaxUserIdsFromColumnRows(
+      rows,
+      reviewMaxUserIdColumnLabels,
       notificationRecipientRanges.refractory,
     ),
   };

@@ -23,6 +23,14 @@ test("google sheets reference uses the OC recipient column names by default", ()
   assert.deepEqual(config.googleSheetsReference.refractoryMaxUserIdColumns, [
     "Адресаты ОЦ (МАКС)",
   ]);
+  assert.deepEqual(
+    config.googleSheetsReference.refractoryReviewNotificationEmailColumns,
+    ["Адресаты Диспетчеры (емейлы)"],
+  );
+  assert.deepEqual(
+    config.googleSheetsReference.refractoryReviewMaxUserIdColumns,
+    ["Адресаты Диспетчеры (МАКС)"],
+  );
 });
 
 test("production snapshot requires an exact test target database guard", () => {

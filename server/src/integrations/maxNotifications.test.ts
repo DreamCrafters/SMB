@@ -148,6 +148,7 @@ test("createMaxNotificationService marks every test-site message at the end", as
   await service.sendRefractoryReportNotification(
     buildApprovedRefractoryReport(),
     ["5001"],
+    "approved",
   );
 
   assert.equal(sentBodies.length, 4);
@@ -472,6 +473,7 @@ test("createMaxNotificationService sends an approved OC table to its MAX recipie
   await service.sendRefractoryReportNotification(
     buildApprovedRefractoryReport(),
     ["5001", "oc_chat_2"],
+    "approved",
   );
 
   assert.deepEqual(
@@ -494,6 +496,45 @@ test("createMaxNotificationService sends an approved OC table to its MAX recipie
     JSON.parse(sent[0]?.body ?? "{}").text,
     /Причина невыполнения плана: Наладка/u,
   );
+});
+
+test("createMaxNotificationService notifies dispatchers about a pending OC table", async () => {
+  const sent: { url: string; body: string }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "chat_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await service.sendRefractoryReportNotification(
+    buildApprovedRefractoryReport(),
+    ["6001", "dispatcher_chat_2"],
+    "review_requested",
+  );
+
+  assert.deepEqual(
+    sent.map((item) => item.url),
+    [
+      "https://platform-api2.max.ru/messages?chat_id=6001",
+      "https://platform-api2.max.ru/messages?chat_id=dispatcher_chat_2",
+    ],
+  );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /^\[SMB Monitor\] Новая таблица ОЦ ожидает подтверждения/mu,
+  );
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Мастер смены: Мастер ОЦ/u);
+  assert.doesNotMatch(JSON.parse(sent[0]?.body ?? "{}").text, /Данные таблицы:/u);
 });
 
 test("createMaxNotificationService splits a large OC table without dropping its rows", async () => {
@@ -528,6 +569,7 @@ test("createMaxNotificationService splits a large OC table without dropping its 
       },
     },
     ["5001"],
+    "approved",
   );
 
   assert.equal(sentTexts.length > 1, true);

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildEquipmentReportEmail,
   buildDispatcherSubmissionEmail,
+  buildRefractoryReviewRequestEmail,
   buildRefractoryReportEmail,
   createEmailNotificationService,
   type EmailMessage,
@@ -218,6 +219,27 @@ test("buildRefractoryReportEmail sends an approved OC table with all entered fie
   });
 });
 
+test("buildRefractoryReviewRequestEmail notifies dispatchers about a pending OC table", () => {
+  const message = buildRefractoryReviewRequestEmail(
+    buildApprovedRefractoryReport(),
+    ["dispatcher@example.com", "DISPATCHER@example.com"],
+    "noreply@example.com",
+    "SMB Monitor",
+  );
+
+  assert.deepEqual(message?.to, ["dispatcher@example.com"]);
+  assert.equal(
+    message?.subject,
+    "[SMB Monitor] Таблица ОЦ ожидает подтверждения: Печное отделение",
+  );
+  assert.match(message?.text ?? "", /^Новая таблица ОЦ ожидает подтверждения/mu);
+  assert.match(message?.text ?? "", /Дата смены: 20\.07\.2026/u);
+  assert.match(message?.text ?? "", /Смена: 2 \(20:00–08:00\)/u);
+  assert.match(message?.text ?? "", /Мастер смены: Мастер ОЦ/u);
+  assert.doesNotMatch(message?.text ?? "", /Подтвердил:/u);
+  assert.doesNotMatch(message?.text ?? "", /Данные таблицы:/u);
+});
+
 test("buildRefractoryReportEmail formats the calculated totals of the other OC tables", () => {
   const baseReport = buildApprovedRefractoryReport();
   const coshMessage = buildRefractoryReportEmail(
@@ -423,9 +445,15 @@ test("createEmailNotificationService marks every test-site message at the end", 
   await service.sendRefractoryReportNotification(
     buildApprovedRefractoryReport(),
     ["oc@example.com"],
+    "approved",
+  );
+  await service.sendRefractoryReportNotification(
+    buildApprovedRefractoryReport(),
+    ["dispatcher@example.com"],
+    "review_requested",
   );
 
-  assert.equal(sent.length, 3);
+  assert.equal(sent.length, 4);
   for (const message of sent) {
     assert.equal(
       message.text.endsWith("\n\nПримечание: Тестовое сообщение"),

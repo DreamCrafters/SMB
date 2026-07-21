@@ -51,6 +51,8 @@ export type GoogleSheetsReferenceConfig = {
   visitorMaxUserIdColumns: readonly string[];
   refractoryNotificationEmailColumns?: readonly string[];
   refractoryMaxUserIdColumns?: readonly string[];
+  refractoryReviewNotificationEmailColumns?: readonly string[];
+  refractoryReviewMaxUserIdColumns?: readonly string[];
   cacheTtlMs: number;
   authMode: GoogleSheetsAuthMode;
   serviceAccountKeyFile?: string;
@@ -102,6 +104,12 @@ const defaultRefractoryNotificationEmailColumns = [
   "Адресаты ОЦ (емейлы)",
 ] as const;
 const defaultRefractoryMaxUserIdColumns = ["Адресаты ОЦ (МАКС)"] as const;
+const defaultRefractoryReviewNotificationEmailColumns = [
+  "Адресаты Диспетчеры (емейлы)",
+] as const;
+const defaultRefractoryReviewMaxUserIdColumns = [
+  "Адресаты Диспетчеры (МАКС)",
+] as const;
 const defaultGoogleSheetsCacheTtlMs = 0;
 const defaultEmailSubjectPrefix = "НМОУ Вектор";
 const defaultMaxApiBaseUrl = "https://platform-api2.max.ru";
@@ -162,6 +170,19 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
         readList(env.GOOGLE_SHEETS_REFRACTORY_MAX_USER_IDS_COLUMN).length > 0
           ? readList(env.GOOGLE_SHEETS_REFRACTORY_MAX_USER_IDS_COLUMN)
           : defaultRefractoryMaxUserIdColumns,
+      refractoryReviewNotificationEmailColumns:
+        readList(
+          env.GOOGLE_SHEETS_REFRACTORY_REVIEW_NOTIFICATION_EMAILS_COLUMN,
+        ).length > 0
+          ? readList(
+              env.GOOGLE_SHEETS_REFRACTORY_REVIEW_NOTIFICATION_EMAILS_COLUMN,
+            )
+          : defaultRefractoryReviewNotificationEmailColumns,
+      refractoryReviewMaxUserIdColumns:
+        readList(env.GOOGLE_SHEETS_REFRACTORY_REVIEW_MAX_USER_IDS_COLUMN)
+          .length > 0
+          ? readList(env.GOOGLE_SHEETS_REFRACTORY_REVIEW_MAX_USER_IDS_COLUMN)
+          : defaultRefractoryReviewMaxUserIdColumns,
       cacheTtlMs: readNonNegativeInteger(
         env.GOOGLE_SHEETS_CACHE_TTL_MS,
         defaultGoogleSheetsCacheTtlMs,

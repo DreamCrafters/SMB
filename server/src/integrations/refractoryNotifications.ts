@@ -7,6 +7,8 @@ import {
   type RefractoryShiftNumber,
 } from "../domain/refractoryReport.js";
 
+export type RefractoryNotificationKind = "approved" | "review_requested";
+
 export function buildRefractoryNotificationSubject(
   report: RefractoryReportNotification,
   subjectPrefix: string,
@@ -14,6 +16,28 @@ export function buildRefractoryNotificationSubject(
   const prefix = subjectPrefix.length > 0 ? `[${subjectPrefix}] ` : "";
 
   return `${prefix}Таблица ОЦ подтверждена: ${refractoryReportLabels[report.reportType]}`;
+}
+
+export function buildRefractoryReviewRequestSubject(
+  report: RefractoryReportNotification,
+  subjectPrefix: string,
+) {
+  const prefix = subjectPrefix.length > 0 ? `[${subjectPrefix}] ` : "";
+
+  return `${prefix}Таблица ОЦ ожидает подтверждения: ${refractoryReportLabels[report.reportType]}`;
+}
+
+export function buildRefractoryReviewRequestText(
+  report: RefractoryReportNotification,
+) {
+  return [
+    "Новая таблица ОЦ ожидает подтверждения",
+    `Таблица: ${refractoryReportLabels[report.reportType]}`,
+    `Дата смены: ${formatReportDate(report.reportDate)}`,
+    `Смена: ${formatShift(report.shiftNumber)}`,
+    `Ревизия: ${report.revisionNumber}`,
+    `Мастер смены: ${report.masterDisplayName}`,
+  ].join("\n");
 }
 
 export function buildRefractoryNotificationText(

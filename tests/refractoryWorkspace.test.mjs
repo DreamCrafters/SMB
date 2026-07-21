@@ -161,6 +161,25 @@ test("dispatcher opens pending refractory reports from a separate choice button"
       ),
     );
 
+    const rejectButton = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent === "Вернуть на доработку",
+    );
+    assert.ok(rejectButton);
+    await React.act(async () => rejectButton.click());
+
+    assert.ok(rootElement.querySelector(".refractory-reject-comment textarea"));
+    assert.equal(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent === "Подтвердить",
+      ),
+      false,
+    );
+    assert.ok(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent === "Вернуть",
+      ),
+    );
+
     await React.act(async () => root.unmount());
   } finally {
     await vite.close();

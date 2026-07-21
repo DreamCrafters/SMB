@@ -97,6 +97,7 @@ import {
   createMaxNotificationService,
   type MaxNotificationService,
 } from "../integrations/maxNotifications.js";
+import type { RefractoryNotificationKind } from "../integrations/refractoryNotifications.js";
 import {
   DispatcherSpreadsheetImportChangedError,
   type DispatcherSpreadsheetImportService,
@@ -929,11 +930,12 @@ async function handleRefractoryReportsRequest({
         }),
       });
       if (validation.value.decision === "approve") {
-        await notifyApprovedRefractoryReport(
+        await notifyRefractoryReport(
           report,
           referenceDataSource,
           emailNotificationService,
           maxNotificationService,
+          "approved",
         );
       }
       sendJson(res, 200, {
@@ -1039,6 +1041,13 @@ async function handleRefractoryReportsRequest({
         targetId: saved.id,
       }),
     });
+    await notifyRefractoryReport(
+      report,
+      referenceDataSource,
+      emailNotificationService,
+      maxNotificationService,
+      "review_requested",
+    );
     sendJson(res, 201, {
       report: toPublicRefractoryReportRevision(report),
     });
@@ -3774,37 +3783,51 @@ async function notifyDispatcherSubmission(
   }
 }
 
-async function notifyApprovedRefractoryReport(
+async function notifyRefractoryReport(
   report: RefractoryReportRevision,
   referenceDataSource: DispatcherReferenceDataSource,
   emailNotificationService: EmailNotificationService,
   maxNotificationService: MaxNotificationService,
+  notificationKind: RefractoryNotificationKind,
 ) {
   let referenceData: Awaited<ReturnType<DispatcherReferenceDataSource["read"]>>;
+  const logPrefix = notificationKind === "approved"
+    ? "refractory_notifications"
+    : "refractory_review_notifications";
 
   try {
     referenceData = await referenceDataSource.read();
   } catch (error) {
-    console.warn("refractory_notifications.reference_data_failed", error);
+    console.warn(`${logPrefix}.reference_data_failed`, error);
     return;
   }
 
+  const emailRecipients = notificationKind === "approved"
+    ? referenceData.refractoryNotificationRecipients
+    : referenceData.refractoryReviewNotificationRecipients;
+  const maxRecipients = notificationKind === "approved"
+    ? referenceData.refractoryMaxNotificationRecipients
+    : referenceData.refractoryReviewMaxNotificationRecipients;
+  const notification = toRefractoryReportNotification(report);
+
   try {
     await emailNotificationService.sendRefractoryReportNotification(
-      toRefractoryReportNotification(report),
-      referenceData.refractoryNotificationRecipients,
+      notification,
+      emailRecipients,
+      notificationKind,
     );
   } catch (error) {
-    console.warn("refractory_notifications.email_send_failed", error);
+    console.warn(`${logPrefix}.email_send_failed`, error);
   }
 
   try {
     await maxNotificationService.sendRefractoryReportNotification(
-      toRefractoryReportNotification(report),
-      referenceData.refractoryMaxNotificationRecipients,
+      notification,
+      maxRecipients,
+      notificationKind,
     );
   } catch (error) {
-    console.warn("refractory_notifications.max_send_failed", error);
+    console.warn(`${logPrefix}.max_send_failed`, error);
   }
 }
 

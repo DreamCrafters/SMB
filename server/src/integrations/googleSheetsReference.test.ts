@@ -187,13 +187,33 @@ test("readMaxNotificationRecipientsFromCsv accepts combined MAX table header", (
   );
 });
 
-test("google sheets reference source exposes OC recipients from rows 2-20", async () => {
-  const rows = Array.from({ length: 21 }, () => ["", ""]);
+test("google sheets reference source exposes OC and dispatcher recipients from rows 2-20", async () => {
+  const rows = Array.from({ length: 21 }, () => ["", "", "", ""]);
 
-  rows[0] = ["Адресаты ОЦ (емейлы)", "Адресаты ОЦ (МАКС)"];
-  rows[1] = ["oc@example.com", "5001; oc_chat_2"];
-  rows[19] = ["oc-last@example.com; OC@example.com", "5002"];
-  rows[20] = ["outside@example.com", "5999"];
+  rows[0] = [
+    "Адресаты ОЦ (емейлы)",
+    "Адресаты ОЦ (МАКС)",
+    "Адресаты Диспетчеры (емейлы)",
+    "Адресаты Диспетчеры (МАКС)",
+  ];
+  rows[1] = [
+    "oc@example.com",
+    "5001; oc_chat_2",
+    "dispatcher@example.com",
+    "6001; dispatcher_chat_2",
+  ];
+  rows[19] = [
+    "oc-last@example.com; OC@example.com",
+    "5002",
+    "dispatcher-last@example.com; DISPATCHER@example.com",
+    "6002",
+  ];
+  rows[20] = [
+    "outside@example.com",
+    "5999",
+    "outside-dispatcher@example.com",
+    "6999",
+  ];
   const source = createGoogleSheetsReferenceDataSource(
     {
       url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=0#gid=0",
@@ -205,6 +225,12 @@ test("google sheets reference source exposes OC recipients from rows 2-20", asyn
       visitorMaxUserIdColumns: [],
       refractoryNotificationEmailColumns: ["Адресаты ОЦ (емейлы)"],
       refractoryMaxUserIdColumns: ["Адресаты ОЦ (МАКС)"],
+      refractoryReviewNotificationEmailColumns: [
+        "Адресаты Диспетчеры (емейлы)",
+      ],
+      refractoryReviewMaxUserIdColumns: [
+        "Адресаты Диспетчеры (МАКС)",
+      ],
       cacheTtlMs: 0,
       authMode: "public_csv",
     },
@@ -223,6 +249,15 @@ test("google sheets reference source exposes OC recipients from rows 2-20", asyn
     "5001",
     "oc_chat_2",
     "5002",
+  ]);
+  assert.deepEqual(referenceData.refractoryReviewNotificationRecipients, [
+    "dispatcher@example.com",
+    "dispatcher-last@example.com",
+  ]);
+  assert.deepEqual(referenceData.refractoryReviewMaxNotificationRecipients, [
+    "6001",
+    "dispatcher_chat_2",
+    "6002",
   ]);
 });
 

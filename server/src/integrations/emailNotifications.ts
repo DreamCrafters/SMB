@@ -16,7 +16,10 @@ import type { NotificationRecipients } from "./googleSheetsReference.js";
 import {
   buildRefractoryNotificationSubject,
   buildRefractoryNotificationText,
+  buildRefractoryReviewRequestSubject,
+  buildRefractoryReviewRequestText,
   dedupeRefractoryEmailRecipients,
+  type RefractoryNotificationKind,
 } from "./refractoryNotifications.js";
 
 export type EmailMessage = {
@@ -39,6 +42,7 @@ export type EmailNotificationService = {
   sendRefractoryReportNotification: (
     report: RefractoryReportNotification,
     recipients: readonly string[],
+    notificationKind: RefractoryNotificationKind,
   ) => Promise<void>;
 };
 
@@ -99,19 +103,55 @@ export function createEmailNotificationService(
 
       await sendMail(message);
     },
-    async sendRefractoryReportNotification(report, recipients) {
-      const message = buildRefractoryReportEmail(
-        report,
-        recipients,
-        config.from,
-        config.subjectPrefix,
-        appEnv,
-      );
+    async sendRefractoryReportNotification(
+      report,
+      recipients,
+      notificationKind,
+    ) {
+      const message = notificationKind === "approved"
+        ? buildRefractoryReportEmail(
+            report,
+            recipients,
+            config.from,
+            config.subjectPrefix,
+            appEnv,
+          )
+        : buildRefractoryReviewRequestEmail(
+            report,
+            recipients,
+            config.from,
+            config.subjectPrefix,
+            appEnv,
+          );
 
       if (message !== undefined) {
         await sendMail(message);
       }
     },
+  };
+}
+
+export function buildRefractoryReviewRequestEmail(
+  report: RefractoryReportNotification,
+  recipients: readonly string[],
+  from: string,
+  subjectPrefix = "НМОУ Вектор",
+  appEnv: SmbAppEnv = "production",
+): EmailMessage | undefined {
+  const to = dedupeRefractoryEmailRecipients(recipients);
+
+  if (to.length === 0) {
+    return undefined;
+  }
+
+  return {
+    from,
+    to,
+    subject: buildRefractoryReviewRequestSubject(report, subjectPrefix),
+    text: appendNotificationEnvironmentNote(
+      buildRefractoryReviewRequestText(report),
+      appEnv,
+    ),
   };
 }
 

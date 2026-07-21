@@ -226,6 +226,8 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
       },
       refractoryNotificationRecipients: [],
       refractoryMaxNotificationRecipients: [],
+      refractoryReviewNotificationRecipients: [],
+      refractoryReviewMaxNotificationRecipients: [],
     };
   },
 };
@@ -3341,6 +3343,8 @@ test("remote API enriches incident location and responsible options from referen
         },
         refractoryNotificationRecipients: [],
         refractoryMaxNotificationRecipients: [],
+        refractoryReviewNotificationRecipients: [],
+        refractoryReviewMaxNotificationRecipients: [],
       };
     },
   };
@@ -3478,6 +3482,8 @@ test("remote API notifies recipients after successful incident submission", asyn
         },
         refractoryNotificationRecipients: [],
         refractoryMaxNotificationRecipients: [],
+        refractoryReviewNotificationRecipients: [],
+        refractoryReviewMaxNotificationRecipients: [],
       };
     },
   };
@@ -3573,6 +3579,8 @@ test("remote API notifies visitor recipients after successful visitor submission
         },
         refractoryNotificationRecipients: [],
         refractoryMaxNotificationRecipients: [],
+        refractoryReviewNotificationRecipients: [],
+        refractoryReviewMaxNotificationRecipients: [],
       };
     },
   };
@@ -3664,6 +3672,8 @@ test("remote API sends one notification for a complete batched equipment report"
         },
         refractoryNotificationRecipients: [],
         refractoryMaxNotificationRecipients: [],
+        refractoryReviewNotificationRecipients: [],
+        refractoryReviewMaxNotificationRecipients: [],
       };
     },
   };
@@ -3969,9 +3979,15 @@ test("refractory reports are submitted and reviewed independently through protec
   let emailedRefractoryRecipients: readonly string[] = [];
   let maxedRefractoryReportId = "";
   let maxedRefractoryRecipients: readonly string[] = [];
+  let emailedReviewRequestReportId = "";
+  let emailedReviewRequestRecipients: readonly string[] = [];
+  let maxedReviewRequestReportId = "";
+  let maxedReviewRequestRecipients: readonly string[] = [];
   let refractoryEmailAttemptCount = 0;
   let refractoryMaxAttemptCount = 0;
-  let refractoryDecisionCommitted = false;
+  let refractoryReviewEmailAttemptCount = 0;
+  let refractoryReviewMaxAttemptCount = 0;
+  let refractoryMutationCommitted = false;
   const repository: RefractoryReportsRepository = {
     async submit(input) {
       stored = {
@@ -4034,36 +4050,51 @@ test("refractory reports are submitted and reviewed independently through protec
         },
         refractoryNotificationRecipients: ["oc@example.com"],
         refractoryMaxNotificationRecipients: ["5001"],
+        refractoryReviewNotificationRecipients: ["dispatcher@example.com"],
+        refractoryReviewMaxNotificationRecipients: ["6001"],
       };
     },
   };
   const refractoryEmailNotificationService: EmailNotificationService = {
     async sendDispatcherSubmissionNotification() {},
     async sendEquipmentReportNotification() {},
-    async sendRefractoryReportNotification(report, recipients) {
-      assert.equal(refractoryDecisionCommitted, true);
-      refractoryEmailAttemptCount += 1;
-      emailedRefractoryReportId = report.reportId;
-      emailedRefractoryRecipients = recipients;
+    async sendRefractoryReportNotification(report, recipients, notificationKind) {
+      assert.equal(refractoryMutationCommitted, true);
+      if (notificationKind === "approved") {
+        refractoryEmailAttemptCount += 1;
+        emailedRefractoryReportId = report.reportId;
+        emailedRefractoryRecipients = recipients;
+      } else {
+        refractoryReviewEmailAttemptCount += 1;
+        emailedReviewRequestReportId = report.reportId;
+        emailedReviewRequestRecipients = recipients;
+      }
       throw new Error("SMTP is temporarily unavailable");
     },
   };
   const refractoryMaxNotificationService: MaxNotificationService = {
     async sendDispatcherSubmissionNotification() {},
     async sendEquipmentReportNotification() {},
-    async sendRefractoryReportNotification(report, recipients) {
-      assert.equal(refractoryDecisionCommitted, true);
-      refractoryMaxAttemptCount += 1;
-      maxedRefractoryReportId = report.reportId;
-      maxedRefractoryRecipients = recipients;
+    async sendRefractoryReportNotification(report, recipients, notificationKind) {
+      assert.equal(refractoryMutationCommitted, true);
+      if (notificationKind === "approved") {
+        refractoryMaxAttemptCount += 1;
+        maxedRefractoryReportId = report.reportId;
+        maxedRefractoryRecipients = recipients;
+      } else {
+        refractoryReviewMaxAttemptCount += 1;
+        maxedReviewRequestReportId = report.reportId;
+        maxedReviewRequestRecipients = recipients;
+      }
       throw new Error("MAX is temporarily unavailable");
     },
   };
-  const refractoryDecisionTransaction: DatabaseTransactionRunner = {
+  const refractoryMutationTransaction: DatabaseTransactionRunner = {
     async run(operation) {
+      refractoryMutationCommitted = false;
       const result = await operation();
 
-      refractoryDecisionCommitted = true;
+      refractoryMutationCommitted = true;
       return result;
     },
   };
@@ -4126,20 +4157,27 @@ test("refractory reports are submitted and reviewed independently through protec
       );
     },
     dispatcherSubmissions,
-    emptyReferenceDataSource,
-    undefined,
-    undefined,
+    refractoryReferenceDataSource,
+    refractoryEmailNotificationService,
+    refractoryMaxNotificationService,
     adminDatabase,
     productionConfig,
     buildAuthService({ profile: operatorProfile }),
     undefined,
     undefined,
     undefined,
-    undefined,
+    refractoryMutationTransaction,
     undefined,
     undefined,
     repository,
   );
+
+  assert.equal(refractoryReviewEmailAttemptCount, 1);
+  assert.equal(emailedReviewRequestReportId, "refractory-1");
+  assert.deepEqual(emailedReviewRequestRecipients, ["dispatcher@example.com"]);
+  assert.equal(refractoryReviewMaxAttemptCount, 1);
+  assert.equal(maxedReviewRequestReportId, "refractory-1");
+  assert.deepEqual(maxedReviewRequestRecipients, ["6001"]);
 
   const dispatcherProfile = buildProductionProfile("dispatcher");
   await withApiServer(
@@ -4211,7 +4249,7 @@ test("refractory reports are submitted and reviewed independently through protec
     undefined,
     undefined,
     undefined,
-    refractoryDecisionTransaction,
+    refractoryMutationTransaction,
     undefined,
     undefined,
     repository,

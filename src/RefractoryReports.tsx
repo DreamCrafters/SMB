@@ -775,14 +775,16 @@ export function RefractoryReviewQueue({
                 </label>
               ) : null}
               <div className="refractory-review-actions">
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={busyId.length > 0}
-                  onClick={() => void decide(report, "approve")}
-                >
-                  Подтвердить
-                </button>
+                {rejectingId === report.id ? null : (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={busyId.length > 0}
+                    onClick={() => void decide(report, "approve")}
+                  >
+                    Подтвердить
+                  </button>
+                )}
                 {rejectingId === report.id ? (
                   <>
                     <button
