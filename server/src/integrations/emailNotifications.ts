@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import type { EmailNotificationConfig, SmbAppEnv } from "../config/env.js";
 import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
+import type { RefractoryReportNotification } from "../domain/refractoryReport.js";
 import {
   buildEquipmentReportNotificationSubject,
   buildEquipmentReportNotificationText,
@@ -12,6 +13,11 @@ import {
   type EquipmentReportNotificationStatus,
 } from "./dispatcherNotifications.js";
 import type { NotificationRecipients } from "./googleSheetsReference.js";
+import {
+  buildRefractoryNotificationSubject,
+  buildRefractoryNotificationText,
+  dedupeRefractoryEmailRecipients,
+} from "./refractoryNotifications.js";
 
 export type EmailMessage = {
   from: string;
@@ -30,6 +36,10 @@ export type EmailNotificationService = {
     recipients: NotificationRecipients,
     status: EquipmentReportNotificationStatus,
   ) => Promise<void>;
+  sendRefractoryReportNotification: (
+    report: RefractoryReportNotification,
+    recipients: readonly string[],
+  ) => Promise<void>;
 };
 
 export type EmailNotificationDependencies = {
@@ -47,6 +57,9 @@ export function createEmailNotificationService(
         // Email notifications are intentionally disabled by env.
       },
       async sendEquipmentReportNotification() {
+        // Email notifications are intentionally disabled by env.
+      },
+      async sendRefractoryReportNotification() {
         // Email notifications are intentionally disabled by env.
       },
     };
@@ -86,6 +99,43 @@ export function createEmailNotificationService(
 
       await sendMail(message);
     },
+    async sendRefractoryReportNotification(report, recipients) {
+      const message = buildRefractoryReportEmail(
+        report,
+        recipients,
+        config.from,
+        config.subjectPrefix,
+        appEnv,
+      );
+
+      if (message !== undefined) {
+        await sendMail(message);
+      }
+    },
+  };
+}
+
+export function buildRefractoryReportEmail(
+  report: RefractoryReportNotification,
+  recipients: readonly string[],
+  from: string,
+  subjectPrefix = "НМОУ Вектор",
+  appEnv: SmbAppEnv = "production",
+): EmailMessage | undefined {
+  const to = dedupeRefractoryEmailRecipients(recipients);
+
+  if (to.length === 0) {
+    return undefined;
+  }
+
+  return {
+    from,
+    to,
+    subject: buildRefractoryNotificationSubject(report, subjectPrefix),
+    text: appendNotificationEnvironmentNote(
+      buildRefractoryNotificationText(report),
+      appEnv,
+    ),
   };
 }
 

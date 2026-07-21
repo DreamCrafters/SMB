@@ -8,6 +8,8 @@ export type DispatcherReferenceData = {
   incidentResponsibleOptions: string[];
   notificationRecipients: NotificationRecipients;
   maxNotificationRecipients: MaxNotificationRecipients;
+  refractoryNotificationRecipients: string[];
+  refractoryMaxNotificationRecipients: string[];
 };
 
 export type NotificationRecipients = NotificationRecipientGroups;
@@ -74,6 +76,8 @@ const emptyReferenceData: DispatcherReferenceData = {
     electricalDowntime: [],
     visitors: [],
   },
+  refractoryNotificationRecipients: [],
+  refractoryMaxNotificationRecipients: [],
 };
 const googleSheetsReadonlyScope =
   "https://www.googleapis.com/auth/spreadsheets.readonly";
@@ -83,6 +87,7 @@ const notificationRecipientRanges = {
   mechanicalDowntime: [{ startRow: 22, endRow: 25 }],
   electricalDowntime: [{ startRow: 27, endRow: 30 }],
   visitors: [{ startRow: 2, endRow: 20 }],
+  refractory: [{ startRow: 2, endRow: 20 }],
 } as const;
 
 export function createGoogleSheetsReferenceDataSource(
@@ -124,6 +129,11 @@ export function createGoogleSheetsReferenceDataSource(
             rows,
             config.maxUserIdColumns,
             config.visitorMaxUserIdColumns,
+          ),
+          ...readRefractoryNotificationRecipientsFromRows(
+            rows,
+            config.refractoryNotificationEmailColumns ?? [],
+            config.refractoryMaxUserIdColumns ?? [],
           ),
         };
       } catch (error) {
@@ -522,6 +532,25 @@ export function readMaxNotificationRecipientsFromCsv(
     columnLabels,
     visitorColumnLabels,
   );
+}
+
+function readRefractoryNotificationRecipientsFromRows(
+  rows: string[][],
+  emailColumnLabels: readonly string[],
+  maxUserIdColumnLabels: readonly string[],
+) {
+  return {
+    refractoryNotificationRecipients: readEmailsFromColumnRows(
+      rows,
+      emailColumnLabels,
+      notificationRecipientRanges.refractory,
+    ),
+    refractoryMaxNotificationRecipients: readMaxUserIdsFromColumnRows(
+      rows,
+      maxUserIdColumnLabels,
+      notificationRecipientRanges.refractory,
+    ),
+  };
 }
 
 export function readColumnOptionsFromRows(

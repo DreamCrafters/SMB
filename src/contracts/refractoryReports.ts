@@ -3,6 +3,12 @@ export type RefractoryReportType = (typeof refractoryReportTypes)[number];
 export type RefractoryShiftNumber = 1 | 2;
 export type RefractoryReportStatus = "pending" | "rejected" | "approved";
 
+export const refractoryReportLabels: Record<RefractoryReportType, string> = {
+  cosh: "ЦОШ",
+  equipment: "Оборудование и выпуск сырца",
+  firing: "Печное отделение",
+};
+
 export const refractoryEquipmentNames = [
   "Пресс СМ-1085 №1",
   "СМ-1085 №2",

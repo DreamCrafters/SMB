@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   refractoryEquipmentNames,
+  refractoryReportLabels,
   type RefractoryCoshPayload,
   type RefractoryEquipmentPayload,
   type RefractoryFiringPayload,
@@ -24,12 +25,6 @@ const reportTypes: readonly RefractoryReportType[] = [
   "firing",
 ];
 
-export const refractoryReportLabels: Record<RefractoryReportType, string> = {
-  cosh: "ЦОШ",
-  equipment: "Оборудование и выпуск сырца",
-  firing: "Печное отделение",
-};
-
 const reportStatusLabels = {
   pending: "Ожидает подтверждения",
   rejected: "Возвращено на доработку",
@@ -42,10 +37,12 @@ export function RefractoryShopWorkspace({
   profile,
   isAdminPreviewMode,
   onShowToast,
+  decisionRefreshVersion = 0,
 }: {
   profile: ServerUserProfile;
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
+  decisionRefreshVersion?: number;
 }) {
   const initialShift = readRefractoryShiftContext();
   const [reportDate, setReportDate] = useState(initialShift.reportDate);
@@ -91,7 +88,13 @@ export function RefractoryShopWorkspace({
       }
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode, reportDate, shiftNumber, refreshVersion]);
+  }, [
+    decisionRefreshVersion,
+    isAdminPreviewMode,
+    reportDate,
+    shiftNumber,
+    refreshVersion,
+  ]);
 
   const activeReport = reports.find(
     (report) => report.reportType === activeType,

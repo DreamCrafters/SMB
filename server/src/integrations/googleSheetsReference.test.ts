@@ -187,6 +187,45 @@ test("readMaxNotificationRecipientsFromCsv accepts combined MAX table header", (
   );
 });
 
+test("google sheets reference source exposes OC recipients from rows 2-20", async () => {
+  const rows = Array.from({ length: 21 }, () => ["", ""]);
+
+  rows[0] = ["Адресаты ОЦ (емейлы)", "Адресаты ОЦ (МАКС)"];
+  rows[1] = ["oc@example.com", "5001; oc_chat_2"];
+  rows[19] = ["oc-last@example.com; OC@example.com", "5002"];
+  rows[20] = ["outside@example.com", "5999"];
+  const source = createGoogleSheetsReferenceDataSource(
+    {
+      url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=0#gid=0",
+      responsibleColumn: "Ответственный за регистрацию",
+      locationColumn: "Места (цех/участок)",
+      notificationEmailColumns: [],
+      maxUserIdColumns: [],
+      visitorNotificationEmailColumns: [],
+      visitorMaxUserIdColumns: [],
+      refractoryNotificationEmailColumns: ["Адресаты ОЦ (емейлы)"],
+      refractoryMaxUserIdColumns: ["Адресаты ОЦ (МАКС)"],
+      cacheTtlMs: 0,
+      authMode: "public_csv",
+    },
+    async () => new Response(rows.map((row) => row.join(",")).join("\n"), {
+      status: 200,
+    }),
+  );
+
+  const referenceData = await source.read();
+
+  assert.deepEqual(referenceData.refractoryNotificationRecipients, [
+    "oc@example.com",
+    "oc-last@example.com",
+  ]);
+  assert.deepEqual(referenceData.refractoryMaxNotificationRecipients, [
+    "5001",
+    "oc_chat_2",
+    "5002",
+  ]);
+});
+
 test("google sheets reference source refetches options when cache ttl is zero", async () => {
   let fetchCount = 0;
   const source = createGoogleSheetsReferenceDataSource(

@@ -14,7 +14,9 @@ const pendingRow = {
   shift_number: 2,
   revision_number: 1,
   status: "pending",
-  payload: JSON.stringify({ rows: [{ productBrand: "ША", rejectTotalPieces: 0 }] }),
+  payload: JSON.stringify({
+    rows: [{ productBrand: "ША", rejectTotalPieces: 0 }],
+  }),
   totals: JSON.stringify({ rejectTotalPieces: 0 }),
   submitted_by_user_id: "operator-user",
   submitted_by_account_id: "operator-account",
@@ -28,7 +30,8 @@ const pendingRow = {
 test("repository blocks a second revision while the first awaits review", async () => {
   const pool = {
     async query(sql: string) {
-      if (sql.includes("order by revision_number desc")) return [[pendingRow], []];
+      if (sql.includes("order by revision_number desc"))
+        return [[pendingRow], []];
       return [[], []];
     },
   } as unknown as DatabasePool;
@@ -80,4 +83,27 @@ test("repository prevents the submitting user from reviewing through another acc
     }),
     RefractoryReportSelfReviewError,
   );
+});
+
+test("repository lists pending and recently reviewed reports for one submitting account", async () => {
+  let querySql = "";
+  let queryParameters: unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters: unknown[]) {
+      querySql = sql;
+      queryParameters = parameters;
+      return [[pendingRow], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRefractoryReportsRepository(pool);
+
+  const reports = await repository.listRecentForSubmitter({
+    submittedByAccountId: "operator-account",
+  });
+
+  assert.equal(reports[0]?.id, "report-1");
+  assert.match(querySql, /submitted_by_account_id = \?/u);
+  assert.match(querySql, /status = 'pending'/u);
+  assert.match(querySql, /reviewed_at >=/u);
+  assert.deepEqual(queryParameters, ["operator-account"]);
 });

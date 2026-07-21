@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildEquipmentReportEmail,
   buildDispatcherSubmissionEmail,
+  buildRefractoryReportEmail,
   createEmailNotificationService,
   type EmailMessage,
 } from "./emailNotifications.js";
@@ -175,6 +176,125 @@ test("buildEquipmentReportEmail sends one message with all equipment rows", () =
   );
 });
 
+test("buildRefractoryReportEmail sends an approved OC table with all entered fields", () => {
+  const message = buildRefractoryReportEmail(
+    buildApprovedRefractoryReport(),
+    ["oc@example.com"],
+    "noreply@example.com",
+    "SMB Monitor",
+  );
+
+  assert.deepEqual(message, {
+    from: "noreply@example.com",
+    to: ["oc@example.com"],
+    subject: "[SMB Monitor] Таблица ОЦ подтверждена: Печное отделение",
+    text: [
+      "Таблица ОЦ подтверждена",
+      "Таблица: Печное отделение",
+      "Дата смены: 20.07.2026",
+      "Смена: 2 (20:00–08:00)",
+      "Ревизия: 1",
+      "Мастер смены: Мастер ОЦ",
+      "Подтвердил: Диспетчер",
+      "",
+      "Данные таблицы:",
+      "Выпуск обожжённых огнеупоров",
+      "1. ША; количество, шт. 100; поддоны 5; годные, т (ср. вес) 10,5; годные, т (взвешено) 10,2; недожог 1; трещины 1; сплав 0; сколы 0; брак всего 2; примечание Партия 7",
+      "Время обжига, часов: 7,5",
+      "Количество сортировщиков: 3",
+      "Причина невыполнения плана: Наладка",
+      "",
+      "Итоги:",
+      "Выпуск, шт: 100",
+      "Поддоны, шт: 5",
+      "Годное по среднему весу, т: 10,5",
+      "Годное по взвешиванию, т: 10,2",
+      "Брак, шт: 2",
+      "Недожог, шт: 1",
+      "Трещины, шт: 1",
+      "Сплав, шт: 0",
+      "Сколы, шт: 0",
+    ].join("\n"),
+  });
+});
+
+test("buildRefractoryReportEmail formats the calculated totals of the other OC tables", () => {
+  const baseReport = buildApprovedRefractoryReport();
+  const coshMessage = buildRefractoryReportEmail(
+    {
+      ...baseReport,
+      reportType: "cosh",
+      payload: {
+        kilnNumber: "3",
+        chamotteOutput: { shbo: 12.5 },
+        jarMeasurements: [{ jarNumber: 1, values: [1.2, 1.4] }],
+        bunkerFill: [{ bunker: "I", productName: "ШБО", quantity: 8 }],
+        chamotteSupply: [{
+          source: "street",
+          productName: "ШГР",
+          quantity: 4.25,
+        }],
+        bagging: { jarNumber: "2", quantity: 2 },
+        note: "Смена без остановок",
+      },
+      totals: {
+        chamotteOutputTons: 12.5,
+        bunkerFillTons: 8,
+        chamotteSupplyTons: 4.25,
+        baggingTons: 2,
+        scrapRemovalTons: 0.5,
+      },
+    },
+    ["oc@example.com"],
+    "noreply@example.com",
+  );
+  const equipmentMessage = buildRefractoryReportEmail(
+    {
+      ...baseReport,
+      reportType: "equipment",
+      payload: {
+        formedRows: [{
+          equipment: "Пресс СМ-1085 №1",
+          productBrand: "ША",
+          actualPieces: 120,
+          actualTons: 6.5,
+          workedHours: 16,
+          mechanicalRepairHours: 8,
+          totalDowntimeHours: 8,
+          note: "Ремонт завершён",
+        }],
+        unformedRows: [{
+          productBrand: "ММК-85",
+          outputNormContainers: 4,
+          actualContainers: 3,
+          actualTons: 1.25,
+        }],
+      },
+      totals: {
+        formedActualPieces: 120,
+        formedActualTons: 6.5,
+        formedWorkedHours: 16,
+        formedDowntimeHours: 8,
+        unformedActualContainers: 3,
+        unformedActualTons: 1.25,
+      },
+    },
+    ["oc@example.com"],
+    "noreply@example.com",
+  );
+
+  assert.match(coshMessage?.text ?? "", /Выработка шамота, т: 12,5/u);
+  assert.match(coshMessage?.text ?? "", /Банка 1: 1,2; 1,4/u);
+  assert.match(coshMessage?.text ?? "", /Источник улица: продукт ШГР/u);
+  assert.match(coshMessage?.text ?? "", /Примечание: Смена без остановок/u);
+  assert.match(coshMessage?.text ?? "", /Вывоз брака, т: 0,5/u);
+  assert.match(equipmentMessage?.text ?? "", /Формованные изделия, шт: 120/u);
+  assert.match(equipmentMessage?.text ?? "", /1\. Пресс СМ-1085 №1; марка ША/u);
+  assert.match(equipmentMessage?.text ?? "", /примечание Ремонт завершён/u);
+  assert.match(equipmentMessage?.text ?? "", /1\. ММК-85; норма, контейнеры 4/u);
+  assert.match(equipmentMessage?.text ?? "", /Неформованные изделия, т: 1,25/u);
+});
+
 test("buildDispatcherSubmissionEmail sends visitor entry to visitor recipients", () => {
   const message = buildDispatcherSubmissionEmail(
     buildSubmission("visitor", {
@@ -300,8 +420,12 @@ test("createEmailNotificationService marks every test-site message at the end", 
     recipients,
     "created",
   );
+  await service.sendRefractoryReportNotification(
+    buildApprovedRefractoryReport(),
+    ["oc@example.com"],
+  );
 
-  assert.equal(sent.length, 2);
+  assert.equal(sent.length, 3);
   for (const message of sent) {
     assert.equal(
       message.text.endsWith("\n\nПримечание: Тестовое сообщение"),
@@ -324,5 +448,46 @@ function buildSubmission(
     submittedByAccountId: "dispatcher-account",
     submittedAt: "2026-07-06T00:00:00.000Z",
     receivedAt: "2026-07-06T00:00:01.000Z",
+  };
+}
+
+function buildApprovedRefractoryReport() {
+  return {
+    reportId: "refractory-report-id",
+    reportType: "firing" as const,
+    reportDate: "2026-07-20",
+    shiftNumber: 2 as const,
+    revisionNumber: 1,
+    payload: {
+      rows: [{
+        productBrand: "ША",
+        quantityPieces: 100,
+        palletCount: 5,
+        goodTonsAverageWeight: 10.5,
+        goodTonsWeighed: 10.2,
+        rejectUnderburnPieces: 1,
+        rejectCracksPieces: 1,
+        rejectFusionPieces: 0,
+        rejectChipsPieces: 0,
+        rejectTotalPieces: 2,
+        note: "Партия 7",
+      }],
+      calcinationHours: 7.5,
+      sorterCount: 3,
+      planFailureReason: "Наладка",
+    },
+    totals: {
+      quantityPieces: 100,
+      palletCount: 5,
+      goodTonsAverageWeight: 10.5,
+      goodTonsWeighed: 10.2,
+      rejectTotalPieces: 2,
+      rejectUnderburnPieces: 1,
+      rejectCracksPieces: 1,
+      rejectFusionPieces: 0,
+      rejectChipsPieces: 0,
+    },
+    masterDisplayName: "Мастер ОЦ",
+    reviewerDisplayName: "Диспетчер",
   };
 }

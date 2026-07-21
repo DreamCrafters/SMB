@@ -13,6 +13,18 @@ test("production snapshot stays disabled unless explicitly configured", () => {
   assert.deepEqual(config.productionSnapshot, { enabled: false });
 });
 
+test("google sheets reference uses the OC recipient column names by default", () => {
+  const config = readServerConfig(baseEnv);
+
+  assert.deepEqual(
+    config.googleSheetsReference.refractoryNotificationEmailColumns,
+    ["Адресаты ОЦ (емейлы)"],
+  );
+  assert.deepEqual(config.googleSheetsReference.refractoryMaxUserIdColumns, [
+    "Адресаты ОЦ (МАКС)",
+  ]);
+});
+
 test("production snapshot requires an exact test target database guard", () => {
   const config = readServerConfig({
     ...baseEnv,

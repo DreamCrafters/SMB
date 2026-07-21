@@ -224,6 +224,8 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
         electricalDowntime: [],
         visitors: [],
       },
+      refractoryNotificationRecipients: [],
+      refractoryMaxNotificationRecipients: [],
     };
   },
 };
@@ -3337,6 +3339,8 @@ test("remote API enriches incident location and responsible options from referen
           electricalDowntime: [],
           visitors: [],
         },
+        refractoryNotificationRecipients: [],
+        refractoryMaxNotificationRecipients: [],
       };
     },
   };
@@ -3472,6 +3476,8 @@ test("remote API notifies recipients after successful incident submission", asyn
           electricalDowntime: [],
           visitors: [],
         },
+        refractoryNotificationRecipients: [],
+        refractoryMaxNotificationRecipients: [],
       };
     },
   };
@@ -3483,6 +3489,9 @@ test("remote API notifies recipients after successful incident submission", asyn
     async sendEquipmentReportNotification() {
       throw new Error("Unexpected equipment report notification.");
     },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
+    },
   };
   const maxNotificationService: MaxNotificationService = {
     async sendDispatcherSubmissionNotification(submission, recipients) {
@@ -3491,6 +3500,9 @@ test("remote API notifies recipients after successful incident submission", asyn
     },
     async sendEquipmentReportNotification() {
       throw new Error("Unexpected equipment report notification.");
+    },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
     },
   };
 
@@ -3559,6 +3571,8 @@ test("remote API notifies visitor recipients after successful visitor submission
           electricalDowntime: [],
           visitors: ["4001"],
         },
+        refractoryNotificationRecipients: [],
+        refractoryMaxNotificationRecipients: [],
       };
     },
   };
@@ -3570,6 +3584,9 @@ test("remote API notifies visitor recipients after successful visitor submission
     async sendEquipmentReportNotification() {
       throw new Error("Unexpected equipment report notification.");
     },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
+    },
   };
   const maxNotificationService: MaxNotificationService = {
     async sendDispatcherSubmissionNotification(submission, recipients) {
@@ -3578,6 +3595,9 @@ test("remote API notifies visitor recipients after successful visitor submission
     },
     async sendEquipmentReportNotification() {
       throw new Error("Unexpected equipment report notification.");
+    },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
     },
   };
 
@@ -3642,6 +3662,8 @@ test("remote API sends one notification for a complete batched equipment report"
           electricalDowntime: [],
           visitors: [],
         },
+        refractoryNotificationRecipients: [],
+        refractoryMaxNotificationRecipients: [],
       };
     },
   };
@@ -3653,6 +3675,9 @@ test("remote API sends one notification for a complete batched equipment report"
       notifiedCount = submissions.length;
       notifiedStatus = status;
     },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
+    },
   };
   const maxNotificationService: MaxNotificationService = {
     async sendDispatcherSubmissionNotification() {
@@ -3661,6 +3686,9 @@ test("remote API sends one notification for a complete batched equipment report"
     async sendEquipmentReportNotification(submissions, _recipients, status) {
       maxNotifiedCount = submissions.length;
       maxNotifiedStatus = status;
+    },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
     },
   };
 
@@ -3936,6 +3964,14 @@ test("remote API accepts incident close for an earlier-day open incident", async
 
 test("refractory reports are submitted and reviewed independently through protected API", async () => {
   let stored: RefractoryReportRevision | undefined;
+  let listedForAccountId = "";
+  let emailedRefractoryReportId = "";
+  let emailedRefractoryRecipients: readonly string[] = [];
+  let maxedRefractoryReportId = "";
+  let maxedRefractoryRecipients: readonly string[] = [];
+  let refractoryEmailAttemptCount = 0;
+  let refractoryMaxAttemptCount = 0;
+  let refractoryDecisionCommitted = false;
   const repository: RefractoryReportsRepository = {
     async submit(input) {
       stored = {
@@ -3956,16 +3992,79 @@ test("refractory reports are submitted and reviewed independently through protec
     async listPending() {
       return stored?.status === "pending" ? [stored] : [];
     },
+    async listRecentForSubmitter(input) {
+      listedForAccountId = input.submittedByAccountId;
+      return stored === undefined ? [] : [stored];
+    },
     async review(input) {
       assert.equal(input.reviewerAccountId, "prod-access-dispatcher");
-      assert.equal(input.decision.decision, "approve");
-      stored = {
-        ...stored!,
-        status: "approved",
-        reviewerDisplayName: input.reviewerDisplayName,
-        reviewedAt: "2026-07-20T20:35:00.000Z",
-      };
+      stored = input.decision.decision === "approve"
+        ? {
+            ...stored!,
+            status: "approved",
+            reviewerDisplayName: input.reviewerDisplayName,
+            reviewedAt: "2026-07-20T20:35:00.000Z",
+          }
+        : {
+            ...stored!,
+            status: "rejected",
+            reviewerDisplayName: input.reviewerDisplayName,
+            reviewedAt: "2026-07-20T20:40:00.000Z",
+            rejectionComment: input.decision.comment,
+          };
       return stored;
+    },
+  };
+  const refractoryReferenceDataSource: DispatcherReferenceDataSource = {
+    async read() {
+      return {
+        incidentLocationOptions: [],
+        incidentResponsibleOptions: [],
+        notificationRecipients: {
+          incidentAndEquipment: [],
+          mechanicalDowntime: [],
+          electricalDowntime: [],
+          visitors: [],
+        },
+        maxNotificationRecipients: {
+          incidentAndEquipment: [],
+          mechanicalDowntime: [],
+          electricalDowntime: [],
+          visitors: [],
+        },
+        refractoryNotificationRecipients: ["oc@example.com"],
+        refractoryMaxNotificationRecipients: ["5001"],
+      };
+    },
+  };
+  const refractoryEmailNotificationService: EmailNotificationService = {
+    async sendDispatcherSubmissionNotification() {},
+    async sendEquipmentReportNotification() {},
+    async sendRefractoryReportNotification(report, recipients) {
+      assert.equal(refractoryDecisionCommitted, true);
+      refractoryEmailAttemptCount += 1;
+      emailedRefractoryReportId = report.reportId;
+      emailedRefractoryRecipients = recipients;
+      throw new Error("SMTP is temporarily unavailable");
+    },
+  };
+  const refractoryMaxNotificationService: MaxNotificationService = {
+    async sendDispatcherSubmissionNotification() {},
+    async sendEquipmentReportNotification() {},
+    async sendRefractoryReportNotification(report, recipients) {
+      assert.equal(refractoryDecisionCommitted, true);
+      refractoryMaxAttemptCount += 1;
+      maxedRefractoryReportId = report.reportId;
+      maxedRefractoryRecipients = recipients;
+      throw new Error("MAX is temporarily unavailable");
+    },
+  };
+  const refractoryDecisionTransaction: DatabaseTransactionRunner = {
+    async run(operation) {
+      const result = await operation();
+
+      refractoryDecisionCommitted = true;
+      return result;
     },
   };
   const operatorProfile = buildProductionProfile("worker");
@@ -4011,6 +4110,20 @@ test("refractory reports are submitted and reviewed independently through protec
           : true,
         false,
       );
+      const ownResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/own`,
+        { headers: { Cookie: "smb_session=prod-session" } },
+      );
+      const ownPayload = await ownResponse.json();
+
+      assert.equal(ownResponse.status, 200);
+      assert.equal(listedForAccountId, "prod-access-worker");
+      assert.equal(
+        isRecord(ownPayload) && Array.isArray(ownPayload.reports)
+          ? ownPayload.reports.length
+          : 0,
+        1,
+      );
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -4052,18 +4165,53 @@ test("refractory reports are submitted and reviewed independently through protec
       assert.equal(invalidRejectResponse.status, 400);
       assert.equal(approvalResponse.status, 200);
       assert.equal(stored?.status, "approved");
+      assert.equal(refractoryEmailAttemptCount, 1);
+      assert.equal(emailedRefractoryReportId, "refractory-1");
+      assert.deepEqual(emailedRefractoryRecipients, ["oc@example.com"]);
+      assert.equal(refractoryMaxAttemptCount, 1);
+      assert.equal(maxedRefractoryReportId, "refractory-1");
+      assert.deepEqual(maxedRefractoryRecipients, ["5001"]);
+
+      const {
+        reviewerDisplayName: _reviewerDisplayName,
+        reviewedAt: _reviewedAt,
+        rejectionComment: _rejectionComment,
+        ...storedReport
+      } = stored!;
+      stored = {
+        ...storedReport,
+        id: "refractory-2",
+        status: "pending",
+      };
+      const rejectionResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/refractory-2/decision`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            decision: "reject",
+            comment: "Уточните замеры.",
+          }),
+        },
+      );
+
+      assert.equal(rejectionResponse.status, 200);
+      assert.equal(stored.status, "rejected");
+      assert.equal(stored.rejectionComment, "Уточните замеры.");
+      assert.equal(refractoryEmailAttemptCount, 1);
+      assert.equal(refractoryMaxAttemptCount, 1);
     },
     dispatcherSubmissions,
-    emptyReferenceDataSource,
-    undefined,
-    undefined,
+    refractoryReferenceDataSource,
+    refractoryEmailNotificationService,
+    refractoryMaxNotificationService,
     adminDatabase,
     productionConfig,
     buildAuthService({ profile: dispatcherProfile }),
     undefined,
     undefined,
     undefined,
-    undefined,
+    refractoryDecisionTransaction,
     undefined,
     undefined,
     repository,

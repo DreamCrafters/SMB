@@ -1,4 +1,5 @@
 import {
+  refractoryReportLabels,
   refractoryReportTypes,
   type RefractoryReportDecision,
   type RefractoryReportRevision,
@@ -62,6 +63,61 @@ export async function requestPendingRefractoryReports(
   if (result.status === "error") return result;
   if (!isReportsResponse(result.payload)) return invalidResponse();
   return { status: "ready", reports: result.payload.reports };
+}
+
+export async function requestOwnRefractoryReports(
+  options: RequestOptions = {},
+): Promise<RefractoryReportsResult> {
+  const result = await requestJson(
+    `${REPORTS_PATH}/own`,
+    "GET",
+    undefined,
+    options,
+  );
+  if (result.status === "error") return result;
+  if (!isReportsResponse(result.payload)) return invalidResponse();
+  return { status: "ready", reports: result.payload.reports };
+}
+
+export function buildRefractoryDecisionNotifications(
+  previousStatuses: ReadonlyMap<string, RefractoryReportRevision["status"]>,
+  reports: readonly RefractoryReportRevision[],
+) {
+  return reports.flatMap((report) => {
+    if (
+      report.status === "pending" ||
+      previousStatuses.get(report.id) === report.status
+    ) {
+      return [];
+    }
+
+    const context = `${refractoryReportLabels[report.reportType]} · ${formatReportDate(
+      report.reportDate,
+    )} · смена ${report.shiftNumber}.`;
+
+    if (report.status === "approved") {
+      return [
+        { reportId: report.id, title: "Таблица принята", message: context },
+      ];
+    }
+
+    const comment = truncateNotificationText(
+      report.rejectionComment?.trim() ?? "Требуется доработка.",
+    );
+    return [
+      {
+        reportId: report.id,
+        title: "Возвращено на доработку",
+        message: `${context} Причина: ${comment}`,
+      },
+    ];
+  });
+}
+
+export function buildRefractoryStatusMap(
+  reports: readonly RefractoryReportRevision[],
+) {
+  return new Map(reports.map((report) => [report.id, report.status] as const));
 }
 
 export async function decideRefractoryReport(
@@ -217,6 +273,18 @@ async function readJson(response: Response) {
   } catch {
     return undefined;
   }
+}
+
+function formatReportDate(value: string) {
+  const [year, month, day] = value.split("-");
+  return `${day}.${month}.${year}`;
+}
+
+function truncateNotificationText(value: string) {
+  const maxLength = 180;
+  return value.length <= maxLength
+    ? value
+    : `${value.slice(0, maxLength - 1)}…`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

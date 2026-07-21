@@ -50,9 +50,16 @@ import {
   normalizeProductionBrandLabelInput,
 } from "../domain/productionBrand.js";
 import {
+  refractoryReportLabels,
   validateRefractoryReportDecision,
   validateRefractoryReportSubmission,
-  type RefractoryReportType,
+  type RefractoryCoshPayload,
+  type RefractoryCoshTotals,
+  type RefractoryEquipmentPayload,
+  type RefractoryEquipmentTotals,
+  type RefractoryFiringPayload,
+  type RefractoryFiringTotals,
+  type RefractoryReportNotification,
   type RefractoryShiftNumber,
 } from "../domain/refractoryReport.js";
 import {
@@ -120,6 +127,7 @@ import {
   RefractoryReportPendingError,
   RefractoryReportSelfReviewError,
   toPublicRefractoryReportRevision,
+  type RefractoryReportRevision,
   type RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
 
@@ -359,6 +367,7 @@ export function createApiServer({
       if (
         url.pathname === "/api/refractory-reports" ||
         url.pathname === "/api/refractory-reports/pending" ||
+        url.pathname === "/api/refractory-reports/own" ||
         /^\/api\/refractory-reports\/[^/]+\/decision$/u.test(url.pathname)
       ) {
         await handleRefractoryReportsRequest({
@@ -369,6 +378,9 @@ export function createApiServer({
           devSessions,
           authService,
           refractoryReports,
+          referenceDataSource,
+          emailNotificationService,
+          maxNotificationService,
           audit,
           databaseTransaction,
         });
@@ -747,12 +759,6 @@ export function createApiServer({
   });
 }
 
-const refractoryReportLabels: Record<RefractoryReportType, string> = {
-  cosh: "ЦОШ",
-  equipment: "Оборудование и выпуск сырца",
-  firing: "Печное отделение",
-};
-
 async function handleRefractoryReportsRequest({
   req,
   res,
@@ -761,6 +767,9 @@ async function handleRefractoryReportsRequest({
   devSessions,
   authService,
   refractoryReports,
+  referenceDataSource,
+  emailNotificationService,
+  maxNotificationService,
   audit,
   databaseTransaction,
 }: {
@@ -771,6 +780,9 @@ async function handleRefractoryReportsRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   refractoryReports: RefractoryReportsRepository | undefined;
+  referenceDataSource: DispatcherReferenceDataSource;
+  emailNotificationService: EmailNotificationService;
+  maxNotificationService: MaxNotificationService;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
 }) {
@@ -824,6 +836,29 @@ async function handleRefractoryReportsRequest({
       reports: (await refractoryReports.listPending()).map(
         toPublicRefractoryReportRevision,
       ),
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/refractory-reports/own") {
+    if (req.method !== "GET" || !canSubmit) {
+      sendJson(res, req.method === "GET" ? 403 : 405, {
+        error: {
+          code: "access_denied",
+          message:
+            req.method === "GET"
+              ? "Решения по таблицам доступны сотруднику огнеупорного цеха."
+              : "Для проверки решений используется GET.",
+        },
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      reports: (
+        await refractoryReports.listRecentForSubmitter({
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        })
+      ).map(toPublicRefractoryReportRevision),
     });
     return;
   }
@@ -893,6 +928,14 @@ async function handleRefractoryReportsRequest({
           targetId: saved.id,
         }),
       });
+      if (validation.value.decision === "approve") {
+        await notifyApprovedRefractoryReport(
+          report,
+          referenceDataSource,
+          emailNotificationService,
+          maxNotificationService,
+        );
+      }
       sendJson(res, 200, {
         report: toPublicRefractoryReportRevision(report),
       });
@@ -3729,6 +3772,80 @@ async function notifyDispatcherSubmission(
   } catch (error) {
     console.warn("dispatcher_notifications.reference_data_failed", error);
   }
+}
+
+async function notifyApprovedRefractoryReport(
+  report: RefractoryReportRevision,
+  referenceDataSource: DispatcherReferenceDataSource,
+  emailNotificationService: EmailNotificationService,
+  maxNotificationService: MaxNotificationService,
+) {
+  let referenceData: Awaited<ReturnType<DispatcherReferenceDataSource["read"]>>;
+
+  try {
+    referenceData = await referenceDataSource.read();
+  } catch (error) {
+    console.warn("refractory_notifications.reference_data_failed", error);
+    return;
+  }
+
+  try {
+    await emailNotificationService.sendRefractoryReportNotification(
+      toRefractoryReportNotification(report),
+      referenceData.refractoryNotificationRecipients,
+    );
+  } catch (error) {
+    console.warn("refractory_notifications.email_send_failed", error);
+  }
+
+  try {
+    await maxNotificationService.sendRefractoryReportNotification(
+      toRefractoryReportNotification(report),
+      referenceData.refractoryMaxNotificationRecipients,
+    );
+  } catch (error) {
+    console.warn("refractory_notifications.max_send_failed", error);
+  }
+}
+
+function toRefractoryReportNotification(
+  report: RefractoryReportRevision,
+): RefractoryReportNotification {
+  const base = {
+    reportId: report.id,
+    reportDate: report.reportDate,
+    shiftNumber: report.shiftNumber,
+    revisionNumber: report.revisionNumber,
+    masterDisplayName: report.masterDisplayName,
+    ...(report.reviewerDisplayName === undefined
+      ? {}
+      : { reviewerDisplayName: report.reviewerDisplayName }),
+  };
+
+  if (report.reportType === "cosh") {
+    return {
+      ...base,
+      reportType: "cosh",
+      payload: report.payload as RefractoryCoshPayload,
+      totals: report.totals as RefractoryCoshTotals,
+    };
+  }
+
+  if (report.reportType === "equipment") {
+    return {
+      ...base,
+      reportType: "equipment",
+      payload: report.payload as RefractoryEquipmentPayload,
+      totals: report.totals as RefractoryEquipmentTotals,
+    };
+  }
+
+  return {
+    ...base,
+    reportType: "firing",
+    payload: report.payload as RefractoryFiringPayload,
+    totals: report.totals as RefractoryFiringTotals,
+  };
 }
 
 async function notifyDispatcherEquipmentReport(

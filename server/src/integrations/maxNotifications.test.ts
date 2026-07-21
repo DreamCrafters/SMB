@@ -145,8 +145,12 @@ test("createMaxNotificationService marks every test-site message at the end", as
     }),
     testRecipients,
   );
+  await service.sendRefractoryReportNotification(
+    buildApprovedRefractoryReport(),
+    ["5001"],
+  );
 
-  assert.equal(sentBodies.length, 3);
+  assert.equal(sentBodies.length, 4);
   for (const body of sentBodies) {
     assert.equal(
       JSON.parse(body).text.endsWith(
@@ -447,6 +451,92 @@ test("createMaxNotificationService sends equipment report as one message", async
   );
 });
 
+test("createMaxNotificationService sends an approved OC table to its MAX recipients", async () => {
+  const sent: { url: string; body: string }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "chat_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await service.sendRefractoryReportNotification(
+    buildApprovedRefractoryReport(),
+    ["5001", "oc_chat_2"],
+  );
+
+  assert.deepEqual(
+    sent.map((item) => item.url),
+    [
+      "https://platform-api2.max.ru/messages?chat_id=5001",
+      "https://platform-api2.max.ru/messages?chat_id=oc_chat_2",
+    ],
+  );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /^\[SMB Monitor\] Таблица ОЦ подтверждена\nТаблица: Печное отделение/mu,
+  );
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Брак, шт: 2/u);
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /1\. ША; количество, шт\. 100/u,
+  );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Причина невыполнения плана: Наладка/u,
+  );
+});
+
+test("createMaxNotificationService splits a large OC table without dropping its rows", async () => {
+  const sentTexts: string[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "chat_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(_input, init) {
+        sentTexts.push(JSON.parse(String(init?.body)).text);
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+  const baseReport = buildApprovedRefractoryReport();
+
+  await service.sendRefractoryReportNotification(
+    {
+      ...baseReport,
+      payload: {
+        ...baseReport.payload,
+        rows: Array.from({ length: 4 }, (_, index) => ({
+          ...baseReport.payload.rows[0]!,
+          productBrand: `ША-${index + 1}`,
+          note: `${index + 1}-${"Д".repeat(1_500)}`,
+        })),
+      },
+    },
+    ["5001"],
+  );
+
+  assert.equal(sentTexts.length > 1, true);
+  assert.equal(sentTexts.every((text) => text.length <= 4_000), true);
+  assert.equal(sentTexts.some((text) => text.includes("1-ДДД")), true);
+  assert.equal(sentTexts.some((text) => text.includes("4-ДДД")), true);
+  assert.equal(sentTexts.some((text) => text.endsWith("\u2026")), false);
+});
+
 function buildSubmission(
   formId: DispatcherSubmission["formId"],
   payload: DispatcherSubmission["payload"],
@@ -461,5 +551,46 @@ function buildSubmission(
     submittedByAccountId: "dispatcher-account",
     submittedAt: "2026-07-06T00:00:00.000Z",
     receivedAt: "2026-07-06T00:00:01.000Z",
+  };
+}
+
+function buildApprovedRefractoryReport() {
+  return {
+    reportId: "refractory-report-id",
+    reportType: "firing" as const,
+    reportDate: "2026-07-20",
+    shiftNumber: 2 as const,
+    revisionNumber: 1,
+    payload: {
+      rows: [{
+        productBrand: "ША",
+        quantityPieces: 100,
+        palletCount: 5,
+        goodTonsAverageWeight: 10.5,
+        goodTonsWeighed: 10.2,
+        rejectUnderburnPieces: 1,
+        rejectCracksPieces: 1,
+        rejectFusionPieces: 0,
+        rejectChipsPieces: 0,
+        rejectTotalPieces: 2,
+        note: "Партия 7",
+      }],
+      calcinationHours: 7.5,
+      sorterCount: 3,
+      planFailureReason: "Наладка",
+    },
+    totals: {
+      quantityPieces: 100,
+      palletCount: 5,
+      goodTonsAverageWeight: 10.5,
+      goodTonsWeighed: 10.2,
+      rejectTotalPieces: 2,
+      rejectUnderburnPieces: 1,
+      rejectCracksPieces: 1,
+      rejectFusionPieces: 0,
+      rejectChipsPieces: 0,
+    },
+    masterDisplayName: "Мастер ОЦ",
+    reviewerDisplayName: "Диспетчер",
   };
 }

@@ -207,7 +207,12 @@ import {
   RefractoryReviewQueue,
   RefractoryShopWorkspace,
 } from "./RefractoryReports";
-import { requestPendingRefractoryReports } from "./services/refractoryReports";
+import {
+  buildRefractoryDecisionNotifications,
+  buildRefractoryStatusMap,
+  requestOwnRefractoryReports,
+  requestPendingRefractoryReports,
+} from "./services/refractoryReports";
 
 type BusinessTab =
   | "overview"
@@ -523,6 +528,11 @@ export default function App() {
   const [refractoryQueueError, setRefractoryQueueError] = useState("");
   const knownPendingRefractoryIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedPendingRefractoryRef = useRef(false);
+  const knownOwnRefractoryStatusesRef = useRef<
+    Map<string, RefractoryReportRevision["status"]>
+  >(new Map());
+  const hasLoadedOwnRefractoryRef = useRef(false);
+  const [refractoryDecisionVersion, setRefractoryDecisionVersion] = useState(0);
   const [dispatcherSubmissionVersion, setDispatcherSubmissionVersion] = useState(0);
   const [dispatcherFeedFilters, setDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
@@ -706,6 +716,64 @@ export default function App() {
 
     return () => {
       controller.abort();
+    };
+  }, [accessProfile]);
+
+  useEffect(() => {
+    if (
+      accessProfile.status !== "ready" ||
+      !hasCapability(
+        accessProfile.profile,
+        "business.submit_refractory_reports",
+      )
+    ) {
+      knownOwnRefractoryStatusesRef.current = new Map();
+      hasLoadedOwnRefractoryRef.current = false;
+      return;
+    }
+
+    let isActive = true;
+    let isLoading = false;
+    let controller: AbortController | undefined;
+
+    async function loadOwnRefractoryReports() {
+      if (isLoading) return;
+      isLoading = true;
+      controller?.abort();
+      controller = new AbortController();
+      const result = await requestOwnRefractoryReports({
+        signal: controller.signal,
+      });
+      isLoading = false;
+      if (!isActive || controller.signal.aborted || result.status === "error") {
+        return;
+      }
+
+      if (hasLoadedOwnRefractoryRef.current) {
+        const notifications = buildRefractoryDecisionNotifications(
+          knownOwnRefractoryStatusesRef.current,
+          result.reports,
+        );
+        for (const notification of notifications) {
+          handleShowToast(notification.title, notification.message);
+        }
+        if (notifications.length > 0) {
+          setRefractoryDecisionVersion((value) => value + 1);
+        }
+      }
+
+      knownOwnRefractoryStatusesRef.current = buildRefractoryStatusMap(
+        result.reports,
+      );
+      hasLoadedOwnRefractoryRef.current = true;
+    }
+
+    void loadOwnRefractoryReports();
+    const intervalId = window.setInterval(loadOwnRefractoryReports, 5_000);
+    return () => {
+      isActive = false;
+      controller?.abort();
+      window.clearInterval(intervalId);
     };
   }, [accessProfile]);
 
@@ -1336,6 +1404,7 @@ export default function App() {
           onSelectAdminAccountView={handleStartAdminAccountView}
           pendingRefractoryReports={pendingRefractoryReports}
           refractoryQueueError={refractoryQueueError}
+          refractoryDecisionVersion={refractoryDecisionVersion}
           onRefractoryReportResolved={handleRefractoryReportResolved}
         />
       </section>
@@ -1958,6 +2027,7 @@ function RoleWorkspace({
   onSelectAdminAccountView,
   pendingRefractoryReports,
   refractoryQueueError,
+  refractoryDecisionVersion,
   onRefractoryReportResolved,
 }: {
   profile: ServerUserProfile;
@@ -1979,6 +2049,7 @@ function RoleWorkspace({
   onSelectAdminAccountView: (account: AdminAccountSummary) => void;
   pendingRefractoryReports: RefractoryReportRevision[];
   refractoryQueueError: string;
+  refractoryDecisionVersion: number;
   onRefractoryReportResolved: (reportId: string) => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
@@ -2027,6 +2098,7 @@ function RoleWorkspace({
             profile={profile}
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
+            decisionRefreshVersion={refractoryDecisionVersion}
           />
         );
       }

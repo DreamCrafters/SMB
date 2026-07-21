@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
 import type { MaxNotificationConfig, SmbAppEnv } from "../config/env.js";
 import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
+import type { RefractoryReportNotification } from "../domain/refractoryReport.js";
 import {
   buildEquipmentReportNotificationText,
   buildDispatcherNotificationText,
@@ -12,6 +13,10 @@ import {
   testNotificationNote,
 } from "./dispatcherNotifications.js";
 import type { MaxNotificationRecipients } from "./googleSheetsReference.js";
+import {
+  buildRefractoryNotificationText,
+  dedupeRefractoryMaxRecipients,
+} from "./refractoryNotifications.js";
 
 export type MaxNotificationService = {
   sendDispatcherSubmissionNotification: (
@@ -22,6 +27,10 @@ export type MaxNotificationService = {
     submissions: readonly DispatcherSubmission[],
     recipients: MaxNotificationRecipients,
     status: EquipmentReportNotificationStatus,
+  ) => Promise<void>;
+  sendRefractoryReportNotification: (
+    report: RefractoryReportNotification,
+    recipients: readonly string[],
   ) => Promise<void>;
 };
 
@@ -63,6 +72,9 @@ export function createMaxNotificationService(
       async sendEquipmentReportNotification() {
         // MAX notifications are intentionally disabled by env.
       },
+      async sendRefractoryReportNotification() {
+        // MAX notifications are intentionally disabled by env.
+      },
     };
   }
 
@@ -72,8 +84,7 @@ export function createMaxNotificationService(
       ? sendMaxHttpsRequest
       : createMaxFetchClient(dependencies.fetchImpl ?? fetch));
   const readTextFile =
-    dependencies.readTextFile ??
-    ((path: string) => readFile(path, "utf8"));
+    dependencies.readTextFile ?? ((path: string) => readFile(path, "utf8"));
   const caCertificatePromise =
     config.caCertFile === undefined
       ? Promise.resolve(undefined)
@@ -97,7 +108,10 @@ export function createMaxNotificationService(
       }
 
       const text = buildMaxMessageText(
-        withMaxSubjectPrefix(config.subjectPrefix, buildDispatcherNotificationText(submission)),
+        withMaxSubjectPrefix(
+          config.subjectPrefix,
+          buildDispatcherNotificationText(submission),
+        ),
         appEnv,
       );
       const caCertificate = await caCertificatePromise;
@@ -148,6 +162,45 @@ export function createMaxNotificationService(
         formId: "equipment",
         recipientIdType: config.recipientIdType,
         recipientCount: userIds.length,
+      });
+    },
+    async sendRefractoryReportNotification(report, recipients) {
+      const userIds = dedupeRefractoryMaxRecipients(recipients);
+
+      if (userIds.length === 0) {
+        console.warn("refractory_notifications.max_no_recipients", {
+          reportType: report.reportType,
+        });
+        return;
+      }
+
+      const texts = buildMaxMessageTexts(
+        withMaxSubjectPrefix(
+          config.subjectPrefix,
+          buildRefractoryNotificationText(report),
+        ),
+        appEnv,
+      );
+      const caCertificate = await caCertificatePromise;
+
+      await Promise.all(
+        userIds.map(async (userId) => {
+          for (const text of texts) {
+            await sendMaxMessage(
+              httpClient,
+              config,
+              userId,
+              text,
+              caCertificate,
+            );
+          }
+        }),
+      );
+      console.info("refractory_notifications.max_sent", {
+        reportType: report.reportType,
+        recipientIdType: config.recipientIdType,
+        recipientCount: userIds.length,
+        messageCount: texts.length,
       });
     },
   };
@@ -258,6 +311,43 @@ function buildMaxMessageText(value: string, appEnv: SmbAppEnv) {
   const text = trimMaxMessageText(value, maxMessageLength - noteLength);
 
   return appendNotificationEnvironmentNote(text, appEnv);
+}
+
+function buildMaxMessageTexts(value: string, appEnv: SmbAppEnv) {
+  const noteLength = appEnv === "test" ? testNotificationNote.length + 2 : 0;
+  const singleMessageLimit = maxMessageLength - noteLength;
+
+  if (value.length <= singleMessageLimit) {
+    return [appendNotificationEnvironmentNote(value, appEnv)];
+  }
+
+  const chunks = splitNotificationText(value, singleMessageLimit - 32);
+
+  return chunks.map((chunk, index) =>
+    appendNotificationEnvironmentNote(
+      `Часть ${index + 1} из ${chunks.length}\n${chunk}`,
+      appEnv,
+    ),
+  );
+}
+
+function splitNotificationText(value: string, maxLength: number) {
+  const chunks: string[] = [];
+  let remaining = value;
+
+  while (remaining.length > maxLength) {
+    const newlineIndex = remaining.lastIndexOf("\n", maxLength);
+    const splitIndex = newlineIndex > 0 ? newlineIndex : maxLength;
+
+    chunks.push(remaining.slice(0, splitIndex));
+    remaining = remaining.slice(splitIndex + (newlineIndex > 0 ? 1 : 0));
+  }
+
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
 }
 
 function trimMaxMessageText(value: string, maxLength = maxMessageLength) {

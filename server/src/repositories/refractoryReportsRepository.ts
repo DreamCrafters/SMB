@@ -44,6 +44,9 @@ export type RefractoryReportsRepository = {
     shiftNumber: RefractoryShiftNumber;
   }) => Promise<RefractoryReportRevision[]>;
   listPending: () => Promise<RefractoryReportRevision[]>;
+  listRecentForSubmitter: (input: {
+    submittedByAccountId: string;
+  }) => Promise<RefractoryReportRevision[]>;
   review: (input: {
     reportId: string;
     decision: RefractoryReportDecision;
@@ -231,6 +234,22 @@ export function createRefractoryReportsRepository(
          from refractory_report_revisions
          where status = 'pending'
          order by submitted_at asc, id asc`,
+      );
+      return rows.map(mapRevision);
+    },
+
+    async listRecentForSubmitter(input) {
+      const [rows] = await pool.query<RefractoryReportRow[]>(
+        `select ${selectRevisionFields}
+         from refractory_report_revisions
+         where submitted_by_account_id = ?
+           and (
+             status = 'pending'
+             or reviewed_at >= current_timestamp(3) - interval 30 day
+           )
+         order by coalesce(reviewed_at, submitted_at) desc, id desc
+         limit 200`,
+        [input.submittedByAccountId],
       );
       return rows.map(mapRevision);
     },
