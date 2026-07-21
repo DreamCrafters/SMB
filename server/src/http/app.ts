@@ -61,6 +61,7 @@ import {
   type RefractoryFiringTotals,
   type RefractoryReportNotification,
   type RefractoryShiftNumber,
+  type ValidatedRefractoryReportSubmission,
 } from "../domain/refractoryReport.js";
 import {
   getDispatcherFormDefinition,
@@ -74,6 +75,7 @@ import type {
 import type {
   AdminDatabaseRepository,
   AdminDatabaseCellValue,
+  AdminDatabaseTableRows,
 } from "../repositories/adminDatabaseRepository.js";
 import {
   ArchivedAccountLoginStatusError,
@@ -86,8 +88,11 @@ import {
   type SetAccountPositionInput,
 } from "../repositories/accountsRepository.js";
 import {
+  createGoogleSheetsProductionBrandsDataSource,
   createGoogleSheetsReferenceDataSource,
   type DispatcherReferenceDataSource,
+  type ProductionBrandReference,
+  type ProductionBrandsDataSource,
 } from "../integrations/googleSheetsReference.js";
 import {
   createEmailNotificationService,
@@ -121,7 +126,6 @@ import {
   type ProductionDatabaseSnapshotService,
 } from "../db/productionSnapshot.js";
 import type { ProductionPlansRepository } from "../repositories/productionPlansRepository.js";
-import type { ProductionBrandsRepository } from "../repositories/productionBrandsRepository.js";
 import {
   RefractoryReportAlreadyReviewedError,
   RefractoryReportNotFoundError,
@@ -143,7 +147,7 @@ type AppDependencies = {
   maxNotificationService?: MaxNotificationService;
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
   productionPlans?: ProductionPlansRepository;
-  productionBrands?: ProductionBrandsRepository;
+  productionBrands?: ProductionBrandsDataSource;
   refractoryReports?: RefractoryReportsRepository;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -178,7 +182,9 @@ export function createApiServer({
   ),
   dispatcherSpreadsheetImport,
   productionPlans,
-  productionBrands,
+  productionBrands = createGoogleSheetsProductionBrandsDataSource(
+    config.googleSheetsReference,
+  ),
   refractoryReports,
   audit,
   databaseTransaction,
@@ -304,6 +310,7 @@ export function createApiServer({
           authService,
           adminDatabase,
           dispatcherSpreadsheetImport,
+          productionBrands,
           audit,
           databaseTransaction,
           productionSnapshot,
@@ -379,6 +386,7 @@ export function createApiServer({
           devSessions,
           authService,
           refractoryReports,
+          productionBrands,
           referenceDataSource,
           emailNotificationService,
           maxNotificationService,
@@ -620,18 +628,6 @@ export function createApiServer({
             return;
           }
 
-          if (validation.value.draft.formId === "production") {
-            if (productionBrands === undefined) {
-              sendJson(res, 503, {
-                error: {
-                  code: "server_error",
-                  message: "Справочник марок не настроен.",
-                },
-              });
-              return;
-            }
-          }
-
           const history = await dispatcherSubmissions.listLatest({ limit: 2_000 });
           const incidentStateValidation = applyIncidentStateRules(
             validation.value,
@@ -663,64 +659,44 @@ export function createApiServer({
             return;
           }
 
-          let submission: DispatcherSubmission;
-
-          try {
-            submission = await runAuditedMutation({
-              transaction: databaseTransaction,
-              audit,
-              mutate: async () => {
-                if (visitorStateValidation.value.draft.formId === "production") {
-                  if (productionBrands === undefined) {
-                    throw new Error("Production brands repository is not configured.");
-                  }
-
-                  const references = readProductionSubmissionBrandReferences(
-                    visitorStateValidation.value.draft.payload,
-                  );
-                  const resolution = await productionBrands.resolveReferences(references);
-
-                  if (!resolution.ok) {
-                    throw new MissingProductionBrandError(resolution.missing.label);
-                  }
-
-                  for (const reference of resolution.references) {
-                    visitorStateValidation.value.draft.payload[reference.fieldName] =
-                      reference.label;
-                  }
-                }
-
-                return dispatcherSubmissions.create(
-                  visitorStateValidation.value,
-                  readSubmittedByAccountId(req, access.profile, config),
-                );
-              },
-              buildEvent: (result) => ({
-                actor: buildAuditActor(access.profile),
-                category: "form_submission",
-                action: "form.submit",
-                summary: `Отправлена форма «${result.formTitle}»`,
-                details: buildDispatcherSubmissionAuditDetails(
-                  result.formId,
-                  result.payload,
-                ),
-                targetType: "dispatcher_submission",
-                targetId: result.id,
-              }),
+          if (visitorStateValidation.value.draft.formId === "production") {
+            const references = await resolveProductionBrandReferencesForRequest({
+              res,
+              productionBrands,
+              references: readProductionSubmissionBrandReferences(
+                visitorStateValidation.value.draft.payload,
+              ),
+              logEvent: "production_brands.google_sheets_fetch_failed",
             });
-          } catch (error) {
-            if (error instanceof MissingProductionBrandError) {
-              sendJson(res, 400, {
-                error: {
-                  code: "invalid_response",
-                  message: `Сначала сохраните марку «${error.label}» в справочник.`,
-                },
-              });
-              return;
-            }
 
-            throw error;
+            if (references === undefined) return;
+
+            for (const reference of references) {
+              visitorStateValidation.value.draft.payload[reference.fieldName] =
+                reference.label;
+            }
           }
+
+          const submission: DispatcherSubmission = await runAuditedMutation({
+            transaction: databaseTransaction,
+            audit,
+            mutate: () => dispatcherSubmissions.create(
+              visitorStateValidation.value,
+              readSubmittedByAccountId(req, access.profile, config),
+            ),
+            buildEvent: (result) => ({
+              actor: buildAuditActor(access.profile),
+              category: "form_submission",
+              action: "form.submit",
+              summary: `Отправлена форма «${result.formTitle}»`,
+              details: buildDispatcherSubmissionAuditDetails(
+                result.formId,
+                result.payload,
+              ),
+              targetType: "dispatcher_submission",
+              targetId: result.id,
+            }),
+          });
 
           await notifyDispatcherSubmission(
             submission,
@@ -768,6 +744,7 @@ async function handleRefractoryReportsRequest({
   devSessions,
   authService,
   refractoryReports,
+  productionBrands,
   referenceDataSource,
   emailNotificationService,
   maxNotificationService,
@@ -781,6 +758,7 @@ async function handleRefractoryReportsRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   refractoryReports: RefractoryReportsRepository | undefined;
+  productionBrands: ProductionBrandsDataSource;
   referenceDataSource: DispatcherReferenceDataSource;
   emailNotificationService: EmailNotificationService;
   maxNotificationService: MaxNotificationService;
@@ -1018,6 +996,20 @@ async function handleRefractoryReportsRequest({
     return;
   }
 
+  const brandReferences = readRefractoryReportBrandReferences(validation.value);
+
+  if (brandReferences.length > 0) {
+    const references = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: brandReferences,
+      logEvent: "refractory_brands.google_sheets_fetch_failed",
+    });
+
+    if (references === undefined) return;
+    applyRefractoryReportBrandResolution(validation.value, references);
+  }
+
   try {
     const report = await runAuditedMutation({
       transaction: databaseTransaction,
@@ -1064,6 +1056,151 @@ async function handleRefractoryReportsRequest({
     }
     throw error;
   }
+}
+
+function readRefractoryReportBrandReferences(
+  report: ValidatedRefractoryReportSubmission,
+): ProductionBrandReference[] {
+  if (report.reportType === "cosh") return [];
+
+  if (report.reportType === "firing") {
+    return report.payload.rows.map((row, index) => ({
+      fieldName: `rows.${index}.productBrand`,
+      label: row.productBrand,
+    }));
+  }
+
+  return [
+    ...report.payload.formedRows.flatMap((row, index) =>
+      row.productBrand === undefined
+        ? []
+        : [{
+            fieldName: `formedRows.${index}.productBrand`,
+            label: row.productBrand,
+          }],
+    ),
+    ...report.payload.unformedRows.map((row, index) => ({
+      fieldName: `unformedRows.${index}.productBrand`,
+      label: row.productBrand,
+    })),
+  ];
+}
+
+function applyRefractoryReportBrandResolution(
+  report: ValidatedRefractoryReportSubmission,
+  references: ProductionBrandReference[],
+) {
+  const labelByField = new Map(
+    references.map((reference) => [reference.fieldName, reference.label]),
+  );
+
+  if (report.reportType === "firing") {
+    for (const [index, row] of report.payload.rows.entries()) {
+      row.productBrand = labelByField.get(`rows.${index}.productBrand`) ??
+        row.productBrand;
+    }
+    return;
+  }
+
+  if (report.reportType === "equipment") {
+    for (const [index, row] of report.payload.formedRows.entries()) {
+      if (row.productBrand !== undefined) {
+        row.productBrand = labelByField.get(
+          `formedRows.${index}.productBrand`,
+        ) ?? row.productBrand;
+      }
+    }
+    for (const [index, row] of report.payload.unformedRows.entries()) {
+      row.productBrand = labelByField.get(
+        `unformedRows.${index}.productBrand`,
+      ) ?? row.productBrand;
+    }
+  }
+}
+
+async function resolveProductionBrandReferencesForRequest({
+  res,
+  productionBrands,
+  references,
+  logEvent,
+}: {
+  res: ServerResponse;
+  productionBrands: ProductionBrandsDataSource;
+  references: ProductionBrandReference[];
+  logEvent: string;
+}): Promise<ProductionBrandReference[] | undefined> {
+  try {
+    const resolution = await productionBrands.resolveReferences(references);
+
+    if (resolution.ok) return resolution.references;
+
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: `Сначала добавьте марку «${resolution.missing.label}» в номенклатуру.`,
+      },
+    });
+  } catch (error) {
+    console.warn(logEvent, error);
+    sendJson(res, 502, {
+      error: {
+        code: "server_error",
+        message: "Не удалось проверить марки по Google Sheets.",
+      },
+    });
+  }
+
+  return undefined;
+}
+
+function readAdminDispatcherBrandReferences(
+  tableName: string,
+  values: Record<string, AdminDatabaseCellValue>,
+): ProductionBrandReference[] {
+  if (tableName !== "dispatcher_submissions") return [];
+
+  const payload = Object.fromEntries(
+    Object.entries(values).flatMap(([fieldName, value]) =>
+      fieldName.startsWith("payload.") && typeof value === "string"
+        ? [[fieldName.slice("payload.".length), value]]
+        : [],
+    ),
+  ) as Parameters<typeof readProductionSubmissionBrandReferences>[0];
+
+  return readProductionSubmissionBrandReferences(payload).map((reference) => ({
+    fieldName: `payload.${reference.fieldName}`,
+    label: reference.label,
+  }));
+}
+
+function addProductionBrandsToAdminDispatcherRows(
+  rows: AdminDatabaseTableRows,
+  labels: string[],
+): AdminDatabaseTableRows {
+  const options = labels.map((label) => ({ value: label, label }));
+
+  return {
+    ...rows,
+    rows: rows.rows.map((row) => ({
+      ...row,
+      editorFields: row.editorFields.map((field) =>
+        !isAdminDispatcherBrandFieldName(field.name)
+          ? field
+          : {
+              ...field,
+              inputType: "production_brand",
+              options,
+            },
+      ),
+    })),
+  };
+}
+
+function isAdminDispatcherBrandFieldName(fieldName: string) {
+  return readAdminDispatcherBrandReferences(
+    "dispatcher_submissions",
+    { [fieldName]: "brand" },
+  ).length > 0;
 }
 
 async function handleAdminAuditReportRequest({
@@ -1226,13 +1363,6 @@ type EquipmentReportValidationResult =
       errors: string[];
     };
 
-class MissingProductionBrandError extends Error {
-  constructor(readonly label: string) {
-    super(`Production brand is missing: ${label}`);
-    this.name = "MissingProductionBrandError";
-  }
-}
-
 async function recordAuditEvent(
   audit: AuditRepository,
   event: Parameters<AuditRepository["record"]>[0],
@@ -1278,7 +1408,7 @@ async function handleProductionBrandsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
-  productionBrands: ProductionBrandsRepository | undefined;
+  productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
 }) {
@@ -1294,6 +1424,7 @@ async function handleProductionBrandsRequest({
 
   const canRead = ([
     "business.submit_dispatcher_forms",
+    "business.submit_refractory_reports",
     "business.view_dispatcher_feed",
     "business.manage_production_plan",
   ] as const satisfies readonly AccountCapability[]).some((capability) =>
@@ -1310,18 +1441,18 @@ async function handleProductionBrandsRequest({
     return;
   }
 
-  if (productionBrands === undefined) {
-    sendJson(res, 503, {
-      error: {
-        code: "server_error",
-        message: "Справочник марок не настроен.",
-      },
-    });
-    return;
-  }
-
   if (req.method === "GET") {
-    sendJson(res, 200, { labels: await productionBrands.list() });
+    try {
+      sendJson(res, 200, { labels: await productionBrands.list() });
+    } catch (error) {
+      console.warn("production_brands.google_sheets_fetch_failed", error);
+      sendJson(res, 502, {
+        error: {
+          code: "server_error",
+          message: "Не удалось загрузить марки из Google Sheets.",
+        },
+      });
+    }
     return;
   }
 
@@ -1336,15 +1467,13 @@ async function handleProductionBrandsRequest({
   }
 
   if (
-    !hasProfileCapability(
-      access.profile,
-      "business.submit_dispatcher_forms",
-    )
+    !hasProfileCapability(access.profile, "business.submit_dispatcher_forms") &&
+    !hasProfileCapability(access.profile, "business.submit_refractory_reports")
   ) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
-        message: "Добавлять марки может только диспетчер.",
+        message: "Добавление марок недоступно.",
       },
     });
     return;
@@ -1363,26 +1492,33 @@ async function handleProductionBrandsRequest({
     return;
   }
 
-  const result = await runAuditedMutation({
-    transaction: databaseTransaction,
-    audit,
-    mutate: () => productionBrands.create({
-      ...validation.value,
-      createdByUserId: access.profile.userId,
-    }),
-    buildEvent: (created) => created.created ? ({
-      actor: buildAuditActor(access.profile),
-      category: "data_change",
-      action: "production_brand.create",
-      summary: `Добавлена марка «${created.label.label}»`,
-      details: [
-        { label: "Справочник", value: created.label.category },
-        { label: "Марка", value: created.label.label },
-      ],
-      targetType: "production_brand",
-      targetId: created.label.id,
-    }) : undefined,
-  });
+  let result;
+
+  try {
+    result = await productionBrands.create(
+      validation.value.label,
+      (createdLabel) => databaseTransaction.run(() =>
+        audit.record({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: "production_brand.create",
+          summary: `Добавлена марка «${createdLabel}»`,
+          details: [{ label: "Марка", value: createdLabel }],
+          targetType: "production_brand",
+          targetId: createdLabel,
+        }),
+      ),
+    );
+  } catch (error) {
+    console.warn("production_brands.google_sheets_write_failed", error);
+    sendJson(res, 502, {
+      error: {
+        code: "server_error",
+        message: "Не удалось добавить марку в Google Sheets.",
+      },
+    });
+    return;
+  }
 
   sendJson(res, result.created ? 201 : 200, { label: result.label });
 }
@@ -1504,11 +1640,11 @@ function readProductionBrandCreateInput(payload: unknown) {
   if (!isRecord(payload) || Array.isArray(payload)) {
     return {
       ok: false as const,
-      errors: ["Передайте справочник и название марки."],
+      errors: ["Передайте название марки."],
     };
   }
 
-  const allowedFields = new Set(["category", "label"]);
+  const allowedFields = new Set(["label"]);
   const unexpectedFields = Object.keys(payload).filter(
     (fieldName) => !allowedFields.has(fieldName),
   );
@@ -1520,7 +1656,7 @@ function readProductionBrandCreateInput(payload: unknown) {
     };
   }
 
-  return normalizeProductionBrandLabelInput(payload.category, payload.label);
+  return normalizeProductionBrandLabelInput(payload.label);
 }
 
 async function handleProductionPlansRequest({
@@ -2032,9 +2168,6 @@ function readAdminDatabaseSectionLabel(tableName: string) {
   const labels: Record<string, string> = {
     app_users: "Пользователи",
     dispatcher_submissions: "Диспетчерские записи",
-    production_product_brands: "Марки изделий",
-    production_unformed_brands: "Марки неформованной продукции",
-    production_chamotte_brands: "Марки шамота",
   };
 
   return labels[tableName] ?? tableName;
@@ -2049,6 +2182,7 @@ async function handleAdminDatabaseRequest({
   authService,
   adminDatabase,
   dispatcherSpreadsheetImport,
+  productionBrands,
   audit,
   databaseTransaction,
   productionSnapshot,
@@ -2061,6 +2195,7 @@ async function handleAdminDatabaseRequest({
   authService: AuthSessionService | undefined;
   adminDatabase: AdminDatabaseRepository | undefined;
   dispatcherSpreadsheetImport: DispatcherSpreadsheetImportService | undefined;
+  productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   productionSnapshot: ProductionDatabaseSnapshotService | undefined;
@@ -2251,10 +2386,19 @@ async function handleAdminDatabaseRequest({
         return;
       }
 
+      const rows = await adminDatabase.listRows(
+        route.tableName,
+        pagination.value,
+      );
       sendJson(
         res,
         200,
-        await adminDatabase.listRows(route.tableName, pagination.value),
+        route.tableName === "dispatcher_submissions"
+          ? addProductionBrandsToAdminDispatcherRows(
+              rows,
+              await productionBrands.list(),
+            )
+          : rows,
       );
       return;
     }
@@ -2303,6 +2447,25 @@ async function handleAdminDatabaseRequest({
           },
         });
         return;
+      }
+
+      const brandReferences = readAdminDispatcherBrandReferences(
+        route.tableName,
+        validation.value.values,
+      );
+
+      if (brandReferences.length > 0) {
+        const references = await resolveProductionBrandReferencesForRequest({
+          res,
+          productionBrands,
+          references: brandReferences,
+          logEvent: "admin_dispatcher_brands.google_sheets_fetch_failed",
+        });
+
+        if (references === undefined) return;
+        for (const reference of references) {
+          validation.value.values[reference.fieldName] = reference.label;
+        }
       }
 
       await runAuditedMutation({

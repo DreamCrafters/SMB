@@ -9,7 +9,6 @@ import {
 } from "./dispatcherForms.js";
 import {
   normalizeProductionBrandLookupLabel,
-  type ProductionBrandCategory,
 } from "./productionBrand.js";
 
 export type DispatcherSubmissionStatus =
@@ -21,7 +20,6 @@ export type DispatcherSubmissionStatus =
 export type DispatcherSubmissionPayload = Record<string, string>;
 
 export type ProductionSubmissionBrandReference = {
-  category: ProductionBrandCategory;
   fieldName: string;
   label: string;
 };
@@ -441,7 +439,7 @@ export function readProductionSubmissionBrandReferences(
     const label = payload[fieldName];
 
     if (label !== undefined) {
-      references.push({ category: "product", fieldName, label });
+      references.push({ fieldName, label });
     }
   }
 
@@ -450,7 +448,6 @@ export function readProductionSubmissionBrandReferences(
 
     if (match !== null && Number(match[2]) <= 50) {
       references.push({
-        category: match[1] as "unformed" | "chamotte",
         fieldName,
         label,
       });

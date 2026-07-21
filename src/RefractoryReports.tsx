@@ -33,6 +33,12 @@ import {
   markRefractoryServerFieldErrors,
   validateRefractoryForm,
 } from "./services/refractoryFormValidation";
+import { ProductBrandPicker } from "./ProductBrandPicker";
+import { LoadingIndicator } from "./LoadingIndicator";
+import {
+  useProductionBrands,
+  type ProductBrandCreator,
+} from "./useProductionBrands";
 
 const reportTypes: readonly RefractoryReportType[] = [
   "cosh",
@@ -74,6 +80,11 @@ export function RefractoryShopWorkspace({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isCorrectionMode, setIsCorrectionMode] = useState(false);
+  const {
+    labels: brandLabels,
+    loadState: nomenclatureState,
+    createBrand: handleCreateBrand,
+  } = useProductionBrands({ creationDisabled: isAdminPreviewMode });
 
   useEffect(() => {
     setIsCorrectionMode(false);
@@ -229,6 +240,14 @@ export function RefractoryShopWorkspace({
         </p>
       ) : null}
 
+      {nomenclatureState.status === "loading" ? (
+        <LoadingIndicator label="Загружаем марки…" variant="panel" />
+      ) : nomenclatureState.status === "error" ? (
+        <p className="form-status form-status-error">
+          {nomenclatureState.message}
+        </p>
+      ) : null}
+
       <div className="refractory-report-menu" aria-label="Выбор таблицы">
         {reportTypes.map((reportType) => {
           const report = reports.find((item) => item.reportType === reportType);
@@ -298,6 +317,8 @@ export function RefractoryShopWorkspace({
               />
             ) : activeType === "equipment" ? (
               <EquipmentForm
+                brandLabels={brandLabels}
+                onCreateBrand={handleCreateBrand}
                 payload={
                   activeReport?.reportType === "equipment"
                     ? activeReport.payload
@@ -306,6 +327,8 @@ export function RefractoryShopWorkspace({
               />
             ) : (
               <FiringForm
+                brandLabels={brandLabels}
+                onCreateBrand={handleCreateBrand}
                 payload={
                   activeReport?.reportType === "firing"
                     ? activeReport.payload
@@ -539,7 +562,15 @@ const equipmentColumns = [
   ["note", "Примечание", "text", "text"],
 ] as const;
 
-function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
+function EquipmentForm({
+  brandLabels = [],
+  payload,
+  onCreateBrand,
+}: {
+  brandLabels?: string[];
+  payload?: RefractoryEquipmentPayload;
+  onCreateBrand?: ProductBrandCreator;
+}) {
   const [unformedCount, setUnformedCount] = useState(
     Math.max(1, payload?.unformedRows.length ?? 1),
   );
@@ -576,7 +607,16 @@ function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
                     <th scope="row">{equipment}</th>
                     {equipmentColumns.map(([field, label, kind]) => (
                       <td key={field}>
-                        {kind !== "text" ? (
+                        {field === "productBrand" ? (
+                          <ProductBrandPicker
+                            ariaLabel={`${equipment}: ${label}`}
+                            defaultValue={row?.productBrand}
+                            labels={brandLabels}
+                            name={`formed.${rowIndex}.productBrand`}
+                            onCreateBrand={onCreateBrand}
+                            onInputChange={clearRefractoryFieldError}
+                          />
+                        ) : kind !== "text" ? (
                           <RefractoryNumberInput
                             aria-label={`${equipment}: ${label}`}
                             defaultValue={row?.[field] ?? ""}
@@ -623,16 +663,15 @@ function EquipmentForm({ payload }: { payload?: RefractoryEquipmentPayload }) {
                 return (
                   <tr key={index}>
                     <td>
-                      <input
-                        aria-label={`Марка неформованных огнеупоров ${index + 1}`}
-                        data-refractory-label={`Марка изделия, строка ${index + 1}`}
-                        data-refractory-row-brand
-                        maxLength={120}
+                      <ProductBrandPicker
+                        ariaLabel={`Марка неформованных огнеупоров ${index + 1}`}
+                        dataLabel={`Марка изделия, строка ${index + 1}`}
+                        isRefractoryRowBrand
                         name={`unformed.${index}.productBrand`}
                         defaultValue={row?.productBrand ?? ""}
-                        onChange={(event) =>
-                          clearRefractoryFieldError(event.currentTarget)
-                        }
+                        labels={brandLabels}
+                        onCreateBrand={onCreateBrand}
+                        onInputChange={clearRefractoryFieldError}
                       />
                     </td>
                     <td>
@@ -686,7 +725,15 @@ const firingColumns = [
   ["rejectChipsPieces", "Сколы", true],
 ] as const;
 
-function FiringForm({ payload }: { payload?: RefractoryFiringPayload }) {
+function FiringForm({
+  brandLabels = [],
+  payload,
+  onCreateBrand,
+}: {
+  brandLabels?: string[];
+  payload?: RefractoryFiringPayload;
+  onCreateBrand?: ProductBrandCreator;
+}) {
   const [rowCount, setRowCount] = useState(
     Math.max(1, payload?.rows.length ?? 1),
   );
@@ -711,16 +758,14 @@ function FiringForm({ payload }: { payload?: RefractoryFiringPayload }) {
                 return (
                   <tr key={index}>
                     <td>
-                      <input
-                        aria-label={`Марка изделия, строка ${index + 1}`}
-                        data-refractory-label={`Марка изделия, строка ${index + 1}`}
-                        data-refractory-row-brand
-                        maxLength={120}
+                      <ProductBrandPicker
+                        ariaLabel={`Марка изделия, строка ${index + 1}`}
+                        isRefractoryRowBrand
                         name={`firing.${index}.productBrand`}
                         defaultValue={row?.productBrand ?? ""}
-                        onChange={(event) =>
-                          clearRefractoryFieldError(event.currentTarget)
-                        }
+                        labels={brandLabels}
+                        onCreateBrand={onCreateBrand}
+                        onInputChange={clearRefractoryFieldError}
                       />
                     </td>
                     {firingColumns.map(([field, label, integer]) => (

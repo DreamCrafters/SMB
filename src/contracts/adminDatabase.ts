@@ -23,7 +23,8 @@ export type AdminDatabaseEditorInputType =
   | "number"
   | "date"
   | "month"
-  | "datetime-local";
+  | "datetime-local"
+  | "production_brand";
 
 export type AdminDatabaseEditorField = {
   name: string;

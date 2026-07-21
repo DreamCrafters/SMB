@@ -13,12 +13,7 @@ test.after(() => {
 
 test("production brands service lists and permanently creates a label", async () => {
   const calls = [];
-  const label = {
-    id: "brand-1",
-    category: "unformed",
-    label: "ПБ-5",
-    createdAt: "2026-07-17T10:00:00.000Z",
-  };
+  const label = "ПБ-5";
 
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
@@ -30,7 +25,7 @@ test("production brands service lists and permanently creates a label", async ()
 
   const listed = await requestProductionBrands({ baseUrl: "http://api.test" });
   const created = await createProductionBrand(
-    { category: "unformed", label: "ПБ-5" },
+    { label: "ПБ-5" },
     { baseUrl: "http://api.test" },
   );
 
@@ -38,7 +33,7 @@ test("production brands service lists and permanently creates a label", async ()
   assert.deepEqual(created, { status: "ready", label });
   assert.equal(calls[0].url, "http://api.test/api/production-brands");
   assert.equal(calls[1].init.method, "POST");
-  assert.equal(calls[1].init.body, JSON.stringify({ category: "unformed", label: "ПБ-5" }));
+  assert.equal(calls[1].init.body, JSON.stringify({ label: "ПБ-5" }));
 });
 
 function jsonResponse(value, status = 200) {

@@ -1,5 +1,4 @@
 import {
-  productionBrandCategories,
   type CreateProductionBrandRequest,
   type ProductionBrandLabel,
   type ProductionBrandResponse,
@@ -127,13 +126,7 @@ function isProductionBrandResponse(value: unknown): value is ProductionBrandResp
 }
 
 function isProductionBrandLabel(value: unknown): value is ProductionBrandLabel {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    productionBrandCategories.some((category) => category === value.category) &&
-    typeof value.label === "string" &&
-    typeof value.createdAt === "string"
-  );
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function readRemoteError(payload: unknown): ProductionBrandsError {

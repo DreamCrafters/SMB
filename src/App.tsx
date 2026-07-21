@@ -8,7 +8,6 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   accountCapabilities,
   productionCategories,
@@ -30,7 +29,6 @@ import {
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
   type ProductionBrandCategoryRow,
-  type ProductionBrandCategory,
   type ProductionBrandLabel,
   type ProductionCategory,
   type ProductionCategoryPlans,
@@ -192,10 +190,12 @@ import {
   requestProductionPlanPreview,
   saveProductionPlan,
 } from "./services/productionPlans";
+import { ProductBrandPicker } from "./ProductBrandPicker";
+import { LoadingIndicator } from "./LoadingIndicator";
 import {
-  createProductionBrand,
-  requestProductionBrands,
-} from "./services/productionBrands";
+  useProductionBrands,
+  type ProductBrandCreator,
+} from "./useProductionBrands";
 import { formatUserShortName } from "./services/userDisplayName";
 import {
   markToastExiting,
@@ -1629,59 +1629,6 @@ function AuthScreen({
         </div>
       </section>
     </main>
-  );
-}
-
-type LoadingIndicatorVariant = "page" | "panel" | "inline" | "button";
-
-function LoadingIndicator({
-  announce = true,
-  className,
-  label,
-  variant = "panel",
-}: {
-  announce?: boolean;
-  className?: string;
-  label: string;
-  variant?: LoadingIndicatorVariant;
-}) {
-  const isButtonIndicator = variant === "button";
-  const visualIndicator = (
-    <span
-      className={[
-        "loading-indicator",
-        `loading-indicator-${variant}`,
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      aria-live={announce && !isButtonIndicator ? "polite" : undefined}
-      role={announce && !isButtonIndicator ? "status" : undefined}
-    >
-      <span className="loading-indicator-mark" aria-hidden="true" />
-      <span className="loading-indicator-label">{label}</span>
-    </span>
-  );
-
-  if (!announce || !isButtonIndicator || typeof document === "undefined") {
-    return visualIndicator;
-  }
-
-  return (
-    <>
-      {visualIndicator}
-      {createPortal(
-        <span
-          aria-atomic="true"
-          aria-live="polite"
-          className="loading-indicator-announcement"
-          role="status"
-        >
-          {label}
-        </span>,
-        document.body,
-      )}
-    </>
   );
 }
 
@@ -3585,13 +3532,15 @@ export function DispatcherProductionReportFormBody({
     | { status: "ready"; values?: Partial<ProductionCategoryPlans> }
     | { status: "error"; message: string }
   >({ status: "loading" });
-  const [brandLabels, setBrandLabels] = useState<ProductionBrandLabel[]>([]);
-  const [brandLoadState, setBrandLoadState] = useState<
-    | { status: "loading" }
-    | { status: "ready" }
-    | { status: "error"; message: string }
-  >({ status: "loading" });
   const [brandRefreshVersion, setBrandRefreshVersion] = useState(0);
+  const {
+    labels: brandLabels,
+    loadState: brandLoadState,
+    createBrand: handleCreateBrand,
+  } = useProductionBrands({
+    creationDisabled: isAdminPreviewMode,
+    refreshVersion: brandRefreshVersion,
+  });
   const [reportLoadState, setReportLoadState] = useState<
     | { status: "loading" }
     | { status: "ready"; submission?: DispatcherSubmission }
@@ -3670,57 +3619,6 @@ export function DispatcherProductionReportFormBody({
 
     return () => controller.abort();
   }, [isAdminPreviewMode, reportDate]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    setBrandLoadState({ status: "loading" });
-    requestProductionBrands({ signal: controller.signal }).then((result) => {
-      if (controller.signal.aborted) return;
-
-      if (result.status === "ready") {
-        setBrandLabels(result.labels);
-        setBrandLoadState({ status: "ready" });
-        return;
-      }
-
-      setBrandLoadState({
-        status: "error",
-        message: readShortUserMessage(
-          result.message,
-          "Не удалось загрузить марки.",
-        ),
-      });
-    });
-
-    return () => controller.abort();
-  }, [brandRefreshVersion, isAdminPreviewMode]);
-
-  async function handleCreateBrand(
-    category: ProductionBrandCategory,
-    label: string,
-  ): Promise<ProductionBrandCreateOutcome> {
-    if (isAdminPreviewMode) {
-      return { message: "В режиме просмотра добавление отключено." };
-    }
-
-    const result = await createProductionBrand({ category, label });
-
-    if (result.status === "error") {
-      return {
-        message: readShortUserMessage(
-          result.message,
-          "Не удалось сохранить марку.",
-        ),
-      };
-    }
-
-    setBrandLabels((current) =>
-      [...current.filter((item) => item.id !== result.label.id), result.label]
-        .sort((left, right) => left.label.localeCompare(right.label, "ru-RU")),
-    );
-    return { label: result.label };
-  }
 
   const dailyPlanValues =
     dailyPlanState.status === "ready" ? dailyPlanState.values : undefined;
@@ -3826,7 +3724,7 @@ function ProductionReportEditor({
   isAdminPreviewMode: boolean;
   isSubmitting: boolean;
   status: string;
-  onCreateBrand: ProductionBrandCreator;
+  onCreateBrand: ProductBrandCreator;
   onRetryBrands: () => void;
 }) {
   const initialPayload = initialSubmission?.payload;
@@ -3884,7 +3782,6 @@ function ProductionReportEditor({
           <legend>Неформованная продукция, контейнеры</legend>
           <ProductionBrandColumnsTable
             brandLabels={brandLabels}
-            category="unformed"
             categoryPlan={dailyPlanValues?.unformed}
             initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
@@ -3900,7 +3797,6 @@ function ProductionReportEditor({
           </span>
           <ProductionBrandColumnsTable
             brandLabels={brandLabels}
-            category="chamotte"
             categoryPlan={dailyPlanValues?.chamotte}
             initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
@@ -3993,7 +3889,7 @@ export function ProductionSummaryTable({
   isAdminPreviewMode: boolean;
   prefix: "forming" | "sorting";
   title: string;
-  onCreateBrand: ProductionBrandCreator;
+  onCreateBrand: ProductBrandCreator;
 }) {
   const [brand, setBrand] = useState(
     () => initialPayload?.[`${prefix}ProductBrand`] ?? "",
@@ -4028,10 +3924,9 @@ export function ProductionSummaryTable({
                 />
               </td>
               <td>
-                <ProductionBrandPicker
-                  brandLabels={brandLabels}
-                  category="product"
+                <ProductBrandPicker
                   disabled={isAdminPreviewMode}
+                  labels={brandLabels}
                   name={`${prefix}ProductBrand`}
                   selectedLabels={[]}
                   value={brand}
@@ -4047,16 +3942,6 @@ export function ProductionSummaryTable({
   );
 }
 
-type ProductionBrandCreateOutcome = {
-  label?: ProductionBrandLabel;
-  message?: string;
-};
-
-type ProductionBrandCreator = (
-  category: ProductionBrandCategory,
-  label: string,
-) => Promise<ProductionBrandCreateOutcome>;
-
 type ProductionBrandColumn = {
   id: number;
   brand: string;
@@ -4064,7 +3949,6 @@ type ProductionBrandColumn = {
 
 function ProductionBrandColumnsTable({
   brandLabels,
-  category,
   categoryPlan,
   initialPayload,
   isAdminPreviewMode,
@@ -4072,12 +3956,11 @@ function ProductionBrandColumnsTable({
   onCreateBrand,
 }: {
   brandLabels: ProductionBrandLabel[];
-  category: "unformed" | "chamotte";
   categoryPlan?: number;
   initialPayload?: DispatcherSubmissionPayload;
   isAdminPreviewMode: boolean;
   prefix: "unformed" | "chamotte";
-  onCreateBrand: ProductionBrandCreator;
+  onCreateBrand: ProductBrandCreator;
 }) {
   const [columns, setColumns] = useState<ProductionBrandColumn[]>(() =>
     readProductionBrandColumns(initialPayload, prefix),
@@ -4120,10 +4003,9 @@ function ProductionBrandColumnsTable({
             <tr>
               {columns.map((column, index) => (
                 <th scope="col" key={column.id}>
-                  <ProductionBrandPicker
-                    brandLabels={brandLabels}
-                    category={category}
+                  <ProductBrandPicker
                     disabled={isAdminPreviewMode}
+                    labels={brandLabels}
                     name={`${prefix}Brand${column.id}`}
                     selectedLabels={selectedLabels.filter(
                       (label) => label !== column.brand,
@@ -4231,132 +4113,6 @@ function readProductionBrandColumns(
       id,
       brand: payload?.[`${prefix}Brand${id}`] ?? "",
     }));
-}
-
-function ProductionBrandPicker({
-  brandLabels,
-  category,
-  disabled,
-  name,
-  selectedLabels,
-  value,
-  onChange,
-  onCreateBrand,
-}: {
-  brandLabels: ProductionBrandLabel[];
-  category: ProductionBrandCategory;
-  disabled: boolean;
-  name: string;
-  selectedLabels: string[];
-  value: string;
-  onChange: (value: string) => void;
-  onCreateBrand: ProductionBrandCreator;
-}) {
-  const [isAdding, setIsAdding] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
-  const [status, setStatus] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const categoryLabels = brandLabels.filter(
-    (label) => label.category === category,
-  );
-  const selectedKeys = new Set(
-    selectedLabels.map((label) => normalizeProductionBrandKey(label)),
-  );
-
-  async function saveNewBrand() {
-    const normalizedLabel = newLabel.trim().replace(/\s+/gu, " ");
-
-    if (normalizedLabel.length === 0) {
-      setStatus("Введите марку.");
-      return;
-    }
-
-    setIsSaving(true);
-    setStatus("Сохраняем…");
-    const result = await onCreateBrand(category, normalizedLabel);
-    setIsSaving(false);
-
-    if (result.label === undefined) {
-      setStatus(result.message ?? "Не удалось сохранить марку.");
-      return;
-    }
-
-    onChange(result.label.label);
-    setNewLabel("");
-    setStatus("");
-    setIsAdding(false);
-  }
-
-  return (
-    <div className="production-brand-picker">
-      <select
-        aria-label="Марка"
-        disabled={disabled || isSaving}
-        name={name}
-        value={value}
-        onChange={(event) => {
-          const nextValue = event.currentTarget.value;
-
-          if (nextValue === "__add_brand__") {
-            setIsAdding(true);
-            setStatus("");
-            return;
-          }
-
-          onChange(nextValue);
-        }}
-      >
-        <option value="">Выберите марку</option>
-        {categoryLabels.map((label) => (
-          <option
-            disabled={selectedKeys.has(normalizeProductionBrandKey(label.label))}
-            key={label.id}
-            value={label.label}
-          >
-            {label.label}
-          </option>
-        ))}
-        {!disabled ? <option value="__add_brand__">+ Новая марка</option> : null}
-      </select>
-      {isAdding ? (
-        <div className="production-brand-create">
-          <input
-            aria-label="Новая марка"
-            disabled={isSaving}
-            maxLength={120}
-            placeholder="Название марки"
-            type="text"
-            value={newLabel}
-            onChange={(event) => setNewLabel(event.currentTarget.value)}
-          />
-          <button disabled={isSaving} type="button" onClick={saveNewBrand}>
-            {isSaving ? (
-              <LoadingIndicator
-                label="Сохраняем…"
-                variant="button"
-              />
-            ) : "Сохранить"}
-          </button>
-          <button
-            disabled={isSaving}
-            type="button"
-            onClick={() => {
-              setIsAdding(false);
-              setNewLabel("");
-              setStatus("");
-            }}
-          >
-            Отмена
-          </button>
-          {status ? <span role="status">{status}</span> : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function normalizeProductionBrandKey(value: string) {
-  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function ProductionGranulationTable({
@@ -8713,7 +8469,19 @@ function AdminDatabaseEditorModal({
                     {field.required ? <em>Обязательно</em> : null}
                   </span>
                 </label>
-                {field.inputType === "textarea" ? (
+                {field.inputType === "production_brand" ? (
+                  <ProductBrandPicker
+                    ariaLabel={field.label}
+                    disabled={isMutating}
+                    id={inputId}
+                    labels={field.options.map((option) => option.value)}
+                    name={field.name}
+                    value={value}
+                    onChange={(nextValue) =>
+                      onValueChange(field.name, nextValue)
+                    }
+                  />
+                ) : field.inputType === "textarea" ? (
                   <textarea
                     id={inputId}
                     rows={5}

@@ -1486,7 +1486,13 @@ p {
   gap: 7px;
 }
 
-.production-brand-picker select,
+.production-brand-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+}
+
+.production-brand-search-row > input,
 .production-brand-create input,
 .production-brand-fact-input input {
   width: 100%;
@@ -1500,17 +1506,15 @@ p {
   font-size: 12px;
 }
 
-.production-report-brand-columns-table .production-brand-picker select {
+.production-report-brand-columns-table .production-brand-search-row > input {
   font-size: 16px;
   font-weight: 750;
   line-height: 1.35;
 }
 
-.production-report-brand-columns-table .production-brand-picker select option {
-  font-family:
-    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 16px;
-  font-weight: 750;
+.production-brand-create-open {
+  min-height: 38px;
+  white-space: nowrap;
 }
 
 .production-brand-create {
@@ -4929,7 +4933,8 @@ p {
   overflow-wrap: anywhere;
 }
 
-.refractory-input-table input {
+.refractory-input-table input,
+.refractory-input-table select {
   width: 100%;
   min-width: 82px;
   border: 1px solid var(--line);
@@ -4940,7 +4945,8 @@ p {
   font: inherit;
 }
 
-.refractory-input-table-equipment input {
+.refractory-input-table-equipment input,
+.refractory-input-table-equipment select {
   min-width: 0;
   padding: 6px;
 }
@@ -4948,7 +4954,8 @@ p {
 .refractory-field input[aria-invalid="true"],
 .refractory-field textarea[aria-invalid="true"],
 .refractory-input-table input[aria-invalid="true"],
-.refractory-input-table textarea[aria-invalid="true"] {
+.refractory-input-table textarea[aria-invalid="true"],
+.refractory-input-table select[aria-invalid="true"] {
   border-color: var(--brick);
   background: color-mix(in srgb, var(--brick) 7%, var(--surface));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--brick) 18%, transparent);

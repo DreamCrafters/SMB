@@ -222,10 +222,10 @@ export async function mergeAdminDatabaseRows(
     { baseUrl, signal },
     {
       endpointSuffix: "/merge",
-      rejectedMessage: "Сервер отклонил слияние марок.",
+      rejectedMessage: "Сервер отклонил слияние строк.",
       invalidResponseMessage: "Сервер вернул результат слияния в неподдерживаемом формате.",
-      cancelledMessage: "Запрос слияния марок отменён.",
-      networkFailureMessage: "Не удалось слить марки.",
+      cancelledMessage: "Запрос слияния строк отменён.",
+      networkFailureMessage: "Не удалось слить строки.",
     },
   );
 }
@@ -643,7 +643,8 @@ function isAdminDatabaseEditorField(value: unknown) {
       value.inputType === "number" ||
       value.inputType === "date" ||
       value.inputType === "month" ||
-      value.inputType === "datetime-local") &&
+      value.inputType === "datetime-local" ||
+      value.inputType === "production_brand") &&
     typeof value.required === "boolean" &&
     Array.isArray(value.options) &&
     value.options.every(

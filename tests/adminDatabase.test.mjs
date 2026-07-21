@@ -75,12 +75,12 @@ test("admin database service builds relative rows endpoint without browser windo
           },
           editorFields: [
             {
-              name: "payload.fio",
-              label: "ФИО посетителя",
-              inputType: "text",
+              name: "payload.formingProductBrand",
+              label: "Марка изделия",
+              inputType: "production_brand",
               required: true,
-              options: [],
-              value: "Иванов Иван",
+              options: [{ value: "ФЛ-1", label: "ФЛ-1" }],
+              value: "ФЛ-1",
             },
           ],
         },

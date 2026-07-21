@@ -235,10 +235,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
 
     if (url.includes("/api/production-brands")) {
       return jsonResponse({
-        labels: [
-          buildBrandLabel("product-1", "product", "МКР-1"),
-          buildBrandLabel("unformed-1", "unformed", "ПБ-5"),
-        ],
+        labels: ["МКР-1", "ПБ-5"],
       });
     }
 
@@ -402,11 +399,11 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       "12.5",
     );
     assert.equal(
-      rootElement.querySelector('select[name="formingProductBrand"]')?.value,
+      rootElement.querySelector('input[name="formingProductBrand"]')?.value,
       "МКР-1",
     );
     assert.equal(
-      rootElement.querySelector('select[name="unformedBrand3"]')?.value,
+      rootElement.querySelector('input[name="unformedBrand3"]')?.value,
       "ПБ-5",
     );
     assert.equal(
@@ -669,15 +666,6 @@ function jsonResponse(payload) {
     status: 200,
     headers: { "content-type": "application/json" },
   });
-}
-
-function buildBrandLabel(id, category, label) {
-  return {
-    id,
-    category,
-    label,
-    createdAt: "2026-07-01T00:00:00.000Z",
-  };
 }
 
 function emptyProductionTables() {

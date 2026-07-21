@@ -73,28 +73,13 @@ export type ProductionDailyPlanResponse = {
   plan: ProductionDailyPlan | null;
 };
 
-export const productionBrandCategories = [
-  "product",
-  "unformed",
-  "chamotte",
-] as const;
-
-export type ProductionBrandCategory =
-  (typeof productionBrandCategories)[number];
-
-export type ProductionBrandLabel = {
-  id: string;
-  category: ProductionBrandCategory;
-  label: string;
-  createdAt: string;
-};
+export type ProductionBrandLabel = string;
 
 export type ProductionBrandsResponse = {
   labels: ProductionBrandLabel[];
 };
 
 export type CreateProductionBrandRequest = {
-  category: ProductionBrandCategory;
   label: string;
 };
 

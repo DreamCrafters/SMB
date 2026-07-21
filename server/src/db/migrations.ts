@@ -1040,6 +1040,12 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "022_google_sheets_production_brands",
+    statements: [
+      "drop table if exists production_brand_labels",
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

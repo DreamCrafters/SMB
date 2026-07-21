@@ -44,9 +44,34 @@ test("refractory workspace opens one of three independent table buttons", async 
     const returnedReport = buildReturnedReport({
       reportDate: initialShift.reportDate,
       shiftNumber: initialShift.shiftNumber,
+      payload: {
+        formedRows: [
+          {
+            equipment: "Пресс СМ-1085 №1",
+            productBrand: "Старая марка",
+            totalDowntimeHours: 0,
+          },
+        ],
+        unformedRows: [],
+      },
     });
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = async (input, init) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
+      if (url.pathname.endsWith("/production-brands")) {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          return new Response(JSON.stringify({ label: body.label }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            labels: ["ША-22", "Смесь МК", "Гранулы 0-5"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       const isReturnedShift =
         url.searchParams.get("date") === returnedReport.reportDate &&
         url.searchParams.get("shift") === String(returnedReport.shiftNumber);
@@ -101,6 +126,64 @@ test("refractory workspace opens one of three independent table buttons", async 
       null,
     );
 
+    assert.equal(
+      rootElement.querySelector("input[readonly]")?.value,
+      "Иванов Иван Иванович",
+    );
+
+    await React.act(async () => menuButtons[1].click());
+    const formedBrand = rootElement.querySelector(
+      'input[aria-label="Пресс СМ-1085 №1: Марка изделия"]',
+    );
+    const unformedBrand = rootElement.querySelector(
+      'input[aria-label="Марка неформованных огнеупоров 1"]',
+    );
+    assert.equal(formedBrand.value, "Старая марка");
+    assert.deepEqual(readBrandOptions(formedBrand, rootElement), [
+      "ША-22",
+      "Смесь МК",
+      "Гранулы 0-5",
+    ]);
+    assert.deepEqual(readBrandOptions(unformedBrand, rootElement), [
+      "ША-22",
+      "Смесь МК",
+      "Гранулы 0-5",
+    ]);
+    assert.equal(formedBrand.getAttribute("placeholder"), "Поиск марки");
+    const addBrandButton = rootElement.querySelector(
+      'button[aria-label="Добавить новую марку"]',
+    );
+    assert.ok(addBrandButton);
+    await React.act(async () => addBrandButton.click());
+    const newBrandInput = rootElement.querySelector(
+      'input[aria-label="Новая марка"]',
+    );
+    assert.ok(newBrandInput);
+    await React.act(async () => {
+      setNativeInputValue(newBrandInput, "Новая марка");
+      newBrandInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    const saveBrandButton = Array.from(
+      rootElement.querySelectorAll(".production-brand-create button"),
+    ).find((button) => button.textContent === "Сохранить");
+    assert.ok(saveBrandButton);
+    await React.act(async () => saveBrandButton.click());
+    await waitFor(React, () => formedBrand.value === "Новая марка");
+    assert.equal(rootElement.querySelectorAll("form").length, 1);
+
+    await React.act(async () => menuButtons[2].click());
+    assert.deepEqual(
+      readBrandOptions(
+        rootElement.querySelector(
+          'input[aria-label="Марка изделия, строка 1"]',
+        ),
+        rootElement,
+      ),
+      ["Гранулы 0-5", "Новая марка", "Смесь МК", "ША-22"],
+    );
+
     const reportDateInput = rootElement.querySelector('input[type="date"]');
     assert.ok(reportDateInput);
     const otherDate =
@@ -122,19 +205,6 @@ test("refractory workspace opens one of three independent table buttons", async 
       menuButtons[1].querySelector(".refractory-report-return-count"),
       null,
     );
-
-    assert.equal(
-      rootElement.querySelector("input[readonly]")?.value,
-      "Иванов Иван Иванович",
-    );
-
-    await React.act(async () => menuButtons[1].click());
-    assert.ok(
-      rootElement.querySelector(
-        'input[aria-label="Пресс СМ-1085 №1: Марка изделия"]',
-      ),
-    );
-    assert.equal(rootElement.querySelectorAll("form").length, 1);
 
     await React.act(async () => root.unmount());
   } finally {
@@ -315,7 +385,16 @@ test("refractory report highlights invalid numeric fields with a clear message",
   installDomGlobals(dom.window);
   const previousFetch = globalThis.fetch;
   let postCount = 0;
-  globalThis.fetch = async (_input, init) => {
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input), "http://127.0.0.1:5173/");
+    if (url.pathname.endsWith("/production-brands")) {
+      return new Response(
+        JSON.stringify({
+          labels: ["ША-22", "Смесь МК"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (init?.method === "POST") postCount += 1;
     return new Response(
       JSON.stringify(
@@ -526,6 +605,14 @@ function installDomGlobals(window) {
       writable: true,
     });
   }
+}
+
+function readBrandOptions(input, root) {
+  assert.ok(input);
+  const listId = input.getAttribute("list");
+  const list = listId === null ? null : root.querySelector(`#${listId}`);
+  assert.ok(list);
+  return Array.from(list.options).map((option) => option.value);
 }
 
 function restoreDomGlobals(previousGlobals) {

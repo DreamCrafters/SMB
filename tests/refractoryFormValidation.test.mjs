@@ -49,9 +49,9 @@ test("refractory numeric validation covers integer, precision, and range rules",
 test("refractory validation requires a brand for a filled product row", () => {
   const { form, document } = buildForm(`
     <table><tbody><tr>
-      <td><input aria-label="Марка изделия, строка 1"
+      <td><select aria-label="Марка изделия, строка 1"
         data-refractory-label="Марка изделия, строка 1"
-        data-refractory-row-brand></td>
+        data-refractory-row-brand><option value=""></option></select></td>
       <td><input data-refractory-label="Количество, шт., строка 1"
         data-refractory-number="integer" value="12"></td>
     </tr></tbody></table>

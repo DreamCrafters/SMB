@@ -16,11 +16,6 @@ import {
   buildDispatcherLegacyValues,
   recordEquipmentReportRevisionForDate,
 } from "./dispatcherSubmissionsRepository.js";
-import {
-  normalizeProductionBrandLabelInput,
-  rewriteProductionBrandReferences,
-  type ProductionBrandCategory,
-} from "../domain/productionBrand.js";
 
 export type AdminDatabaseValueFormat =
   | "text"
@@ -36,7 +31,8 @@ export type AdminDatabaseEditorInputType =
   | "number"
   | "date"
   | "month"
-  | "datetime-local";
+  | "datetime-local"
+  | "production_brand";
 
 export type AdminDatabaseEditorOption = {
   value: string;
@@ -162,7 +158,6 @@ type AdminDatabaseView = {
   contextColumns?: AdminDatabaseContextColumn[];
   canDelete: boolean;
   canClear?: boolean;
-  productionBrandCategory?: ProductionBrandCategory;
 };
 
 type DispatcherEditorRow = RowDataPacket & {
@@ -171,18 +166,6 @@ type DispatcherEditorRow = RowDataPacket & {
   summary: string;
   status: string;
   period: string;
-};
-
-type ProductionBrandAdminRow = RowDataPacket & {
-  id: string;
-  category: string;
-  label: string;
-  normalized_label: string;
-};
-
-type ProductionBrandSubmissionRow = RowDataPacket & {
-  id: string;
-  payload: unknown;
 };
 
 const identifierPattern = /^[A-Za-z0-9_]+$/;
@@ -273,21 +256,6 @@ const databaseViews: AdminDatabaseView[] = [
     canDelete: false,
     canClear: false,
   },
-  productionBrandView(
-    "production_product_brands",
-    "Марки изделий",
-    "product",
-  ),
-  productionBrandView(
-    "production_unformed_brands",
-    "Марки неформованной продукции",
-    "unformed",
-  ),
-  productionBrandView(
-    "production_chamotte_brands",
-    "Марки шамота",
-    "chamotte",
-  ),
 ];
 
 const databaseViewByName = new Map(databaseViews.map((view) => [view.name, view]));
@@ -331,9 +299,7 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
     return {
       table,
       rows: rows.map((row) => mapDatabaseRow(row, view)),
-      mergeTargets: view.productionBrandCategory === undefined
-        ? []
-        : await listProductionBrandMergeTargets(pool, view.productionBrandCategory),
+      mergeTargets: [],
       limit: safeLimit,
       offset: safeOffset,
     };
@@ -342,11 +308,6 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
   async function updateRow(value: AdminDatabaseUpdate) {
     const view = readView(value.tableName);
     assertPrimaryKey(view, value.primaryKey);
-
-    if (view.productionBrandCategory !== undefined) {
-      await renameProductionBrand(pool, view.productionBrandCategory, value);
-      return;
-    }
 
     if (view.name === "dispatcher_submissions") {
       await updateDispatcherSubmission(pool, value);
@@ -393,44 +354,11 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
 
   }
 
-  async function mergeRows(value: AdminDatabaseMerge) {
-    const view = readView(value.tableName);
-
-    if (view.productionBrandCategory === undefined) {
-      throw new Error("Selected table does not allow merging rows.");
-    }
-
-    assertPrimaryKey(view, value.sourcePrimaryKey);
-    assertPrimaryKey(view, value.targetPrimaryKey);
-
-    const sourceId = value.sourcePrimaryKey.id;
-    const targetId = value.targetPrimaryKey.id;
-
-    if (sourceId === targetId) {
-      throw new Error("Выберите другую целевую марку.");
-    }
-
-    const brands = await lockProductionBrands(pool, [sourceId, targetId]);
-    const source = brands.find((brand) => brand.id === sourceId);
-    const target = brands.find((brand) => brand.id === targetId);
-
-    assertProductionBrandMatchesView(source, view.productionBrandCategory);
-    assertProductionBrandMatchesView(target, view.productionBrandCategory);
-
-    const rewritten = await rewriteStoredProductionBrandReferences(pool, {
-      category: view.productionBrandCategory,
-      sourceLabel: source.label,
-      targetLabel: target.label,
-      merge: true,
-    });
-
-    await pool.query("delete from production_brand_labels where id = ?", [source.id]);
-
-    return {
-      sourceLabel: source.label,
-      targetLabel: target.label,
-      ...rewritten,
-    };
+  async function mergeRows(
+    value: AdminDatabaseMerge,
+  ): Promise<AdminDatabaseMergeResult> {
+    readView(value.tableName);
+    throw new Error("Selected table does not allow merging rows.");
   }
 
   async function deleteRow(value: AdminDatabaseDelete) {
@@ -470,176 +398,6 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
   }
 
   return { listTables, listRows, updateRow, mergeRows, deleteRow, clearTable };
-}
-
-function productionBrandView(
-  name: string,
-  label: string,
-  category: ProductionBrandCategory,
-): AdminDatabaseView {
-  return {
-    name,
-    label,
-    fromClause: "production_brand_labels brands",
-    whereClause: `brands.category = '${category}'`,
-    orderBy: "brands.label asc, brands.id asc",
-    columns: [
-      viewColumn("label", "Название марки", "brands.label", {
-        editable: true,
-        sourceColumn: "label",
-        maxLength: 120,
-      }),
-      viewColumn("created_at", "Создана", "brands.created_at", {
-        format: "date_time",
-      }),
-    ],
-    primaryKey: [{ name: "id", selectExpression: "brands.id" }],
-    canDelete: false,
-    canClear: false,
-    productionBrandCategory: category,
-  };
-}
-
-async function listProductionBrandMergeTargets(
-  pool: DatabasePool,
-  category: ProductionBrandCategory,
-): Promise<AdminDatabaseMergeTarget[]> {
-  const [rows] = await pool.query<Array<RowDataPacket & { id: string; label: string }>>(
-    `select id, label from production_brand_labels
-     where category = ?
-     order by label asc, id asc`,
-    [category],
-  );
-
-  return rows.map((row) => ({
-    primaryKey: { id: row.id },
-    label: row.label,
-  }));
-}
-
-async function renameProductionBrand(
-  pool: DatabasePool,
-  category: ProductionBrandCategory,
-  value: AdminDatabaseUpdate,
-) {
-  const entries = Object.entries(value.values).filter(([, rawValue]) => rawValue !== undefined);
-
-  if (entries.length !== 1 || entries[0]?.[0] !== "label") {
-    throw new Error("Для марки можно изменить только название.");
-  }
-
-  const input = normalizeProductionBrandLabelInput(
-    category,
-    entries[0][1],
-  );
-
-  if (!input.ok) {
-    throw new Error(input.errors.join(" "));
-  }
-
-  const brands = await lockProductionBrands(pool, [value.primaryKey.id]);
-  const source = brands[0];
-
-  assertProductionBrandMatchesView(source, category);
-
-  const [duplicates] = await pool.query<Array<RowDataPacket & { id: string }>>(
-    `select id from production_brand_labels
-     where category = ? and normalized_label = ? and id <> ?
-     limit 1`,
-    [category, input.value.normalizedLabel, source.id],
-  );
-
-  if (duplicates.length > 0) {
-    throw new Error("Такая марка уже существует. Используйте слияние марок.");
-  }
-
-  await pool.query(
-    `update production_brand_labels
-     set label = ?, normalized_label = ?
-     where id = ?`,
-    [input.value.label, input.value.normalizedLabel, source.id],
-  );
-
-  await rewriteStoredProductionBrandReferences(pool, {
-    category,
-    sourceLabel: source.label,
-    targetLabel: input.value.label,
-    merge: false,
-  });
-}
-
-async function lockProductionBrands(
-  pool: DatabasePool,
-  ids: Array<AdminDatabaseCellValue | undefined>,
-) {
-  if (ids.some((id) => typeof id !== "string" || id.length === 0)) {
-    throw new Error("Primary key value is missing.");
-  }
-
-  const sortedIds = [...ids] as string[];
-  sortedIds.sort();
-  const placeholders = sortedIds.map(() => "?").join(", ");
-  const [rows] = await pool.query<ProductionBrandAdminRow[]>(
-    `select id, category, label, normalized_label
-     from production_brand_labels
-     where id in (${placeholders})
-     order by id
-     for update`,
-    sortedIds,
-  );
-
-  return rows;
-}
-
-function assertProductionBrandMatchesView(
-  brand: ProductionBrandAdminRow | undefined,
-  category: ProductionBrandCategory,
-): asserts brand is ProductionBrandAdminRow {
-  if (brand === undefined) {
-    throw new Error("Марка не найдена.");
-  }
-
-  if (brand.category !== category) {
-    throw new Error("Марка принадлежит другому справочнику.");
-  }
-}
-
-async function rewriteStoredProductionBrandReferences(
-  pool: DatabasePool,
-  input: {
-    category: ProductionBrandCategory;
-    sourceLabel: string;
-    targetLabel: string;
-    merge: boolean;
-  },
-) {
-  const [rows] = await pool.query<ProductionBrandSubmissionRow[]>(
-    `select id, payload, period, status
-     from dispatcher_submissions
-     where form_id = 'production'
-     order by id
-     for update`,
-  );
-  let updatedSubmissions = 0;
-  let combinedFacts = 0;
-
-  for (const row of rows) {
-    const result = rewriteProductionBrandReferences({
-      payload: readStoredJsonObject(row.payload),
-      ...input,
-    });
-
-    if (!result.changed) continue;
-
-    await pool.query(
-      "update dispatcher_submissions set payload = ? where id = ?",
-      [JSON.stringify(result.payload), row.id],
-    );
-    updatedSubmissions += 1;
-    combinedFacts += result.combinedFacts;
-  }
-
-  return { updatedSubmissions, combinedFacts };
 }
 
 async function assertUserIsEditable(
@@ -844,7 +602,7 @@ function buildPublicTable(view: AdminDatabaseView, rowCount: number | null) {
     primaryKey: view.primaryKey.map((column) => column.name),
     canDelete: view.canDelete,
     canClear: view.canClear === true,
-    canMerge: view.productionBrandCategory !== undefined,
+    canMerge: false,
   } satisfies AdminDatabaseTable;
 }
 
@@ -1071,22 +829,6 @@ function readDispatcherPayload(value: unknown): DispatcherSubmissionPayload {
   return Object.fromEntries(
     Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
-}
-
-function readStoredJsonObject(value: unknown): Record<string, unknown> {
-  if (typeof value === "string") {
-    try {
-      return readStoredJsonObject(JSON.parse(value) as unknown);
-    } catch {
-      return {};
-    }
-  }
-
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
-  }
-
-  return { ...value };
 }
 
 function toAdminEditorInputType(field: DispatcherFormField): AdminDatabaseEditorInputType {

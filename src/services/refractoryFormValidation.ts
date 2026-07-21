@@ -1,7 +1,7 @@
 import type { RefractoryFieldErrorDetail } from "./refractoryReports";
 
 export type RefractoryFormFieldError = {
-  input: HTMLInputElement;
+  input: HTMLInputElement | HTMLSelectElement;
   message: string;
 };
 
@@ -11,16 +11,20 @@ export function validateRefractoryForm(
   form: HTMLFormElement,
 ): RefractoryFormFieldError[] {
   clearRefractoryFormErrors(form);
-  const errors = Array.from(
+  const errors: RefractoryFormFieldError[] = Array.from(
     form.querySelectorAll<HTMLInputElement>("input[data-refractory-number]"),
   ).flatMap(validateNumberInput);
 
-  for (const brandInput of form.querySelectorAll<HTMLInputElement>(
-    "input[data-refractory-row-brand]",
+  for (const brandInput of form.querySelectorAll<
+    HTMLInputElement | HTMLSelectElement
+  >(
+    "input[data-refractory-row-brand], select[data-refractory-row-brand]",
   )) {
     const row = brandInput.closest("tr");
     const hasRowData = Array.from(
-      row?.querySelectorAll<HTMLInputElement>("input") ?? [],
+      row?.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+        "input, select",
+      ) ?? [],
     ).some(
       (input) => input !== brandInput && input.value.trim().length > 0,
     );
@@ -70,7 +74,7 @@ export function markRefractoryServerFieldErrors(
 
 function clearRefractoryFormErrors(form: HTMLFormElement) {
   for (const control of form.querySelectorAll<RefractoryFormControl>(
-    'input[aria-invalid="true"], textarea[aria-invalid="true"]',
+    'input[aria-invalid="true"], textarea[aria-invalid="true"], select[aria-invalid="true"]',
   )) {
     clearRefractoryFieldError(control);
   }
@@ -127,12 +131,15 @@ function buildDecimalPrecisionMessage(input: HTMLInputElement) {
   return `${readInputLabel(input)}: укажите не более трёх знаков после запятой.`;
 }
 
-function readInputLabel(input: HTMLInputElement) {
+function readInputLabel(input: HTMLInputElement | HTMLSelectElement) {
   return input.dataset.refractoryLabel ?? input.getAttribute("aria-label") ??
     "Поле";
 }
 
-type RefractoryFormControl = HTMLInputElement | HTMLTextAreaElement;
+type RefractoryFormControl =
+  | HTMLInputElement
+  | HTMLTextAreaElement
+  | HTMLSelectElement;
 
 function findControlByFieldPath(
   form: HTMLFormElement,
@@ -158,23 +165,25 @@ function findDynamicRowControl(
   field: string,
 ) {
   const rows = Array.from(form.querySelectorAll("tr")).filter((row) =>
-    Array.from(row.querySelectorAll<RefractoryFormControl>("input, textarea"))
-      .some((control) => control.name.startsWith(`${prefix}.`))
+    Array.from(
+      row.querySelectorAll<RefractoryFormControl>("input, textarea, select"),
+    ).some((control) => control.name.startsWith(`${prefix}.`))
   );
   const filledRows = rows.filter((row) =>
-    Array.from(row.querySelectorAll<RefractoryFormControl>("input, textarea"))
-      .some((control) => control.value.trim().length > 0)
+    Array.from(
+      row.querySelectorAll<RefractoryFormControl>("input, textarea, select"),
+    ).some((control) => control.value.trim().length > 0)
   );
   return Array.from(
     filledRows[submittedRowIndex]?.querySelectorAll<RefractoryFormControl>(
-      "input, textarea",
+      "input, textarea, select",
     ) ?? [],
   ).find((control) => control.name.endsWith(`.${field}`));
 }
 
 function readFormControls(form: HTMLFormElement) {
   return Array.from(
-    form.querySelectorAll<RefractoryFormControl>("input, textarea"),
+    form.querySelectorAll<RefractoryFormControl>("input, textarea, select"),
   );
 }
 

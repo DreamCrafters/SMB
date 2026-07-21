@@ -20,6 +20,7 @@ import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSub
 import type {
   DispatcherReferenceDataSource,
   NotificationRecipients,
+  ProductionBrandsDataSource,
 } from "../integrations/googleSheetsReference.js";
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import type { MaxNotificationService } from "../integrations/maxNotifications.js";
@@ -34,10 +35,6 @@ import type {
   ProductionPlanRevision,
   ProductionPlansRepository,
 } from "../repositories/productionPlansRepository.js";
-import type {
-  ProductionBrandLabel,
-  ProductionBrandsRepository,
-} from "../repositories/productionBrandsRepository.js";
 import type {
   RefractoryReportRevision,
   RefractoryReportsRepository,
@@ -229,6 +226,19 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
       refractoryReviewNotificationRecipients: [],
       refractoryReviewMaxNotificationRecipients: [],
     };
+  },
+};
+
+const passthroughProductionBrands: ProductionBrandsDataSource = {
+  async list() {
+    return [];
+  },
+  async create(label, commitCreated) {
+    await commitCreated(label);
+    return { label, created: true };
+  },
+  async resolveReferences(references) {
+    return { ok: true, references };
   },
 };
 
@@ -938,6 +948,112 @@ test("admin database API forwards update and delete mutations for admin sessions
   assert.deepEqual(
     auditEvents.find((event) => event.action === "data.delete")?.details,
     [],
+  );
+});
+
+test("admin dispatcher editor uses and enforces the shared production brands", async () => {
+  let updatedValues: Record<string, string | null> | undefined;
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async listRows() {
+      return {
+        table: adminDatabaseTable,
+        rows: [{
+          primaryKey: { id: "production-row" },
+          values: {
+            id: "production-row",
+            "payload.formingProductBrand": "Старая марка",
+          },
+          editorFields: [{
+            name: "payload.formingProductBrand",
+            label: "Марка изделия",
+            inputType: "text",
+            required: false,
+            options: [],
+            value: "Старая марка",
+          }],
+        }],
+        mergeTargets: [],
+        limit: 100,
+        offset: 0,
+      };
+    },
+    async updateRow(value) {
+      updatedValues = value.values;
+    },
+  };
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["ФЛ-1", "ША-22"];
+    },
+    async create(label, commitCreated) {
+      await commitCreated(label);
+      return { label, created: true };
+    },
+    async resolveReferences(references) {
+      return {
+        ok: true,
+        references: references.map((reference) => ({
+          ...reference,
+          label: reference.label.trim().toLocaleLowerCase("ru-RU") === "фл-1"
+            ? "ФЛ-1"
+            : reference.label,
+        })),
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const headers = {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
+      };
+      const rowsResponse = await fetch(
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`,
+        { headers },
+      );
+      const rowsPayload = await rowsResponse.json();
+      const firstField = isRecord(rowsPayload) && Array.isArray(rowsPayload.rows) &&
+          isRecord(rowsPayload.rows[0]) && Array.isArray(rowsPayload.rows[0].editorFields)
+        ? rowsPayload.rows[0].editorFields[0]
+        : undefined;
+
+      assert.equal(rowsResponse.status, 200);
+      assert.equal(isRecord(firstField) ? firstField.inputType : undefined, "production_brand");
+      assert.deepEqual(isRecord(firstField) ? firstField.options : undefined, [
+        { value: "ФЛ-1", label: "ФЛ-1" },
+        { value: "ША-22", label: "ША-22" },
+      ]);
+
+      const updateResponse = await fetch(
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            primaryKey: { id: "production-row" },
+            values: { "payload.formingProductBrand": " фл-1 " },
+          }),
+        },
+      );
+
+      assert.equal(updateResponse.status, 200);
+      assert.equal(updatedValues?.["payload.formingProductBrand"], "ФЛ-1");
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    productionBrands,
   );
 });
 
@@ -2857,9 +2973,9 @@ test("production plan API saves independent category schedules with audit", asyn
   }
 });
 
-test("production brand API lets dispatcher permanently add a normalized catalog label", async () => {
+test("production brand API lets dispatcher add a normalized Google Sheets label", async () => {
   const profile = buildProductionProfile("dispatcher");
-  const labels: ProductionBrandLabel[] = [];
+  const labels: string[] = [];
   const recorded: Parameters<AuditRepository["record"]>[0][] = [];
   const auditRepository: AuditRepository = {
     async record(event) {
@@ -2869,7 +2985,7 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
       throw new Error("not used");
     },
   };
-  const productionBrands: ProductionBrandsRepository = {
+  const productionBrands: ProductionBrandsDataSource = {
     async list() {
       return labels;
     },
@@ -2882,25 +2998,19 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
         })),
       };
     },
-    async create(input) {
+    async create(input, commitCreated) {
       const existing = labels.find(
         (label) =>
-          label.category === input.category &&
-          label.label.toLocaleLowerCase("ru-RU") === input.normalizedLabel,
+          label.toLocaleLowerCase("ru-RU") === input.toLocaleLowerCase("ru-RU"),
       );
 
       if (existing !== undefined) {
         return { label: existing, created: false };
       }
 
-      const label = {
-        id: "brand-1",
-        category: input.category,
-        label: input.label,
-        createdAt: "2026-07-17T10:00:00.000Z",
-      };
-      labels.push(label);
-      return { label, created: true };
+      labels.push(input);
+      await commitCreated(input);
+      return { label: input, created: true };
     },
   };
   await withApiServer(async (baseUrl) => {
@@ -2912,7 +3022,6 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
       method: "POST",
       headers,
       body: JSON.stringify({
-        category: "unformed",
         label: "  ПБ-5   огнеупорный  ",
       }),
     });
@@ -2920,9 +3029,7 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
 
     assert.equal(createResponse.status, 201);
     assert.equal(
-      isRecord(created) && isRecord(created.label)
-        ? created.label.label
-        : undefined,
+      isRecord(created) ? created.label : undefined,
       "ПБ-5 огнеупорный",
     );
     assert.equal(recorded.at(-1)?.action, "production_brand.create");
@@ -2930,7 +3037,7 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
     const duplicateResponse = await fetch(`${baseUrl}/api/production-brands`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ category: "unformed", label: "пб-5 огнеупорный" }),
+      body: JSON.stringify({ label: "пб-5 огнеупорный" }),
     });
     assert.equal(duplicateResponse.status, 200);
     assert.equal(recorded.length, 1);
@@ -2941,7 +3048,6 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
         method: "POST",
         headers,
         body: JSON.stringify({
-          category: "unformed",
           label: "ПБ-6",
           createdByUserId: "forged-user",
         }),
@@ -2955,7 +3061,7 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ category: "unformed", label: { value: "ПБ-6" } }),
+        body: JSON.stringify({ label: { value: "ПБ-6" } }),
       },
     );
     assert.equal(nestedLabelResponse.status, 400);
@@ -2977,7 +3083,7 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
     const forbiddenCreate = await fetch(`${baseUrl}/api/production-brands`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ category: "chamotte", label: "Ш-1" }),
+      body: JSON.stringify({ label: "Ш-1" }),
     });
     assert.equal(forbiddenCreate.status, 403);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined,
@@ -2985,7 +3091,7 @@ test("production brand API lets dispatcher permanently add a normalized catalog 
   undefined, auditRepository, undefined, productionBrands);
 });
 
-test("production submission accepts only brands saved in the matching catalog", async () => {
+test("production submission accepts only brands from the shared nomenclature", async () => {
   const profile = buildProductionProfile("dispatcher");
   let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
   let insideTransaction = false;
@@ -2996,22 +3102,18 @@ test("production submission accepts only brands saved in the matching catalog", 
       return dispatcherSubmissions.create(value, submittedByAccountId);
     },
   };
-  const productionBrands: ProductionBrandsRepository = {
+  const productionBrands: ProductionBrandsDataSource = {
     async list() {
-      return [
-        { id: "product-1", category: "product", label: "ФЛ-1", createdAt: "2026-07-17T10:00:00.000Z" },
-        { id: "unformed-1", category: "unformed", label: "ПБ-5", createdAt: "2026-07-17T10:00:00.000Z" },
-      ];
+      return ["ФЛ-1", "ПБ-5"];
     },
     async resolveReferences(references) {
-      assert.equal(insideTransaction, true);
+      assert.equal(insideTransaction, false);
       const labels = await this.list();
       const resolved = references.map((reference) => ({
         reference,
         saved: labels.find(
           (label) =>
-            label.category === reference.category &&
-            label.label.toLocaleLowerCase("ru-RU") ===
+            label.toLocaleLowerCase("ru-RU") ===
               reference.label.trim().toLocaleLowerCase("ru-RU"),
         ),
       }));
@@ -3022,7 +3124,7 @@ test("production submission accepts only brands saved in the matching catalog", 
             ok: true,
             references: resolved.map((item) => ({
               fieldName: item.reference.fieldName,
-              label: item.saved?.label ?? item.reference.label,
+              label: item.saved ?? item.reference.label,
             })),
           }
         : { ok: false, missing };
@@ -3972,6 +4074,50 @@ test("remote API accepts incident close for an earlier-day open incident", async
   }, repository);
 });
 
+test("refractory user reads the same shared production brand list", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.activeAccess.capabilities = ["business.submit_refractory_reports"];
+  profile.activeAccess.navigationItems = ["business.refractory_shop"];
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["ША-22", "Смесь МК", "Гранулы 0-5"];
+    },
+    async create(label, commitCreated) {
+      await commitCreated(label);
+      return { label, created: true };
+    },
+    async resolveReferences(references) {
+      return { ok: true, references };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/production-brands`,
+        { headers: { Cookie: "smb_session=prod-session" } },
+      );
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        labels: ["ША-22", "Смесь МК", "Гранулы 0-5"],
+      });
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    productionBrands,
+  );
+});
+
 test("refractory reports are submitted and reviewed independently through protected API", async () => {
   let stored: RefractoryReportRevision | undefined;
   let listedForAccountId = "";
@@ -4104,6 +4250,30 @@ test("refractory reports are submitted and reviewed independently through protec
   operatorProfile.activeAccess.capabilities = [
     "business.submit_refractory_reports",
   ];
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["ША"];
+    },
+    async create(label, commitCreated) {
+      await commitCreated(label);
+      return { label, created: true };
+    },
+    async resolveReferences(references) {
+      const missing = references.find(
+        (reference) => reference.label.trim().toLocaleLowerCase("ru-RU") !== "ша",
+      );
+
+      return missing === undefined
+        ? {
+            ok: true,
+            references: references.map((reference) => ({
+              fieldName: reference.fieldName,
+              label: "ША",
+            })),
+          }
+        : { ok: false, missing };
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -4154,7 +4324,7 @@ test("refractory reports are submitted and reviewed independently through protec
           shiftNumber: 2,
           payload: {
             rows: [{
-              productBrand: "ША",
+              productBrand: " ша ",
               quantityPieces: 100,
               rejectCracksPieces: 2,
             }],
@@ -4165,6 +4335,11 @@ test("refractory reports are submitted and reviewed independently through protec
 
       assert.equal(response.status, 201);
       assert.equal(stored?.masterDisplayName, "Мастер ОЦ");
+      assert.equal(
+        (stored?.payload as { rows?: Array<{ productBrand?: string }> } | undefined)
+          ?.rows?.[0]?.productBrand,
+        "ША",
+      );
       assert.equal(
         (stored?.totals as { rejectTotalPieces?: number } | undefined)
           ?.rejectTotalPieces,
@@ -4202,7 +4377,7 @@ test("refractory reports are submitted and reviewed independently through protec
     undefined,
     undefined,
     refractoryMutationTransaction,
-    undefined,
+    productionBrands,
     undefined,
     repository,
   );
@@ -4304,7 +4479,7 @@ async function withApiServer(
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService,
   audit?: AuditRepository,
   databaseTransaction?: DatabaseTransactionRunner,
-  productionBrands?: ProductionBrandsRepository,
+  productionBrands: ProductionBrandsDataSource = passthroughProductionBrands,
   productionSnapshot?: ProductionDatabaseSnapshotService,
   refractoryReports?: RefractoryReportsRepository,
 ) {
