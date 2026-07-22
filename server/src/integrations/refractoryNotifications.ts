@@ -85,37 +85,39 @@ function buildPayloadLines(report: RefractoryReportNotification) {
 function buildCoshPayloadLines(payload: RefractoryCoshPayload) {
   const output = payload.chamotteOutput;
   const lines = [
-    "Работа печи и выпуск шамота",
-    formatField("Вращающаяся печь №", payload.kilnNumber),
+    "Сводка по ЦОШ (ежесменная)",
+    "Выпуск шамота",
+    formatField("Работает вр. печь №", payload.kilnNumber),
     formatField("ШБО, т", output?.shbo),
     formatField("ШГР-1, т", output?.shgr1),
     formatField("ШГР-2, т", output?.shgr2),
     formatField("ШКИ, т", output?.shki),
-    formatField("Загрузка, ковшей/час", payload.loadingBucketsPerHour),
-    formatField("Всего загружено ковшей", payload.totalLoadingBuckets),
-    formatField("Вывоз брака из бункера РЦ, т", payload.scrapRemovalTons),
+    formatField("Загрузка, ковш/час", payload.loadingBucketsPerHour),
+    formatField("Загрузка, всего ковшей", payload.totalLoadingBuckets),
     "Замеры банок",
     ...(payload.jarMeasurements?.map((row) =>
-      `Банка ${row.jarNumber}: ${row.values.map(formatValue).join("; ")}`
+      `Банка ${["I", "II", "III"][row.jarNumber - 1]}: ${row.values.map(formatValue).join("; ")}`
     ) ?? ["—"]),
-    "Наполнение бункеров РЦ",
+    "Заполнение ж/д бункеров",
     ...(payload.bunkerFill?.map((row) =>
       `Бункер ${row.bunker}: продукт ${formatValue(row.productName)}; количество, т ${formatValue(row.quantity)}`
     ) ?? ["—"]),
-    "Подача шамота в огнеупорный цех",
+    "Подача шамота в огнеупорный цех, тн",
     ...(payload.chamotteSupply?.map((row) =>
-      `Источник ${formatSupplySource(row.source)}: продукт ${formatValue(row.productName)}; количество, т ${formatValue(row.quantity)}`
+      `${formatSupplySource(row.source)}: продукт ${formatValue(row.productName)}; кол-во, т ${formatValue(row.quantity)}`
     ) ?? ["—"]),
-    "Фасовка и время операций",
-    formatField("Номер банки фасовки", payload.bagging?.jarNumber),
-    formatField("Количество фасовки, т", payload.bagging?.quantity),
-    formatField("Розжиг печи", payload.furnaceIgnitionTime),
-    formatField("Начало загрузки", payload.loadingStartTime),
-    formatField("Переход на бункер РЦ", payload.bunkerTransitionTime),
-    formatField("Номер бункера", payload.bunkerNumber),
-    formatField("Переход на банку", payload.jarTransitionTime),
-    formatField("Номер банки", payload.jarNumber),
-    formatField("Остановка печи", payload.furnaceStopTime),
+    "Затарка в мешки",
+    formatField("№ банки", payload.bagging?.jarNumber),
+    formatField("Кол-во, т", payload.bagging?.quantity),
+    formatField("Вывоз недопала с ж/д бункера, тн", payload.scrapRemovalTons),
+    "Время операций",
+    formatField("Время розжига печи", payload.furnaceIgnitionTime),
+    formatField("Время начала загрузки", payload.loadingStartTime),
+    formatField("Время перехода на ж/д бункер", payload.bunkerTransitionTime),
+    formatField("№ бункера", payload.bunkerNumber),
+    formatField("Время перехода на банку", payload.jarTransitionTime),
+    formatField("№ банки", payload.jarNumber),
+    formatField("Время прекращения работы печи", payload.furnaceStopTime),
     formatField("Примечание", payload.note),
   ];
 
@@ -132,16 +134,16 @@ function buildEquipmentPayloadLines(payload: RefractoryEquipmentPayload) {
         `норма ${formatValue(row.outputNorm)}`,
         `факт, шт. ${formatValue(row.actualPieces)}`,
         `факт, т ${formatValue(row.actualTons)}`,
-        `работа, ч ${formatValue(row.workedHours)}`,
-        `мех. ремонт ${formatValue(row.mechanicalRepairHours)}`,
-        `эл. ремонт ${formatValue(row.electricalRepairHours)}`,
-        `замена каретки ${formatValue(row.carriageReplacementHours)}`,
+        `отработано, ч ${formatValue(row.workedHours)}`,
+        `простой всего ${formatValue(row.totalDowntimeHours)}`,
+        `ремонт по мех. части ${formatValue(row.mechanicalRepairHours)}`,
+        `ремонт по эл. части ${formatValue(row.electricalRepairHours)}`,
+        `замена вагона ${formatValue(row.carriageReplacementHours)}`,
         `замена марки ${formatValue(row.brandReplacementHours)}`,
         `замена формы ${formatValue(row.moldReplacementHours)}`,
         `резерв ${formatValue(row.reserveHours)}`,
-        `нет рабочего/сменщика ${formatValue(row.workerAbsenceHours)}`,
-        `нет сырья ${formatValue(row.rawMaterialAbsenceHours)}`,
-        `простой всего ${formatValue(row.totalDowntimeHours)}`,
+        `отсутствие рабочего/сменщика ${formatValue(row.workerAbsenceHours)}`,
+        `отсутствие сырья ${formatValue(row.rawMaterialAbsenceHours)}`,
         `примечание ${formatValue(row.note)}`,
       ].join("; ")
     ),
@@ -158,20 +160,20 @@ function buildFiringPayloadLines(payload: RefractoryFiringPayload) {
     ...payload.rows.map((row, index) =>
       [
         `${index + 1}. ${row.productBrand}`,
-        `количество, шт. ${formatValue(row.quantityPieces)}`,
-        `поддоны ${formatValue(row.palletCount)}`,
-        `годные, т (ср. вес) ${formatValue(row.goodTonsAverageWeight)}`,
-        `годные, т (взвешено) ${formatValue(row.goodTonsWeighed)}`,
+        `кол-во, шт. ${formatValue(row.quantityPieces)}`,
+        `кол-во, поддонов ${formatValue(row.palletCount)}`,
+        `годная, т по среднему весу ${formatValue(row.goodTonsAverageWeight)}`,
+        `годная, т по взвешиванию ${formatValue(row.goodTonsWeighed)}`,
+        `брак всего, шт. ${formatValue(row.rejectTotalPieces)}`,
         `недожог ${formatValue(row.rejectUnderburnPieces)}`,
         `трещины ${formatValue(row.rejectCracksPieces)}`,
-        `сплав ${formatValue(row.rejectFusionPieces)}`,
+        `выплавка ${formatValue(row.rejectFusionPieces)}`,
         `сколы ${formatValue(row.rejectChipsPieces)}`,
-        `брак всего ${formatValue(row.rejectTotalPieces)}`,
         `примечание ${formatValue(row.note)}`,
       ].join("; ")
     ),
-    formatField("Время обжига, часов", payload.calcinationHours),
-    formatField("Количество сортировщиков", payload.sorterCount),
+    formatField("Время прогонки, час(а)", payload.calcinationHours),
+    formatField("Присутствуют на смене, сортировщиков", payload.sorterCount),
     formatField("Причина невыполнения плана", payload.planFailureReason),
   ];
 }
@@ -181,11 +183,11 @@ function buildTotalsLines(report: RefractoryReportNotification) {
     const totals = report.totals;
 
     return [
-      formatTotal("Выработка шамота, т", totals.chamotteOutputTons),
-      formatTotal("Заполнение бункеров, т", totals.bunkerFillTons),
+      formatTotal("Выпуск шамота, т", totals.chamotteOutputTons),
+      formatTotal("Заполнение ж/д бункеров, т", totals.bunkerFillTons),
       formatTotal("Подача шамота, т", totals.chamotteSupplyTons),
-      formatTotal("Фасовка, т", totals.baggingTons),
-      formatTotal("Вывоз брака, т", totals.scrapRemovalTons),
+      formatTotal("Затарка в мешки, т", totals.baggingTons),
+      formatTotal("Вывоз недопала, т", totals.scrapRemovalTons),
     ];
   }
 
@@ -196,7 +198,7 @@ function buildTotalsLines(report: RefractoryReportNotification) {
       formatTotal("Формованные изделия, шт", totals.formedActualPieces),
       formatTotal("Формованные изделия, т", totals.formedActualTons),
       formatTotal("Отработано, ч", totals.formedWorkedHours),
-      formatTotal("Простой, ч", totals.formedDowntimeHours),
+      formatTotal("Простой всего, ч", totals.formedDowntimeHours),
       formatTotal(
         "Неформованные изделия, контейнеры",
         totals.unformedActualContainers,
@@ -208,14 +210,14 @@ function buildTotalsLines(report: RefractoryReportNotification) {
   const totals = report.totals;
 
   return [
-    formatTotal("Выпуск, шт", totals.quantityPieces),
-    formatTotal("Поддоны, шт", totals.palletCount),
-    formatTotal("Годное по среднему весу, т", totals.goodTonsAverageWeight),
-    formatTotal("Годное по взвешиванию, т", totals.goodTonsWeighed),
-    formatTotal("Брак, шт", totals.rejectTotalPieces),
+    formatTotal("Кол-во, шт", totals.quantityPieces),
+    formatTotal("Кол-во, поддонов", totals.palletCount),
+    formatTotal("Годная по среднему весу, т", totals.goodTonsAverageWeight),
+    formatTotal("Годная по взвешиванию, т", totals.goodTonsWeighed),
+    formatTotal("Брак всего, шт", totals.rejectTotalPieces),
     formatTotal("Недожог, шт", totals.rejectUnderburnPieces),
     formatTotal("Трещины, шт", totals.rejectCracksPieces),
-    formatTotal("Сплав, шт", totals.rejectFusionPieces),
+    formatTotal("Выплавка, шт", totals.rejectFusionPieces),
     formatTotal("Сколы, шт", totals.rejectChipsPieces),
   ];
 }
@@ -249,7 +251,8 @@ function formatValue(value: string | number | undefined) {
 }
 
 function formatSupplySource(value: "I" | "II" | "III" | "street") {
-  return value === "street" ? "улица" : value;
+  if (value === "street") return "уличн.";
+  return value === "I" ? "Из I" : value;
 }
 
 function dedupeRecipients(

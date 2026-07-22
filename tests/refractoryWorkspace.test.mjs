@@ -108,7 +108,7 @@ test("refractory workspace opens one of three independent table buttons", async 
         (button) =>
           button.querySelector(".refractory-report-label")?.textContent,
       ),
-      ["ЦОШ", "Оборудование и выпуск сырца", "Печное отделение"],
+      ["ЦОШ", "Сводка по работе оборудования", "Печное отделение"],
     );
     assert.equal(
       menuButtons[0].querySelector(".refractory-report-return-count"),
@@ -132,8 +132,135 @@ test("refractory workspace opens one of three independent table buttons", async 
       rootElement.querySelector("input[readonly]")?.value,
       "Иванов Иван Иванович",
     );
+    assert.equal(
+      rootElement.querySelector(".refractory-paper-title")?.textContent,
+      "Сводка по ЦОШ (ежесменная)",
+    );
+    const coshHeadings = Array.from(
+      rootElement.querySelectorAll(".refractory-section h3"),
+      (heading) => heading.textContent,
+    );
+    assert.deepEqual(coshHeadings, [
+      "Выпуск шамота",
+      "Замеры банок",
+      "Заполнение ж/д бункеров",
+      "Подача шамота в огнеупорный цех, тн",
+      "Затарка в мешки",
+      "Время операций",
+    ]);
+    const coshLabels = Array.from(
+      rootElement.querySelectorAll(".refractory-field > span"),
+      (label) => label.textContent,
+    );
+    [
+      "Работает вр. печь №",
+      "Загрузка, ковш/час",
+      "Загрузка, всего ковшей",
+      "Вывоз недопала с ж/д бункера, тн",
+      "Время розжига печи",
+      "Время начала загрузки",
+      "Время перехода на ж/д бункер",
+      "№ бункера",
+      "Время перехода на банку",
+      "№ банки",
+      "Время прекращения работы печи",
+    ].forEach((label) => assert.ok(coshLabels.includes(label), label));
 
     await React.act(async () => menuButtons[1].click());
+    const equipmentTable = rootElement.querySelector(
+      ".refractory-input-table-equipment",
+    );
+    assert.ok(equipmentTable);
+    assert.deepEqual(
+      Array.from(equipmentTable.querySelectorAll("thead th"), (cell) =>
+        cell.textContent.trim().replace(/\s+/gu, " "),
+      ),
+      [
+        "Оборудование",
+        "Марка изделия",
+        "Норма выработки",
+        "Факт, шт.",
+        "Факт, т",
+        "Отработано, ч",
+        "Простой всего",
+        "Ремонт по мех. части",
+        "Ремонт по эл. части",
+        "Замена вагона",
+        "Замена марки",
+        "Замена формы",
+        "Резерв",
+        "Отсутствие рабочего/сменщика",
+        "Отсутствие сырья",
+        "Примечание",
+      ],
+    );
+    assert.equal(
+      equipmentTable.querySelectorAll(
+        "thead .refractory-cell-production",
+      ).length,
+      4,
+    );
+    assert.equal(
+      equipmentTable.querySelectorAll("thead .refractory-cell-downtime")
+        .length,
+      9,
+    );
+    assert.match(
+      equipmentTable.querySelector("tfoot")?.textContent ?? "",
+      /ИТОГО выпуск формованных огнеупоров/u,
+    );
+    assert.match(
+      rootElement.querySelector(".refractory-input-table-compact tfoot")
+        ?.textContent ?? "",
+      /ИТОГО выпуск неформованных огнеупоров/u,
+    );
+    const numericValues = [
+      ["Пресс СМ-1085 №1: Факт, шт.", "12"],
+      ["Пресс СМ-1085 №1: Факт, т", "5.5"],
+      ["Пресс СМ-1085 №1: Отработано, ч", "7"],
+      ["Пресс СМ-1085 №1: Ремонт по мех. части", "2"],
+      ["Пресс СМ-1085 №1: Ремонт по эл. части", "3"],
+      ["Факт, контейнеры, строка 1", "4"],
+      ["Факт, т, строка 1", "2.5"],
+    ];
+    await React.act(async () => {
+      numericValues.forEach(([label, value]) => {
+        const input = rootElement.querySelector(`input[aria-label="${label}"]`);
+        assert.ok(input);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+    });
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Простой всего, Пресс СМ-1085 №1"]',
+      )?.textContent,
+      "5",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Итого формованных огнеупоров, шт."]',
+      )?.textContent,
+      "12",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Итого формованных огнеупоров, т"]',
+      )?.textContent,
+      "5,5",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Итого неформованных огнеупоров, контейнеры"]',
+      )?.textContent,
+      "4",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Итого неформованных огнеупоров, т"]',
+      )?.textContent,
+      "2,5",
+    );
     const formedBrand = rootElement.querySelector(
       'input[aria-label="Пресс СМ-1085 №1: Марка изделия"]',
     );
@@ -192,6 +319,78 @@ test("refractory workspace opens one of three independent table buttons", async 
     assert.equal(rootElement.querySelectorAll("form").length, 1);
 
     await React.act(async () => menuButtons[2].click());
+    const firingTable = rootElement.querySelector(
+      ".refractory-input-table-firing",
+    );
+    assert.ok(firingTable);
+    assert.deepEqual(
+      Array.from(firingTable.querySelectorAll("thead th"), (cell) =>
+        cell.textContent.trim().replace(/\s+/gu, " "),
+      ),
+      [
+        "Марка изделия",
+        "Кол-во, шт.",
+        "Кол-во, поддонов",
+        "Годная, т по среднему весу",
+        "Годная, т по взвешиванию",
+        "Брак всего, шт.",
+        "Недожог",
+        "Трещины",
+        "Выплавка",
+        "Сколы",
+        "Примечание",
+      ],
+    );
+    assert.match(firingTable.querySelector("tfoot")?.textContent ?? "", /ИТОГО/u);
+    assert.ok(
+      rootElement.querySelector('input[aria-label="Время прогонки, час(а)"]'),
+    );
+    assert.ok(
+      rootElement.querySelector(
+        'input[aria-label="Присутствуют на смене, сортировщиков"]',
+      ),
+    );
+    await React.act(async () => {
+      [
+        ["Кол-во, шт., строка 1", "100"],
+        ["Кол-во, поддонов, строка 1", "4"],
+        ["Годная, т по среднему весу, строка 1", "20.5"],
+        ["Годная, т по взвешиванию, строка 1", "21"],
+        ["Недожог, строка 1", "1"],
+        ["Трещины, строка 1", "2"],
+        ["Выплавка, строка 1", "3"],
+        ["Сколы, строка 1", "4"],
+      ].forEach(([label, value]) => {
+        const input = rootElement.querySelector(`input[aria-label="${label}"]`);
+        assert.ok(input);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+    });
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Брак всего, строка 1"]',
+      )?.textContent,
+      "10",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Итого: Кол-во, шт."]',
+      )?.textContent,
+      "100",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Итого: Годная, т по среднему весу"]',
+      )?.textContent,
+      "20,5",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Итого: Брак всего, шт."]',
+      )?.textContent,
+      "10",
+    );
     assert.deepEqual(
       readBrandOptions(
         rootElement.querySelector(
@@ -425,12 +624,12 @@ test("refractory report highlights invalid numeric fields with a clear message",
           ? {
               error: {
                 code: "invalid_response",
-                message: "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+                message: "Строка 1, «Отработано, ч»: укажите число от 0 до 24.",
                 details: [
                   {
                     fieldPath: "formed.0.workedHours",
                     message:
-                      "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+                      "Строка 1, «Отработано, ч»: укажите число от 0 до 24.",
                   },
                 ],
               },
@@ -483,7 +682,7 @@ test("refractory report highlights invalid numeric fields with a clear message",
       0,
     );
     const workedHours = rootElement.querySelector(
-      'input[aria-label="Пресс СМ-1085 №1: Работа, ч"]',
+      'input[aria-label="Пресс СМ-1085 №1: Отработано, ч"]',
     );
     assert.ok(workedHours);
 
@@ -505,7 +704,7 @@ test("refractory report highlights invalid numeric fields with a clear message",
     assert.equal(workedHours.getAttribute("aria-invalid"), "true");
     assert.match(
       rootElement.querySelector(".form-status-error")?.textContent ?? "",
-      /Работа, ч.*от 0 до 24/u,
+      /Отработано, ч.*от 0 до 24/u,
     );
     assert.doesNotMatch(rootElement.textContent, /workedHours/u);
 

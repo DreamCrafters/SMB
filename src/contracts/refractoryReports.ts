@@ -5,7 +5,7 @@ export type RefractoryReportStatus = "pending" | "rejected" | "approved";
 
 export const refractoryReportLabels: Record<RefractoryReportType, string> = {
   cosh: "ЦОШ",
-  equipment: "Оборудование и выпуск сырца",
+  equipment: "Сводка по работе оборудования",
   firing: "Печное отделение",
 };
 

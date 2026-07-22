@@ -4789,6 +4789,13 @@ p {
   gap: var(--density-4);
 }
 
+.refractory-paper-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  text-align: center;
+}
+
 .refractory-section {
   display: grid;
   gap: 12px;
@@ -4876,7 +4883,7 @@ p {
 }
 
 .refractory-input-table-equipment {
-  min-width: 1600px;
+  min-width: 1450px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -4922,8 +4929,8 @@ p {
 }
 
 .refractory-input-table-equipment .refractory-equipment-column-name {
-  width: 156px;
-  min-width: 156px;
+  width: 132px;
+  min-width: 132px;
 }
 
 .refractory-equipment-column-text {
@@ -4931,7 +4938,31 @@ p {
 }
 
 .refractory-equipment-column-brand {
-  width: 180px;
+  width: 150px;
+}
+
+.refractory-cell-production {
+  background: color-mix(in srgb, var(--emerald) 9%, var(--surface));
+}
+
+.refractory-cell-downtime {
+  background: color-mix(in srgb, var(--brick) 8%, var(--surface));
+}
+
+.refractory-input-table thead .refractory-cell-production {
+  background: color-mix(in srgb, var(--emerald) 12%, var(--surface-subtle));
+}
+
+.refractory-input-table thead .refractory-cell-downtime {
+  background: color-mix(in srgb, var(--brick) 11%, var(--surface-subtle));
+}
+
+.refractory-input-table tfoot th,
+.refractory-input-table tfoot td {
+  color: var(--ink);
+  background: var(--surface-subtle);
+  font-weight: 900;
+  vertical-align: middle;
 }
 
 .refractory-equipment-column-medium {
@@ -5000,6 +5031,14 @@ p {
   color: var(--nav-strong);
   background: color-mix(in srgb, var(--blue-gray) 8%, var(--surface));
   font-weight: 900;
+}
+
+.refractory-input-table .refractory-cell-production.refractory-calculated {
+  background: color-mix(in srgb, var(--emerald) 9%, var(--surface));
+}
+
+.refractory-input-table .refractory-cell-downtime.refractory-calculated {
+  background: color-mix(in srgb, var(--brick) 8%, var(--surface));
 }
 
 .refractory-state {

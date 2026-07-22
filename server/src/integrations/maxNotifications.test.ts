@@ -504,10 +504,10 @@ test("createMaxNotificationService sends an approved OC table to its MAX recipie
     JSON.parse(sent[0]?.body ?? "{}").text,
     /^\[SMB Monitor\] Таблица ОЦ подтверждена\nТаблица: Печное отделение/mu,
   );
-  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Брак, шт: 2/u);
+  assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Брак всего, шт: 2/u);
   assert.match(
     JSON.parse(sent[0]?.body ?? "{}").text,
-    /1\. ША; количество, шт\. 100/u,
+    /1\. ША; кол-во, шт\. 100/u,
   );
   assert.match(
     JSON.parse(sent[0]?.body ?? "{}").text,

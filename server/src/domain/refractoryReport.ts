@@ -6,7 +6,7 @@ export type RefractoryReportStatus = "pending" | "rejected" | "approved";
 
 export const refractoryReportLabels: Record<RefractoryReportType, string> = {
   cosh: "ЦОШ",
-  equipment: "Оборудование и выпуск сырца",
+  equipment: "Сводка по работе оборудования",
   firing: "Печное отделение",
 };
 
@@ -261,46 +261,46 @@ const refractoryFieldLabels: Record<string, string> = {
   actualPieces: "Факт, шт.",
   actualTons: "Факт, т",
   brandReplacementHours: "Замена марки",
-  bunkerNumber: "Номер бункера РЦ",
-  calcinationHours: "Время обжига, часов",
-  carriageReplacementHours: "Замена каретки",
-  electricalRepairHours: "Эл. ремонт",
-  furnaceIgnitionTime: "Розжиг печи",
-  furnaceStopTime: "Остановка печи",
-  goodTonsAverageWeight: "Годные, т (ср. вес)",
-  goodTonsWeighed: "Годные, т (взвешено)",
-  jarNumber: "Номер банки",
-  jarTransitionTime: "Переход на банку",
-  kilnNumber: "Номер вращающейся печи",
-  loadingBucketsPerHour: "Загрузка, ковшей/час",
-  loadingStartTime: "Начало загрузки",
-  mechanicalRepairHours: "Мех. ремонт",
+  bunkerNumber: "№ бункера",
+  calcinationHours: "Время прогонки, час(а)",
+  carriageReplacementHours: "Замена вагона",
+  electricalRepairHours: "Ремонт по эл. части",
+  furnaceIgnitionTime: "Время розжига печи",
+  furnaceStopTime: "Время прекращения работы печи",
+  goodTonsAverageWeight: "Годная, т по среднему весу",
+  goodTonsWeighed: "Годная, т по взвешиванию",
+  jarNumber: "№ банки",
+  jarTransitionTime: "Время перехода на банку",
+  kilnNumber: "Работает вр. печь №",
+  loadingBucketsPerHour: "Загрузка, ковш/час",
+  loadingStartTime: "Время начала загрузки",
+  mechanicalRepairHours: "Ремонт по мех. части",
   moldReplacementHours: "Замена формы",
   note: "Примечание",
   outputNorm: "Норма выработки",
   outputNormContainers: "Норма, контейнеры",
-  palletCount: "Поддоны",
+  palletCount: "Кол-во, поддонов",
   planFailureReason: "Причина невыполнения плана",
   productBrand: "Марка изделия",
-  productName: "Наименование",
-  quantity: "Количество, т",
-  quantityPieces: "Количество, шт.",
-  rawMaterialAbsenceHours: "Нет сырья",
+  productName: "Наименование продукции",
+  quantity: "Кол-во, т",
+  quantityPieces: "Кол-во, шт.",
+  rawMaterialAbsenceHours: "Отсутствие сырья",
   rejectChipsPieces: "Сколы",
   rejectCracksPieces: "Трещины",
-  rejectFusionPieces: "Сплав",
+  rejectFusionPieces: "Выплавка",
   rejectUnderburnPieces: "Недожог",
   reserveHours: "Резерв",
-  scrapRemovalTons: "Вывоз брака из бункера РЦ, т",
+  scrapRemovalTons: "Вывоз недопала с ж/д бункера, тн",
   shbo: "ШБО, т",
   shgr1: "ШГР-1, т",
   shgr2: "ШГР-2, т",
   shki: "ШКИ, т",
-  sorterCount: "Количество сортировщиков",
-  totalLoadingBuckets: "Всего загружено ковшей",
-  workedHours: "Работа, ч",
-  workerAbsenceHours: "Нет рабочего/сменщика",
-  bunkerTransitionTime: "Переход на бункер РЦ",
+  sorterCount: "Присутствуют на смене, сортировщиков",
+  totalLoadingBuckets: "Загрузка, всего ковшей",
+  workedHours: "Отработано, ч",
+  workerAbsenceHours: "Отсутствие рабочего/сменщика",
+  bunkerTransitionTime: "Время перехода на ж/д бункер",
 };
 
 export function validateRefractoryReportSubmission(
@@ -514,14 +514,14 @@ function validateCoshPayload(
     input.bunkerFill,
     "bunker",
     ["I", "II", "III", "IV"],
-    "Наполнение бункеров РЦ",
+    "Заполнение ж/д бункеров",
     errors,
   ) as RefractoryCoshPayload["bunkerFill"];
   payload.chamotteSupply = readNamedQuantityRows(
     input.chamotteSupply,
     "source",
     ["I", "II", "III", "street"],
-    "Подача шамота в огнеупорный цех",
+    "Подача шамота в огнеупорный цех, тн",
     errors,
   ) as RefractoryCoshPayload["chamotteSupply"];
   payload.bagging = readBagging(input.bagging, errors);
@@ -678,7 +678,7 @@ function readBagging(
     Array.isArray(input) ||
     unexpectedKeys(input, ["jarNumber", "quantity"]).length > 0
   ) {
-    addValidationIssue(errors, "Фасовка передана в неверном формате.");
+    addValidationIssue(errors, "Затарка в мешки передана в неверном формате.");
     return undefined;
   }
   const result: NonNullable<RefractoryCoshPayload["bagging"]> = {};

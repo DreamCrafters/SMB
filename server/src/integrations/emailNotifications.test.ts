@@ -233,20 +233,20 @@ test("buildRefractoryReportEmail sends an approved OC table with all entered fie
       "",
       "Данные таблицы:",
       "Выпуск обожжённых огнеупоров",
-      "1. ША; количество, шт. 100; поддоны 5; годные, т (ср. вес) 10,5; годные, т (взвешено) 10,2; недожог 1; трещины 1; сплав 0; сколы 0; брак всего 2; примечание Партия 7",
-      "Время обжига, часов: 7,5",
-      "Количество сортировщиков: 3",
+      "1. ША; кол-во, шт. 100; кол-во, поддонов 5; годная, т по среднему весу 10,5; годная, т по взвешиванию 10,2; брак всего, шт. 2; недожог 1; трещины 1; выплавка 0; сколы 0; примечание Партия 7",
+      "Время прогонки, час(а): 7,5",
+      "Присутствуют на смене, сортировщиков: 3",
       "Причина невыполнения плана: Наладка",
       "",
       "Итоги:",
-      "Выпуск, шт: 100",
-      "Поддоны, шт: 5",
-      "Годное по среднему весу, т: 10,5",
-      "Годное по взвешиванию, т: 10,2",
-      "Брак, шт: 2",
+      "Кол-во, шт: 100",
+      "Кол-во, поддонов: 5",
+      "Годная по среднему весу, т: 10,5",
+      "Годная по взвешиванию, т: 10,2",
+      "Брак всего, шт: 2",
       "Недожог, шт: 1",
       "Трещины, шт: 1",
-      "Сплав, шт: 0",
+      "Выплавка, шт: 0",
       "Сколы, шт: 0",
     ].join("\n"),
   });
@@ -338,12 +338,15 @@ test("buildRefractoryReportEmail formats the calculated totals of the other OC t
     "noreply@example.com",
   );
 
-  assert.match(coshMessage?.text ?? "", /Выработка шамота, т: 12,5/u);
-  assert.match(coshMessage?.text ?? "", /Банка 1: 1,2; 1,4/u);
-  assert.match(coshMessage?.text ?? "", /Источник улица: продукт ШГР/u);
+  assert.match(coshMessage?.text ?? "", /Выпуск шамота, т: 12,5/u);
+  assert.match(coshMessage?.text ?? "", /Заполнение ж\/д бункеров, т: 8/u);
+  assert.match(coshMessage?.text ?? "", /Затарка в мешки, т: 2/u);
+  assert.match(coshMessage?.text ?? "", /Банка I: 1,2; 1,4/u);
+  assert.match(coshMessage?.text ?? "", /уличн\.: продукт ШГР/u);
   assert.match(coshMessage?.text ?? "", /Примечание: Смена без остановок/u);
-  assert.match(coshMessage?.text ?? "", /Вывоз брака, т: 0,5/u);
+  assert.match(coshMessage?.text ?? "", /Вывоз недопала, т: 0,5/u);
   assert.match(equipmentMessage?.text ?? "", /Формованные изделия, шт: 120/u);
+  assert.match(equipmentMessage?.text ?? "", /Простой всего, ч: 8/u);
   assert.match(equipmentMessage?.text ?? "", /1\. Пресс СМ-1085 №1; марка ША/u);
   assert.match(equipmentMessage?.text ?? "", /примечание Ремонт завершён/u);
   assert.match(equipmentMessage?.text ?? "", /1\. ММК-85; норма, контейнеры 4/u);

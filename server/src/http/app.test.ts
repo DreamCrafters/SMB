@@ -4584,7 +4584,7 @@ test("refractory reports are submitted and reviewed independently through protec
           : undefined,
         [{
           fieldPath: "formed.0.workedHours",
-          message: "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+          message: "Строка 1, «Отработано, ч»: укажите число от 0 до 24.",
         }],
       );
 

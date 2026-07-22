@@ -404,11 +404,12 @@ function RefractoryReportState({
 function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
   return (
     <div className="refractory-form-sections">
-      <ReportSection title="Работа печи и выпуск шамота">
+      <h3 className="refractory-paper-title">Сводка по ЦОШ (ежесменная)</h3>
+      <ReportSection title="Выпуск шамота">
         <div className="refractory-field-grid">
           <Field
             name="kilnNumber"
-            label="Работает вращающаяся печь №"
+            label="Работает вр. печь №"
             value={payload.kilnNumber}
           />
           {(["shbo", "shgr1", "shgr2", "shki"] as const).map((key) => (
@@ -428,20 +429,15 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
           ))}
           <NumberField
             name="loadingBucketsPerHour"
-            label="Загрузка, ковшей/час"
+            label="Загрузка, ковш/час"
             value={payload.loadingBucketsPerHour}
             integer
           />
           <NumberField
             name="totalLoadingBuckets"
-            label="Всего загружено ковшей"
+            label="Загрузка, всего ковшей"
             value={payload.totalLoadingBuckets}
             integer
-          />
-          <NumberField
-            name="scrapRemovalTons"
-            label="Вывоз брака из бункера РЦ, т"
-            value={payload.scrapRemovalTons}
           />
         </div>
       </ReportSection>
@@ -453,7 +449,7 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
             );
             return (
               <div className="refractory-mini-row" key={jarNumber}>
-                <strong>Банка {jarNumber}</strong>
+                <strong>{["I", "II", "III"][jarNumber - 1]}</strong>
                 {[0, 1, 2, 3].map((index) => (
                   <NumberField
                     key={index}
@@ -467,73 +463,87 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
           })}
         </div>
       </ReportSection>
-      <ReportSection title="Наполнение бункеров РЦ">
+      <ReportSection title="Заполнение ж/д бункеров">
         <NamedQuantityRows
           identities={["I", "II", "III", "IV"]}
-          identityLabel="Бункер"
+          identityLabel=""
           prefix="bunker"
+          productLabel="Наименование продукции"
+          quantityLabel="Кол-во, т"
           rows={payload.bunkerFill?.map((row) => ({
             identity: row.bunker,
             ...row,
           }))}
         />
       </ReportSection>
-      <ReportSection title="Подача шамота в огнеупорный цех, тонн">
+      <ReportSection title="Подача шамота в огнеупорный цех, тн">
         <NamedQuantityRows
           identities={["I", "II", "III", "street"]}
-          identityLabel="Источник"
+          identityLabel=""
+          identityLabels={{ I: "Из I", II: "II", III: "III", street: "уличн." }}
           prefix="supply"
+          productLabel="Наименование продукции"
+          quantityLabel="Кол-во, т"
           rows={payload.chamotteSupply?.map((row) => ({
             identity: row.source,
             ...row,
           }))}
         />
       </ReportSection>
-      <ReportSection title="Фасовка и время операций">
+      <ReportSection title="Затарка в мешки">
         <div className="refractory-field-grid">
           <Field
             name="bagging.jarNumber"
-            label="Номер банки фасовки"
+            label="№ банки"
             value={payload.bagging?.jarNumber}
           />
           <NumberField
             name="bagging.quantity"
-            label="Количество, т"
+            label="Кол-во, т"
             value={payload.bagging?.quantity}
           />
+          <NumberField
+            name="scrapRemovalTons"
+            label="Вывоз недопала с ж/д бункера, тн"
+            value={payload.scrapRemovalTons}
+          />
+        </div>
+      </ReportSection>
+      <ReportSection title="Время операций">
+        <div className="refractory-field-grid">
           <TimeField
             name="furnaceIgnitionTime"
-            label="Розжиг печи"
+            label="Время розжига печи"
             value={payload.furnaceIgnitionTime}
           />
           <TimeField
             name="loadingStartTime"
-            label="Начало загрузки"
+            label="Время начала загрузки"
             value={payload.loadingStartTime}
           />
           <TimeField
             name="bunkerTransitionTime"
-            label="Переход на бункер РЦ"
+            label="Время перехода на ж/д бункер"
             value={payload.bunkerTransitionTime}
           />
           <Field
             name="bunkerNumber"
-            label="Номер бункера"
+            label="№ бункера"
             value={payload.bunkerNumber}
           />
           <TimeField
             name="jarTransitionTime"
-            label="Переход на банку"
+            label="Время перехода на банку"
             value={payload.jarTransitionTime}
           />
           <Field
             name="jarNumber"
-            label="Номер банки"
+            label="№ банки"
             value={payload.jarNumber}
           />
           <TimeField
             name="furnaceStopTime"
-            label="Остановка печи"
+            label="Время прекращения работы печи"
             value={payload.furnaceStopTime}
           />
           <label className="refractory-field refractory-field-wide">
@@ -551,21 +561,151 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
 }
 
 const equipmentColumns = [
-  ["productBrand", "Марка изделия", "text", "brand"],
-  ["outputNorm", "Норма выработки", "number", "medium"],
-  ["actualPieces", "Факт, шт.", "integer", "narrow"],
-  ["actualTons", "Факт, т", "number", "narrow"],
-  ["workedHours", "Работа, ч", "number", "narrow"],
-  ["mechanicalRepairHours", "Мех. ремонт", "number", "compact"],
-  ["electricalRepairHours", "Эл. ремонт", "number", "compact"],
-  ["carriageReplacementHours", "Замена каретки", "number", "medium"],
-  ["brandReplacementHours", "Замена марки", "number", "medium"],
-  ["moldReplacementHours", "Замена формы", "number", "medium"],
-  ["reserveHours", "Резерв", "number", "narrow"],
-  ["workerAbsenceHours", "Нет рабочего/сменщика", "number", "wide"],
-  ["rawMaterialAbsenceHours", "Нет сырья", "number", "compact"],
-  ["note", "Примечание", "text", "text"],
+  ["productBrand", "Марка изделия", "text", "brand", "production"],
+  ["outputNorm", "Норма выработки", "number", "medium", "production"],
+  ["actualPieces", "Факт, шт.", "integer", "narrow", "production"],
+  ["actualTons", "Факт, т", "number", "narrow", "production"],
+  ["workedHours", "Отработано, ч", "number", "narrow", "neutral"],
+  ["totalDowntimeHours", "Простой всего", "calculated", "compact", "downtime"],
+  ["mechanicalRepairHours", "Ремонт по мех. части", "number", "compact", "downtime"],
+  ["electricalRepairHours", "Ремонт по эл. части", "number", "compact", "downtime"],
+  ["carriageReplacementHours", "Замена вагона", "number", "medium", "downtime"],
+  ["brandReplacementHours", "Замена марки", "number", "medium", "downtime"],
+  ["moldReplacementHours", "Замена формы", "number", "medium", "downtime"],
+  ["reserveHours", "Резерв", "number", "narrow", "downtime"],
+  ["workerAbsenceHours", "Отсутствие рабочего/сменщика", "number", "wide", "downtime"],
+  ["rawMaterialAbsenceHours", "Отсутствие сырья", "number", "compact", "downtime"],
+  ["note", "Примечание", "text", "text", "neutral"],
 ] as const;
+
+const equipmentDowntimeFields = [
+  "mechanicalRepairHours",
+  "electricalRepairHours",
+  "carriageReplacementHours",
+  "brandReplacementHours",
+  "moldReplacementHours",
+  "reserveHours",
+  "workerAbsenceHours",
+  "rawMaterialAbsenceHours",
+] as const;
+
+const equipmentFooterTrailingColumns = equipmentColumns.slice(
+  equipmentColumns.findIndex(([field]) => field === "totalDowntimeHours") + 1,
+);
+
+type FormedTableSummary = {
+  actualPieces: number;
+  actualTons: number;
+  workedHours: number;
+  downtimeHours: number;
+  downtimeByEquipment: Partial<
+    Record<(typeof refractoryEquipmentNames)[number], number>
+  >;
+};
+
+type UnformedTableSummary = {
+  actualContainers: number;
+  actualTons: number;
+};
+
+function summarizeFormedRows(
+  rows: RefractoryEquipmentPayload["formedRows"],
+): FormedTableSummary {
+  const downtimeByEquipment: FormedTableSummary["downtimeByEquipment"] = {};
+  let actualPieces = 0;
+  let actualTons = 0;
+  let workedHours = 0;
+  let downtimeHours = 0;
+
+  rows.forEach((row) => {
+    const rowDowntime =
+      row.totalDowntimeHours ??
+      equipmentDowntimeFields.reduce(
+        (total, field) => total + (row[field] ?? 0),
+        0,
+      );
+    downtimeByEquipment[row.equipment] = rowDowntime;
+    actualPieces += row.actualPieces ?? 0;
+    actualTons += row.actualTons ?? 0;
+    workedHours += row.workedHours ?? 0;
+    downtimeHours += rowDowntime;
+  });
+
+  return {
+    actualPieces,
+    actualTons,
+    workedHours,
+    downtimeHours,
+    downtimeByEquipment,
+  };
+}
+
+function summarizeFormedTable(table: Element | null): FormedTableSummary {
+  type FormedRow = RefractoryEquipmentPayload["formedRows"][number];
+  type DowntimeField = (typeof equipmentDowntimeFields)[number];
+  const rows = Array.from(
+    table?.querySelectorAll("tbody tr") ?? [],
+    (row, rowIndex): FormedRow | null => {
+      const equipment = refractoryEquipmentNames[rowIndex];
+      if (equipment === undefined) return null;
+      const downtime = Object.fromEntries(
+        equipmentDowntimeFields.map((field) => [
+          field,
+          readRowNumber(row, field),
+        ]),
+      ) as Partial<Record<DowntimeField, number>>;
+
+      return {
+        equipment,
+        actualPieces: readRowNumber(row, "actualPieces"),
+        actualTons: readRowNumber(row, "actualTons"),
+        workedHours: readRowNumber(row, "workedHours"),
+        ...downtime,
+      };
+    },
+  );
+
+  return summarizeFormedRows(rows.filter((row) => row !== null));
+}
+
+function summarizeUnformedRows(
+  rows: RefractoryEquipmentPayload["unformedRows"],
+): UnformedTableSummary {
+  return rows.reduce<UnformedTableSummary>(
+    (summary, row) => ({
+      actualContainers: summary.actualContainers + (row.actualContainers ?? 0),
+      actualTons: summary.actualTons + (row.actualTons ?? 0),
+    }),
+    { actualContainers: 0, actualTons: 0 },
+  );
+}
+
+function summarizeUnformedTable(table: Element | null): UnformedTableSummary {
+  const rows = Array.from(
+    table?.querySelectorAll("tbody tr") ?? [],
+    (row): RefractoryEquipmentPayload["unformedRows"][number] => ({
+      productBrand: "",
+      actualContainers: readRowNumber(row, "actualContainers"),
+      actualTons: readRowNumber(row, "actualTons"),
+    }),
+  );
+
+  return summarizeUnformedRows(rows);
+}
+
+function readRowNumber(row: Element, field: string) {
+  const input = row.querySelector<HTMLInputElement>(
+    `input[name$=".${field}"]`,
+  );
+  if (input === null || input.value.trim().length === 0) return 0;
+  const value = Number(input.value.replace(",", "."));
+
+  return Number.isFinite(value) ? value : 0;
+}
+
+function formatTableTotal(value: number) {
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
+}
 
 function EquipmentForm({
   brandLabels = [],
@@ -577,9 +717,15 @@ function EquipmentForm({
   const [unformedCount, setUnformedCount] = useState(
     Math.max(1, payload?.unformedRows.length ?? 1),
   );
+  const [formedSummary, setFormedSummary] = useState(() =>
+    summarizeFormedRows(payload?.formedRows ?? []),
+  );
+  const [unformedSummary, setUnformedSummary] = useState(() =>
+    summarizeUnformedRows(payload?.unformedRows ?? []),
+  );
   return (
     <div className="refractory-form-sections">
-      <ReportSection title="Работа оборудования и выпуск сырца формованных огнеупоров">
+      <ReportSection title="Выпуск сырца формованных огнеупоров">
         <div className="refractory-table-wrap">
           <table className="refractory-input-table refractory-input-table-equipment">
             <thead>
@@ -587,20 +733,23 @@ function EquipmentForm({
                 <th className="refractory-equipment-column-name">
                   Оборудование
                 </th>
-                {equipmentColumns.map(([field, label, , width]) => (
+                {equipmentColumns.map(([, label, , width, group]) => (
                   <th
-                    className={`refractory-equipment-column-${width}`}
-                    key={field}
+                    className={`refractory-equipment-column-${width} refractory-cell-${group}`}
+                    key={label}
                   >
                     {label}
                   </th>
                 ))}
-                <th className="refractory-equipment-column-compact">
-                  Простой всего
-                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody
+              onInput={(event) =>
+                setFormedSummary(
+                  summarizeFormedTable(event.currentTarget.closest("table")),
+                )
+              }
+            >
               {refractoryEquipmentNames.map((equipment, rowIndex) => {
                 const row = payload?.formedRows.find(
                   (item) => item.equipment === equipment,
@@ -608,8 +757,13 @@ function EquipmentForm({
                 return (
                   <tr key={equipment}>
                     <th scope="row">{equipment}</th>
-                    {equipmentColumns.map(([field, label, kind]) => (
-                      <td key={field}>
+                    {equipmentColumns.map(([field, label, kind, , group]) => (
+                      <td
+                        className={`refractory-cell-${group}${
+                          kind === "calculated" ? " refractory-calculated" : ""
+                        }`}
+                        key={field}
+                      >
                         {field === "productBrand" ? (
                           <ProductBrandPicker
                             ariaLabel={`${equipment}: ${label}`}
@@ -618,6 +772,14 @@ function EquipmentForm({
                             name={`formed.${rowIndex}.productBrand`}
                             onInputChange={clearRefractoryFieldError}
                           />
+                        ) : kind === "calculated" ? (
+                          <output
+                            aria-label={`Простой всего, ${equipment}`}
+                          >
+                            {formatTableTotal(
+                              formedSummary.downtimeByEquipment[equipment] ?? 0,
+                            )}
+                          </output>
                         ) : kind !== "text" ? (
                           <RefractoryNumberInput
                             aria-label={`${equipment}: ${label}`}
@@ -638,13 +800,38 @@ function EquipmentForm({
                         )}
                       </td>
                     ))}
-                    <td className="refractory-calculated">
-                      {row?.totalDowntimeHours ?? "—"}
-                    </td>
                   </tr>
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={3}>ИТОГО выпуск формованных огнеупоров</th>
+                <td className="refractory-cell-production refractory-calculated">
+                  <output aria-label="Итого формованных огнеупоров, шт.">
+                    {formatTableTotal(formedSummary.actualPieces)}
+                  </output>
+                </td>
+                <td className="refractory-cell-production refractory-calculated">
+                  <output aria-label="Итого формованных огнеупоров, т">
+                    {formatTableTotal(formedSummary.actualTons)}
+                  </output>
+                </td>
+                <td className="refractory-calculated">
+                  <output aria-label="Итого отработано, ч">
+                    {formatTableTotal(formedSummary.workedHours)}
+                  </output>
+                </td>
+                <td className="refractory-cell-downtime refractory-calculated">
+                  <output aria-label="Итого простой, ч">
+                    {formatTableTotal(formedSummary.downtimeHours)}
+                  </output>
+                </td>
+                {equipmentFooterTrailingColumns.map(([field]) => (
+                  <td key={field} />
+                ))}
+              </tr>
+            </tfoot>
           </table>
         </div>
       </ReportSection>
@@ -659,7 +846,13 @@ function EquipmentForm({
                 <th>Факт, т</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody
+              onInput={(event) =>
+                setUnformedSummary(
+                  summarizeUnformedTable(event.currentTarget.closest("table")),
+                )
+              }
+            >
               {Array.from({ length: unformedCount }, (_, index) => {
                 const row = payload?.unformedRows[index];
                 return (
@@ -701,6 +894,21 @@ function EquipmentForm({
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={2}>ИТОГО выпуск неформованных огнеупоров</th>
+                <td className="refractory-calculated">
+                  <output aria-label="Итого неформованных огнеупоров, контейнеры">
+                    {formatTableTotal(unformedSummary.actualContainers)}
+                  </output>
+                </td>
+                <td className="refractory-calculated">
+                  <output aria-label="Итого неформованных огнеупоров, т">
+                    {formatTableTotal(unformedSummary.actualTons)}
+                  </output>
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
         <button
@@ -716,15 +924,106 @@ function EquipmentForm({
 }
 
 const firingColumns = [
-  ["quantityPieces", "Количество, шт.", true],
-  ["palletCount", "Поддоны", true],
-  ["goodTonsAverageWeight", "Годные, т (ср. вес)", false],
-  ["goodTonsWeighed", "Годные, т (взвешено)", false],
-  ["rejectUnderburnPieces", "Недожог", true],
-  ["rejectCracksPieces", "Трещины", true],
-  ["rejectFusionPieces", "Сплав", true],
-  ["rejectChipsPieces", "Сколы", true],
+  ["quantityPieces", "Кол-во, шт.", "integer"],
+  ["palletCount", "Кол-во, поддонов", "integer"],
+  ["goodTonsAverageWeight", "Годная, т по среднему весу", "number"],
+  ["goodTonsWeighed", "Годная, т по взвешиванию", "number"],
+  ["rejectTotalPieces", "Брак всего, шт.", "calculated"],
+  ["rejectUnderburnPieces", "Недожог", "integer"],
+  ["rejectCracksPieces", "Трещины", "integer"],
+  ["rejectFusionPieces", "Выплавка", "integer"],
+  ["rejectChipsPieces", "Сколы", "integer"],
 ] as const;
+
+const firingRejectFields = [
+  "rejectUnderburnPieces",
+  "rejectCracksPieces",
+  "rejectFusionPieces",
+  "rejectChipsPieces",
+] as const;
+
+const firingInputNumericFields = [
+  "quantityPieces",
+  "palletCount",
+  "goodTonsAverageWeight",
+  "goodTonsWeighed",
+  ...firingRejectFields,
+] as const;
+
+type FiringTableSummary = {
+  quantityPieces: number;
+  palletCount: number;
+  goodTonsAverageWeight: number;
+  goodTonsWeighed: number;
+  rejectTotalPieces: number;
+  rejectUnderburnPieces: number;
+  rejectCracksPieces: number;
+  rejectFusionPieces: number;
+  rejectChipsPieces: number;
+  rejectByRow: number[];
+};
+
+function summarizeFiringRows(
+  rows: RefractoryFiringPayload["rows"],
+): FiringTableSummary {
+  return rows.reduce<FiringTableSummary>(
+    (summary, row) => {
+      const rejectTotal =
+        row.rejectTotalPieces ??
+        firingRejectFields.reduce(
+          (total, field) => total + (row[field] ?? 0),
+          0,
+        );
+      summary.quantityPieces += row.quantityPieces ?? 0;
+      summary.palletCount += row.palletCount ?? 0;
+      summary.goodTonsAverageWeight += row.goodTonsAverageWeight ?? 0;
+      summary.goodTonsWeighed += row.goodTonsWeighed ?? 0;
+      summary.rejectTotalPieces += rejectTotal;
+      summary.rejectUnderburnPieces += row.rejectUnderburnPieces ?? 0;
+      summary.rejectCracksPieces += row.rejectCracksPieces ?? 0;
+      summary.rejectFusionPieces += row.rejectFusionPieces ?? 0;
+      summary.rejectChipsPieces += row.rejectChipsPieces ?? 0;
+      summary.rejectByRow.push(rejectTotal);
+      return summary;
+    },
+    emptyFiringSummary(),
+  );
+}
+
+function summarizeFiringTable(table: Element | null): FiringTableSummary {
+  type FiringRow = RefractoryFiringPayload["rows"][number];
+  type NumericField = (typeof firingInputNumericFields)[number];
+  const rows = Array.from(
+    table?.querySelectorAll("tbody tr") ?? [],
+    (row): FiringRow => {
+      const numericValues = Object.fromEntries(
+        firingInputNumericFields.map((field) => [
+          field,
+          readRowNumber(row, field),
+        ]),
+      ) as Partial<Record<NumericField, number>>;
+
+      return { productBrand: "", ...numericValues };
+    },
+  );
+
+  return summarizeFiringRows(rows);
+}
+
+function emptyFiringSummary(): FiringTableSummary {
+  return {
+    quantityPieces: 0,
+    palletCount: 0,
+    goodTonsAverageWeight: 0,
+    goodTonsWeighed: 0,
+    rejectTotalPieces: 0,
+    rejectUnderburnPieces: 0,
+    rejectCracksPieces: 0,
+    rejectFusionPieces: 0,
+    rejectChipsPieces: 0,
+    rejectByRow: [],
+  };
+}
 
 function FiringForm({
   brandLabels = [],
@@ -735,6 +1034,9 @@ function FiringForm({
 }) {
   const [rowCount, setRowCount] = useState(
     Math.max(1, payload?.rows.length ?? 1),
+  );
+  const [summary, setSummary] = useState(() =>
+    summarizeFiringRows(payload?.rows ?? []),
   );
   return (
     <div className="refractory-form-sections">
@@ -747,11 +1049,16 @@ function FiringForm({
                 {firingColumns.map(([, label]) => (
                   <th key={label}>{label}</th>
                 ))}
-                <th>Брак всего</th>
                 <th>Примечание</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody
+              onInput={(event) =>
+                setSummary(
+                  summarizeFiringTable(event.currentTarget.closest("table")),
+                )
+              }
+            >
               {Array.from({ length: rowCount }, (_, index) => {
                 const row = payload?.rows[index];
                 return (
@@ -766,19 +1073,29 @@ function FiringForm({
                         onInputChange={clearRefractoryFieldError}
                       />
                     </td>
-                    {firingColumns.map(([field, label, integer]) => (
-                      <td key={field}>
-                        <RefractoryNumberInput
-                          aria-label={`${label}, строка ${index + 1}`}
-                          integer={integer}
-                          name={`firing.${index}.${field}`}
-                          defaultValue={row?.[field] ?? ""}
-                        />
+                    {firingColumns.map(([field, label, kind]) => (
+                      <td
+                        className={
+                          kind === "calculated"
+                            ? "refractory-calculated"
+                            : undefined
+                        }
+                        key={field}
+                      >
+                        {kind === "calculated" ? (
+                          <output aria-label={`Брак всего, строка ${index + 1}`}>
+                            {formatTableTotal(summary.rejectByRow[index] ?? 0)}
+                          </output>
+                        ) : (
+                          <RefractoryNumberInput
+                            aria-label={`${label}, строка ${index + 1}`}
+                            integer={kind === "integer"}
+                            name={`firing.${index}.${field}`}
+                            defaultValue={row?.[field] ?? ""}
+                          />
+                        )}
                       </td>
                     ))}
-                    <td className="refractory-calculated">
-                      {row?.rejectTotalPieces ?? "—"}
-                    </td>
                     <td>
                       <input
                         aria-label={`Примечание, строка ${index + 1}`}
@@ -792,6 +1109,19 @@ function FiringForm({
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr>
+                <th>ИТОГО:</th>
+                {firingColumns.map(([field, label]) => (
+                  <td className="refractory-calculated" key={field}>
+                    <output aria-label={`Итого: ${label}`}>
+                      {formatTableTotal(summary[field])}
+                    </output>
+                  </td>
+                ))}
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </div>
         <button
@@ -806,13 +1136,13 @@ function FiringForm({
         <div className="refractory-field-grid">
           <NumberField
             name="calcinationHours"
-            label="Время обжига, часов"
+            label="Время прогонки, час(а)"
             value={payload?.calcinationHours}
             max={24}
           />
           <NumberField
             name="sorterCount"
-            label="Количество сортировщиков"
+            label="Присутствуют на смене, сортировщиков"
             value={payload?.sorterCount}
             integer
             max={1000}
@@ -1012,24 +1342,24 @@ function Totals({ values }: { values: Record<string, number> }) {
 
 const totalLabels: Record<string, string> = {
   chamotteOutputTons: "Выпуск шамота, т",
-  bunkerFillTons: "Наполнение бункеров, т",
+  bunkerFillTons: "Заполнение ж/д бункеров, т",
   chamotteSupplyTons: "Подача шамота, т",
-  baggingTons: "Фасовка, т",
-  scrapRemovalTons: "Вывоз брака, т",
+  baggingTons: "Затарка в мешки, т",
+  scrapRemovalTons: "Вывоз недопала, т",
   formedActualPieces: "Формованные, шт.",
   formedActualTons: "Формованные, т",
-  formedWorkedHours: "Работа, ч",
-  formedDowntimeHours: "Простой, ч",
+  formedWorkedHours: "Отработано, ч",
+  formedDowntimeHours: "Простой всего, ч",
   unformedActualContainers: "Неформованные, контейнеры",
   unformedActualTons: "Неформованные, т",
-  quantityPieces: "Выпуск, шт.",
-  palletCount: "Поддоны",
-  goodTonsAverageWeight: "Годные по ср. весу, т",
-  goodTonsWeighed: "Годные взвешенные, т",
+  quantityPieces: "Кол-во, шт.",
+  palletCount: "Кол-во, поддонов",
+  goodTonsAverageWeight: "Годная по среднему весу, т",
+  goodTonsWeighed: "Годная по взвешиванию, т",
   rejectTotalPieces: "Брак всего, шт.",
   rejectUnderburnPieces: "Недожог, шт.",
   rejectCracksPieces: "Трещины, шт.",
-  rejectFusionPieces: "Сплав, шт.",
+  rejectFusionPieces: "Выплавка, шт.",
   rejectChipsPieces: "Сколы, шт.",
 };
 
@@ -1160,34 +1490,45 @@ function TimeField({
 function NamedQuantityRows({
   identities,
   identityLabel,
+  identityLabels,
   prefix,
+  productLabel = "Наименование",
+  quantityLabel = "Количество, т",
   rows = [],
 }: {
   identities: readonly string[];
   identityLabel: string;
+  identityLabels?: Record<string, string>;
   prefix: string;
+  productLabel?: string;
+  quantityLabel?: string;
   rows?: Array<{ identity: string; productName?: string; quantity?: number }>;
 }) {
   return (
     <div className="refractory-mini-table">
       {identities.map((identity) => {
         const row = rows.find((item) => item.identity === identity);
+        const identityText =
+          identityLabels?.[identity] ??
+          (identity === "street" ? "с улицы" : identity);
         return (
           <div
             className="refractory-mini-row refractory-mini-row-quantity"
             key={identity}
           >
             <strong>
-              {identityLabel} {identity === "street" ? "с улицы" : identity}
+              {identityLabel.length > 0
+                ? `${identityLabel} ${identityText}`
+                : identityText}
             </strong>
             <Field
               name={`${prefix}.${identity}.productName`}
-              label="Наименование"
+              label={productLabel}
               value={row?.productName}
             />
             <NumberField
               name={`${prefix}.${identity}.quantity`}
-              label="Количество, т"
+              label={quantityLabel}
               value={row?.quantity}
             />
           </div>

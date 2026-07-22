@@ -52,7 +52,7 @@ test("refractory validation requires a brand for a filled product row", () => {
       <td><select aria-label="Марка изделия, строка 1"
         data-refractory-label="Марка изделия, строка 1"
         data-refractory-row-brand><option value=""></option></select></td>
-      <td><input data-refractory-label="Количество, шт., строка 1"
+      <td><input data-refractory-label="Кол-во, шт., строка 1"
         data-refractory-number="integer" value="12"></td>
     </tr></tbody></table>
   `);
@@ -68,7 +68,7 @@ test("refractory validation requires a brand for a filled product row", () => {
 test("server validation details highlight the matching visible field", () => {
   const { form, document } = buildForm(`
     <table><tbody><tr>
-      <td><input data-refractory-label="Пресс СМ-1085 №1: Работа, ч"
+      <td><input data-refractory-label="Пресс СМ-1085 №1: Отработано, ч"
         name="formed.0.workedHours"></td>
     </tr></tbody></table>
   `);
@@ -76,7 +76,7 @@ test("server validation details highlight the matching visible field", () => {
   const invalidInputs = markRefractoryServerFieldErrors(form, [
     {
       fieldPath: "formed.0.workedHours",
-      message: "Строка 1, «Работа, ч»: укажите число от 0 до 24.",
+      message: "Строка 1, «Отработано, ч»: укажите число от 0 до 24.",
     },
   ]);
   const workedHours = document.querySelector("input");
@@ -87,25 +87,25 @@ test("server validation details highlight the matching visible field", () => {
 
 test("server validation details keep scalar and COSH section context", () => {
   const { form, document } = buildForm(`
-    <input data-refractory-label="Время обжига, часов" name="calcinationHours">
-    <section data-refractory-section="Наполнение бункеров РЦ">
-      <input data-refractory-label="Количество, т" name="bunker.I.quantity">
-      <input data-refractory-label="Количество, т" name="bunker.II.quantity">
+    <input data-refractory-label="Время прогонки, час(а)" name="calcinationHours">
+    <section data-refractory-section="Заполнение ж/д бункеров">
+      <input data-refractory-label="Кол-во, т" name="bunker.I.quantity">
+      <input data-refractory-label="Кол-во, т" name="bunker.II.quantity">
     </section>
-    <section data-refractory-section="Подача шамота в огнеупорный цех, тонн">
-      <input data-refractory-label="Количество, т" name="supply.I.quantity">
+    <section data-refractory-section="Подача шамота в огнеупорный цех, тн">
+      <input data-refractory-label="Кол-во, т" name="supply.I.quantity">
     </section>
   `);
 
   const invalidInputs = markRefractoryServerFieldErrors(form, [
     {
       fieldPath: "calcinationHours",
-      message: "Поле «Время обжига, часов»: укажите число от 0 до 24.",
+      message: "Поле «Время прогонки, час(а)»: укажите число от 0 до 24.",
     },
     {
       fieldPath: "bunker.II.quantity",
       message:
-        "Наполнение бункеров РЦ, строка 2, «Количество, т»: укажите число от 0 до 1 000 000 000.",
+        "Заполнение ж/д бункеров, строка 2, «Кол-во, т»: укажите число от 0 до 1 000 000 000.",
     },
   ]);
   const inputs = Array.from(document.querySelectorAll("input"));
