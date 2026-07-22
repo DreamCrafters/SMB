@@ -23,10 +23,9 @@ test("laboratory service reads reference, filtered history, and saved result", a
     if (url.endsWith("/api/laboratory/reference")) {
       return jsonResponse({
         reference: {
-          incomingMaterials: [{
-            label: "Глина",
-            indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
-          }],
+          indicators: [
+            { id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" },
+          ],
           finishedProductTypes: [],
         },
       });
@@ -38,8 +37,10 @@ test("laboratory service reads reference, filtered history, and saved result", a
           section: "incoming",
           analysisDate: "2026-07-22",
           materialLabel: "Глина",
-          sampleIdentifier: "Вагон 12345",
-          values: { al2o3: "31,4" },
+          samples: [{
+            sampleIdentifier: "Вагон 12345",
+            values: { al2o3: "31,4" },
+          }],
           laboratoryAssistantDisplayName: "Иванова Анна",
           createdAt: "2026-07-22T08:30:00.000Z",
         },
@@ -59,8 +60,10 @@ test("laboratory service reads reference, filtered history, and saved result", a
         section: "incoming",
         analysisDate: "2026-07-22",
         materialLabel: "Глина",
-        sampleIdentifier: "Вагон 12345",
-        values: { al2o3: "31,4" },
+        samples: [{
+          sampleIdentifier: "Вагон 12345",
+          values: { al2o3: "31,4" },
+        }],
       },
       { baseUrl: "http://api.test" },
     );
@@ -77,8 +80,10 @@ test("laboratory service reads reference, filtered history, and saved result", a
       section: "incoming",
       analysisDate: "2026-07-22",
       materialLabel: "Глина",
-      sampleIdentifier: "Вагон 12345",
-      values: { al2o3: "31,4" },
+      samples: [{
+        sampleIdentifier: "Вагон 12345",
+        values: { al2o3: "31,4" },
+      }],
     });
   } finally {
     globalThis.fetch = originalFetch;

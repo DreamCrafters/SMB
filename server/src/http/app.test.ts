@@ -379,10 +379,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
   const laboratoryReferenceDataSource: LaboratoryReferenceDataSource = {
     async read() {
       return {
-        incomingMaterials: [{
-          label: "Глина",
-          indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
-        }],
+        indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
         finishedProductTypes: [],
       };
     },
@@ -429,10 +426,12 @@ test("laboratory API reads the live matrix and saves the session-authored result
           body: JSON.stringify({
             section: "incoming",
             analysisDate: "2026-07-22",
-            materialLabel: "глина",
-            sampleIdentifier: "Вагон 12345",
+            materialLabel: "Глина огнеупорная",
             laboratoryAssistantDisplayName: "Подмена с клиента",
-            values: { al2o3: "31,4" },
+            samples: [{
+              sampleIdentifier: "Вагон 12345",
+              values: { al2o3: "31,4" },
+            }],
           }),
         },
       );
@@ -445,7 +444,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
       assert.equal(createResponse.status, 201);
       assert.equal(listResponse.status, 200);
       assert.equal(savedInput?.laboratoryAssistantDisplayName, "Иванова Анна");
-      assert.equal(savedInput?.result.materialLabel, "Глина");
+      assert.equal(savedInput?.result.materialLabel, "Глина огнеупорная");
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
     },

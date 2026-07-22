@@ -130,22 +130,21 @@ async function requestJson(
 
 function isLaboratoryReference(value: unknown): value is LaboratoryReference {
   return isRecord(value) &&
-    Array.isArray(value.incomingMaterials) &&
-    value.incomingMaterials.every(isMaterialReference) &&
+    Array.isArray(value.indicators) &&
+    value.indicators.every(isIndicatorReference) &&
     Array.isArray(value.finishedProductTypes) &&
-    value.finishedProductTypes.every(isMaterialReference);
+    value.finishedProductTypes.every(isProductTypeReference);
 }
 
-function isMaterialReference(value: unknown) {
-  return isRecord(value) &&
-    typeof value.label === "string" &&
-    Array.isArray(value.indicators) &&
-    value.indicators.every((indicator) =>
-      isRecord(indicator) &&
-      isIndicatorId(indicator.id) &&
-      typeof indicator.label === "string" &&
-      (indicator.standard === undefined || typeof indicator.standard === "string")
-    );
+function isProductTypeReference(value: unknown) {
+  return isRecord(value) && typeof value.label === "string";
+}
+
+function isIndicatorReference(indicator: unknown) {
+  return isRecord(indicator) &&
+    isIndicatorId(indicator.id) &&
+    typeof indicator.label === "string" &&
+    (indicator.standard === undefined || typeof indicator.standard === "string");
 }
 
 function isLaboratoryResult(value: unknown): value is LaboratoryResult {
@@ -155,14 +154,19 @@ function isLaboratoryResult(value: unknown): value is LaboratoryResult {
     typeof value.analysisDate !== "string" ||
     typeof value.materialLabel !== "string" ||
     typeof value.laboratoryAssistantDisplayName !== "string" ||
-    typeof value.createdAt !== "string" ||
-    !isIndicatorValues(value.values)
+    typeof value.createdAt !== "string"
   ) {
     return false;
   }
   return value.section === "incoming"
-    ? typeof value.sampleIdentifier === "string"
-    : value.section === "finished_product" && typeof value.productBrand === "string";
+    ? Array.isArray(value.samples) && value.samples.every((sample) =>
+        isRecord(sample) &&
+        typeof sample.sampleIdentifier === "string" &&
+        isIndicatorValues(sample.values)
+      )
+    : value.section === "finished_product" &&
+        typeof value.productBrand === "string" &&
+        isIndicatorValues(value.values);
 }
 
 function isIndicatorValues(value: unknown) {

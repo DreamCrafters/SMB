@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   LaboratoryIndicatorId,
   LaboratoryIndicatorReference,
-  LaboratoryMaterialReference,
+  LaboratoryProductTypeReference,
   LaboratoryReference,
   LaboratoryResult,
   LaboratorySection,
@@ -33,16 +33,22 @@ type HistoryState =
   | { status: "ready"; results: LaboratoryResult[] }
   | { status: "error"; message: string; results: LaboratoryResult[] };
 
+type IncomingSampleFormState = {
+  key: number;
+  sampleIdentifier: string;
+  values: Partial<Record<LaboratoryIndicatorId, string>>;
+};
+
 type FormState = {
   analysisDate: string;
   materialLabel: string;
   productBrand: string;
-  sampleIdentifier: string;
   documentType: "" | "Сертификат на отгруженную продукцию";
   documentNumber: string;
   transportType: "" | "ЖД" | "Автотранспорт грузовой" | "Легковой автотранспорт";
   samplingMethod: string;
   documentIndicators: string;
+  samples: IncomingSampleFormState[];
   values: Partial<Record<LaboratoryIndicatorId, string>>;
 };
 
@@ -52,6 +58,8 @@ const sectionLabels: Record<LaboratorySection, string> = {
 };
 
 const incomingPurpose = "Определение химического состава и свойств";
+const maxIncomingSamples = 100;
+let nextSampleKey = 1;
 
 export function LaboratoryResultsWorkspace({
   profile,
@@ -138,15 +146,18 @@ export function LaboratoryResultsWorkspace({
     return () => controller.abort();
   }, [brandFilter, dateFrom, dateTo, materialFilter, refreshVersion, section]);
 
-  const materials = referenceState.status === "ready"
-    ? readSectionMaterials(referenceState.reference, section)
+  const productTypes = referenceState.status === "ready"
+    ? referenceState.reference.finishedProductTypes
     : [];
-  const selectedMaterial = materials.find(
-    (material) => material.label === form.materialLabel,
-  );
+  const availableIndicators = referenceState.status === "ready"
+    ? referenceState.reference.indicators
+    : [];
+  const selectedProductType = section === "finished_product"
+    ? productTypes.find((productType) => productType.label === form.materialLabel)
+    : undefined;
   const historyIndicators = useMemo(
-    () => mergeIndicatorReferences(materials, historyState.results),
-    [historyState.results, materials],
+    () => mergeIndicatorReferences(availableIndicators, historyState.results),
+    [availableIndicators, historyState.results],
   );
 
   function selectSection(nextSection: LaboratorySection) {
@@ -182,6 +193,47 @@ export function LaboratoryResultsWorkspace({
     setFormMessage("");
   }
 
+  function addIncomingSample() {
+    setForm((current) => current.samples.length >= maxIncomingSamples
+      ? current
+      : { ...current, samples: [...current.samples, createEmptySample()] });
+    setFormMessage("");
+  }
+
+  function removeIncomingSample(key: number) {
+    setForm((current) => current.samples.length <= 1
+      ? current
+      : {
+          ...current,
+          samples: current.samples.filter((sample) => sample.key !== key),
+        });
+    setFormMessage("");
+  }
+
+  function updateIncomingSampleIdentifier(key: number, value: string) {
+    setForm((current) => ({
+      ...current,
+      samples: current.samples.map((sample) => sample.key === key
+        ? { ...sample, sampleIdentifier: value }
+        : sample),
+    }));
+    setFormMessage("");
+  }
+
+  function updateIncomingSampleIndicator(
+    key: number,
+    id: LaboratoryIndicatorId,
+    value: string,
+  ) {
+    setForm((current) => ({
+      ...current,
+      samples: current.samples.map((sample) => sample.key === key
+        ? { ...sample, values: { ...sample.values, [id]: value } }
+        : sample),
+    }));
+    setFormMessage("");
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isAdminPreviewMode) return;
@@ -189,27 +241,19 @@ export function LaboratoryResultsWorkspace({
     const validationMessage = validateForm(
       section,
       form,
-      selectedMaterial,
+      selectedProductType,
+      availableIndicators,
       productBrands,
     );
     if (validationMessage !== undefined) {
       setFormMessage(validationMessage);
       return;
     }
-    if (selectedMaterial === undefined) return;
-
-    const values = Object.fromEntries(
-      selectedMaterial.indicators.map((indicator) => [
-        indicator.id,
-        form.values[indicator.id]?.trim() ?? "",
-      ]),
-    );
     const submission = section === "incoming"
       ? {
           section,
           analysisDate: form.analysisDate,
-          materialLabel: selectedMaterial.label,
-          sampleIdentifier: form.sampleIdentifier.trim(),
+          materialLabel: form.materialLabel.trim(),
           ...(form.documentType === "" ? {} : { documentType: form.documentType }),
           ...(form.documentNumber.trim() === ""
             ? {}
@@ -221,14 +265,23 @@ export function LaboratoryResultsWorkspace({
           ...(form.documentIndicators.trim() === ""
             ? {}
             : { documentIndicators: form.documentIndicators.trim() }),
-          values,
+          samples: form.samples.map((sample) => ({
+            sampleIdentifier: sample.sampleIdentifier.trim(),
+            values: readEnteredIndicatorValues(
+              availableIndicators,
+              sample.values,
+            ),
+          })),
         } as const
       : {
           section,
           analysisDate: form.analysisDate,
-          materialLabel: selectedMaterial.label,
+          materialLabel: selectedProductType?.label ?? form.materialLabel,
           productBrand: form.productBrand.trim(),
-          values,
+          values: readEnteredIndicatorValues(
+            availableIndicators,
+            form.values,
+          ),
         } as const;
 
     setIsSubmitting(true);
@@ -263,7 +316,6 @@ export function LaboratoryResultsWorkspace({
         <div>
           <span className="eyebrow">Лаборатория</span>
           <h1>Результаты испытаний</h1>
-          <p>Состав показателей загружается из вкладки Google Sheets «Лаборатория».</p>
         </div>
       </header>
 
@@ -301,22 +353,39 @@ export function LaboratoryResultsWorkspace({
                 }}
               />
             </label>
-            <label>
-              <span>{section === "incoming" ? "Наименование материала" : "Вид готовой продукции"}</span>
-              <select
-                required
-                value={form.materialLabel}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  selectMaterial(value);
-                }}
-              >
-                <option value="">Выберите</option>
-                {materials.map((material) => (
-                  <option key={material.label} value={material.label}>{material.label}</option>
-                ))}
-              </select>
-            </label>
+            {section === "incoming" ? (
+              <label>
+                <span>Объект испытаний</span>
+                <input
+                  required
+                  maxLength={120}
+                  value={form.materialLabel}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateFormField("materialLabel", value);
+                  }}
+                />
+              </label>
+            ) : (
+              <label>
+                <span>Вид готовой продукции</span>
+                <select
+                  required
+                  value={form.materialLabel}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    selectMaterial(value);
+                  }}
+                >
+                  <option value="">Выберите</option>
+                  {productTypes.map((productType) => (
+                    <option key={productType.label} value={productType.label}>
+                      {productType.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {section === "incoming" ? (
               <IncomingContextFields form={form} updateFormField={updateFormField} />
             ) : (
@@ -337,26 +406,25 @@ export function LaboratoryResultsWorkspace({
             </label>
           </div>
 
-          {selectedMaterial === undefined ? (
-            <p className="laboratory-empty-note">Выберите материал, чтобы увидеть показатели испытаний.</p>
+          {section === "incoming" ? (
+            <IncomingSamplesEditor
+              indicators={availableIndicators}
+              samples={form.samples}
+              onAdd={addIncomingSample}
+              onRemove={removeIncomingSample}
+              onIdentifierChange={updateIncomingSampleIdentifier}
+              onIndicatorChange={updateIncomingSampleIndicator}
+            />
           ) : (
-            <div className="laboratory-indicator-grid">
-              {selectedMaterial.indicators.map((indicator) => (
-                <label key={indicator.id}>
-                  <span>{indicator.label}</span>
-                  <input
-                    required
-                    maxLength={120}
-                    inputMode={indicator.id === "grain_composition" ? "text" : "decimal"}
-                    value={form.values[indicator.id] ?? ""}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      updateIndicator(indicator.id, value);
-                    }}
-                  />
-                  {indicator.standard === undefined ? null : <small>{indicator.standard}</small>}
-                </label>
-              ))}
+            <div className="laboratory-indicators">
+              <div className="laboratory-indicator-heading">
+                <p>Заполните хотя бы один показатель.</p>
+              </div>
+              <LaboratoryIndicatorFields
+                indicators={availableIndicators}
+                values={form.values}
+                onChange={updateIndicator}
+              />
             </div>
           )}
 
@@ -366,7 +434,7 @@ export function LaboratoryResultsWorkspace({
               disabled={
                 isAdminPreviewMode ||
                 isSubmitting ||
-                selectedMaterial === undefined
+                (section === "finished_product" && selectedProductType === undefined)
               }
               type="submit"
             >
@@ -407,16 +475,15 @@ export function LaboratoryResultsWorkspace({
             </label>
             {section === "incoming" ? (
               <label>
-                <span>Материал</span>
-                <select value={materialFilter} onChange={(event) => {
+                <span>Объект испытаний</span>
+                <input
+                  maxLength={120}
+                  placeholder="Введите объект испытаний"
+                  value={materialFilter}
+                  onChange={(event) => {
                   const value = event.currentTarget.value;
                   setMaterialFilter(value);
-                }}>
-                  <option value="">Все материалы</option>
-                  {materials.map((material) => (
-                    <option key={material.label} value={material.label}>{material.label}</option>
-                  ))}
-                </select>
+                }} />
               </label>
             ) : (
               <label>
@@ -443,6 +510,108 @@ export function LaboratoryResultsWorkspace({
         />
       </section>
     </main>
+  );
+}
+
+function IncomingSamplesEditor({
+  indicators,
+  samples,
+  onAdd,
+  onRemove,
+  onIdentifierChange,
+  onIndicatorChange,
+}: {
+  indicators: LaboratoryIndicatorReference[];
+  samples: IncomingSampleFormState[];
+  onAdd: () => void;
+  onRemove: (key: number) => void;
+  onIdentifierChange: (key: number, value: string) => void;
+  onIndicatorChange: (
+    key: number,
+    id: LaboratoryIndicatorId,
+    value: string,
+  ) => void;
+}) {
+  return (
+    <div className="laboratory-samples">
+      {samples.map((sample, index) => (
+        <section className="laboratory-sample-card" key={sample.key}>
+          <div className="laboratory-sample-heading">
+            <div>
+              <span className="eyebrow">Результаты испытаний</span>
+              <h2>Проба {index + 1}</h2>
+            </div>
+            {samples.length > 1 ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onRemove(sample.key)}
+              >
+                Убрать пробу
+              </button>
+            ) : null}
+          </div>
+          <label className="laboratory-sample-identifier">
+            <span>Номер пробы, идентификатор транспорта</span>
+            <input
+              required
+              maxLength={120}
+              value={sample.sampleIdentifier}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                onIdentifierChange(sample.key, value);
+              }}
+            />
+          </label>
+          <p className="laboratory-sample-note">
+            Заполните хотя бы один показатель этой пробы.
+          </p>
+          <LaboratoryIndicatorFields
+            indicators={indicators}
+            values={sample.values}
+            onChange={(id, value) => onIndicatorChange(sample.key, id, value)}
+          />
+        </section>
+      ))}
+      <button
+        className="secondary-button laboratory-add-sample"
+        disabled={samples.length >= maxIncomingSamples}
+        type="button"
+        onClick={onAdd}
+      >
+        Добавить пробу
+      </button>
+    </div>
+  );
+}
+
+function LaboratoryIndicatorFields({
+  indicators,
+  values,
+  onChange,
+}: {
+  indicators: LaboratoryIndicatorReference[];
+  values: Partial<Record<LaboratoryIndicatorId, string>>;
+  onChange: (id: LaboratoryIndicatorId, value: string) => void;
+}) {
+  return (
+    <div className="laboratory-indicator-grid">
+      {indicators.map((indicator) => (
+        <label key={indicator.id}>
+          <span>{indicator.label}</span>
+          <input
+            maxLength={120}
+            inputMode={indicator.id === "grain_composition" ? "text" : "decimal"}
+            value={values[indicator.id] ?? ""}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              onChange(indicator.id, value);
+            }}
+          />
+          {indicator.standard === undefined ? null : <small>{indicator.standard}</small>}
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -502,13 +671,6 @@ function IncomingContextFields({
           updateFormField("documentIndicators", value);
         }} />
       </label>
-      <label className="laboratory-field-wide">
-        <span>Номер пробы, идентификатор транспорта</span>
-        <input required maxLength={120} value={form.sampleIdentifier} onChange={(event) => {
-          const value = event.currentTarget.value;
-          updateFormField("sampleIdentifier", value);
-        }} />
-      </label>
     </>
   );
 }
@@ -525,6 +687,29 @@ function LaboratoryResultsTable({
   if (results.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам результатов нет.</p>;
   }
+  const historyRows: Array<{
+    key: string;
+    result: LaboratoryResult;
+    identifier: string;
+    values: Partial<Record<LaboratoryIndicatorId, string>>;
+  }> = [];
+  for (const result of results) {
+    if (result.section === "incoming") {
+      result.samples.forEach((sample, index) => historyRows.push({
+        key: `${result.id}:${index}`,
+        result,
+        identifier: sample.sampleIdentifier,
+        values: sample.values,
+      }));
+    } else {
+      historyRows.push({
+        key: result.id,
+        result,
+        identifier: result.productBrand,
+        values: result.values,
+      });
+    }
+  }
 
   return (
     <div className="table-scroll laboratory-table-scroll">
@@ -532,22 +717,22 @@ function LaboratoryResultsTable({
         <thead>
           <tr>
             <th>Дата анализа</th>
-            <th>{section === "incoming" ? "Материал" : "Вид продукции"}</th>
+            <th>{section === "incoming" ? "Объект испытаний" : "Вид продукции"}</th>
             <th>{section === "incoming" ? "Номер пробы / транспорт" : "Марка"}</th>
             {indicators.map((indicator) => <th key={indicator.id}>{indicator.label}</th>)}
             <th>Лаборант</th>
           </tr>
         </thead>
         <tbody>
-          {results.map((result) => (
-            <tr key={result.id}>
-              <td>{formatDate(result.analysisDate)}</td>
-              <td>{result.materialLabel}</td>
-              <td>{result.section === "incoming" ? result.sampleIdentifier : result.productBrand}</td>
+          {historyRows.map((row) => (
+            <tr key={row.key}>
+              <td>{formatDate(row.result.analysisDate)}</td>
+              <td>{row.result.materialLabel}</td>
+              <td>{row.identifier}</td>
               {indicators.map((indicator) => (
-                <td key={indicator.id}>{result.values[indicator.id] ?? "—"}</td>
+                <td key={indicator.id}>{row.values[indicator.id] ?? "—"}</td>
               ))}
-              <td>{result.laboratoryAssistantDisplayName}</td>
+              <td>{row.result.laboratoryAssistantDisplayName}</td>
             </tr>
           ))}
         </tbody>
@@ -561,12 +746,20 @@ function createEmptyForm(): FormState {
     analysisDate: formatLocalCalendarDate(new Date()),
     materialLabel: "",
     productBrand: "",
-    sampleIdentifier: "",
     documentType: "",
     documentNumber: "",
     transportType: "",
     samplingMethod: "",
     documentIndicators: "",
+    samples: [createEmptySample()],
+    values: {},
+  };
+}
+
+function createEmptySample(): IncomingSampleFormState {
+  return {
+    key: nextSampleKey++,
+    sampleIdentifier: "",
     values: {},
   };
 }
@@ -577,26 +770,22 @@ function formatLocalCalendarDate(value: Date) {
   ).padStart(2, "0")}`;
 }
 
-function readSectionMaterials(reference: LaboratoryReference, section: LaboratorySection) {
-  return section === "incoming"
-    ? reference.incomingMaterials
-    : reference.finishedProductTypes;
-}
-
 function mergeIndicatorReferences(
-  materials: LaboratoryMaterialReference[],
+  indicators: LaboratoryIndicatorReference[],
   results: LaboratoryResult[],
 ) {
-  const byId = new Map<LaboratoryIndicatorId, LaboratoryIndicatorReference>();
-  for (const material of materials) {
-    for (const indicator of material.indicators) {
-      if (!byId.has(indicator.id)) byId.set(indicator.id, indicator);
-    }
-  }
+  const byId = new Map(
+    indicators.map((indicator) => [indicator.id, indicator]),
+  );
   for (const result of results) {
-    for (const id of Object.keys(result.values) as LaboratoryIndicatorId[]) {
-      if (!byId.has(id)) {
-        byId.set(id, { id, label: laboratoryIndicatorLabels[id] });
+    const valueSets = result.section === "incoming"
+      ? result.samples.map((sample) => sample.values)
+      : [result.values];
+    for (const values of valueSets) {
+      for (const id of Object.keys(values) as LaboratoryIndicatorId[]) {
+        if (!byId.has(id)) {
+          byId.set(id, { id, label: laboratoryIndicatorLabels[id] });
+        }
       }
     }
   }
@@ -620,13 +809,29 @@ const laboratoryIndicatorLabels: Record<LaboratoryIndicatorId, string> = {
 function validateForm(
   section: LaboratorySection,
   form: FormState,
-  material: LaboratoryMaterialReference | undefined,
+  productType: LaboratoryProductTypeReference | undefined,
+  indicators: LaboratoryIndicatorReference[],
   productBrands: readonly string[],
 ) {
   if (form.analysisDate === "") return "Укажите дату анализа.";
-  if (material === undefined) return "Выберите материал из справочника лаборатории.";
-  if (section === "incoming" && form.sampleIdentifier.trim() === "") {
-    return "Укажите номер пробы или идентификатор транспорта.";
+  if (section === "incoming") {
+    if (form.materialLabel.trim() === "") return "Укажите объект испытаний.";
+    if (form.samples.length === 0) return "Добавьте хотя бы одну пробу.";
+    for (const [index, sample] of form.samples.entries()) {
+      if (sample.sampleIdentifier.trim() === "") {
+        return `Проба ${index + 1}: укажите номер пробы или идентификатор транспорта.`;
+      }
+      const hasValue = indicators.some(
+        (indicator) => (sample.values[indicator.id] ?? "").trim() !== "",
+      );
+      if (!hasValue) {
+        return `Проба ${index + 1}: заполните хотя бы один показатель испытаний.`;
+      }
+    }
+    return undefined;
+  }
+  if (productType === undefined) {
+    return "Выберите вид готовой продукции из справочника лаборатории.";
   }
   if (section === "finished_product") {
     const brandKey = normalizeProductBrandKey(form.productBrand);
@@ -635,10 +840,22 @@ function validateForm(
       return "Выберите марку из справочника номенклатуры.";
     }
   }
-  const missing = material.indicators.find(
-    (indicator) => (form.values[indicator.id] ?? "").trim() === "",
+  const hasValue = indicators.some(
+    (indicator) => (form.values[indicator.id] ?? "").trim() !== "",
   );
-  return missing === undefined ? undefined : `Заполните показатель «${missing.label}».`;
+  return hasValue ? undefined : "Заполните хотя бы один показатель испытаний.";
+}
+
+function readEnteredIndicatorValues(
+  indicators: LaboratoryIndicatorReference[],
+  values: Partial<Record<LaboratoryIndicatorId, string>>,
+) {
+  return Object.fromEntries(
+    indicators.flatMap((indicator) => {
+      const value = values[indicator.id]?.trim() ?? "";
+      return value === "" ? [] : [[indicator.id, value]];
+    }),
+  );
 }
 
 function formatDate(value: string) {

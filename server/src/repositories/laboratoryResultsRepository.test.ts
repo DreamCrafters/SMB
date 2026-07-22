@@ -21,8 +21,10 @@ test("laboratory repository stores the session author with the validated result"
       section: "incoming",
       analysisDate: "2026-07-22",
       materialLabel: "Глина",
-      sampleIdentifier: "Вагон 12345",
-      values: { al2o3: "31,4", moisture: "0,8" },
+      samples: [{
+        sampleIdentifier: "Вагон 12345",
+        values: { al2o3: "31,4", moisture: "0,8" },
+      }],
     },
     submittedByUserId: "user-lab",
     submittedByAccountId: "account-lab",
@@ -34,8 +36,10 @@ test("laboratory repository stores the session author with the validated result"
     section: "incoming",
     analysisDate: "2026-07-22",
     materialLabel: "Глина",
-    sampleIdentifier: "Вагон 12345",
-    values: { al2o3: "31,4", moisture: "0,8" },
+    samples: [{
+      sampleIdentifier: "Вагон 12345",
+      values: { al2o3: "31,4", moisture: "0,8" },
+    }],
     laboratoryAssistantDisplayName: "Иванова А.А.",
     createdAt: "2026-07-22T08:30:00.000Z",
   });
@@ -93,4 +97,41 @@ test("laboratory repository lists filtered results newest first", async () => {
     "Формованные изделия",
     100,
   ]);
+});
+
+test("laboratory repository reads a legacy incoming result as one sample", async () => {
+  const pool = {
+    async query() {
+      return [[{
+        id: "laboratory-result-legacy",
+        section: "incoming",
+        analysis_date: "2026-07-20",
+        material_label: "Глина",
+        product_brand: null,
+        payload: JSON.stringify({
+          section: "incoming",
+          analysisDate: "2026-07-20",
+          materialLabel: "Глина",
+          sampleIdentifier: "Вагон 100",
+          values: { moisture: "0,9" },
+        }),
+        laboratory_assistant_display_name: "Иванова А.А.",
+        created_at: "2026-07-20T09:00:00.000Z",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryResultsRepository(pool);
+
+  assert.deepEqual(await repository.list({ section: "incoming" }), [{
+    id: "laboratory-result-legacy",
+    section: "incoming",
+    analysisDate: "2026-07-20",
+    materialLabel: "Глина",
+    samples: [{
+      sampleIdentifier: "Вагон 100",
+      values: { moisture: "0,9" },
+    }],
+    laboratoryAssistantDisplayName: "Иванова А.А.",
+    createdAt: "2026-07-20T09:00:00.000Z",
+  }]);
 });

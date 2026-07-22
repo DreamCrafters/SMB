@@ -1,6 +1,7 @@
 import type {
   LaboratoryIndicatorId,
-  LaboratoryMaterialReference,
+  LaboratoryIndicatorReference,
+  LaboratoryProductTypeReference,
   LaboratoryReferenceData,
 } from "../integrations/googleSheetsReference.js";
 
@@ -28,17 +29,21 @@ export type LaboratoryIndicatorValues = Partial<
   Record<LaboratoryIndicatorId, string>
 >;
 
+export type IncomingLaboratorySample = {
+  sampleIdentifier: string;
+  values: LaboratoryIndicatorValues;
+};
+
 export type IncomingLaboratoryResultSubmission = {
   section: "incoming";
   analysisDate: string;
   materialLabel: string;
-  sampleIdentifier: string;
   documentType?: LaboratoryDocumentType;
   documentNumber?: string;
   transportType?: LaboratoryTransportType;
   samplingMethod?: string;
   documentIndicators?: string;
-  values: LaboratoryIndicatorValues;
+  samples: IncomingLaboratorySample[];
 };
 
 export type FinishedProductLaboratoryResultSubmission = {
@@ -59,6 +64,7 @@ export type LaboratoryResultValidation =
 
 const maxShortTextLength = 120;
 const maxLongTextLength = 2_000;
+const maxIncomingSamples = 100;
 
 export function validateLaboratoryResultSubmission(
   input: unknown,
@@ -77,29 +83,23 @@ export function validateLaboratoryResultSubmission(
   const errors: string[] = [];
   const analysisDate = readCalendarDate(input.analysisDate);
   const materialLabel = readText(input.materialLabel, maxShortTextLength);
-  const materials = section === "incoming"
-    ? reference.incomingMaterials
-    : reference.finishedProductTypes;
-  const material = materialLabel === undefined
+  const material = section === "incoming" || materialLabel === undefined
     ? undefined
-    : findMaterial(materials, materialLabel);
+    : findMaterial(reference.finishedProductTypes, materialLabel);
 
   if (analysisDate === undefined) {
     errors.push("Укажите дату анализа.");
   }
-  if (material === undefined) {
+  if (section === "incoming" && materialLabel === undefined) {
+    errors.push("Укажите объект испытаний.");
+  }
+  if (section === "finished_product" && material === undefined) {
     errors.push(
-      section === "incoming"
-        ? "Выберите материал из справочника лаборатории."
-        : "Выберите вид готовой продукции из справочника лаборатории.",
+      "Выберите вид готовой продукции из справочника лаборатории.",
     );
   }
 
   if (section === "incoming") {
-    const sampleIdentifier = readText(
-      input.sampleIdentifier,
-      maxShortTextLength,
-    );
     const documentType = readOptionalEnum(
       input.documentType,
       laboratoryDocumentTypes,
@@ -121,9 +121,6 @@ export function validateLaboratoryResultSubmission(
       maxLongTextLength,
     );
 
-    if (sampleIdentifier === undefined) {
-      errors.push("Укажите номер пробы или идентификатор транспорта.");
-    }
     if (input.documentType !== undefined && documentType === undefined) {
       errors.push("Выберите документ на объект из списка.");
     }
@@ -131,13 +128,17 @@ export function validateLaboratoryResultSubmission(
       errors.push("Выберите вид транспорта из списка.");
     }
 
-    const values = validateIndicatorValues(input.values, material, errors);
+    const samples = validateIncomingSamples(
+      input.samples,
+      reference.indicators,
+      errors,
+    );
 
     if (
       errors.length > 0 ||
       analysisDate === undefined ||
-      material === undefined ||
-      sampleIdentifier === undefined
+      materialLabel === undefined ||
+      samples === undefined
     ) {
       return { ok: false, errors };
     }
@@ -147,14 +148,13 @@ export function validateLaboratoryResultSubmission(
       value: {
         section,
         analysisDate,
-        materialLabel: material.label,
-        sampleIdentifier,
+        materialLabel,
         ...(documentType === undefined ? {} : { documentType }),
         ...(documentNumber === undefined ? {} : { documentNumber }),
         ...(transportType === undefined ? {} : { transportType }),
         ...(samplingMethod === undefined ? {} : { samplingMethod }),
         ...(documentIndicators === undefined ? {} : { documentIndicators }),
-        values,
+        samples,
       },
     };
   }
@@ -165,7 +165,11 @@ export function validateLaboratoryResultSubmission(
     errors.push("Выберите марку готовой продукции.");
   }
 
-  const values = validateIndicatorValues(input.values, material, errors);
+  const values = validateIndicatorValues(
+    input.values,
+    material === undefined ? undefined : reference.indicators,
+    errors,
+  );
 
   if (
     errors.length > 0 ||
@@ -188,25 +192,82 @@ export function validateLaboratoryResultSubmission(
   };
 }
 
+function validateIncomingSamples(
+  input: unknown,
+  indicators: readonly LaboratoryIndicatorReference[],
+  errors: string[],
+) {
+  if (!Array.isArray(input) || input.length === 0) {
+    errors.push("Добавьте хотя бы одну пробу.");
+    return undefined;
+  }
+  if (input.length > maxIncomingSamples) {
+    errors.push(`В одном отчёте может быть не больше ${maxIncomingSamples} проб.`);
+    return undefined;
+  }
+
+  const samples: IncomingLaboratorySample[] = [];
+
+  for (const [index, item] of input.entries()) {
+    const sampleNumber = index + 1;
+    const contextLabel = `Проба ${sampleNumber}`;
+
+    if (!isRecord(item)) {
+      errors.push(`${contextLabel}: проверьте данные пробы.`);
+      continue;
+    }
+
+    const sampleIdentifier = readText(
+      item.sampleIdentifier,
+      maxShortTextLength,
+    );
+    if (sampleIdentifier === undefined) {
+      errors.push(`${contextLabel}: укажите номер пробы или идентификатор транспорта.`);
+    }
+    const values = validateIndicatorValues(
+      item.values,
+      indicators,
+      errors,
+      contextLabel,
+    );
+
+    if (sampleIdentifier !== undefined) {
+      samples.push({ sampleIdentifier, values });
+    }
+  }
+
+  return samples;
+}
+
 function validateIndicatorValues(
   input: unknown,
-  material: LaboratoryMaterialReference | undefined,
+  indicators: readonly LaboratoryIndicatorReference[] | undefined,
   errors: string[],
+  contextLabel?: string,
 ) {
   const values: LaboratoryIndicatorValues = {};
 
-  if (material === undefined) return values;
+  if (indicators === undefined) return values;
 
   const source = isRecord(input) ? input : {};
   const indicatorById = new Map(
-    material.indicators.map((indicator) => [indicator.id, indicator]),
+    indicators.map((indicator) => [indicator.id, indicator]),
   );
 
-  for (const indicator of material.indicators) {
-    const value = readText(source[indicator.id], maxShortTextLength);
+  for (const indicator of indicators) {
+    const rawValue = source[indicator.id];
+
+    if (rawValue === undefined || rawValue === null || rawValue === "") {
+      continue;
+    }
+
+    const value = readText(rawValue, maxShortTextLength);
 
     if (value === undefined) {
-      errors.push(`Заполните показатель «${indicator.label}».`);
+      errors.push(withValidationContext(
+        contextLabel,
+        `проверьте значение показателя «${indicator.label}».`,
+      ));
       continue;
     }
 
@@ -217,14 +278,31 @@ function validateIndicatorValues(
     if (rawValue === undefined || rawValue === null || rawValue === "") continue;
     if (indicatorById.has(key as LaboratoryIndicatorId)) continue;
 
-    errors.push(`Показатель «${readIndicatorLabel(key)}» не применяется к выбранному материалу.`);
+    errors.push(withValidationContext(
+      contextLabel,
+      `показатель «${readIndicatorLabel(key)}» отсутствует в справочнике лаборатории.`,
+    ));
+  }
+
+  if (Object.keys(values).length === 0) {
+    errors.push(withValidationContext(
+      contextLabel,
+      "заполните хотя бы один показатель испытаний.",
+    ));
   }
 
   return values;
 }
 
+function withValidationContext(contextLabel: string | undefined, message: string) {
+  if (contextLabel === undefined) {
+    return message.charAt(0).toLocaleUpperCase("ru-RU") + message.slice(1);
+  }
+  return `${contextLabel}: ${message}`;
+}
+
 function findMaterial(
-  materials: readonly LaboratoryMaterialReference[],
+  materials: readonly LaboratoryProductTypeReference[],
   value: string,
 ) {
   const key = normalizeKey(value);

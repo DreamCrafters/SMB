@@ -957,10 +957,10 @@ async function handleLaboratoryRequest({
         : `Добавлен контроль готовой продукции «${result.productBrand}»`,
       details: [
         { label: "Дата анализа", value: result.analysisDate },
-        { label: "Материал", value: result.materialLabel },
+        { label: "Объект испытаний", value: result.materialLabel },
         ...(result.section === "finished_product"
           ? [{ label: "Марка", value: result.productBrand }]
-          : [{ label: "Номер пробы", value: result.sampleIdentifier }]),
+          : [{ label: "Количество проб", value: String(result.samples.length) }]),
       ],
       targetType: "laboratory_result",
       targetId: result.id,

@@ -63,72 +63,70 @@ test("laboratory reference follows the live section and indicator matrix", () =>
       "v",
       "v",
     ],
+    ["Готовая продукция", "Неформованные изделия"],
   ];
 
   assert.deepEqual(readLaboratoryReferenceFromRows(rows), {
-    incomingMaterials: [
+    indicators: [
       {
-        label: "Глина",
-        indicators: [
-          {
-            id: "al2o3",
-            label: "Al2O3",
-            standard: "ГОСТ 2642.4-2016, п.7.1",
-          },
-          {
-            id: "fe2o3",
-            label: "Fe2O3",
-            standard: "ГОСТ 2642.5, п.8",
-          },
-          {
-            id: "sio2",
-            label: "SiO2",
-            standard: "ГОСТ 2642.3-2016",
-          },
-          {
-            id: "loss_on_ignition",
-            label: "ппп",
-            standard: "ГОСТ 2642.2-2014",
-          },
-          {
-            id: "moisture",
-            label: "Влажность",
-            standard: "ГОСТ 2642.1-2016",
-          },
-          {
-            id: "bulk_density",
-            label: "Насыпной вес",
-            standard: "ГОСТ 2642.2",
-          },
-        ],
+        id: "al2o3",
+        label: "Al2O3",
+        standard: "ГОСТ 2642.4-2016, п.7.1",
+      },
+      {
+        id: "fe2o3",
+        label: "Fe2O3",
+        standard: "ГОСТ 2642.5, п.8",
+      },
+      {
+        id: "sio2",
+        label: "SiO2",
+        standard: "ГОСТ 2642.3-2016",
+      },
+      {
+        id: "cao2",
+        label: "CaO2",
+        standard: "ГОСТ 2642.7-2017",
+      },
+      {
+        id: "p2o5",
+        label: "P2O5",
+        standard: "ГОСТ 2642.10-86",
+      },
+      {
+        id: "loss_on_ignition",
+        label: "ппп",
+        standard: "ГОСТ 2642.2-2014",
+      },
+      {
+        id: "moisture",
+        label: "Влажность",
+        standard: "ГОСТ 2642.1-2016",
+      },
+      {
+        id: "bulk_density",
+        label: "Насыпной вес",
+        standard: "ГОСТ 2642.2",
+      },
+      {
+        id: "water_absorption",
+        label: "Водопоглощение",
+        standard: "ГОСТ 2409-2014",
+      },
+      {
+        id: "strength",
+        label: "Прочность",
+        standard: "ГОСТ 4071.2-94",
+      },
+      {
+        id: "grain_composition",
+        label: "Зерновой состав",
+        standard: "ГОСТ 27707-2007",
       },
     ],
     finishedProductTypes: [
-      {
-        label: "Формованные изделия",
-        indicators: [
-          {
-            id: "al2o3",
-            label: "Al2O3",
-            standard: "ГОСТ 2642.4-2016, п.7.1",
-          },
-          {
-            id: "fe2o3",
-            label: "Fe2O3",
-            standard: "ГОСТ 2642.5, п.8",
-          },
-          {
-            id: "water_absorption",
-            label: "Водопоглощение",
-            standard: "ГОСТ 2409-2014",
-          },
-          {
-            id: "strength",
-            label: "Прочность",
-            standard: "ГОСТ 4071.2-94",
-          },
-        ],
-      },
+      { label: "Формованные изделия" },
+      { label: "Неформованные изделия" },
     ],
   });
 });

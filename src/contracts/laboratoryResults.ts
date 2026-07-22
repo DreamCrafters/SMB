@@ -21,31 +21,34 @@ export type LaboratoryIndicatorReference = {
   standard?: string;
 };
 
-export type LaboratoryMaterialReference = {
+export type LaboratoryProductTypeReference = {
   label: string;
-  indicators: LaboratoryIndicatorReference[];
 };
 
 export type LaboratoryReference = {
-  incomingMaterials: LaboratoryMaterialReference[];
-  finishedProductTypes: LaboratoryMaterialReference[];
+  indicators: LaboratoryIndicatorReference[];
+  finishedProductTypes: LaboratoryProductTypeReference[];
 };
 
 export type LaboratoryIndicatorValues = Partial<
   Record<LaboratoryIndicatorId, string>
 >;
 
+export type IncomingLaboratorySample = {
+  sampleIdentifier: string;
+  values: LaboratoryIndicatorValues;
+};
+
 export type IncomingLaboratoryResultSubmission = {
   section: "incoming";
   analysisDate: string;
   materialLabel: string;
-  sampleIdentifier: string;
   documentType?: "Сертификат на отгруженную продукцию";
   documentNumber?: string;
   transportType?: "ЖД" | "Автотранспорт грузовой" | "Легковой автотранспорт";
   samplingMethod?: string;
   documentIndicators?: string;
-  values: LaboratoryIndicatorValues;
+  samples: IncomingLaboratorySample[];
 };
 
 export type FinishedProductLaboratoryResultSubmission = {

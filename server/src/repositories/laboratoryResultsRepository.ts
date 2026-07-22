@@ -180,23 +180,60 @@ function readStoredSubmission(value: unknown): LaboratoryResultSubmission {
     !isRecord(parsed) ||
     (parsed.section !== "incoming" && parsed.section !== "finished_product") ||
     typeof parsed.analysisDate !== "string" ||
-    typeof parsed.materialLabel !== "string" ||
-    !isStringRecord(parsed.values)
+    typeof parsed.materialLabel !== "string"
   ) {
     throw new Error("Stored laboratory result payload is invalid.");
   }
 
   if (parsed.section === "incoming") {
-    if (typeof parsed.sampleIdentifier !== "string") {
-      throw new Error("Stored incoming laboratory result payload is invalid.");
+    if (Array.isArray(parsed.samples) && parsed.samples.every(isIncomingSample)) {
+      return parsed as LaboratoryResultSubmission;
     }
-    return parsed as LaboratoryResultSubmission;
+    if (
+      typeof parsed.sampleIdentifier === "string" &&
+      isStringRecord(parsed.values)
+    ) {
+      return {
+        section: "incoming",
+        analysisDate: parsed.analysisDate,
+        materialLabel: parsed.materialLabel,
+        ...(typeof parsed.documentType === "string"
+          ? { documentType: parsed.documentType }
+          : {}),
+        ...(typeof parsed.documentNumber === "string"
+          ? { documentNumber: parsed.documentNumber }
+          : {}),
+        ...(typeof parsed.transportType === "string"
+          ? { transportType: parsed.transportType }
+          : {}),
+        ...(typeof parsed.samplingMethod === "string"
+          ? { samplingMethod: parsed.samplingMethod }
+          : {}),
+        ...(typeof parsed.documentIndicators === "string"
+          ? { documentIndicators: parsed.documentIndicators }
+          : {}),
+        samples: [{
+          sampleIdentifier: parsed.sampleIdentifier,
+          values: parsed.values,
+        }],
+      } as LaboratoryResultSubmission;
+    }
+    throw new Error("Stored incoming laboratory result payload is invalid.");
   }
 
-  if (typeof parsed.productBrand !== "string") {
+  if (
+    typeof parsed.productBrand !== "string" ||
+    !isStringRecord(parsed.values)
+  ) {
     throw new Error("Stored finished product laboratory result payload is invalid.");
   }
   return parsed as LaboratoryResultSubmission;
+}
+
+function isIncomingSample(value: unknown) {
+  return isRecord(value) &&
+    typeof value.sampleIdentifier === "string" &&
+    isStringRecord(value.values);
 }
 
 function isStringRecord(value: unknown) {

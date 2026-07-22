@@ -65,14 +65,13 @@ export type LaboratoryIndicatorReference = {
   standard?: string;
 };
 
-export type LaboratoryMaterialReference = {
+export type LaboratoryProductTypeReference = {
   label: string;
-  indicators: LaboratoryIndicatorReference[];
 };
 
 export type LaboratoryReferenceData = {
-  incomingMaterials: LaboratoryMaterialReference[];
-  finishedProductTypes: LaboratoryMaterialReference[];
+  indicators: LaboratoryIndicatorReference[];
+  finishedProductTypes: LaboratoryProductTypeReference[];
 };
 
 export type LaboratoryReferenceDataSource = {
@@ -969,28 +968,23 @@ export function readLaboratoryReferenceFromRows(
   }
 
   const result: LaboratoryReferenceData = {
-    incomingMaterials: [],
+    indicators: indicatorColumns.map(({ columnIndex, definition }) => {
+      const standard = (standardRow?.[columnIndex] ?? "")
+        .trim()
+        .replace(/\s+/gu, " ");
+      return {
+        id: definition.id,
+        label: definition.label,
+        ...(standard.length === 0 ? {} : { standard }),
+      };
+    }),
     finishedProductTypes: [],
   };
-  const seenBySection = {
-    incoming: new Set<string>(),
-    finished: new Set<string>(),
-  };
+  const seenFinishedProductTypes = new Set<string>();
 
   for (const row of rows.slice(headerRowIndex + 1)) {
     const section = normalizeHeader(row[0] ?? "");
-    const target = section === "сырье"
-      ? result.incomingMaterials
-      : section === "готовая продукция"
-        ? result.finishedProductTypes
-        : undefined;
-    const seen = section === "сырье"
-      ? seenBySection.incoming
-      : section === "готовая продукция"
-        ? seenBySection.finished
-        : undefined;
-
-    if (target === undefined || seen === undefined) continue;
+    if (section !== "готовая продукция") continue;
 
     const label = (row[1] ?? "").trim().replace(/\s+/gu, " ");
     const normalizedLabel = normalizeOption(label);
@@ -998,37 +992,13 @@ export function readLaboratoryReferenceFromRows(
     if (
       label.length === 0 ||
       label.length > 120 ||
-      seen.has(normalizedLabel)
+      seenFinishedProductTypes.has(normalizedLabel)
     ) {
       continue;
     }
 
-    const indicators = indicatorColumns.flatMap(({ columnIndex, definition }) => {
-      if ((row[columnIndex] ?? "").trim().length === 0) return [];
-
-      const standard = (standardRow?.[columnIndex] ?? "")
-        .trim()
-        .replace(/\s+/gu, " ");
-      return [{
-        id: definition.id,
-        label: definition.label,
-        ...(standard.length === 0 ? {} : { standard }),
-      }];
-    });
-
-    if (indicators.length === 0) continue;
-
-    seen.add(normalizedLabel);
-    target.push({ label, indicators });
-  }
-
-  if (
-    result.incomingMaterials.length === 0 &&
-    result.finishedProductTypes.length === 0
-  ) {
-    throw new Error(
-      "Google Sheets tab Лаборатория does not contain material rows.",
-    );
+    seenFinishedProductTypes.add(normalizedLabel);
+    result.finishedProductTypes.push({ label });
   }
 
   return result;
