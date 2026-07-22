@@ -139,8 +139,8 @@ export type ProductionGranulationRow = ProductionReportBaseRow & {
 };
 
 export type ProductionReportTables = {
-  forming: ProductionMetricRow[];
-  sorting: ProductionMetricRow[];
+  forming: ProductionBrandCategoryRow[];
+  sorting: ProductionBrandCategoryRow[];
   unformed: ProductionBrandCategoryRow[];
   chamotte: ProductionBrandCategoryRow[];
   jars: ProductionJarMeasurementRow[];

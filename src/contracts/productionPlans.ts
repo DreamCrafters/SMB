@@ -44,8 +44,8 @@ export type ProductionDailyPlan = {
 };
 
 export type ProductionMonthToDateValue = {
-  monthPlan: number;
-  deviation?: number;
+  monthPlan?: number;
+  monthFactBeforeDay: number;
 };
 
 export type ProductionMonthToDate = Partial<

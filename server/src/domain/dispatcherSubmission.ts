@@ -444,7 +444,9 @@ export function readProductionSubmissionBrandReferences(
   }
 
   for (const [fieldName, label] of Object.entries(payload)) {
-    const match = /^(unformed|chamotte)Brand([1-9]\d?)$/u.exec(fieldName);
+    const match = /^(forming|sorting|unformed|chamotte)Brand([1-9]\d?)$/u.exec(
+      fieldName,
+    );
 
     if (match !== null && Number(match[2]) <= 50) {
       references.push({
@@ -476,7 +478,12 @@ function validateProductionBrandFacts(
     }
   }
 
-  for (const prefix of ["unformed", "chamotte"] as const) {
+  for (const prefix of [
+    "forming",
+    "sorting",
+    "unformed",
+    "chamotte",
+  ] as const) {
     const indexes = new Set<number>();
 
     for (const fieldName of Object.keys(payload)) {
@@ -529,7 +536,9 @@ function isDynamicProductionFieldName(fieldName: string) {
 function readDynamicProductionField(
   fieldName: string,
 ): DispatcherFormField | undefined {
-  const match = /^(unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(fieldName);
+  const match = /^(forming|sorting|unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
+    fieldName,
+  );
 
   if (match === null || Number(match[3]) > 50) {
     return undefined;

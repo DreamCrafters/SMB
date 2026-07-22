@@ -157,7 +157,7 @@ export function buildDispatcherSubmissionAuditDetails(
 
   const dynamicDetails = Object.entries(payload).flatMap(
     ([fieldName, value]) => {
-      const match = /^(unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
+      const match = /^(forming|sorting|unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
         fieldName,
       );
 
@@ -165,10 +165,12 @@ export function buildDispatcherSubmissionAuditDetails(
         return [];
       }
 
-      const section =
-        match[1] === "unformed"
-          ? "Неформованная продукция"
-          : "Цех обжига шамота";
+      const section = {
+        forming: "Формовка",
+        sorting: "Сортировка",
+        unformed: "Неформованная продукция",
+        chamotte: "Цех обжига шамота",
+      }[match[1]];
       const metric = match[2] === "Brand" ? "Марка" : "Факт";
 
       return [{ label: `${section} — ${metric} ${match[3]}`, value }];

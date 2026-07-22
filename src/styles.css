@@ -1582,6 +1582,11 @@ p {
   border-radius: 0;
 }
 
+.production-brand-fact-input input::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
 .production-report-cell-input label {
   display: block;
   gap: 0;

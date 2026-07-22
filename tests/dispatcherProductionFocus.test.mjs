@@ -16,6 +16,48 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+test("production submission payload keeps dynamic fields for every category", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { readDispatcherSubmissionPayload } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const formData = new FormData();
+
+    formData.set("reportDate", "2026-07-22");
+    formData.set("formingBrand1", "  МКР-1  ");
+    formData.set("formingFact1", "12,5");
+    formData.set("sortingBrand2", "ПБ   5");
+    formData.set("sortingFact2", "7,25");
+    formData.set("unformedBrand3", "НФ-1");
+    formData.set("unformedFact3", "4");
+    formData.set("chamotteBrand4", "Ш-1");
+    formData.set("chamotteFact4", "3");
+
+    assert.deepEqual(
+      readDispatcherSubmissionPayload(formData, buildProductionFormDefinition()),
+      {
+        reportDate: "2026-07-22",
+        formingBrand1: "МКР-1",
+        formingFact1: "12.5",
+        sortingBrand2: "ПБ 5",
+        sortingFact2: "7.25",
+        unformedBrand3: "НФ-1",
+        unformedFact3: "4",
+        chamotteBrand4: "Ш-1",
+        chamotteFact4: "3",
+      },
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
 test("forming and sorting facts switch focus on the first mouse press", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",
@@ -34,50 +76,24 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
   });
 
   try {
-    const { ProductionSummaryTable } = await vite.ssrLoadModule("/src/App.tsx");
+    const { ProductionCategoryTable } = await vite.ssrLoadModule("/src/App.tsx");
     const rootElement = dom.window.document.getElementById("root");
     const root = createRoot(rootElement);
 
     await React.act(async () => {
-      const form = {
-        id: "production",
-        title: "Выработка",
-        description: "",
-        fields: [
-          {
-            label: "Факт формовки за сутки",
-            name: "formingDay",
-            required: false,
-            type: "number",
-          },
-          {
-            label: "Факт сортировки за сутки",
-            name: "sortingDay",
-            required: false,
-            type: "number",
-          },
-        ],
-      };
-
       root.render(
         React.createElement(
           React.Fragment,
           null,
-          React.createElement(ProductionSummaryTable, {
+          React.createElement(ProductionCategoryTable, {
             brandLabels: [],
-            form,
             isAdminPreviewMode: false,
             prefix: "forming",
-            title: "Формовка",
-            onCreateBrand: async () => ({}),
           }),
-          React.createElement(ProductionSummaryTable, {
+          React.createElement(ProductionCategoryTable, {
             brandLabels: [],
-            form,
             isAdminPreviewMode: false,
             prefix: "sorting",
-            title: "Сортировка",
-            onCreateBrand: async () => ({}),
           }),
         ),
       );
@@ -85,17 +101,21 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
 
     let previousInput;
 
-    for (const name of ["formingDay", "sortingDay"]) {
+    for (const name of ["formingFact1", "sortingFact1"]) {
       const input = dom.window.document.querySelector(`input[name="${name}"]`);
 
       assert.ok(input instanceof dom.window.HTMLInputElement);
-      const firstPressWasNotCancelled = input.dispatchEvent(
-        new dom.window.MouseEvent("mousedown", {
-          bubbles: true,
-          button: 0,
-          cancelable: true,
-        }),
-      );
+      let firstPressWasNotCancelled;
+
+      await React.act(async () => {
+        firstPressWasNotCancelled = input.dispatchEvent(
+          new dom.window.MouseEvent("mousedown", {
+            bubbles: true,
+            button: 0,
+            cancelable: true,
+          }),
+        );
+      });
 
       assert.equal(firstPressWasNotCancelled, false);
       assert.equal(dom.window.document.activeElement, input);
@@ -103,13 +123,17 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
         assert.notEqual(dom.window.document.activeElement, previousInput);
       }
 
-      const repeatedPressWasNotCancelled = input.dispatchEvent(
-        new dom.window.MouseEvent("mousedown", {
-          bubbles: true,
-          button: 0,
-          cancelable: true,
-        }),
-      );
+      let repeatedPressWasNotCancelled;
+
+      await React.act(async () => {
+        repeatedPressWasNotCancelled = input.dispatchEvent(
+          new dom.window.MouseEvent("mousedown", {
+            bubbles: true,
+            button: 0,
+            cancelable: true,
+          }),
+        );
+      });
 
       assert.equal(repeatedPressWasNotCancelled, true);
       assert.equal(dom.window.document.activeElement, input);
@@ -267,10 +291,10 @@ test(`production form loads all saved data by date in ${label}`, async () => {
             chamotte: 5,
           },
           monthToDate: {
-            forming: { monthPlan: 160, deviation: -40 },
-            sorting: { monthPlan: 130, deviation: -11 },
-            unformed: { monthPlan: 90, deviation: -5 },
-            chamotte: { monthPlan: 70, deviation: 0 },
+            forming: { monthPlan: 160, monthFactBeforeDay: 120 },
+            sorting: { monthPlan: 130, monthFactBeforeDay: 119 },
+            unformed: { monthPlan: 90, monthFactBeforeDay: 85 },
+            chamotte: { monthPlan: 70, monthFactBeforeDay: 70 },
           },
         },
       });
@@ -293,8 +317,16 @@ test(`production form loads all saved data by date in ${label}`, async () => {
               reportDate: "18.07.2026",
               formingDay: "12.5",
               formingProductBrand: "МКР-1",
+              sortingDay: "3",
+              sortingProductBrand: "ПБ-5",
               unformedBrand3: "ПБ-5",
               unformedFact3: "4",
+              unformedBrand4: "МКР-1",
+              unformedFact4: "1.5",
+              chamotteBrand1: "МКР-1",
+              chamotteFact1: "2",
+              chamotteBrand2: "ПБ-5",
+              chamotteFact2: "3.5",
               jarStart1: "10",
               granulationFraction1630Day: "2",
             },
@@ -419,11 +451,11 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     });
 
     assert.equal(
-      rootElement.querySelector('input[name="formingDay"]')?.value,
+      rootElement.querySelector('input[name="formingFact1"]')?.value,
       "12.5",
     );
     assert.equal(
-      rootElement.querySelector('input[name="formingProductBrand"]')?.value,
+      rootElement.querySelector('input[name="formingBrand1"]')?.value,
       "МКР-1",
     );
     assert.equal(
@@ -455,11 +487,11 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       rootElement.querySelector(".production-report-daily-plan")?.textContent ?? "",
       /Формовка8.*Сортировка7.*Неформованная продукция, контейнеры6.*Цех обжига шамота5/u,
     );
-    for (const [label, monthPlan, deviation] of [
-      ["Формовка", "160", "-40"],
-      ["Сортировка", "130", "-11"],
-      ["Неформованная продукция, контейнеры", "90", "-5"],
-      ["Цех обжига шамота", "70", "0"],
+    for (const [label, monthPlan, monthFact, deviation] of [
+      ["Формовка", "160", "132,5", "-27,5"],
+      ["Сортировка", "130", "122", "-8"],
+      ["Неформованная продукция, контейнеры", "90", "90,5", "0,5"],
+      ["Цех обжига шамота", "70", "75,5", "5,5"],
     ]) {
       const monthPlanOutput = rootElement.querySelector(
         `output[aria-label="${label}: план за месяц"]`,
@@ -467,12 +499,59 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       const deviationOutput = rootElement.querySelector(
         `output[aria-label="${label}: отклонение"]`,
       );
+      const monthFactOutput = rootElement.querySelector(
+        `output[aria-label="${label}: факт за месяц"]`,
+      );
 
       assert.equal(monthPlanOutput?.textContent, monthPlan);
+      assert.equal(monthFactOutput?.textContent, monthFact);
       assert.equal(deviationOutput?.textContent, deviation);
       assert.equal(monthPlanOutput?.hasAttribute("name"), false);
+      assert.equal(monthFactOutput?.hasAttribute("name"), false);
       assert.equal(deviationOutput?.hasAttribute("name"), false);
     }
+
+    assert.equal(
+      rootElement.querySelectorAll('input[placeholder="Факт за сутки"]').length,
+      6,
+    );
+
+    const formingFactInput = rootElement.querySelector(
+      'input[name="formingFact1"]',
+    );
+    const chamotteFactInput = rootElement.querySelector(
+      'input[name="chamotteFact1"]',
+    );
+
+    await React.act(async () => {
+      setNativeInputValue(formingFactInput, "20");
+      formingFactInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(chamotteFactInput, "4");
+      chamotteFactInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Формовка: факт за месяц"]',
+      )?.textContent,
+      "140",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Формовка: отклонение"]',
+      )?.textContent,
+      "-20",
+    );
+    assert.equal(
+      rootElement.querySelector(
+        'output[aria-label="Цех обжига шамота: отклонение"]',
+      )?.textContent,
+      "7,5",
+    );
     const addBrandButtons = rootElement.querySelectorAll(
       'button[aria-label="Добавить новую марку"]',
     );
@@ -505,7 +584,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     });
 
     assert.equal(
-      rootElement.querySelector('input[name="formingDay"]')?.value,
+      rootElement.querySelector('input[name="formingFact1"]')?.value,
       "",
     );
     assert.doesNotMatch(rootElement.textContent ?? "", /Внести изменения/u);

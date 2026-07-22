@@ -211,6 +211,26 @@ test("production payload validation rejects duplicate brands within a category",
   );
 });
 
+test("production payload validation applies dynamic column rules to forming and sorting", () => {
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "4",
+      formingBrand2: " фл-1 ",
+      formingFact2: "3",
+    }),
+    productionDuplicateBrandMessage,
+  );
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-16",
+      sortingFact1: "0",
+    }),
+    productionBrandFactPairMessage,
+  );
+});
+
 test("dynamic brand fact is a production indicator", () => {
   assert.equal(
     validateDispatcherPayloadForSubmit(productionForm, {

@@ -304,13 +304,16 @@ function isProductionMonthToDate(
       return false;
     }
 
-    const allowedFields = new Set(["monthPlan", "deviation"]);
+    const allowedFields = new Set([
+      "monthPlan",
+      "monthFactBeforeDay",
+    ]);
 
     return (
       Object.keys(categoryValue).every((field) => allowedFields.has(field)) &&
-      categoryValue.monthPlan !== undefined &&
       isOptionalProductionValue(categoryValue.monthPlan, false, true) &&
-      isOptionalProductionValue(categoryValue.deviation, true)
+      categoryValue.monthFactBeforeDay !== undefined &&
+      isOptionalProductionValue(categoryValue.monthFactBeforeDay, false)
     );
   });
 }

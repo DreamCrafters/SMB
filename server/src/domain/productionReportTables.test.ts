@@ -4,6 +4,7 @@ import type { DispatcherSubmission } from "./dispatcherSubmission.js";
 import type { ProductionPlan } from "./productionPlan.js";
 import {
   buildProductionMonthOverview,
+  buildProductionMonthToDate,
   buildProductionReportTables,
 } from "./productionReportTables.js";
 
@@ -11,10 +12,10 @@ test("buildProductionReportTables calculates server-owned production analytics",
   const tables = buildProductionReportTables([
     buildSubmission("day-1", {
       reportDate: "01.07.2026",
-      formingDay: "8",
-      formingProductBrand: "ФЛ-1",
-      sortingDay: "5",
-      sortingProductBrand: "СО-1",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "8",
+      sortingBrand1: "СО-1",
+      sortingFact1: "5",
       unformedBrand1: "ПБ-5",
       unformedFact1: "2",
       chamotteBrand1: "Ш-1",
@@ -24,10 +25,14 @@ test("buildProductionReportTables calculates server-owned production analytics",
     }),
     buildSubmission("day-2", {
       reportDate: "02.07.2026",
-      formingDay: "11",
-      formingProductBrand: "ФЛ-2",
-      sortingDay: "7",
-      sortingProductBrand: "СО-2",
+      formingBrand1: "ФЛ-2",
+      formingFact1: "6",
+      formingBrand2: "ФЛ-3",
+      formingFact2: "5",
+      sortingBrand1: "СО-1",
+      sortingFact1: "3",
+      sortingBrand2: "СО-2",
+      sortingFact2: "4",
       unformedBrand1: " пб-5 ",
       unformedFact1: "4",
       unformedBrand2: "ПБ-6",
@@ -46,7 +51,10 @@ test("buildProductionReportTables calculates server-owned production analytics",
   assert.deepEqual(tables.forming[1], {
     reportId: "day-2",
     reportDate: "2026-07-02",
-    brand: "ФЛ-2",
+    facts: [
+      { brand: "ФЛ-2", value: 6, monthValue: 6 },
+      { brand: "ФЛ-3", value: 5, monthValue: 5 },
+    ],
     dayPlan: 10,
     dayFact: 11,
     monthPlan: 20,
@@ -57,7 +65,10 @@ test("buildProductionReportTables calculates server-owned production analytics",
   assert.deepEqual(tables.sorting[1], {
     reportId: "day-2",
     reportDate: "2026-07-02",
-    brand: "СО-2",
+    facts: [
+      { brand: "СО-1", value: 3, monthValue: 8 },
+      { brand: "СО-2", value: 4, monthValue: 4 },
+    ],
     dayPlan: 6,
     dayFact: 7,
     monthPlan: 12,
@@ -92,6 +103,38 @@ test("buildProductionReportTables calculates server-owned production analytics",
     fraction1218Month: 5,
     receivedAt: "2026-07-02T18:00:00.000Z",
   });
+});
+
+test("buildProductionMonthToDate returns cumulative plan and fact before the edited day", () => {
+  const values = buildProductionMonthToDate([
+    buildSubmission("day-1", {
+      reportDate: "01.07.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "8",
+    }),
+    buildSubmission("day-2", {
+      reportDate: "02.07.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "11",
+    }),
+  ], productionPlan, "2026-07-02");
+
+  assert.deepEqual(values.forming, {
+    monthPlan: 20,
+    monthFactBeforeDay: 8,
+  });
+});
+
+test("buildProductionMonthToDate keeps monthly fact available without a plan", () => {
+  const values = buildProductionMonthToDate([
+    buildSubmission("day-1", {
+      reportDate: "01.07.2026",
+      unformedBrand1: "ПБ-5",
+      unformedFact1: "5",
+    }),
+  ], undefined, "2026-07-02");
+
+  assert.deepEqual(values.unformed, { monthFactBeforeDay: 5 });
 });
 
 test("buildProductionReportTables uses only the latest report for each date", () => {

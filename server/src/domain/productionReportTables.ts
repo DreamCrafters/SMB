@@ -52,8 +52,8 @@ export type ProductionGranulationRow = ProductionReportBaseRow & {
 };
 
 export type ProductionReportTables = {
-  forming: ProductionMetricRow[];
-  sorting: ProductionMetricRow[];
+  forming: ProductionBrandCategoryRow[];
+  sorting: ProductionBrandCategoryRow[];
   unformed: ProductionBrandCategoryRow[];
   chamotte: ProductionBrandCategoryRow[];
   jars: ProductionJarMeasurementRow[];
@@ -66,8 +66,8 @@ export type ProductionMonthOverview = {
 };
 
 export type ProductionMonthToDateValue = {
-  monthPlan: number;
-  deviation?: number;
+  monthPlan?: number;
+  monthFactBeforeDay: number;
 };
 
 export type ProductionMonthToDate = Partial<
@@ -93,8 +93,8 @@ export function buildProductionReportTables(
   const dailyReports = readLatestProductionReports(submissions);
 
   return {
-    forming: buildMetricRows(dailyReports, plans, "forming"),
-    sorting: buildMetricRows(dailyReports, plans, "sorting"),
+    forming: buildBrandRows(dailyReports, plans, "forming"),
+    sorting: buildBrandRows(dailyReports, plans, "sorting"),
     unformed: buildBrandRows(dailyReports, plans, "unformed"),
     chamotte: buildBrandRows(dailyReports, plans, "chamotte"),
     jars: buildJarRows(dailyReports),
@@ -153,7 +153,8 @@ export function buildProductionMonthToDate(
   for (const category of productionCategories) {
     const latestRow = (tables[category] as ProductionMetricRow[])
       .filter(
-        (row) => row.reportDate.startsWith(month) && row.reportDate <= reportDate,
+        (row) =>
+          row.reportDate.startsWith(month) && row.reportDate < reportDate,
       )
       .at(-1);
     const schedule = applicablePlan?.schedules[category];
@@ -163,15 +164,11 @@ export function buildProductionMonthToDate(
           .filter((dailyPlan) => dailyPlan.date <= reportDate)
           .reduce((sum, dailyPlan) => sum + dailyPlan.value, 0);
     const monthPlan = scheduledMonthPlan ?? latestRow?.monthPlan;
-    const monthFact = latestRow?.monthFact;
-
-    if (monthPlan === undefined) {
-      continue;
-    }
+    const monthFactBeforeDay = latestRow?.monthFact;
 
     result[category] = {
-      monthPlan,
-      ...(monthFact === undefined ? {} : { deviation: monthFact - monthPlan }),
+      ...(monthPlan === undefined ? {} : { monthPlan }),
+      monthFactBeforeDay: monthFactBeforeDay ?? 0,
     };
   }
 
@@ -210,46 +207,10 @@ function readLatestProductionReports(
     .sort((left, right) => left.reportDate.localeCompare(right.reportDate));
 }
 
-function buildMetricRows(
-  reports: DatedProductionReport[],
-  plans: ProductionPlan[],
-  prefix: "forming" | "sorting",
-): ProductionMetricRow[] {
-  const totalsByMonth = new Map<string, ProductionTotals>();
-
-  return reports.flatMap((report) => {
-    const categoryPlan = readCategoryPlan(plans, report.reportDate, prefix);
-    const legacyDayPlan = readNumber(report.submission.payload[`${prefix}Plan`]);
-    const dayPlan = categoryPlan.dayPlan ?? legacyDayPlan;
-    const dayFact = readNumber(report.submission.payload[`${prefix}Day`]);
-    const brand = normalizeOptionalBrand(
-      report.submission.payload[`${prefix}ProductBrand`] ??
-        report.submission.payload[`${prefix}ProductBrands`],
-    );
-    const totals = readTotals(totalsByMonth, report.reportDate.slice(0, 7));
-
-    addDailyValues(
-      totals,
-      categoryPlan.monthPlan === undefined ? legacyDayPlan : undefined,
-      dayFact,
-    );
-
-    if (dayPlan === undefined && dayFact === undefined) return [];
-
-    return [{
-      ...readBaseRow(report),
-      ...(brand === undefined ? {} : { brand }),
-      dayPlan,
-      dayFact,
-      ...readMonthlyValues(totals, categoryPlan.monthPlan),
-    }];
-  });
-}
-
 function buildBrandRows(
   reports: DatedProductionReport[],
   plans: ProductionPlan[],
-  prefix: "unformed" | "chamotte",
+  prefix: ProductionCategory,
 ): ProductionBrandCategoryRow[] {
   const totalsByMonth = new Map<string, ProductionTotals>();
   const factsByMonthAndBrand = new Map<string, number>();
@@ -269,11 +230,16 @@ function buildBrandRows(
       factsByMonthAndBrand.set(key, monthValue);
       return { ...fact, monthValue };
     });
-    const dayFact = facts.length === 0
+    const dynamicDayFact = facts.length === 0
       ? undefined
       : facts.reduce((sum, fact) => sum + fact.value, 0);
+    const legacyDayFact = isLegacySingleBrandCategory(prefix) &&
+      !hasDynamicBrandFields(report.submission.payload, prefix)
+      ? readNumber(report.submission.payload[`${prefix}Day`])
+      : undefined;
+    const dayFact = dynamicDayFact ?? legacyDayFact;
     const categoryPlan = readCategoryPlan(plans, report.reportDate, prefix);
-    const legacyDayPlan = readLegacyBrandPlan(
+    const legacyDayPlan = readLegacyCategoryPlan(
       report.submission.payload,
       prefix,
     );
@@ -305,7 +271,7 @@ function buildBrandRows(
 
 function readDailyBrandFacts(
   payload: DispatcherSubmissionPayload,
-  prefix: "unformed" | "chamotte",
+  prefix: ProductionCategory,
   brandLabels: Map<string, string>,
 ): DailyProductionBrandFact[] {
   const factsByBrand = new Map<string, DailyProductionBrandFact>();
@@ -337,15 +303,34 @@ function readDailyBrandFacts(
     });
   }
 
+  if (
+    factsByBrand.size === 0 &&
+    isLegacySingleBrandCategory(prefix) &&
+    !hasDynamicBrandFields(payload, prefix)
+  ) {
+    const value = readNumber(payload[`${prefix}Day`]);
+    const brand = normalizeOptionalBrand(
+      payload[`${prefix}ProductBrand`] ?? payload[`${prefix}ProductBrands`],
+    );
+
+    if (value !== undefined && brand !== undefined) {
+      factsByBrand.set(brand.toLocaleLowerCase("ru-RU"), { brand, value });
+    }
+  }
+
   return [...factsByBrand.values()].sort((left, right) =>
     left.brand.localeCompare(right.brand, "ru-RU"),
   );
 }
 
-function readLegacyBrandPlan(
+function readLegacyCategoryPlan(
   payload: DispatcherSubmissionPayload,
-  prefix: "unformed" | "chamotte",
+  prefix: ProductionCategory,
 ) {
+  if (isLegacySingleBrandCategory(prefix)) {
+    return readNumber(payload[`${prefix}Plan`]);
+  }
+
   const values = Object.entries(payload).flatMap(([fieldName, value]) =>
     new RegExp(`^${prefix}Plan[1-9]\\d?$`, "u").test(fieldName)
       ? [readNumber(value)]
@@ -356,6 +341,21 @@ function readLegacyBrandPlan(
   return plans.length === 0
     ? undefined
     : plans.reduce((sum, value) => sum + value, 0);
+}
+
+function hasDynamicBrandFields(
+  payload: DispatcherSubmissionPayload,
+  prefix: ProductionCategory,
+) {
+  const fieldPattern = new RegExp(`^${prefix}(?:Brand|Fact)[1-9]\\d?$`, "u");
+
+  return Object.keys(payload).some((fieldName) => fieldPattern.test(fieldName));
+}
+
+function isLegacySingleBrandCategory(
+  prefix: ProductionCategory,
+): prefix is "forming" | "sorting" {
+  return prefix === "forming" || prefix === "sorting";
 }
 
 function buildJarRows(

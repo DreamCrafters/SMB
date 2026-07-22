@@ -50,6 +50,8 @@ test("dispatcher audit details expose only server-defined form fields", () => {
 test("production audit includes server-supported dynamic brand facts", () => {
   const details = buildDispatcherSubmissionAuditDetails("production", {
     reportDate: "2026-07-16",
+    formingBrand1: "ФЛ-1",
+    formingFact1: "4",
     unformedBrand7: "МКР-1",
     unformedFact7: "12.5",
     chamotteBrand50: "ША-2",
@@ -59,6 +61,8 @@ test("production audit includes server-supported dynamic brand facts", () => {
 
   assert.deepEqual(details, [
     { label: "Дата отчета", value: "2026-07-16" },
+    { label: "Формовка — Марка 1", value: "ФЛ-1" },
+    { label: "Формовка — Факт 1", value: "4" },
     { label: "Неформованная продукция — Марка 7", value: "МКР-1" },
     { label: "Неформованная продукция — Факт 7", value: "12.5" },
     { label: "Цех обжига шамота — Марка 50", value: "ША-2" },

@@ -85,6 +85,7 @@ import {
   type DispatcherFormsResult,
 } from "./services/dispatcherSubmissions";
 import {
+  isProductionBrandColumnFieldName,
   validateDispatcherPayloadForSubmit,
 } from "./services/dispatcherPayloadValidation";
 import {
@@ -3773,20 +3774,18 @@ function ProductionReportEditor({
 
       <fieldset className="production-report-section">
         <legend>Огнеупорный цех</legend>
-        <ProductionSummaryTable
+        <ProductionCategoryTable
           brandLabels={brandLabels}
           categoryPlan={dailyPlanValues?.forming}
-          form={form}
           initialPayload={initialPayload}
           isAdminPreviewMode={isAdminPreviewMode}
           monthToDate={monthToDateValues?.forming}
           prefix="forming"
           title="Формовка"
         />
-        <ProductionSummaryTable
+        <ProductionCategoryTable
           brandLabels={brandLabels}
           categoryPlan={dailyPlanValues?.sorting}
-          form={form}
           initialPayload={initialPayload}
           isAdminPreviewMode={isAdminPreviewMode}
           monthToDate={monthToDateValues?.sorting}
@@ -3798,7 +3797,7 @@ function ProductionReportEditor({
       <div className="production-report-split">
         <fieldset className="production-report-section">
           <legend>Неформованная продукция, контейнеры</legend>
-          <ProductionBrandColumnsTable
+          <ProductionCategoryTable
             brandLabels={brandLabels}
             categoryPlan={dailyPlanValues?.unformed}
             initialPayload={initialPayload}
@@ -3813,7 +3812,7 @@ function ProductionReportEditor({
           <span className="production-report-section-note">
             Выпуск шамота по маркам
           </span>
-          <ProductionBrandColumnsTable
+          <ProductionCategoryTable
             brandLabels={brandLabels}
             categoryPlan={dailyPlanValues?.chamotte}
             initialPayload={initialPayload}
@@ -3890,10 +3889,15 @@ function ProductionReportEditor({
   );
 }
 
-export function ProductionSummaryTable({
+type ProductionBrandColumn = {
+  id: number;
+  brand: string;
+  initialFact: string;
+};
+
+export function ProductionCategoryTable({
   brandLabels,
   categoryPlan,
-  form,
   initialPayload,
   isAdminPreviewMode,
   monthToDate,
@@ -3902,102 +3906,18 @@ export function ProductionSummaryTable({
 }: {
   brandLabels: ProductionBrandLabel[];
   categoryPlan?: number;
-  form: DispatcherFormDefinition;
   initialPayload?: DispatcherSubmissionPayload;
   isAdminPreviewMode: boolean;
   monthToDate?: ProductionMonthToDateValue;
-  prefix: "forming" | "sorting";
-  title: string;
-}) {
-  const [brand, setBrand] = useState(
-    () => initialPayload?.[`${prefix}ProductBrand`] ?? "",
-  );
-
-  return (
-    <section className="production-report-subsection">
-      <h3>{title}</h3>
-      <div className="production-report-table-wrap">
-        <table className="production-report-table production-report-summary-table">
-          <thead>
-            <tr>
-              <th scope="col">План</th>
-              <th scope="col">Факт за сутки</th>
-              <th scope="col">Марка изделия</th>
-              <th scope="col">План за месяц</th>
-              <th scope="col">Отклонение</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="production-report-plan-cell">
-                {categoryPlan === undefined
-                  ? "Не задан"
-                  : formatNumber(categoryPlan)}
-              </td>
-              <td>
-                <ProductionReportCell
-                  defaultValue={initialPayload?.[`${prefix}Day`]}
-                  fieldName={`${prefix}Day`}
-                  focusOnMouseDown
-                  form={form}
-                  required={brand.length > 0}
-                />
-              </td>
-              <td>
-                <ProductBrandPicker
-                  disabled={isAdminPreviewMode}
-                  labels={brandLabels}
-                  name={`${prefix}ProductBrand`}
-                  selectedLabels={[]}
-                  value={brand}
-                  onChange={setBrand}
-                />
-              </td>
-              <td className="production-report-plan-cell">
-                <ProductionCalculatedValue
-                  ariaLabel={`${title}: план за месяц`}
-                  emptyLabel="Не задан"
-                  value={monthToDate?.monthPlan}
-                />
-              </td>
-              <td className="production-report-plan-cell">
-                <ProductionCalculatedValue
-                  ariaLabel={`${title}: отклонение`}
-                  emptyLabel="Не рассчитано"
-                  value={monthToDate?.deviation}
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-type ProductionBrandColumn = {
-  id: number;
-  brand: string;
-};
-
-function ProductionBrandColumnsTable({
-  brandLabels,
-  categoryPlan,
-  initialPayload,
-  isAdminPreviewMode,
-  monthToDate,
-  prefix,
-}: {
-  brandLabels: ProductionBrandLabel[];
-  categoryPlan?: number;
-  initialPayload?: DispatcherSubmissionPayload;
-  isAdminPreviewMode: boolean;
-  monthToDate?: ProductionMonthToDateValue;
-  prefix: "unformed" | "chamotte";
+  prefix: ProductionCategory;
+  title?: string;
 }) {
   const [columns, setColumns] = useState<ProductionBrandColumn[]>(() =>
     readProductionBrandColumns(initialPayload, prefix),
   );
+  const [factsByColumnId, setFactsByColumnId] = useState<
+    Partial<Record<number, number>>
+  >(() => readProductionBrandFactValues(initialPayload, prefix));
 
   function addColumn() {
     if (columns.length >= 50) return;
@@ -4009,11 +3929,20 @@ function ProductionBrandColumnsTable({
 
     if (id === undefined) return;
 
-    setColumns((current) => [...current, { id, brand: "" }]);
+    setColumns((current) => [
+      ...current,
+      { id, brand: "", initialFact: "" },
+    ]);
   }
 
   function removeColumn(id: number) {
     setColumns((current) => current.filter((column) => column.id !== id));
+    setFactsByColumnId((current) => {
+      const next = { ...current };
+
+      delete next[id];
+      return next;
+    });
   }
 
   function changeColumnBrand(id: number, brand: string) {
@@ -4027,8 +3956,12 @@ function ProductionBrandColumnsTable({
   const selectedLabels = columns
     .map((column) => column.brand)
     .filter((brand) => brand.length > 0);
-
-  return (
+  const dayFact = Object.values(factsByColumnId).reduce<number>(
+    (sum, value) => sum + (value ?? 0),
+    0,
+  );
+  const monthFact = calculateProductionDraftMonthFact(monthToDate, dayFact);
+  const content = (
     <div className="production-brand-columns">
       <div className="production-report-table-wrap">
         <table className="production-report-table production-report-brand-columns-table">
@@ -4066,6 +3999,9 @@ function ProductionBrandColumnsTable({
                 План за месяц
               </th>
               <th className="production-report-plan-heading" scope="col">
+                Факт за месяц
+              </th>
+              <th className="production-report-plan-heading" scope="col">
                 Отклонение
               </th>
             </tr>
@@ -4078,13 +4014,25 @@ function ProductionBrandColumnsTable({
                     <span>Факт по марке</span>
                     <input
                       aria-label={`Факт: ${column.brand || "марка не выбрана"}`}
-                      defaultValue={initialPayload?.[`${prefix}Fact${column.id}`]}
+                      defaultValue={column.initialFact}
                       inputMode="decimal"
                       name={`${prefix}Fact${column.id}`}
+                      placeholder="Факт за сутки"
                       pattern={decimalNumberInputPattern}
                       required={column.brand.length > 0}
                       title={decimalNumberInputTitle}
                       type="text"
+                      onMouseDown={prefix === "forming" || prefix === "sorting"
+                        ? (event) => {
+                            if (
+                              event.currentTarget.ownerDocument.activeElement !==
+                              event.currentTarget
+                            ) {
+                              event.preventDefault();
+                              event.currentTarget.focus({ preventScroll: true });
+                            }
+                          }
+                        : undefined}
                       onBlur={(event) => {
                         const normalizedFact =
                           normalizeDecimalNumberForPayload(
@@ -4092,6 +4040,10 @@ function ProductionBrandColumnsTable({
                           ) ?? "";
 
                         event.currentTarget.value = normalizedFact;
+                        setFactsByColumnId((current) => ({
+                          ...current,
+                          [column.id]: readProductionDraftFact(normalizedFact),
+                        }));
                       }}
                       onChange={(event) => {
                         const normalizedFact = normalizeDecimalNumberInput(
@@ -4099,6 +4051,10 @@ function ProductionBrandColumnsTable({
                         );
 
                         event.currentTarget.value = normalizedFact;
+                        setFactsByColumnId((current) => ({
+                          ...current,
+                          [column.id]: readProductionDraftFact(normalizedFact),
+                        }));
                       }}
                     />
                   </label>
@@ -4118,9 +4074,19 @@ function ProductionBrandColumnsTable({
               </td>
               <td className="production-report-plan-cell">
                 <ProductionCalculatedValue
+                  ariaLabel={`${productionCategoryLabels[prefix]}: факт за месяц`}
+                  emptyLabel="Не рассчитан"
+                  value={monthFact}
+                />
+              </td>
+              <td className="production-report-plan-cell">
+                <ProductionCalculatedValue
                   ariaLabel={`${productionCategoryLabels[prefix]}: отклонение`}
                   emptyLabel="Не рассчитано"
-                  value={monthToDate?.deviation}
+                  value={calculateProductionDraftDeviation(
+                    monthToDate,
+                    monthFact,
+                  )}
                 />
               </td>
             </tr>
@@ -4136,6 +4102,13 @@ function ProductionBrandColumnsTable({
         + Добавить марку
       </button>
     </div>
+  );
+
+  return title === undefined ? content : (
+    <section className="production-report-subsection">
+      <h3>{title}</h3>
+      {content}
+    </section>
   );
 }
 
@@ -4155,9 +4128,59 @@ function ProductionCalculatedValue({
   );
 }
 
+function calculateProductionDraftDeviation(
+  monthToDate: ProductionMonthToDateValue | undefined,
+  monthFact: number | undefined,
+) {
+  return monthToDate?.monthPlan === undefined || monthFact === undefined
+    ? undefined
+    : monthFact - monthToDate.monthPlan;
+}
+
+function calculateProductionDraftMonthFact(
+  monthToDate: ProductionMonthToDateValue | undefined,
+  dayFact: number,
+) {
+  return monthToDate === undefined
+    ? undefined
+    : monthToDate.monthFactBeforeDay + dayFact;
+}
+
+function readProductionDraftFact(value: string | undefined) {
+  const normalized = normalizeDecimalNumberForPayload(value ?? "");
+  const fact = normalized === undefined ? 0 : Number(normalized);
+
+  return Number.isFinite(fact) && fact >= 0 ? fact : 0;
+}
+
+function readProductionBrandFactValues(
+  payload: DispatcherSubmissionPayload | undefined,
+  prefix: ProductionCategory,
+) {
+  const facts: Partial<Record<number, number>> = {};
+
+  for (let id = 1; id <= 50; id += 1) {
+    const value = payload?.[`${prefix}Fact${id}`];
+
+    if (value !== undefined) {
+      facts[id] = readProductionDraftFact(value);
+    }
+  }
+
+  if (
+    Object.keys(facts).length === 0 &&
+    (prefix === "forming" || prefix === "sorting") &&
+    payload?.[`${prefix}Day`] !== undefined
+  ) {
+    facts[1] = readProductionDraftFact(payload[`${prefix}Day`]);
+  }
+
+  return facts;
+}
+
 function readProductionBrandColumns(
   payload: DispatcherSubmissionPayload | undefined,
-  prefix: "unformed" | "chamotte",
+  prefix: ProductionCategory,
 ): ProductionBrandColumn[] {
   const fieldPattern = new RegExp(`^${prefix}(?:Brand|Fact)(\\d+)$`, "u");
   const ids = new Set<number>();
@@ -4172,7 +4195,17 @@ function readProductionBrandColumns(
   }
 
   if (ids.size === 0) {
-    return [{ id: 1, brand: "" }];
+    return [{
+      id: 1,
+      brand:
+        prefix === "forming" || prefix === "sorting"
+          ? payload?.[`${prefix}ProductBrand`] ?? ""
+          : "",
+      initialFact:
+        prefix === "forming" || prefix === "sorting"
+          ? payload?.[`${prefix}Day`] ?? ""
+          : "",
+    }];
   }
 
   return [...ids]
@@ -4180,6 +4213,7 @@ function readProductionBrandColumns(
     .map((id) => ({
       id,
       brand: payload?.[`${prefix}Brand${id}`] ?? "",
+      initialFact: payload?.[`${prefix}Fact${id}`] ?? "",
     }));
 }
 
@@ -6131,13 +6165,10 @@ export function ProductionReportSummaryTable({
         <p className="dispatcher-status-line">
           Нет данных для выбранной таблицы и периода.
         </p>
-      ) : section === "forming" || section === "sorting" ? (
-        <ProductionMetricDashboardTable
-          rows={tables[section]}
-          formAvailable={form !== undefined}
-          onOpen={setDetailReportId}
-        />
-      ) : section === "unformed" || section === "chamotte" ? (
+      ) : section === "forming" ||
+        section === "sorting" ||
+        section === "unformed" ||
+        section === "chamotte" ? (
         <ProductionBrandDashboardTable
           rows={tables[section]}
           formAvailable={form !== undefined}
@@ -6168,53 +6199,6 @@ export function ProductionReportSummaryTable({
         />
       ) : null}
     </>
-  );
-}
-
-function ProductionMetricDashboardTable({
-  rows,
-  formAvailable,
-  onOpen,
-}: {
-  rows: ProductionMetricRow[];
-  formAvailable: boolean;
-  onOpen: (reportId: string) => void;
-}) {
-  return (
-    <div className="production-dashboard-table-wrap">
-      <table className="production-dashboard-table">
-        <thead>
-          <tr>
-            <th scope="col">Дата</th>
-            <th scope="col">Марка</th>
-            <th scope="col">Сутки, план</th>
-            <th scope="col">Сутки, факт</th>
-            <th scope="col">Месяц, план</th>
-            <th scope="col">Месяц, факт</th>
-            <th scope="col">Разница</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.reportId}>
-              <td>
-                <ProductionReportDateButton
-                  row={row}
-                  formAvailable={formAvailable}
-                  onOpen={onOpen}
-                />
-              </td>
-              <td>{row.brand ?? "—"}</td>
-              <td>{formatOptionalNumber(row.dayPlan)}</td>
-              <td>{formatOptionalNumber(row.dayFact)}</td>
-              <td>{formatOptionalNumber(row.monthPlan)}</td>
-              <td>{formatOptionalNumber(row.monthFact)}</td>
-              <td>{formatOptionalNumber(row.deviation)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -6463,15 +6447,13 @@ function readDynamicProductionDetailFields(
   payload: DispatcherSubmissionPayload,
 ): DispatcherFormField[] {
   return Object.keys(payload).flatMap((fieldName) => {
-    const match = /^(unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
+    const match = /^(forming|sorting|unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
       fieldName,
     );
 
     if (match === null || Number(match[3]) > 50) return [];
 
-    const section = match[1] === "unformed"
-      ? "Неформованная продукция"
-      : "Цех обжига шамота";
+    const section = productionCategoryLabels[match[1] as ProductionCategory];
     const metric = match[2] === "Brand" ? "Марка" : "Факт";
 
     return [{
@@ -10054,7 +10036,7 @@ function readInitialAdminDatabaseEditorValues(
   );
 }
 
-function readDispatcherSubmissionPayload(
+export function readDispatcherSubmissionPayload(
   formData: FormData,
   formDefinition: DispatcherFormDefinition,
 ): DispatcherSubmissionPayload {
@@ -10072,7 +10054,7 @@ function readDispatcherSubmissionPayload(
 
   if (formDefinition.id === "production") {
     for (const [fieldName, rawValue] of formData.entries()) {
-      if (!/^(?:unformed|chamotte)(?:Brand|Fact)(?:[1-9]|[1-4]\d|50)$/u.test(fieldName)) {
+      if (!isProductionBrandColumnFieldName(fieldName)) {
         continue;
       }
 

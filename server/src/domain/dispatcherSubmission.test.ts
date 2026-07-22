@@ -158,6 +158,55 @@ test("validateDispatcherSubmissionDraft requires one unique saved-brand fact per
   }
 });
 
+test("validateDispatcherSubmissionDraft accepts dynamic forming and sorting brand facts", () => {
+  const result = validateDispatcherSubmissionDraft({
+    formId: "production",
+    payload: {
+      reportDate: "2026-07-16",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "4,5",
+      formingBrand2: "ФЛ-2",
+      formingFact2: "3",
+      sortingBrand1: "СО-1",
+      sortingFact1: "0",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    assert.deepEqual(result.value.draft.payload, {
+      reportDate: "16.07.2026",
+      reportMonth: "2026-07",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "4.5",
+      formingBrand2: "ФЛ-2",
+      formingFact2: "3",
+      sortingBrand1: "СО-1",
+      sortingFact1: "0",
+    });
+  }
+});
+
+test("validateDispatcherSubmissionDraft rejects duplicate dynamic forming brands", () => {
+  const result = validateDispatcherSubmissionDraft({
+    formId: "production",
+    payload: {
+      reportDate: "2026-07-16",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "4",
+      formingBrand2: " фл-1 ",
+      formingFact2: "3",
+    },
+  });
+
+  assert.equal(result.ok, false);
+
+  if (!result.ok) {
+    assert.match(result.errors.join(" "), /forming brands must not repeat/u);
+  }
+});
+
 test("validateDispatcherSubmissionDraft requires a brand for every production fact", () => {
   const cases = [
     { payload: { formingDay: "0" }, missingField: "formingProductBrand" },

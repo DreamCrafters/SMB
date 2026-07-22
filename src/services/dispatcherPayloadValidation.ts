@@ -26,6 +26,12 @@ export const productionDuplicateBrandMessage =
 
 const equipmentReserveDowntimeReason = "Резерв";
 
+export function isProductionBrandColumnFieldName(fieldName: string) {
+  return /^(?:forming|sorting|unformed|chamotte)(?:Brand|Fact)(?:[1-9]|[1-4]\d|50)$/u.test(
+    fieldName,
+  );
+}
+
 export function isProductionBrandRequiredForFact(
   fact: string | undefined,
 ) {
@@ -76,7 +82,12 @@ function validateProductionPayloadForSubmit(
     }
   }
 
-  for (const prefix of ["unformed", "chamotte"] as const) {
+  for (const prefix of [
+    "forming",
+    "sorting",
+    "unformed",
+    "chamotte",
+  ] as const) {
     const brands = new Set<string>();
 
     for (let index = 1; index <= 50; index += 1) {

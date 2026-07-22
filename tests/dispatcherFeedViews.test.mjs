@@ -184,11 +184,15 @@ test("buildProductionReportTables calculates monthly forming and sorting values"
         {
           reportDate: "02.07.2026",
           formingPlan: "10",
-          formingDay: "11",
-          formingProductBrand: "ФЛ-2",
+          formingBrand1: "ФЛ-2",
+          formingFact1: "6",
+          formingBrand2: "ФЛ-3",
+          formingFact2: "5",
           sortingPlan: "6",
-          sortingDay: "7",
-          sortingProductBrand: "СО-2",
+          sortingBrand1: "СО-1",
+          sortingFact1: "3",
+          sortingBrand2: "СО-2",
+          sortingFact2: "4",
         },
         "2026-07-02T18:00:00.000Z",
       ),
@@ -217,7 +221,10 @@ test("buildProductionReportTables calculates monthly forming and sorting values"
     {
       reportId: "production-july-2-latest",
       reportDate: "2026-07-02",
-      brand: "ФЛ-2",
+      facts: [
+        { brand: "ФЛ-2", value: 6, monthValue: 6 },
+        { brand: "ФЛ-3", value: 5, monthValue: 5 },
+      ],
       dayPlan: 10,
       dayFact: 11,
       monthPlan: 20,
@@ -230,7 +237,10 @@ test("buildProductionReportTables calculates monthly forming and sorting values"
     {
       reportId: "production-july-2-latest",
       reportDate: "2026-07-02",
-      brand: "СО-2",
+      facts: [
+        { brand: "СО-1", value: 3, monthValue: 3 },
+        { brand: "СО-2", value: 4, monthValue: 4 },
+      ],
       dayPlan: 6,
       dayFact: 7,
       monthPlan: 12,

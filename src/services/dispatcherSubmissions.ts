@@ -1678,9 +1678,9 @@ function isProductionReportTables(value: unknown): value is ProductionReportTabl
   return (
     isRecord(value) &&
     Array.isArray(value.forming) &&
-    value.forming.every(isProductionMetricRow) &&
+    value.forming.every(isProductionBrandCategoryRow) &&
     Array.isArray(value.sorting) &&
-    value.sorting.every(isProductionMetricRow) &&
+    value.sorting.every(isProductionBrandCategoryRow) &&
     Array.isArray(value.unformed) &&
     value.unformed.every(isProductionBrandCategoryRow) &&
     Array.isArray(value.chamotte) &&

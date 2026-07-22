@@ -2860,7 +2860,10 @@ test("production plan API saves independent category schedules with audit", asyn
       date: "2026-07-01",
       values: { forming: 334 },
       monthToDate: {
-        forming: { monthPlan: 334 },
+        forming: { monthPlan: 334, monthFactBeforeDay: 0 },
+        sorting: { monthFactBeforeDay: 0 },
+        unformed: { monthFactBeforeDay: 0 },
+        chamotte: { monthFactBeforeDay: 0 },
       },
     });
 
@@ -2917,10 +2920,10 @@ test("production plan API saves independent category schedules with audit", asyn
           date: "2026-07-01",
           values: { forming: 334, sorting: 400 },
           monthToDate: {
-            forming: { monthPlan: 334 },
-            sorting: { monthPlan: 400 },
-            unformed: { monthPlan: 0 },
-            chamotte: { monthPlan: 0 },
+            forming: { monthPlan: 334, monthFactBeforeDay: 0 },
+            sorting: { monthPlan: 400, monthFactBeforeDay: 0 },
+            unformed: { monthPlan: 0, monthFactBeforeDay: 0 },
+            chamotte: { monthPlan: 0, monthFactBeforeDay: 0 },
           },
         },
       );
@@ -2936,10 +2939,10 @@ test("production plan API saves independent category schedules with audit", asyn
       date: "2026-07-04",
       values: { unformed: 500, chamotte: 100 },
       monthToDate: {
-        forming: { monthPlan: 1_000.25 },
-        sorting: { monthPlan: 800 },
-        unformed: { monthPlan: 500 },
-        chamotte: { monthPlan: 200 },
+        forming: { monthPlan: 1_000.25, monthFactBeforeDay: 0 },
+        sorting: { monthPlan: 800, monthFactBeforeDay: 0 },
+        unformed: { monthPlan: 500, monthFactBeforeDay: 0 },
+        chamotte: { monthPlan: 200, monthFactBeforeDay: 0 },
       },
     });
 
@@ -2953,10 +2956,10 @@ test("production plan API saves independent category schedules with audit", asyn
       date: "2026-07-05",
       values: {},
       monthToDate: {
-        forming: { monthPlan: 1_000.25 },
-        sorting: { monthPlan: 800 },
-        unformed: { monthPlan: 500 },
-        chamotte: { monthPlan: 200 },
+        forming: { monthPlan: 1_000.25, monthFactBeforeDay: 0 },
+        sorting: { monthPlan: 800, monthFactBeforeDay: 0 },
+        unformed: { monthPlan: 500, monthFactBeforeDay: 0 },
+        chamotte: { monthPlan: 200, monthFactBeforeDay: 0 },
       },
     });
 
@@ -2997,7 +3000,7 @@ test("production plan API saves independent category schedules with audit", asyn
   }
 });
 
-test("dispatcher daily plan includes server-calculated month-to-date values", async () => {
+test("dispatcher daily plan excludes the selected-day fact from the live deviation baseline", async () => {
   const profile = buildProductionProfile("dispatcher");
   const productionReports = [
     {
@@ -3037,6 +3040,25 @@ test("dispatcher daily plan includes server-calculated month-to-date values", as
       submittedByAccountId: "dispatcher-access-id",
       submittedAt: "2026-07-02T18:00:00.000Z",
       receivedAt: "2026-07-02T18:00:01.000Z",
+    },
+    {
+      id: "production-2026-07-03",
+      formId: "production" as const,
+      formTitle: "Выработка",
+      payload: {
+        reportDate: "03.07.2026",
+        formingDay: "4",
+        sortingDay: "3",
+        unformedBrand1: "ПБ-5",
+        unformedFact1: "1",
+        chamotteBrand1: "Ш-1",
+        chamotteFact1: "2",
+      },
+      summary: "Выработка за 03.07.2026",
+      status: "received" as const,
+      submittedByAccountId: "dispatcher-access-id",
+      submittedAt: "2026-07-03T18:00:00.000Z",
+      receivedAt: "2026-07-03T18:00:01.000Z",
     },
   ];
   let productionFilters:
@@ -3153,10 +3175,10 @@ test("dispatcher daily plan includes server-calculated month-to-date values", as
         chamotte: 6,
       },
       monthToDate: {
-        forming: { monthPlan: 30, deviation: -11 },
-        sorting: { monthPlan: 18, deviation: -6 },
-        unformed: { monthPlan: 21, deviation: -14 },
-        chamotte: { monthPlan: 12, deviation: -4 },
+        forming: { monthPlan: 30, monthFactBeforeDay: 19 },
+        sorting: { monthPlan: 18, monthFactBeforeDay: 12 },
+        unformed: { monthPlan: 21, monthFactBeforeDay: 7 },
+        chamotte: { monthPlan: 12, monthFactBeforeDay: 8 },
       },
     });
   } finally {
@@ -3400,8 +3422,10 @@ test("production submission accepts only brands from the shared nomenclature", a
         formId: "production",
         payload: {
           reportDate: "2026-07-17",
-          formingDay: "12",
-          formingProductBrand: " фл-1 ",
+          formingFact1: "7",
+          formingBrand1: " фл-1 ",
+          formingFact2: "5",
+          formingBrand2: "ПБ-5",
           unformedBrand3: "ПБ-5",
           unformedFact3: "8",
         },
@@ -3409,7 +3433,8 @@ test("production submission accepts only brands from the shared nomenclature", a
     });
 
     assert.equal(accepted.status, 201);
-    assert.equal(createdDraft?.draft.payload.formingProductBrand, "ФЛ-1");
+    assert.equal(createdDraft?.draft.payload.formingBrand1, "ФЛ-1");
+    assert.equal(createdDraft?.draft.payload.formingBrand2, "ПБ-5");
     assert.equal(createdDraft?.draft.payload.unformedBrand3, "ПБ-5");
 
     createdDraft = undefined;
@@ -3630,6 +3655,7 @@ test("remote API returns server-calculated production report tables", async () =
         {
           reportId: "production-2026-07-01",
           reportDate: "2026-07-01",
+          facts: [],
           dayPlan: 10,
           dayFact: 8,
           monthPlan: 10,
@@ -3640,6 +3666,7 @@ test("remote API returns server-calculated production report tables", async () =
         {
           reportId: "production-2026-07-02",
           reportDate: "2026-07-02",
+          facts: [],
           dayPlan: 10,
           dayFact: 12,
           monthPlan: 20,
