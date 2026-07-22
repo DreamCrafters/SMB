@@ -5,12 +5,133 @@ import {
   buildGoogleSheetsCsvUrl,
   createGoogleSheetsProductionBrandsDataSource,
   createGoogleSheetsReferenceDataSource,
+  readLaboratoryReferenceFromRows,
   readProductionBrandLabels,
   readGoogleSheetsWorkbook,
   readColumnOptionsFromCsv,
   readMaxNotificationRecipientsFromCsv,
   readNotificationRecipientsFromCsv,
 } from "./googleSheetsReference.js";
+
+test("laboratory reference follows the live section and indicator matrix", () => {
+  const rows = [
+    [],
+    [],
+    [],
+    [
+      "Раздел",
+      "Материал",
+      "Al2O3",
+      "Fe2O3",
+      "SiO2",
+      "CaO2",
+      "P2O5",
+      "ппп",
+      "Влажность",
+      "Насыпной вес",
+      "Водопоглощение",
+      "Прочность",
+      "Зерновой состав",
+    ],
+    [
+      "Ссылка на ГОСТ",
+      "",
+      "ГОСТ 2642.4-2016, п.7.1",
+      "ГОСТ 2642.5, п.8",
+      "ГОСТ 2642.3-2016",
+      "ГОСТ 2642.7-2017",
+      "ГОСТ 2642.10-86",
+      "ГОСТ 2642.2-2014",
+      "ГОСТ 2642.1-2016",
+      "ГОСТ 2642.2",
+      "ГОСТ 2409-2014",
+      "ГОСТ 4071.2-94",
+      "ГОСТ 27707-2007",
+    ],
+    ["Сырье", "Глина", "v", "v", "v", "", "", "v", "v", "v"],
+    [
+      "Готовая продукция",
+      "Формованные изделия",
+      "v",
+      "v",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "v",
+      "v",
+    ],
+  ];
+
+  assert.deepEqual(readLaboratoryReferenceFromRows(rows), {
+    incomingMaterials: [
+      {
+        label: "Глина",
+        indicators: [
+          {
+            id: "al2o3",
+            label: "Al2O3",
+            standard: "ГОСТ 2642.4-2016, п.7.1",
+          },
+          {
+            id: "fe2o3",
+            label: "Fe2O3",
+            standard: "ГОСТ 2642.5, п.8",
+          },
+          {
+            id: "sio2",
+            label: "SiO2",
+            standard: "ГОСТ 2642.3-2016",
+          },
+          {
+            id: "loss_on_ignition",
+            label: "ппп",
+            standard: "ГОСТ 2642.2-2014",
+          },
+          {
+            id: "moisture",
+            label: "Влажность",
+            standard: "ГОСТ 2642.1-2016",
+          },
+          {
+            id: "bulk_density",
+            label: "Насыпной вес",
+            standard: "ГОСТ 2642.2",
+          },
+        ],
+      },
+    ],
+    finishedProductTypes: [
+      {
+        label: "Формованные изделия",
+        indicators: [
+          {
+            id: "al2o3",
+            label: "Al2O3",
+            standard: "ГОСТ 2642.4-2016, п.7.1",
+          },
+          {
+            id: "fe2o3",
+            label: "Fe2O3",
+            standard: "ГОСТ 2642.5, п.8",
+          },
+          {
+            id: "water_absorption",
+            label: "Водопоглощение",
+            standard: "ГОСТ 2409-2014",
+          },
+          {
+            id: "strength",
+            label: "Прочность",
+            standard: "ГОСТ 4071.2-94",
+          },
+        ],
+      },
+    ],
+  });
+});
 
 test("production brands use only the first Наименование column", () => {
   const rows = [

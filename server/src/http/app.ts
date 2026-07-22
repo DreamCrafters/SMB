@@ -51,6 +51,11 @@ import {
   normalizeProductionBrandLabelInput,
 } from "../domain/productionBrand.js";
 import {
+  laboratorySections,
+  validateLaboratoryResultSubmission,
+  type LaboratorySection,
+} from "../domain/laboratoryResult.js";
+import {
   refractoryReportLabels,
   validateRefractoryReportDecision,
   validateRefractoryReportSubmission,
@@ -90,8 +95,10 @@ import {
 } from "../repositories/accountsRepository.js";
 import {
   createGoogleSheetsProductionBrandsDataSource,
+  createGoogleSheetsLaboratoryReferenceDataSource,
   createGoogleSheetsReferenceDataSource,
   type DispatcherReferenceDataSource,
+  type LaboratoryReferenceDataSource,
   type ProductionBrandReference,
   type ProductionBrandsDataSource,
 } from "../integrations/googleSheetsReference.js";
@@ -136,6 +143,7 @@ import {
   type RefractoryReportRevision,
   type RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
+import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -150,6 +158,8 @@ type AppDependencies = {
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsDataSource;
   refractoryReports?: RefractoryReportsRepository;
+  laboratoryReferenceDataSource?: LaboratoryReferenceDataSource;
+  laboratoryResults?: LaboratoryResultsRepository;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   productionSnapshot?: ProductionDatabaseSnapshotService;
@@ -187,6 +197,10 @@ export function createApiServer({
     config.googleSheetsReference,
   ),
   refractoryReports,
+  laboratoryReferenceDataSource = createGoogleSheetsLaboratoryReferenceDataSource(
+    config.googleSheetsReference,
+  ),
+  laboratoryResults,
   audit,
   databaseTransaction,
   productionSnapshot,
@@ -392,6 +406,26 @@ export function createApiServer({
           referenceDataSource,
           emailNotificationService,
           maxNotificationService,
+          audit,
+          databaseTransaction,
+        });
+        return;
+      }
+
+      if (
+        url.pathname === "/api/laboratory/reference" ||
+        url.pathname === "/api/laboratory/results"
+      ) {
+        await handleLaboratoryRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          laboratoryReferenceDataSource,
+          laboratoryResults,
+          productionBrands,
           audit,
           databaseTransaction,
         });
@@ -736,6 +770,222 @@ export function createApiServer({
       });
     }
   });
+}
+
+async function handleLaboratoryRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  laboratoryReferenceDataSource,
+  laboratoryResults,
+  productionBrands,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  laboratoryReferenceDataSource: LaboratoryReferenceDataSource;
+  laboratoryResults: LaboratoryResultsRepository | undefined;
+  productionBrands: ProductionBrandsDataSource;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  const access = await requireAuthentication(req, res, {
+    config,
+    devSessions,
+    authService,
+  });
+
+  if (access === undefined) return;
+
+  if (
+    !hasProfileCapability(
+      access.profile,
+      "business.manage_laboratory_results",
+    )
+  ) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Результаты лабораторных испытаний недоступны.",
+      },
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/reference") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для справочника лаборатории используется GET.",
+        },
+      });
+      return;
+    }
+
+    const reference = await readLaboratoryReferenceForRequest(
+      res,
+      laboratoryReferenceDataSource,
+    );
+    if (reference !== undefined) sendJson(res, 200, { reference });
+    return;
+  }
+
+  if (laboratoryResults === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище результатов испытаний не настроено.",
+      },
+    });
+    return;
+  }
+
+  if (req.method === "GET") {
+    const sectionValue = url.searchParams.get("section") ?? undefined;
+    const dateFrom = url.searchParams.get("dateFrom") ?? undefined;
+    const dateTo = url.searchParams.get("dateTo") ?? undefined;
+    const materialValue = url.searchParams.get("material") ?? undefined;
+    const brandValue = url.searchParams.get("brand") ?? undefined;
+    const section = sectionValue === undefined
+      ? undefined
+      : laboratorySections.includes(sectionValue as LaboratorySection)
+        ? sectionValue as LaboratorySection
+        : undefined;
+    const materialLabel = materialValue?.trim().replace(/\s+/gu, " ");
+    const productBrand = brandValue?.trim().replace(/\s+/gu, " ");
+
+    if (
+      (sectionValue !== undefined && section === undefined) ||
+      (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+      (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+      (materialLabel !== undefined &&
+        (materialLabel.length === 0 || materialLabel.length > 120)) ||
+      (productBrand !== undefined &&
+        (productBrand.length === 0 || productBrand.length > 120))
+    ) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Проверьте фильтры результатов испытаний.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      results: await laboratoryResults.list({
+        ...(section === undefined ? {} : { section }),
+        ...(dateFrom === undefined ? {} : { dateFrom }),
+        ...(dateTo === undefined ? {} : { dateTo }),
+        ...(materialLabel === undefined ? {} : { materialLabel }),
+        ...(productBrand === undefined ? {} : { productBrand }),
+      }),
+    });
+    return;
+  }
+
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Поддерживаются только GET и POST.",
+      },
+    });
+    return;
+  }
+
+  const reference = await readLaboratoryReferenceForRequest(
+    res,
+    laboratoryReferenceDataSource,
+  );
+  if (reference === undefined) return;
+
+  const validation = validateLaboratoryResultSubmission(
+    await readJsonBody(req),
+    reference,
+  );
+
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  if (validation.value.section === "finished_product") {
+    const references = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "productBrand",
+        label: validation.value.productBrand,
+      }],
+      logEvent: "laboratory_brands.google_sheets_fetch_failed",
+    });
+    if (references === undefined) return;
+    validation.value.productBrand = references[0]?.label ??
+      validation.value.productBrand;
+  }
+
+  const saved = await runAuditedMutation({
+    transaction: databaseTransaction,
+    audit,
+    mutate: () => laboratoryResults.create({
+      result: validation.value,
+      submittedByUserId: access.profile.userId,
+      submittedByAccountId: access.profile.activeAccess.accountId,
+      laboratoryAssistantDisplayName: access.profile.displayName,
+    }),
+    buildEvent: (result) => ({
+      actor: buildAuditActor(access.profile),
+      category: "form_submission",
+      action: "laboratory_result.submit",
+      summary: result.section === "incoming"
+        ? `Добавлен входящий лабораторный контроль «${result.materialLabel}»`
+        : `Добавлен контроль готовой продукции «${result.productBrand}»`,
+      details: [
+        { label: "Дата анализа", value: result.analysisDate },
+        { label: "Материал", value: result.materialLabel },
+        ...(result.section === "finished_product"
+          ? [{ label: "Марка", value: result.productBrand }]
+          : [{ label: "Номер пробы", value: result.sampleIdentifier }]),
+      ],
+      targetType: "laboratory_result",
+      targetId: result.id,
+    }),
+  });
+
+  sendJson(res, 201, { result: saved });
+}
+
+async function readLaboratoryReferenceForRequest(
+  res: ServerResponse,
+  source: LaboratoryReferenceDataSource,
+) {
+  try {
+    return await source.read();
+  } catch (error) {
+    console.warn("laboratory_reference.google_sheets_fetch_failed", error);
+    sendJson(res, 502, {
+      error: {
+        code: "server_error",
+        message: "Не удалось загрузить справочник лаборатории из Google Sheets.",
+      },
+    });
+    return undefined;
+  }
 }
 
 async function handleRefractoryReportsRequest({
@@ -1429,6 +1679,7 @@ async function handleProductionBrandsRequest({
     "business.submit_refractory_reports",
     "business.view_dispatcher_feed",
     "business.manage_production_plan",
+    "business.manage_laboratory_results",
   ] as const satisfies readonly AccountCapability[]).some((capability) =>
     hasProfileCapability(access.profile, capability),
   );
@@ -2183,6 +2434,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.user_actions": "Действия пользователей",
     "business.production_plan": "План выработки",
     "business.refractory_shop": "Огнеупорный цех",
+    "business.laboratory_results": "Результаты испытаний",
     "business.dispatcher_form": "Форма",
   };
 

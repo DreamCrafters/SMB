@@ -41,6 +41,7 @@ export const accountPositionLabels: Record<string, string> = {
   board_member: "Член совета директоров",
   general_director: "Генеральный директор",
   economist: "Экономист",
+  laboratory_assistant: "Лаборант",
   worker: "Работник",
   dispatcher: "Диспетчер",
 };
@@ -128,6 +129,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       id: "business.refractory_shop",
       label: "Огнеупорный цех",
       description: "Три сменные таблицы ОЦ",
+      state: "active",
+    },
+    {
+      id: "business.laboratory_results",
+      label: "Результаты испытаний",
+      description: "Входящий контроль и готовая продукция",
       state: "active",
     },
     {

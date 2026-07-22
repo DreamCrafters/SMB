@@ -1046,6 +1046,94 @@ const migrations: Migration[] = [
       "drop table if exists production_brand_labels",
     ],
   },
+  {
+    id: "023_laboratory_results",
+    statements: [
+      `
+      create table if not exists laboratory_results (
+        id char(36) not null primary key,
+        section varchar(32) not null,
+        analysis_date date not null,
+        material_label varchar(120) not null,
+        product_brand varchar(120) null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        laboratory_assistant_display_name varchar(255) not null,
+        payload json not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_results_section_date (
+          section,
+          analysis_date,
+          created_at
+        ),
+        key idx_laboratory_results_material_date (
+          material_label,
+          analysis_date
+        ),
+        constraint chk_laboratory_results_section
+          check (section in ('incoming', 'finished_product')),
+        constraint chk_laboratory_results_product_brand
+          check (
+            (section = 'incoming' and product_brand is null) or
+            (section = 'finished_product' and product_brand is not null)
+          )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into account_positions (
+        id,
+        display_name,
+        account_type,
+        navigation_items,
+        capabilities,
+        is_protected
+      ) values (
+        'laboratory_assistant',
+        'Лаборант',
+        'business_owner',
+        json_array('business.laboratory_results'),
+        json_array('business.manage_laboratory_results'),
+        1
+      ) on duplicate key update id = values(id);
+      `,
+      `
+      update account_positions
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.manage_laboratory_results')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.manage_laboratory_results'
+        )
+      end
+      where id = 'administrator';
+      `,
+      `
+      update account_accesses
+      set capabilities = case
+        when json_contains(
+          capabilities,
+          json_quote('business.manage_laboratory_results')
+        ) then capabilities
+        else json_array_append(
+          capabilities,
+          '$',
+          'business.manage_laboratory_results'
+        )
+      end
+      where position_code = 'administrator';
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      where accesses.position_code = 'administrator';
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

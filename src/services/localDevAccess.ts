@@ -37,6 +37,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.manage_production_plan",
     "business.submit_refractory_reports",
     "business.review_refractory_reports",
+    "business.manage_laboratory_results",
   ],
   business_owner: [
     "business.view_all_statistics",
@@ -63,6 +64,7 @@ const defaultPositionDefinitions: Array<{
   { position: "board_member", positionDisplayName: "Член совета директоров", accountType: "business_owner" },
   { position: "general_director", positionDisplayName: "Генеральный директор", accountType: "business_owner" },
   { position: "economist", positionDisplayName: "Экономист", accountType: "business_owner" },
+  { position: "laboratory_assistant", positionDisplayName: "Лаборант", accountType: "business_owner" },
   { position: "worker", positionDisplayName: "Работник", accountType: "worker" },
   { position: "dispatcher", positionDisplayName: "Диспетчер", accountType: "dispatcher" },
 ];
@@ -75,13 +77,20 @@ export const localDevAccessOptions: DevAccessOption[] =
           navigationItems: ["business.production_plan"],
           capabilities: ["business.manage_production_plan"],
         }
+      : definition.position === "laboratory_assistant"
+        ? {
+            ...definition,
+            navigationItems: ["business.laboratory_results"],
+            capabilities: ["business.manage_laboratory_results"],
+          }
       : {
           ...definition,
           navigationItems: navigationItemsByAccountType[definition.accountType]
             .filter(
               ({ id }) =>
                 id !== "business.user_actions" &&
-                id !== "business.production_plan",
+                id !== "business.production_plan" &&
+                id !== "business.laboratory_results",
             )
             .map(({ id }) => id),
           capabilities: [...accountCapabilitiesByType[definition.accountType]],

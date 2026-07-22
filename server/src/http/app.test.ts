@@ -19,6 +19,7 @@ import {
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
 import type {
   DispatcherReferenceDataSource,
+  LaboratoryReferenceDataSource,
   NotificationRecipients,
   ProductionBrandsDataSource,
 } from "../integrations/googleSheetsReference.js";
@@ -39,6 +40,7 @@ import type {
   RefractoryReportRevision,
   RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
+import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
@@ -360,6 +362,110 @@ test("remote API allows dev access session DELETE preflight", async () => {
       /\bX-SMB-Dev-Session\b/,
     );
   });
+});
+
+test("laboratory API reads the live matrix and saves the session-authored result", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  const laboratoryReferenceDataSource: LaboratoryReferenceDataSource = {
+    async read() {
+      return {
+        incomingMaterials: [{
+          label: "Глина",
+          indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
+        }],
+        finishedProductTypes: [],
+      };
+    },
+  };
+  let savedInput: Parameters<LaboratoryResultsRepository["create"]>[0] | undefined;
+  const laboratoryResults: LaboratoryResultsRepository = {
+    async create(input) {
+      savedInput = input;
+      return {
+        id: "laboratory-result-1",
+        ...input.result,
+        laboratoryAssistantDisplayName: input.laboratoryAssistantDisplayName,
+        createdAt: "2026-07-22T08:30:00.000Z",
+      };
+    },
+    async list() {
+      return savedInput === undefined
+        ? []
+        : [{
+            id: "laboratory-result-1",
+            ...savedInput.result,
+            laboratoryAssistantDisplayName:
+              savedInput.laboratoryAssistantDisplayName,
+            createdAt: "2026-07-22T08:30:00.000Z",
+          }];
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = {
+        "Content-Type": "application/json",
+        Cookie: "smb_session=prod-session",
+      };
+      const referenceResponse = await fetch(
+        `${baseUrl}/api/laboratory/reference`,
+        { headers },
+      );
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/results`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            section: "incoming",
+            analysisDate: "2026-07-22",
+            materialLabel: "глина",
+            sampleIdentifier: "Вагон 12345",
+            laboratoryAssistantDisplayName: "Подмена с клиента",
+            values: { al2o3: "31,4" },
+          }),
+        },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/results?section=incoming&dateFrom=2026-07-01`,
+        { headers },
+      );
+
+      assert.equal(referenceResponse.status, 200);
+      assert.equal(createResponse.status, 201);
+      assert.equal(listResponse.status, 200);
+      assert.equal(savedInput?.laboratoryAssistantDisplayName, "Иванова Анна");
+      assert.equal(savedInput?.result.materialLabel, "Глина");
+      assert.equal(savedInput?.submittedByUserId, profile.userId);
+      assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    laboratoryReferenceDataSource,
+    laboratoryResults,
+  );
 });
 
 test("remote API creates and reads dev access sessions by header", async () => {
@@ -4758,6 +4864,8 @@ async function withApiServer(
   productionBrands: ProductionBrandsDataSource = passthroughProductionBrands,
   productionSnapshot?: ProductionDatabaseSnapshotService,
   refractoryReports?: RefractoryReportsRepository,
+  laboratoryReferenceDataSource?: LaboratoryReferenceDataSource,
+  laboratoryResults?: LaboratoryResultsRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -4782,6 +4890,8 @@ async function withApiServer(
     dispatcherSpreadsheetImport,
     productionBrands,
     refractoryReports,
+    laboratoryReferenceDataSource,
+    laboratoryResults,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,
     productionSnapshot,

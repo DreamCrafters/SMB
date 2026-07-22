@@ -3,6 +3,44 @@ import test from "node:test";
 import type { DatabasePool } from "./pool.js";
 import { runMigrations } from "./migrations.js";
 
+test("laboratory migration creates results storage and the system position", async () => {
+  const appliedIds = new Set([
+    "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
+    "003_equipment_report_revisions", "004_auth_users_sessions_accesses",
+    "005_account_positions_and_navigation", "006_account_access_levels",
+    "007_expand_non_admin_access_catalog", "008_remove_system_full_access_levels",
+    "009_remove_account_access_levels", "010_dynamic_account_positions",
+    "011_empty_worker_workspace", "012_split_manager_dispatcher_access",
+    "013_protect_used_account_positions", "014_dispatcher_spreadsheet_import_source",
+    "015_user_audit_events", "016_remove_departments", "017_single_organization_scope",
+    "018_production_plan_revisions", "019_production_category_plans_and_brands",
+    "020_production_plan_month_locks", "021_refractory_report_revisions",
+    "022_google_sheets_production_brands",
+  ]);
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [appliedIds.has(id) ? [{ id }] : [], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(statements[0] ?? "", /create table if not exists laboratory_results/u);
+  assert.match(statements[1] ?? "", /'laboratory_assistant'.*'Лаборант'/u);
+  assert.match(statements[1] ?? "", /business\.laboratory_results/u);
+  assert.match(statements[1] ?? "", /business\.manage_laboratory_results/u);
+});
+
 test("access level presets are removed without changing account rights", async () => {
   const appliedIds = new Set([
     "001_dispatcher_submissions_mysql",

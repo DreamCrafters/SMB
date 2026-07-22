@@ -12,6 +12,7 @@ export const accountTypeByPosition: Record<AccountPosition, AccountType> = {
   board_member: "business_owner",
   general_director: "business_owner",
   economist: "business_owner",
+  laboratory_assistant: "business_owner",
   worker: "worker",
   dispatcher: "dispatcher",
 };
@@ -45,6 +46,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.user_actions",
   "business.production_plan",
   "business.refractory_shop",
+  "business.laboratory_results",
   "business.dispatcher_form",
 ];
 
@@ -62,6 +64,7 @@ const capabilitiesByNavigationItem: Record<
     "business.manage_production_plan",
     "business.submit_refractory_reports",
     "business.review_refractory_reports",
+    "business.manage_laboratory_results",
   ],
   "admin.accounts": ["platform.manage_users", "platform.manage_access"],
   "admin.database": ["platform.manage_analytics_database"],
@@ -80,6 +83,7 @@ const capabilitiesByNavigationItem: Record<
   "business.user_actions": ["business.view_user_actions"],
   "business.production_plan": ["business.manage_production_plan"],
   "business.refractory_shop": ["business.submit_refractory_reports"],
+  "business.laboratory_results": ["business.manage_laboratory_results"],
   "business.dispatcher_form": [
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",

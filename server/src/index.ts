@@ -21,6 +21,7 @@ import { createDispatcherSpreadsheetImportRepository } from "./repositories/disp
 import { createAuditRepository } from "./repositories/auditRepository.js";
 import { createProductionPlansRepository } from "./repositories/productionPlansRepository.js";
 import { createRefractoryReportsRepository } from "./repositories/refractoryReportsRepository.js";
+import { createLaboratoryResultsRepository } from "./repositories/laboratoryResultsRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
 const config = readServerConfig();
@@ -69,6 +70,7 @@ const server = createApiServer({
   dispatcherSubmissions: createDispatcherSubmissionsRepository(pool),
   productionPlans: createProductionPlansRepository(pool),
   refractoryReports: createRefractoryReportsRepository(pool),
+  laboratoryResults: createLaboratoryResultsRepository(pool),
   audit: createAuditRepository(pool),
   databaseTransaction: database.transaction,
   productionSnapshot,

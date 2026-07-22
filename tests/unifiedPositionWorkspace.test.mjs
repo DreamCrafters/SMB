@@ -14,6 +14,7 @@ test("every non-admin position uses the complete unified workspace catalog", asy
     "business.work",
     "business.production_plan",
     "business.refractory_shop",
+    "business.laboratory_results",
     "business.user_actions",
       "business.dispatcher_form",
     ],

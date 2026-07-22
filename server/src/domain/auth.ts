@@ -10,6 +10,7 @@ export const accountPositions = [
   "board_member",
   "general_director",
   "economist",
+  "laboratory_assistant",
   "worker",
   "dispatcher",
 ] as const;
@@ -27,6 +28,7 @@ export const accountNavigationItems = [
   "business.user_actions",
   "business.production_plan",
   "business.refractory_shop",
+  "business.laboratory_results",
   "business.dispatcher_form",
 ] as const;
 
@@ -50,6 +52,7 @@ export const accountCapabilities = [
   "business.manage_production_plan",
   "business.submit_refractory_reports",
   "business.review_refractory_reports",
+  "business.manage_laboratory_results",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];
@@ -128,6 +131,7 @@ export const defaultCapabilitiesByAccountType: Record<
     "business.manage_production_plan",
     "business.submit_refractory_reports",
     "business.review_refractory_reports",
+    "business.manage_laboratory_results",
   ],
   business_owner: [
     "business.view_all_statistics",

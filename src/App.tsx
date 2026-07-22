@@ -223,6 +223,7 @@ import {
   requestPendingRefractoryReports,
   type ReturnedRefractoryShift,
 } from "./services/refractoryReports";
+import { LaboratoryResultsWorkspace } from "./LaboratoryResults";
 
 type BusinessTab =
   | "overview"
@@ -230,6 +231,7 @@ type BusinessTab =
   | "work"
   | "production_plan"
   | "refractory_shop"
+  | "laboratory_results"
   | "user_actions"
   | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database" | "user_actions";
@@ -240,6 +242,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   work: "business.work",
   production_plan: "business.production_plan",
   refractory_shop: "business.refractory_shop",
+  laboratory_results: "business.laboratory_results",
   user_actions: "business.user_actions",
   dispatcher_form: "business.dispatcher_form",
 };
@@ -464,6 +467,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "production_plan";
     case "business.refractory_shop":
       return "refractory_shop";
+    case "business.laboratory_results":
+      return "laboratory_results";
     case "business.user_actions":
       return "user_actions";
     case "business.dispatcher_form":
@@ -2099,6 +2104,15 @@ function RoleWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
             decisionRefreshVersion={refractoryDecisionVersion}
+          />
+        );
+      }
+      if (effectiveOwnerTab === "laboratory_results") {
+        return (
+          <LaboratoryResultsWorkspace
+            profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
           />
         );
       }
@@ -8622,6 +8636,7 @@ const adminAccountPositionOptions: AccountPosition[] = [
   "board_member",
   "general_director",
   "economist",
+  "laboratory_assistant",
   "worker",
   "dispatcher",
 ];
@@ -8633,6 +8648,7 @@ const accountTypeByPosition: Record<AccountPosition, AccountType> = {
   board_member: "business_owner",
   general_director: "business_owner",
   economist: "business_owner",
+  laboratory_assistant: "business_owner",
   worker: "worker",
   dispatcher: "dispatcher",
 };

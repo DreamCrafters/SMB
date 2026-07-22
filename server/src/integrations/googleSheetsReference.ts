@@ -42,6 +42,43 @@ export type ProductionBrandsDataSource = {
   ) => Promise<ProductionBrandResolution>;
 };
 
+export const laboratoryIndicatorDefinitions = [
+  { id: "al2o3", label: "Al2O3" },
+  { id: "fe2o3", label: "Fe2O3" },
+  { id: "sio2", label: "SiO2" },
+  { id: "cao2", label: "CaO2" },
+  { id: "p2o5", label: "P2O5" },
+  { id: "loss_on_ignition", label: "ппп" },
+  { id: "moisture", label: "Влажность" },
+  { id: "bulk_density", label: "Насыпной вес" },
+  { id: "water_absorption", label: "Водопоглощение" },
+  { id: "strength", label: "Прочность" },
+  { id: "grain_composition", label: "Зерновой состав" },
+] as const;
+
+export type LaboratoryIndicatorId =
+  (typeof laboratoryIndicatorDefinitions)[number]["id"];
+
+export type LaboratoryIndicatorReference = {
+  id: LaboratoryIndicatorId;
+  label: string;
+  standard?: string;
+};
+
+export type LaboratoryMaterialReference = {
+  label: string;
+  indicators: LaboratoryIndicatorReference[];
+};
+
+export type LaboratoryReferenceData = {
+  incomingMaterials: LaboratoryMaterialReference[];
+  finishedProductTypes: LaboratoryMaterialReference[];
+};
+
+export type LaboratoryReferenceDataSource = {
+  read: () => Promise<LaboratoryReferenceData>;
+};
+
 type FetchLike = typeof fetch;
 type ReadTextFile = (path: string) => Promise<string>;
 
@@ -109,6 +146,7 @@ const googleSheetsWriteScope =
   "https://www.googleapis.com/auth/spreadsheets";
 const defaultGoogleTokenUri = "https://oauth2.googleapis.com/token";
 const productionBrandsSheetTitle = "Номенклатура";
+const laboratorySheetTitle = "Лаборатория";
 const notificationRecipientRanges = {
   incidentAndEquipment: [{ startRow: 2, endRow: 20 }],
   mechanicalDowntime: [{ startRow: 22, endRow: 25 }],
@@ -360,6 +398,39 @@ export function createGoogleSheetsProductionBrandsDataSource(
           label: labelByKey.get(normalizeOption(reference.label)) ?? reference.label,
         })),
       };
+    },
+  };
+}
+
+export function createGoogleSheetsLaboratoryReferenceDataSource(
+  config: GoogleSheetsReferenceConfig,
+  fetchImpl: FetchLike = fetch,
+  dependencies: GoogleSheetsReferenceDependencies = {},
+): LaboratoryReferenceDataSource {
+  let cachedData: LaboratoryReferenceData | undefined;
+  let cacheExpiresAt = 0;
+  const now = dependencies.now ?? Date.now;
+
+  return {
+    async read() {
+      const readStartedAt = now();
+
+      if (cachedData !== undefined && readStartedAt < cacheExpiresAt) {
+        return cachedData;
+      }
+
+      const workbook = await readGoogleSheetsWorkbook(
+        config,
+        config.url,
+        [laboratorySheetTitle],
+        fetchImpl,
+        dependencies,
+      );
+      cachedData = readLaboratoryReferenceFromRows(
+        workbook.rowsBySheet[laboratorySheetTitle] ?? [],
+      );
+      cacheExpiresAt = readStartedAt + config.cacheTtlMs;
+      return cachedData;
     },
   };
 }
@@ -859,6 +930,108 @@ export function readProductionBrandLabels(rows: string[][]) {
   }
 
   return labels;
+}
+
+export function readLaboratoryReferenceFromRows(
+  rows: string[][],
+): LaboratoryReferenceData {
+  const headerRowIndex = rows.findIndex(
+    (row) =>
+      normalizeHeader(row[0] ?? "") === "раздел" &&
+      normalizeHeader(row[1] ?? "") === "материал",
+  );
+
+  if (headerRowIndex < 0) {
+    throw new Error(
+      "Google Sheets tab Лаборатория must contain Раздел and Материал headers.",
+    );
+  }
+
+  const headerRow = rows[headerRowIndex] ?? [];
+  const standardRow = rows
+    .slice(headerRowIndex + 1)
+    .find((row) => normalizeHeader(row[0] ?? "") === "ссылка на гост");
+  const definitionByHeader = new Map(
+    laboratoryIndicatorDefinitions.map((definition) => [
+      normalizeHeader(definition.label),
+      definition,
+    ]),
+  );
+  const indicatorColumns = headerRow.flatMap((header, columnIndex) => {
+    const definition = definitionByHeader.get(normalizeHeader(header));
+    return definition === undefined ? [] : [{ columnIndex, definition }];
+  });
+
+  if (indicatorColumns.length === 0) {
+    throw new Error(
+      "Google Sheets tab Лаборатория does not contain supported indicators.",
+    );
+  }
+
+  const result: LaboratoryReferenceData = {
+    incomingMaterials: [],
+    finishedProductTypes: [],
+  };
+  const seenBySection = {
+    incoming: new Set<string>(),
+    finished: new Set<string>(),
+  };
+
+  for (const row of rows.slice(headerRowIndex + 1)) {
+    const section = normalizeHeader(row[0] ?? "");
+    const target = section === "сырье"
+      ? result.incomingMaterials
+      : section === "готовая продукция"
+        ? result.finishedProductTypes
+        : undefined;
+    const seen = section === "сырье"
+      ? seenBySection.incoming
+      : section === "готовая продукция"
+        ? seenBySection.finished
+        : undefined;
+
+    if (target === undefined || seen === undefined) continue;
+
+    const label = (row[1] ?? "").trim().replace(/\s+/gu, " ");
+    const normalizedLabel = normalizeOption(label);
+
+    if (
+      label.length === 0 ||
+      label.length > 120 ||
+      seen.has(normalizedLabel)
+    ) {
+      continue;
+    }
+
+    const indicators = indicatorColumns.flatMap(({ columnIndex, definition }) => {
+      if ((row[columnIndex] ?? "").trim().length === 0) return [];
+
+      const standard = (standardRow?.[columnIndex] ?? "")
+        .trim()
+        .replace(/\s+/gu, " ");
+      return [{
+        id: definition.id,
+        label: definition.label,
+        ...(standard.length === 0 ? {} : { standard }),
+      }];
+    });
+
+    if (indicators.length === 0) continue;
+
+    seen.add(normalizedLabel);
+    target.push({ label, indicators });
+  }
+
+  if (
+    result.incomingMaterials.length === 0 &&
+    result.finishedProductTypes.length === 0
+  ) {
+    throw new Error(
+      "Google Sheets tab Лаборатория does not contain material rows.",
+    );
+  }
+
+  return result;
 }
 
 function normalizeProductionBrandLabel(value: string) {

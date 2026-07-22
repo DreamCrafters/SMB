@@ -6,4 +6,5 @@ export * from "./audit";
 export * from "./organization";
 export * from "./productionPlans";
 export * from "./refractoryReports";
+export * from "./laboratoryResults";
 export * from "./workflow";
