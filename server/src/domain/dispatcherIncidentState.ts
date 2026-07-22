@@ -18,6 +18,14 @@ type OpenIncidentEntry = {
   incidentNumber: string;
 };
 
+const incidentOpeningContextFieldNames = [
+  "datetime",
+  "location",
+  "incidentType",
+  "criticality",
+  "description",
+] as const;
+
 export function applyIncidentStateRules(
   value: ValidatedDispatcherSubmissionDraft,
   history: DispatcherSubmission[],
@@ -41,17 +49,9 @@ export function applyIncidentStateRules(
     };
   }
 
-  const openingLocation = openIncident.submission.payload.location?.trim();
-  const openingIncidentType =
-    openIncident.submission.payload.incidentType?.trim();
   const payload = {
     ...value.draft.payload,
-    ...(openingLocation === undefined || openingLocation.length === 0
-      ? {}
-      : { location: openingLocation }),
-    ...(openingIncidentType === undefined || openingIncidentType.length === 0
-      ? {}
-      : { incidentType: openingIncidentType }),
+    ...readIncidentOpeningContext(openIncident.submission),
   };
 
   return {
@@ -64,6 +64,20 @@ export function applyIncidentStateRules(
       },
     },
   };
+}
+
+function readIncidentOpeningContext(submission: DispatcherSubmission) {
+  const context: DispatcherSubmission["payload"] = {};
+
+  for (const fieldName of incidentOpeningContextFieldNames) {
+    const value = submission.payload[fieldName]?.trim();
+
+    if (value !== undefined && value.length > 0) {
+      context[fieldName] = value;
+    }
+  }
+
+  return context;
 }
 
 function buildOpenIncidentEntries(

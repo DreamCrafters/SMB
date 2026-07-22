@@ -36,6 +36,14 @@ const DISPATCHER_FORMS_PATH = "/api/dispatcher/forms";
 const DISPATCHER_SUBMISSIONS_PATH = "/api/dispatcher/submissions";
 const DISPATCHER_EQUIPMENT_REPORT_PATH = "/api/dispatcher/equipment-report";
 
+const incidentOpeningContextFieldNames = [
+  "datetime",
+  "location",
+  "incidentType",
+  "criticality",
+  "description",
+] as const;
+
 const dispatcherFormIds: readonly DispatcherFormId[] = [
   "equipment",
   "production",
@@ -1322,12 +1330,12 @@ function applyLocalDispatcherFormScriptRules(
     }
 
     nextPayload.costs = nextPayload.costs ?? "0";
-    if ((openIncident.submission.payload.location?.trim() ?? "").length > 0) {
-      nextPayload.location = openIncident.submission.payload.location ?? "";
-    }
-    if ((openIncident.submission.payload.incidentType?.trim() ?? "").length > 0) {
-      nextPayload.incidentType =
-        openIncident.submission.payload.incidentType ?? "";
+    for (const fieldName of incidentOpeningContextFieldNames) {
+      const value = openIncident.submission.payload[fieldName]?.trim();
+
+      if (value !== undefined && value.length > 0) {
+        nextPayload[fieldName] = value;
+      }
     }
     nextPayload.incidentStatus = "Закрыт";
 

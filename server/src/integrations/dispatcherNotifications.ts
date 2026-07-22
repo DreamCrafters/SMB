@@ -240,7 +240,11 @@ function buildIncidentClosureNotificationText(submission: DispatcherSubmission) 
   return [
     "Инцидент закрыт",
     `№: ${readIncidentNumber(submission)}`,
+    ...buildOptionalPayloadLine(submission, "datetime", "Открыт"),
     ...buildOptionalPayloadLine(submission, "location", "Место"),
+    ...buildOptionalPayloadLine(submission, "incidentType", "Тип"),
+    ...buildOptionalPayloadLine(submission, "criticality", "Критичность"),
+    ...buildOptionalPayloadLine(submission, "description", "Описание"),
     ...buildOptionalPayloadLine(submission, "closureDateTime", "Закрыт"),
     ...buildOptionalPayloadLine(submission, "approvedBy", "Утвердил"),
   ].join("\n");

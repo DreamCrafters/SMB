@@ -286,6 +286,7 @@ const openIncidentSubmission = {
     location: "Цех 1",
     incidentType: "Травма",
     criticality: "Высокий",
+    description: "Повреждение ограждения",
   },
   summary: "INC-2026-1",
   status: "received" as const,
@@ -4340,7 +4341,11 @@ test("remote API accepts incident close for an earlier-day open incident", async
       "incident_close",
     );
     assert.equal(createdPayload?.incidentNumber, "INC-2026-1");
+    assert.equal(createdPayload?.datetime, "04.07.2026 10:00");
     assert.equal(createdPayload?.location, "Цех 1");
+    assert.equal(createdPayload?.incidentType, "Травма");
+    assert.equal(createdPayload?.criticality, "Высокий");
+    assert.equal(createdPayload?.description, "Повреждение ограждения");
     assert.equal(createdPayload?.incidentStatus, "Закрыт");
   }, repository);
 });

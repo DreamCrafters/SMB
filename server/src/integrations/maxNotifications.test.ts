@@ -163,7 +163,7 @@ test("createMaxNotificationService marks every test-site message at the end", as
   assert.equal(JSON.parse(sentBodies[2] ?? "{}").text.length, 4_000);
 });
 
-test("createMaxNotificationService sends incident closure location", async () => {
+test("createMaxNotificationService sends complete incident closure context", async () => {
   const sent: { url: string; body: string }[] = [];
   const service = createMaxNotificationService(
     {
@@ -184,26 +184,43 @@ test("createMaxNotificationService sends incident closure location", async () =>
 
   await service.sendDispatcherSubmissionNotification(
     buildSubmission("incident_close", {
-      incidentNumber: "INC-2026-1",
-      location: "Цех №1",
+      incidentNumber: "INC-2026-47",
+      datetime: "22.07.2026 10:16",
+      location: "ОЦ (Огнеупорный цех)",
+      incidentType: "Поломка оборудования по эл. части",
+      criticality: "Средний",
+      description: "Пресс 2 встал по эл. части",
       rootCauses: "Root cause",
       preventiveMeasures: "Preventive measures",
-      closureDateTime: "06.07.2026 12:40",
-      approvedBy: "Иван Иванов",
+      closureDateTime: "28.07.2026 14:00",
+      approvedBy: "Фридман",
       incidentStatus: "Закрыт",
     }),
     recipients,
   );
 
-  assert.equal(sent.length, 1);
-  assert.equal(
-    sent[0]?.url,
-    "https://platform-api2.max.ru/messages?user_id=-1001",
+  assert.equal(sent.length, 2);
+  assert.deepEqual(
+    sent.map((item) => item.url),
+    [
+      "https://platform-api2.max.ru/messages?user_id=-1001",
+      "https://platform-api2.max.ru/messages?user_id=3001",
+    ],
   );
-  assert.match(
-    JSON.parse(sent[0]?.body ?? "{}").text,
-    /Место: Цех №1/,
-  );
+  assert.deepEqual(JSON.parse(sent[0]?.body ?? "{}"), {
+    text: [
+      "[SMB Monitor] Инцидент закрыт",
+      "№: INC-2026-47",
+      "Открыт: 22.07.2026 10:16",
+      "Место: ОЦ (Огнеупорный цех)",
+      "Тип: Поломка оборудования по эл. части",
+      "Критичность: Средний",
+      "Описание: Пресс 2 встал по эл. части",
+      "Закрыт: 28.07.2026 14:00",
+      "Утвердил: Фридман",
+    ].join("\n"),
+    notify: true,
+  });
 });
 
 test("createMaxNotificationService adds specialized recipients", async () => {

@@ -62,21 +62,54 @@ test("buildDispatcherSubmissionEmail adds electrical recipients for electrical i
   assert.deepEqual(message?.to, ["common@example.com", "electric@example.com"]);
 });
 
-test("buildDispatcherSubmissionEmail sends incident closures to common recipients", () => {
+test("buildDispatcherSubmissionEmail sends complete incident closure context", () => {
+  const submission = buildSubmission("incident_close", {
+    incidentNumber: "INC-2026-47",
+    datetime: "22.07.2026 10:16",
+    location: "ОЦ (Огнеупорный цех)",
+    incidentType: "Поломка оборудования по эл. части",
+    criticality: "Средний",
+    description: "Пресс 2 встал по эл. части",
+    closureDateTime: "28.07.2026 14:00",
+    approvedBy: "Фридман",
+  });
   const message = buildDispatcherSubmissionEmail(
-    buildSubmission("incident_close", {
-      incidentNumber: "INC-2026-1",
-      location: "Цех №1",
-      approvedBy: "Иван Иванов",
-    }),
+    submission,
     recipients,
     "noreply@example.com",
     "SMB Monitor",
   );
+  const expectedText = [
+    "Инцидент закрыт",
+    "№: INC-2026-47",
+    "Открыт: 22.07.2026 10:16",
+    "Место: ОЦ (Огнеупорный цех)",
+    "Тип: Поломка оборудования по эл. части",
+    "Критичность: Средний",
+    "Описание: Пресс 2 встал по эл. части",
+    "Закрыт: 28.07.2026 14:00",
+    "Утвердил: Фридман",
+  ].join("\n");
 
-  assert.deepEqual(message?.to, ["common@example.com"]);
-  assert.equal(message?.subject, "[SMB Monitor] Закрытие инцидента INC-2026-1");
-  assert.match(message?.text ?? "", /Место: Цех №1/);
+  assert.deepEqual(message?.to, ["common@example.com", "electric@example.com"]);
+  assert.equal(
+    message?.subject,
+    "[SMB Monitor] Закрытие инцидента INC-2026-47",
+  );
+  assert.equal(message?.text, expectedText);
+
+  const testMessage = buildDispatcherSubmissionEmail(
+    submission,
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+    "test",
+  );
+
+  assert.equal(
+    testMessage?.text,
+    `${expectedText}\n\nПримечание: Тестовое сообщение`,
+  );
 });
 
 test("buildDispatcherSubmissionEmail adds mechanical and electrical recipients for downtime reason", () => {
