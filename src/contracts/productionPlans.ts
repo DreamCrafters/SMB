@@ -40,7 +40,17 @@ export type ProductionPlanSchedules = Partial<ProductionCategorySchedules>;
 export type ProductionDailyPlan = {
   date: string;
   values: Partial<ProductionCategoryPlans>;
+  monthToDate: ProductionMonthToDate;
 };
+
+export type ProductionMonthToDateValue = {
+  monthPlan: number;
+  deviation?: number;
+};
+
+export type ProductionMonthToDate = Partial<
+  Record<ProductionCategory, ProductionMonthToDateValue>
+>;
 
 export type ProductionPlanRevision = {
   revisionId: string;

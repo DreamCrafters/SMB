@@ -2,9 +2,10 @@ import type {
   DispatcherSubmission,
   DispatcherSubmissionPayload,
 } from "./dispatcherSubmission.js";
-import type {
-  ProductionCategory,
-  ProductionPlan,
+import {
+  productionCategories,
+  type ProductionCategory,
+  type ProductionPlan,
 } from "./productionPlan.js";
 
 export type ProductionReportBaseRow = {
@@ -63,6 +64,15 @@ export type ProductionMonthOverview = {
   month: string;
   totalFact: number;
 };
+
+export type ProductionMonthToDateValue = {
+  monthPlan: number;
+  deviation?: number;
+};
+
+export type ProductionMonthToDate = Partial<
+  Record<ProductionCategory, ProductionMonthToDateValue>
+>;
 
 type DatedProductionReport = {
   submission: DispatcherSubmission;
@@ -125,6 +135,47 @@ export function buildProductionMonthOverview(
   }
 
   return hasFact ? { month, totalFact } : undefined;
+}
+
+export function buildProductionMonthToDate(
+  submissions: DispatcherSubmission[],
+  plan: ProductionPlan | undefined,
+  reportDate: string,
+): ProductionMonthToDate {
+  const month = reportDate.slice(0, 7);
+  const applicablePlan = plan?.month === month ? plan : undefined;
+  const tables = buildProductionReportTables(
+    submissions,
+    applicablePlan === undefined ? [] : [applicablePlan],
+  );
+  const result: ProductionMonthToDate = {};
+
+  for (const category of productionCategories) {
+    const latestRow = (tables[category] as ProductionMetricRow[])
+      .filter(
+        (row) => row.reportDate.startsWith(month) && row.reportDate <= reportDate,
+      )
+      .at(-1);
+    const schedule = applicablePlan?.schedules[category];
+    const scheduledMonthPlan = schedule === undefined
+      ? undefined
+      : schedule.dailyPlans
+          .filter((dailyPlan) => dailyPlan.date <= reportDate)
+          .reduce((sum, dailyPlan) => sum + dailyPlan.value, 0);
+    const monthPlan = scheduledMonthPlan ?? latestRow?.monthPlan;
+    const monthFact = latestRow?.monthFact;
+
+    if (monthPlan === undefined) {
+      continue;
+    }
+
+    result[category] = {
+      monthPlan,
+      ...(monthFact === undefined ? {} : { deviation: monthFact - monthPlan }),
+    };
+  }
+
+  return result;
 }
 
 function readLatestProductionReports(

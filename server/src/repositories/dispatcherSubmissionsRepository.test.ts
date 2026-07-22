@@ -21,6 +21,37 @@ test("dispatcher submissions repository paginates history", async () => {
   assert.deepEqual(queryValues, [50, 75]);
 });
 
+test("dispatcher submissions repository filters production history by payload month", async () => {
+  let statement = "";
+  let queryValues: unknown[] = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      statement = sql.replace(/\s+/gu, " ").trim();
+      queryValues = values ?? [];
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createDispatcherSubmissionsRepository(pool);
+
+  await repository.listLatest({
+    formId: "production",
+    reportMonth: "2026-07",
+    limit: 2_000,
+    offset: 0,
+  });
+
+  assert.match(statement, /json_extract\(payload, '\$\.reportMonth'\)/u);
+  assert.match(statement, /json_extract\(payload, '\$\.reportDate'\)/u);
+  assert.deepEqual(queryValues, [
+    "production",
+    "2026-07",
+    "%.07.2026",
+    "2026-07-%",
+    2_000,
+    0,
+  ]);
+});
+
 test("dispatcher submissions repository ignores a duplicate non-equipment row", async () => {
   const statements: string[] = [];
   const queryValues: unknown[][] = [];

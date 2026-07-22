@@ -32,9 +32,11 @@ import {
   type ProductionBrandLabel,
   type ProductionCategory,
   type ProductionCategoryPlans,
+  type ProductionDailyPlan,
   type ProductionGranulationRow,
   type ProductionJarMeasurementRow,
   type ProductionMetricRow,
+  type ProductionMonthToDateValue,
   type ProductionReportBaseRow,
   type ProductionReportTables,
   type ProductionPlanRevision,
@@ -3532,7 +3534,7 @@ export function DispatcherProductionReportFormBody({
   const [reportDate, setReportDate] = useState(getTodayDateValue);
   const [dailyPlanState, setDailyPlanState] = useState<
     | { status: "loading" }
-    | { status: "ready"; values?: Partial<ProductionCategoryPlans> }
+    | { status: "ready"; plan?: ProductionDailyPlan }
     | { status: "error"; message: string }
   >({ status: "loading" });
   const [brandRefreshVersion, setBrandRefreshVersion] = useState(0);
@@ -3606,7 +3608,7 @@ export function DispatcherProductionReportFormBody({
         }
 
         if (result.status === "ready") {
-          setDailyPlanState({ status: "ready", values: result.plan?.values });
+          setDailyPlanState({ status: "ready", plan: result.plan });
           return;
         }
 
@@ -3623,8 +3625,10 @@ export function DispatcherProductionReportFormBody({
     return () => controller.abort();
   }, [isAdminPreviewMode, reportDate]);
 
-  const dailyPlanValues =
-    dailyPlanState.status === "ready" ? dailyPlanState.values : undefined;
+  const dailyPlan =
+    dailyPlanState.status === "ready" ? dailyPlanState.plan : undefined;
+  const dailyPlanValues = dailyPlan?.values;
+  const monthToDateValues = dailyPlan?.monthToDate;
 
   return (
     <>
@@ -3693,6 +3697,7 @@ export function DispatcherProductionReportFormBody({
           initialSubmission={reportLoadState.submission}
           isAdminPreviewMode={isAdminPreviewMode}
           isSubmitting={isSubmitting}
+          monthToDateValues={monthToDateValues}
           status={status}
           onCreateBrand={handleCreateBrand}
           onRetryBrands={() =>
@@ -3712,6 +3717,7 @@ function ProductionReportEditor({
   initialSubmission,
   isAdminPreviewMode,
   isSubmitting,
+  monthToDateValues,
   status,
   onCreateBrand,
   onRetryBrands,
@@ -3726,6 +3732,9 @@ function ProductionReportEditor({
   initialSubmission?: DispatcherSubmission;
   isAdminPreviewMode: boolean;
   isSubmitting: boolean;
+  monthToDateValues?: Partial<
+    Record<ProductionCategory, ProductionMonthToDateValue>
+  >;
   status: string;
   onCreateBrand: ProductBrandCreator;
   onRetryBrands: () => void;
@@ -3770,6 +3779,7 @@ function ProductionReportEditor({
           form={form}
           initialPayload={initialPayload}
           isAdminPreviewMode={isAdminPreviewMode}
+          monthToDate={monthToDateValues?.forming}
           prefix="forming"
           title="Формовка"
         />
@@ -3779,6 +3789,7 @@ function ProductionReportEditor({
           form={form}
           initialPayload={initialPayload}
           isAdminPreviewMode={isAdminPreviewMode}
+          monthToDate={monthToDateValues?.sorting}
           prefix="sorting"
           title="Сортировка"
         />
@@ -3792,6 +3803,7 @@ function ProductionReportEditor({
             categoryPlan={dailyPlanValues?.unformed}
             initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
+            monthToDate={monthToDateValues?.unformed}
             prefix="unformed"
           />
         </fieldset>
@@ -3806,6 +3818,7 @@ function ProductionReportEditor({
             categoryPlan={dailyPlanValues?.chamotte}
             initialPayload={initialPayload}
             isAdminPreviewMode={isAdminPreviewMode}
+            monthToDate={monthToDateValues?.chamotte}
             prefix="chamotte"
           />
         </fieldset>
@@ -3883,6 +3896,7 @@ export function ProductionSummaryTable({
   form,
   initialPayload,
   isAdminPreviewMode,
+  monthToDate,
   prefix,
   title,
 }: {
@@ -3891,6 +3905,7 @@ export function ProductionSummaryTable({
   form: DispatcherFormDefinition;
   initialPayload?: DispatcherSubmissionPayload;
   isAdminPreviewMode: boolean;
+  monthToDate?: ProductionMonthToDateValue;
   prefix: "forming" | "sorting";
   title: string;
 }) {
@@ -3908,6 +3923,8 @@ export function ProductionSummaryTable({
               <th scope="col">План</th>
               <th scope="col">Факт за сутки</th>
               <th scope="col">Марка изделия</th>
+              <th scope="col">План за месяц</th>
+              <th scope="col">Отклонение</th>
             </tr>
           </thead>
           <tbody>
@@ -3936,6 +3953,20 @@ export function ProductionSummaryTable({
                   onChange={setBrand}
                 />
               </td>
+              <td className="production-report-plan-cell">
+                <ProductionCalculatedValue
+                  ariaLabel={`${title}: план за месяц`}
+                  emptyLabel="Не задан"
+                  value={monthToDate?.monthPlan}
+                />
+              </td>
+              <td className="production-report-plan-cell">
+                <ProductionCalculatedValue
+                  ariaLabel={`${title}: отклонение`}
+                  emptyLabel="Не рассчитано"
+                  value={monthToDate?.deviation}
+                />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -3954,12 +3985,14 @@ function ProductionBrandColumnsTable({
   categoryPlan,
   initialPayload,
   isAdminPreviewMode,
+  monthToDate,
   prefix,
 }: {
   brandLabels: ProductionBrandLabel[];
   categoryPlan?: number;
   initialPayload?: DispatcherSubmissionPayload;
   isAdminPreviewMode: boolean;
+  monthToDate?: ProductionMonthToDateValue;
   prefix: "unformed" | "chamotte";
 }) {
   const [columns, setColumns] = useState<ProductionBrandColumn[]>(() =>
@@ -4029,6 +4062,12 @@ function ProductionBrandColumnsTable({
               <th className="production-report-plan-heading" scope="col">
                 План за день
               </th>
+              <th className="production-report-plan-heading" scope="col">
+                План за месяц
+              </th>
+              <th className="production-report-plan-heading" scope="col">
+                Отклонение
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -4070,6 +4109,20 @@ function ProductionBrandColumnsTable({
                   ? "Не задан"
                   : formatNumber(categoryPlan)}
               </td>
+              <td className="production-report-plan-cell">
+                <ProductionCalculatedValue
+                  ariaLabel={`${productionCategoryLabels[prefix]}: план за месяц`}
+                  emptyLabel="Не задан"
+                  value={monthToDate?.monthPlan}
+                />
+              </td>
+              <td className="production-report-plan-cell">
+                <ProductionCalculatedValue
+                  ariaLabel={`${productionCategoryLabels[prefix]}: отклонение`}
+                  emptyLabel="Не рассчитано"
+                  value={monthToDate?.deviation}
+                />
+              </td>
             </tr>
           </tbody>
         </table>
@@ -4083,6 +4136,22 @@ function ProductionBrandColumnsTable({
         + Добавить марку
       </button>
     </div>
+  );
+}
+
+function ProductionCalculatedValue({
+  ariaLabel,
+  emptyLabel,
+  value,
+}: {
+  ariaLabel: string;
+  emptyLabel: string;
+  value?: number;
+}) {
+  return (
+    <output aria-label={ariaLabel} className="production-report-calculated-value">
+      {value === undefined ? emptyLabel : formatNumber(value)}
+    </output>
   );
 }
 

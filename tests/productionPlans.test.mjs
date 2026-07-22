@@ -75,6 +75,10 @@ test("production plan service previews, saves and reads server-owned plans", asy
         plan: {
           date: "2026-07-01",
           values: { forming: 334, sorting: 400 },
+          monthToDate: {
+            forming: { monthPlan: 334, deviation: -34 },
+            sorting: { monthPlan: 400, deviation: 10 },
+          },
         },
       });
     }
@@ -112,6 +116,10 @@ test("production plan service previews, saves and reads server-owned plans", asy
   assert.deepEqual(daily.plan, {
     date: "2026-07-01",
     values: { forming: 334, sorting: 400 },
+    monthToDate: {
+      forming: { monthPlan: 334, deviation: -34 },
+      sorting: { monthPlan: 400, deviation: 10 },
+    },
   });
   assert.equal(calls[0].url, "http://api.test/api/production-plans/preview");
   assert.equal(calls[0].init.method, "POST");

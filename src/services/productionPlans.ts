@@ -6,6 +6,7 @@ import {
   type ProductionPlanPreviewResponse,
   type ProductionDailyPlan,
   type ProductionDailyPlanResponse,
+  type ProductionMonthToDate,
   type ProductionPlanResponse,
   type ProductionPlanRevision,
   type SaveProductionPlanRequest,
@@ -202,7 +203,8 @@ function isProductionDailyPlanResponse(
     (value.plan === null ||
       (isRecord(value.plan) &&
         typeof value.plan.date === "string" &&
-        isProductionDailyCategoryPlans(value.plan.values)))
+        isProductionDailyCategoryPlans(value.plan.values) &&
+        isProductionMonthToDate(value.plan.monthToDate)))
   );
 }
 
@@ -275,16 +277,55 @@ function isProductionDailyCategoryPlans(
 
   const keys = Object.keys(value);
 
+  return keys.every(
+    (category) =>
+      productionCategories.includes(category as (typeof productionCategories)[number]) &&
+      typeof value[category] === "number" &&
+      Number.isFinite(value[category]) &&
+      value[category] >= 0 &&
+      readDecimalPlaces(value[category]) <= 2,
+  );
+}
+
+function isProductionMonthToDate(
+  value: unknown,
+): value is ProductionMonthToDate {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(([category, categoryValue]) => {
+    if (
+      !productionCategories.includes(
+        category as (typeof productionCategories)[number],
+      ) ||
+      !isRecord(categoryValue)
+    ) {
+      return false;
+    }
+
+    const allowedFields = new Set(["monthPlan", "deviation"]);
+
+    return (
+      Object.keys(categoryValue).every((field) => allowedFields.has(field)) &&
+      categoryValue.monthPlan !== undefined &&
+      isOptionalProductionValue(categoryValue.monthPlan, false, true) &&
+      isOptionalProductionValue(categoryValue.deviation, true)
+    );
+  });
+}
+
+function isOptionalProductionValue(
+  value: unknown,
+  signed: boolean,
+  limitDecimalPlaces = false,
+) {
   return (
-    keys.length > 0 &&
-    keys.every(
-      (category) =>
-        productionCategories.includes(category as (typeof productionCategories)[number]) &&
-        typeof value[category] === "number" &&
-        Number.isFinite(value[category]) &&
-        value[category] >= 0 &&
-        readDecimalPlaces(value[category]) <= 2,
-    )
+    value === undefined ||
+    (typeof value === "number" &&
+      Number.isFinite(value) &&
+      (signed || value >= 0) &&
+      (!limitDecimalPlaces || readDecimalPlaces(value) <= 2))
   );
 }
 

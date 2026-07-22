@@ -266,6 +266,12 @@ test(`production form loads all saved data by date in ${label}`, async () => {
             unformed: 6,
             chamotte: 5,
           },
+          monthToDate: {
+            forming: { monthPlan: 160, deviation: -40 },
+            sorting: { monthPlan: 130, deviation: -11 },
+            unformed: { monthPlan: 90, deviation: -5 },
+            chamotte: { monthPlan: 70, deviation: 0 },
+          },
         },
       });
     }
@@ -449,6 +455,24 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       rootElement.querySelector(".production-report-daily-plan")?.textContent ?? "",
       /Формовка8.*Сортировка7.*Неформованная продукция, контейнеры6.*Цех обжига шамота5/u,
     );
+    for (const [label, monthPlan, deviation] of [
+      ["Формовка", "160", "-40"],
+      ["Сортировка", "130", "-11"],
+      ["Неформованная продукция, контейнеры", "90", "-5"],
+      ["Цех обжига шамота", "70", "0"],
+    ]) {
+      const monthPlanOutput = rootElement.querySelector(
+        `output[aria-label="${label}: план за месяц"]`,
+      );
+      const deviationOutput = rootElement.querySelector(
+        `output[aria-label="${label}: отклонение"]`,
+      );
+
+      assert.equal(monthPlanOutput?.textContent, monthPlan);
+      assert.equal(deviationOutput?.textContent, deviation);
+      assert.equal(monthPlanOutput?.hasAttribute("name"), false);
+      assert.equal(deviationOutput?.hasAttribute("name"), false);
+    }
     const addBrandButtons = rootElement.querySelectorAll(
       'button[aria-label="Добавить новую марку"]',
     );

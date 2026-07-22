@@ -25,6 +25,7 @@ export type DispatcherFeedFilters = {
   dateFrom?: string;
   dateTo?: string;
   reportDate?: string;
+  reportMonth?: string;
 };
 
 export type DispatcherFeedSummaryItem = {
@@ -359,6 +360,21 @@ function buildWhereClause(filters: DispatcherFeedFilters): WhereClause {
     );
     clauses.push(
       "json_unquote(json_extract(payload, '$.reportDate')) in (?, ?)",
+    );
+  }
+
+  if (filters.reportMonth !== undefined) {
+    const [year, month] = filters.reportMonth.split("-");
+
+    values.push(
+      filters.reportMonth,
+      `%.${month}.${year}`,
+      `${filters.reportMonth}-%`,
+    );
+    clauses.push(
+      "(json_unquote(json_extract(payload, '$.reportMonth')) = ? or " +
+        "json_unquote(json_extract(payload, '$.reportDate')) like ? or " +
+        "json_unquote(json_extract(payload, '$.reportDate')) like ?)",
     );
   }
 

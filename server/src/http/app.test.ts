@@ -2859,6 +2859,9 @@ test("production plan API saves independent category schedules with audit", asyn
     assert.deepEqual(isRecord(partialDaily) ? partialDaily.plan : undefined, {
       date: "2026-07-01",
       values: { forming: 334 },
+      monthToDate: {
+        forming: { monthPlan: 334 },
+      },
     });
 
     for (const [category, schedule] of Object.entries({
@@ -2913,6 +2916,12 @@ test("production plan API saves independent category schedules with audit", asyn
         {
           date: "2026-07-01",
           values: { forming: 334, sorting: 400 },
+          monthToDate: {
+            forming: { monthPlan: 334 },
+            sorting: { monthPlan: 400 },
+            unformed: { monthPlan: 0 },
+            chamotte: { monthPlan: 0 },
+          },
         },
       );
     }
@@ -2926,6 +2935,12 @@ test("production plan API saves independent category schedules with audit", asyn
     assert.deepEqual(isRecord(fourthDay) ? fourthDay.plan : undefined, {
       date: "2026-07-04",
       values: { unformed: 500, chamotte: 100 },
+      monthToDate: {
+        forming: { monthPlan: 1_000.25 },
+        sorting: { monthPlan: 800 },
+        unformed: { monthPlan: 500 },
+        chamotte: { monthPlan: 200 },
+      },
     });
 
     const missingDailyResponse = await fetch(
@@ -2934,7 +2949,16 @@ test("production plan API saves independent category schedules with audit", asyn
     );
     const missingDaily = await missingDailyResponse.json();
     assert.equal(missingDailyResponse.status, 200);
-    assert.equal(isRecord(missingDaily) ? missingDaily.plan : undefined, null);
+    assert.deepEqual(isRecord(missingDaily) ? missingDaily.plan : undefined, {
+      date: "2026-07-05",
+      values: {},
+      monthToDate: {
+        forming: { monthPlan: 1_000.25 },
+        sorting: { monthPlan: 800 },
+        unformed: { monthPlan: 500 },
+        chamotte: { monthPlan: 200 },
+      },
+    });
 
     const forbiddenSaveResponse = await fetch(`${baseUrl}/api/production-plans`, {
       method: "POST",
@@ -2967,6 +2991,174 @@ test("production plan API saves independent category schedules with audit", asyn
         { date: "2026-07-02", value: 400 },
       ],
     );
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("dispatcher daily plan includes server-calculated month-to-date values", async () => {
+  const profile = buildProductionProfile("dispatcher");
+  const productionReports = [
+    {
+      id: "production-2026-07-01",
+      formId: "production" as const,
+      formTitle: "Выработка",
+      payload: {
+        reportDate: "01.07.2026",
+        formingDay: "8",
+        sortingDay: "5",
+        unformedBrand1: "ПБ-5",
+        unformedFact1: "2",
+        chamotteBrand1: "Ш-1",
+        chamotteFact1: "3",
+      },
+      summary: "Выработка за 01.07.2026",
+      status: "received" as const,
+      submittedByAccountId: "dispatcher-access-id",
+      submittedAt: "2026-07-01T18:00:00.000Z",
+      receivedAt: "2026-07-10T18:00:01.000Z",
+    },
+    {
+      id: "production-2026-07-02",
+      formId: "production" as const,
+      formTitle: "Выработка",
+      payload: {
+        reportDate: "02.07.2026",
+        formingDay: "11",
+        sortingDay: "7",
+        unformedBrand1: "ПБ-5",
+        unformedFact1: "5",
+        chamotteBrand1: "Ш-1",
+        chamotteFact1: "5",
+      },
+      summary: "Выработка за 02.07.2026",
+      status: "received" as const,
+      submittedByAccountId: "dispatcher-access-id",
+      submittedAt: "2026-07-02T18:00:00.000Z",
+      receivedAt: "2026-07-02T18:00:01.000Z",
+    },
+  ];
+  let productionFilters:
+    | Parameters<DispatcherSubmissionsRepository["listLatest"]>[0]
+    | undefined;
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      productionFilters = filters;
+      return filters?.formId === "production" ? productionReports : [];
+    },
+  };
+  const revision: ProductionPlanRevision = {
+    revisionId: "revision-1",
+    month: "2026-07",
+    schedules: {
+      forming: {
+        monthlyPlan: 30,
+        workingDayCount: 3,
+        dailyPlans: [
+          { date: "2026-07-01", value: 10 },
+          { date: "2026-07-02", value: 10 },
+          { date: "2026-07-03", value: 10 },
+        ],
+      },
+      sorting: {
+        monthlyPlan: 18,
+        workingDayCount: 3,
+        dailyPlans: [
+          { date: "2026-07-01", value: 6 },
+          { date: "2026-07-02", value: 6 },
+          { date: "2026-07-03", value: 6 },
+        ],
+      },
+      unformed: {
+        monthlyPlan: 21,
+        workingDayCount: 3,
+        dailyPlans: [
+          { date: "2026-07-01", value: 7 },
+          { date: "2026-07-02", value: 7 },
+          { date: "2026-07-03", value: 7 },
+        ],
+      },
+      chamotte: {
+        monthlyPlan: 12,
+        workingDayCount: 2,
+        dailyPlans: [
+          { date: "2026-07-02", value: 6 },
+          { date: "2026-07-03", value: 6 },
+        ],
+      },
+    },
+    createdByUserId: "economist-user-id",
+    createdAt: "2026-07-01T08:00:00.000Z",
+  };
+  const productionPlans: ProductionPlansRepository = {
+    async readLatest(month) {
+      return month === revision.month ? revision : undefined;
+    },
+    async readLatestForUpdate() {
+      throw new Error("not used");
+    },
+    async saveRevision() {
+      throw new Error("not used");
+    },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions: repository,
+    authService: buildAuthService({ profile }),
+    productionPlans,
+    referenceDataSource: emptyReferenceDataSource,
+    audit: {
+      async record() {},
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/production-plans/daily?date=2026-07-03`,
+      {
+        headers: {
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+      },
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(productionFilters, {
+      formId: "production",
+      reportMonth: "2026-07",
+      limit: 2_000,
+      offset: 0,
+    });
+    assert.deepEqual(isRecord(payload) ? payload.plan : undefined, {
+      date: "2026-07-03",
+      values: {
+        forming: 10,
+        sorting: 6,
+        unformed: 7,
+        chamotte: 6,
+      },
+      monthToDate: {
+        forming: { monthPlan: 30, deviation: -11 },
+        sorting: { monthPlan: 18, deviation: -6 },
+        unformed: { monthPlan: 21, deviation: -14 },
+        chamotte: { monthPlan: 12, deviation: -4 },
+      },
+    });
   } finally {
     server.close();
     await once(server, "close");

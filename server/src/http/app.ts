@@ -35,6 +35,7 @@ import {
 import { applyIncidentStateRules } from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
+  buildProductionMonthToDate,
   buildProductionMonthOverview,
   buildProductionReportTables,
 } from "../domain/productionReportTables.js";
@@ -351,6 +352,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          dispatcherSubmissions,
           productionPlans,
           audit,
           databaseTransaction,
@@ -1676,6 +1678,7 @@ async function handleProductionPlansRequest({
   config,
   devSessions,
   authService,
+  dispatcherSubmissions,
   productionPlans,
   audit,
   databaseTransaction,
@@ -1686,6 +1689,7 @@ async function handleProductionPlansRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+  dispatcherSubmissions: DispatcherSubmissionsRepository;
   productionPlans: ProductionPlansRepository | undefined;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -1751,7 +1755,11 @@ async function handleProductionPlansRequest({
       return;
     }
 
-    const revision = await productionPlans.readLatest(date.slice(0, 7));
+    const month = date.slice(0, 7);
+    const [revision, productionSubmissions] = await Promise.all([
+      productionPlans.readLatest(month),
+      listAllProductionSubmissions(dispatcherSubmissions, month),
+    ]);
     const values = revision === undefined
       ? []
       : productionCategories.flatMap((category) => {
@@ -1770,10 +1778,17 @@ async function handleProductionPlansRequest({
             : [[category, dailyPlan.value] as const];
         });
 
+    const monthToDate = buildProductionMonthToDate(
+      productionSubmissions,
+      revision,
+      date,
+    );
+
     sendJson(res, 200, {
-      plan: values.length === 0
-        ? null
-        : { date, values: Object.fromEntries(values) },
+      plan:
+        values.length === 0 && Object.keys(monthToDate).length === 0
+          ? null
+          : { date, values: Object.fromEntries(values), monthToDate },
     });
     return;
   }
@@ -4804,6 +4819,7 @@ function readDispatcherFeedFilters(url: URL):
 
 async function listAllProductionSubmissions(
   repository: DispatcherSubmissionsRepository,
+  reportMonth?: string,
 ) {
   const pageLimit = 2_000;
   const submissions: DispatcherSubmission[] = [];
@@ -4813,6 +4829,7 @@ async function listAllProductionSubmissions(
   while (true) {
     const page = await repository.listLatest({
       formId: "production",
+      ...(reportMonth === undefined ? {} : { reportMonth }),
       limit: pageLimit,
       offset,
     });

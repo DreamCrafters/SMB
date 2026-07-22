@@ -1436,9 +1436,17 @@ p {
   background: var(--surface-raised);
 }
 
-.production-report-summary-table th:last-child,
-.production-report-summary-table td:last-child {
-  width: 44%;
+.production-report-subsection .production-report-table-wrap {
+  overflow-x: auto;
+}
+
+.production-report-summary-table {
+  min-width: 760px;
+}
+
+.production-report-summary-table th:nth-child(3),
+.production-report-summary-table td:nth-child(3) {
+  width: 36%;
 }
 
 .production-report-rows-table th:first-child,
@@ -1451,6 +1459,10 @@ p {
   color: var(--ink);
   font-size: 13px;
   font-weight: 900;
+}
+
+.production-report-calculated-value {
+  display: block;
 }
 
 .production-brand-columns {
