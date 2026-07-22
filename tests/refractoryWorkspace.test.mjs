@@ -323,6 +323,11 @@ test("refractory workspace opens one of three independent table buttons", async 
       ".refractory-input-table-firing",
     );
     assert.ok(firingTable);
+    assert.ok(
+      firingTable
+        .closest(".refractory-table-wrap")
+        ?.classList.contains("refractory-table-wrap-full-height"),
+    );
     assert.deepEqual(
       Array.from(firingTable.querySelectorAll("thead th"), (cell) =>
         cell.textContent.trim().replace(/\s+/gu, " "),

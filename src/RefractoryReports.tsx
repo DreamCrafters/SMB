@@ -1041,7 +1041,7 @@ function FiringForm({
   return (
     <div className="refractory-form-sections">
       <ReportSection title="Выпуск обожжённых огнеупоров">
-        <div className="refractory-table-wrap">
+        <div className="refractory-table-wrap refractory-table-wrap-full-height">
           <table className="refractory-input-table refractory-input-table-firing">
             <thead>
               <tr>

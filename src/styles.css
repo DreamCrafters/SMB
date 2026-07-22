@@ -4855,6 +4855,13 @@ p {
   scrollbar-gutter: stable;
 }
 
+.refractory-table-wrap-full-height {
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: auto;
+}
+
 .refractory-table-wrap::-webkit-scrollbar {
   width: 12px;
   height: 14px;
