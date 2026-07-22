@@ -3541,7 +3541,7 @@ export function DispatcherProductionReportFormBody({
     loadState: brandLoadState,
     createBrand: handleCreateBrand,
   } = useProductionBrands({
-    creationDisabled: isAdminPreviewMode,
+    creationDisabled: isAdminPreviewMode || !isProductionApp,
     refreshVersion: brandRefreshVersion,
   });
   const [reportLoadState, setReportLoadState] = useState<
@@ -3756,7 +3756,9 @@ function ProductionReportEditor({
         </div>
       ) : null}
 
-      {isAdminPreviewMode || brandLoadState.status !== "ready" ? null : (
+      {isAdminPreviewMode ||
+      !isProductionApp ||
+      brandLoadState.status !== "ready" ? null : (
         <ProductBrandCreateControl onCreateBrand={onCreateBrand} />
       )}
 

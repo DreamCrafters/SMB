@@ -208,9 +208,25 @@ test("production dashboard selects the first section that receives live rows", a
   }
 });
 
-for (const { label, isAdminPreviewMode } of [
-  { label: "dispatcher mode", isAdminPreviewMode: false },
-  { label: "admin preview", isAdminPreviewMode: true },
+for (const { label, appEnv, isAdminPreviewMode, expectedCreateButtons } of [
+  {
+    label: "test dispatcher mode",
+    appEnv: "test",
+    isAdminPreviewMode: false,
+    expectedCreateButtons: 0,
+  },
+  {
+    label: "production dispatcher mode",
+    appEnv: "production",
+    isAdminPreviewMode: false,
+    expectedCreateButtons: 1,
+  },
+  {
+    label: "production admin preview",
+    appEnv: "production",
+    isAdminPreviewMode: true,
+    expectedCreateButtons: 0,
+  },
 ]) {
 test(`production form loads all saved data by date in ${label}`, async () => {
   const dom = new JSDOM(
@@ -219,6 +235,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
+  const previousAppEnv = process.env.VITE_SMB_APP_ENV;
   const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
   const initialDateRequestStarted = createDeferred();
   const initialDateResponseRelease = createDeferred();
@@ -330,6 +347,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
   let root;
 
   try {
+    process.env.VITE_SMB_APP_ENV = appEnv;
     process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:3000";
     vite = await createServer({
       appType: "custom",
@@ -434,8 +452,8 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     const addBrandButtons = rootElement.querySelectorAll(
       'button[aria-label="Добавить новую марку"]',
     );
-    assert.equal(addBrandButtons.length, isAdminPreviewMode ? 0 : 1);
-    if (!isAdminPreviewMode) {
+    assert.equal(addBrandButtons.length, expectedCreateButtons);
+    if (expectedCreateButtons > 0) {
       assert.ok(
         addBrandButtons[0].compareDocumentPosition(
           rootElement.querySelector(".production-report-table-wrap"),
@@ -489,6 +507,11 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       delete process.env.VITE_SMB_REMOTE_API_URL;
     } else {
       process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+    }
+    if (previousAppEnv === undefined) {
+      delete process.env.VITE_SMB_APP_ENV;
+    } else {
+      process.env.VITE_SMB_APP_ENV = previousAppEnv;
     }
     dom.window.close();
     restoreDomGlobals(previousGlobals);

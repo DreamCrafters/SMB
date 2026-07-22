@@ -1466,6 +1466,16 @@ async function handleProductionBrandsRequest({
     return;
   }
 
+  if (config.appEnv === "test") {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "На тестовом сайте добавление марок отключено.",
+      },
+    });
+    return;
+  }
+
   if (
     !hasProfileCapability(access.profile, "business.submit_dispatcher_forms") &&
     !hasProfileCapability(access.profile, "business.submit_refractory_reports")

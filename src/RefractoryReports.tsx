@@ -19,6 +19,7 @@ import {
 } from "./services/refractoryReports";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import { readRefractoryShiftContext } from "./services/refractoryShift";
+import { isProductionAppEnv } from "./services/appEnvironment";
 import {
   decimalNumberInputPattern,
   decimalNumberInputTitle,
@@ -80,11 +81,12 @@ export function RefractoryShopWorkspace({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isCorrectionMode, setIsCorrectionMode] = useState(false);
+  const canCreateBrands = !isAdminPreviewMode && isProductionAppEnv();
   const {
     labels: brandLabels,
     loadState: nomenclatureState,
     createBrand: handleCreateBrand,
-  } = useProductionBrands({ creationDisabled: isAdminPreviewMode });
+  } = useProductionBrands({ creationDisabled: !canCreateBrands });
 
   useEffect(() => {
     setIsCorrectionMode(false);
@@ -308,7 +310,7 @@ export function RefractoryShopWorkspace({
           />
           <fieldset disabled={isLocked || isSubmitting}>
             {activeType === "cosh" ||
-            isAdminPreviewMode ||
+            !canCreateBrands ||
             nomenclatureState.status !== "ready" ? null : (
               <ProductBrandCreateControl onCreateBrand={handleCreateBrand} />
             )}

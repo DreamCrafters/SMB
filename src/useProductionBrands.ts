@@ -58,7 +58,7 @@ export function useProductionBrands({
 
   const createBrand: ProductBrandCreator = async (label) => {
     if (creationDisabled) {
-      return { message: "В режиме просмотра добавление отключено." };
+      return { message: "Добавление марок отключено." };
     }
 
     const result = await createProductionBrand({ label });

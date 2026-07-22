@@ -24,6 +24,8 @@ test("refractory workspace opens one of three independent table buttons", async 
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
+  const previousAppEnv = process.env.VITE_SMB_APP_ENV;
+  process.env.VITE_SMB_APP_ENV = "production";
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -225,6 +227,11 @@ test("refractory workspace opens one of three independent table buttons", async 
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
+    if (previousAppEnv === undefined) {
+      delete process.env.VITE_SMB_APP_ENV;
+    } else {
+      process.env.VITE_SMB_APP_ENV = previousAppEnv;
+    }
     await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
@@ -469,6 +476,12 @@ test("refractory report highlights invalid numeric fields with a clear message",
       rootElement.querySelectorAll(".refractory-report-menu button"),
     );
     await React.act(async () => menuButtons[1].click());
+    assert.equal(
+      rootElement.querySelectorAll(
+        'button[aria-label="Добавить новую марку"]',
+      ).length,
+      0,
+    );
     const workedHours = rootElement.querySelector(
       'input[aria-label="Пресс СМ-1085 №1: Работа, ч"]',
     );

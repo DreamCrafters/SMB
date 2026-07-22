@@ -3091,6 +3091,58 @@ test("production brand API lets dispatcher add a normalized Google Sheets label"
   undefined, auditRepository, undefined, productionBrands);
 });
 
+test("test environment rejects production brand creation before Google Sheets write", async () => {
+  const profile = buildProductionProfile("dispatcher");
+  let createCalls = 0;
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["ША-22"];
+    },
+    async resolveReferences(references) {
+      return { ok: true, references };
+    },
+    async create(label) {
+      createCalls += 1;
+      return { label, created: true };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/production-brands`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${config.session.cookieName}=prod-session`,
+        },
+        body: JSON.stringify({ label: "Тестовая марка" }),
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 403);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.error)
+          ? payload.error.message
+          : undefined,
+        "На тестовом сайте добавление марок отключено.",
+      );
+      assert.equal(createCalls, 0);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    productionBrands,
+  );
+});
+
 test("production submission accepts only brands from the shared nomenclature", async () => {
   const profile = buildProductionProfile("dispatcher");
   let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
