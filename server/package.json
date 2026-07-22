@@ -16,7 +16,8 @@
   "dependencies": {
     "dotenv": "^17.2.3",
     "mysql2": "^3.22.5",
-    "nodemailer": "^9.0.3"
+    "nodemailer": "^9.0.3",
+    "pdfmake": "^0.3.11"
   },
   "devDependencies": {
     "@types/node": "^20.19.25",

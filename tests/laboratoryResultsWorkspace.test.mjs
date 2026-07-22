@@ -48,6 +48,9 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
               { id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" },
               { id: "strength", label: "Прочность", standard: "ГОСТ 2" },
             ],
+            incomingTestProfiles: [
+              { label: "Глина", indicatorIds: ["al2o3"] },
+            ],
             finishedProductTypes: [],
           },
         });
@@ -121,6 +124,18 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
       ),
       true,
     );
+    assert.equal(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent?.trim() === "Открыть PDF",
+      ),
+      true,
+    );
+    assert.equal(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent?.trim() === "Скачать PDF",
+      ),
+      true,
+    );
 
     const addSampleButton = Array.from(rootElement.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Добавить пробу",
@@ -131,6 +146,10 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
     assert.equal(sampleCards.length, 2);
 
     const materialInput = findInputByLabel(rootElement, "Объект испытаний");
+    const protocolNoteInput = findControlByLabel(
+      rootElement,
+      "Примечание к протоколу",
+    );
     const firstSampleInput = findInputByLabel(
       sampleCards[0],
       "Номер пробы, идентификатор транспорта",
@@ -145,6 +164,8 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
     await React.act(async () => {
       setNativeInputValue(materialInput, "Глина огнеупорная");
       materialInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      setNativeInputValue(protocolNoteInput, "Соответствует требованиям.");
+      protocolNoteInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
       setNativeInputValue(firstSampleInput, "Вагон 12345");
       firstSampleInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
       setNativeInputValue(firstIndicator, "31,4");
@@ -162,6 +183,8 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
     await waitFor(React, () => submissions.length === 1);
 
     assert.equal(submissions[0].materialLabel, "Глина огнеупорная");
+    assert.equal(submissions[0].purpose, "Определение химического состава и свойств");
+    assert.equal(submissions[0].protocolNote, "Соответствует требованиям.");
     assert.deepEqual(submissions[0].samples, [
       {
         sampleIdentifier: "Вагон 12345",
@@ -209,17 +232,21 @@ function buildLaboratoryProfile() {
 }
 
 function findInputByLabel(root, labelText) {
+  return findControlByLabel(root, labelText, "input");
+}
+
+function findControlByLabel(root, labelText, selector = "input, textarea") {
   const label = Array.from(root.querySelectorAll("label")).find(
     (item) => item.querySelector(":scope > span")?.textContent === labelText,
   );
-  const input = label?.querySelector("input");
+  const input = label?.querySelector(selector);
   assert.ok(input, `Expected input labelled ${labelText}`);
   return input;
 }
 
 function setNativeInputValue(input, value) {
   const setter = Object.getOwnPropertyDescriptor(
-    input.ownerDocument.defaultView.HTMLInputElement.prototype,
+    Object.getPrototypeOf(input),
     "value",
   )?.set;
 

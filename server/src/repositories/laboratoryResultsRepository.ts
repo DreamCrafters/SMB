@@ -5,11 +5,19 @@ import type {
   LaboratoryResultSubmission,
   LaboratorySection,
 } from "../domain/laboratoryResult.js";
+import {
+  laboratoryIndicatorDefinitions,
+  type LaboratoryReferenceData,
+} from "../integrations/googleSheetsReference.js";
 
 export type LaboratoryResult = LaboratoryResultSubmission & {
   id: string;
   laboratoryAssistantDisplayName: string;
   createdAt: string;
+};
+
+export type StoredLaboratoryResult = LaboratoryResult & {
+  protocolReference?: LaboratoryReferenceData;
 };
 
 export type LaboratoryResultFilters = {
@@ -27,8 +35,10 @@ export type LaboratoryResultsRepository = {
     submittedByUserId: string;
     submittedByAccountId: string;
     laboratoryAssistantDisplayName: string;
+    protocolReference: LaboratoryReferenceData;
   }) => Promise<LaboratoryResult>;
   list: (filters?: LaboratoryResultFilters) => Promise<LaboratoryResult[]>;
+  findById: (id: string) => Promise<StoredLaboratoryResult | undefined>;
 };
 
 type LaboratoryResultRow = RowDataPacket & {
@@ -87,7 +97,10 @@ export function createLaboratoryResultsRepository(
           input.submittedByUserId,
           input.submittedByAccountId,
           input.laboratoryAssistantDisplayName,
-          JSON.stringify(input.result),
+          JSON.stringify({
+            ...input.result,
+            protocolReference: input.protocolReference,
+          }),
           createdAt,
         ],
       );
@@ -147,13 +160,36 @@ export function createLaboratoryResultsRepository(
         [...parameters, limit],
       );
 
-      return rows.map(mapLaboratoryResultRow);
+      return rows.map((row) => toPublicLaboratoryResult(
+        mapLaboratoryResultRow(row),
+      ));
+    },
+
+    async findById(id) {
+      const [rows] = await pool.query<LaboratoryResultRow[]>(
+        `select
+          id,
+          section,
+          analysis_date,
+          material_label,
+          product_brand,
+          payload,
+          laboratory_assistant_display_name,
+          created_at
+        from laboratory_results
+        where id = ?
+        limit 1`,
+        [id],
+      );
+      const row = rows[0];
+      return row === undefined ? undefined : mapLaboratoryResultRow(row);
     },
   };
 }
 
-function mapLaboratoryResultRow(row: LaboratoryResultRow): LaboratoryResult {
-  const payload = readStoredSubmission(row.payload);
+function mapLaboratoryResultRow(row: LaboratoryResultRow): StoredLaboratoryResult {
+  const storedPayload = readStoredPayload(row.payload);
+  const payload = storedPayload.submission;
 
   if (
     payload.section !== row.section ||
@@ -168,13 +204,33 @@ function mapLaboratoryResultRow(row: LaboratoryResultRow): LaboratoryResult {
   return {
     id: row.id,
     ...payload,
+    ...(storedPayload.protocolReference === undefined
+      ? {}
+      : { protocolReference: storedPayload.protocolReference }),
     laboratoryAssistantDisplayName: row.laboratory_assistant_display_name,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
 
-function readStoredSubmission(value: unknown): LaboratoryResultSubmission {
+function toPublicLaboratoryResult(
+  result: StoredLaboratoryResult,
+): LaboratoryResult {
+  const { protocolReference: _protocolReference, ...publicResult } = result;
+  return publicResult;
+}
+
+function readStoredPayload(value: unknown) {
   const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  return {
+    submission: readStoredSubmission(parsed),
+    protocolReference: isRecord(parsed)
+      ? readStoredProtocolReference(parsed.protocolReference)
+      : undefined,
+  };
+}
+
+function readStoredSubmission(value: unknown): LaboratoryResultSubmission {
+  const parsed = value;
 
   if (
     !isRecord(parsed) ||
@@ -187,7 +243,8 @@ function readStoredSubmission(value: unknown): LaboratoryResultSubmission {
 
   if (parsed.section === "incoming") {
     if (Array.isArray(parsed.samples) && parsed.samples.every(isIncomingSample)) {
-      return parsed as LaboratoryResultSubmission;
+      const { protocolReference: _protocolReference, ...submission } = parsed;
+      return submission as LaboratoryResultSubmission;
     }
     if (
       typeof parsed.sampleIdentifier === "string" &&
@@ -227,7 +284,44 @@ function readStoredSubmission(value: unknown): LaboratoryResultSubmission {
   ) {
     throw new Error("Stored finished product laboratory result payload is invalid.");
   }
-  return parsed as LaboratoryResultSubmission;
+  const { protocolReference: _protocolReference, ...submission } = parsed;
+  return submission as LaboratoryResultSubmission;
+}
+
+function readStoredProtocolReference(
+  value: unknown,
+): LaboratoryReferenceData | undefined {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.indicators) ||
+    !Array.isArray(value.incomingTestProfiles) ||
+    !Array.isArray(value.finishedProductTypes)
+  ) {
+    return undefined;
+  }
+  const indicatorIds = new Set<string>(
+    laboratoryIndicatorDefinitions.map((indicator) => indicator.id),
+  );
+  const indicatorsAreValid = value.indicators.every((indicator) =>
+    isRecord(indicator) &&
+    typeof indicator.id === "string" &&
+    indicatorIds.has(indicator.id) &&
+    typeof indicator.label === "string" &&
+    (indicator.standard === undefined || typeof indicator.standard === "string")
+  );
+  const profileIsValid = (profile: unknown) =>
+    isRecord(profile) &&
+    typeof profile.label === "string" &&
+    Array.isArray(profile.indicatorIds) &&
+    profile.indicatorIds.every((id) =>
+      typeof id === "string" && indicatorIds.has(id)
+    );
+
+  return indicatorsAreValid &&
+      value.incomingTestProfiles.every(profileIsValid) &&
+      value.finishedProductTypes.every(profileIsValid)
+    ? value as LaboratoryReferenceData
+    : undefined;
 }
 
 function isIncomingSample(value: unknown) {

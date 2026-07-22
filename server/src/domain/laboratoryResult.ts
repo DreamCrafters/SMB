@@ -38,6 +38,8 @@ export type IncomingLaboratoryResultSubmission = {
   section: "incoming";
   analysisDate: string;
   materialLabel: string;
+  purpose?: string;
+  protocolNote?: string;
   documentType?: LaboratoryDocumentType;
   documentNumber?: string;
   transportType?: LaboratoryTransportType;
@@ -51,6 +53,8 @@ export type FinishedProductLaboratoryResultSubmission = {
   analysisDate: string;
   materialLabel: string;
   productBrand: string;
+  purpose?: string;
+  protocolNote?: string;
   values: LaboratoryIndicatorValues;
 };
 
@@ -83,6 +87,8 @@ export function validateLaboratoryResultSubmission(
   const errors: string[] = [];
   const analysisDate = readCalendarDate(input.analysisDate);
   const materialLabel = readText(input.materialLabel, maxShortTextLength);
+  const purpose = readText(input.purpose, maxLongTextLength);
+  const protocolNote = readText(input.protocolNote, maxLongTextLength);
   const material = section === "incoming" || materialLabel === undefined
     ? undefined
     : findMaterial(reference.finishedProductTypes, materialLabel);
@@ -97,6 +103,12 @@ export function validateLaboratoryResultSubmission(
     errors.push(
       "Выберите вид готовой продукции из справочника лаборатории.",
     );
+  }
+  if (purpose === undefined) {
+    errors.push("Укажите цель испытаний.");
+  }
+  if (protocolNote === undefined) {
+    errors.push("Укажите примечание к протоколу.");
   }
 
   if (section === "incoming") {
@@ -138,6 +150,8 @@ export function validateLaboratoryResultSubmission(
       errors.length > 0 ||
       analysisDate === undefined ||
       materialLabel === undefined ||
+      purpose === undefined ||
+      protocolNote === undefined ||
       samples === undefined
     ) {
       return { ok: false, errors };
@@ -149,6 +163,8 @@ export function validateLaboratoryResultSubmission(
         section,
         analysisDate,
         materialLabel,
+        purpose,
+        protocolNote,
         ...(documentType === undefined ? {} : { documentType }),
         ...(documentNumber === undefined ? {} : { documentNumber }),
         ...(transportType === undefined ? {} : { transportType }),
@@ -175,7 +191,9 @@ export function validateLaboratoryResultSubmission(
     errors.length > 0 ||
     analysisDate === undefined ||
     material === undefined ||
-    productBrand === undefined
+    productBrand === undefined ||
+    purpose === undefined ||
+    protocolNote === undefined
   ) {
     return { ok: false, errors };
   }
@@ -187,6 +205,8 @@ export function validateLaboratoryResultSubmission(
       analysisDate,
       materialLabel: material.label,
       productBrand,
+      purpose,
+      protocolNote,
       values,
     },
   };

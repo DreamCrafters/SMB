@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   requestLaboratoryReference,
+  requestLaboratoryProtocolPdf,
   requestLaboratoryResults,
   submitLaboratoryResult,
 } from "../.test-build/src/services/laboratoryResults.js";
@@ -26,6 +27,9 @@ test("laboratory service reads reference, filtered history, and saved result", a
           indicators: [
             { id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" },
           ],
+          incomingTestProfiles: [
+            { label: "Глина", indicatorIds: ["al2o3"] },
+          ],
           finishedProductTypes: [],
         },
       });
@@ -37,6 +41,8 @@ test("laboratory service reads reference, filtered history, and saved result", a
           section: "incoming",
           analysisDate: "2026-07-22",
           materialLabel: "Глина",
+          purpose: "Определение химического состава",
+          protocolNote: "Соответствует требованиям.",
           samples: [{
             sampleIdentifier: "Вагон 12345",
             values: { al2o3: "31,4" },
@@ -60,6 +66,8 @@ test("laboratory service reads reference, filtered history, and saved result", a
         section: "incoming",
         analysisDate: "2026-07-22",
         materialLabel: "Глина",
+        purpose: "Определение химического состава",
+        protocolNote: "Соответствует требованиям.",
         samples: [{
           sampleIdentifier: "Вагон 12345",
           values: { al2o3: "31,4" },
@@ -80,11 +88,45 @@ test("laboratory service reads reference, filtered history, and saved result", a
       section: "incoming",
       analysisDate: "2026-07-22",
       materialLabel: "Глина",
+      purpose: "Определение химического состава",
+      protocolNote: "Соответствует требованиям.",
       samples: [{
         sampleIdentifier: "Вагон 12345",
         values: { al2o3: "31,4" },
       }],
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("laboratory service downloads the selected result protocol as PDF", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (input, init = {}) => {
+    request = { url: input.toString(), init };
+    return new Response(new Uint8Array([37, 80, 68, 70, 45]), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition":
+          "inline; filename=\"protocol.pdf\"; filename*=UTF-8''%D0%9F%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB.pdf",
+      },
+    });
+  };
+
+  try {
+    const result = await requestLaboratoryProtocolPdf(
+      "laboratory-result-1",
+      { baseUrl: "http://api.test" },
+    );
+
+    assert.equal(result.status, "ready");
+    assert.equal(result.status === "ready" ? result.filename : undefined, "Протокол.pdf");
+    assert.equal(
+      request.url,
+      "http://api.test/api/laboratory/results/laboratory-result-1/protocol.pdf",
+    );
+    assert.equal(new Headers(request.init.headers).get("Accept"), "application/pdf");
   } finally {
     globalThis.fetch = originalFetch;
   }

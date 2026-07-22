@@ -55,6 +55,7 @@ import {
   validateLaboratoryResultSubmission,
   type LaboratorySection,
 } from "../domain/laboratoryResult.js";
+import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
   refractoryReportLabels,
   validateRefractoryReportDecision,
@@ -110,6 +111,7 @@ import {
   createMaxNotificationService,
   type MaxNotificationService,
 } from "../integrations/maxNotifications.js";
+import { renderLaboratoryProtocolPdf } from "../integrations/laboratoryProtocolPdf.js";
 import type { RefractoryNotificationKind } from "../integrations/refractoryNotifications.js";
 import {
   DispatcherSpreadsheetImportChangedError,
@@ -414,7 +416,10 @@ export function createApiServer({
 
       if (
         url.pathname === "/api/laboratory/reference" ||
-        url.pathname === "/api/laboratory/results"
+        url.pathname === "/api/laboratory/results" ||
+        /^\/api\/laboratory\/results\/[a-zA-Z0-9-]{1,100}\/protocol\.pdf$/u.test(
+          url.pathname,
+        )
       ) {
         await handleLaboratoryRequest({
           req,
@@ -849,6 +854,50 @@ async function handleLaboratoryRequest({
     return;
   }
 
+  const protocolMatch =
+    /^\/api\/laboratory\/results\/([a-zA-Z0-9-]{1,100})\/protocol\.pdf$/u.exec(
+      url.pathname,
+    );
+  if (protocolMatch !== null) {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для протокола испытаний используется GET.",
+        },
+      });
+      return;
+    }
+    const resultId = protocolMatch[1];
+    const storedResult = resultId === undefined
+      ? undefined
+      : await laboratoryResults.findById(resultId);
+    if (storedResult === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Результат испытаний не найден.",
+        },
+      });
+      return;
+    }
+    const reference = storedResult.protocolReference ??
+      await readLaboratoryReferenceForRequest(
+        res,
+        laboratoryReferenceDataSource,
+      );
+    if (reference === undefined) return;
+    const pdf = await renderLaboratoryProtocolPdf(
+      buildLaboratoryProtocol(storedResult, reference),
+    );
+    sendPdf(
+      res,
+      pdf,
+      `Протокол испытаний ${storedResult.analysisDate}.pdf`,
+    );
+    return;
+  }
+
   if (req.method === "GET") {
     const sectionValue = url.searchParams.get("section") ?? undefined;
     const dateFrom = url.searchParams.get("dateFrom") ?? undefined;
@@ -947,6 +996,7 @@ async function handleLaboratoryRequest({
       submittedByUserId: access.profile.userId,
       submittedByAccountId: access.profile.activeAccess.accountId,
       laboratoryAssistantDisplayName: access.profile.displayName,
+      protocolReference: reference,
     }),
     buildEvent: (result) => ({
       actor: buildAuditActor(access.profile),
@@ -4939,6 +4989,22 @@ function sendJson(res: ServerResponse, statusCode: number, payload: JsonPayload)
     "cache-control": "no-store",
   });
   res.end(JSON.stringify(payload));
+}
+
+function sendPdf(res: ServerResponse, pdf: Buffer, filename: string) {
+  const asciiFilename = filename
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._ -]/gu, "")
+    .trim()
+    .replace(/\s+/gu, "-") || "laboratory-protocol.pdf";
+  res.writeHead(200, {
+    "content-type": "application/pdf",
+    "content-length": String(pdf.length),
+    "content-disposition":
+      `inline; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    "cache-control": "no-store",
+  });
+  res.end(pdf);
 }
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {

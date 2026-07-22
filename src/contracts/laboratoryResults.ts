@@ -23,10 +23,14 @@ export type LaboratoryIndicatorReference = {
 
 export type LaboratoryProductTypeReference = {
   label: string;
+  indicatorIds: LaboratoryIndicatorId[];
 };
+
+export type LaboratoryIncomingTestProfile = LaboratoryProductTypeReference;
 
 export type LaboratoryReference = {
   indicators: LaboratoryIndicatorReference[];
+  incomingTestProfiles: LaboratoryIncomingTestProfile[];
   finishedProductTypes: LaboratoryProductTypeReference[];
 };
 
@@ -43,6 +47,8 @@ export type IncomingLaboratoryResultSubmission = {
   section: "incoming";
   analysisDate: string;
   materialLabel: string;
+  purpose?: string;
+  protocolNote?: string;
   documentType?: "Сертификат на отгруженную продукцию";
   documentNumber?: string;
   transportType?: "ЖД" | "Автотранспорт грузовой" | "Легковой автотранспорт";
@@ -56,6 +62,8 @@ export type FinishedProductLaboratoryResultSubmission = {
   analysisDate: string;
   materialLabel: string;
   productBrand: string;
+  purpose?: string;
+  protocolNote?: string;
   values: LaboratoryIndicatorValues;
 };
 

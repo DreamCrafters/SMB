@@ -124,9 +124,23 @@ test("laboratory reference follows the live section and indicator matrix", () =>
         standard: "ГОСТ 27707-2007",
       },
     ],
+    incomingTestProfiles: [{
+      label: "Глина",
+      indicatorIds: [
+        "al2o3",
+        "fe2o3",
+        "sio2",
+        "loss_on_ignition",
+        "moisture",
+        "bulk_density",
+      ],
+    }],
     finishedProductTypes: [
-      { label: "Формованные изделия" },
-      { label: "Неформованные изделия" },
+      {
+        label: "Формованные изделия",
+        indicatorIds: ["al2o3", "fe2o3", "water_absorption", "strength"],
+      },
+      { label: "Неформованные изделия", indicatorIds: [] },
     ],
   });
 });

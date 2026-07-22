@@ -380,6 +380,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
     async read() {
       return {
         indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
+        incomingTestProfiles: [],
         finishedProductTypes: [],
       };
     },
@@ -406,6 +407,18 @@ test("laboratory API reads the live matrix and saves the session-authored result
             createdAt: "2026-07-22T08:30:00.000Z",
           }];
     },
+    async findById() {
+      return savedInput === undefined
+        ? undefined
+        : {
+            id: "laboratory-result-1",
+            ...savedInput.result,
+            protocolReference: savedInput.protocolReference,
+            laboratoryAssistantDisplayName:
+              savedInput.laboratoryAssistantDisplayName,
+            createdAt: "2026-07-22T08:30:00.000Z",
+          };
+    },
   };
 
   await withApiServer(
@@ -427,6 +440,8 @@ test("laboratory API reads the live matrix and saves the session-authored result
             section: "incoming",
             analysisDate: "2026-07-22",
             materialLabel: "Глина огнеупорная",
+            purpose: "Определение химического состава",
+            protocolNote: "Соответствует требованиям.",
             laboratoryAssistantDisplayName: "Подмена с клиента",
             samples: [{
               sampleIdentifier: "Вагон 12345",
@@ -439,11 +454,24 @@ test("laboratory API reads the live matrix and saves the session-authored result
         `${baseUrl}/api/laboratory/results?section=incoming&dateFrom=2026-07-01`,
         { headers },
       );
+      const protocolResponse = await fetch(
+        `${baseUrl}/api/laboratory/results/laboratory-result-1/protocol.pdf`,
+        { headers },
+      );
+      const protocol = Buffer.from(await protocolResponse.arrayBuffer());
 
       assert.equal(referenceResponse.status, 200);
       assert.equal(createResponse.status, 201);
       assert.equal(listResponse.status, 200);
+      assert.equal(protocolResponse.status, 200);
+      assert.equal(protocolResponse.headers.get("content-type"), "application/pdf");
+      assert.equal(protocol.subarray(0, 5).toString("ascii"), "%PDF-");
       assert.equal(savedInput?.laboratoryAssistantDisplayName, "Иванова Анна");
+      assert.deepEqual(savedInput?.protocolReference, {
+        indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
+        incomingTestProfiles: [],
+        finishedProductTypes: [],
+      });
       assert.equal(savedInput?.result.materialLabel, "Глина огнеупорная");
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
@@ -464,6 +492,25 @@ test("laboratory API reads the live matrix and saves the session-authored result
     undefined,
     laboratoryReferenceDataSource,
     laboratoryResults,
+  );
+});
+
+test("laboratory PDF protocol requires an authenticated laboratory access", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/laboratory/results/laboratory-result-1/protocol.pdf`,
+      );
+
+      assert.equal(response.status, 401);
+      assert.match(response.headers.get("content-type") ?? "", /application\/json/u);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
   );
 });
 

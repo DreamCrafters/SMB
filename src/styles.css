@@ -3999,6 +3999,22 @@ p {
   min-width: 150px;
 }
 
+.laboratory-protocol-cell {
+  min-width: 128px;
+  vertical-align: top;
+}
+
+.laboratory-protocol-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.laboratory-protocol-actions .secondary-button {
+  min-height: 34px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
 @media (max-width: 720px) {
   .laboratory-section-tabs,
   .laboratory-form-grid,

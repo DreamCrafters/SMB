@@ -11,6 +11,7 @@ import type {
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
+  requestLaboratoryProtocolPdf,
   requestLaboratoryReference,
   requestLaboratoryResults,
   submitLaboratoryResult,
@@ -43,6 +44,8 @@ type FormState = {
   analysisDate: string;
   materialLabel: string;
   productBrand: string;
+  purpose: string;
+  protocolNote: string;
   documentType: "" | "Сертификат на отгруженную продукцию";
   documentNumber: string;
   transportType: "" | "ЖД" | "Автотранспорт грузовой" | "Легковой автотранспорт";
@@ -254,6 +257,8 @@ export function LaboratoryResultsWorkspace({
           section,
           analysisDate: form.analysisDate,
           materialLabel: form.materialLabel.trim(),
+          purpose: form.purpose.trim(),
+          protocolNote: form.protocolNote.trim(),
           ...(form.documentType === "" ? {} : { documentType: form.documentType }),
           ...(form.documentNumber.trim() === ""
             ? {}
@@ -278,6 +283,8 @@ export function LaboratoryResultsWorkspace({
           analysisDate: form.analysisDate,
           materialLabel: selectedProductType?.label ?? form.materialLabel,
           productBrand: form.productBrand.trim(),
+          purpose: form.purpose.trim(),
+          protocolNote: form.protocolNote.trim(),
           values: readEnteredIndicatorValues(
             availableIndicators,
             form.values,
@@ -400,6 +407,7 @@ export function LaboratoryResultsWorkspace({
                 />
               </label>
             )}
+            <ProtocolValueFields form={form} updateFormField={updateFormField} />
             <label>
               <span>Лаборант</span>
               <input disabled readOnly value={profile.displayName} />
@@ -507,6 +515,8 @@ export function LaboratoryResultsWorkspace({
           section={section}
           results={historyState.results}
           indicators={historyIndicators}
+          isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
         />
       </section>
     </main>
@@ -624,10 +634,6 @@ function IncomingContextFields({
 }) {
   return (
     <>
-      <label className="laboratory-field-wide">
-        <span>Цель</span>
-        <input disabled readOnly value={incomingPurpose} />
-      </label>
       <label>
         <span>Документ на объект</span>
         <select value={form.documentType} onChange={(event) => {
@@ -675,14 +681,45 @@ function IncomingContextFields({
   );
 }
 
+function ProtocolValueFields({
+  form,
+  updateFormField,
+}: {
+  form: FormState;
+  updateFormField: <Key extends keyof FormState>(key: Key, value: FormState[Key]) => void;
+}) {
+  return (
+    <>
+      <label className="laboratory-field-wide">
+        <span>Цель испытаний</span>
+        <input required maxLength={2000} value={form.purpose} onChange={(event) => {
+          const value = event.currentTarget.value;
+          updateFormField("purpose", value);
+        }} />
+      </label>
+      <label className="laboratory-field-wide">
+        <span>Примечание к протоколу</span>
+        <textarea required maxLength={2000} value={form.protocolNote} onChange={(event) => {
+          const value = event.currentTarget.value;
+          updateFormField("protocolNote", value);
+        }} />
+      </label>
+    </>
+  );
+}
+
 function LaboratoryResultsTable({
   section,
   results,
   indicators,
+  isAdminPreviewMode,
+  onShowToast,
 }: {
   section: LaboratorySection;
   results: LaboratoryResult[];
   indicators: LaboratoryIndicatorReference[];
+  isAdminPreviewMode: boolean;
+  onShowToast: ShowToast;
 }) {
   if (results.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам результатов нет.</p>;
@@ -692,6 +729,7 @@ function LaboratoryResultsTable({
     result: LaboratoryResult;
     identifier: string;
     values: Partial<Record<LaboratoryIndicatorId, string>>;
+    protocolRowSpan: number;
   }> = [];
   for (const result of results) {
     if (result.section === "incoming") {
@@ -700,6 +738,7 @@ function LaboratoryResultsTable({
         result,
         identifier: sample.sampleIdentifier,
         values: sample.values,
+        protocolRowSpan: index === 0 ? result.samples.length : 0,
       }));
     } else {
       historyRows.push({
@@ -707,6 +746,7 @@ function LaboratoryResultsTable({
         result,
         identifier: result.productBrand,
         values: result.values,
+        protocolRowSpan: 1,
       });
     }
   }
@@ -721,6 +761,7 @@ function LaboratoryResultsTable({
             <th>{section === "incoming" ? "Номер пробы / транспорт" : "Марка"}</th>
             {indicators.map((indicator) => <th key={indicator.id}>{indicator.label}</th>)}
             <th>Лаборант</th>
+            <th>Протокол</th>
           </tr>
         </thead>
         <tbody>
@@ -733,10 +774,93 @@ function LaboratoryResultsTable({
                 <td key={indicator.id}>{row.values[indicator.id] ?? "—"}</td>
               ))}
               <td>{row.result.laboratoryAssistantDisplayName}</td>
+              {row.protocolRowSpan > 0 ? (
+                <td className="laboratory-protocol-cell" rowSpan={row.protocolRowSpan}>
+                  <LaboratoryProtocolActions
+                    disabled={isAdminPreviewMode}
+                    result={row.result}
+                    onShowToast={onShowToast}
+                  />
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function LaboratoryProtocolActions({
+  disabled,
+  result,
+  onShowToast,
+}: {
+  disabled: boolean;
+  result: LaboratoryResult;
+  onShowToast: ShowToast;
+}) {
+  const [activeAction, setActiveAction] = useState<"open" | "download" | null>(
+    null,
+  );
+
+  async function loadProtocol(action: "open" | "download") {
+    if (disabled || activeAction !== null) return;
+    const previewWindow = action === "open" ? window.open("", "_blank") : null;
+    if (previewWindow !== null) {
+      previewWindow.opener = null;
+      previewWindow.document.title = "Формируем протокол…";
+    }
+    setActiveAction(action);
+    const response = await requestLaboratoryProtocolPdf(result.id);
+    setActiveAction(null);
+
+    if (response.status === "error") {
+      previewWindow?.close();
+      onShowToast(
+        "Протокол не сформирован",
+        readShortUserMessage(
+          response.message,
+          "Не удалось сформировать протокол испытаний.",
+        ),
+      );
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(response.blob);
+    if (action === "open" && previewWindow !== null) {
+      previewWindow.location.href = objectUrl;
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = response.filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+  }
+
+  return (
+    <div className="laboratory-protocol-actions">
+      <button
+        className="secondary-button"
+        disabled={disabled || activeAction !== null}
+        type="button"
+        onClick={() => void loadProtocol("open")}
+      >
+        {activeAction === "open" ? "Открываем…" : "Открыть PDF"}
+      </button>
+      <button
+        className="secondary-button"
+        disabled={disabled || activeAction !== null}
+        type="button"
+        onClick={() => void loadProtocol("download")}
+      >
+        {activeAction === "download" ? "Скачиваем…" : "Скачать PDF"}
+      </button>
     </div>
   );
 }
@@ -746,6 +870,8 @@ function createEmptyForm(): FormState {
     analysisDate: formatLocalCalendarDate(new Date()),
     materialLabel: "",
     productBrand: "",
+    purpose: incomingPurpose,
+    protocolNote: "",
     documentType: "",
     documentNumber: "",
     transportType: "",
@@ -814,6 +940,8 @@ function validateForm(
   productBrands: readonly string[],
 ) {
   if (form.analysisDate === "") return "Укажите дату анализа.";
+  if (form.purpose.trim() === "") return "Укажите цель испытаний.";
+  if (form.protocolNote.trim() === "") return "Укажите примечание к протоколу.";
   if (section === "incoming") {
     if (form.materialLabel.trim() === "") return "Укажите объект испытаний.";
     if (form.samples.length === 0) return "Добавьте хотя бы одну пробу.";

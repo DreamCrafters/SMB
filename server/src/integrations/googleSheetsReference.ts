@@ -67,10 +67,17 @@ export type LaboratoryIndicatorReference = {
 
 export type LaboratoryProductTypeReference = {
   label: string;
+  indicatorIds: LaboratoryIndicatorId[];
+};
+
+export type LaboratoryIncomingTestProfile = {
+  label: string;
+  indicatorIds: LaboratoryIndicatorId[];
 };
 
 export type LaboratoryReferenceData = {
   indicators: LaboratoryIndicatorReference[];
+  incomingTestProfiles: LaboratoryIncomingTestProfile[];
   finishedProductTypes: LaboratoryProductTypeReference[];
 };
 
@@ -978,27 +985,40 @@ export function readLaboratoryReferenceFromRows(
         ...(standard.length === 0 ? {} : { standard }),
       };
     }),
+    incomingTestProfiles: [],
     finishedProductTypes: [],
   };
+  const seenIncomingTestProfiles = new Set<string>();
   const seenFinishedProductTypes = new Set<string>();
 
   for (const row of rows.slice(headerRowIndex + 1)) {
     const section = normalizeHeader(row[0] ?? "");
-    if (section !== "готовая продукция") continue;
+    if (section !== "сырье" && section !== "готовая продукция") continue;
 
     const label = (row[1] ?? "").trim().replace(/\s+/gu, " ");
     const normalizedLabel = normalizeOption(label);
+    const indicatorIds = indicatorColumns.flatMap(({ columnIndex, definition }) =>
+      (row[columnIndex] ?? "").trim().length === 0 ? [] : [definition.id]
+    );
+    const seenLabels = section === "сырье"
+      ? seenIncomingTestProfiles
+      : seenFinishedProductTypes;
 
     if (
       label.length === 0 ||
       label.length > 120 ||
-      seenFinishedProductTypes.has(normalizedLabel)
+      seenLabels.has(normalizedLabel)
     ) {
       continue;
     }
 
-    seenFinishedProductTypes.add(normalizedLabel);
-    result.finishedProductTypes.push({ label });
+    seenLabels.add(normalizedLabel);
+    const profile = { label, indicatorIds };
+    if (section === "сырье") {
+      result.incomingTestProfiles.push(profile);
+    } else {
+      result.finishedProductTypes.push(profile);
+    }
   }
 
   return result;
