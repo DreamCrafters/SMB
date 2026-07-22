@@ -3,6 +3,7 @@ import {
   refractoryEquipmentNames,
   refractoryReportLabels,
   type RefractoryCoshPayload,
+  type RefractoryBanksResponse,
   type RefractoryEquipmentPayload,
   type RefractoryFiringPayload,
   type RefractoryReportRevision,
@@ -15,8 +16,15 @@ import {
   countReturnedRefractoryReportsByType,
   decideRefractoryReport,
   requestRefractoryReports,
+  requestRefractoryBanks,
   submitRefractoryReport,
 } from "./services/refractoryReports";
+import {
+  bankNumbers,
+  calculateBankMeasurement,
+  type BankMeasurementCalculation,
+  type BankNumber,
+} from "./services/bankMeasurements";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import { readRefractoryShiftContext } from "./services/refractoryShift";
 import { isProductionAppEnv } from "./services/appEnvironment";
@@ -54,6 +62,10 @@ const reportStatusLabels = {
 } as const;
 
 type ShowToast = (title: string, message: string) => void;
+type RefractoryBanksState =
+  | { status: "loading" }
+  | ({ status: "ready" } & RefractoryBanksResponse)
+  | { status: "error"; message: string };
 
 export function RefractoryShopWorkspace({
   profile,
@@ -81,12 +93,34 @@ export function RefractoryShopWorkspace({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isCorrectionMode, setIsCorrectionMode] = useState(false);
+  const [banksState, setBanksState] = useState<RefractoryBanksState>({
+    status: "loading",
+  });
   const canCreateBrands = !isAdminPreviewMode && isProductionAppEnv();
   const {
     labels: brandLabels,
     loadState: nomenclatureState,
     createBrand: handleCreateBrand,
   } = useProductionBrands({ creationDisabled: !canCreateBrands });
+
+  useEffect(() => {
+    if (isAdminPreviewMode) {
+      setBanksState({ status: "error", message: "В режиме просмотра назначения банок не загружаются." });
+      return;
+    }
+    const controller = new AbortController();
+    setBanksState({ status: "loading" });
+    requestRefractoryBanks({ signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) return;
+      setBanksState(result.status === "ready"
+        ? result
+        : {
+            status: "error",
+            message: readShortUserMessage(result.message, "Не удалось загрузить назначения банок."),
+          });
+    });
+    return () => controller.abort();
+  }, [isAdminPreviewMode, refreshVersion]);
 
   useEffect(() => {
     setIsCorrectionMode(false);
@@ -142,6 +176,22 @@ export function RefractoryShopWorkspace({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isLocked) return;
+    if (activeType === "cosh") {
+      if (banksState.status !== "ready") {
+        setHasError(true);
+        setStatus("Дождитесь загрузки назначений и справочника банок.");
+        return;
+      }
+      if (bankNumbers.some((bankNumber) =>
+        !banksState.currentAssignments.some(
+          (assignment) => assignment.bankNumber === bankNumber,
+        )
+      )) {
+        setHasError(true);
+        setStatus("Лаборатория должна назначить содержимое всех трёх банок.");
+        return;
+      }
+    }
     const form = event.currentTarget;
     const fieldErrors = validateRefractoryForm(form);
     if (fieldErrors.length > 0) {
@@ -321,6 +371,9 @@ export function RefractoryShopWorkspace({
                     ? activeReport.payload
                     : undefined
                 }
+                bankData={banksState.status === "ready" ? banksState : undefined}
+                bankDataMessage={banksState.status === "error" ? banksState.message : undefined}
+                isLocked={isLocked}
               />
             ) : activeType === "equipment" ? (
               <EquipmentForm
@@ -401,7 +454,61 @@ function RefractoryReportState({
   );
 }
 
-function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
+function CoshForm({
+  payload = {},
+  bankData,
+  bankDataMessage,
+  isLocked,
+}: {
+  payload?: RefractoryCoshPayload;
+  bankData?: RefractoryBanksResponse;
+  bankDataMessage?: string;
+  isLocked: boolean;
+}) {
+  const [jarDrafts, setJarDrafts] = useState<Record<BankNumber, string[]>>(() =>
+    Object.fromEntries(bankNumbers.map((bankNumber) => {
+      const saved = payload.jarMeasurements?.find(
+        (item) => item.jarNumber === bankNumber,
+      );
+      return [
+        bankNumber,
+        saved === undefined
+          ? Array.from({ length: 4 }, () => "")
+          : saved.values.map(String),
+      ];
+    })) as Record<BankNumber, string[]>,
+  );
+
+  function updateJarMeasurement(
+    bankNumber: BankNumber,
+    index: number,
+    rawValue: string,
+  ) {
+    const value = normalizeDecimalNumberInput(rawValue);
+    setJarDrafts((current) => ({
+      ...current,
+      [bankNumber]: current[bankNumber].map((item, itemIndex) =>
+        itemIndex === index ? value : item
+      ),
+    }));
+  }
+
+  function addJarMeasurement(bankNumber: BankNumber) {
+    setJarDrafts((current) => ({
+      ...current,
+      [bankNumber]: [...current[bankNumber], ""],
+    }));
+  }
+
+  function removeJarMeasurement(bankNumber: BankNumber, index: number) {
+    setJarDrafts((current) => current[bankNumber].length <= 1
+      ? current
+      : {
+          ...current,
+          [bankNumber]: current[bankNumber].filter((_, itemIndex) => itemIndex !== index),
+        });
+  }
+
   return (
     <div className="refractory-form-sections">
       <h3 className="refractory-paper-title">Сводка по ЦОШ (ежесменная)</h3>
@@ -442,23 +549,93 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
         </div>
       </ReportSection>
       <ReportSection title="Замеры банок">
-        <div className="refractory-mini-table">
-          {[1, 2, 3].map((jarNumber) => {
-            const row = payload.jarMeasurements?.find(
-              (item) => item.jarNumber === jarNumber,
+        {bankDataMessage === undefined ? null : (
+          <p className="form-status form-status-error" role="alert">{bankDataMessage}</p>
+        )}
+        <p className="refractory-section-note">
+          Для каждой банки внесите хотя бы один замер. Количество замеров может отличаться.
+        </p>
+        <div className="bank-measurements-grid refractory-bank-measurements">
+          {bankNumbers.map((bankNumber) => {
+            const savedRow = payload.jarMeasurements?.find(
+              (item) => item.jarNumber === bankNumber,
             );
+            const assignment = bankData?.currentAssignments.find(
+              (item) => item.bankNumber === bankNumber,
+            );
+            const calculation = isLocked
+              ? readStoredBankCalculation(savedRow)
+              : readDraftBankCalculation(
+                  assignment,
+                  jarDrafts[bankNumber],
+                  bankData?.volumeReference,
+                );
+            const material = isLocked
+              ? savedRow?.material
+              : assignment?.materialLabel;
+            const density = isLocked
+              ? savedRow?.bulkDensityTonsPerCubicMeter
+              : assignment?.bulkDensityTonsPerCubicMeter;
             return (
-              <div className="refractory-mini-row" key={jarNumber}>
-                <strong>{["I", "II", "III"][jarNumber - 1]}</strong>
-                {[0, 1, 2, 3].map((index) => (
-                  <NumberField
-                    key={index}
-                    name={`jar.${jarNumber}.${index}`}
-                    label={`Замер ${index + 1}`}
-                    value={row?.values[index]}
-                  />
-                ))}
-              </div>
+              <article className="bank-measurement-card" data-bank-number={bankNumber} key={bankNumber}>
+                <header>
+                  <div>
+                    <span>Банка {readBankLabel(bankNumber)}</span>
+                    <strong>{material ?? "Не назначено"}</strong>
+                  </div>
+                  <small>
+                    {density === undefined
+                      ? "Лаборатория должна выбрать пробу"
+                      : `Насыпной вес ${formatTableTotal(density)} т/м³`}
+                  </small>
+                </header>
+                <div className="bank-measurement-inputs">
+                  {jarDrafts[bankNumber].map((value, index) => (
+                    <label key={index}>
+                      <span>Замер {index + 1}, м</span>
+                      <span className="bank-measurement-input-row">
+                        <input
+                          aria-label={`Банка ${readBankLabel(bankNumber)}: замер ${index + 1}`}
+                          data-refractory-label={`Банка ${readBankLabel(bankNumber)}: замер ${index + 1}`}
+                          data-refractory-max={bankData?.volumeReference.points.at(-1)?.heightMeters}
+                          data-refractory-number="decimal"
+                          inputMode="decimal"
+                          maxLength={20}
+                          name={`jar.${bankNumber}.${index}`}
+                          pattern={decimalNumberInputPattern}
+                          title={decimalNumberInputTitle}
+                          type="text"
+                          value={value}
+                          onChange={(event) => {
+                            const rawValue = event.currentTarget.value;
+                            clearRefractoryFieldError(event.currentTarget);
+                            updateJarMeasurement(bankNumber, index, rawValue);
+                          }}
+                        />
+                        <button
+                          aria-label={`Удалить замер ${index + 1} банки ${readBankLabel(bankNumber)}`}
+                          disabled={jarDrafts[bankNumber].length <= 1}
+                          type="button"
+                          onClick={() => removeJarMeasurement(bankNumber, index)}
+                        >×</button>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  className="bank-measurement-add"
+                  type="button"
+                  onClick={() => addJarMeasurement(bankNumber)}
+                >
+                  Добавить замер
+                </button>
+                {assignment === undefined && !isLocked ? (
+                  <p className="bank-measurement-error">Содержимое банки ещё не назначено.</p>
+                ) : calculation?.error === undefined ? null : (
+                  <p className="bank-measurement-error" role="alert">{calculation.error}</p>
+                )}
+                <BankCalculationResults calculation={calculation?.value} />
+              </article>
             );
           })}
         </div>
@@ -558,6 +735,81 @@ function CoshForm({ payload = {} }: { payload?: RefractoryCoshPayload }) {
       </ReportSection>
     </div>
   );
+}
+
+type BankCalculationDisplay = Pick<
+  BankMeasurementCalculation,
+  "averageHeightMeters" | "volumeCubicMeters" | "materialMassTons"
+>;
+
+function BankCalculationResults({
+  calculation,
+}: {
+  calculation?: BankCalculationDisplay;
+}) {
+  return (
+    <dl className="bank-measurement-results">
+      <div>
+        <dt>Средний замер</dt>
+        <dd>{formatBankResult(calculation?.averageHeightMeters, "м")}</dd>
+      </div>
+      <div>
+        <dt>Объём</dt>
+        <dd>{formatBankResult(calculation?.volumeCubicMeters, "м³")}</dd>
+      </div>
+      <div className="bank-measurement-mass">
+        <dt>Масса материала</dt>
+        <dd>{formatBankResult(calculation?.materialMassTons, "т")}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function readStoredBankCalculation(
+  row: NonNullable<RefractoryCoshPayload["jarMeasurements"]>[number] | undefined,
+): { value?: BankCalculationDisplay; error?: string } | undefined {
+  if (
+    row?.averageHeightMeters === undefined ||
+    row.volumeCubicMeters === undefined ||
+    row.materialMassTons === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    value: {
+      averageHeightMeters: row.averageHeightMeters,
+      volumeCubicMeters: row.volumeCubicMeters,
+      materialMassTons: row.materialMassTons,
+    },
+  };
+}
+
+function readDraftBankCalculation(
+  assignment: RefractoryBanksResponse["currentAssignments"][number] | undefined,
+  values: readonly string[],
+  volumeReference: RefractoryBanksResponse["volumeReference"] | undefined,
+): { value?: BankCalculationDisplay; error?: string } | undefined {
+  if (assignment === undefined || volumeReference === undefined) return undefined;
+  const measurements = values.flatMap((value) => {
+    if (value.length === 0 || value.endsWith(".")) return [];
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? [parsed] : [];
+  });
+  if (measurements.length === 0) return undefined;
+  const result = calculateBankMeasurement({
+    assignment,
+    measurements,
+    volumeReference,
+  });
+  return result.ok ? { value: result.value } : { error: result.error };
+}
+
+function readBankLabel(bankNumber: BankNumber) {
+  return ({ 1: "I", 2: "II", 3: "III" } as const)[bankNumber];
+}
+
+function formatBankResult(value: number | undefined, unit: string) {
+  return value === undefined ? "—" : `${formatTableTotal(value)} ${unit}`;
 }
 
 const equipmentColumns = [
@@ -1314,7 +1566,7 @@ function ReportPreview({ report }: { report: RefractoryReportRevision }) {
     <div className="refractory-full-preview">
       <fieldset disabled>
         {report.reportType === "cosh" ? (
-          <CoshForm payload={report.payload} />
+          <CoshForm payload={report.payload} isLocked />
         ) : report.reportType === "equipment" ? (
           <EquipmentForm payload={report.payload} />
         ) : (
@@ -1573,9 +1825,19 @@ function buildCoshPayload(data: FormData): RefractoryCoshPayload {
     "chamotteOutput",
   );
   const jarMeasurements = ([1, 2, 3] as const).flatMap((jarNumber) => {
-    const values = [0, 1, 2, 3].flatMap((index) =>
-      optionalNumber(data, `jar.${jarNumber}.${index}`),
-    );
+    const prefix = `jar.${jarNumber}.`;
+    const values = Array.from(data.entries())
+      .flatMap(([name, rawValue]) => {
+        if (!name.startsWith(prefix) || typeof rawValue !== "string") return [];
+        const index = Number(name.slice(prefix.length));
+        const value = rawValue.trim().replace(",", ".");
+        return Number.isSafeInteger(index) && value.length > 0
+          ? [{ index, value: Number(value) }]
+          : [];
+      })
+      .filter((item) => Number.isFinite(item.value))
+      .sort((left, right) => left.index - right.index)
+      .map((item) => item.value);
     return values.length === 0 ? [] : [{ jarNumber, values }];
   });
   return compact({

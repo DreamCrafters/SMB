@@ -9,6 +9,7 @@ import type {
   ServerUserProfile,
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   requestLaboratoryProtocolPdf,
@@ -74,6 +75,7 @@ export function LaboratoryResultsWorkspace({
   onShowToast: ShowToast;
 }) {
   const [section, setSection] = useState<LaboratorySection>("incoming");
+  const [isBanksOpen, setIsBanksOpen] = useState(false);
   const [referenceState, setReferenceState] = useState<ReferenceState>({
     status: "loading",
   });
@@ -165,6 +167,7 @@ export function LaboratoryResultsWorkspace({
 
   function selectSection(nextSection: LaboratorySection) {
     setSection(nextSection);
+    setIsBanksOpen(false);
     setForm(createEmptyForm());
     setFormMessage("");
     setMaterialFilter("");
@@ -329,8 +332,8 @@ export function LaboratoryResultsWorkspace({
       <div className="laboratory-section-tabs" role="tablist" aria-label="Раздел контроля">
         {(Object.keys(sectionLabels) as LaboratorySection[]).map((item) => (
           <button
-            aria-selected={section === item}
-            className={section === item ? "is-active" : ""}
+            aria-selected={!isBanksOpen && section === item}
+            className={!isBanksOpen && section === item ? "is-active" : ""}
             key={item}
             role="tab"
             type="button"
@@ -339,8 +342,27 @@ export function LaboratoryResultsWorkspace({
             {sectionLabels[item]}
           </button>
         ))}
+        <button
+          aria-selected={isBanksOpen}
+          className={isBanksOpen ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setIsBanksOpen(true);
+            setFormMessage("");
+          }}
+        >
+          Банки
+        </button>
       </div>
 
+      {isBanksOpen ? (
+        <LaboratoryBanksPanel
+          isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
+        />
+      ) : (
+        <>
       {referenceState.status === "loading" ? (
         <LoadingIndicator label="Загружаем справочник лаборатории…" />
       ) : referenceState.status === "error" ? (
@@ -519,6 +541,8 @@ export function LaboratoryResultsWorkspace({
           onShowToast={onShowToast}
         />
       </section>
+        </>
+      )}
     </main>
   );
 }

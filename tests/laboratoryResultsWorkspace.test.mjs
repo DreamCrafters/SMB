@@ -58,6 +58,30 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
       if (url.pathname === "/api/production-brands") {
         return jsonResponse({ labels: ["ША-22"] });
       }
+      if (url.pathname === "/api/laboratory/banks") {
+        return jsonResponse({
+          currentAssignments: [{
+            assignmentId: "assignment-1",
+            bankNumber: 1,
+            laboratoryResultId: "laboratory-result-existing",
+            sampleIndex: 0,
+            sampleIdentifier: "Вагон 100",
+            materialLabel: "Глина",
+            bulkDensityTonsPerCubicMeter: 1.16,
+            assignedByDisplayName: "Иванова Анна",
+            assignedAt: "2026-07-22T08:30:00.000Z",
+          }],
+          history: [],
+          eligibleSamples: [{
+            laboratoryResultId: "laboratory-result-existing",
+            sampleIndex: 0,
+            sampleIdentifier: "Вагон 100",
+            materialLabel: "Глина",
+            analysisDate: "2026-07-21",
+            bulkDensityTonsPerCubicMeter: 1.16,
+          }],
+        });
+      }
       if (url.pathname === "/api/laboratory/results" && init.method === "POST") {
         const submission = JSON.parse(String(init.body));
         submissions.push(submission);
@@ -195,6 +219,16 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
         values: { strength: "38,1" },
       },
     ]);
+    const banksTab = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Банки",
+    );
+    assert.ok(banksTab);
+    await React.act(async () => banksTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelectorAll(".laboratory-bank-card").length === 3
+    );
+    assert.match(rootElement.textContent, /Насыпной вес: 1,16 т\/м³/u);
+    assert.match(rootElement.textContent, /21\.07\.2026 · Глина · Вагон 100/u);
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;

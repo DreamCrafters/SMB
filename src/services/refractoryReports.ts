@@ -7,6 +7,8 @@ import {
   type RefractoryReportType,
   type RefractoryShiftNumber,
 } from "../contracts/refractoryReports.js";
+import type { RefractoryBanksResponse } from "../contracts/laboratoryBanks.js";
+import { isLaboratoryBankAssignment } from "./laboratoryBanks.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
   describeRemoteNetworkFailure,
@@ -50,6 +52,18 @@ export type RefractoryReportsResult =
 export type RefractoryReportResult =
   | { status: "ready"; report: RefractoryReportRevision }
   | ErrorResult;
+export type RefractoryBanksResult =
+  | ({ status: "ready" } & RefractoryBanksResponse)
+  | ErrorResult;
+
+export async function requestRefractoryBanks(
+  options: RequestOptions = {},
+): Promise<RefractoryBanksResult> {
+  const result = await requestJson(`${REPORTS_PATH}/banks`, "GET", undefined, options);
+  if (result.status === "error") return result;
+  if (!isRefractoryBanksResponse(result.payload)) return invalidResponse();
+  return { status: "ready", ...result.payload };
+}
 
 export async function requestRefractoryReports(
   reportDate: string,
@@ -295,6 +309,22 @@ function isReportsResponse(
     Array.isArray(value.reports) &&
     value.reports.every(isReport)
   );
+}
+
+function isRefractoryBanksResponse(value: unknown): value is RefractoryBanksResponse {
+  return isRecord(value) &&
+    Array.isArray(value.currentAssignments) &&
+    value.currentAssignments.every(isLaboratoryBankAssignment) &&
+    isRecord(value.volumeReference) &&
+    Array.isArray(value.volumeReference.points) &&
+    value.volumeReference.points.length >= 2 &&
+    value.volumeReference.points.every((point) =>
+      isRecord(point) &&
+      typeof point.heightMeters === "number" &&
+      Number.isFinite(point.heightMeters) &&
+      typeof point.volumeCubicMeters === "number" &&
+      Number.isFinite(point.volumeCubicMeters)
+    );
 }
 
 function isReport(value: unknown): value is RefractoryReportRevision {

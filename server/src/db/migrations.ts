@@ -1134,6 +1134,37 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "024_laboratory_bank_assignments",
+    statements: [
+      `
+      create table if not exists laboratory_bank_assignments (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        bank_number tinyint unsigned not null,
+        laboratory_result_id char(36) not null,
+        sample_index int unsigned not null,
+        sample_identifier varchar(255) not null,
+        material_label varchar(120) not null,
+        bulk_density decimal(14,6) not null,
+        assigned_by_user_id varchar(120) not null,
+        assigned_by_account_id varchar(120) not null,
+        assigned_by_display_name varchar(255) not null,
+        assigned_at timestamp(3) not null default current_timestamp(3),
+        unique key uniq_laboratory_bank_assignment_id (id),
+        key idx_laboratory_bank_assignment_current (bank_number, sequence_id),
+        key idx_laboratory_bank_assignment_result (laboratory_result_id),
+        constraint fk_laboratory_bank_assignment_result
+          foreign key (laboratory_result_id) references laboratory_results(id)
+          on delete restrict,
+        constraint chk_laboratory_bank_assignment_number
+          check (bank_number in (1, 2, 3)),
+        constraint chk_laboratory_bank_assignment_density
+          check (bulk_density > 0)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

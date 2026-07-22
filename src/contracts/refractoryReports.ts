@@ -32,7 +32,21 @@ export type RefractoryCoshPayload = {
   chamotteOutput?: Partial<Record<"shbo" | "shgr1" | "shgr2" | "shki", number>>;
   loadingBucketsPerHour?: number;
   totalLoadingBuckets?: number;
-  jarMeasurements?: Array<{ jarNumber: 1 | 2 | 3; values: number[] }>;
+  jarMeasurements?: Array<{
+    jarNumber: 1 | 2 | 3;
+    values: number[];
+    bankLabel?: string;
+    material?: string;
+    assignmentId?: string;
+    laboratoryResultId?: string;
+    sampleIndex?: number;
+    sampleIdentifier?: string;
+    assignmentAssignedAt?: string;
+    averageHeightMeters?: number;
+    volumeCubicMeters?: number;
+    bulkDensityTonsPerCubicMeter?: number;
+    materialMassTons?: number;
+  }>;
   bunkerFill?: Array<{
     bunker: "I" | "II" | "III" | "IV";
     productName?: string;

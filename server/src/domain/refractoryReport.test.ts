@@ -130,7 +130,7 @@ test("COSH report accepts the shift summary and calculates section totals", () =
       totalLoadingBuckets: 64,
       jarMeasurements: [
         { jarNumber: 1, values: [24, 25, 24, 26] },
-        { jarNumber: 2, values: [30] },
+        { jarNumber: 2, values: [30, 30.1, 30.2, 30.3, 30.4] },
       ],
       bunkerFill: [
         { bunker: "I", productName: "ШБО", quantity: 5 },

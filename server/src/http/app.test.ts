@@ -19,6 +19,7 @@ import {
 import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
 import type {
   DispatcherReferenceDataSource,
+  BankVolumeReferenceDataSource,
   LaboratoryReferenceDataSource,
   NotificationRecipients,
   ProductionBrandsDataSource,
@@ -41,6 +42,7 @@ import type {
   RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
+import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import { createApiServer } from "./app.js";
 
@@ -379,7 +381,10 @@ test("laboratory API reads the live matrix and saves the session-authored result
   const laboratoryReferenceDataSource: LaboratoryReferenceDataSource = {
     async read() {
       return {
-        indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
+        indicators: [
+          { id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" },
+          { id: "bulk_density", label: "Насыпной вес" },
+        ],
         incomingTestProfiles: [],
         finishedProductTypes: [],
       };
@@ -420,6 +425,40 @@ test("laboratory API reads the live matrix and saves the session-authored result
           };
     },
   };
+  let currentBankAssignments: Awaited<ReturnType<
+    LaboratoryBankAssignmentsRepository["listCurrent"]
+  >> = [];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign(input) {
+      const assignment = {
+        assignmentId: "bank-assignment-1",
+        bankNumber: input.bankNumber,
+        laboratoryResultId: input.laboratoryResultId,
+        sampleIndex: input.sampleIndex,
+        sampleIdentifier: input.sampleIdentifier,
+        materialLabel: input.materialLabel,
+        bulkDensityTonsPerCubicMeter: input.bulkDensityTonsPerCubicMeter,
+        assignedByDisplayName: input.assignedByDisplayName,
+        assignedAt: "2026-07-22T09:00:00.000Z",
+      };
+      currentBankAssignments = [assignment];
+      return assignment;
+    },
+    async listCurrent() {
+      return currentBankAssignments;
+    },
+    async listHistory() {
+      return currentBankAssignments;
+    },
+  };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return { points: [
+        { heightMeters: 0, volumeCubicMeters: 988.5 },
+        { heightMeters: 15, volumeCubicMeters: 0 },
+      ] };
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -445,7 +484,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
             laboratoryAssistantDisplayName: "Подмена с клиента",
             samples: [{
               sampleIdentifier: "Вагон 12345",
-              values: { al2o3: "31,4" },
+              values: { al2o3: "31,4", bulk_density: "1,16" },
             }],
           }),
         },
@@ -459,6 +498,22 @@ test("laboratory API reads the live matrix and saves the session-authored result
         { headers },
       );
       const protocol = Buffer.from(await protocolResponse.arrayBuffer());
+      const assignBankResponse = await fetch(
+        `${baseUrl}/api/laboratory/banks`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            bankNumber: 1,
+            laboratoryResultId: "laboratory-result-1",
+            sampleIndex: 0,
+          }),
+        },
+      );
+      const banksResponse = await fetch(`${baseUrl}/api/laboratory/banks`, {
+        headers,
+      });
+      const banksPayload = await banksResponse.json();
 
       assert.equal(referenceResponse.status, 200);
       assert.equal(createResponse.status, 201);
@@ -466,9 +521,21 @@ test("laboratory API reads the live matrix and saves the session-authored result
       assert.equal(protocolResponse.status, 200);
       assert.equal(protocolResponse.headers.get("content-type"), "application/pdf");
       assert.equal(protocol.subarray(0, 5).toString("ascii"), "%PDF-");
+      assert.equal(assignBankResponse.status, 201);
+      assert.equal(banksResponse.status, 200);
+      assert.equal(
+        isRecord(banksPayload) && Array.isArray(banksPayload.currentAssignments)
+          ? banksPayload.currentAssignments[0]?.materialLabel
+          : undefined,
+        "Глина огнеупорная",
+      );
+      assert.equal(currentBankAssignments[0]?.bulkDensityTonsPerCubicMeter, 1.16);
       assert.equal(savedInput?.laboratoryAssistantDisplayName, "Иванова Анна");
       assert.deepEqual(savedInput?.protocolReference, {
-        indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
+        indicators: [
+          { id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" },
+          { id: "bulk_density", label: "Насыпной вес" },
+        ],
         incomingTestProfiles: [],
         finishedProductTypes: [],
       });
@@ -492,6 +559,8 @@ test("laboratory API reads the live matrix and saves the session-authored result
     undefined,
     laboratoryReferenceDataSource,
     laboratoryResults,
+    laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
   );
 });
 
@@ -511,6 +580,105 @@ test("laboratory PDF protocol requires an authenticated laboratory access", asyn
     undefined,
     adminDatabase,
     productionConfig,
+  );
+});
+
+test("COSH API calculates and snapshots all three current bank assignments", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.displayName = "Мастер ОЦ";
+  profile.activeAccess.navigationItems = ["business.refractory_shop"];
+  profile.activeAccess.capabilities = ["business.submit_refractory_reports"];
+  let stored: RefractoryReportRevision | undefined;
+  const refractoryReports: RefractoryReportsRepository = {
+    async submit(input) {
+      stored = {
+        id: "cosh-report-1",
+        ...input.report,
+        revisionNumber: 1,
+        status: "pending",
+        submittedByUserId: input.submittedByUserId,
+        submittedByAccountId: input.submittedByAccountId,
+        masterDisplayName: input.masterDisplayName,
+        submittedAt: "2026-07-23T10:00:00.000Z",
+      };
+      return stored;
+    },
+    async listLatestForShift() { return []; },
+    async listPending() { return []; },
+    async listRecentForSubmitter() { return []; },
+    async review() { throw new Error("not used"); },
+  };
+  const assignments = [
+    buildLaboratoryBankAssignment(1, "ШКИ", 1),
+    buildLaboratoryBankAssignment(2, "ШКИ-66", 2),
+    buildLaboratoryBankAssignment(3, "ШГР-28", 3),
+  ];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() { throw new Error("not used"); },
+    async listCurrent() { return assignments; },
+    async listHistory() { return assignments; },
+  };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return { points: [
+        { heightMeters: 0, volumeCubicMeters: 100 },
+        { heightMeters: 1, volumeCubicMeters: 80 },
+        { heightMeters: 2, volumeCubicMeters: 40 },
+        { heightMeters: 3, volumeCubicMeters: 0 },
+      ] };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/refractory-reports`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: "smb_session=prod-session",
+        },
+        body: JSON.stringify({
+          reportType: "cosh",
+          reportDate: "2026-07-23",
+          shiftNumber: 1,
+          payload: { jarMeasurements: [
+            { jarNumber: 1, values: [1, 1] },
+            { jarNumber: 2, values: [2] },
+            { jarNumber: 3, values: [3] },
+          ] },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      assert.equal(stored?.reportType, "cosh");
+      if (stored?.reportType !== "cosh") return;
+      const rows = (stored.payload as {
+        jarMeasurements?: Array<{ material?: string; materialMassTons?: number }>;
+      }).jarMeasurements;
+      const totals = stored.totals as { jarMaterialMassTons?: number };
+      assert.equal(rows?.[0]?.material, "ШКИ");
+      assert.equal(rows?.[1]?.materialMassTons, 80);
+      assert.equal(rows?.[2]?.materialMassTons, 0);
+      assert.equal(totals.jarMaterialMassTons, 160);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    refractoryReports,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
   );
 });
 
@@ -4912,6 +5080,8 @@ async function withApiServer(
   refractoryReports?: RefractoryReportsRepository,
   laboratoryReferenceDataSource?: LaboratoryReferenceDataSource,
   laboratoryResults?: LaboratoryResultsRepository,
+  laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository,
+  bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -4938,6 +5108,8 @@ async function withApiServer(
     refractoryReports,
     laboratoryReferenceDataSource,
     laboratoryResults,
+    laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,
     productionSnapshot,
@@ -4954,6 +5126,24 @@ async function withApiServer(
     server.close();
     await once(server, "close");
   }
+}
+
+function buildLaboratoryBankAssignment(
+  bankNumber: 1 | 2 | 3,
+  materialLabel: string,
+  bulkDensityTonsPerCubicMeter: number,
+) {
+  return {
+    assignmentId: `assignment-${bankNumber}`,
+    bankNumber,
+    laboratoryResultId: `result-${bankNumber}`,
+    sampleIndex: 0,
+    sampleIdentifier: `Проба ${bankNumber}`,
+    materialLabel,
+    bulkDensityTonsPerCubicMeter,
+    assignedByDisplayName: "Лаборант",
+    assignedAt: "2026-07-23T08:00:00.000Z",
+  };
 }
 
 async function createDispatcherHeaders(baseUrl: string) {

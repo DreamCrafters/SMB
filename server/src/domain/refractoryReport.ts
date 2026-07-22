@@ -83,6 +83,17 @@ export type RefractoryCoshPayload = {
   jarMeasurements?: Array<{
     jarNumber: 1 | 2 | 3;
     values: number[];
+    bankLabel?: string;
+    material?: string;
+    assignmentId?: string;
+    laboratoryResultId?: string;
+    sampleIndex?: number;
+    sampleIdentifier?: string;
+    assignmentAssignedAt?: string;
+    averageHeightMeters?: number;
+    volumeCubicMeters?: number;
+    bulkDensityTonsPerCubicMeter?: number;
+    materialMassTons?: number;
   }>;
   bunkerFill?: Array<{
     bunker: "I" | "II" | "III" | "IV";
@@ -115,6 +126,7 @@ export type RefractoryCoshTotals = {
   chamotteSupplyTons: number;
   baggingTons: number;
   scrapRemovalTons: number;
+  jarMaterialMassTons?: number;
 };
 
 export type RefractoryFiringRow = {
@@ -600,7 +612,7 @@ function readJarMeasurements(
         value.jarNumber !== 2 &&
         value.jarNumber !== 3) ||
       !Array.isArray(value.values) ||
-      value.values.length > 4 ||
+      value.values.length > 100 ||
       value.values.length === 0 ||
       value.values.some((entry) => !isValidNumber(entry))
     ) {

@@ -74,6 +74,21 @@ test("refractory workspace opens one of three independent table buttons", async 
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
+      if (url.pathname.endsWith("/refractory-reports/banks")) {
+        return new Response(JSON.stringify({
+          currentAssignments: [
+            buildBankAssignment(1, "ШКИ", 1.16),
+            buildBankAssignment(2, "ШКИ-66", 1.57),
+            buildBankAssignment(3, "ШГР-28", 1.09),
+          ],
+          volumeReference: { points: [
+            { heightMeters: 0, volumeCubicMeters: 988.5 },
+            { heightMeters: 0.1, volumeCubicMeters: 980.65 },
+            { heightMeters: 0.2, volumeCubicMeters: 972.8 },
+            { heightMeters: 15, volumeCubicMeters: 0 },
+          ] },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
       const isReturnedShift =
         url.searchParams.get("date") === returnedReport.reportDate &&
         url.searchParams.get("shift") === String(returnedReport.shiftNumber);
@@ -136,6 +151,15 @@ test("refractory workspace opens one of three independent table buttons", async 
       rootElement.querySelector(".refractory-paper-title")?.textContent,
       "Сводка по ЦОШ (ежесменная)",
     );
+    assert.equal(rootElement.querySelectorAll(".bank-measurement-card").length, 3);
+    assert.match(rootElement.textContent, /ШКИ-66/u);
+    const firstBank = rootElement.querySelector(
+      '.bank-measurement-card[data-bank-number="1"]',
+    );
+    const addMeasurementButton = firstBank.querySelector(".bank-measurement-add");
+    assert.equal(firstBank.querySelectorAll("input").length, 4);
+    await React.act(async () => addMeasurementButton.click());
+    assert.equal(firstBank.querySelectorAll("input").length, 5);
     const coshHeadings = Array.from(
       rootElement.querySelectorAll(".refractory-section h3"),
       (heading) => heading.textContent,
@@ -441,6 +465,20 @@ test("refractory workspace opens one of three independent table buttons", async 
     restoreDomGlobals(previousGlobals);
   }
 });
+
+function buildBankAssignment(bankNumber, materialLabel, density) {
+  return {
+    assignmentId: `assignment-${bankNumber}`,
+    bankNumber,
+    laboratoryResultId: `result-${bankNumber}`,
+    sampleIndex: 0,
+    sampleIdentifier: `Проба ${bankNumber}`,
+    materialLabel,
+    bulkDensityTonsPerCubicMeter: density,
+    assignedByDisplayName: "Лаборант",
+    assignedAt: "2026-07-23T08:00:00.000Z",
+  };
+}
 
 test("refractory navigation shows the number of reports returned for correction", async () => {
   const dom = new JSDOM(

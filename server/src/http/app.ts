@@ -57,6 +57,12 @@ import {
 } from "../domain/laboratoryResult.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
+  listEligibleLaboratoryBankSamples,
+  resolveLaboratoryBankAssignment,
+  validateLaboratoryBankAssignmentRequest,
+} from "../domain/laboratoryBankAssignment.js";
+import { calculateCoshBankMeasurements } from "../domain/bankMeasurement.js";
+import {
   refractoryReportLabels,
   validateRefractoryReportDecision,
   validateRefractoryReportSubmission,
@@ -97,8 +103,10 @@ import {
 import {
   createGoogleSheetsProductionBrandsDataSource,
   createGoogleSheetsLaboratoryReferenceDataSource,
+  createGoogleSheetsBankVolumeReferenceDataSource,
   createGoogleSheetsReferenceDataSource,
   type DispatcherReferenceDataSource,
+  type BankVolumeReferenceDataSource,
   type LaboratoryReferenceDataSource,
   type ProductionBrandReference,
   type ProductionBrandsDataSource,
@@ -146,6 +154,7 @@ import {
   type RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
+import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -162,6 +171,8 @@ type AppDependencies = {
   refractoryReports?: RefractoryReportsRepository;
   laboratoryReferenceDataSource?: LaboratoryReferenceDataSource;
   laboratoryResults?: LaboratoryResultsRepository;
+  laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository;
+  bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   productionSnapshot?: ProductionDatabaseSnapshotService;
@@ -203,6 +214,10 @@ export function createApiServer({
     config.googleSheetsReference,
   ),
   laboratoryResults,
+  laboratoryBankAssignments,
+  bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
+    config.googleSheetsReference,
+  ),
   audit,
   databaseTransaction,
   productionSnapshot,
@@ -394,6 +409,7 @@ export function createApiServer({
         url.pathname === "/api/refractory-reports" ||
         url.pathname === "/api/refractory-reports/pending" ||
         url.pathname === "/api/refractory-reports/own" ||
+        url.pathname === "/api/refractory-reports/banks" ||
         /^\/api\/refractory-reports\/[^/]+\/decision$/u.test(url.pathname)
       ) {
         await handleRefractoryReportsRequest({
@@ -404,6 +420,8 @@ export function createApiServer({
           devSessions,
           authService,
           refractoryReports,
+          laboratoryBankAssignments,
+          bankVolumeReferenceDataSource,
           productionBrands,
           referenceDataSource,
           emailNotificationService,
@@ -417,6 +435,7 @@ export function createApiServer({
       if (
         url.pathname === "/api/laboratory/reference" ||
         url.pathname === "/api/laboratory/results" ||
+        url.pathname === "/api/laboratory/banks" ||
         /^\/api\/laboratory\/results\/[a-zA-Z0-9-]{1,100}\/protocol\.pdf$/u.test(
           url.pathname,
         )
@@ -430,6 +449,7 @@ export function createApiServer({
           authService,
           laboratoryReferenceDataSource,
           laboratoryResults,
+          laboratoryBankAssignments,
           productionBrands,
           audit,
           databaseTransaction,
@@ -786,6 +806,7 @@ async function handleLaboratoryRequest({
   authService,
   laboratoryReferenceDataSource,
   laboratoryResults,
+  laboratoryBankAssignments,
   productionBrands,
   audit,
   databaseTransaction,
@@ -798,6 +819,7 @@ async function handleLaboratoryRequest({
   authService: AuthSessionService | undefined;
   laboratoryReferenceDataSource: LaboratoryReferenceDataSource;
   laboratoryResults: LaboratoryResultsRepository | undefined;
+  laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -841,6 +863,81 @@ async function handleLaboratoryRequest({
       laboratoryReferenceDataSource,
     );
     if (reference !== undefined) sendJson(res, 200, { reference });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/banks") {
+    if (laboratoryResults === undefined || laboratoryBankAssignments === undefined) {
+      sendJson(res, 503, {
+        error: { code: "server_error", message: "Хранилище назначений банок не настроено." },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const incomingResults = await laboratoryResults.list({
+        section: "incoming",
+        limit: 200,
+      });
+      sendJson(res, 200, {
+        currentAssignments: await laboratoryBankAssignments.listCurrent(),
+        history: await laboratoryBankAssignments.listHistory(),
+        eligibleSamples: listEligibleLaboratoryBankSamples(incomingResults),
+      });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для банок используются GET и POST." },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryBankAssignmentRequest(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: validation.error },
+      });
+      return;
+    }
+    const resolution = resolveLaboratoryBankAssignment(
+      validation.value,
+      await laboratoryResults.findById(validation.value.laboratoryResultId),
+    );
+    if (!resolution.ok) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: resolution.error },
+      });
+      return;
+    }
+
+    const assignment = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratoryBankAssignments.assign({
+        ...resolution.value,
+        assignedByUserId: access.profile.userId,
+        assignedByAccountId: access.profile.activeAccess.accountId,
+        assignedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (saved) => ({
+        actor: buildAuditActor(access.profile),
+        category: "data_change",
+        action: "laboratory_bank.assign",
+        summary: `Назначено содержимое банки ${["I", "II", "III"][saved.bankNumber - 1]}`,
+        details: [
+          { label: "Объект испытаний", value: saved.materialLabel },
+          { label: "Проба", value: saved.sampleIdentifier },
+          { label: "Насыпной вес", value: String(saved.bulkDensityTonsPerCubicMeter) },
+        ],
+        targetType: "laboratory_bank_assignment",
+        targetId: saved.assignmentId,
+      }),
+    });
+    sendJson(res, 201, { assignment });
     return;
   }
 
@@ -1046,6 +1143,8 @@ async function handleRefractoryReportsRequest({
   devSessions,
   authService,
   refractoryReports,
+  laboratoryBankAssignments,
+  bankVolumeReferenceDataSource,
   productionBrands,
   referenceDataSource,
   emailNotificationService,
@@ -1060,6 +1159,8 @@ async function handleRefractoryReportsRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   refractoryReports: RefractoryReportsRepository | undefined;
+  laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
+  bankVolumeReferenceDataSource: BankVolumeReferenceDataSource;
   productionBrands: ProductionBrandsDataSource;
   referenceDataSource: DispatcherReferenceDataSource;
   emailNotificationService: EmailNotificationService;
@@ -1098,6 +1199,34 @@ async function handleRefractoryReportsRequest({
         message: "Хранилище таблиц огнеупорного цеха не настроено.",
       },
     });
+    return;
+  }
+
+  if (url.pathname === "/api/refractory-reports/banks") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для данных банок используется GET." },
+      });
+      return;
+    }
+    if (laboratoryBankAssignments === undefined) {
+      sendJson(res, 503, {
+        error: { code: "server_error", message: "Хранилище назначений банок не настроено." },
+      });
+      return;
+    }
+    try {
+      const [currentAssignments, volumeReference] = await Promise.all([
+        laboratoryBankAssignments.listCurrent(),
+        bankVolumeReferenceDataSource.read(),
+      ]);
+      sendJson(res, 200, { currentAssignments, volumeReference });
+    } catch (error) {
+      console.warn("bank_reference.google_sheets_fetch_failed", error);
+      sendJson(res, 502, {
+        error: { code: "server_error", message: "Не удалось загрузить справочник банок." },
+      });
+    }
     return;
   }
 
@@ -1310,6 +1439,54 @@ async function handleRefractoryReportsRequest({
 
     if (references === undefined) return;
     applyRefractoryReportBrandResolution(validation.value, references);
+  }
+
+  if (validation.value.reportType === "cosh") {
+    if (laboratoryBankAssignments === undefined) {
+      sendJson(res, 503, {
+        error: { code: "server_error", message: "Хранилище назначений банок не настроено." },
+      });
+      return;
+    }
+    try {
+      const [assignments, volumeReference] = await Promise.all([
+        laboratoryBankAssignments.listCurrent(),
+        bankVolumeReferenceDataSource.read(),
+      ]);
+      const calculated = calculateCoshBankMeasurements({
+        assignments,
+        measurements: (validation.value.payload.jarMeasurements ?? []).map(
+          (row) => ({ bankNumber: row.jarNumber, values: row.values }),
+        ),
+        volumeReference,
+      });
+      if (!calculated.ok) {
+        sendJson(res, 400, {
+          error: { code: "invalid_response", message: calculated.error },
+        });
+        return;
+      }
+      validation.value.payload.jarMeasurements = calculated.value.map(
+        ({ bankNumber, measurements, ...snapshot }) => ({
+          jarNumber: bankNumber,
+          values: measurements,
+          ...snapshot,
+        }),
+      );
+      const totalBankMass = calculated.value.reduce(
+        (total, row) => total + row.materialMassTons,
+        0,
+      );
+      validation.value.totals.jarMaterialMassTons = Math.round(
+        (totalBankMass + Number.EPSILON) * 1_000,
+      ) / 1_000;
+    } catch (error) {
+      console.warn("bank_reference.google_sheets_fetch_failed", error);
+      sendJson(res, 502, {
+        error: { code: "server_error", message: "Не удалось рассчитать массу в банках." },
+      });
+      return;
+    }
   }
 
   try {

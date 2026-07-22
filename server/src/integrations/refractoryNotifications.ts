@@ -96,7 +96,15 @@ function buildCoshPayloadLines(payload: RefractoryCoshPayload) {
     formatField("Загрузка, всего ковшей", payload.totalLoadingBuckets),
     "Замеры банок",
     ...(payload.jarMeasurements?.map((row) =>
-      `Банка ${["I", "II", "III"][row.jarNumber - 1]}: ${row.values.map(formatValue).join("; ")}`
+      [
+        `Банка ${["I", "II", "III"][row.jarNumber - 1]}: ${row.values.map(formatValue).join("; ")}`,
+        `материал ${formatValue(row.material)}`,
+        `проба ${formatValue(row.sampleIdentifier)}`,
+        `среднее ${formatValue(row.averageHeightMeters)} м`,
+        `объём ${formatValue(row.volumeCubicMeters)} м³`,
+        `насыпной вес ${formatValue(row.bulkDensityTonsPerCubicMeter)} т/м³`,
+        `масса ${formatValue(row.materialMassTons)} т`,
+      ].join("; ")
     ) ?? ["—"]),
     "Заполнение ж/д бункеров",
     ...(payload.bunkerFill?.map((row) =>
@@ -188,6 +196,9 @@ function buildTotalsLines(report: RefractoryReportNotification) {
       formatTotal("Подача шамота, т", totals.chamotteSupplyTons),
       formatTotal("Затарка в мешки, т", totals.baggingTons),
       formatTotal("Вывоз недопала, т", totals.scrapRemovalTons),
+      ...(totals.jarMaterialMassTons === undefined
+        ? []
+        : [formatTotal("Масса материала в банках, т", totals.jarMaterialMassTons)]),
     ];
   }
 

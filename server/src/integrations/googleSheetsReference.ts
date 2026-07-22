@@ -1,6 +1,7 @@
 import { createSign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { GoogleSheetsReferenceConfig } from "../config/env.js";
+import type { BankVolumeReference } from "../domain/bankMeasurement.js";
 import type { NotificationRecipientGroups } from "./dispatcherNotifications.js";
 
 export type DispatcherReferenceData = {
@@ -85,6 +86,10 @@ export type LaboratoryReferenceDataSource = {
   read: () => Promise<LaboratoryReferenceData>;
 };
 
+export type BankVolumeReferenceDataSource = {
+  read: () => Promise<BankVolumeReference>;
+};
+
 type FetchLike = typeof fetch;
 type ReadTextFile = (path: string) => Promise<string>;
 
@@ -153,6 +158,7 @@ const googleSheetsWriteScope =
 const defaultGoogleTokenUri = "https://oauth2.googleapis.com/token";
 const productionBrandsSheetTitle = "Номенклатура";
 const laboratorySheetTitle = "Лаборатория";
+const banksSheetTitle = "Банки";
 const notificationRecipientRanges = {
   incidentAndEquipment: [{ startRow: 2, endRow: 20 }],
   mechanicalDowntime: [{ startRow: 22, endRow: 25 }],
@@ -434,6 +440,38 @@ export function createGoogleSheetsLaboratoryReferenceDataSource(
       );
       cachedData = readLaboratoryReferenceFromRows(
         workbook.rowsBySheet[laboratorySheetTitle] ?? [],
+      );
+      cacheExpiresAt = readStartedAt + config.cacheTtlMs;
+      return cachedData;
+    },
+  };
+}
+
+export function createGoogleSheetsBankVolumeReferenceDataSource(
+  config: GoogleSheetsReferenceConfig,
+  fetchImpl: FetchLike = fetch,
+  dependencies: GoogleSheetsReferenceDependencies = {},
+): BankVolumeReferenceDataSource {
+  let cachedData: BankVolumeReference | undefined;
+  let cacheExpiresAt = 0;
+  const now = dependencies.now ?? Date.now;
+
+  return {
+    async read() {
+      const readStartedAt = now();
+      if (cachedData !== undefined && readStartedAt < cacheExpiresAt) {
+        return cachedData;
+      }
+
+      const workbook = await readGoogleSheetsWorkbook(
+        config,
+        config.url,
+        [banksSheetTitle],
+        fetchImpl,
+        dependencies,
+      );
+      cachedData = readBankVolumeReferenceFromRows(
+        workbook.rowsBySheet[banksSheetTitle] ?? [],
       );
       cacheExpiresAt = readStartedAt + config.cacheTtlMs;
       return cachedData;
@@ -1022,6 +1060,54 @@ export function readLaboratoryReferenceFromRows(
   }
 
   return result;
+}
+
+export function readBankVolumeReferenceFromRows(
+  rows: string[][],
+): BankVolumeReference {
+  const headerRowIndex = rows.findIndex((row) => {
+    const first = normalizeHeader(row[0] ?? "").replace(/\s/gu, "");
+    const second = normalizeHeader(row[1] ?? "").replace(/\s/gu, "");
+    return (first === "h·m" || first === "h*m" || first === "н·м") &&
+      (second === "m3" || second === "м3" || second === "м³");
+  });
+
+  if (headerRowIndex < 0) {
+    throw new Error("Google Sheets tab Банки must contain H·m and M3 headers.");
+  }
+
+  const points = rows.slice(headerRowIndex + 1).flatMap((row) => {
+    const heightMeters = readLocalizedNumber(row[0]);
+    const volumeCubicMeters = readLocalizedNumber(row[1]);
+    return heightMeters === undefined || volumeCubicMeters === undefined
+      ? []
+      : [{ heightMeters, volumeCubicMeters }];
+  });
+
+  if (points.length < 2) {
+    throw new Error("Google Sheets tab Банки must contain at least two values.");
+  }
+
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!;
+    const previous = points[index - 1];
+    if (
+      point.heightMeters < 0 ||
+      point.volumeCubicMeters < 0 ||
+      (previous !== undefined && point.heightMeters <= previous.heightMeters)
+    ) {
+      throw new Error("Google Sheets tab Банки contains invalid values.");
+    }
+  }
+
+  return { points };
+}
+
+function readLocalizedNumber(value: string | undefined) {
+  const normalized = (value ?? "").trim().replace(/\s/gu, "").replace(",", ".");
+  if (normalized.length === 0) return undefined;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function normalizeProductionBrandLabel(value: string) {

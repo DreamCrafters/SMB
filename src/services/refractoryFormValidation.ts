@@ -15,6 +15,23 @@ export function validateRefractoryForm(
     form.querySelectorAll<HTMLInputElement>("input[data-refractory-number]"),
   ).flatMap(validateNumberInput);
 
+  for (const bank of form.querySelectorAll<HTMLElement>(
+    ".bank-measurement-card[data-bank-number]",
+  )) {
+    const inputs = Array.from(
+      bank.querySelectorAll<HTMLInputElement>("input[data-refractory-number]"),
+    );
+    if (inputs.length > 0 && inputs.every((input) => input.value.trim() === "")) {
+      const bankLabel = bank.dataset.bankNumber === "1"
+        ? "I"
+        : bank.dataset.bankNumber === "2" ? "II" : "III";
+      errors.push({
+        input: inputs[0]!,
+        message: `Банка ${bankLabel}: добавьте хотя бы один замер.`,
+      });
+    }
+  }
+
   for (const brandInput of form.querySelectorAll<
     HTMLInputElement | HTMLSelectElement
   >(

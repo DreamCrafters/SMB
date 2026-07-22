@@ -5,6 +5,7 @@ import {
   buildGoogleSheetsCsvUrl,
   createGoogleSheetsProductionBrandsDataSource,
   createGoogleSheetsReferenceDataSource,
+  readBankVolumeReferenceFromRows,
   readLaboratoryReferenceFromRows,
   readProductionBrandLabels,
   readGoogleSheetsWorkbook,
@@ -12,6 +13,29 @@ import {
   readMaxNotificationRecipientsFromCsv,
   readNotificationRecipientsFromCsv,
 } from "./googleSheetsReference.js";
+
+test("bank volume reference reads decimal commas from the Банки tab", () => {
+  assert.deepEqual(readBankVolumeReferenceFromRows([
+    ["H·m", "M3", "", "Материал", "Насыпной вес"],
+    ["0", "988,5", "", "ШКИ", "1,16"],
+    ["0,1", "980,65", "", "ШКИ-66", "1,57"],
+    ["0,2", "972,8", "", "ШГР-28", "1,09"],
+  ]), {
+    points: [
+      { heightMeters: 0, volumeCubicMeters: 988.5 },
+      { heightMeters: 0.1, volumeCubicMeters: 980.65 },
+      { heightMeters: 0.2, volumeCubicMeters: 972.8 },
+    ],
+  });
+});
+
+test("bank volume reference rejects unordered lookup rows", () => {
+  assert.throws(() => readBankVolumeReferenceFromRows([
+    ["H·m", "M3"],
+    ["0,1", "980,65"],
+    ["0", "988,5"],
+  ]), /contains invalid values/u);
+});
 
 test("laboratory reference follows the live section and indicator matrix", () => {
   const rows = [

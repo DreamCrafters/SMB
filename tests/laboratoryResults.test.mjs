@@ -6,6 +6,10 @@ import {
   requestLaboratoryResults,
   submitLaboratoryResult,
 } from "../.test-build/src/services/laboratoryResults.js";
+import {
+  assignLaboratoryBank,
+  requestLaboratoryBanks,
+} from "../.test-build/src/services/laboratoryBanks.js";
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -127,6 +131,58 @@ test("laboratory service downloads the selected result protocol as PDF", async (
       "http://api.test/api/laboratory/results/laboratory-result-1/protocol.pdf",
     );
     assert.equal(new Headers(request.init.headers).get("Accept"), "application/pdf");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("laboratory banks service reads assignments and submits a specific sample", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const assignment = {
+    assignmentId: "assignment-1",
+    bankNumber: 1,
+    laboratoryResultId: "result-1",
+    sampleIndex: 2,
+    sampleIdentifier: "Вагон 123",
+    materialLabel: "ШКИ",
+    bulkDensityTonsPerCubicMeter: 1.16,
+    assignedByDisplayName: "Иванова Анна",
+    assignedAt: "2026-07-23T08:00:00.000Z",
+  };
+  globalThis.fetch = async (input, init = {}) => {
+    requests.push({ url: input.toString(), init });
+    return init.method === "POST"
+      ? jsonResponse({ assignment }, 201)
+      : jsonResponse({
+          currentAssignments: [assignment],
+          history: [assignment],
+          eligibleSamples: [{
+            laboratoryResultId: "result-1",
+            sampleIndex: 2,
+            sampleIdentifier: "Вагон 123",
+            materialLabel: "ШКИ",
+            analysisDate: "2026-07-23",
+            bulkDensityTonsPerCubicMeter: 1.16,
+          }],
+        });
+  };
+
+  try {
+    const loaded = await requestLaboratoryBanks({ baseUrl: "http://api.test" });
+    const saved = await assignLaboratoryBank({
+      bankNumber: 1,
+      laboratoryResultId: "result-1",
+      sampleIndex: 2,
+    }, { baseUrl: "http://api.test" });
+
+    assert.equal(loaded.status, "ready");
+    assert.equal(saved.status, "ready");
+    assert.deepEqual(JSON.parse(requests[1].init.body), {
+      bankNumber: 1,
+      laboratoryResultId: "result-1",
+      sampleIndex: 2,
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
