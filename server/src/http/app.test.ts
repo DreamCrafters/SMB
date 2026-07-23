@@ -16,7 +16,10 @@ import {
   AccountLoginAlreadyExistsError,
   type AccountsRepository,
 } from "../repositories/accountsRepository.js";
-import type { ValidatedDispatcherSubmissionDraft } from "../domain/dispatcherSubmission.js";
+import type {
+  DispatcherSubmission,
+  ValidatedDispatcherSubmissionDraft,
+} from "../domain/dispatcherSubmission.js";
 import type {
   DispatcherReferenceDataSource,
   BankVolumeReferenceDataSource,
@@ -367,6 +370,134 @@ test("remote API allows dev access session DELETE preflight", async () => {
   });
 });
 
+test("business overview returns server-owned incident and laboratory counts", async () => {
+  const history: DispatcherSubmission[] = [
+    {
+      id: "incident-1",
+      formId: "incident" as const,
+      formTitle: "Открытие инцидента",
+      payload: {
+        incidentNumber: "INC-2026-1",
+        datetime: "03.07.2026 08:30",
+      },
+      summary: "INC-2026-1",
+      status: "received" as const,
+      submittedByAccountId: "dispatcher",
+      submittedAt: "2026-07-03T05:30:00.000Z",
+      receivedAt: "2026-07-03T05:30:00.000Z",
+    },
+    {
+      id: "incident-close-1",
+      formId: "incident_close" as const,
+      formTitle: "Закрытие инцидента",
+      payload: {
+        incidentNumber: "INC-2026-1",
+        closureDateTime: "04.07.2026 14:00",
+      },
+      summary: "INC-2026-1",
+      status: "received" as const,
+      submittedByAccountId: "dispatcher",
+      submittedAt: "2026-07-04T11:00:00.000Z",
+      receivedAt: "2026-07-04T11:00:00.000Z",
+    },
+    {
+      id: "incident-2",
+      formId: "incident" as const,
+      formTitle: "Открытие инцидента",
+      payload: {
+        incidentNumber: "INC-2026-2",
+        datetime: "23.07.2026 11:45",
+      },
+      summary: "INC-2026-2",
+      status: "received" as const,
+      submittedByAccountId: "dispatcher",
+      submittedAt: "2026-07-23T08:45:00.000Z",
+      receivedAt: "2026-07-23T08:45:00.000Z",
+    },
+  ];
+  const overviewRepository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      return history.filter((submission) =>
+        filters?.formId === undefined || submission.formId === filters.formId
+      );
+    },
+  };
+  let requestedLaboratoryPeriod:
+    | { monthStart: string; today: string }
+    | undefined;
+  const laboratoryResults: LaboratoryResultsRepository = {
+    async create() {
+      throw new Error("not used");
+    },
+    async list() {
+      return [];
+    },
+    async readOverviewSummary(period) {
+      requestedLaboratoryPeriod = period;
+      return { monthTotal: 7, todayTotal: 2 };
+    },
+    async findById() {
+      return undefined;
+    },
+  };
+  const profile = buildProductionProfile("business_owner");
+
+  await withApiServer(
+    async (baseUrl) => {
+      const unauthenticatedResponse = await fetch(
+        `${baseUrl}/api/business/overview`,
+      );
+      const response = await fetch(`${baseUrl}/api/business/overview`, {
+        headers: { Cookie: "smb_session=prod-session" },
+      });
+
+      assert.equal(unauthenticatedResponse.status, 401);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        period: {
+          monthStart: "2026-07-01",
+          today: "2026-07-23",
+        },
+        incidents: {
+          monthTotal: 2,
+          monthClosed: 1,
+          todayTotal: 1,
+          openNow: 1,
+        },
+        laboratory: {
+          monthTotal: 7,
+          todayTotal: 2,
+        },
+        receivedAt: "2026-07-23T12:00:00.000Z",
+      });
+      assert.deepEqual(requestedLaboratoryPeriod, {
+        monthStart: "2026-07-01",
+        today: "2026-07-23",
+      });
+    },
+    overviewRepository,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    undefined,
+    laboratoryResults,
+    undefined,
+    undefined,
+    () => new Date("2026-07-23T12:00:00.000Z"),
+  );
+});
+
 test("laboratory API reads the live matrix and saves the session-authored result", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
@@ -421,6 +552,12 @@ test("laboratory API reads the live matrix and saves the session-authored result
               savedInput.laboratoryAssistantDisplayName,
             createdAt: "2026-07-22T08:30:00.000Z",
           }];
+    },
+    async readOverviewSummary() {
+      return {
+        monthTotal: savedInput === undefined ? 0 : 1,
+        todayTotal: savedInput?.result.analysisDate === "2026-07-22" ? 1 : 0,
+      };
     },
     async findById() {
       return savedInput === undefined
@@ -607,6 +744,62 @@ test("laboratory PDF protocol requires an authenticated laboratory access", asyn
   );
 });
 
+test("dispatcher reads only the current material assigned to each production bank", async () => {
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() {
+      throw new Error("Assignments are not created through the dispatcher endpoint.");
+    },
+    async listCurrent() {
+      return [
+        buildLaboratoryBankAssignment(1, "ШКИ-66", 1.16),
+        buildLaboratoryBankAssignment(3, "ШГР-1", 1.24),
+      ];
+    },
+    async listHistory() {
+      throw new Error("Dispatcher bank contents must not expose assignment history.");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const unauthorizedResponse = await fetch(
+        `${baseUrl}/api/dispatcher/production-bank-contents`,
+      );
+      const headers = await createDispatcherHeaders(baseUrl);
+      const response = await fetch(
+        `${baseUrl}/api/dispatcher/production-bank-contents`,
+        { headers },
+      );
+
+      assert.equal(unauthorizedResponse.status, 401);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        bankContents: [
+          { bankNumber: 1, materialLabel: "ШКИ-66" },
+          { bankNumber: 3, materialLabel: "ШГР-1" },
+        ],
+      });
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+  );
+});
+
 test("COSH API calculates and snapshots all three current bank assignments", async () => {
   const profile = buildProductionProfile("worker");
   profile.displayName = "Мастер ОЦ";
@@ -653,21 +846,72 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
     },
   };
   const productionBrands: ProductionBrandsDataSource = {
-    async list() { return ["ШБО"]; },
+    async list() { return ["ШБО-69"]; },
     async create() { throw new Error("not used"); },
     async resolveReferences(references) {
-      return {
-        ok: true,
-        references: references.map((reference) => ({
-          fieldName: reference.fieldName,
-          label: "ШБО",
-        })),
-      };
+      const missing = references.find(
+        (reference) =>
+          reference.label.trim().toLocaleLowerCase("ru-RU") !== "шбо-69",
+      );
+
+      return missing === undefined
+        ? {
+            ok: true,
+            references: references.map((reference) => ({
+              fieldName: reference.fieldName,
+              label: "ШБО-69",
+            })),
+          }
+        : { ok: false, missing };
     },
   };
 
   await withApiServer(
     async (baseUrl) => {
+      const invalidResponse = await fetch(
+        `${baseUrl}/api/refractory-reports`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: "smb_session=prod-session",
+          },
+          body: JSON.stringify({
+            reportType: "cosh",
+            reportDate: "2026-07-23",
+            shiftNumber: 1,
+            payload: {
+              chamotteOutputRows: [
+                { productBrand: "ШБО", quantityTons: 2.5 },
+              ],
+              jarMeasurements: [
+                { jarNumber: 1, values: [1, 1] },
+                { jarNumber: 2, values: [2] },
+                { jarNumber: 3, values: [3] },
+              ],
+            },
+          }),
+        },
+      );
+      const invalidPayload = await invalidResponse.json();
+
+      assert.equal(invalidResponse.status, 400);
+      assert.deepEqual(
+        isRecord(invalidPayload) && isRecord(invalidPayload.error)
+          ? invalidPayload.error
+          : undefined,
+        {
+          code: "invalid_response",
+          message:
+            "Выпуск шамота, строка 1, поле «Марка изделия»: значение «ШБО» отсутствует в номенклатуре. Выберите марку из списка.",
+          details: [{
+            fieldPath: "chamotteOutputRows.0.productBrand",
+            message:
+              "Выпуск шамота, строка 1, поле «Марка изделия»: значение «ШБО» отсутствует в номенклатуре. Выберите марку из списка.",
+          }],
+        },
+      );
+
       const response = await fetch(`${baseUrl}/api/refractory-reports`, {
         method: "POST",
         headers: {
@@ -680,7 +924,7 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
           shiftNumber: 1,
           payload: {
             chamotteOutputRows: [
-              { productBrand: " шбо ", quantityTons: 2.5 },
+              { productBrand: " шбо-69 ", quantityTons: 2.5 },
             ],
             jarMeasurements: [
               { jarNumber: 1, values: [1, 1] },
@@ -703,7 +947,7 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
       assert.equal(rows?.[2]?.materialMassTons, 0);
       assert.equal(totals.jarMaterialMassTons, 160);
       assert.deepEqual((stored.payload as RefractoryCoshPayload).chamotteOutputRows, [
-        { productBrand: "ШБО", quantityTons: 2.5 },
+        { productBrand: "ШБО-69", quantityTons: 2.5 },
       ]);
     },
     dispatcherSubmissions,
@@ -5127,6 +5371,7 @@ async function withApiServer(
   laboratoryResults?: LaboratoryResultsRepository,
   laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository,
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource,
+  now?: () => Date,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -5158,6 +5403,7 @@ async function withApiServer(
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,
     productionSnapshot,
+    now,
   });
 
   server.listen(0, "127.0.0.1");

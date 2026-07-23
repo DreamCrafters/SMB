@@ -5,7 +5,11 @@ import {
   mapDispatcherSubmissionRow,
   validateDispatcherSubmissionDraft,
 } from "./dispatcherSubmission.js";
-import { applyIncidentStateRules } from "./dispatcherIncidentState.js";
+import {
+  applyIncidentStateRules,
+  buildIncidentOverviewPeriod,
+  buildIncidentOverviewSummary,
+} from "./dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "./dispatcherVisitorState.js";
 
 test("validateDispatcherSubmissionDraft accepts and trims a known form payload", () => {
@@ -578,6 +582,99 @@ test("incident state rules allow closure of earlier-day open incidents only", ()
   }
 });
 
+test("incident overview summarizes the current month, today, and all open incidents", () => {
+  const submissions = [
+    buildDispatcherSubmission(
+      "incident-old-open",
+      "incident",
+      {
+        incidentNumber: "INC-2026-1",
+        datetime: "28.06.2026 10:00",
+      },
+      "2026-06-28T07:00:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-old-closed",
+      "incident",
+      {
+        incidentNumber: "INC-2026-2",
+        datetime: "29.06.2026 10:00",
+      },
+      "2026-06-29T07:00:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-old-closure",
+      "incident_close",
+      {
+        incidentNumber: "INC-2026-2",
+        closureDateTime: "02.07.2026 12:00",
+      },
+      "2026-07-02T09:00:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-month-closed",
+      "incident",
+      {
+        incidentNumber: "INC-2026-3",
+        datetime: "03.07.2026 08:30",
+      },
+      "2026-07-03T05:30:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-month-closure",
+      "incident_close",
+      {
+        incidentNumber: "INC-2026-3",
+        closureDateTime: "04.07.2026 14:00",
+      },
+      "2026-07-04T11:00:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-month-open",
+      "incident",
+      {
+        incidentNumber: "INC-2026-4",
+        datetime: "15.07.2026 09:15",
+      },
+      "2026-07-15T06:15:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-today-open",
+      "incident",
+      {
+        incidentNumber: "INC-2026-5",
+        datetime: "23.07.2026 11:45",
+      },
+      "2026-07-23T08:45:00.000Z",
+    ),
+  ];
+
+  assert.deepEqual(
+    buildIncidentOverviewSummary(
+      submissions,
+      new Date("2026-07-23T12:00:00.000Z"),
+    ),
+    {
+      monthTotal: 3,
+      monthClosed: 1,
+      todayTotal: 1,
+      openNow: 3,
+    },
+  );
+});
+
+test("incident overview period follows the Moscow calendar at month rollover", () => {
+  assert.deepEqual(
+    buildIncidentOverviewPeriod(
+      new Date("2026-07-31T22:30:00.000Z"),
+    ),
+    {
+      monthStart: "2026-08-01",
+      today: "2026-08-01",
+    },
+  );
+});
+
 test("validateDispatcherSubmissionDraft rejects legacy gas forms as inactive", () => {
   const result = validateDispatcherSubmissionDraft({
     formId: "gas_oc",
@@ -653,6 +750,7 @@ function buildDispatcherSubmission(
   id: string,
   formId: "incident" | "incident_close" | "visitor" | "visitor_exit",
   payload: Record<string, string>,
+  receivedAt = "2026-06-18T00:00:01.000Z",
 ) {
   return {
     id,
@@ -663,6 +761,6 @@ function buildDispatcherSubmission(
     status: "received" as const,
     submittedByAccountId: "dispatcher-account",
     submittedAt: "2026-06-18T00:00:00.000Z",
-    receivedAt: "2026-06-18T00:00:01.000Z",
+    receivedAt,
   };
 }

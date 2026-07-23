@@ -249,6 +249,12 @@ export function RefractoryShopWorkspace({
     );
   }
 
+  function handleCancelCorrection() {
+    setIsCorrectionMode(false);
+    setStatus("");
+    setHasError(false);
+  }
+
   return (
     <section className="refractory-workspace" aria-label="Огнеупорный цех">
       <header className="refractory-header">
@@ -403,6 +409,16 @@ export function RefractoryShopWorkspace({
                 disabled={isSubmitting}
               >
                 {isSubmitting ? "Отправляем…" : "Отправить диспетчеру"}
+              </button>
+            ) : null}
+            {activeReport?.status === "approved" && isCorrectionMode ? (
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleCancelCorrection}
+              >
+                Отменить
               </button>
             ) : null}
             {status.length > 0 ? (

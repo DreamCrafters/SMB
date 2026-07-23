@@ -177,15 +177,17 @@ import {
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
-  buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   filterProductionReportTables,
   buildVisitorVisitRows,
-  type OwnerDispatcherOverview,
   type DispatcherFeedGroup,
   type DispatcherFeedPeriod,
 } from "./services/dispatcherFeedViews";
+import {
+  requestBusinessOverview,
+  type BusinessOverviewResult,
+} from "./services/businessOverview";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import {
   requestProductionDailyPlan,
@@ -193,6 +195,10 @@ import {
   requestProductionPlanPreview,
   saveProductionPlan,
 } from "./services/productionPlans";
+import {
+  requestDispatcherProductionBankContents,
+  type DispatcherProductionBankContentsResult,
+} from "./services/dispatcherBankContents";
 import {
   ProductBrandCreateControl,
   ProductBrandPicker,
@@ -285,6 +291,13 @@ type DispatcherFeedLoadState =
     }
   | DispatcherFeedResult;
 
+type BusinessOverviewLoadState =
+  | {
+      status: "loading";
+      message: string;
+    }
+  | BusinessOverviewResult;
+
 type DispatcherFormsLoadState =
   | {
       status: "loading";
@@ -375,6 +388,11 @@ const initialSessionRequestState: SessionRequestState = {
 const initialDispatcherFeedState: DispatcherFeedLoadState = {
   status: "loading",
   message: "Загружаем историю.",
+};
+
+const initialBusinessOverviewState: BusinessOverviewLoadState = {
+  status: "loading",
+  message: "Загружаем обзор.",
 };
 
 const emptyProductionReportTables: ProductionReportTables = {
@@ -535,6 +553,8 @@ export default function App() {
   const [dispatcherFeed, setDispatcherFeed] = useState<DispatcherFeedLoadState>(
     initialDispatcherFeedState,
   );
+  const [businessOverview, setBusinessOverview] =
+    useState<BusinessOverviewLoadState>(initialBusinessOverviewState);
   const [dispatcherForms, setDispatcherForms] =
     useState<DispatcherFormsLoadState>(initialDispatcherFormsState);
   const [pendingRefractoryReports, setPendingRefractoryReports] = useState<
@@ -573,6 +593,73 @@ export default function App() {
   const nextToastIdRef = useRef(0);
   const toastTimeoutIdsRef = useRef<Set<number>>(new Set());
   const lastRecordedScreenRef = useRef("");
+
+  useEffect(() => {
+    const visibleOverviewNavigationItems =
+      adminViewedAccount === undefined
+        ? accessProfile.status === "ready"
+          ? accessProfile.profile.activeAccess.navigationItems
+          : []
+        : adminViewedAccount.navigationItems;
+    const visibleOverviewTab = resolveAllowedNavigationTab(
+      adminViewedAccount === undefined ? ownerTab : adminViewedOwnerTab,
+      navigationByBusinessTab,
+      visibleOverviewNavigationItems,
+    );
+
+    if (
+      accessProfile.status !== "ready" ||
+      !hasCapability(accessProfile.profile, "business.view_all_statistics") ||
+      visibleOverviewTab !== "overview"
+    ) {
+      setBusinessOverview(initialBusinessOverviewState);
+      return;
+    }
+
+    let isActive = true;
+    let isLoading = false;
+    let currentController: AbortController | undefined;
+
+    async function loadBusinessOverview() {
+      if (isLoading) return;
+
+      isLoading = true;
+      currentController?.abort();
+      currentController = new AbortController();
+
+      setBusinessOverview((current) =>
+        current.status === "ready"
+          ? current
+          : initialBusinessOverviewState,
+      );
+      try {
+        const result = await requestBusinessOverview({
+          signal: currentController.signal,
+        });
+
+        if (isActive) {
+          setBusinessOverview(result);
+        }
+      } finally {
+        isLoading = false;
+      }
+    }
+
+    loadBusinessOverview();
+    const intervalId = window.setInterval(loadBusinessOverview, 5_000);
+
+    return () => {
+      isActive = false;
+      currentController?.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [
+    accessProfile,
+    adminViewedAccount,
+    adminViewedOwnerTab,
+    ownerTab,
+    dispatcherSubmissionVersion,
+  ]);
 
   useEffect(() => {
     const timeoutIds = toastTimeoutIdsRef.current;
@@ -619,9 +706,22 @@ export default function App() {
   }, [requestVersion]);
 
   useEffect(() => {
+    const visibleDispatcherNavigationItems =
+      adminViewedAccount === undefined
+        ? accessProfile.status === "ready"
+          ? accessProfile.profile.activeAccess.navigationItems
+          : []
+        : adminViewedAccount.navigationItems;
+    const visibleDispatcherTab = resolveAllowedNavigationTab(
+      adminViewedAccount === undefined ? ownerTab : adminViewedOwnerTab,
+      navigationByBusinessTab,
+      visibleDispatcherNavigationItems,
+    );
+
     if (
       accessProfile.status !== "ready" ||
-      !hasCapability(accessProfile.profile, "business.view_dispatcher_feed")
+      !hasCapability(accessProfile.profile, "business.view_dispatcher_feed") ||
+      visibleDispatcherTab !== "dispatcher"
     ) {
       setDispatcherFeed(initialDispatcherFeedState);
       return;
@@ -710,6 +810,9 @@ export default function App() {
     };
   }, [
     accessProfile,
+    adminViewedAccount,
+    adminViewedOwnerTab,
+    ownerTab,
     dispatcherSubmissionVersion,
   ]);
 
@@ -1425,6 +1528,7 @@ export default function App() {
           ownerTab={visibleOwnerTab}
           adminTab={adminTab}
           dispatcherFeed={dispatcherFeed}
+          businessOverview={businessOverview}
           dispatcherForms={dispatcherForms}
           dispatcherSubmissionVersion={dispatcherSubmissionVersion}
           dispatcherFeedFilters={visibleDispatcherFeedFilters}
@@ -2023,6 +2127,7 @@ function RoleWorkspace({
   ownerTab,
   adminTab,
   dispatcherFeed,
+  businessOverview,
   dispatcherForms,
   dispatcherSubmissionVersion,
   dispatcherFeedFilters,
@@ -2043,6 +2148,7 @@ function RoleWorkspace({
   ownerTab: BusinessTab;
   adminTab: AdminTab;
   dispatcherFeed: DispatcherFeedLoadState;
+  businessOverview: BusinessOverviewLoadState;
   dispatcherForms: DispatcherFormsLoadState;
   dispatcherSubmissionVersion: number;
   dispatcherFeedFilters: DispatcherFeedFilterState;
@@ -2148,6 +2254,7 @@ function RoleWorkspace({
         <OwnerWorkspace
           activeTab={effectiveOwnerTab}
           dispatcherFeed={dispatcherFeed}
+          businessOverview={businessOverview}
           dispatcherForms={dispatcherForms}
           dispatcherFeedFilters={dispatcherFeedFilters}
           onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
@@ -2159,12 +2266,14 @@ function RoleWorkspace({
 function OwnerWorkspace({
   activeTab,
   dispatcherFeed,
+  businessOverview,
   dispatcherForms,
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
 }: {
   activeTab: Extract<BusinessTab, "overview" | "dispatcher">;
   dispatcherFeed: DispatcherFeedLoadState;
+  businessOverview: BusinessOverviewLoadState;
   dispatcherForms: DispatcherFormsLoadState;
   dispatcherFeedFilters: DispatcherFeedFilterState;
   onDispatcherFeedFiltersChange: (
@@ -2172,17 +2281,9 @@ function OwnerWorkspace({
   ) => void;
 }) {
   if (activeTab === "overview") {
-    const overview = buildOwnerDispatcherOverview(
-      dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [],
-      dispatcherFeed.status === "ready"
-        ? dispatcherFeed.productionMonthOverview ?? undefined
-        : undefined,
-    );
-
     return (
       <OwnerOverviewPanel
-        dispatcherFeed={dispatcherFeed}
-        overview={overview}
+        businessOverview={businessOverview}
       />
     );
   }
@@ -2197,337 +2298,119 @@ function OwnerWorkspace({
   );
 }
 
-function OwnerOverviewPanel({
-  dispatcherFeed,
-  overview,
+export function OwnerOverviewPanel({
+  businessOverview,
 }: {
-  dispatcherFeed: DispatcherFeedLoadState;
-  overview: OwnerDispatcherOverview;
+  businessOverview: BusinessOverviewLoadState;
 }) {
-  const hasDispatcherData =
-    overview.production !== undefined ||
-    overview.equipment !== undefined ||
-    overview.latestIncident !== undefined ||
-    overview.latestIncidentClosure !== undefined ||
-    overview.visitors.latestDate !== undefined ||
-    overview.visitors.openCount > 0;
-  const isLocalTestMode =
-    dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
-
   return (
     <section className="owner-overview" aria-label="Обзор">
       <div className="owner-overview-header">
-        <h2>Диспетчер</h2>
-        {dispatcherFeed.status === "ready" ? (
-          <span>Обновлено: {formatDateTime(dispatcherFeed.receivedAt)}</span>
+        <div>
+          <h2>Коротко с начала месяца</h2>
+          {businessOverview.status === "ready" ? (
+            <p>
+              С {formatDateOnly(businessOverview.overview.period.monthStart)} по{" "}
+              {formatDateOnly(businessOverview.overview.period.today)}
+            </p>
+          ) : null}
+        </div>
+        {businessOverview.status === "ready" ? (
+          <span>
+            Обновлено: {formatDateTime(businessOverview.overview.receivedAt)}
+          </span>
         ) : null}
       </div>
-      {dispatcherFeed.status === "loading" ? (
+      {businessOverview.status === "loading" ? (
         <LoadingIndicator
           className="owner-overview-loading"
-          label={dispatcherFeed.message}
+          label={businessOverview.message}
           variant="panel"
         />
       ) : null}
-      {dispatcherFeed.status === "error" ? (
+      {businessOverview.status === "error" ? (
         <p className="owner-overview-status owner-overview-status-error">
           {readShortUserMessage(
-            dispatcherFeed.message,
+            businessOverview.message,
             "Не удалось загрузить сводку.",
           )}
         </p>
       ) : null}
-      {isLocalTestMode ? (
-        <p className="owner-overview-status owner-overview-status-local">
-          Тестовый режим: данные только на этом устройстве.
-        </p>
-      ) : null}
-      {dispatcherFeed.status === "ready" && !hasDispatcherData ? (
-        <p className="owner-overview-status">
-          Пока нет внесённых диспетчерских отчётов.
-        </p>
-      ) : null}
-      {dispatcherFeed.status === "ready" && hasDispatcherData ? (
+      {businessOverview.status === "ready" ? (
         <div className="owner-overview-stack">
-          <OwnerEquipmentOverviewBlock overview={overview} />
-          <OwnerProductionOverviewBlock overview={overview} />
-          <OwnerIncidentOverviewBlock overview={overview} />
-          <OwnerIncidentClosureOverviewBlock overview={overview} />
-          <OwnerVisitorsOverviewBlock overview={overview} />
+          <OwnerOverviewMetrics
+            title="Инциденты"
+            metrics={[
+              {
+                label: "Всего за месяц",
+                value: businessOverview.overview.incidents.monthTotal,
+              },
+              {
+                label: "Закрыто из них",
+                value: businessOverview.overview.incidents.monthClosed,
+              },
+              {
+                label: "Сегодня",
+                value: businessOverview.overview.incidents.todayTotal,
+              },
+              {
+                label: "Не закрыто сейчас",
+                value: businessOverview.overview.incidents.openNow,
+                tone: businessOverview.overview.incidents.openNow > 0
+                  ? "attention"
+                  : undefined,
+              },
+            ]}
+          />
+          <OwnerOverviewMetrics
+            title="Лаборатория"
+            metrics={[
+              {
+                label: "Испытаний за месяц",
+                value: businessOverview.overview.laboratory.monthTotal,
+              },
+              {
+                label: "Испытаний сегодня",
+                value: businessOverview.overview.laboratory.todayTotal,
+              },
+            ]}
+          />
         </div>
       ) : null}
     </section>
   );
 }
 
-function OwnerEquipmentOverviewBlock({
-  overview,
-}: {
-  overview: OwnerDispatcherOverview;
-}) {
-  return (
-    <section className="owner-overview-block" aria-label="Оборудование">
-      <h3>Оборудование</h3>
-      {overview.equipment === undefined ? (
-        <p className="owner-overview-status">Нет отчётов по оборудованию.</p>
-      ) : (
-        <p className="owner-overview-lead">
-          Последняя дата обновления отчета по оборудованию -{" "}
-          <strong>{formatDateTime(overview.equipment.updatedAt)}</strong>.
-          Работало {formatEquipmentWorkingCounts(overview.equipment.workingCounts)}.
-        </p>
-      )}
-    </section>
-  );
-}
-
-function OwnerProductionOverviewBlock({
-  overview,
-}: {
-  overview: OwnerDispatcherOverview;
-}) {
-  return (
-    <section className="owner-overview-block" aria-label="Выработка">
-      <h3>Выработка</h3>
-      {overview.production === undefined ? (
-        <p className="owner-overview-status">
-          Нет отчётов по выработке за текущий месяц.
-        </p>
-      ) : (
-        <p className="owner-overview-lead">
-          Общая выработка за текущий месяц —{" "}
-          <strong>{formatNumber(overview.production.totalFact)} т</strong>.
-        </p>
-      )}
-    </section>
-  );
-}
-
-export function OwnerIncidentOverviewBlock({
-  overview,
-}: {
-  overview: OwnerDispatcherOverview;
-}) {
-  const incident = overview.latestIncident;
-
-  return (
-    <OwnerIncidentOverviewCard
-      ariaLabel="Последний инцидент"
-      dateLabel="Дата последнего инцидента"
-      emptyMessage="Нет зарегистрированных инцидентов."
-      incident={incident === undefined
-        ? undefined
-        : {
-            updatedAt: incident.updatedAt,
-            incidentNumber: incident.incidentNumber,
-            incidentType: incident.incidentType,
-            location: incident.location,
-            status: incident.status,
-            details: [
-              ["Описание", incident.description],
-              ["Критичность", incident.criticality],
-              ["Ответственный за регистрацию", incident.responsible],
-              ["Оперативные меры", incident.immediateActions],
-            ],
-          }}
-      title="Последний инцидент"
-    />
-  );
-}
-
-export function OwnerIncidentClosureOverviewBlock({
-  overview,
-}: {
-  overview: OwnerDispatcherOverview;
-}) {
-  const closure = overview.latestIncidentClosure;
-
-  return (
-    <OwnerIncidentOverviewCard
-      ariaLabel="Последнее закрытие инцидента"
-      dateLabel="Дата последнего закрытия инцидента"
-      emptyMessage="Нет закрытых инцидентов."
-      incident={closure === undefined
-        ? undefined
-        : {
-            updatedAt: closure.updatedAt,
-            incidentNumber: closure.incidentNumber,
-            incidentType: closure.incidentType,
-            location: closure.location,
-            status: closure.status,
-            details: [
-              ["Корневые причины", closure.rootCauses],
-              ["Предотвращающие меры", closure.preventiveMeasures],
-              ["Затраты (убытки), руб", closure.costs],
-              ["Кто утвердил закрытие", closure.approvedBy],
-              ["Примечание", closure.closureNote],
-            ],
-          }}
-      title="Последнее закрытие инцидента"
-    />
-  );
-}
-
-type OwnerIncidentOverviewCardData = {
-  updatedAt: string;
-  incidentNumber: string;
-  incidentType?: string;
-  location?: string;
-  status: string;
-  details: [label: string, value: string | undefined][];
-};
-
-function OwnerIncidentOverviewCard({
-  ariaLabel,
-  dateLabel,
-  emptyMessage,
-  incident,
+function OwnerOverviewMetrics({
   title,
+  metrics,
 }: {
-  ariaLabel: string;
-  dateLabel: string;
-  emptyMessage: string;
-  incident?: OwnerIncidentOverviewCardData;
   title: string;
+  metrics: Array<{
+    label: string;
+    value: number;
+    tone?: "attention";
+  }>;
 }) {
-  const age = incident === undefined
-    ? undefined
-    : formatOwnerIncidentAge(incident.updatedAt);
-
   return (
-    <section
-      className="owner-overview-block owner-incident-overview-block"
-      aria-label={ariaLabel}
-    >
+    <section className="owner-overview-block" aria-label={title}>
       <h3>{title}</h3>
-      {incident === undefined ? (
-        <p className="owner-overview-status">{emptyMessage}</p>
-      ) : (
-        <>
-          <p className="owner-overview-lead owner-incident-date">
-            {dateLabel}
-            {age === undefined ? null : (
-              <> <span className="owner-incident-age">({age})</span></>
-            )}{" "}
-            — <strong>{formatDateTime(incident.updatedAt)}</strong>.
-          </p>
-          <div className="owner-incident-card">
-            <dl className="owner-incident-summary">
-              <div className="owner-incident-summary-primary">
-                <dt>Номер инцидента</dt>
-                <dd>{readOverviewDetailValue(incident.incidentNumber)}</dd>
-              </div>
-              <div>
-                <dt>Тип инцидента</dt>
-                <dd>{readOverviewDetailValue(incident.incidentType)}</dd>
-              </div>
-              <div>
-                <dt>Место (цех/участок)</dt>
-                <dd>{readOverviewDetailValue(incident.location)}</dd>
-              </div>
-              <div className="owner-incident-summary-status">
-                <dt>Статус</dt>
-                <dd>{readOverviewDetailValue(incident.status)}</dd>
-              </div>
-            </dl>
-            <OwnerOverviewDetails rows={incident.details} />
+      <dl className="owner-overview-metrics">
+        {metrics.map((metric) => (
+          <div
+            className={
+              metric.tone === undefined
+                ? undefined
+                : `owner-overview-metric-${metric.tone}`
+            }
+            key={metric.label}
+          >
+            <dt>{metric.label}</dt>
+            <dd>{metric.value}</dd>
           </div>
-        </>
-      )}
+        ))}
+      </dl>
     </section>
-  );
-}
-
-export function formatOwnerIncidentAge(
-  value: string,
-  currentDate = new Date(),
-) {
-  const eventDate = new Date(value);
-
-  if (Number.isNaN(eventDate.getTime())) {
-    return undefined;
-  }
-
-  const eventDay = Date.UTC(
-    eventDate.getFullYear(),
-    eventDate.getMonth(),
-    eventDate.getDate(),
-  );
-  const currentDay = Date.UTC(
-    currentDate.getFullYear(),
-    currentDate.getMonth(),
-    currentDate.getDate(),
-  );
-  const daysAgo = Math.max(
-    0,
-    Math.floor((currentDay - eventDay) / (24 * 60 * 60 * 1000)),
-  );
-
-  if (daysAgo === 0) {
-    return "сегодня";
-  }
-
-  const lastTwoDigits = daysAgo % 100;
-  const lastDigit = daysAgo % 10;
-  const dayWord = lastTwoDigits >= 11 && lastTwoDigits <= 14
-    ? "дней"
-    : lastDigit === 1
-      ? "день"
-      : lastDigit >= 2 && lastDigit <= 4
-        ? "дня"
-        : "дней";
-
-  return `${daysAgo} ${dayWord} назад`;
-}
-
-function OwnerVisitorsOverviewBlock({
-  overview,
-}: {
-  overview: OwnerDispatcherOverview;
-}) {
-  const visitors = overview.visitors;
-
-  return (
-    <section className="owner-overview-block" aria-label="Посетители">
-      <h3>Посетители</h3>
-      {visitors.latestDate === undefined ? (
-        <p className="owner-overview-status">Нет входов посетителей.</p>
-      ) : (
-        <>
-          <p className="owner-overview-lead">
-            Последние посетители были {formatDateOnly(visitors.latestDate)}.
-            Было посетителей - {visitors.count} чел.
-          </p>
-          <p className="owner-overview-line">
-            Приходили к{" "}
-            {visitors.hosts.length === 0
-              ? "не указано"
-              : visitors.hosts.join(", ")}.
-          </p>
-        </>
-      )}
-      <p className="owner-overview-line">
-        Количество невышедших посетителей на данный момент -{" "}
-        {visitors.openCount} чел.
-      </p>
-    </section>
-  );
-}
-
-function OwnerOverviewDetails({
-  rows,
-}: {
-  rows: [label: string, value: string | undefined][];
-}) {
-  return (
-    <dl className="owner-overview-details">
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{readOverviewDetailValue(value)}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }
 
@@ -3530,6 +3413,10 @@ function RefractoryReviewChoice({
   );
 }
 
+type DispatcherProductionBankContentsState =
+  | DispatcherProductionBankContentsResult
+  | { status: "loading" };
+
 export function DispatcherProductionReportFormBody({
   form,
   isAdminPreviewMode,
@@ -3566,6 +3453,35 @@ export function DispatcherProductionReportFormBody({
     | { status: "ready"; submission?: DispatcherSubmission }
     | { status: "error"; message: string }
   >({ status: "loading" });
+  const [bankContentsState, setBankContentsState] =
+    useState<DispatcherProductionBankContentsState>({ status: "loading" });
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setBankContentsState({ status: "loading" });
+    requestDispatcherProductionBankContents({
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setBankContentsState(
+        result.status === "error"
+          ? {
+              status: "error",
+              message: readShortUserMessage(
+                result.message,
+                "Не удалось загрузить содержимое банок.",
+              ),
+            }
+          : result,
+      );
+    });
+
+    return () => controller.abort();
+  }, [isAdminPreviewMode]);
 
   useEffect(() => {
     if (reportDate.length === 0) {
@@ -3707,6 +3623,7 @@ export function DispatcherProductionReportFormBody({
           key={`${reportDate}:${reportLoadState.submission?.id ?? "new"}`}
           brandLabels={brandLabels}
           brandLoadState={brandLoadState}
+          bankContentsState={bankContentsState}
           dailyPlanValues={dailyPlanValues}
           form={form}
           initialSubmission={reportLoadState.submission}
@@ -3725,6 +3642,7 @@ export function DispatcherProductionReportFormBody({
 }
 
 function ProductionReportEditor({
+  bankContentsState,
   brandLabels,
   brandLoadState,
   dailyPlanValues,
@@ -3737,6 +3655,7 @@ function ProductionReportEditor({
   onCreateBrand,
   onRetryBrands,
 }: {
+  bankContentsState: DispatcherProductionBankContentsState;
   brandLabels: ProductionBrandLabel[];
   brandLoadState:
     | { status: "loading" }
@@ -3755,6 +3674,16 @@ function ProductionReportEditor({
   onRetryBrands: () => void;
 }) {
   const initialPayload = initialSubmission?.payload;
+  const bankMaterialByNumber = new Map(
+    bankContentsState.status === "ready"
+      ? bankContentsState.bankContents.map((item) => [
+          item.bankNumber,
+          item.materialLabel,
+        ])
+      : [],
+  );
+  const unavailableBankMaterialLabel =
+    bankContentsState.status === "loading" ? "Загрузка…" : "Нет данных";
 
   return (
     <>
@@ -3840,6 +3769,14 @@ function ProductionReportEditor({
       <div className="production-report-split production-report-split-bottom">
         <fieldset className="production-report-section">
           <legend>Замеры банок</legend>
+          {bankContentsState.status === "error" ? (
+            <span
+              className="production-report-section-note production-report-bank-content-error"
+              role="alert"
+            >
+              {bankContentsState.message}
+            </span>
+          ) : null}
           <div className="production-report-table-wrap">
             <table className="production-report-table production-report-jar-table">
               <thead>
@@ -3850,9 +3787,18 @@ function ProductionReportEditor({
                 </tr>
               </thead>
               <tbody>
-                {[1, 2, 3].map((jarNumber) => (
+                {([1, 2, 3] as const).map((jarNumber) => (
                   <tr key={jarNumber}>
-                    <th scope="row">{jarNumber}</th>
+                    <th scope="row">
+                      <span className="production-report-jar-label">
+                        <span>{jarNumber}</span>
+                        <small>
+                          {bankContentsState.status === "ready"
+                            ? bankMaterialByNumber.get(jarNumber) ?? "Не назначено"
+                            : unavailableBankMaterialLabel}
+                        </small>
+                      </span>
+                    </th>
                     <td>
                       <ProductionReportCell
                         defaultValue={initialPayload?.[`jarStart${jarNumber}`]}
@@ -10656,16 +10602,6 @@ function formatDateOnly(value: string) {
   });
 }
 
-function formatEquipmentWorkingCounts(
-  counts: NonNullable<OwnerDispatcherOverview["equipment"]>["workingCounts"],
-) {
-  if (counts.length === 0) {
-    return "нет данных по позициям оборудования";
-  }
-
-  return counts.map((item) => `${item.label} - ${item.count} шт`).join("; ");
-}
-
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 2,
@@ -10699,12 +10635,6 @@ function formatProductionFieldValue(
   }
 
   return text;
-}
-
-function readOverviewDetailValue(value: string | undefined) {
-  const text = value?.trim();
-
-  return text === undefined || text.length === 0 ? "Не указано" : text;
 }
 
 function readOptionalFormValue(value: FormDataEntryValue | null) {

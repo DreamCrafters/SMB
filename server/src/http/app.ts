@@ -32,7 +32,11 @@ import {
   type DispatcherSubmission,
   type ValidatedDispatcherSubmissionDraft,
 } from "../domain/dispatcherSubmission.js";
-import { applyIncidentStateRules } from "../domain/dispatcherIncidentState.js";
+import {
+  applyIncidentStateRules,
+  buildIncidentOverviewPeriod,
+  buildIncidentOverviewSummary,
+} from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
   buildProductionMonthToDate,
@@ -176,6 +180,7 @@ type AppDependencies = {
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   productionSnapshot?: ProductionDatabaseSnapshotService;
+  now?: () => Date;
 };
 
 type JsonPayload = Record<string, unknown> | unknown[];
@@ -221,6 +226,7 @@ export function createApiServer({
   audit,
   databaseTransaction,
   productionSnapshot,
+  now = () => new Date(),
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
 
@@ -401,6 +407,32 @@ export function createApiServer({
           productionBrands,
           audit,
           databaseTransaction,
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/dispatcher/production-bank-contents") {
+        await handleDispatcherProductionBankContentsRequest({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          laboratoryBankAssignments,
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/business/overview") {
+        await handleBusinessOverviewRequest({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          dispatcherSubmissions,
+          laboratoryResults,
+          now,
         });
         return;
       }
@@ -794,6 +826,71 @@ export function createApiServer({
         },
       });
     }
+  });
+}
+
+async function handleBusinessOverviewRequest({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  dispatcherSubmissions,
+  laboratoryResults,
+  now,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  dispatcherSubmissions: DispatcherSubmissionsRepository;
+  laboratoryResults: LaboratoryResultsRepository | undefined;
+  now: () => Date;
+}) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Для обзора используется GET.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "business.view_all_statistics",
+  });
+  if (access === undefined) return;
+
+  if (laboratoryResults === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище лабораторных испытаний не настроено.",
+      },
+    });
+    return;
+  }
+
+  const currentDate = now();
+  const period = buildIncidentOverviewPeriod(currentDate);
+  const [incidentSubmissions, laboratory] = await Promise.all([
+    listAllIncidentSubmissions(dispatcherSubmissions),
+    laboratoryResults.readOverviewSummary(period),
+  ]);
+
+  sendJson(res, 200, {
+    period,
+    incidents: buildIncidentOverviewSummary(
+      incidentSubmissions,
+      currentDate,
+    ),
+    laboratory,
+    receivedAt: currentDate.toISOString(),
   });
 }
 
@@ -1437,6 +1534,8 @@ async function handleRefractoryReportsRequest({
       productionBrands,
       references: brandReferences,
       logEvent: "refractory_brands.google_sheets_fetch_failed",
+      describeMissingReference: (reference) =>
+        describeMissingRefractoryBrand(validation.value, reference),
     });
 
     if (references === undefined) return;
@@ -1615,26 +1714,60 @@ function applyRefractoryReportBrandResolution(
   }
 }
 
+type ProductionBrandReferenceErrorDetail = {
+  fieldPath: string;
+  message: string;
+};
+
+function describeMissingRefractoryBrand(
+  report: ValidatedRefractoryReportSubmission,
+  reference: ProductionBrandReference,
+): ProductionBrandReferenceErrorDetail | undefined {
+  const missingValue = `значение «${reference.label}» отсутствует в номенклатуре. Выберите марку из списка.`;
+
+  if (report.reportType === "cosh") {
+    const match = /^chamotteOutputRows\.(\d+)\.productBrand$/u.exec(
+      reference.fieldName,
+    );
+    if (match === null) return undefined;
+    const rowNumber = Number(match[1]) + 1;
+    return {
+      fieldPath: reference.fieldName,
+      message:
+        `Выпуск шамота, строка ${rowNumber}, поле «Марка изделия»: ${missingValue}`,
+    };
+  }
+
+  return undefined;
+}
+
 async function resolveProductionBrandReferencesForRequest({
   res,
   productionBrands,
   references,
   logEvent,
+  describeMissingReference,
 }: {
   res: ServerResponse;
   productionBrands: ProductionBrandsDataSource;
   references: ProductionBrandReference[];
   logEvent: string;
+  describeMissingReference?: (
+    reference: ProductionBrandReference,
+  ) => ProductionBrandReferenceErrorDetail | undefined;
 }): Promise<ProductionBrandReference[] | undefined> {
   try {
     const resolution = await productionBrands.resolveReferences(references);
 
     if (resolution.ok) return resolution.references;
 
+    const detail = describeMissingReference?.(resolution.missing);
     sendJson(res, 400, {
       error: {
         code: "invalid_response",
-        message: `Сначала добавьте марку «${resolution.missing.label}» в номенклатуру.`,
+        message: detail?.message ??
+          `Сначала добавьте марку «${resolution.missing.label}» в номенклатуру.`,
+        ...(detail === undefined ? {} : { details: [detail] }),
       },
     });
   } catch (error) {
@@ -2029,6 +2162,63 @@ async function handleProductionBrandsRequest({
   }
 
   sendJson(res, result.created ? 201 : 200, { label: result.label });
+}
+
+async function handleDispatcherProductionBankContentsRequest({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  laboratoryBankAssignments,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
+}) {
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "business.submit_dispatcher_forms",
+    message: "Содержимое банок доступно диспетчеру.",
+  });
+
+  if (access === undefined) {
+    return;
+  }
+
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Для просмотра содержимого банок используется GET.",
+      },
+    });
+    return;
+  }
+
+  if (laboratoryBankAssignments === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище назначений банок не настроено.",
+      },
+    });
+    return;
+  }
+
+  const currentAssignments = await laboratoryBankAssignments.listCurrent();
+
+  sendJson(res, 200, {
+    bankContents: currentAssignments.map((assignment) => ({
+      bankNumber: assignment.bankNumber,
+      materialLabel: assignment.materialLabel,
+    })),
+  });
 }
 
 async function handleProductionSnapshotRequest({
@@ -5364,6 +5554,40 @@ async function listAllProductionSubmissions(
 
     offset += page.length;
   }
+}
+
+async function listAllIncidentSubmissions(
+  repository: DispatcherSubmissionsRepository,
+) {
+  const pageLimit = 2_000;
+  const submissions: DispatcherSubmission[] = [];
+  const seenIds = new Set<string>();
+
+  for (const formId of ["incident", "incident_close"] as const) {
+    let offset = 0;
+
+    while (true) {
+      const page = await repository.listLatest({
+        formId,
+        limit: pageLimit,
+        offset,
+      });
+      let appendedCount = 0;
+
+      for (const submission of page) {
+        if (seenIds.has(submission.id)) continue;
+
+        seenIds.add(submission.id);
+        submissions.push(submission);
+        appendedCount += 1;
+      }
+
+      if (page.length < pageLimit || appendedCount === 0) break;
+      offset += page.length;
+    }
+  }
+
+  return submissions;
 }
 
 function readOptionalQueryParam(url: URL, name: string) {

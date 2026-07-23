@@ -30,6 +30,15 @@ export type LaboratoryBanksResponse = {
   eligibleProducts: LaboratoryBankProduct[];
 };
 
+export type DispatcherProductionBankContent = Pick<
+  LaboratoryBankAssignment,
+  "bankNumber" | "materialLabel"
+>;
+
+export type DispatcherProductionBankContentsResponse = {
+  bankContents: DispatcherProductionBankContent[];
+};
+
 export type RefractoryBanksResponse = {
   currentAssignments: LaboratoryBankAssignment[];
   volumeReference: BankVolumeReference;

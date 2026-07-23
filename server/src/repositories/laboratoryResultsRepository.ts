@@ -29,6 +29,11 @@ export type LaboratoryResultFilters = {
   limit?: number;
 };
 
+export type LaboratoryOverviewSummary = {
+  monthTotal: number;
+  todayTotal: number;
+};
+
 export type LaboratoryResultsRepository = {
   create: (input: {
     result: LaboratoryResultSubmission;
@@ -38,6 +43,10 @@ export type LaboratoryResultsRepository = {
     protocolReference: LaboratoryReferenceData;
   }) => Promise<LaboratoryResult>;
   list: (filters?: LaboratoryResultFilters) => Promise<LaboratoryResult[]>;
+  readOverviewSummary: (period: {
+    monthStart: string;
+    today: string;
+  }) => Promise<LaboratoryOverviewSummary>;
   findById: (id: string) => Promise<StoredLaboratoryResult | undefined>;
 };
 
@@ -55,6 +64,11 @@ type LaboratoryResultRow = RowDataPacket & {
 type LaboratoryResultsRepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
+};
+
+type LaboratoryOverviewRow = RowDataPacket & {
+  month_count: number | string;
+  today_count: number | string | null;
 };
 
 const defaultListLimit = 100;
@@ -163,6 +177,24 @@ export function createLaboratoryResultsRepository(
       return rows.map((row) => toPublicLaboratoryResult(
         mapLaboratoryResultRow(row),
       ));
+    },
+
+    async readOverviewSummary({ monthStart, today }) {
+      const [rows] = await pool.query<LaboratoryOverviewRow[]>(
+        `select
+          count(*) as month_count,
+          sum(case when analysis_date = ? then 1 else 0 end) as today_count
+        from laboratory_results
+        where analysis_date >= ?
+          and analysis_date <= ?`,
+        [today, monthStart, today],
+      );
+      const row = rows[0];
+
+      return {
+        monthTotal: Number(row?.month_count ?? 0),
+        todayTotal: Number(row?.today_count ?? 0),
+      };
     },
 
     async findById(id) {

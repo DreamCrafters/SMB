@@ -141,6 +141,42 @@ test("laboratory repository lists filtered results newest first", async () => {
   ]);
 });
 
+test("laboratory repository counts saved tests for the current month and today", async () => {
+  let querySql = "";
+  let queryParameters: unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      querySql = sql;
+      queryParameters = parameters ?? [];
+      return [[{
+        month_count: "7",
+        today_count: 2,
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryResultsRepository(pool);
+
+  const summary = await repository.readOverviewSummary({
+    monthStart: "2026-07-01",
+    today: "2026-07-23",
+  });
+
+  assert.deepEqual(summary, {
+    monthTotal: 7,
+    todayTotal: 2,
+  });
+  assert.match(querySql, /count\(\*\) as month_count/u);
+  assert.match(
+    querySql,
+    /sum\(case when analysis_date = \? then 1 else 0 end\) as today_count/u,
+  );
+  assert.deepEqual(queryParameters, [
+    "2026-07-23",
+    "2026-07-01",
+    "2026-07-23",
+  ]);
+});
+
 test("laboratory repository reads a legacy incoming result as one sample", async () => {
   const pool = {
     async query() {

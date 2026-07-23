@@ -13,6 +13,18 @@ export type IncidentStateValidationResult =
       errors: string[];
     };
 
+export type IncidentOverviewSummary = {
+  monthTotal: number;
+  monthClosed: number;
+  todayTotal: number;
+  openNow: number;
+};
+
+export type IncidentOverviewPeriod = {
+  monthStart: string;
+  today: string;
+};
+
 type OpenIncidentEntry = {
   submission: DispatcherSubmission;
   incidentNumber: string;
@@ -25,6 +37,69 @@ const incidentOpeningContextFieldNames = [
   "criticality",
   "description",
 ] as const;
+
+export function buildIncidentOverviewSummary(
+  history: DispatcherSubmission[],
+  currentDate = new Date(),
+): IncidentOverviewSummary {
+  const { today } = buildIncidentOverviewPeriod(currentDate);
+  const currentMonth = today.slice(0, 7);
+  const closedIncidentNumbers = new Set(
+    history.flatMap((submission) => {
+      if (submission.formId !== "incident_close") return [];
+
+      const incidentNumber = submission.payload.incidentNumber?.trim();
+      return incidentNumber === undefined || incidentNumber.length === 0
+        ? []
+        : [incidentNumber];
+    }),
+  );
+  const monthOpenings = history.flatMap((submission) => {
+    if (submission.formId !== "incident") return [];
+
+    const calendarDate = readIncidentCalendarDate(submission);
+    return calendarDate <= today && calendarDate.startsWith(currentMonth)
+      ? [{ submission, calendarDate }]
+      : [];
+  });
+
+  return {
+    monthTotal: monthOpenings.length,
+    monthClosed: monthOpenings.filter(({ submission }) =>
+      closedIncidentNumbers.has(readIncidentNumber(submission))
+    ).length,
+    todayTotal: monthOpenings.filter(({ calendarDate }) =>
+      calendarDate === today
+    ).length,
+    openNow: buildOpenIncidentEntries(history).filter((entry) =>
+      readIncidentCalendarDate(entry.submission) <= today
+    ).length,
+  };
+}
+
+export function buildIncidentOverviewPeriod(
+  currentDate = new Date(),
+): IncidentOverviewPeriod {
+  const parts = new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(currentDate);
+  const valueByPart = new Map(
+    parts.map((part) => [part.type, part.value]),
+  );
+  const today = [
+    valueByPart.get("year"),
+    valueByPart.get("month"),
+    valueByPart.get("day"),
+  ].join("-");
+
+  return {
+    monthStart: `${today.slice(0, 7)}-01`,
+    today,
+  };
+}
 
 export function applyIncidentStateRules(
   value: ValidatedDispatcherSubmissionDraft,
@@ -116,6 +191,27 @@ function buildOpenIncidentEntries(
 
 function readIncidentNumber(submission: DispatcherSubmission) {
   return submission.payload.incidentNumber?.trim() || submission.id;
+}
+
+function readIncidentCalendarDate(submission: DispatcherSubmission) {
+  const value = submission.payload.datetime;
+  const scriptMatch = value === undefined
+    ? null
+    : /^(\d{2})\.(\d{2})\.(\d{4})/u.exec(value);
+
+  if (scriptMatch !== null) {
+    return `${scriptMatch[3]}-${scriptMatch[2]}-${scriptMatch[1]}`;
+  }
+
+  const isoMatch = value === undefined
+    ? null
+    : /^(\d{4})-(\d{2})-(\d{2})/u.exec(value);
+
+  if (isoMatch !== null) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  return submission.receivedAt.slice(0, 10);
 }
 
 function compareSubmissionsAscending(

@@ -280,6 +280,15 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       });
     }
 
+    if (url.includes("/api/dispatcher/production-bank-contents")) {
+      return jsonResponse({
+        bankContents: [
+          { bankNumber: 1, materialLabel: "ШКИ-66" },
+          { bankNumber: 2, materialLabel: "ШГР-1" },
+        ],
+      });
+    }
+
     if (url.includes("/api/production-plans/daily")) {
       return jsonResponse({
         plan: {
@@ -469,6 +478,18 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     assert.equal(
       rootElement.querySelector('input[name="jarStart1"]')?.value,
       "10",
+    );
+    assert.match(
+      rootElement.querySelector(
+        ".production-report-jar-table tbody tr:first-child th",
+      )?.textContent ?? "",
+      /1.*ШКИ-66/u,
+    );
+    assert.match(
+      rootElement.querySelector(
+        ".production-report-jar-table tbody tr:nth-child(3) th",
+      )?.textContent ?? "",
+      /3.*Не назначено/u,
     );
     assert.equal(
       rootElement.querySelector(

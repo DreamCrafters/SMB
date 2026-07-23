@@ -505,6 +505,130 @@ function buildBankAssignment(bankNumber, materialLabel, density) {
   };
 }
 
+test("refractory correction can be cancelled without saving draft changes", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  let postCount = 0;
+
+  try {
+    const { RefractoryShopWorkspace } = await vite.ssrLoadModule(
+      "/src/RefractoryReports.tsx",
+    );
+    const approvedReport = {
+      ...buildPendingReport(),
+      status: "approved",
+      payload: { kilnNumber: "1" },
+    };
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      if (url.pathname.endsWith("/production-brands")) {
+        return new Response(JSON.stringify({ labels: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname.endsWith("/refractory-reports/banks")) {
+        return new Response(JSON.stringify({
+          currentAssignments: [
+            buildBankAssignment(1, "ШКИ", 1.16),
+            buildBankAssignment(2, "ШКИ-66", 1.57),
+            buildBankAssignment(3, "ШГР-28", 1.09),
+          ],
+          volumeReference: {
+            points: [
+              { heightMeters: 0, volumeCubicMeters: 100 },
+              { heightMeters: 1, volumeCubicMeters: 90 },
+            ],
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (init?.method === "POST") {
+        postCount += 1;
+      }
+      return new Response(JSON.stringify({ reports: [approvedReport] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    await React.act(async () => {
+      root.render(
+        React.createElement(RefractoryShopWorkspace, {
+          profile: buildOperatorProfile(),
+          isAdminPreviewMode: false,
+          onShowToast() {},
+        }),
+      );
+    });
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".refractory-state-approved") !== null,
+    );
+
+    const createCorrectionButton = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find((button) => button.textContent === "Создать исправление");
+    assert.ok(createCorrectionButton);
+    await React.act(async () => createCorrectionButton.click());
+
+    const cancelButton = Array.from(
+      rootElement.querySelectorAll(".refractory-form-actions button"),
+    ).find((button) => button.textContent === "Отменить");
+    assert.ok(cancelButton);
+    const kilnNumberInput = rootElement.querySelector(
+      'input[name="kilnNumber"]',
+    );
+    assert.ok(kilnNumberInput);
+    assert.equal(kilnNumberInput.closest("fieldset")?.disabled, false);
+    setNativeInputValue(kilnNumberInput, "2");
+
+    await React.act(async () => cancelButton.click());
+
+    const restoredKilnNumberInput = rootElement.querySelector(
+      'input[name="kilnNumber"]',
+    );
+    assert.ok(restoredKilnNumberInput);
+    assert.equal(restoredKilnNumberInput.value, "1");
+    assert.equal(restoredKilnNumberInput.closest("fieldset")?.disabled, true);
+    assert.equal(postCount, 0);
+    assert.ok(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent === "Создать исправление",
+      ),
+    );
+    assert.equal(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent === "Отменить",
+      ),
+      false,
+    );
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("refractory navigation shows the number of reports returned for correction", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
