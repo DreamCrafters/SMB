@@ -72,6 +72,11 @@ export type RefractoryEquipmentTotals = {
 
 export type RefractoryCoshPayload = {
   kilnNumber?: string;
+  chamotteOutputRows?: Array<{
+    productBrand: string;
+    quantityTons: number;
+  }>;
+  /** Legacy shape kept for reading revisions saved before dynamic brand rows. */
   chamotteOutput?: {
     shbo?: number;
     shgr1?: number;
@@ -296,6 +301,7 @@ const refractoryFieldLabels: Record<string, string> = {
   productBrand: "Марка изделия",
   productName: "Наименование продукции",
   quantity: "Кол-во, т",
+  quantityTons: "Выпуск, т",
   quantityPieces: "Кол-во, шт.",
   rawMaterialAbsenceHours: "Отсутствие сырья",
   rejectChipsPieces: "Сколы",
@@ -469,6 +475,7 @@ function validateCoshPayload(
     ...scalarTextFields,
     ...timeFields,
     ...numberFields,
+    "chamotteOutputRows",
     "chamotteOutput",
     "jarMeasurements",
     "bunkerFill",
@@ -514,6 +521,10 @@ function validateCoshPayload(
     }
   }
 
+  payload.chamotteOutputRows = readChamotteOutputRows(
+    input.chamotteOutputRows,
+    errors,
+  );
   payload.chamotteOutput = readNumberRecord(
     input.chamotteOutput,
     ["shbo", "shgr1", "shgr2", "shki"],
@@ -539,6 +550,7 @@ function validateCoshPayload(
   payload.bagging = readBagging(input.bagging, errors);
 
   for (const field of [
+    "chamotteOutputRows",
     "chamotteOutput",
     "jarMeasurements",
     "bunkerFill",
@@ -564,6 +576,82 @@ function validateCoshPayload(
   return errors.length > 0
     ? buildValidationFailure(errors)
     : { ok: true, value: payload };
+}
+
+function readChamotteOutputRows(
+  input: unknown,
+  errors: RefractoryValidationIssue[],
+): RefractoryCoshPayload["chamotteOutputRows"] {
+  if (input === undefined || input === null) return undefined;
+  if (!Array.isArray(input) || input.length > 50) {
+    addValidationIssue(
+      errors,
+      "Выпуск шамота: строки переданы в неверном формате.",
+    );
+    return undefined;
+  }
+
+  const rows: NonNullable<RefractoryCoshPayload["chamotteOutputRows"]> = [];
+  for (const [index, value] of input.entries()) {
+    if (
+      !isRecord(value) ||
+      Array.isArray(value) ||
+      unexpectedKeys(value, ["productBrand", "quantityTons"]).length > 0
+    ) {
+      addValidationIssue(
+        errors,
+        `Выпуск шамота, строка ${index + 1}: неверный формат.`,
+      );
+      continue;
+    }
+
+    const row: Partial<
+      NonNullable<RefractoryCoshPayload["chamotteOutputRows"]>[number]
+    > = {};
+    readOptionalText(value, row, "productBrand", 120, index, errors, {
+      section: "Выпуск шамота",
+      fieldPath: `chamotteOutputRows.${index}.productBrand`,
+    });
+    readOptionalNumber(value, row, "quantityTons", index, errors, {
+      section: "Выпуск шамота",
+      fieldPath: `chamotteOutputRows.${index}.quantityTons`,
+    });
+
+    if (row.productBrand === undefined && row.quantityTons === undefined) {
+      continue;
+    }
+    if (row.productBrand === undefined) {
+      addValidationIssue(
+        errors,
+        `Выпуск шамота, строка ${index + 1}: укажите марку изделия.`,
+        `chamotteOutputRows.${index}.productBrand`,
+      );
+      continue;
+    }
+    if (row.quantityTons === undefined) {
+      addValidationIssue(
+        errors,
+        `Выпуск шамота, строка ${index + 1}: укажите выпуск в тоннах.`,
+        `chamotteOutputRows.${index}.quantityTons`,
+      );
+      continue;
+    }
+    rows.push(row as NonNullable<
+      RefractoryCoshPayload["chamotteOutputRows"]
+    >[number]);
+  }
+
+  const normalizedBrands = rows.map((row) =>
+    row.productBrand.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU")
+  );
+  if (new Set(normalizedBrands).size !== normalizedBrands.length) {
+    addValidationIssue(
+      errors,
+      "Выпуск шамота: марки не должны повторяться.",
+    );
+  }
+
+  return rows;
 }
 
 function readNumberRecord<Key extends string>(
@@ -706,10 +794,15 @@ function readBagging(
 function buildCoshTotals(payload: RefractoryCoshPayload): RefractoryCoshTotals {
   return {
     chamotteOutputTons: roundNumber(
-      Object.values(payload.chamotteOutput ?? {}).reduce(
-        (total, value) => total + (value ?? 0),
-        0,
-      ),
+      payload.chamotteOutputRows === undefined
+        ? Object.values(payload.chamotteOutput ?? {}).reduce(
+            (total, value) => total + (value ?? 0),
+            0,
+          )
+        : payload.chamotteOutputRows.reduce(
+            (total, row) => total + row.quantityTons,
+            0,
+          ),
     ),
     bunkerFillTons: roundNumber(
       (payload.bunkerFill ?? []).reduce(

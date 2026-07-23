@@ -106,6 +106,9 @@ export function createLaboratoryBankAssignmentsRepository(
           group by bank_number
         ) current_assignment
           on current_assignment.sequence_id = assignment.sequence_id
+        join laboratory_results result
+          on result.id = assignment.laboratory_result_id
+          and result.section = 'finished_product'
         order by assignment.bank_number asc`,
       );
       return rows.map(mapAssignmentRow);

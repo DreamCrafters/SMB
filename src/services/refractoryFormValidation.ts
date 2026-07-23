@@ -54,6 +54,47 @@ export function validateRefractoryForm(
     }
   }
 
+  for (const quantityInput of form.querySelectorAll<HTMLInputElement>(
+    "input[data-refractory-row-quantity]",
+  )) {
+    const brandInput = quantityInput.closest("tr")?.querySelector<
+      HTMLInputElement | HTMLSelectElement
+    >("input[data-refractory-row-brand], select[data-refractory-row-brand]");
+
+    if (
+      (brandInput?.value.trim().length ?? 0) > 0 &&
+      quantityInput.value.trim().length === 0
+    ) {
+      errors.push({
+        input: quantityInput,
+        message: `${readInputLabel(quantityInput)}: укажите выпуск в тоннах.`,
+      });
+    }
+  }
+
+  for (const table of form.querySelectorAll<HTMLTableElement>(
+    "table[data-refractory-unique-brands]",
+  )) {
+    const brandKeys = new Set<string>();
+    for (const brandInput of table.querySelectorAll<
+      HTMLInputElement | HTMLSelectElement
+    >("input[data-refractory-row-brand], select[data-refractory-row-brand]")) {
+      const brandKey = brandInput.value
+        .trim()
+        .replace(/\s+/gu, " ")
+        .toLocaleLowerCase("ru-RU");
+      if (brandKey.length === 0) continue;
+      if (brandKeys.has(brandKey)) {
+        errors.push({
+          input: brandInput,
+          message: `${readInputLabel(brandInput)}: марка уже выбрана в этой таблице.`,
+        });
+        continue;
+      }
+      brandKeys.add(brandKey);
+    }
+  }
+
   for (const error of errors) {
     error.input.setAttribute("aria-invalid", "true");
   }

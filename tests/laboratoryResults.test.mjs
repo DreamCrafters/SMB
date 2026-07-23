@@ -136,16 +136,16 @@ test("laboratory service downloads the selected result protocol as PDF", async (
   }
 });
 
-test("laboratory banks service reads assignments and submits a specific sample", async () => {
+test("laboratory banks service reads assignments and submits a finished product", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   const assignment = {
     assignmentId: "assignment-1",
     bankNumber: 1,
     laboratoryResultId: "result-1",
-    sampleIndex: 2,
-    sampleIdentifier: "Вагон 123",
-    materialLabel: "ШКИ",
+    sampleIndex: 0,
+    sampleIdentifier: "Неформованные изделия",
+    materialLabel: "ШКИ-66",
     bulkDensityTonsPerCubicMeter: 1.16,
     assignedByDisplayName: "Иванова Анна",
     assignedAt: "2026-07-23T08:00:00.000Z",
@@ -157,11 +157,10 @@ test("laboratory banks service reads assignments and submits a specific sample",
       : jsonResponse({
           currentAssignments: [assignment],
           history: [assignment],
-          eligibleSamples: [{
+          eligibleProducts: [{
             laboratoryResultId: "result-1",
-            sampleIndex: 2,
-            sampleIdentifier: "Вагон 123",
-            materialLabel: "ШКИ",
+            productType: "Неформованные изделия",
+            productBrand: "ШКИ-66",
             analysisDate: "2026-07-23",
             bulkDensityTonsPerCubicMeter: 1.16,
           }],
@@ -173,7 +172,6 @@ test("laboratory banks service reads assignments and submits a specific sample",
     const saved = await assignLaboratoryBank({
       bankNumber: 1,
       laboratoryResultId: "result-1",
-      sampleIndex: 2,
     }, { baseUrl: "http://api.test" });
 
     assert.equal(loaded.status, "ready");
@@ -181,7 +179,6 @@ test("laboratory banks service reads assignments and submits a specific sample",
     assert.deepEqual(JSON.parse(requests[1].init.body), {
       bankNumber: 1,
       laboratoryResultId: "result-1",
-      sampleIndex: 2,
     });
   } finally {
     globalThis.fetch = originalFetch;

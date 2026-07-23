@@ -83,23 +83,31 @@ function buildPayloadLines(report: RefractoryReportNotification) {
 }
 
 function buildCoshPayloadLines(payload: RefractoryCoshPayload) {
-  const output = payload.chamotteOutput;
+  const outputLines = payload.chamotteOutputRows !== undefined
+    ? payload.chamotteOutputRows.map((row, index) =>
+        `${index + 1}. ${row.productBrand}: ${formatValue(row.quantityTons)} т`
+      )
+    : payload.chamotteOutput === undefined
+    ? ["—"]
+    : [
+        formatField("ШБО, т", payload.chamotteOutput.shbo),
+        formatField("ШГР-1, т", payload.chamotteOutput.shgr1),
+        formatField("ШГР-2, т", payload.chamotteOutput.shgr2),
+        formatField("ШКИ, т", payload.chamotteOutput.shki),
+      ];
   const lines = [
     "Сводка по ЦОШ (ежесменная)",
     "Выпуск шамота",
     formatField("Работает вр. печь №", payload.kilnNumber),
-    formatField("ШБО, т", output?.shbo),
-    formatField("ШГР-1, т", output?.shgr1),
-    formatField("ШГР-2, т", output?.shgr2),
-    formatField("ШКИ, т", output?.shki),
+    ...outputLines,
     formatField("Загрузка, ковш/час", payload.loadingBucketsPerHour),
     formatField("Загрузка, всего ковшей", payload.totalLoadingBuckets),
     "Замеры банок",
     ...(payload.jarMeasurements?.map((row) =>
       [
         `Банка ${["I", "II", "III"][row.jarNumber - 1]}: ${row.values.map(formatValue).join("; ")}`,
-        `материал ${formatValue(row.material)}`,
-        `проба ${formatValue(row.sampleIdentifier)}`,
+        `содержимое ${formatValue(row.material)}`,
+        `источник результата ${formatValue(row.sampleIdentifier)}`,
         `среднее ${formatValue(row.averageHeightMeters)} м`,
         `объём ${formatValue(row.volumeCubicMeters)} м³`,
         `насыпной вес ${formatValue(row.bulkDensityTonsPerCubicMeter)} т/м³`,

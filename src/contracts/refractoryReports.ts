@@ -29,6 +29,11 @@ export const refractoryEquipmentNames = [
 
 export type RefractoryCoshPayload = {
   kilnNumber?: string;
+  chamotteOutputRows?: Array<{
+    productBrand: string;
+    quantityTons: number;
+  }>;
+  /** Legacy shape kept for revisions saved before dynamic brand rows. */
   chamotteOutput?: Partial<Record<"shbo" | "shgr1" | "shgr2" | "shki", number>>;
   loadingBucketsPerHour?: number;
   totalLoadingBuckets?: number;

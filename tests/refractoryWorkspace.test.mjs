@@ -153,6 +153,31 @@ test("refractory workspace opens one of three independent table buttons", async 
     );
     assert.equal(rootElement.querySelectorAll(".bank-measurement-card").length, 3);
     assert.match(rootElement.textContent, /ШКИ-66/u);
+    const chamotteOutputTable = rootElement.querySelector(
+      ".refractory-input-table-cosh-output",
+    );
+    assert.ok(chamotteOutputTable);
+    assert.deepEqual(
+      Array.from(chamotteOutputTable.querySelectorAll("thead th"), (cell) =>
+        cell.textContent.trim().replace(/\s+/gu, " "),
+      ),
+      ["Марка изделия", "Выпуск, т", ""],
+    );
+    const firstChamotteBrand = chamotteOutputTable.querySelector(
+      'input[aria-label="Марка изделия, строка 1"]',
+    );
+    assert.deepEqual(readBrandOptions(firstChamotteBrand, rootElement), [
+      "ША-22",
+      "Смесь МК",
+      "Гранулы 0-5",
+    ]);
+    assert.equal(chamotteOutputTable.querySelectorAll("tbody tr").length, 1);
+    const addChamotteRow = rootElement.querySelector(
+      'button[aria-label="Добавить строку выпуска шамота"]',
+    );
+    assert.ok(addChamotteRow);
+    await React.act(async () => addChamotteRow.click());
+    assert.equal(chamotteOutputTable.querySelectorAll("tbody tr").length, 2);
     const firstBank = rootElement.querySelector(
       '.bank-measurement-card[data-bank-number="1"]',
     );

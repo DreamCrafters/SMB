@@ -12,11 +12,10 @@ export type LaboratoryBankAssignment = {
   assignedAt: string;
 };
 
-export type LaboratoryBankSample = {
+export type LaboratoryBankProduct = {
   laboratoryResultId: string;
-  sampleIndex: number;
-  sampleIdentifier: string;
-  materialLabel: string;
+  productType: string;
+  productBrand: string;
   analysisDate: string;
   bulkDensityTonsPerCubicMeter: number;
 };
@@ -28,7 +27,7 @@ export type BankVolumeReference = {
 export type LaboratoryBanksResponse = {
   currentAssignments: LaboratoryBankAssignment[];
   history: LaboratoryBankAssignment[];
-  eligibleSamples: LaboratoryBankSample[];
+  eligibleProducts: LaboratoryBankProduct[];
 };
 
 export type RefractoryBanksResponse = {

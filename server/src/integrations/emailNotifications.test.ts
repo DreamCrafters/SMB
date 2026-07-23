@@ -281,7 +281,9 @@ test("buildRefractoryReportEmail formats the calculated totals of the other OC t
       reportType: "cosh",
       payload: {
         kilnNumber: "3",
-        chamotteOutput: { shbo: 12.5 },
+        chamotteOutputRows: [
+          { productBrand: "ШБО", quantityTons: 12.5 },
+        ],
         jarMeasurements: [{ jarNumber: 1, values: [1.2, 1.4] }],
         bunkerFill: [{ bunker: "I", productName: "ШБО", quantity: 8 }],
         chamotteSupply: [{
@@ -339,6 +341,7 @@ test("buildRefractoryReportEmail formats the calculated totals of the other OC t
   );
 
   assert.match(coshMessage?.text ?? "", /Выпуск шамота, т: 12,5/u);
+  assert.match(coshMessage?.text ?? "", /1\. ШБО: 12,5 т/u);
   assert.match(coshMessage?.text ?? "", /Заполнение ж\/д бункеров, т: 8/u);
   assert.match(coshMessage?.text ?? "", /Затарка в мешки, т: 2/u);
   assert.match(coshMessage?.text ?? "", /Банка I: 1,2; 1,4/u);

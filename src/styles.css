@@ -5431,6 +5431,38 @@ p {
   min-width: 720px;
 }
 
+.refractory-cosh-output {
+  display: grid;
+  gap: 8px;
+}
+
+.refractory-input-table-cosh-output {
+  min-width: 560px;
+  table-layout: fixed;
+}
+
+.refractory-input-table-cosh-output th:first-child {
+  width: 56%;
+}
+
+.refractory-input-table-cosh-output th:nth-child(2) {
+  width: 26%;
+}
+
+.refractory-input-table-cosh-output th:last-child {
+  width: 110px;
+  min-width: 110px;
+}
+
+.refractory-row-action {
+  vertical-align: middle !important;
+}
+
+.refractory-row-action .secondary-button {
+  width: 100%;
+  padding: 7px 10px;
+}
+
 .refractory-input-table-equipment {
   min-width: 1450px;
   border-collapse: separate;

@@ -2,7 +2,7 @@ import type {
   BankNumber,
   LaboratoryBankAssignment,
   LaboratoryBanksResponse,
-  LaboratoryBankSample,
+  LaboratoryBankProduct,
 } from "../contracts/laboratoryBanks.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
@@ -28,7 +28,6 @@ export async function assignLaboratoryBank(
   input: {
     bankNumber: BankNumber;
     laboratoryResultId: string;
-    sampleIndex: number;
   },
   options: RequestOptions = {},
 ): Promise<{ status: "ready"; assignment: LaboratoryBankAssignment } | ErrorResult> {
@@ -82,8 +81,8 @@ function isLaboratoryBanksResponse(value: unknown): value is LaboratoryBanksResp
     value.currentAssignments.every(isLaboratoryBankAssignment) &&
     Array.isArray(value.history) &&
     value.history.every(isLaboratoryBankAssignment) &&
-    Array.isArray(value.eligibleSamples) &&
-    value.eligibleSamples.every(isLaboratoryBankSample);
+    Array.isArray(value.eligibleProducts) &&
+    value.eligibleProducts.every(isLaboratoryBankProduct);
 }
 
 export function isLaboratoryBankAssignment(
@@ -101,12 +100,13 @@ export function isLaboratoryBankAssignment(
     typeof value.assignedAt === "string";
 }
 
-function isLaboratoryBankSample(value: unknown): value is LaboratoryBankSample {
+function isLaboratoryBankProduct(
+  value: unknown,
+): value is LaboratoryBankProduct {
   return isRecord(value) &&
     typeof value.laboratoryResultId === "string" &&
-    Number.isInteger(value.sampleIndex) &&
-    typeof value.sampleIdentifier === "string" &&
-    typeof value.materialLabel === "string" &&
+    typeof value.productType === "string" &&
+    typeof value.productBrand === "string" &&
     typeof value.analysisDate === "string" &&
     isFiniteNumber(value.bulkDensityTonsPerCubicMeter);
 }

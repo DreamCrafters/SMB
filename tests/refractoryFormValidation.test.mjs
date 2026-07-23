@@ -65,6 +65,45 @@ test("refractory validation requires a brand for a filled product row", () => {
   assert.equal(brand.getAttribute("aria-invalid"), "true");
 });
 
+test("refractory validation requires output for a selected COSH brand", () => {
+  const { form, document } = buildForm(`
+    <table><tbody><tr>
+      <td><input aria-label="Марка изделия, строка 1"
+        data-refractory-row-brand value="ШБО"></td>
+      <td><input aria-label="Выпуск, т, строка 1"
+        data-refractory-label="Выпуск, т, строка 1"
+        data-refractory-number="decimal"
+        data-refractory-row-quantity value=""></td>
+    </tr></tbody></table>
+  `);
+
+  const errors = validateRefractoryForm(form);
+  const quantity = document.querySelector("[data-refractory-row-quantity]");
+  assert.deepEqual(errors.map((error) => error.message), [
+    "Выпуск, т, строка 1: укажите выпуск в тоннах.",
+  ]);
+  assert.equal(quantity.getAttribute("aria-invalid"), "true");
+});
+
+test("refractory validation rejects duplicate COSH brands", () => {
+  const { form, document } = buildForm(`
+    <table data-refractory-unique-brands><tbody>
+      <tr><td><input data-refractory-label="Марка изделия, строка 1"
+        data-refractory-row-brand value=" ШБО "></td></tr>
+      <tr><td><input data-refractory-label="Марка изделия, строка 2"
+        data-refractory-row-brand value="шбо"></td></tr>
+    </tbody></table>
+  `);
+
+  const errors = validateRefractoryForm(form);
+  const brands = document.querySelectorAll("[data-refractory-row-brand]");
+  assert.deepEqual(errors.map((error) => error.message), [
+    "Марка изделия, строка 2: марка уже выбрана в этой таблице.",
+  ]);
+  assert.equal(brands[0].hasAttribute("aria-invalid"), false);
+  assert.equal(brands[1].getAttribute("aria-invalid"), "true");
+});
+
 test("server validation details highlight the matching visible field", () => {
   const { form, document } = buildForm(`
     <table><tbody><tr>

@@ -37,7 +37,7 @@ test("laboratory bank repository appends assignments with a material snapshot", 
   ]);
 });
 
-test("laboratory bank repository reads one latest assignment per bank", async () => {
+test("laboratory bank repository reads only latest finished product assignments", async () => {
   let querySql = "";
   const pool = {
     async query(sql: string) {
@@ -47,7 +47,7 @@ test("laboratory bank repository reads one latest assignment per bank", async ()
         bank_number: 3,
         laboratory_result_id: "result-3",
         sample_index: 0,
-        sample_identifier: "Проба 3",
+        sample_identifier: "Неформованные изделия",
         material_label: "ШГР-28",
         bulk_density: "1.090000",
         assigned_by_display_name: "Иванова А.А.",
@@ -60,6 +60,10 @@ test("laboratory bank repository reads one latest assignment per bank", async ()
   const assignments = await repository.listCurrent();
 
   assert.match(querySql, /max\(sequence_id\).*group by bank_number/su);
+  assert.match(
+    querySql,
+    /join laboratory_results result.*result\.section = 'finished_product'/su,
+  );
   assert.equal(assignments[0]?.bankNumber, 3);
   assert.equal(assignments[0]?.bulkDensityTonsPerCubicMeter, 1.09);
 });

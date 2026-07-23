@@ -359,13 +359,13 @@ export function RefractoryShopWorkspace({
             onStartCorrection={() => setIsCorrectionMode(true)}
           />
           <fieldset disabled={isLocked || isSubmitting}>
-            {activeType === "cosh" ||
-            !canCreateBrands ||
+            {!canCreateBrands ||
             nomenclatureState.status !== "ready" ? null : (
               <ProductBrandCreateControl onCreateBrand={handleCreateBrand} />
             )}
             {activeType === "cosh" ? (
               <CoshForm
+                brandLabels={brandLabels}
                 payload={
                   activeReport?.reportType === "cosh"
                     ? activeReport.payload
@@ -455,11 +455,13 @@ function RefractoryReportState({
 }
 
 function CoshForm({
+  brandLabels = [],
   payload = {},
   bankData,
   bankDataMessage,
   isLocked,
 }: {
+  brandLabels?: string[];
   payload?: RefractoryCoshPayload;
   bankData?: RefractoryBanksResponse;
   bankDataMessage?: string;
@@ -519,21 +521,6 @@ function CoshForm({
             label="Работает вр. печь №"
             value={payload.kilnNumber}
           />
-          {(["shbo", "shgr1", "shgr2", "shki"] as const).map((key) => (
-            <NumberField
-              key={key}
-              name={`chamotteOutput.${key}`}
-              label={
-                {
-                  shbo: "ШБО, т",
-                  shgr1: "ШГР-1, т",
-                  shgr2: "ШГР-2, т",
-                  shki: "ШКИ, т",
-                }[key]
-              }
-              value={payload.chamotteOutput?.[key]}
-            />
-          ))}
           <NumberField
             name="loadingBucketsPerHour"
             label="Загрузка, ковш/час"
@@ -547,6 +534,7 @@ function CoshForm({
             integer
           />
         </div>
+        <ChamotteOutputRows brandLabels={brandLabels} payload={payload} />
       </ReportSection>
       <ReportSection title="Замеры банок">
         {bankDataMessage === undefined ? null : (
@@ -585,7 +573,7 @@ function CoshForm({
                   </div>
                   <small>
                     {density === undefined
-                      ? "Лаборатория должна выбрать пробу"
+                      ? "Лаборатория должна выбрать результат готовой продукции"
                       : `Насыпной вес ${formatTableTotal(density)} т/м³`}
                   </small>
                 </header>
@@ -733,6 +721,123 @@ function CoshForm({
           </label>
         </div>
       </ReportSection>
+    </div>
+  );
+}
+
+type ChamotteOutputDraftRow = {
+  id: number;
+  productBrand?: string;
+  quantityTons?: number;
+};
+
+const legacyChamotteOutputLabels = {
+  shbo: "ШБО",
+  shgr1: "ШГР-1",
+  shgr2: "ШГР-2",
+  shki: "ШКИ",
+} as const;
+
+function ChamotteOutputRows({
+  brandLabels,
+  payload,
+}: {
+  brandLabels: readonly string[];
+  payload: RefractoryCoshPayload;
+}) {
+  const [rows, setRows] = useState<ChamotteOutputDraftRow[]>(() => {
+    const savedRows = payload.chamotteOutputRows?.map((row, index) => ({
+      id: index,
+      ...row,
+    })) ?? Object.entries(payload.chamotteOutput ?? {}).flatMap(
+      ([key, quantityTons], index) => {
+        const productBrand = legacyChamotteOutputLabels[
+          key as keyof typeof legacyChamotteOutputLabels
+        ];
+        return productBrand === undefined || quantityTons === undefined
+          ? []
+          : [{ id: index, productBrand, quantityTons }];
+      },
+    );
+
+    return savedRows.length > 0 ? savedRows : [{ id: 0 }];
+  });
+
+  function addRow() {
+    setRows((current) => current.length >= 50
+      ? current
+      : [
+          ...current,
+          { id: Math.max(...current.map((row) => row.id), -1) + 1 },
+        ]);
+  }
+
+  function removeRow(id: number) {
+    setRows((current) => current.length <= 1
+      ? current
+      : current.filter((row) => row.id !== id));
+  }
+
+  return (
+    <div className="refractory-cosh-output">
+      <div className="refractory-table-wrap refractory-table-wrap-full-height">
+        <table
+          className="refractory-input-table refractory-input-table-cosh-output"
+          data-refractory-unique-brands
+        >
+          <thead>
+            <tr>
+              <th>Марка изделия</th>
+              <th>Выпуск, т</th>
+              <th aria-label="Действия" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.id}>
+                <td>
+                  <ProductBrandPicker
+                    ariaLabel={`Марка изделия, строка ${index + 1}`}
+                    isRefractoryRowBrand
+                    name={`chamotteOutputRows.${index}.productBrand`}
+                    defaultValue={row.productBrand ?? ""}
+                    labels={brandLabels}
+                    onInputChange={clearRefractoryFieldError}
+                  />
+                </td>
+                <td>
+                  <RefractoryNumberInput
+                    aria-label={`Выпуск, т, строка ${index + 1}`}
+                    isRefractoryRowQuantity
+                    name={`chamotteOutputRows.${index}.quantityTons`}
+                    defaultValue={row.quantityTons ?? ""}
+                  />
+                </td>
+                <td className="refractory-row-action">
+                  <button
+                    aria-label={`Удалить строку выпуска шамота ${index + 1}`}
+                    className="secondary-button"
+                    disabled={rows.length <= 1}
+                    type="button"
+                    onClick={() => removeRow(row.id)}
+                  >
+                    Удалить
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button
+        aria-label="Добавить строку выпуска шамота"
+        className="secondary-button"
+        disabled={rows.length >= 50}
+        type="button"
+        onClick={addRow}
+      >
+        Добавить строку
+      </button>
     </div>
   );
 }
@@ -1684,12 +1789,14 @@ function RefractoryNumberInput({
   "aria-label": ariaLabel,
   defaultValue,
   integer = false,
+  isRefractoryRowQuantity = false,
   max,
   name,
 }: {
   "aria-label": string;
   defaultValue: string | number;
   integer?: boolean;
+  isRefractoryRowQuantity?: boolean;
   max?: number;
   name: string;
 }) {
@@ -1699,6 +1806,9 @@ function RefractoryNumberInput({
       data-refractory-label={ariaLabel}
       data-refractory-max={max}
       data-refractory-number={integer ? "integer" : "decimal"}
+      data-refractory-row-quantity={
+        isRefractoryRowQuantity ? "true" : undefined
+      }
       defaultValue={defaultValue}
       inputMode={integer ? "numeric" : "decimal"}
       maxLength={20}
@@ -1819,11 +1929,28 @@ function buildSubmission(
 }
 
 function buildCoshPayload(data: FormData): RefractoryCoshPayload {
-  const output = compactNumbers(
-    data,
-    ["shbo", "shgr1", "shgr2", "shki"],
-    "chamotteOutput",
-  );
+  const chamotteOutputRows = Array.from({ length: 50 }, (_, index) =>
+    compact({
+      productBrand: optionalText(
+        data,
+        `chamotteOutputRows.${index}.productBrand`,
+      ),
+      quantityTons: first(
+        optionalNumber(data, `chamotteOutputRows.${index}.quantityTons`),
+      ),
+    }),
+  ).flatMap((row, index) => {
+    if (Object.keys(row).length === 0) return [];
+    if (typeof row.productBrand !== "string") {
+      throw new Error(`Укажите марку выпуска шамота в строке ${index + 1}.`);
+    }
+    if (typeof row.quantityTons !== "number") {
+      throw new Error(`Укажите выпуск шамота в строке ${index + 1}.`);
+    }
+    return [row as NonNullable<
+      RefractoryCoshPayload["chamotteOutputRows"]
+    >[number]];
+  });
   const jarMeasurements = ([1, 2, 3] as const).flatMap((jarNumber) => {
     const prefix = `jar.${jarNumber}.`;
     const values = Array.from(data.entries())
@@ -1842,7 +1969,7 @@ function buildCoshPayload(data: FormData): RefractoryCoshPayload {
   });
   return compact({
     kilnNumber: optionalText(data, "kilnNumber"),
-    chamotteOutput: output,
+    chamotteOutputRows,
     loadingBucketsPerHour: first(optionalNumber(data, "loadingBucketsPerHour")),
     totalLoadingBuckets: first(optionalNumber(data, "totalLoadingBuckets")),
     jarMeasurements,
@@ -1991,19 +2118,6 @@ function buildNamedRows(
     });
     return Object.keys(row).length === 1 ? [] : [row];
   });
-}
-
-function compactNumbers(
-  data: FormData,
-  keys: readonly string[],
-  prefix: string,
-) {
-  const result = Object.fromEntries(
-    keys.flatMap((key) =>
-      optionalNumber(data, `${prefix}.${key}`).map((value) => [key, value]),
-    ),
-  );
-  return Object.keys(result).length === 0 ? undefined : result;
 }
 
 function optionalText(data: FormData, name: string) {

@@ -65,19 +65,18 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
             bankNumber: 1,
             laboratoryResultId: "laboratory-result-existing",
             sampleIndex: 0,
-            sampleIdentifier: "Вагон 100",
-            materialLabel: "Глина",
+            sampleIdentifier: "Неформованные изделия",
+            materialLabel: "ШКИ-66",
             bulkDensityTonsPerCubicMeter: 1.16,
             assignedByDisplayName: "Иванова Анна",
             assignedAt: "2026-07-22T08:30:00.000Z",
           }],
           history: [],
-          eligibleSamples: [{
-            laboratoryResultId: "laboratory-result-existing",
-            sampleIndex: 0,
-            sampleIdentifier: "Вагон 100",
-            materialLabel: "Глина",
-            analysisDate: "2026-07-21",
+          eligibleProducts: [{
+            laboratoryResultId: "laboratory-result-finished",
+            productType: "Неформованные изделия",
+            productBrand: "ШКИ-66",
+            analysisDate: "2026-07-23",
             bulkDensityTonsPerCubicMeter: 1.16,
           }],
         });
@@ -228,7 +227,17 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
       rootElement.querySelectorAll(".laboratory-bank-card").length === 3
     );
     assert.match(rootElement.textContent, /Насыпной вес: 1,16 т\/м³/u);
-    assert.match(rootElement.textContent, /21\.07\.2026 · Глина · Вагон 100/u);
+    assert.match(rootElement.textContent, /Вид продукции: Неформованные изделия/u);
+    assert.match(
+      rootElement.textContent,
+      /23\.07\.2026 · ШКИ-66 · Неформованные изделия/u,
+    );
+    assert.equal(
+      Array.from(rootElement.querySelectorAll("label > span")).some(
+        (label) => label.textContent === "Результат готовой продукции",
+      ),
+      true,
+    );
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;

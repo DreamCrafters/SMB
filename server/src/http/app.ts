@@ -57,7 +57,7 @@ import {
 } from "../domain/laboratoryResult.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
-  listEligibleLaboratoryBankSamples,
+  listEligibleLaboratoryBankProducts,
   resolveLaboratoryBankAssignment,
   validateLaboratoryBankAssignmentRequest,
 } from "../domain/laboratoryBankAssignment.js";
@@ -875,14 +875,16 @@ async function handleLaboratoryRequest({
     }
 
     if (req.method === "GET") {
-      const incomingResults = await laboratoryResults.list({
-        section: "incoming",
+      const finishedProductResults = await laboratoryResults.list({
+        section: "finished_product",
         limit: 200,
       });
       sendJson(res, 200, {
         currentAssignments: await laboratoryBankAssignments.listCurrent(),
         history: await laboratoryBankAssignments.listHistory(),
-        eligibleSamples: listEligibleLaboratoryBankSamples(incomingResults),
+        eligibleProducts: listEligibleLaboratoryBankProducts(
+          finishedProductResults,
+        ),
       });
       return;
     }
@@ -929,8 +931,8 @@ async function handleLaboratoryRequest({
         action: "laboratory_bank.assign",
         summary: `Назначено содержимое банки ${["I", "II", "III"][saved.bankNumber - 1]}`,
         details: [
-          { label: "Объект испытаний", value: saved.materialLabel },
-          { label: "Проба", value: saved.sampleIdentifier },
+          { label: "Марка", value: saved.materialLabel },
+          { label: "Вид продукции", value: saved.sampleIdentifier },
           { label: "Насыпной вес", value: String(saved.bulkDensityTonsPerCubicMeter) },
         ],
         targetType: "laboratory_bank_assignment",
@@ -1540,7 +1542,12 @@ async function handleRefractoryReportsRequest({
 function readRefractoryReportBrandReferences(
   report: ValidatedRefractoryReportSubmission,
 ): ProductionBrandReference[] {
-  if (report.reportType === "cosh") return [];
+  if (report.reportType === "cosh") {
+    return (report.payload.chamotteOutputRows ?? []).map((row, index) => ({
+      fieldName: `chamotteOutputRows.${index}.productBrand`,
+      label: row.productBrand,
+    }));
+  }
 
   if (report.reportType === "firing") {
     return report.payload.rows.map((row, index) => ({
@@ -1572,6 +1579,17 @@ function applyRefractoryReportBrandResolution(
   const labelByField = new Map(
     references.map((reference) => [reference.fieldName, reference.label]),
   );
+
+  if (report.reportType === "cosh") {
+    for (const [index, row] of (
+      report.payload.chamotteOutputRows ?? []
+    ).entries()) {
+      row.productBrand = labelByField.get(
+        `chamotteOutputRows.${index}.productBrand`,
+      ) ?? row.productBrand;
+    }
+    return;
+  }
 
   if (report.reportType === "firing") {
     for (const [index, row] of report.payload.rows.entries()) {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   BankNumber,
   LaboratoryBankAssignment,
-  LaboratoryBankSample,
+  LaboratoryBankProduct,
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
@@ -15,9 +15,9 @@ const bankNumbers = [1, 2, 3] as const;
 const bankLabels: Record<BankNumber, string> = { 1: "I", 2: "II", 3: "III" };
 
 type BanksState =
-  | { status: "loading"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleSamples: LaboratoryBankSample[] }
-  | { status: "ready"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleSamples: LaboratoryBankSample[] }
-  | { status: "error"; message: string; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleSamples: LaboratoryBankSample[] };
+  | { status: "loading"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleProducts: LaboratoryBankProduct[] }
+  | { status: "ready"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleProducts: LaboratoryBankProduct[] }
+  | { status: "error"; message: string; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleProducts: LaboratoryBankProduct[] };
 
 export function LaboratoryBanksPanel({
   isAdminPreviewMode,
@@ -30,10 +30,10 @@ export function LaboratoryBanksPanel({
     status: "loading",
     currentAssignments: [],
     history: [],
-    eligibleSamples: [],
+    eligibleProducts: [],
   });
   const [bankNumber, setBankNumber] = useState<BankNumber>(1);
-  const [sampleKey, setSampleKey] = useState("");
+  const [productKey, setProductKey] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -50,37 +50,39 @@ export function LaboratoryBanksPanel({
             message: readShortUserMessage(result.message, "Не удалось загрузить данные банок."),
             currentAssignments: [],
             history: [],
-            eligibleSamples: [],
+            eligibleProducts: [],
           });
     });
     return () => controller.abort();
   }, [refreshVersion]);
 
-  const sampleByKey = useMemo(() => new Map(
-    state.eligibleSamples.map((sample) => [buildSampleKey(sample), sample]),
-  ), [state.eligibleSamples]);
+  const productByKey = useMemo(() => new Map(
+    state.eligibleProducts.map((product) => [
+      product.laboratoryResultId,
+      product,
+    ]),
+  ), [state.eligibleProducts]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isAdminPreviewMode) return;
-    const sample = sampleByKey.get(sampleKey);
-    if (sample === undefined) {
-      setMessage("Выберите лабораторную пробу с насыпным весом.");
+    const product = productByKey.get(productKey);
+    if (product === undefined) {
+      setMessage("Выберите результат готовой продукции с насыпным весом.");
       return;
     }
     setIsSaving(true);
     setMessage("Сохраняем назначение…");
     const result = await assignLaboratoryBank({
       bankNumber,
-      laboratoryResultId: sample.laboratoryResultId,
-      sampleIndex: sample.sampleIndex,
+      laboratoryResultId: product.laboratoryResultId,
     });
     setIsSaving(false);
     if (result.status === "error") {
       setMessage(readShortUserMessage(result.message, "Не удалось назначить содержимое банки."));
       return;
     }
-    setSampleKey("");
+    setProductKey("");
     setMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
@@ -111,10 +113,13 @@ export function LaboratoryBanksPanel({
                 <span>Банка {bankLabels[number]}</span>
                 <strong>{assignment?.materialLabel ?? "Не назначено"}</strong>
                 {assignment === undefined ? (
-                  <small>Выберите пробу перед отправкой сводки ЦОШ.</small>
+                  <small>
+                    Выберите результат готовой продукции перед отправкой сводки
+                    ЦОШ.
+                  </small>
                 ) : (
                   <small>
-                    Проба: {assignment.sampleIdentifier}<br />
+                    Вид продукции: {assignment.sampleIdentifier}<br />
                     Насыпной вес: {formatNumber(assignment.bulkDensityTonsPerCubicMeter)} т/м³
                   </small>
                 )}
@@ -139,16 +144,19 @@ export function LaboratoryBanksPanel({
           </select>
         </label>
         <label className="laboratory-bank-sample-field">
-          <span>Лабораторная проба</span>
-          <select required value={sampleKey} onChange={(event) => {
+          <span>Результат готовой продукции</span>
+          <select required value={productKey} onChange={(event) => {
             const value = event.currentTarget.value;
-            setSampleKey(value);
+            setProductKey(value);
             setMessage("");
           }}>
-            <option value="">Выберите пробу</option>
-            {state.eligibleSamples.map((sample) => (
-              <option key={buildSampleKey(sample)} value={buildSampleKey(sample)}>
-                {formatDate(sample.analysisDate)} · {sample.materialLabel} · {sample.sampleIdentifier} · {formatNumber(sample.bulkDensityTonsPerCubicMeter)} т/м³
+            <option value="">Выберите результат</option>
+            {state.eligibleProducts.map((product) => (
+              <option
+                key={product.laboratoryResultId}
+                value={product.laboratoryResultId}
+              >
+                {formatDate(product.analysisDate)} · {product.productBrand} · {product.productType} · {formatNumber(product.bulkDensityTonsPerCubicMeter)} т/м³
               </option>
             ))}
           </select>
@@ -171,7 +179,7 @@ export function LaboratoryBanksPanel({
         ) : (
           <div className="table-scroll">
             <table className="data-table">
-              <thead><tr><th>Дата</th><th>Банка</th><th>Объект испытаний</th><th>Проба</th><th>Насыпной вес, т/м³</th><th>Лаборант</th></tr></thead>
+              <thead><tr><th>Дата</th><th>Банка</th><th>Содержимое</th><th>Источник результата</th><th>Насыпной вес, т/м³</th><th>Лаборант</th></tr></thead>
               <tbody>{state.history.map((assignment) => (
                 <tr key={assignment.assignmentId}>
                   <td>{formatDateTime(assignment.assignedAt)}</td>
@@ -188,10 +196,6 @@ export function LaboratoryBanksPanel({
       </section>
     </section>
   );
-}
-
-function buildSampleKey(sample: LaboratoryBankSample) {
-  return `${sample.laboratoryResultId}:${sample.sampleIndex}`;
 }
 
 function formatNumber(value: number) {

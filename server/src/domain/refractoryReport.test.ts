@@ -120,12 +120,12 @@ test("COSH report accepts the shift summary and calculates section totals", () =
     shiftNumber: 2,
     payload: {
       kilnNumber: "1",
-      chamotteOutput: {
-        shbo: 10.2,
-        shgr1: 2,
-        shgr2: 3,
-        shki: 4,
-      },
+      chamotteOutputRows: [
+        { productBrand: "ШБО", quantityTons: 10.2 },
+        { productBrand: "ШГР-1", quantityTons: 2 },
+        { productBrand: "ШГР-2", quantityTons: 3 },
+        { productBrand: "ШКИ", quantityTons: 4 },
+      ],
       loadingBucketsPerHour: 8,
       totalLoadingBuckets: 64,
       jarMeasurements: [
@@ -160,6 +160,36 @@ test("COSH report accepts the shift summary and calculates section totals", () =
     baggingTons: 3,
     scrapRemovalTons: 0.4,
   });
+});
+
+test("COSH chamotte output requires complete unique brand rows", () => {
+  const result = validateRefractoryReportSubmission({
+    reportType: "cosh",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {
+      chamotteOutputRows: [
+        { quantityTons: 2 },
+        { productBrand: "ШБО" },
+        { productBrand: " ШБО ", quantityTons: 3 },
+        { productBrand: "шбо", quantityTons: 4 },
+      ],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.deepEqual(result.fieldErrors, [
+    {
+      fieldPath: "chamotteOutputRows.0.productBrand",
+      message: "Выпуск шамота, строка 1: укажите марку изделия.",
+    },
+    {
+      fieldPath: "chamotteOutputRows.1.quantityTons",
+      message: "Выпуск шамота, строка 2: укажите выпуск в тоннах.",
+    },
+  ]);
+  assert.match(result.errors.at(-1) ?? "", /марки не должны повторяться/u);
 });
 
 test("dispatcher rejection requires a comment while approval does not", () => {

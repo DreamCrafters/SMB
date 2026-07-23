@@ -44,6 +44,7 @@ import type {
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
+import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -386,11 +387,17 @@ test("laboratory API reads the live matrix and saves the session-authored result
           { id: "bulk_density", label: "Насыпной вес" },
         ],
         incomingTestProfiles: [],
-        finishedProductTypes: [],
+        finishedProductTypes: [{
+          label: "Неформованные изделия",
+          indicatorIds: ["al2o3", "bulk_density"],
+        }],
       };
     },
   };
   let savedInput: Parameters<LaboratoryResultsRepository["create"]>[0] | undefined;
+  const laboratoryResultFilters: Parameters<
+    LaboratoryResultsRepository["list"]
+  >[0][] = [];
   const laboratoryResults: LaboratoryResultsRepository = {
     async create(input) {
       savedInput = input;
@@ -401,8 +408,11 @@ test("laboratory API reads the live matrix and saves the session-authored result
         createdAt: "2026-07-22T08:30:00.000Z",
       };
     },
-    async list() {
-      return savedInput === undefined
+    async list(filters) {
+      laboratoryResultFilters.push(filters);
+      return savedInput === undefined ||
+          (filters?.section !== undefined &&
+            filters.section !== savedInput.result.section)
         ? []
         : [{
             id: "laboratory-result-1",
@@ -459,7 +469,6 @@ test("laboratory API reads the live matrix and saves the session-authored result
       ] };
     },
   };
-
   await withApiServer(
     async (baseUrl) => {
       const headers = {
@@ -476,21 +485,19 @@ test("laboratory API reads the live matrix and saves the session-authored result
           method: "POST",
           headers,
           body: JSON.stringify({
-            section: "incoming",
+            section: "finished_product",
             analysisDate: "2026-07-22",
-            materialLabel: "Глина огнеупорная",
+            materialLabel: "Неформованные изделия",
+            productBrand: "ШКИ-66",
             purpose: "Определение химического состава",
             protocolNote: "Соответствует требованиям.",
             laboratoryAssistantDisplayName: "Подмена с клиента",
-            samples: [{
-              sampleIdentifier: "Вагон 12345",
-              values: { al2o3: "31,4", bulk_density: "1,16" },
-            }],
+            values: { al2o3: "31,4", bulk_density: "1,16" },
           }),
         },
       );
       const listResponse = await fetch(
-        `${baseUrl}/api/laboratory/results?section=incoming&dateFrom=2026-07-01`,
+        `${baseUrl}/api/laboratory/results?section=finished_product&dateFrom=2026-07-01`,
         { headers },
       );
       const protocolResponse = await fetch(
@@ -506,7 +513,6 @@ test("laboratory API reads the live matrix and saves the session-authored result
           body: JSON.stringify({
             bankNumber: 1,
             laboratoryResultId: "laboratory-result-1",
-            sampleIndex: 0,
           }),
         },
       );
@@ -527,9 +533,24 @@ test("laboratory API reads the live matrix and saves the session-authored result
         isRecord(banksPayload) && Array.isArray(banksPayload.currentAssignments)
           ? banksPayload.currentAssignments[0]?.materialLabel
           : undefined,
-        "Глина огнеупорная",
+        "ШКИ-66",
+      );
+      assert.deepEqual(
+        isRecord(banksPayload) && Array.isArray(banksPayload.eligibleProducts)
+          ? banksPayload.eligibleProducts
+          : undefined,
+        [{
+          laboratoryResultId: "laboratory-result-1",
+          productType: "Неформованные изделия",
+          productBrand: "ШКИ-66",
+          analysisDate: "2026-07-22",
+          bulkDensityTonsPerCubicMeter: 1.16,
+        }],
       );
       assert.equal(currentBankAssignments[0]?.bulkDensityTonsPerCubicMeter, 1.16);
+      assert.ok(laboratoryResultFilters.some((filters) =>
+        filters?.section === "finished_product" && filters.limit === 200
+      ));
       assert.equal(savedInput?.laboratoryAssistantDisplayName, "Иванова Анна");
       assert.deepEqual(savedInput?.protocolReference, {
         indicators: [
@@ -537,9 +558,12 @@ test("laboratory API reads the live matrix and saves the session-authored result
           { id: "bulk_density", label: "Насыпной вес" },
         ],
         incomingTestProfiles: [],
-        finishedProductTypes: [],
+        finishedProductTypes: [{
+          label: "Неформованные изделия",
+          indicatorIds: ["al2o3", "bulk_density"],
+        }],
       });
-      assert.equal(savedInput?.result.materialLabel, "Глина огнеупорная");
+      assert.equal(savedInput?.result.materialLabel, "Неформованные изделия");
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
     },
@@ -628,6 +652,19 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
       ] };
     },
   };
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() { return ["ШБО"]; },
+    async create() { throw new Error("not used"); },
+    async resolveReferences(references) {
+      return {
+        ok: true,
+        references: references.map((reference) => ({
+          fieldName: reference.fieldName,
+          label: "ШБО",
+        })),
+      };
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -641,11 +678,16 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
           reportType: "cosh",
           reportDate: "2026-07-23",
           shiftNumber: 1,
-          payload: { jarMeasurements: [
-            { jarNumber: 1, values: [1, 1] },
-            { jarNumber: 2, values: [2] },
-            { jarNumber: 3, values: [3] },
-          ] },
+          payload: {
+            chamotteOutputRows: [
+              { productBrand: " шбо ", quantityTons: 2.5 },
+            ],
+            jarMeasurements: [
+              { jarNumber: 1, values: [1, 1] },
+              { jarNumber: 2, values: [2] },
+              { jarNumber: 3, values: [3] },
+            ],
+          },
         }),
       });
 
@@ -660,6 +702,9 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
       assert.equal(rows?.[1]?.materialMassTons, 80);
       assert.equal(rows?.[2]?.materialMassTons, 0);
       assert.equal(totals.jarMaterialMassTons, 160);
+      assert.deepEqual((stored.payload as RefractoryCoshPayload).chamotteOutputRows, [
+        { productBrand: "ШБО", quantityTons: 2.5 },
+      ]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -672,7 +717,7 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
     undefined,
     undefined,
     undefined,
-    passthroughProductionBrands,
+    productionBrands,
     undefined,
     refractoryReports,
     undefined,

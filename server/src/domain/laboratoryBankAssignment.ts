@@ -25,20 +25,25 @@ export function validateLaboratoryBankAssignmentRequest(
   input: unknown,
 ): LaboratoryBankAssignmentValidation {
   if (!isRecord(input)) {
-    return { ok: false, error: "Проверьте выбранную банку и пробу." };
+    return {
+      ok: false,
+      error: "Проверьте выбранную банку и результат готовой продукции.",
+    };
   }
 
   const bankNumber = input.bankNumber;
   const laboratoryResultId = input.laboratoryResultId;
-  const sampleIndex = input.sampleIndex;
+  const sampleIndex = input.sampleIndex === undefined ? 0 : input.sampleIndex;
   if (
     !bankNumbers.includes(bankNumber as BankNumber) ||
     typeof laboratoryResultId !== "string" ||
     !/^[a-zA-Z0-9-]{1,100}$/u.test(laboratoryResultId) ||
-    !Number.isInteger(sampleIndex) ||
-    Number(sampleIndex) < 0
+    sampleIndex !== 0
   ) {
-    return { ok: false, error: "Проверьте выбранную банку и пробу." };
+    return {
+      ok: false,
+      error: "Проверьте выбранную банку и результат готовой продукции.",
+    };
   }
 
   return {
@@ -55,25 +60,24 @@ export function resolveLaboratoryBankAssignment(
   request: LaboratoryBankAssignmentRequest,
   result: StoredLaboratoryResult | undefined,
 ): LaboratoryBankAssignmentResolution {
-  if (result === undefined || result.section !== "incoming") {
+  if (
+    result === undefined ||
+    result.section !== "finished_product" ||
+    request.sampleIndex !== 0
+  ) {
     return {
       ok: false,
-      error: "Выбранный результат входящего контроля не найден.",
+      error: "Выбранный результат готовой продукции не найден.",
     };
   }
 
-  const sample = result.samples[request.sampleIndex];
-  if (sample === undefined) {
-    return { ok: false, error: "Выбранная проба не найдена." };
-  }
-
   const bulkDensityTonsPerCubicMeter = readPositiveLocalizedNumber(
-    sample.values.bulk_density,
+    result.values.bulk_density,
   );
   if (bulkDensityTonsPerCubicMeter === undefined) {
     return {
       ok: false,
-      error: "В выбранной пробе не указан корректный насыпной вес.",
+      error: "В выбранном результате не указан корректный насыпной вес.",
     };
   }
 
@@ -81,33 +85,30 @@ export function resolveLaboratoryBankAssignment(
     ok: true,
     value: {
       ...request,
-      sampleIdentifier: sample.sampleIdentifier,
-      materialLabel: result.materialLabel,
+      sampleIdentifier: result.materialLabel,
+      materialLabel: result.productBrand,
       bulkDensityTonsPerCubicMeter,
     },
   };
 }
 
-export function listEligibleLaboratoryBankSamples(
+export function listEligibleLaboratoryBankProducts(
   results: readonly StoredLaboratoryResult[],
 ) {
   return results.flatMap((result) => {
-    if (result.section !== "incoming") return [];
-    return result.samples.flatMap((sample, sampleIndex) => {
-      const bulkDensityTonsPerCubicMeter = readPositiveLocalizedNumber(
-        sample.values.bulk_density,
-      );
-      return bulkDensityTonsPerCubicMeter === undefined
-        ? []
-        : [{
-            laboratoryResultId: result.id,
-            sampleIndex,
-            sampleIdentifier: sample.sampleIdentifier,
-            materialLabel: result.materialLabel,
-            analysisDate: result.analysisDate,
-            bulkDensityTonsPerCubicMeter,
-          }];
-    });
+    if (result.section !== "finished_product") return [];
+    const bulkDensityTonsPerCubicMeter = readPositiveLocalizedNumber(
+      result.values.bulk_density,
+    );
+    return bulkDensityTonsPerCubicMeter === undefined
+      ? []
+      : [{
+          laboratoryResultId: result.id,
+          productType: result.materialLabel,
+          productBrand: result.productBrand,
+          analysisDate: result.analysisDate,
+          bulkDensityTonsPerCubicMeter,
+        }];
   });
 }
 
