@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
@@ -22,6 +23,12 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
   );
+  const styleElement = dom.window.document.createElement("style");
+  styleElement.textContent = await readFile(
+    new URL("../src/styles.css", import.meta.url),
+    "utf8",
+  );
+  dom.window.document.head.append(styleElement);
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
   installDomGlobals(dom.window);
@@ -71,7 +78,27 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
             assignedByDisplayName: "Иванова Анна",
             assignedAt: "2026-07-22T08:30:00.000Z",
           }],
-          history: [],
+          history: [{
+            assignmentId: "assignment-1",
+            bankNumber: 1,
+            laboratoryResultId: "laboratory-result-existing",
+            sampleIndex: 0,
+            sampleIdentifier: "Неформованные изделия",
+            materialLabel: "ШКИ-66",
+            bulkDensityTonsPerCubicMeter: 1.16,
+            assignedByDisplayName: "Иванова Анна",
+            assignedAt: "2026-07-22T08:30:00.000Z",
+          }, {
+            assignmentId: "assignment-2",
+            bankNumber: 2,
+            laboratoryResultId: "laboratory-result-finished",
+            sampleIndex: 0,
+            sampleIdentifier: "Неформованные изделия",
+            materialLabel: "ША-22",
+            bulkDensityTonsPerCubicMeter: 1.2,
+            assignedByDisplayName: "Иванова Анна",
+            assignedAt: "2026-07-22T09:30:00.000Z",
+          }],
           eligibleProducts: [{
             laboratoryResultId: "laboratory-result-finished",
             productType: "Неформованные изделия",
@@ -103,6 +130,9 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
             samples: [{
               sampleIdentifier: "Вагон 100",
               values: { al2o3: "30,1" },
+            }, {
+              sampleIdentifier: "Автомобиль А123БВ",
+              values: { strength: "38,1" },
             }],
             laboratoryAssistantDisplayName: "Иванова Анна",
             createdAt: "2026-07-21T08:30:00.000Z",
@@ -153,12 +183,20 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
       ),
       true,
     );
-    assert.equal(
-      Array.from(rootElement.querySelectorAll("button")).some(
+    const historyCell = rootElement.querySelector(".laboratory-results-table td");
+    assert.ok(historyCell);
+    const historyCellStyle = dom.window.getComputedStyle(historyCell);
+    assert.deepEqual({
+      hasDownloadButton: Array.from(rootElement.querySelectorAll("button")).some(
         (button) => button.textContent?.trim() === "Скачать PDF",
       ),
-      true,
-    );
+      historyCellBorderBottomStyle: historyCellStyle.borderBottomStyle,
+      historyCellBorderRightStyle: historyCellStyle.borderRightStyle,
+    }, {
+      hasDownloadButton: false,
+      historyCellBorderBottomStyle: "solid",
+      historyCellBorderRightStyle: "solid",
+    });
 
     const addSampleButton = Array.from(rootElement.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Добавить пробу",
@@ -232,6 +270,15 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
       rootElement.textContent,
       /23\.07\.2026 · ШКИ-66 · Неформованные изделия/u,
     );
+    const bankHistoryTable = rootElement.querySelector(
+      ".laboratory-bank-history .laboratory-results-table",
+    );
+    assert.ok(bankHistoryTable);
+    const bankHistoryCellStyle = dom.window.getComputedStyle(
+      bankHistoryTable.querySelector("td"),
+    );
+    assert.equal(bankHistoryCellStyle.borderRightStyle, "solid");
+    assert.equal(bankHistoryCellStyle.borderBottomStyle, "solid");
     assert.equal(
       Array.from(rootElement.querySelectorAll("label > span")).some(
         (label) => label.textContent === "Результат готовой продукции",

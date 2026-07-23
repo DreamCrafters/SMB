@@ -4064,17 +4064,42 @@ p {
 .laboratory-table-scroll {
   padding-bottom: 12px;
   overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
   scrollbar-gutter: stable;
 }
 
 .laboratory-results-table {
+  width: 100%;
   min-width: 860px;
+  border-collapse: collapse;
 }
 
 .laboratory-results-table th,
 .laboratory-results-table td {
   min-width: 112px;
+  padding: 10px 12px;
+  border-right-width: 1px;
+  border-right-style: solid;
+  border-right-color: var(--line-strong);
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-bottom-color: var(--line-strong);
+  text-align: left;
   vertical-align: top;
+}
+
+.laboratory-results-table th {
+  background: var(--surface-subtle);
+}
+
+.laboratory-results-table tr > *:last-child {
+  border-right: 0;
+}
+
+.laboratory-results-table tbody tr:last-child > td {
+  border-bottom: 0;
 }
 
 .laboratory-results-table th:nth-child(-n + 3),

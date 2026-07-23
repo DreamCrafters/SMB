@@ -177,8 +177,8 @@ export function LaboratoryBanksPanel({
         {state.history.length === 0 ? (
           <p className="laboratory-empty-note">Назначений пока нет.</p>
         ) : (
-          <div className="table-scroll">
-            <table className="data-table">
+          <div className="table-scroll laboratory-table-scroll">
+            <table className="data-table laboratory-results-table">
               <thead><tr><th>Дата</th><th>Банка</th><th>Содержимое</th><th>Источник результата</th><th>Насыпной вес, т/м³</th><th>Лаборант</th></tr></thead>
               <tbody>{state.history.map((assignment) => (
                 <tr key={assignment.assignmentId}>

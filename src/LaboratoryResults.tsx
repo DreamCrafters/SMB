@@ -824,20 +824,18 @@ function LaboratoryProtocolActions({
   result: LaboratoryResult;
   onShowToast: ShowToast;
 }) {
-  const [activeAction, setActiveAction] = useState<"open" | "download" | null>(
-    null,
-  );
+  const [isOpeningProtocol, setIsOpeningProtocol] = useState(false);
 
-  async function loadProtocol(action: "open" | "download") {
-    if (disabled || activeAction !== null) return;
-    const previewWindow = action === "open" ? window.open("", "_blank") : null;
+  async function openProtocol() {
+    if (disabled || isOpeningProtocol) return;
+    const previewWindow = window.open("", "_blank");
     if (previewWindow !== null) {
       previewWindow.opener = null;
       previewWindow.document.title = "Формируем протокол…";
     }
-    setActiveAction(action);
+    setIsOpeningProtocol(true);
     const response = await requestLaboratoryProtocolPdf(result.id);
-    setActiveAction(null);
+    setIsOpeningProtocol(false);
 
     if (response.status === "error") {
       previewWindow?.close();
@@ -852,7 +850,7 @@ function LaboratoryProtocolActions({
     }
 
     const objectUrl = URL.createObjectURL(response.blob);
-    if (action === "open" && previewWindow !== null) {
+    if (previewWindow !== null) {
       previewWindow.location.href = objectUrl;
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
       return;
@@ -860,30 +858,23 @@ function LaboratoryProtocolActions({
 
     const link = document.createElement("a");
     link.href = objectUrl;
-    link.download = response.filename;
+    link.target = "_blank";
+    link.rel = "noopener";
     document.body.append(link);
     link.click();
     link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   }
 
   return (
     <div className="laboratory-protocol-actions">
       <button
         className="secondary-button"
-        disabled={disabled || activeAction !== null}
+        disabled={disabled || isOpeningProtocol}
         type="button"
-        onClick={() => void loadProtocol("open")}
+        onClick={() => void openProtocol()}
       >
-        {activeAction === "open" ? "Открываем…" : "Открыть PDF"}
-      </button>
-      <button
-        className="secondary-button"
-        disabled={disabled || activeAction !== null}
-        type="button"
-        onClick={() => void loadProtocol("download")}
-      >
-        {activeAction === "download" ? "Скачиваем…" : "Скачать PDF"}
+        {isOpeningProtocol ? "Открываем…" : "Открыть PDF"}
       </button>
     </div>
   );
