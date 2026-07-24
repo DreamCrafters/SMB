@@ -544,6 +544,8 @@ export default function App() {
   const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
   const [ownerTab, setOwnerTab] = useState<BusinessTab>("overview");
   const [adminTab, setAdminTab] = useState<AdminTab>("account_preview");
+  const [workspaceNavigationVersion, setWorkspaceNavigationVersion] =
+    useState(0);
   const [adminViewedAccount, setAdminViewedAccount] =
     useState<AdminAccountSummary>();
   const [adminViewedOwnerTab, setAdminViewedOwnerTab] =
@@ -1223,6 +1225,33 @@ export default function App() {
     }));
   }
 
+  function handleOwnerTabNavigation(tab: BusinessTab) {
+    setOwnerTab(tab);
+    if (tab === "dispatcher") {
+      setDispatcherFeedFilters(initialDispatcherFeedFilters);
+    }
+    if (tab === "dispatcher_form") {
+      setDataEntryStatus("");
+    }
+    setWorkspaceNavigationVersion((version) => version + 1);
+  }
+
+  function handleAdminViewedOwnerTabNavigation(tab: BusinessTab) {
+    setAdminViewedOwnerTab(tab);
+    if (tab === "dispatcher") {
+      setAdminViewedDispatcherFeedFilters(initialDispatcherFeedFilters);
+    }
+    if (tab === "dispatcher_form") {
+      setAdminViewedDataEntryStatus("");
+    }
+    setWorkspaceNavigationVersion((version) => version + 1);
+  }
+
+  function handleAdminTabNavigation(tab: AdminTab) {
+    setAdminTab(tab);
+    setWorkspaceNavigationVersion((version) => version + 1);
+  }
+
   function handleRefractoryReportResolved(reportId: string) {
     knownPendingRefractoryIdsRef.current.delete(reportId);
     setPendingRefractoryReports((current) =>
@@ -1487,11 +1516,11 @@ export default function App() {
         ownerTab={visibleOwnerTab}
         onOwnerTabChange={
           viewedProfile !== undefined
-            ? setAdminViewedOwnerTab
-            : setOwnerTab
+            ? handleAdminViewedOwnerTabNavigation
+            : handleOwnerTabNavigation
         }
         adminTab={adminTab}
-        onAdminTabChange={setAdminTab}
+        onAdminTabChange={handleAdminTabNavigation}
         pendingRefractoryCount={
           isAdminPreviewMode ? 0 : pendingRefractoryReports.length
         }
@@ -1527,6 +1556,7 @@ export default function App() {
         aria-label="Рабочая область"
       >
         <RoleWorkspace
+          key={`${visibleProfile.activeAccess.accountId}:${workspaceNavigationVersion}`}
           profile={visibleProfile}
           isAdminPreviewMode={isAdminPreviewMode}
           dataEntryStatus={visibleDataEntryStatus}
