@@ -281,11 +281,28 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     }
 
     if (url.includes("/api/dispatcher/production-bank-contents")) {
+      const bankReportDate =
+        new URL(url).searchParams.get("date") ?? "2026-07-18";
+      const previousBankDate = new Date(`${bankReportDate}T00:00:00.000Z`);
+      previousBankDate.setUTCDate(previousBankDate.getUTCDate() - 1);
       return jsonResponse({
+        reportDate: bankReportDate,
+        previousReportDate: previousBankDate.toISOString().slice(0, 10),
         bankContents: [
           { bankNumber: 1, materialLabel: "ШКИ-66" },
           { bankNumber: 2, materialLabel: "ШГР-1" },
         ],
+        bankMeasurements: bankReportDate === "2026-07-18"
+          ? [
+              { bankNumber: 1, start: 1.25, end: 1.1 },
+              { bankNumber: 2, start: 1.5, end: 1.4 },
+              { bankNumber: 3, start: 1.75, end: 1.6 },
+            ]
+          : [
+              { bankNumber: 1 },
+              { bankNumber: 2 },
+              { bankNumber: 3 },
+            ],
       });
     }
 
@@ -337,6 +354,8 @@ test(`production form loads all saved data by date in ${label}`, async () => {
               chamotteBrand2: "ПБ-5",
               chamotteFact2: "3.5",
               jarStart1: "10",
+              jarShipmentStart1: "118.5",
+              jarShipmentEnd1: "94",
               granulationFraction1630Day: "2",
             },
             summary: "Выработка за 18.07.2026",
@@ -477,7 +496,40 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(
       rootElement.querySelector('input[name="jarStart1"]')?.value,
-      "10",
+      "1.25",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="jarEnd1"]')?.value,
+      "1.1",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="jarShipmentStart1"]')?.value,
+      "118.5",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="jarShipmentEnd1"]')?.value,
+      "94",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="jarStart1"]')?.readOnly,
+      true,
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="jarShipmentStart1"]')?.readOnly,
+      false,
+    );
+    const jarHeaderRows = rootElement.querySelectorAll(
+      ".production-report-jar-table thead tr",
+    );
+    assert.match(
+      jarHeaderRows[0]?.textContent ?? "",
+      /Банка.*Начало дня.*Конец дня/u,
+    );
+    assert.deepEqual(
+      Array.from(jarHeaderRows[1]?.querySelectorAll("th") ?? []).map(
+        (header) => header.textContent,
+      ),
+      ["По замерам", "По отгрузкам", "По замерам", "По отгрузкам"],
     );
     assert.match(
       rootElement.querySelector(
@@ -500,6 +552,19 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     assert.match(rootElement.textContent ?? "", /Внести изменения/u);
     assert.ok(
       requestedUrls.some((url) => url.includes("/api/production-plans/daily")),
+    );
+    assert.ok(
+      requestedUrls.some(
+        (url) =>
+          url.includes("/api/dispatcher/production-bank-contents") &&
+          url.includes("date=2026-07-18"),
+      ),
+    );
+    assert.match(
+      rootElement.querySelector(
+        ".production-report-split-bottom .production-report-section-note",
+      )?.textContent ?? "",
+      /17\.07\.2026.*18\.07\.2026/u,
     );
     assert.ok(
       requestedUrls.some((url) => url.includes("/api/production-brands")),
@@ -606,6 +671,10 @@ test(`production form loads all saved data by date in ${label}`, async () => {
 
     assert.equal(
       rootElement.querySelector('input[name="formingFact1"]')?.value,
+      "",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="jarStart1"]')?.value,
       "",
     );
     assert.doesNotMatch(rootElement.textContent ?? "", /Внести изменения/u);
@@ -854,11 +923,17 @@ function buildProductionFormDefinition() {
       numberField("formingDay"),
       numberField("sortingDay"),
       numberField("jarStart1"),
+      numberField("jarShipmentStart1"),
       numberField("jarEnd1"),
+      numberField("jarShipmentEnd1"),
       numberField("jarStart2"),
+      numberField("jarShipmentStart2"),
       numberField("jarEnd2"),
+      numberField("jarShipmentEnd2"),
       numberField("jarStart3"),
+      numberField("jarShipmentStart3"),
       numberField("jarEnd3"),
+      numberField("jarShipmentEnd3"),
       numberField("granulationPlatesInOperation"),
       numberField("granulationMillHours"),
       numberField("granulationFraction1630Day"),

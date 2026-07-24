@@ -378,11 +378,19 @@ function buildJarMeasurementFields(): DispatcherFormField[] {
   return [1, 2, 3].flatMap((jarNumber) => [
     productionNumberField(
       `jarStart${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, начало дня`,
+      `Замеры банок — Банка ${jarNumber}, начало дня, по замерам`,
+    ),
+    productionNumberField(
+      `jarShipmentStart${jarNumber}`,
+      `Замеры банок — Банка ${jarNumber}, начало дня, по отгрузкам`,
     ),
     productionNumberField(
       `jarEnd${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, конец дня`,
+      `Замеры банок — Банка ${jarNumber}, конец дня, по замерам`,
+    ),
+    productionNumberField(
+      `jarShipmentEnd${jarNumber}`,
+      `Замеры банок — Банка ${jarNumber}, конец дня, по отгрузкам`,
     ),
   ]);
 }

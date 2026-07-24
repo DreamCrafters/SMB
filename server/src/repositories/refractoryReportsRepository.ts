@@ -43,6 +43,9 @@ export type RefractoryReportsRepository = {
     reportDate: string;
     shiftNumber: RefractoryShiftNumber;
   }) => Promise<RefractoryReportRevision[]>;
+  listLatestApprovedCoshForDates: (input: {
+    reportDates: readonly string[];
+  }) => Promise<RefractoryReportRevision[]>;
   listPending: () => Promise<RefractoryReportRevision[]>;
   listRecentForSubmitter: (input: {
     submittedByAccountId: string;
@@ -224,6 +227,40 @@ export function createRefractoryReportsRepository(
           input.reportDate,
           input.shiftNumber,
         ],
+      );
+      return rows.map(mapRevision);
+    },
+
+    async listLatestApprovedCoshForDates(input) {
+      const reportDates = Array.from(new Set(input.reportDates));
+
+      if (reportDates.length === 0) {
+        return [];
+      }
+
+      const placeholders = reportDates.map(() => "?").join(", ");
+      const [rows] = await pool.query<RefractoryReportRow[]>(
+        `select ${selectRevisionFieldsWithAlias}
+         from refractory_report_revisions revisions
+         where revisions.report_type = 'cosh'
+           and revisions.status = 'approved'
+           and revisions.report_date in (${placeholders})
+           and not exists (
+             select 1
+             from refractory_report_revisions newer
+             where newer.report_type = revisions.report_type
+               and newer.report_date = revisions.report_date
+               and newer.status = 'approved'
+               and (
+                 newer.shift_number > revisions.shift_number
+                 or (
+                   newer.shift_number = revisions.shift_number
+                   and newer.revision_number > revisions.revision_number
+                 )
+               )
+           )
+         order by revisions.report_date asc`,
+        reportDates,
       );
       return rows.map(mapRevision);
     },

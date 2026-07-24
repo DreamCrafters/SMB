@@ -35,8 +35,17 @@ export type DispatcherProductionBankContent = Pick<
   "bankNumber" | "materialLabel"
 >;
 
+export type DispatcherProductionBankMeasurement = {
+  bankNumber: BankNumber;
+  start?: number;
+  end?: number;
+};
+
 export type DispatcherProductionBankContentsResponse = {
   bankContents: DispatcherProductionBankContent[];
+  bankMeasurements: DispatcherProductionBankMeasurement[];
+  reportDate: string;
+  previousReportDate: string;
 };
 
 export type RefractoryBanksResponse = {

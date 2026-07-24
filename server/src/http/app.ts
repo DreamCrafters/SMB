@@ -65,7 +65,11 @@ import {
   resolveLaboratoryBankAssignment,
   validateLaboratoryBankAssignmentRequest,
 } from "../domain/laboratoryBankAssignment.js";
-import { calculateCoshBankMeasurements } from "../domain/bankMeasurement.js";
+import {
+  bankNumbers,
+  calculateCoshBankMeasurements,
+  type BankNumber,
+} from "../domain/bankMeasurement.js";
 import {
   refractoryReportLabels,
   validateRefractoryReportDecision,
@@ -415,10 +419,12 @@ export function createApiServer({
         await handleDispatcherProductionBankContentsRequest({
           req,
           res,
+          url,
           config,
           devSessions,
           authService,
           laboratoryBankAssignments,
+          refractoryReports,
         });
         return;
       }
@@ -709,7 +715,7 @@ export function createApiServer({
           }
 
           const payload = await readJsonBody(req);
-          const validation = validateDispatcherSubmissionDraft(payload);
+          let validation = validateDispatcherSubmissionDraft(payload);
 
           if (!validation.ok) {
             sendJson(res, 400, {
@@ -719,6 +725,56 @@ export function createApiServer({
               },
             });
             return;
+          }
+
+          if (validation.value.draft.formId === "production") {
+            if (refractoryReports === undefined) {
+              sendJson(res, 503, {
+                error: {
+                  code: "server_error",
+                  message: "Хранилище данных банок не настроено.",
+                },
+              });
+              return;
+            }
+
+            const reportDate = readIsoDispatcherReportDate(
+              validation.value.draft.payload.reportDate,
+            );
+
+            if (reportDate === undefined) {
+              sendJson(res, 400, {
+                error: {
+                  code: "invalid_response",
+                  message: "Укажите корректную дату отчёта.",
+                },
+              });
+              return;
+            }
+
+            const measurementSnapshot =
+              await readDispatcherProductionBankMeasurements(
+                refractoryReports,
+                reportDate,
+              );
+            validation = validateDispatcherSubmissionDraft({
+              formId: "production",
+              payload: buildProductionPayloadWithBankMeasurements({
+                payload: validation.value.draft.payload,
+                reportDate,
+                bankMeasurements: measurementSnapshot.bankMeasurements,
+              }),
+            });
+
+            if (!validation.ok) {
+              sendJson(res, 400, {
+                error: {
+                  code: "invalid_response",
+                  message: validation.errors.join(" "),
+                },
+              });
+              return;
+            }
           }
 
           const history = await dispatcherSubmissions.listLatest({ limit: 2_000 });
@@ -2167,17 +2223,21 @@ async function handleProductionBrandsRequest({
 async function handleDispatcherProductionBankContentsRequest({
   req,
   res,
+  url,
   config,
   devSessions,
   authService,
   laboratoryBankAssignments,
+  refractoryReports,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
+  url: URL;
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
+  refractoryReports: RefractoryReportsRepository | undefined;
 }) {
   const access = await requireCapability(req, res, {
     config,
@@ -2201,24 +2261,175 @@ async function handleDispatcherProductionBankContentsRequest({
     return;
   }
 
-  if (laboratoryBankAssignments === undefined) {
-    sendJson(res, 503, {
+  const reportDate = url.searchParams.get("date") ?? "";
+
+  if (!isCalendarDateQueryValue(reportDate)) {
+    sendJson(res, 400, {
       error: {
-        code: "server_error",
-        message: "Хранилище назначений банок не настроено.",
+        code: "invalid_response",
+        message: "Укажите дату отчёта для замеров банок.",
       },
     });
     return;
   }
 
-  const currentAssignments = await laboratoryBankAssignments.listCurrent();
+  if (
+    laboratoryBankAssignments === undefined ||
+    refractoryReports === undefined
+  ) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище данных банок не настроено.",
+      },
+    });
+    return;
+  }
+
+  const [currentAssignments, measurementSnapshot] = await Promise.all([
+    laboratoryBankAssignments.listCurrent(),
+    readDispatcherProductionBankMeasurements(refractoryReports, reportDate),
+  ]);
 
   sendJson(res, 200, {
+    reportDate,
+    previousReportDate: measurementSnapshot.previousReportDate,
     bankContents: currentAssignments.map((assignment) => ({
       bankNumber: assignment.bankNumber,
       materialLabel: assignment.materialLabel,
     })),
+    bankMeasurements: measurementSnapshot.bankMeasurements,
   });
+}
+
+async function readDispatcherProductionBankMeasurements(
+  refractoryReports: RefractoryReportsRepository,
+  reportDate: string,
+) {
+  const previousReportDate = shiftCalendarDate(reportDate, -1);
+  const reports = await refractoryReports.listLatestApprovedCoshForDates({
+    reportDates: [previousReportDate, reportDate],
+  });
+  const reportsByDate = new Map(
+    reports
+      .filter((report) => report.reportType === "cosh")
+      .map((report) => [report.reportDate, report]),
+  );
+  const startReport = reportsByDate.get(previousReportDate);
+  const endReport = reportsByDate.get(reportDate);
+
+  return {
+    previousReportDate,
+    bankMeasurements: bankNumbers.map((bankNumber) => ({
+      bankNumber,
+      ...readProductionBankMeasurementSide(startReport, bankNumber, "start"),
+      ...readProductionBankMeasurementSide(endReport, bankNumber, "end"),
+    })),
+  };
+}
+
+function readProductionBankMeasurementSide(
+  report: RefractoryReportRevision | undefined,
+  bankNumber: BankNumber,
+  side: "start" | "end",
+) {
+  if (report?.reportType !== "cosh") {
+    return {};
+  }
+
+  const measurement = (report.payload as RefractoryCoshPayload)
+    .jarMeasurements
+    ?.find((item) => item.jarNumber === bankNumber);
+  const candidate = measurement?.averageHeightMeters ??
+    readAverageMeasurement(measurement?.values);
+  const averageHeightMeters =
+    candidate !== undefined &&
+      Number.isFinite(candidate) &&
+      candidate >= 0
+      ? candidate
+      : undefined;
+
+  return averageHeightMeters === undefined
+    ? {}
+    : { [side]: averageHeightMeters };
+}
+
+function readAverageMeasurement(values: readonly number[] | undefined) {
+  if (
+    values === undefined ||
+    values.length === 0 ||
+    values.some((value) => !Number.isFinite(value) || value < 0)
+  ) {
+    return undefined;
+  }
+
+  const average = values.reduce((total, value) => total + value, 0) /
+    values.length;
+  return Math.round((average + Number.EPSILON) * 1_000) / 1_000;
+}
+
+function shiftCalendarDate(value: string, dayOffset: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + dayOffset));
+  return shifted.toISOString().slice(0, 10);
+}
+
+function readIsoDispatcherReportDate(value: string | undefined) {
+  const trimmed = value?.trim();
+
+  if (trimmed === undefined) {
+    return undefined;
+  }
+
+  if (isCalendarDateQueryValue(trimmed)) {
+    return trimmed;
+  }
+
+  const russian = /^(\d{2})\.(\d{2})\.(\d{4})$/u.exec(trimmed);
+  const iso = russian === null
+    ? undefined
+    : `${russian[3]}-${russian[2]}-${russian[1]}`;
+
+  return iso !== undefined && isCalendarDateQueryValue(iso) ? iso : undefined;
+}
+
+function buildProductionPayloadWithBankMeasurements({
+  payload,
+  reportDate,
+  bankMeasurements,
+}: {
+  payload: DispatcherSubmission["payload"];
+  reportDate: string;
+  bankMeasurements: ReadonlyArray<{
+    bankNumber: BankNumber;
+    start?: number;
+    end?: number;
+  }>;
+}) {
+  const nextPayload: DispatcherSubmission["payload"] = {
+    ...payload,
+    reportDate,
+  };
+
+  delete nextPayload.reportMonth;
+
+  for (const bankNumber of bankNumbers) {
+    delete nextPayload[`jarStart${bankNumber}`];
+    delete nextPayload[`jarEnd${bankNumber}`];
+  }
+
+  for (const measurement of bankMeasurements) {
+    if (measurement.start !== undefined) {
+      nextPayload[`jarStart${measurement.bankNumber}`] =
+        String(measurement.start);
+    }
+
+    if (measurement.end !== undefined) {
+      nextPayload[`jarEnd${measurement.bankNumber}`] = String(measurement.end);
+    }
+  }
+
+  return nextPayload;
 }
 
 async function handleProductionSnapshotRequest({

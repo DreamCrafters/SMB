@@ -1540,11 +1540,22 @@ p {
   outline-offset: -2px;
 }
 
+.data-entry-form .production-report-cell-input input[readonly] {
+  color: var(--ink);
+  background: var(--surface-subtle);
+  cursor: default;
+}
+
+.data-entry-form .production-report-cell-input input[readonly]:focus {
+  outline-color: var(--line-strong);
+}
+
 .production-report-jar-table {
   min-width: 0;
 }
 
-.production-report-jar-table th:first-child {
+.production-report-jar-table thead tr:first-child th:first-child,
+.production-report-jar-table tbody th {
   width: 30%;
 }
 

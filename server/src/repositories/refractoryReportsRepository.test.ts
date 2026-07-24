@@ -109,3 +109,39 @@ test("repository keeps every latest returned report and recent decisions for one
   assert.doesNotMatch(querySql, /limit 200/u);
   assert.deepEqual(queryParameters, ["operator-account"]);
 });
+
+test("repository selects the latest approved COSH shift for each requested date", async () => {
+  let querySql = "";
+  let queryParameters: readonly unknown[] = [];
+  const approvedCoshRow = {
+    ...pendingRow,
+    id: "cosh-approved",
+    report_type: "cosh",
+    report_date: "2026-07-21",
+    status: "approved",
+    payload: JSON.stringify({
+      jarMeasurements: [
+        { jarNumber: 1, values: [1.2], averageHeightMeters: 1.2 },
+      ],
+    }),
+  };
+  const pool = {
+    async query(sql: string, parameters: readonly unknown[]) {
+      querySql = sql;
+      queryParameters = parameters;
+      return [[approvedCoshRow], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRefractoryReportsRepository(pool);
+
+  const reports = await repository.listLatestApprovedCoshForDates({
+    reportDates: ["2026-07-20", "2026-07-21", "2026-07-21"],
+  });
+
+  assert.equal(reports[0]?.id, "cosh-approved");
+  assert.match(querySql, /revisions\.report_type = 'cosh'/u);
+  assert.match(querySql, /revisions\.status = 'approved'/u);
+  assert.match(querySql, /newer\.shift_number > revisions\.shift_number/u);
+  assert.match(querySql, /newer\.revision_number > revisions\.revision_number/u);
+  assert.deepEqual(queryParameters, ["2026-07-20", "2026-07-21"]);
+});

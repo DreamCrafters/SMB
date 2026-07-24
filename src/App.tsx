@@ -3457,12 +3457,21 @@ export function DispatcherProductionReportFormBody({
     useState<DispatcherProductionBankContentsState>({ status: "loading" });
 
   useEffect(() => {
+    if (reportDate.length === 0) {
+      setBankContentsState({
+        status: "error",
+        message: "Выберите дату отчёта.",
+      });
+      return;
+    }
+
     const controller = new AbortController();
 
     setBankContentsState({ status: "loading" });
-    requestDispatcherProductionBankContents({
-      signal: controller.signal,
-    }).then((result) => {
+    requestDispatcherProductionBankContents(
+      { reportDate },
+      { signal: controller.signal },
+    ).then((result) => {
       if (controller.signal.aborted) {
         return;
       }
@@ -3473,7 +3482,7 @@ export function DispatcherProductionReportFormBody({
               status: "error",
               message: readShortUserMessage(
                 result.message,
-                "Не удалось загрузить содержимое банок.",
+                "Не удалось загрузить данные банок.",
               ),
             }
           : result,
@@ -3481,7 +3490,7 @@ export function DispatcherProductionReportFormBody({
     });
 
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, [isAdminPreviewMode, reportDate]);
 
   useEffect(() => {
     if (reportDate.length === 0) {
@@ -3609,9 +3618,10 @@ export function DispatcherProductionReportFormBody({
         )}
       </div>
 
-      {reportLoadState.status === "loading" ? (
+      {reportLoadState.status === "loading" ||
+      bankContentsState.status === "loading" ? (
         <LoadingIndicator
-          label="Загружаем данные за выбранную дату…"
+          label="Загружаем данные и замеры за выбранную дату…"
           variant="panel"
         />
       ) : reportLoadState.status === "error" ? (
@@ -3679,6 +3689,14 @@ function ProductionReportEditor({
       ? bankContentsState.bankContents.map((item) => [
           item.bankNumber,
           item.materialLabel,
+        ])
+      : [],
+  );
+  const bankMeasurementByNumber = new Map(
+    bankContentsState.status === "ready"
+      ? bankContentsState.bankMeasurements.map((item) => [
+          item.bankNumber,
+          item,
         ])
       : [],
   );
@@ -3769,6 +3787,13 @@ function ProductionReportEditor({
       <div className="production-report-split production-report-split-bottom">
         <fieldset className="production-report-section">
           <legend>Замеры банок</legend>
+          {bankContentsState.status === "ready" ? (
+            <span className="production-report-section-note">
+              По замерам: начало — ЦОШ ОЦ за{" "}
+              {formatDateOnly(bankContentsState.previousReportDate)}, конец —
+              ЦОШ ОЦ за {formatDateOnly(bankContentsState.reportDate)}.
+            </span>
+          ) : null}
           {bankContentsState.status === "error" ? (
             <span
               className="production-report-section-note production-report-bank-content-error"
@@ -3781,9 +3806,15 @@ function ProductionReportEditor({
             <table className="production-report-table production-report-jar-table">
               <thead>
                 <tr>
-                  <th scope="col">Банка</th>
-                  <th scope="col">Начало дня</th>
-                  <th scope="col">Конец дня</th>
+                  <th scope="col" rowSpan={2}>Банка</th>
+                  <th scope="colgroup" colSpan={2}>Начало дня</th>
+                  <th scope="colgroup" colSpan={2}>Конец дня</th>
+                </tr>
+                <tr>
+                  <th scope="col">По замерам</th>
+                  <th scope="col">По отгрузкам</th>
+                  <th scope="col">По замерам</th>
+                  <th scope="col">По отгрузкам</th>
                 </tr>
               </thead>
               <tbody>
@@ -3801,15 +3832,39 @@ function ProductionReportEditor({
                     </th>
                     <td>
                       <ProductionReportCell
-                        defaultValue={initialPayload?.[`jarStart${jarNumber}`]}
+                        defaultValue={readBankMeasurementValue(
+                          bankMeasurementByNumber.get(jarNumber)?.start,
+                        )}
                         fieldName={`jarStart${jarNumber}`}
+                        form={form}
+                        readOnly
+                      />
+                    </td>
+                    <td>
+                      <ProductionReportCell
+                        defaultValue={
+                          initialPayload?.[`jarShipmentStart${jarNumber}`]
+                        }
+                        fieldName={`jarShipmentStart${jarNumber}`}
                         form={form}
                       />
                     </td>
                     <td>
                       <ProductionReportCell
-                        defaultValue={initialPayload?.[`jarEnd${jarNumber}`]}
+                        defaultValue={readBankMeasurementValue(
+                          bankMeasurementByNumber.get(jarNumber)?.end,
+                        )}
                         fieldName={`jarEnd${jarNumber}`}
+                        form={form}
+                        readOnly
+                      />
+                    </td>
+                    <td>
+                      <ProductionReportCell
+                        defaultValue={
+                          initialPayload?.[`jarShipmentEnd${jarNumber}`]
+                        }
+                        fieldName={`jarShipmentEnd${jarNumber}`}
                         form={form}
                       />
                     </td>
@@ -4226,12 +4281,14 @@ function ProductionReportCell({
   fieldName,
   focusOnMouseDown = false,
   form,
+  readOnly = false,
   required,
 }: {
   defaultValue?: string;
   fieldName: string;
   focusOnMouseDown?: boolean;
   form: DispatcherFormDefinition;
+  readOnly?: boolean;
   required?: boolean;
 }) {
   const field = form.fields.find((item) => item.name === fieldName);
@@ -4246,6 +4303,7 @@ function ProductionReportCell({
         defaultValue={defaultValue}
         field={field}
         focusOnMouseDown={focusOnMouseDown}
+        readOnly={readOnly}
         required={required}
       />
     </div>
@@ -5467,6 +5525,7 @@ function DispatcherFormFieldInput({
   field,
   focusOnMouseDown = false,
   options,
+  readOnly = false,
   required,
   onValueChange,
 }: {
@@ -5474,6 +5533,7 @@ function DispatcherFormFieldInput({
   field: DispatcherFormField;
   focusOnMouseDown?: boolean;
   options?: readonly string[];
+  readOnly?: boolean;
   required?: boolean;
   onValueChange?: (value: string) => void;
 }) {
@@ -5534,6 +5594,7 @@ function DispatcherFormFieldInput({
         title={readInputTitle(field)}
         placeholder={readInputPlaceholder(field)}
         maxLength={readInputMaxLength(field)}
+        readOnly={readOnly}
         required={required ?? field.required}
         defaultValue={defaultValue ?? readInputDefaultValue(field)}
         onMouseDown={focusOnMouseDown
@@ -10606,6 +10667,10 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function readBankMeasurementValue(value: number | undefined) {
+  return value === undefined ? "" : String(value);
 }
 
 function formatOptionalNumber(value: number | undefined) {

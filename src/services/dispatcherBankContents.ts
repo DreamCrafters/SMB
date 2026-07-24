@@ -1,6 +1,7 @@
 import type {
   BankNumber,
   DispatcherProductionBankContent,
+  DispatcherProductionBankMeasurement,
   DispatcherProductionBankContentsResponse,
 } from "../contracts/laboratoryBanks.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
@@ -17,6 +18,10 @@ type RequestOptions = {
   signal?: AbortSignal;
 };
 
+type DispatcherProductionBankContentsRequest = {
+  reportDate: string;
+};
+
 type ErrorResult = {
   status: "error";
   message: string;
@@ -27,11 +32,14 @@ export type DispatcherProductionBankContentsResult =
   | ErrorResult;
 
 export async function requestDispatcherProductionBankContents(
+  request: DispatcherProductionBankContentsRequest,
   options: RequestOptions = {},
 ): Promise<DispatcherProductionBankContentsResult> {
+  const path =
+    `${PRODUCTION_BANK_CONTENTS_PATH}?date=${encodeURIComponent(request.reportDate)}`;
   const endpoint = resolveApiEndpoint(
-    PRODUCTION_BANK_CONTENTS_PATH,
-    PRODUCTION_BANK_CONTENTS_PATH,
+    path,
+    path,
     options,
   );
 
@@ -77,7 +85,11 @@ function isDispatcherProductionBankContentsResponse(
   return (
     isRecord(value) &&
     Array.isArray(value.bankContents) &&
-    value.bankContents.every(isDispatcherProductionBankContent)
+    value.bankContents.every(isDispatcherProductionBankContent) &&
+    Array.isArray(value.bankMeasurements) &&
+    value.bankMeasurements.every(isDispatcherProductionBankMeasurement) &&
+    typeof value.reportDate === "string" &&
+    typeof value.previousReportDate === "string"
   );
 }
 
@@ -92,8 +104,24 @@ function isDispatcherProductionBankContent(
   );
 }
 
+function isDispatcherProductionBankMeasurement(
+  value: unknown,
+): value is DispatcherProductionBankMeasurement {
+  return (
+    isRecord(value) &&
+    isBankNumber(value.bankNumber) &&
+    isOptionalFiniteNumber(value.start) &&
+    isOptionalFiniteNumber(value.end)
+  );
+}
+
 function isBankNumber(value: unknown): value is BankNumber {
   return value === 1 || value === 2 || value === 3;
+}
+
+function isOptionalFiniteNumber(value: unknown) {
+  return value === undefined ||
+    (typeof value === "number" && Number.isFinite(value));
 }
 
 function readError(payload: unknown): ErrorResult {

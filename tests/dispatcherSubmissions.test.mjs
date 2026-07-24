@@ -139,7 +139,9 @@ test("local production reports use the production form rules", async () => {
     assert.equal(fieldNames.includes("granulationRawOutputTons"), false);
     assert.equal(fieldNames.includes("granulationFraction1600Month"), false);
     assert.equal(fieldNames.includes("jarStart1"), true);
+    assert.equal(fieldNames.includes("jarShipmentStart1"), true);
     assert.equal(fieldNames.includes("jarEnd1"), true);
+    assert.equal(fieldNames.includes("jarShipmentEnd1"), true);
     assert.equal(fieldNames.includes("granulationFraction1630Day"), true);
     assert.equal(fieldNames.includes("granulationFraction1218Day"), true);
   }
@@ -163,7 +165,9 @@ test("local production reports use the production form rules", async () => {
         sortingDay: "15.5",
         sortingProductBrand: "Сорт-1",
         jarStart1: "120",
+        jarShipmentStart1: "118.5",
         jarEnd1: "95",
+        jarShipmentEnd1: "94",
         granulationFraction1630Day: "3.25",
       },
     },
@@ -176,7 +180,9 @@ test("local production reports use the production form rules", async () => {
   assert.equal(result.submission.payload.reportMonth, "2026-07");
   assert.equal(result.submission.payload.sortingProductBrand, "Сорт-1");
   assert.equal(result.submission.payload.jarStart1, "120");
+  assert.equal(result.submission.payload.jarShipmentStart1, "118.5");
   assert.equal(result.submission.payload.jarEnd1, "95");
+  assert.equal(result.submission.payload.jarShipmentEnd1, "94");
 });
 
 test("local visitor exit submissions use an open visitor entry", async () => {

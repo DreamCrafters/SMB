@@ -250,6 +250,15 @@ const passthroughProductionBrands: ProductionBrandsDataSource = {
   },
 };
 
+const emptyRefractoryReports: RefractoryReportsRepository = {
+  async submit() { throw new Error("not used"); },
+  async listLatestForShift() { return []; },
+  async listLatestApprovedCoshForDates() { return []; },
+  async listPending() { return []; },
+  async listRecentForSubmitter() { return []; },
+  async review() { throw new Error("not used"); },
+};
+
 const equipmentOptions =
   getDispatcherFormDefinition("equipment")?.fields.find(
     (field) => field.name === "equipment",
@@ -744,7 +753,7 @@ test("laboratory PDF protocol requires an authenticated laboratory access", asyn
   );
 });
 
-test("dispatcher reads only the current material assigned to each production bank", async () => {
+test("dispatcher reads current bank materials and approved COSH measurements by date", async () => {
   const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
     async assign() {
       throw new Error("Assignments are not created through the dispatcher endpoint.");
@@ -759,26 +768,66 @@ test("dispatcher reads only the current material assigned to each production ban
       throw new Error("Dispatcher bank contents must not expose assignment history.");
     },
   };
+  const requestedReportDates: string[][] = [];
+  const refractoryReports: RefractoryReportsRepository = {
+    async submit() { throw new Error("not used"); },
+    async listLatestForShift() { return []; },
+    async listLatestApprovedCoshForDates(input) {
+      requestedReportDates.push([...input.reportDates]);
+      return [
+        buildApprovedCoshReport({
+          id: "cosh-previous",
+          reportDate: "2026-07-22",
+          shiftNumber: 2,
+          measurements: [1.25, 1.5, 1.75],
+        }),
+        buildApprovedCoshReport({
+          id: "cosh-current",
+          reportDate: "2026-07-23",
+          shiftNumber: 1,
+          measurements: [1.1, 1.4, 1.6],
+        }),
+      ];
+    },
+    async listPending() { return []; },
+    async listRecentForSubmitter() { return []; },
+    async review() { throw new Error("not used"); },
+  };
 
   await withApiServer(
     async (baseUrl) => {
       const unauthorizedResponse = await fetch(
-        `${baseUrl}/api/dispatcher/production-bank-contents`,
+        `${baseUrl}/api/dispatcher/production-bank-contents?date=2026-07-23`,
       );
       const headers = await createDispatcherHeaders(baseUrl);
-      const response = await fetch(
+      const missingDateResponse = await fetch(
         `${baseUrl}/api/dispatcher/production-bank-contents`,
+        { headers },
+      );
+      const response = await fetch(
+        `${baseUrl}/api/dispatcher/production-bank-contents?date=2026-07-23`,
         { headers },
       );
 
       assert.equal(unauthorizedResponse.status, 401);
+      assert.equal(missingDateResponse.status, 400);
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), {
+        reportDate: "2026-07-23",
+        previousReportDate: "2026-07-22",
         bankContents: [
           { bankNumber: 1, materialLabel: "ШКИ-66" },
           { bankNumber: 3, materialLabel: "ШГР-1" },
         ],
+        bankMeasurements: [
+          { bankNumber: 1, start: 1.25, end: 1.1 },
+          { bankNumber: 2, start: 1.5, end: 1.4 },
+          { bankNumber: 3, start: 1.75, end: 1.6 },
+        ],
       });
+      assert.deepEqual(requestedReportDates, [
+        ["2026-07-22", "2026-07-23"],
+      ]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -793,10 +842,86 @@ test("dispatcher reads only the current material assigned to each production ban
     undefined,
     passthroughProductionBrands,
     undefined,
-    undefined,
+    refractoryReports,
     undefined,
     undefined,
     laboratoryBankAssignments,
+  );
+});
+
+test("production submission replaces client bank values with approved COSH measurements", async () => {
+  let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
+  const repository = buildRepositoryWithHistory([], (draft) => {
+    createdDraft = draft;
+  });
+  const refractoryReports: RefractoryReportsRepository = {
+    ...emptyRefractoryReports,
+    async listLatestApprovedCoshForDates() {
+      return [
+        buildApprovedCoshReport({
+          id: "cosh-previous",
+          reportDate: "2026-07-22",
+          shiftNumber: 2,
+          measurements: [1.25, 1.5, 1.75],
+        }),
+        buildApprovedCoshReport({
+          id: "cosh-current",
+          reportDate: "2026-07-23",
+          shiftNumber: 2,
+          measurements: [1.1, 1.4, 1.6],
+        }),
+      ];
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          formId: "production",
+          payload: {
+            reportDate: "2026-07-23",
+            granulationPlatesInOperation: "2",
+            jarStart1: "999",
+            jarShipmentStart1: "118.5",
+            jarEnd1: "998",
+            jarShipmentEnd1: "94",
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      assert.deepEqual(createdDraft?.draft.payload, {
+        reportDate: "23.07.2026",
+        reportMonth: "2026-07",
+        granulationPlatesInOperation: "2",
+        jarStart1: "1.25",
+        jarShipmentStart1: "118.5",
+        jarEnd1: "1.1",
+        jarShipmentEnd1: "94",
+        jarStart2: "1.5",
+        jarEnd2: "1.4",
+        jarStart3: "1.75",
+        jarEnd3: "1.6",
+      });
+    },
+    repository,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    refractoryReports,
   );
 });
 
@@ -821,6 +946,7 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
       return stored;
     },
     async listLatestForShift() { return []; },
+    async listLatestApprovedCoshForDates() { return []; },
     async listPending() { return []; },
     async listRecentForSubmitter() { return []; },
     async review() { throw new Error("not used"); },
@@ -4136,7 +4262,9 @@ test("remote API returns dispatcher form definitions", async () => {
     assert.equal(productionFieldNames.includes("formingMonth"), false);
     assert.equal(productionFieldNames.includes("unformedDeviation1"), false);
     assert.equal(productionFieldNames.includes("jarStart1"), true);
+    assert.equal(productionFieldNames.includes("jarShipmentStart1"), true);
     assert.equal(productionFieldNames.includes("jarEnd1"), true);
+    assert.equal(productionFieldNames.includes("jarShipmentEnd1"), true);
     assert.equal(
       productionFieldNames.includes("granulationFraction1630Day"),
       true,
@@ -5036,6 +5164,9 @@ test("refractory reports are submitted and reviewed independently through protec
     async listLatestForShift() {
       return stored === undefined ? [] : [stored];
     },
+    async listLatestApprovedCoshForDates() {
+      return [];
+    },
     async listPending() {
       return stored?.status === "pending" ? [stored] : [];
     },
@@ -5366,7 +5497,7 @@ async function withApiServer(
   databaseTransaction?: DatabaseTransactionRunner,
   productionBrands: ProductionBrandsDataSource = passthroughProductionBrands,
   productionSnapshot?: ProductionDatabaseSnapshotService,
-  refractoryReports?: RefractoryReportsRepository,
+  refractoryReports: RefractoryReportsRepository = emptyRefractoryReports,
   laboratoryReferenceDataSource?: LaboratoryReferenceDataSource,
   laboratoryResults?: LaboratoryResultsRepository,
   laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository,
@@ -5434,6 +5565,47 @@ function buildLaboratoryBankAssignment(
     bulkDensityTonsPerCubicMeter,
     assignedByDisplayName: "Лаборант",
     assignedAt: "2026-07-23T08:00:00.000Z",
+  };
+}
+
+function buildApprovedCoshReport({
+  id,
+  reportDate,
+  shiftNumber,
+  measurements,
+}: {
+  id: string;
+  reportDate: string;
+  shiftNumber: 1 | 2;
+  measurements: readonly [number, number, number];
+}): RefractoryReportRevision {
+  return {
+    id,
+    reportType: "cosh",
+    reportDate,
+    shiftNumber,
+    revisionNumber: 1,
+    status: "approved",
+    payload: {
+      jarMeasurements: measurements.map((averageHeightMeters, index) => ({
+        jarNumber: (index + 1) as 1 | 2 | 3,
+        values: [averageHeightMeters],
+        averageHeightMeters,
+      })),
+    },
+    totals: {
+      chamotteOutputTons: 0,
+      bunkerFillTons: 0,
+      chamotteSupplyTons: 0,
+      baggingTons: 0,
+      scrapRemovalTons: 0,
+    },
+    submittedByUserId: "oc-user",
+    submittedByAccountId: "oc-access",
+    masterDisplayName: "Мастер ОЦ",
+    submittedAt: `${reportDate}T17:00:00.000Z`,
+    reviewerDisplayName: "Диспетчер",
+    reviewedAt: `${reportDate}T17:05:00.000Z`,
   };
 }
 
