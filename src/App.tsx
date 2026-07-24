@@ -86,6 +86,7 @@ import {
 } from "./services/dispatcherSubmissions";
 import {
   isProductionBrandColumnFieldName,
+  isWeekendReportDate,
   validateDispatcherPayloadForSubmit,
 } from "./services/dispatcherPayloadValidation";
 import {
@@ -153,6 +154,7 @@ import {
   previewAdminDispatcherImport,
 } from "./services/adminDispatcherImport";
 import {
+  canDeleteAdminPosition,
   createAdminAccount,
   createAdminPosition,
   deleteAdminPosition,
@@ -177,12 +179,14 @@ import {
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
+  buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   filterProductionReportTables,
   buildVisitorVisitRows,
   type DispatcherFeedGroup,
   type DispatcherFeedPeriod,
+  type OwnerDispatcherOverview,
 } from "./services/dispatcherFeedViews";
 import {
   requestBusinessOverview,
@@ -721,7 +725,10 @@ export default function App() {
     if (
       accessProfile.status !== "ready" ||
       !hasCapability(accessProfile.profile, "business.view_dispatcher_feed") ||
-      visibleDispatcherTab !== "dispatcher"
+      (
+        visibleDispatcherTab !== "dispatcher" &&
+        visibleDispatcherTab !== "overview"
+      )
     ) {
       setDispatcherFeed(initialDispatcherFeedState);
       return;
@@ -2281,9 +2288,18 @@ function OwnerWorkspace({
   ) => void;
 }) {
   if (activeTab === "overview") {
+    const dispatcherOverview = buildOwnerDispatcherOverview(
+      dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [],
+      dispatcherFeed.status === "ready"
+        ? dispatcherFeed.productionMonthOverview ?? undefined
+        : undefined,
+    );
+
     return (
       <OwnerOverviewPanel
         businessOverview={businessOverview}
+        dispatcherFeed={dispatcherFeed}
+        dispatcherOverview={dispatcherOverview}
       />
     );
   }
@@ -2300,9 +2316,16 @@ function OwnerWorkspace({
 
 export function OwnerOverviewPanel({
   businessOverview,
+  dispatcherFeed,
+  dispatcherOverview,
 }: {
   businessOverview: BusinessOverviewLoadState;
+  dispatcherFeed: DispatcherFeedLoadState;
+  dispatcherOverview: OwnerDispatcherOverview;
 }) {
+  const isLocalTestMode =
+    dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
+
   return (
     <section className="owner-overview" aria-label="Обзор">
       <div className="owner-overview-header">
@@ -2332,49 +2355,83 @@ export function OwnerOverviewPanel({
         <p className="owner-overview-status owner-overview-status-error">
           {readShortUserMessage(
             businessOverview.message,
-            "Не удалось загрузить сводку.",
+            "Не удалось загрузить инциденты и лабораторию.",
           )}
         </p>
       ) : null}
-      {businessOverview.status === "ready" ? (
+      {dispatcherFeed.status === "loading" ? (
+        <LoadingIndicator
+          className="owner-overview-loading"
+          label={dispatcherFeed.message}
+          variant="panel"
+        />
+      ) : null}
+      {dispatcherFeed.status === "error" ? (
+        <p className="owner-overview-status owner-overview-status-error">
+          {readShortUserMessage(
+            dispatcherFeed.message,
+            "Не удалось загрузить остальные разделы обзора.",
+          )}
+        </p>
+      ) : null}
+      {isLocalTestMode ? (
+        <p className="owner-overview-status owner-overview-status-local">
+          Тестовый режим: диспетчерские данные только на этом устройстве.
+        </p>
+      ) : null}
+      {(
+        businessOverview.status === "ready" ||
+        dispatcherFeed.status === "ready"
+      ) ? (
         <div className="owner-overview-stack">
-          <OwnerOverviewMetrics
-            title="Инциденты"
-            metrics={[
-              {
-                label: "Всего за месяц",
-                value: businessOverview.overview.incidents.monthTotal,
-              },
-              {
-                label: "Закрыто из них",
-                value: businessOverview.overview.incidents.monthClosed,
-              },
-              {
-                label: "Сегодня",
-                value: businessOverview.overview.incidents.todayTotal,
-              },
-              {
-                label: "Не закрыто сейчас",
-                value: businessOverview.overview.incidents.openNow,
-                tone: businessOverview.overview.incidents.openNow > 0
-                  ? "attention"
-                  : undefined,
-              },
-            ]}
-          />
-          <OwnerOverviewMetrics
-            title="Лаборатория"
-            metrics={[
-              {
-                label: "Испытаний за месяц",
-                value: businessOverview.overview.laboratory.monthTotal,
-              },
-              {
-                label: "Испытаний сегодня",
-                value: businessOverview.overview.laboratory.todayTotal,
-              },
-            ]}
-          />
+          {businessOverview.status === "ready" ? (
+            <>
+              <OwnerOverviewMetrics
+                title="Инциденты"
+                metrics={[
+                  {
+                    label: "Всего за месяц",
+                    value: businessOverview.overview.incidents.monthTotal,
+                  },
+                  {
+                    label: "Закрыто из них",
+                    value: businessOverview.overview.incidents.monthClosed,
+                  },
+                  {
+                    label: "Сегодня",
+                    value: businessOverview.overview.incidents.todayTotal,
+                  },
+                  {
+                    label: "Не закрыто сейчас",
+                    value: businessOverview.overview.incidents.openNow,
+                    tone: businessOverview.overview.incidents.openNow > 0
+                      ? "attention"
+                      : undefined,
+                  },
+                ]}
+              />
+              <OwnerOverviewMetrics
+                title="Лаборатория"
+                metrics={[
+                  {
+                    label: "Испытаний за месяц",
+                    value: businessOverview.overview.laboratory.monthTotal,
+                  },
+                  {
+                    label: "Испытаний сегодня",
+                    value: businessOverview.overview.laboratory.todayTotal,
+                  },
+                ]}
+              />
+            </>
+          ) : null}
+          {dispatcherFeed.status === "ready" ? (
+            <>
+              <OwnerEquipmentOverviewBlock overview={dispatcherOverview} />
+              <OwnerProductionOverviewBlock overview={dispatcherOverview} />
+              <OwnerVisitorsOverviewBlock overview={dispatcherOverview} />
+            </>
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -2410,6 +2467,83 @@ function OwnerOverviewMetrics({
           </div>
         ))}
       </dl>
+    </section>
+  );
+}
+
+function OwnerEquipmentOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  return (
+    <section className="owner-overview-block" aria-label="Оборудование">
+      <h3>Оборудование</h3>
+      {overview.equipment === undefined ? (
+        <p className="owner-overview-status">Нет отчётов по оборудованию.</p>
+      ) : (
+        <p className="owner-overview-lead">
+          Последняя дата обновления отчета по оборудованию —{" "}
+          <strong>{formatDateTime(overview.equipment.updatedAt)}</strong>.
+          Работало {formatEquipmentWorkingCounts(overview.equipment.workingCounts)}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function OwnerProductionOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  return (
+    <section className="owner-overview-block" aria-label="Выработка">
+      <h3>Выработка</h3>
+      {overview.production === undefined ? (
+        <p className="owner-overview-status">
+          Нет отчётов по выработке за текущий месяц.
+        </p>
+      ) : (
+        <p className="owner-overview-lead">
+          Общая выработка за текущий месяц —{" "}
+          <strong>{formatNumber(overview.production.totalFact)} т</strong>.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function OwnerVisitorsOverviewBlock({
+  overview,
+}: {
+  overview: OwnerDispatcherOverview;
+}) {
+  const visitors = overview.visitors;
+
+  return (
+    <section className="owner-overview-block" aria-label="Посетители">
+      <h3>Посетители</h3>
+      {visitors.latestDate === undefined ? (
+        <p className="owner-overview-status">Нет входов посетителей.</p>
+      ) : (
+        <>
+          <p className="owner-overview-lead">
+            Последние посетители были {formatDateOnly(visitors.latestDate)}.
+            Было посетителей - {visitors.count} чел.
+          </p>
+          <p className="owner-overview-line">
+            Приходили к{" "}
+            {visitors.hosts.length === 0
+              ? "не указано"
+              : visitors.hosts.join(", ")}.
+          </p>
+        </>
+      )}
+      <p className="owner-overview-line">
+        Количество невышедших посетителей на данный момент -{" "}
+        {visitors.openCount} чел.
+      </p>
     </section>
   );
 }
@@ -3640,6 +3774,7 @@ export function DispatcherProductionReportFormBody({
           isAdminPreviewMode={isAdminPreviewMode}
           isSubmitting={isSubmitting}
           monthToDateValues={monthToDateValues}
+          reportDate={reportDate}
           status={status}
           onCreateBrand={handleCreateBrand}
           onRetryBrands={() =>
@@ -3661,6 +3796,7 @@ function ProductionReportEditor({
   isAdminPreviewMode,
   isSubmitting,
   monthToDateValues,
+  reportDate,
   status,
   onCreateBrand,
   onRetryBrands,
@@ -3679,6 +3815,7 @@ function ProductionReportEditor({
   monthToDateValues?: Partial<
     Record<ProductionCategory, ProductionMonthToDateValue>
   >;
+  reportDate: string;
   status: string;
   onCreateBrand: ProductBrandCreator;
   onRetryBrands: () => void;
@@ -3736,6 +3873,7 @@ function ProductionReportEditor({
       <fieldset className="production-report-section">
         <legend>Огнеупорный цех</legend>
         <ProductionCategoryTable
+          allowBlankFact={isWeekendReportDate(reportDate)}
           brandLabels={brandLabels}
           categoryPlan={dailyPlanValues?.forming}
           initialPayload={initialPayload}
@@ -3911,6 +4049,7 @@ type ProductionBrandColumn = {
 };
 
 export function ProductionCategoryTable({
+  allowBlankFact = false,
   brandLabels,
   categoryPlan,
   initialPayload,
@@ -3919,6 +4058,7 @@ export function ProductionCategoryTable({
   prefix,
   title,
 }: {
+  allowBlankFact?: boolean;
   brandLabels: ProductionBrandLabel[];
   categoryPlan?: number;
   initialPayload?: DispatcherSubmissionPayload;
@@ -4034,7 +4174,7 @@ export function ProductionCategoryTable({
                       name={`${prefix}Fact${column.id}`}
                       placeholder="Факт за сутки"
                       pattern={decimalNumberInputPattern}
-                      required={column.brand.length > 0}
+                      required={!allowBlankFact && column.brand.length > 0}
                       title={decimalNumberInputTitle}
                       type="text"
                       onMouseDown={prefix === "forming" || prefix === "sorting"
@@ -8928,7 +9068,7 @@ function AdminAccountsWorkspace({
   }
 
   async function handleDeletePosition(position: AdminPositionSummary) {
-    if (position.isProtected || position.usageCount > 0 || deletingPositionId !== undefined) {
+    if (!canDeleteAdminPosition(position) || deletingPositionId !== undefined) {
       return;
     }
     if (!window.confirm(`Удалить должность «${position.displayName}»?`)) {
@@ -9460,8 +9600,7 @@ function AdminAccountsWorkspace({
                           title={position.usageCount > 0 ? "Должность назначена аккаунтам." : undefined}
                           disabled={
                             !canManageAccess ||
-                            position.isProtected ||
-                            position.usageCount > 0 ||
+                            !canDeleteAdminPosition(position) ||
                             deletingPositionId === position.id
                           }
                           onClick={() => handleDeletePosition(position)}
@@ -10661,6 +10800,16 @@ function formatDateOnly(value: string) {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function formatEquipmentWorkingCounts(
+  counts: NonNullable<OwnerDispatcherOverview["equipment"]>["workingCounts"],
+) {
+  if (counts.length === 0) {
+    return "нет данных по позициям оборудования";
+  }
+
+  return counts.map((item) => `${item.label} - ${item.count} шт`).join("; ");
 }
 
 function formatNumber(value: number) {

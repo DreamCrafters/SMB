@@ -82,6 +82,14 @@ export type DeleteAdminPositionResult =
   | { status: "ready" }
   | AdminAccountsErrorState;
 
+export function canDeleteAdminPosition(position: AdminPositionSummary) {
+  return (
+    position.accountType !== "admin" &&
+    (!position.isProtected || position.id === "laboratory_assistant") &&
+    position.usageCount === 0
+  );
+}
+
 export async function requestAdminPositions(
   { baseUrl, signal }: AdminAccountsRequestOptions = {},
 ): Promise<AdminPositionsResult> {

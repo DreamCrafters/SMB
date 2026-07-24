@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canDeleteAdminPosition,
   createAdminAccount,
   createAdminPosition,
   deleteAdminPosition,
@@ -174,6 +175,45 @@ test("admin positions service deletes an unused position", async () => {
   assert.equal(result.status, "ready");
   assert.equal(calls[0].init.method, "DELETE");
   assert.equal(calls[0].url, "http://api.test/api/admin/positions/position-unused");
+});
+
+test("unused laboratory system position can be deleted", () => {
+  assert.equal(canDeleteAdminPosition({
+    id: "laboratory_assistant",
+    displayName: "Лаборант",
+    accountType: "business_owner",
+    navigationItems: ["business.laboratory_results"],
+    capabilities: ["business.manage_laboratory_results"],
+    isProtected: true,
+    usageCount: 0,
+    createdAt: "2026-07-22T00:00:00.000Z",
+  }), true);
+});
+
+test("administrator system position cannot be deleted", () => {
+  assert.equal(canDeleteAdminPosition({
+    id: "administrator",
+    displayName: "Администратор",
+    accountType: "admin",
+    navigationItems: ["admin.accounts"],
+    capabilities: ["platform.manage_access"],
+    isProtected: true,
+    usageCount: 0,
+    createdAt: "2026-07-10T00:00:00.000Z",
+  }), false);
+});
+
+test("other unused system positions stay protected", () => {
+  assert.equal(canDeleteAdminPosition({
+    id: "economist",
+    displayName: "Экономист",
+    accountType: "business_owner",
+    navigationItems: ["business.production_plan"],
+    capabilities: ["business.manage_production_plan"],
+    isProtected: true,
+    usageCount: 0,
+    createdAt: "2026-07-10T00:00:00.000Z",
+  }), false);
 });
 
 test("admin accounts service resets a password", async () => {

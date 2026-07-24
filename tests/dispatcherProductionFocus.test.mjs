@@ -610,6 +610,16 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
 
     await React.act(async () => {
+      setNativeInputValue(formingFactInput, "");
+      formingFactInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+
+    assert.equal(formingFactInput.required, false);
+    assert.equal(rootElement.querySelector("form")?.checkValidity(), true);
+
+    await React.act(async () => {
       setNativeInputValue(formingFactInput, "20");
       formingFactInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),

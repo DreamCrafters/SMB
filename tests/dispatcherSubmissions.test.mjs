@@ -183,6 +183,24 @@ test("local production reports use the production form rules", async () => {
   assert.equal(result.submission.payload.jarShipmentStart1, "118.5");
   assert.equal(result.submission.payload.jarEnd1, "95");
   assert.equal(result.submission.payload.jarShipmentEnd1, "94");
+
+  const weekendResult = await submitDispatcherSubmission(
+    {
+      formId: "production",
+      payload: {
+        reportDate: "2026-07-18",
+        formingBrand1: "ФЛ-1",
+        sortingBrand1: "СО-1",
+        sortingFact1: "5",
+      },
+    },
+    { baseUrl: "", localFallback: true, storage },
+  );
+
+  assert.equal(weekendResult.status, "ready");
+  assert.equal(weekendResult.submission.payload.formingBrand1, undefined);
+  assert.equal(weekendResult.submission.payload.sortingBrand1, "СО-1");
+  assert.equal(weekendResult.submission.payload.sortingFact1, "5");
 });
 
 test("local visitor exit submissions use an open visitor entry", async () => {

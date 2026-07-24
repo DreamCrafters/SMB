@@ -2452,6 +2452,7 @@ test("admin positions API updates a protected non-admin position without changin
 
 test("admin positions API keeps the administrator outside the unified workspace", async () => {
   let didUpdate = false;
+  let didDelete = false;
   const repository: AccountsRepository = {
     ...accounts,
     async listPositions() {
@@ -2470,6 +2471,10 @@ test("admin positions API keeps the administrator outside the unified workspace"
       didUpdate = true;
       return undefined;
     },
+    async deletePosition() {
+      didDelete = true;
+      return "deleted";
+    },
   };
 
   await withApiServer(async (baseUrl) => {
@@ -2485,6 +2490,17 @@ test("admin positions API keeps the administrator outside the unified workspace"
 
     assert.equal(response.status, 409);
     assert.equal(didUpdate, false);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/administrator`, {
+      method: "DELETE",
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+
+    assert.equal(response.status, 409);
+    assert.equal(didDelete, false);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 
@@ -2527,6 +2543,67 @@ test("admin positions API deletes only an unused position", async () => {
     });
     assert.equal(response.status, 409);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, usedRepository);
+});
+
+test("admin positions API deletes an unused laboratory system position", async () => {
+  const laboratoryPosition = {
+    id: "laboratory_assistant",
+    displayName: "Лаборант",
+    accountType: "business_owner" as const,
+    navigationItems: ["business.laboratory_results" as const],
+    capabilities: ["business.manage_laboratory_results" as const],
+    isProtected: true,
+    usageCount: 0,
+    createdAt: "2026-07-22T00:00:00.000Z",
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listPositions() { return [laboratoryPosition]; },
+    async deletePosition() { return "deleted"; },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/laboratory_assistant`, {
+      method: "DELETE",
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+
+    assert.equal(response.status, 200);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});
+
+test("admin positions API keeps other unused system positions", async () => {
+  let didDelete = false;
+  const economistPosition = {
+    id: "economist",
+    displayName: "Экономист",
+    accountType: "business_owner" as const,
+    navigationItems: ["business.production_plan" as const],
+    capabilities: ["business.manage_production_plan" as const],
+    isProtected: true,
+    usageCount: 0,
+    createdAt: "2026-07-10T00:00:00.000Z",
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listPositions() { return [economistPosition]; },
+    async deletePosition() {
+      didDelete = true;
+      return "deleted";
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/economist`, {
+      method: "DELETE",
+      headers: { "X-SMB-Dev-Session": sessionId },
+    });
+
+    assert.equal(response.status, 409);
+    assert.equal(didDelete, false);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 
 test("admin accounts API creates accounts and resets passwords for admin sessions", async () => {

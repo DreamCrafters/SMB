@@ -88,6 +88,31 @@ export type OpenVisitorOption = {
   entryAt: string;
 };
 
+export type OwnerEquipmentWorkingCount = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+export type OwnerEquipmentOverview = {
+  updatedAt: string;
+  reportDate?: string;
+  workingCounts: OwnerEquipmentWorkingCount[];
+};
+
+export type OwnerVisitorsOverview = {
+  latestDate?: string;
+  count: number;
+  hosts: string[];
+  openCount: number;
+};
+
+export type OwnerDispatcherOverview = {
+  production?: ProductionMonthOverview;
+  equipment?: OwnerEquipmentOverview;
+  visitors: OwnerVisitorsOverview;
+};
+
 export type DateRange = {
   dateFrom?: string;
   dateTo?: string;
@@ -128,6 +153,17 @@ export function buildDispatcherFeedDateRange(
         ? `${today.slice(0, 7)}-01`
         : `${today.slice(0, 4)}-01-01`,
     dateTo: today,
+  };
+}
+
+export function buildOwnerDispatcherOverview(
+  submissions: DispatcherSubmission[],
+  productionMonthOverview?: ProductionMonthOverview,
+): OwnerDispatcherOverview {
+  return {
+    production: productionMonthOverview,
+    equipment: buildOwnerEquipmentOverview(submissions),
+    visitors: buildOwnerVisitorsOverview(submissions),
   };
 }
 
@@ -1024,6 +1060,229 @@ function formatOpenIncidentLabel(
 
 function readIncidentNumber(submission: DispatcherSubmission) {
   return submission.payload.incidentNumber?.trim() || submission.id;
+}
+
+function buildOwnerEquipmentOverview(
+  submissions: DispatcherSubmission[],
+): OwnerEquipmentOverview | undefined {
+  const equipmentSubmissions = submissions.filter(
+    (submission) =>
+      submission.formId === "equipment" &&
+      readPayloadDate(submission.payload.reportDate) !== undefined,
+  );
+  const latestEquipmentSubmission = findLatestSubmission(equipmentSubmissions);
+
+  if (latestEquipmentSubmission === undefined) {
+    return undefined;
+  }
+
+  const reportDate = readPayloadDate(latestEquipmentSubmission.payload.reportDate);
+  const latestReportSubmissions =
+    reportDate === undefined
+      ? [latestEquipmentSubmission]
+      : equipmentSubmissions.filter(
+          (submission) => readPayloadDate(submission.payload.reportDate) === reportDate,
+        );
+  const latestSubmissionByEquipment = new Map<string, DispatcherSubmission>();
+
+  for (const submission of latestReportSubmissions) {
+    const equipment = submission.payload.equipment?.trim();
+
+    if (equipment === undefined || equipment.length === 0) {
+      continue;
+    }
+
+    const current = latestSubmissionByEquipment.get(equipment);
+
+    if (
+      current === undefined ||
+      compareSubmissionsAscending(current, submission) <= 0
+    ) {
+      latestSubmissionByEquipment.set(equipment, submission);
+    }
+  }
+
+  return {
+    updatedAt: latestEquipmentSubmission.receivedAt,
+    reportDate,
+    workingCounts: buildEquipmentWorkingCounts([
+      ...latestSubmissionByEquipment.values(),
+    ]),
+  };
+}
+
+function buildOwnerVisitorsOverview(
+  submissions: DispatcherSubmission[],
+): OwnerVisitorsOverview {
+  const visitorEntries = submissions.filter(
+    (submission) =>
+      submission.formId === "visitor" &&
+      readPayloadDate(submission.payload.entryAt ?? submission.receivedAt) !==
+        undefined,
+  );
+  const latestDate = visitorEntries
+    .map((submission) =>
+      readPayloadDate(submission.payload.entryAt ?? submission.receivedAt)
+    )
+    .filter((value): value is string => value !== undefined)
+    .sort((left, right) => right.localeCompare(left))[0];
+  const latestDateEntries =
+    latestDate === undefined
+      ? []
+      : visitorEntries.filter(
+          (submission) =>
+            readPayloadDate(
+              submission.payload.entryAt ?? submission.receivedAt,
+            ) === latestDate,
+        );
+
+  return {
+    latestDate,
+    count: latestDateEntries.length,
+    hosts: readUniqueValues(
+      latestDateEntries.map((submission) => submission.payload.whom),
+    ),
+    openCount: buildOpenVisitorOptions(submissions).length,
+  };
+}
+
+function buildEquipmentWorkingCounts(
+  submissions: DispatcherSubmission[],
+): OwnerEquipmentWorkingCount[] {
+  const groupsByKey = new Map<
+    string,
+    {
+      label: string;
+      order: number;
+      count: number;
+    }
+  >();
+
+  for (const submission of submissions) {
+    const equipment = submission.payload.equipment?.trim();
+
+    if (equipment === undefined || equipment.length === 0) {
+      continue;
+    }
+
+    const group = readEquipmentWorkingGroup(equipment);
+    const current =
+      groupsByKey.get(group.key) ??
+      {
+        label: group.label,
+        order: group.order,
+        count: 0,
+      };
+
+    if ((readNumber(submission.payload.productionTons) ?? 0) > 0) {
+      current.count += 1;
+    }
+
+    groupsByKey.set(group.key, current);
+  }
+
+  return [...groupsByKey.entries()]
+    .map(([key, group]) => ({
+      key,
+      label: group.label,
+      count: group.count,
+      order: group.order,
+    }))
+    .sort(
+      (left, right) =>
+        left.order - right.order || left.label.localeCompare(right.label, "ru"),
+    )
+    .map(({ order: _order, ...group }) => group);
+}
+
+function readEquipmentWorkingGroup(equipment: string) {
+  if (equipment.startsWith("Пресс")) {
+    return {
+      key: "press",
+      label: "Прессов",
+      order: 0,
+    };
+  }
+
+  if (equipment.startsWith("Бегуны")) {
+    return {
+      key: "runner",
+      label: "Бегунов",
+      order: 1,
+    };
+  }
+
+  if (equipment.startsWith("Дезинтегратор")) {
+    return {
+      key: "disintegrator",
+      label: "Дезинтегратор",
+      order: 2,
+    };
+  }
+
+  if (equipment.startsWith("Сушильный")) {
+    return {
+      key: "dryer",
+      label: "Сушильный",
+      order: 3,
+    };
+  }
+
+  if (equipment.startsWith("Шаровая")) {
+    return {
+      key: "ball_mill",
+      label: "Шаровая",
+      order: 4,
+    };
+  }
+
+  const label = equipment.replace(/\s*№.*$/, "").trim() || equipment;
+
+  return {
+    key: `equipment:${label.toLocaleLowerCase("ru-RU")}`,
+    label,
+    order: 100,
+  };
+}
+
+function readUniqueValues(values: (string | undefined)[]) {
+  const seen = new Set<string>();
+  const uniqueValues: string[] = [];
+
+  for (const value of values) {
+    const normalized = value?.trim();
+
+    if (normalized === undefined || normalized.length === 0) {
+      continue;
+    }
+
+    const key = normalized.toLocaleLowerCase("ru-RU");
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    uniqueValues.push(normalized);
+  }
+
+  return uniqueValues;
+}
+
+function findLatestSubmission(submissions: DispatcherSubmission[]) {
+  return submissions.reduce<DispatcherSubmission | undefined>(
+    (latest, submission) => {
+      if (
+        latest === undefined ||
+        compareSubmissionsAscending(latest, submission) <= 0
+      ) {
+        return submission;
+      }
+
+      return latest;
+    },
+    undefined,
+  );
 }
 
 function buildVisitorKey(payload: DispatcherSubmissionPayload) {

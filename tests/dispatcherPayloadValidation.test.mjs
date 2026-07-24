@@ -231,6 +231,30 @@ test("production payload validation applies dynamic column rules to forming and 
   );
 });
 
+test("production payload validation allows a blank forming fact on weekends with sorting data", () => {
+  for (const reportDate of ["2026-07-18", "2026-07-19"]) {
+    assert.equal(
+      validateDispatcherPayloadForSubmit(productionForm, {
+        reportDate,
+        formingBrand1: "ФЛ-1",
+        sortingBrand1: "СО-1",
+        sortingFact1: "5",
+      }),
+      undefined,
+    );
+  }
+
+  assert.equal(
+    validateDispatcherPayloadForSubmit(productionForm, {
+      reportDate: "2026-07-20",
+      formingBrand1: "ФЛ-1",
+      sortingBrand1: "СО-1",
+      sortingFact1: "5",
+    }),
+    productionBrandFactPairMessage,
+  );
+});
+
 test("dynamic brand fact is a production indicator", () => {
   assert.equal(
     validateDispatcherPayloadForSubmit(productionForm, {

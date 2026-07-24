@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
-test("owner overview renders only the requested incident and laboratory counters", async () => {
+test("owner overview keeps new counters and restores operational sections", async () => {
   const vite = await createServer({
     appType: "custom",
     logLevel: "silent",
@@ -35,6 +35,39 @@ test("owner overview renders only the requested incident and laboratory counters
             receivedAt: "2026-07-23T12:00:00.000Z",
           },
         },
+        dispatcherFeed: {
+          status: "ready",
+          source: "remote",
+          submissions: [],
+          summary: {
+            total: 0,
+            byForm: {},
+          },
+          receivedAt: "2026-07-23T12:00:00.000Z",
+        },
+        dispatcherOverview: {
+          production: {
+            month: "2026-07",
+            totalFact: 46,
+          },
+          equipment: {
+            updatedAt: "2026-07-23T11:30:00.000Z",
+            reportDate: "2026-07-23",
+            workingCounts: [
+              {
+                key: "press",
+                label: "Прессов",
+                count: 2,
+              },
+            ],
+          },
+          visitors: {
+            latestDate: "2026-07-23",
+            count: 3,
+            hosts: ["Фридману"],
+            openCount: 1,
+          },
+        },
       }),
     );
 
@@ -54,17 +87,25 @@ test("owner overview renders only the requested incident and laboratory counters
       ">4<",
       ">31<",
       ">3<",
+      "Оборудование",
+      "Работало",
+      "Прессов - 2 шт",
+      "Выработка",
+      "46",
+      "Посетители",
+      "Было посетителей - 3 чел",
+      "Фридману",
+      "невышедших посетителей",
+      "1 чел",
     ]) {
       assert.match(html, new RegExp(text, "u"));
     }
 
-    for (const removedSection of [
-      "Оборудование",
-      "Выработка",
+    for (const removedIncidentCard of [
       "Последний инцидент",
-      "Посетители",
+      "Последнее закрытие инцидента",
     ]) {
-      assert.doesNotMatch(html, new RegExp(removedSection, "u"));
+      assert.doesNotMatch(html, new RegExp(removedIncidentCard, "u"));
     }
   } finally {
     await vite.close();

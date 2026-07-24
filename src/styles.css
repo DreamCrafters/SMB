@@ -874,6 +874,23 @@ p {
   color: var(--brick);
 }
 
+.owner-overview-lead,
+.owner-overview-line {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.owner-overview-lead {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.owner-overview-line {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .owner-overview-status {
   margin: 0;
   color: var(--muted);
@@ -884,6 +901,10 @@ p {
 
 .owner-overview-status-error {
   color: var(--brick);
+}
+
+.owner-overview-status-local {
+  color: var(--amber);
 }
 
 .data-entry-surface {

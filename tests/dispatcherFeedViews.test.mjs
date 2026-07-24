@@ -5,6 +5,7 @@ import {
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
+  buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenVisitorOptions,
   buildProductionMonthOverview,
@@ -674,6 +675,105 @@ test("visitor open options can be limited to entries from one day", () => {
       (visitor) => visitor.fio,
     ),
     ["Сегодняшний посетитель"],
+  );
+});
+
+test("buildOwnerDispatcherOverview restores equipment, production, and visitors", () => {
+  const submissions = [
+    buildSubmission(
+      "equipment-press-working",
+      "equipment",
+      {
+        reportDate: "24.07.2026",
+        equipment: "Пресс №1",
+        productionTons: "12",
+      },
+      "2026-07-24T08:00:00.000Z",
+    ),
+    buildSubmission(
+      "equipment-press-idle",
+      "equipment",
+      {
+        reportDate: "24.07.2026",
+        equipment: "Пресс №2",
+        productionTons: "0",
+      },
+      "2026-07-24T08:01:00.000Z",
+    ),
+    buildSubmission(
+      "equipment-runners-working",
+      "equipment",
+      {
+        reportDate: "24.07.2026",
+        equipment: "Бегуны №1",
+        productionTons: "5",
+      },
+      "2026-07-24T08:02:00.000Z",
+    ),
+    buildSubmission(
+      "visitor-closed",
+      "visitor",
+      {
+        fio: "Первый посетитель",
+        whom: "Фридману",
+        entryAt: "24.07.2026 09:00",
+      },
+      "2026-07-24T06:00:00.000Z",
+    ),
+    buildSubmission(
+      "visitor-closed-exit",
+      "visitor_exit",
+      {
+        visitorEntryId: "visitor-closed",
+        exitAt: "24.07.2026 10:00",
+      },
+      "2026-07-24T07:00:00.000Z",
+    ),
+    buildSubmission(
+      "visitor-open",
+      "visitor",
+      {
+        fio: "Второй посетитель",
+        whom: "Матвеевой",
+        entryAt: "24.07.2026 11:00",
+      },
+      "2026-07-24T08:00:00.000Z",
+    ),
+  ];
+
+  assert.deepEqual(
+    buildOwnerDispatcherOverview(submissions, {
+      month: "2026-07",
+      totalFact: 46,
+    }),
+    {
+      production: {
+        month: "2026-07",
+        totalFact: 46,
+      },
+      equipment: {
+        updatedAt: "2026-07-24T08:02:00.000Z",
+        reportDate: "2026-07-24",
+        workingCounts: [
+          {
+            key: "press",
+            label: "Прессов",
+            count: 1,
+          },
+          {
+            key: "runner",
+            label: "Бегунов",
+            count: 1,
+          },
+        ],
+      },
+      visitors: {
+        latestDate: "2026-07-24",
+        count: 2,
+        hosts: ["Фридману", "Матвеевой"],
+        openCount: 1,
+      },
+    },
   );
 });
 

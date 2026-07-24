@@ -173,6 +173,7 @@ type AccountPositionAssignmentRow = RowDataPacket & {
 };
 
 type DeletePositionRow = RowDataPacket & {
+  account_type: string;
   is_protected: number | boolean;
   usage_count: number | string;
 };
@@ -291,7 +292,8 @@ export function createAccountsRepository(
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<DeletePositionRow[]>(
-        `select positions.is_protected,
+        `select positions.account_type,
+          positions.is_protected,
           (select count(*) from account_accesses accesses
             where accesses.position_code = positions.id) as usage_count
          from account_positions positions
@@ -304,7 +306,13 @@ export function createAccountsRepository(
         await connection.rollback();
         return "not_found";
       }
-      if (position.is_protected === true || position.is_protected === 1) {
+      if (
+        position.account_type === "admin" ||
+        (
+          (position.is_protected === true || position.is_protected === 1) &&
+          id !== "laboratory_assistant"
+        )
+      ) {
         await connection.rollback();
         return "protected";
       }

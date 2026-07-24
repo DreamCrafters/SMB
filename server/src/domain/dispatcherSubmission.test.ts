@@ -196,6 +196,29 @@ test("validateDispatcherSubmissionDraft accepts dynamic forming and sorting bran
   }
 });
 
+test("validateDispatcherSubmissionDraft omits a blank forming fact on a weekend", () => {
+  const result = validateDispatcherSubmissionDraft({
+    formId: "production",
+    payload: {
+      reportDate: "2026-07-18",
+      formingBrand1: "ФЛ-1",
+      sortingBrand1: "СО-1",
+      sortingFact1: "5",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    assert.deepEqual(result.value.draft.payload, {
+      reportDate: "18.07.2026",
+      reportMonth: "2026-07",
+      sortingBrand1: "СО-1",
+      sortingFact1: "5",
+    });
+  }
+});
+
 test("validateDispatcherSubmissionDraft rejects duplicate dynamic forming brands", () => {
   const result = validateDispatcherSubmissionDraft({
     formId: "production",

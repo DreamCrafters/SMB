@@ -22,7 +22,10 @@ import {
   describeRemoteNetworkFailure,
   type RemoteServerErrorCode,
 } from "./remoteServer.js";
-import { validateDispatcherPayloadForSubmit } from "./dispatcherPayloadValidation.js";
+import {
+  normalizeProductionPayloadForSubmit,
+  validateDispatcherPayloadForSubmit,
+} from "./dispatcherPayloadValidation.js";
 import {
   buildProductionMonthOverview,
   buildProductionReportTables,
@@ -569,11 +572,18 @@ export async function submitDispatcherSubmission(
   draft: DispatcherSubmissionDraft,
   options: DispatcherRemoteOptions = {},
 ): Promise<DispatcherSubmissionResult> {
+  const normalizedDraft =
+    draft.formId === "production"
+      ? {
+          ...draft,
+          payload: normalizeProductionPayloadForSubmit(draft.payload),
+        }
+      : draft;
   const endpoint = buildRemoteEndpoint(DISPATCHER_SUBMISSIONS_PATH, options);
 
   if (endpoint.status === "missing") {
     if (shouldUseLocalDispatcherFallback(options)) {
-      return saveLocalDispatcherSubmission(draft, options);
+      return saveLocalDispatcherSubmission(normalizedDraft, options);
     }
 
     return {
@@ -592,7 +602,7 @@ export async function submitDispatcherSubmission(
       }),
       credentials: "include",
       signal: options.signal,
-      body: JSON.stringify(draft),
+      body: JSON.stringify(normalizedDraft),
     });
 
     const payload = await readJson(response);
@@ -623,7 +633,7 @@ export async function submitDispatcherSubmission(
     }
 
     if (shouldUseLocalDispatcherFallback(options)) {
-      return saveLocalDispatcherSubmission(draft, options);
+      return saveLocalDispatcherSubmission(normalizedDraft, options);
     }
 
     return {

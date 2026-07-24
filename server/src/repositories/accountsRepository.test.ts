@@ -324,8 +324,8 @@ test("deletePosition deletes only an unused custom position", async () => {
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, params });
-      if (normalized.startsWith("select positions.is_protected")) {
-        return [[{ is_protected: 0, usage_count: 0 }], []];
+      if (normalized.startsWith("select positions.account_type")) {
+        return [[{ account_type: "worker", is_protected: 0, usage_count: 0 }], []];
       }
       return [[], []];
     },
@@ -342,14 +342,100 @@ test("deletePosition deletes only an unused custom position", async () => {
   );
 });
 
+test("deletePosition deletes an unused protected non-admin position", async () => {
+  let didDelete = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select positions.account_type")) {
+        return [[{
+          account_type: "business_owner",
+          is_protected: 1,
+          usage_count: 0,
+        }], []];
+      }
+      if (normalized.startsWith("delete from account_positions")) {
+        didDelete = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).deletePosition("laboratory_assistant");
+
+  assert.equal(result, "deleted");
+  assert.equal(didDelete, true);
+});
+
+test("deletePosition keeps the administrator system position", async () => {
+  let didDelete = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select positions.account_type")) {
+        return [[{ account_type: "admin", is_protected: 1, usage_count: 0 }], []];
+      }
+      if (normalized.startsWith("delete from account_positions")) {
+        didDelete = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).deletePosition("administrator");
+
+  assert.equal(result, "protected");
+  assert.equal(didDelete, false);
+});
+
+test("deletePosition keeps other unused protected system positions", async () => {
+  let didDelete = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select positions.account_type")) {
+        return [[{
+          account_type: "business_owner",
+          is_protected: 1,
+          usage_count: 0,
+        }], []];
+      }
+      if (normalized.startsWith("delete from account_positions")) {
+        didDelete = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).deletePosition("economist");
+
+  assert.equal(result, "protected");
+  assert.equal(didDelete, false);
+});
+
 test("deletePosition keeps a position assigned to accounts", async () => {
   let didDelete = false;
   const connection = {
     async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select positions.is_protected")) {
-        return [[{ is_protected: 0, usage_count: 2 }], []];
+      if (normalized.startsWith("select positions.account_type")) {
+        return [[{ account_type: "worker", is_protected: 0, usage_count: 2 }], []];
       }
       if (normalized.startsWith("delete from account_positions")) didDelete = true;
       return [[], []];

@@ -38,6 +38,57 @@ export function isProductionBrandRequiredForFact(
   return (fact?.trim().length ?? 0) > 0;
 }
 
+export function isWeekendReportDate(value: string | undefined) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value ?? "");
+
+  if (match === null) {
+    return false;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, monthIndex, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== monthIndex ||
+    date.getUTCDate() !== day
+  ) {
+    return false;
+  }
+
+  const weekday = date.getUTCDay();
+
+  return weekday === 0 || weekday === 6;
+}
+
+export function normalizeProductionPayloadForSubmit(
+  payload: DispatcherSubmissionPayload,
+) {
+  const normalizedPayload = { ...payload };
+
+  if (!isWeekendReportDate(normalizedPayload.reportDate)) {
+    return normalizedPayload;
+  }
+
+  if (
+    (normalizedPayload.formingDay?.trim().length ?? 0) === 0
+  ) {
+    delete normalizedPayload.formingProductBrand;
+  }
+
+  for (let index = 1; index <= 50; index += 1) {
+    const factField = `formingFact${index}`;
+
+    if ((normalizedPayload[factField]?.trim().length ?? 0) === 0) {
+      delete normalizedPayload[`formingBrand${index}`];
+    }
+  }
+
+  return normalizedPayload;
+}
+
 export function validateDispatcherPayloadForSubmit(
   form: DispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
@@ -47,7 +98,7 @@ export function validateDispatcherPayloadForSubmit(
   }
 
   if (form.id === "production") {
-    return validateProductionPayloadForSubmit(form, payload);
+    return validateProductionPayloadForSubmit(payload);
   }
 
   if (
@@ -70,12 +121,14 @@ export function validateDispatcherPayloadForSubmit(
 }
 
 function validateProductionPayloadForSubmit(
-  form: DispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
 ) {
+  const normalizedPayload = normalizeProductionPayloadForSubmit(payload);
+
   for (const prefix of ["forming", "sorting"] as const) {
-    const fact = payload[`${prefix}Day`]?.trim() ?? "";
-    const brand = payload[`${prefix}ProductBrand`]?.trim() ?? "";
+    const fact = normalizedPayload[`${prefix}Day`]?.trim() ?? "";
+    const brand =
+      normalizedPayload[`${prefix}ProductBrand`]?.trim() ?? "";
 
     if (isProductionBrandRequiredForFact(fact) !== (brand.length > 0)) {
       return productionBrandFactPairMessage;
@@ -91,8 +144,10 @@ function validateProductionPayloadForSubmit(
     const brands = new Set<string>();
 
     for (let index = 1; index <= 50; index += 1) {
-      const brand = payload[`${prefix}Brand${index}`]?.trim() ?? "";
-      const fact = payload[`${prefix}Fact${index}`]?.trim() ?? "";
+      const brand =
+        normalizedPayload[`${prefix}Brand${index}`]?.trim() ?? "";
+      const fact =
+        normalizedPayload[`${prefix}Fact${index}`]?.trim() ?? "";
 
       if (
         (brand.length > 0) !== isProductionBrandRequiredForFact(fact)
@@ -112,7 +167,7 @@ function validateProductionPayloadForSubmit(
     }
   }
 
-  const hasIndicator = Object.entries(payload).some(
+  const hasIndicator = Object.entries(normalizedPayload).some(
     ([fieldName, value]) =>
       fieldName !== "reportDate" &&
       !/(?:Brand|ProductBrand)(?:\d+)?$/u.test(fieldName) &&

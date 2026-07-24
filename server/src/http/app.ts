@@ -3865,7 +3865,14 @@ async function handleAdminAccountsRequest({
       sendJson(res, 404, { error: { code: "not_found", message: "Должность не найдена." } });
       return;
     }
-    if (existing.accountType === "admin" || (req.method === "DELETE" && existing.isProtected)) {
+    if (
+      existing.accountType === "admin" ||
+      (
+        req.method === "DELETE" &&
+        existing.isProtected &&
+        existing.id !== "laboratory_assistant"
+      )
+    ) {
       sendJson(res, 409, { error: { code: "invalid_response", message: "Эту системную должность нельзя изменить или удалить." } });
       return;
     }

@@ -371,6 +371,7 @@ function applyDispatcherFormScriptRules(
   }
 
   if (form.id === "production") {
+    omitBlankWeekendFormingFacts(nextPayload);
     validateProductionBrandFacts(nextPayload, errors);
     const hasProductionData = Object.entries(nextPayload).some(
       ([fieldName, value]) =>
@@ -428,6 +429,51 @@ function applyDispatcherFormScriptRules(
   }
 
   return nextPayload;
+}
+
+function omitBlankWeekendFormingFacts(
+  payload: DispatcherSubmissionPayload,
+) {
+  if (!isWeekendReportDate(payload.reportDate)) {
+    return;
+  }
+
+  if ((payload.formingDay?.trim().length ?? 0) === 0) {
+    delete payload.formingProductBrand;
+  }
+
+  for (let index = 1; index <= 50; index += 1) {
+    const factField = `formingFact${index}`;
+
+    if ((payload[factField]?.trim().length ?? 0) === 0) {
+      delete payload[`formingBrand${index}`];
+    }
+  }
+}
+
+function isWeekendReportDate(value: string | undefined) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value ?? "");
+
+  if (match === null) {
+    return false;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, monthIndex, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== monthIndex ||
+    date.getUTCDate() !== day
+  ) {
+    return false;
+  }
+
+  const weekday = date.getUTCDay();
+
+  return weekday === 0 || weekday === 6;
 }
 
 export function readProductionSubmissionBrandReferences(
