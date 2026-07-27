@@ -46,6 +46,11 @@ import type {
 } from "../repositories/refractoryReportsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
+import type {
+  BoardAssignment,
+  BoardAssignmentFilters,
+  BoardAssignmentsRepository,
+} from "../repositories/boardAssignmentsRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
 import { createApiServer } from "./app.js";
@@ -5557,6 +5562,233 @@ test("refractory reports are submitted and reviewed independently through protec
     undefined,
     repository,
   );
+});
+
+test("board assignment API enforces creation, execution and review capabilities", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.position = "board_member";
+  profile.activeAccess.positionDisplayName = "Член Совета директоров";
+  profile.activeAccess.navigationItems = ["business.board_assignments"];
+  profile.activeAccess.capabilities = [
+    "business.view_board_assignments",
+    "business.create_board_assignments",
+  ];
+  let current: BoardAssignment = {
+    id: "assignment-1",
+    meetingDate: "2026-07-10",
+    protocolNumber: "369",
+    decisionNumber: "2.3",
+    summary: "Подготовить анализ причин невыполнения плана",
+    details: "Представить Совету директоров письменный анализ.",
+    coExecutors: ["Экономист"],
+    dueDate: "До 24.07.2026",
+    status: "in_progress",
+    createdByDisplayName: profile.displayName,
+    createdAt: "2026-07-10T08:00:00.000Z",
+    updatedAt: "2026-07-10T08:00:00.000Z",
+    comments: [],
+  };
+  let listFilters: BoardAssignmentFilters | undefined;
+  const repository: BoardAssignmentsRepository = {
+    async list(filters) {
+      listFilters = filters;
+      return [current];
+    },
+    async readById() {
+      return current;
+    },
+    async readByIdForUpdate() {
+      return current;
+    },
+    async create(input) {
+      current = {
+        ...current,
+        ...input.assignment,
+        createdByDisplayName: input.actor.displayName,
+        comments: input.assignment.comment === undefined
+          ? []
+          : [{
+              id: "comment-create",
+              authorDisplayName: input.actor.displayName,
+              comment: input.assignment.comment,
+              statusAfter: "in_progress",
+              createdAt: "2026-07-10T08:00:00.000Z",
+            }],
+      };
+      return current;
+    },
+    async applyAction(input) {
+      current = {
+        ...current,
+        status: input.status,
+        comments: [
+          ...current.comments,
+          {
+            id: `comment-${current.comments.length + 1}`,
+            authorDisplayName: input.actor.displayName,
+            comment: input.comment,
+            statusAfter: input.status,
+            createdAt: "2026-07-20T10:00:00.000Z",
+          },
+        ],
+      };
+      return current;
+    },
+  };
+  const events: Parameters<AuditRepository["record"]>[0][] = [];
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    boardAssignments: repository,
+    referenceDataSource: emptyReferenceDataSource,
+    audit: {
+      async record(event) {
+        events.push(event);
+      },
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const listResponse = await fetch(
+      `${baseUrl}/api/board-assignments?status=in_progress&meetingDateFrom=2026-07-01&query=анализ`,
+      { headers },
+    );
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(listFilters, {
+      status: "in_progress",
+      meetingDateFrom: "2026-07-01",
+      query: "анализ",
+    });
+    const materialResponse = await fetch(
+      `${baseUrl}/api/board-assignment-materials/protocol-369-2026-07-10`,
+      { headers },
+    );
+    assert.equal(materialResponse.status, 200);
+    assert.equal(materialResponse.headers.get("content-type"), "application/pdf");
+    assert.ok((await materialResponse.arrayBuffer()).byteLength > 1_000_000);
+
+    const createResponse = await fetch(`${baseUrl}/api/board-assignments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        meetingDate: "2026-07-10",
+        protocolNumber: "369",
+        decisionNumber: "2.3",
+        summary: "Подготовить анализ причин невыполнения плана",
+        details: "Представить Совету директоров письменный анализ.",
+        coExecutors: ["Экономист"],
+        dueDate: "До 24.07.2026",
+        comment: "Внесено по протоколу.",
+      }),
+    });
+    assert.equal(createResponse.status, 201);
+
+    profile.activeAccess.position = "general_director";
+    profile.activeAccess.positionDisplayName = "Генеральный директор";
+    profile.activeAccess.capabilities = [
+      "business.view_board_assignments",
+      "business.execute_board_assignments",
+    ];
+    const submitResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-1/action`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "submit_for_review",
+          comment: "Работа выполнена.",
+        }),
+      },
+    );
+    assert.equal(submitResponse.status, 200);
+    assert.equal(current.status, "under_review");
+
+    profile.activeAccess.position = "board_chair";
+    profile.activeAccess.positionDisplayName = "Председатель Совета директоров";
+    profile.activeAccess.capabilities = [
+      "business.view_board_assignments",
+      "business.create_board_assignments",
+      "business.review_board_assignments",
+    ];
+    const completeResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-1/action`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "complete",
+          comment: "Поручение принято.",
+        }),
+      },
+    );
+    assert.equal(completeResponse.status, 200);
+    assert.equal(current.status, "completed");
+    assert.deepEqual(
+      events.map((event) => event.action),
+      [
+        "board_assignment.create",
+        "board_assignment.submit_for_review",
+        "board_assignment.complete",
+      ],
+    );
+
+    profile.activeAccess.position = "administrator";
+    profile.activeAccess.positionDisplayName = "Администратор";
+    profile.activeAccess.capabilities = [
+      "business.view_board_assignments",
+    ];
+    const forbiddenAdminCreateResponse = await fetch(
+      `${baseUrl}/api/board-assignments`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          meetingDate: "2026-07-10",
+          protocolNumber: "369",
+          decisionNumber: "9.1",
+          summary: "Недоступное администратору поручение",
+          details: "Администратор не должен создавать поручения.",
+          coExecutors: [],
+          dueDate: "До 31.07.2026",
+        }),
+      },
+    );
+    const forbiddenAdminActionResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-1/action`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "return_for_revision",
+          comment: "Администратор не должен менять статус.",
+        }),
+      },
+    );
+
+    assert.equal(forbiddenAdminCreateResponse.status, 403);
+    assert.equal(forbiddenAdminActionResponse.status, 403);
+    assert.equal(events.length, 3);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
 });
 
 async function withApiServer(

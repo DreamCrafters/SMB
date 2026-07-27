@@ -5,6 +5,7 @@ import type {
   AccountType,
 } from "./auth.js";
 import { getNextMoscowDispatcherLogoutAt } from "./auth.js";
+import { resolveCapabilitiesForPosition } from "./accountAccessConfiguration.js";
 
 export type DevAccessOption = {
   position: AccountPosition;
@@ -50,6 +51,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.submit_refractory_reports",
     "business.review_refractory_reports",
     "business.manage_laboratory_results",
+    "business.view_board_assignments",
   ],
   business_owner: [
     "business.view_all_statistics",
@@ -74,6 +76,8 @@ const defaultPositionDefinitions: Array<{
   { position: "administrator", positionDisplayName: "Администратор", accountType: "admin" },
   { position: "business_owner", positionDisplayName: "Владелец бизнеса", accountType: "business_owner" },
   { position: "board_chair", positionDisplayName: "Председатель совета директоров", accountType: "business_owner" },
+  { position: "board_deputy_chair", positionDisplayName: "Заместитель председателя совета директоров", accountType: "business_owner" },
+  { position: "board_assignment_reviewer", positionDisplayName: "Член совета директоров с правом приёмки поручений", accountType: "business_owner" },
   { position: "board_member", positionDisplayName: "Член совета директоров", accountType: "business_owner" },
   { position: "general_director", positionDisplayName: "Генеральный директор", accountType: "business_owner" },
   { position: "economist", positionDisplayName: "Экономист", accountType: "business_owner" },
@@ -95,6 +99,27 @@ export function buildDefaultDevAccessOptions(): DevAccessOption[] {
             ...definition,
             navigationItems: ["business.laboratory_results"],
             capabilities: ["business.manage_laboratory_results"],
+          }
+      : (
+          definition.position === "board_chair" ||
+          definition.position === "board_deputy_chair" ||
+          definition.position === "board_assignment_reviewer" ||
+          definition.position === "board_member" ||
+          definition.position === "general_director"
+        )
+        ? {
+            ...definition,
+            navigationItems: [
+              ...navigationItemsByAccountType.business_owner,
+              "business.board_assignments",
+            ],
+            capabilities: resolveCapabilitiesForPosition(
+              definition.position,
+              [
+                ...navigationItemsByAccountType.business_owner,
+                "business.board_assignments",
+              ],
+            ),
           }
       : {
           ...definition,

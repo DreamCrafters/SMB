@@ -38,6 +38,8 @@ export const accountPositionLabels: Record<string, string> = {
   administrator: "Администратор",
   business_owner: "Владелец бизнеса",
   board_chair: "Председатель совета директоров",
+  board_deputy_chair: "Заместитель председателя Совета директоров",
+  board_assignment_reviewer: "Член Совета директоров с правом приёмки поручений",
   board_member: "Член совета директоров",
   general_director: "Генеральный директор",
   economist: "Экономист",
@@ -135,6 +137,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       id: "business.laboratory_results",
       label: "Результаты испытаний",
       description: "Входящий контроль и готовая продукция",
+      state: "active",
+    },
+    {
+      id: "business.board_assignments",
+      label: "Поручения Совета директоров",
+      description: "Постановка, исполнение и приёмка поручений",
       state: "active",
     },
     {

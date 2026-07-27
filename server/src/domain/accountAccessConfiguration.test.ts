@@ -3,12 +3,15 @@ import test from "node:test";
 import {
   accountTypeByPosition,
   navigationItemsByAccountType,
+  resolveCapabilitiesForPosition,
   resolveCapabilitiesForNavigation,
   validateNavigationItemsForAccountType,
 } from "./accountAccessConfiguration.js";
 
 test("executive positions use the business owner workspace", () => {
   assert.equal(accountTypeByPosition.board_chair, "business_owner");
+  assert.equal(accountTypeByPosition.board_deputy_chair, "business_owner");
+  assert.equal(accountTypeByPosition.board_assignment_reviewer, "business_owner");
   assert.equal(accountTypeByPosition.board_member, "business_owner");
   assert.equal(accountTypeByPosition.general_director, "business_owner");
   assert.equal(accountTypeByPosition.economist, "business_owner");
@@ -98,9 +101,46 @@ test("navigation selection expands only to its server capabilities", () => {
   assert.deepEqual(resolveCapabilitiesForNavigation(["business.laboratory_results"]), [
     "business.manage_laboratory_results",
   ]);
+  assert.deepEqual(resolveCapabilitiesForNavigation(["business.board_assignments"]), [
+    "business.view_board_assignments",
+  ]);
   assert.deepEqual(resolveCapabilitiesForNavigation(["business.dispatcher_form"]), [
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",
     "business.review_refractory_reports",
   ]);
+});
+
+test("board assignment actions are derived from the assigned position", () => {
+  const navigationItems = ["business.board_assignments"] as const;
+
+  assert.deepEqual(
+    resolveCapabilitiesForPosition("board_member", [...navigationItems]),
+    [
+      "business.view_board_assignments",
+      "business.create_board_assignments",
+    ],
+  );
+  assert.deepEqual(
+    resolveCapabilitiesForPosition("general_director", [...navigationItems]),
+    [
+      "business.view_board_assignments",
+      "business.execute_board_assignments",
+    ],
+  );
+
+  for (const position of [
+    "board_chair",
+    "board_deputy_chair",
+    "board_assignment_reviewer",
+  ]) {
+    assert.deepEqual(
+      resolveCapabilitiesForPosition(position, [...navigationItems]),
+      [
+        "business.view_board_assignments",
+        "business.create_board_assignments",
+        "business.review_board_assignments",
+      ],
+    );
+  }
 });

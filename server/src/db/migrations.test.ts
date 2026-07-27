@@ -78,6 +78,90 @@ test("bank assignment migration creates append-only laboratory history", async (
   assert.match(statements[0] ?? "", /foreign key \(laboratory_result_id\).*on delete restrict/su);
 });
 
+test("board assignment migration creates the audited protocol register and reviewer positions", async () => {
+  const appliedIds = new Set([
+    "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
+    "003_equipment_report_revisions", "004_auth_users_sessions_accesses",
+    "005_account_positions_and_navigation", "006_account_access_levels",
+    "007_expand_non_admin_access_catalog", "008_remove_system_full_access_levels",
+    "009_remove_account_access_levels", "010_dynamic_account_positions",
+    "011_empty_worker_workspace", "012_split_manager_dispatcher_access",
+    "013_protect_used_account_positions", "014_dispatcher_spreadsheet_import_source",
+    "015_user_audit_events", "016_remove_departments", "017_single_organization_scope",
+    "018_production_plan_revisions", "019_production_category_plans_and_brands",
+    "020_production_plan_month_locks", "021_refractory_report_revisions",
+    "022_google_sheets_production_brands", "023_laboratory_results",
+    "024_laboratory_bank_assignments",
+  ]);
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [appliedIds.has(id) ? [{ id }] : [], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(statements[0] ?? "", /create table if not exists board_assignments/u);
+  assert.match(
+    statements[0] ?? "",
+    /status in \( \s*'in_progress', 'under_review', 'revision_requested', 'completed'\s* \)/u,
+  );
+  assert.match(statements[1] ?? "", /create table if not exists board_assignment_comments/u);
+  assert.match(
+    statements[1] ?? "",
+    /foreign key \(assignment_id\) references board_assignments\(id\).*on delete restrict/su,
+  );
+  assert.ok(
+    statements.some((statement) =>
+      /'board_deputy_chair'.*'Заместитель председателя Совета директоров'/u
+        .test(statement)
+    ),
+  );
+  assert.ok(
+    statements.some((statement) =>
+      /'board_assignment_reviewer'.*'Член Совета директоров с правом приёмки поручений'/u
+        .test(statement)
+    ),
+  );
+  assert.ok(
+    statements.some((statement) =>
+      /business\.review_board_assignments/u.test(statement)
+    ),
+  );
+  assert.doesNotMatch(statements.join(" "), /protocol-369-assignment-1-1/u);
+  assert.match(statements.join(" "), /protocol-369-assignment-1-2/u);
+  assert.match(statements.join(" "), /protocol-369-2026-07-10/u);
+  assert.match(statements.join(" "), /business\.board_assignments/u);
+  assert.ok(
+    statements.some((statement) =>
+      /insert into user_audit_events.*board_assignment\.create/su.test(statement)
+    ),
+  );
+  assert.doesNotMatch(
+    statements.join(" "),
+    /join app_users users.*(?:лариков|самсонов|глушков)/su,
+  );
+  const administratorGrant = statements.find((statement) =>
+    /where id = 'administrator'/u.test(statement) &&
+    /business\.view_board_assignments/u.test(statement)
+  );
+  assert.ok(administratorGrant);
+  assert.doesNotMatch(
+    administratorGrant,
+    /business\.(?:create|execute|review)_board_assignments/u,
+  );
+});
+
 test("access level presets are removed without changing account rights", async () => {
   const appliedIds = new Set([
     "001_dispatcher_submissions_mysql",

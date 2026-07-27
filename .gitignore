@@ -35,6 +35,7 @@ local-data/
 *.xlsx
 *.xls
 *.pdf
+!server/assets/board-assignments/protocol-369-2026-07-10.pdf
 deploy/test.env
 deploy/production.env
 /deploy

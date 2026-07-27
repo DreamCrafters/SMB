@@ -9,6 +9,7 @@ import {
 import type { ServerUserProfile } from "../contracts/organization.js";
 import { navigationItemsByAccountType } from "../content.js";
 import { getNextMoscowDispatcherLogoutAt } from "./dispatcherSessionExpiry.js";
+import { resolveLocalBoardAssignmentCapabilities } from "./boardAssignmentAccess.js";
 
 const LOCAL_DEV_ACCESS_SESSION_STORAGE_KEY =
   "smb.localDevAccessSession.v1";
@@ -38,6 +39,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.submit_refractory_reports",
     "business.review_refractory_reports",
     "business.manage_laboratory_results",
+    "business.view_board_assignments",
   ],
   business_owner: [
     "business.view_all_statistics",
@@ -61,6 +63,8 @@ const defaultPositionDefinitions: Array<{
   { position: "administrator", positionDisplayName: "Администратор", accountType: "admin" },
   { position: "business_owner", positionDisplayName: "Владелец бизнеса", accountType: "business_owner" },
   { position: "board_chair", positionDisplayName: "Председатель совета директоров", accountType: "business_owner" },
+  { position: "board_deputy_chair", positionDisplayName: "Заместитель председателя Совета директоров", accountType: "business_owner" },
+  { position: "board_assignment_reviewer", positionDisplayName: "Член Совета директоров с правом приёмки поручений", accountType: "business_owner" },
   { position: "board_member", positionDisplayName: "Член совета директоров", accountType: "business_owner" },
   { position: "general_director", positionDisplayName: "Генеральный директор", accountType: "business_owner" },
   { position: "economist", positionDisplayName: "Экономист", accountType: "business_owner" },
@@ -83,6 +87,28 @@ export const localDevAccessOptions: DevAccessOption[] =
             navigationItems: ["business.laboratory_results"],
             capabilities: ["business.manage_laboratory_results"],
           }
+      : (
+          definition.position === "board_chair" ||
+          definition.position === "board_deputy_chair" ||
+          definition.position === "board_assignment_reviewer" ||
+          definition.position === "board_member" ||
+          definition.position === "general_director"
+        )
+        ? {
+            ...definition,
+            navigationItems: navigationItemsByAccountType.business_owner
+              .map(({ id }) => id)
+              .filter(
+              (id) =>
+                id !== "business.user_actions" &&
+                id !== "business.production_plan" &&
+                id !== "business.laboratory_results",
+            ),
+            capabilities: resolveLocalBoardAssignmentCapabilities(
+              definition.position,
+              accountCapabilitiesByType.business_owner,
+            ),
+          }
       : {
           ...definition,
           navigationItems: navigationItemsByAccountType[definition.accountType]
@@ -90,7 +116,8 @@ export const localDevAccessOptions: DevAccessOption[] =
               ({ id }) =>
                 id !== "business.user_actions" &&
                 id !== "business.production_plan" &&
-                id !== "business.laboratory_results",
+                id !== "business.laboratory_results" &&
+                id !== "business.board_assignments",
             )
             .map(({ id }) => id),
           capabilities: [...accountCapabilitiesByType[definition.accountType]],

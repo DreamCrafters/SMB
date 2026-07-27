@@ -4,6 +4,8 @@ export const accountPositions = [
   "administrator",
   "business_owner",
   "board_chair",
+  "board_deputy_chair",
+  "board_assignment_reviewer",
   "board_member",
   "general_director",
   "economist",
@@ -26,6 +28,7 @@ export const accountNavigationItems = [
   "business.production_plan",
   "business.refractory_shop",
   "business.laboratory_results",
+  "business.board_assignments",
   "business.dispatcher_form",
 ] as const;
 
@@ -50,6 +53,10 @@ export const accountCapabilities = [
   "business.submit_refractory_reports",
   "business.review_refractory_reports",
   "business.manage_laboratory_results",
+  "business.view_board_assignments",
+  "business.create_board_assignments",
+  "business.execute_board_assignments",
+  "business.review_board_assignments",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];

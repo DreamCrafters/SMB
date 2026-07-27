@@ -1165,6 +1165,484 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "025_board_assignments",
+    statements: [
+      `
+      create table if not exists board_assignments (
+        id varchar(120) not null primary key,
+        meeting_date date not null,
+        protocol_number varchar(80) not null,
+        decision_number varchar(80) not null,
+        summary varchar(500) not null,
+        details text not null,
+        co_executors json not null,
+        due_date varchar(255) not null,
+        status varchar(32) not null,
+        source_material_key varchar(120) null,
+        source_material_file_name varchar(255) null,
+        created_by_user_id varchar(120) not null,
+        created_by_account_id varchar(120) not null,
+        created_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        key idx_board_assignments_meeting_date (
+          meeting_date,
+          decision_number
+        ),
+        key idx_board_assignments_status_updated (
+          status,
+          updated_at
+        ),
+        constraint chk_board_assignments_status
+          check (
+            status in (
+              'in_progress',
+              'under_review',
+              'revision_requested',
+              'completed'
+            )
+          ),
+        constraint chk_board_assignments_source_material
+          check (
+            (source_material_key is null and source_material_file_name is null) or
+            (source_material_key is not null and source_material_file_name is not null)
+          )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists board_assignment_comments (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        assignment_id varchar(120) not null,
+        author_user_id varchar(120) not null,
+        author_account_id varchar(120) not null,
+        author_display_name varchar(255) not null,
+        comment_text text not null,
+        status_after varchar(32) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_board_assignment_comment_id (id),
+        key idx_board_assignment_comments_assignment (
+          assignment_id,
+          sequence_id
+        ),
+        constraint fk_board_assignment_comment_assignment
+          foreign key (assignment_id) references board_assignments(id)
+          on delete restrict,
+        constraint chk_board_assignment_comment_status
+          check (
+            status_after in (
+              'in_progress',
+              'under_review',
+              'revision_requested',
+              'completed'
+            )
+          )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into board_assignments (
+        id,
+        meeting_date,
+        protocol_number,
+        decision_number,
+        summary,
+        details,
+        co_executors,
+        due_date,
+        status,
+        source_material_key,
+        source_material_file_name,
+        created_by_user_id,
+        created_by_account_id,
+        created_by_display_name
+      ) values
+        (
+          'protocol-369-assignment-1-2',
+          '2026-07-10',
+          '369',
+          '1.2',
+          'Внедрить электронный реестр поручений Совета директоров',
+          'Обеспечить организационные меры по внедрению Положения, включая ведение реестра поручений Совета директоров в электронной форме и доступ членов Совета директоров к этому реестру.',
+          json_array(),
+          'Срок протоколом не установлен',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-1-3',
+          '2026-07-10',
+          '369',
+          '1.3',
+          'Обеспечить своевременную отчётность по поручениям Совета директоров',
+          'Обеспечить исполнение требований Положения в части своевременного представления отчётности и исполнения поручений Совета директоров.',
+          json_array(),
+          'Постоянно',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-2-3',
+          '2026-07-10',
+          '369',
+          '2.3',
+          'Подготовить анализ причин невыполнения плановых показателей',
+          'Представить Совету директоров письменный анализ причин невыполнения плановых показателей с выводами и предложениями по исправлению создавшегося положения.',
+          json_array(),
+          'До 24.07.2026',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-2-4',
+          '2026-07-10',
+          '369',
+          '2.4',
+          'Представлять информацию о динамике выполнения бюджета',
+          'Обеспечить ежемесячное представление Председателю и всем членам Совета директоров сводной информации о динамике выполнения бюджетных показателей во втором полугодии 2026 года.',
+          json_array(),
+          'Ежемесячно во втором полугодии 2026 года',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-3-2',
+          '2026-07-10',
+          '369',
+          '3.2',
+          'Представлять ежемесячный отчёт об исполнении бюджета',
+          'Обеспечить представление Совету директоров ежемесячного отчёта о выполнении утверждённого бюджета.',
+          json_array(),
+          'Ежемесячно',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-4-2',
+          '2026-07-10',
+          '369',
+          '4.2',
+          'Представить информацию о марках и сортах глины',
+          'Представить Совету директоров письменную информацию по маркам и сортам глины, необходимой для применения в производстве продукции во втором полугодии 2026 года и далее.',
+          json_array(),
+          'До 20.07.2026',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-4-4',
+          '2026-07-10',
+          '369',
+          '4.4',
+          'Включать ход обеспечения сырьём в ежемесячную отчётность',
+          'Включать информацию о ходе исполнения плана мероприятий по обеспечению сырьём в регулярную ежемесячную отчётность Генерального директора перед Советом директоров.',
+          json_array(),
+          'Ежемесячно',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-5-2',
+          '2026-07-10',
+          '369',
+          '5.2',
+          'Отчитываться о кадровых мероприятиях',
+          'Представлять Совету директоров отчёт о выполнении мероприятий по кадровому обеспечению и повышению эффективности персонала.',
+          json_array(),
+          'Ежемесячно до конца 2026 года, не позднее 5-го числа следующего месяца',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-6-3',
+          '2026-07-10',
+          '369',
+          '6.3',
+          'Отчитываться о ремонте и вводе оборудования',
+          'Ежемесячно представлять Совету директоров письменный отчёт о ходе реализации плана по ремонтам и вводу оборудования.',
+          json_array(),
+          'Ежемесячно',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-7-2',
+          '2026-07-10',
+          '369',
+          '7.2',
+          'Подать заявку на регистрацию товарного знака',
+          'Обеспечить подачу заявки на регистрацию товарного знака в патентное бюро в установленном законодательством порядке.',
+          json_array(),
+          'Срок протоколом не установлен',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        ),
+        (
+          'protocol-369-assignment-8-1',
+          '2026-07-10',
+          '369',
+          '8.1',
+          'Найти дополнительные каналы реализации продукции',
+          'Провести работу по поиску дополнительных источников реализации продукции в виде заключения договоров с торговыми домами и оптовыми организациями.',
+          json_array(),
+          'Срок протоколом не установлен',
+          'in_progress',
+          'protocol-369-2026-07-10',
+          'Протокол 369 10.07.2026 v2.pdf',
+          'system-protocol-import',
+          'system-protocol-import',
+          'Протокол №369'
+        )
+      on duplicate key update id = values(id);
+      `,
+      `
+      insert into user_audit_events (
+        id,
+        actor_user_id,
+        actor_account_id,
+        actor_display_name,
+        actor_position_display_name,
+        category,
+        action,
+        outcome,
+        summary,
+        details,
+        target_type,
+        target_id
+      )
+      select
+        uuid(),
+        'system-protocol-import',
+        'system-protocol-import',
+        'Протокол №369',
+        'Системный импорт',
+        'data_change',
+        'board_assignment.create',
+        'success',
+        concat(
+          'Импортировано поручение Совета директоров: ',
+          assignments.summary
+        ),
+        json_array(
+          json_object('label', 'Дата заседания', 'value', assignments.meeting_date),
+          json_object('label', 'Протокол', 'value', assignments.protocol_number),
+          json_object('label', 'Пункт решения', 'value', assignments.decision_number),
+          json_object('label', 'Срок исполнения', 'value', assignments.due_date)
+        ),
+        'board_assignment',
+        assignments.id
+      from board_assignments assignments
+      where assignments.source_material_key = 'protocol-369-2026-07-10'
+        and not exists (
+          select 1
+          from user_audit_events events
+          where events.action = 'board_assignment.create'
+            and events.target_type = 'board_assignment'
+            and events.target_id = assignments.id
+        );
+      `,
+      `
+      insert into account_positions (
+        id,
+        display_name,
+        account_type,
+        navigation_items,
+        capabilities,
+        is_protected
+      ) values
+        (
+          'board_deputy_chair',
+          'Заместитель председателя Совета директоров',
+          'business_owner',
+          json_array(
+            'business.overview',
+            'business.dispatcher',
+            'business.work',
+            'business.board_assignments'
+          ),
+          json_array(
+            'business.view_all_statistics',
+            'business.view_notifications',
+            'business.view_dispatcher_feed',
+            'business.submit_forms',
+            'business.view_own_submissions',
+            'business.view_board_assignments',
+            'business.create_board_assignments',
+            'business.review_board_assignments'
+          ),
+          1
+        ),
+        (
+          'board_assignment_reviewer',
+          'Член Совета директоров с правом приёмки поручений',
+          'business_owner',
+          json_array(
+            'business.overview',
+            'business.dispatcher',
+            'business.work',
+            'business.board_assignments'
+          ),
+          json_array(
+            'business.view_all_statistics',
+            'business.view_notifications',
+            'business.view_dispatcher_feed',
+            'business.submit_forms',
+            'business.view_own_submissions',
+            'business.view_board_assignments',
+            'business.create_board_assignments',
+            'business.review_board_assignments'
+          ),
+          1
+        )
+      on duplicate key update id = values(id);
+      `,
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(
+              navigation_items,
+              json_quote('business.board_assignments')
+            ) then navigation_items
+            else json_array_append(
+              navigation_items,
+              '$',
+              'business.board_assignments'
+            )
+          end,
+          capabilities = json_array_append(
+            capabilities,
+            '$',
+            'business.view_board_assignments',
+            '$',
+            'business.create_board_assignments',
+            '$',
+            'business.review_board_assignments'
+          )
+      where id = 'board_chair';
+      `,
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(
+              navigation_items,
+              json_quote('business.board_assignments')
+            ) then navigation_items
+            else json_array_append(
+              navigation_items,
+              '$',
+              'business.board_assignments'
+            )
+          end,
+          capabilities = json_array_append(
+            capabilities,
+            '$',
+            'business.view_board_assignments',
+            '$',
+            'business.create_board_assignments'
+          )
+      where id = 'board_member';
+      `,
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(
+              navigation_items,
+              json_quote('business.board_assignments')
+            ) then navigation_items
+            else json_array_append(
+              navigation_items,
+              '$',
+              'business.board_assignments'
+            )
+          end,
+          capabilities = json_array_append(
+            capabilities,
+            '$',
+            'business.view_board_assignments',
+            '$',
+            'business.execute_board_assignments'
+          )
+      where id = 'general_director';
+      `,
+      `
+      update account_positions
+      set capabilities = json_array_append(
+        capabilities,
+        '$',
+        'business.view_board_assignments'
+      )
+      where id = 'administrator';
+      `,
+      `
+      update account_accesses accesses
+      join account_positions positions on positions.id = accesses.position_code
+      set accesses.navigation_items = positions.navigation_items,
+          accesses.capabilities = positions.capabilities
+      where accesses.position_code in (
+        'administrator',
+        'board_chair',
+        'board_member',
+        'general_director',
+        'board_deputy_chair',
+        'board_assignment_reviewer'
+      );
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      where accesses.position_code in (
+        'administrator',
+        'board_chair',
+        'board_member',
+        'general_director',
+        'board_deputy_chair',
+        'board_assignment_reviewer'
+      );
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

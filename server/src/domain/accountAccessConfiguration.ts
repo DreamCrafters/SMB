@@ -9,6 +9,8 @@ export const accountTypeByPosition: Record<AccountPosition, AccountType> = {
   administrator: "admin",
   business_owner: "business_owner",
   board_chair: "business_owner",
+  board_deputy_chair: "business_owner",
+  board_assignment_reviewer: "business_owner",
   board_member: "business_owner",
   general_director: "business_owner",
   economist: "business_owner",
@@ -47,6 +49,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.production_plan",
   "business.refractory_shop",
   "business.laboratory_results",
+  "business.board_assignments",
   "business.dispatcher_form",
 ];
 
@@ -65,6 +68,7 @@ const capabilitiesByNavigationItem: Record<
     "business.submit_refractory_reports",
     "business.review_refractory_reports",
     "business.manage_laboratory_results",
+    "business.view_board_assignments",
   ],
   "admin.accounts": ["platform.manage_users", "platform.manage_access"],
   "admin.database": ["platform.manage_analytics_database"],
@@ -84,6 +88,7 @@ const capabilitiesByNavigationItem: Record<
   "business.production_plan": ["business.manage_production_plan"],
   "business.refractory_shop": ["business.submit_refractory_reports"],
   "business.laboratory_results": ["business.manage_laboratory_results"],
+  "business.board_assignments": ["business.view_board_assignments"],
   "business.dispatcher_form": [
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",
@@ -97,6 +102,33 @@ export function resolveCapabilitiesForNavigation(
   return Array.from(
     new Set(navigationItems.flatMap((item) => capabilitiesByNavigationItem[item])),
   );
+}
+
+export function resolveCapabilitiesForPosition(
+  position: AccountPosition,
+  navigationItems: AccountNavigationItem[],
+) {
+  const capabilities = resolveCapabilitiesForNavigation(navigationItems);
+
+  if (!navigationItems.includes("business.board_assignments")) {
+    return capabilities;
+  }
+
+  const boardCapabilities: AccountCapability[] =
+    position === "general_director"
+      ? ["business.execute_board_assignments"]
+      : position === "board_chair" ||
+          position === "board_deputy_chair" ||
+          position === "board_assignment_reviewer"
+        ? [
+            "business.create_board_assignments",
+            "business.review_board_assignments",
+          ]
+        : position === "board_member"
+          ? ["business.create_board_assignments"]
+          : [];
+
+  return Array.from(new Set([...capabilities, ...boardCapabilities]));
 }
 
 export function validateNavigationItemsForAccountType(
