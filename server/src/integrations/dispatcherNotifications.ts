@@ -2,7 +2,14 @@ import {
   getDispatcherFormDefinition,
   type DispatcherFormField,
 } from "../domain/dispatcherForms.js";
-import type { DispatcherSubmission } from "../domain/dispatcherSubmission.js";
+import type {
+  DispatcherSubmission,
+  DispatcherSubmissionStatus,
+} from "../domain/dispatcherSubmission.js";
+import {
+  productionCategoryLabels,
+  type ProductionCategory,
+} from "../domain/productionPlan.js";
 import type { SmbAppEnv } from "../config/env.js";
 
 export type NotificationRecipientGroups = {
@@ -148,14 +155,13 @@ export function buildDispatcherNotificationText(
   const payloadLines = Object.entries(submission.payload).map(([key, value]) => {
     const field = form?.fields.find((item) => item.name === key);
 
-    return `${readFieldLabel(field, key)}: ${value}`;
+    return `${readProductionNotificationFieldLabel(field, key)}: ${value}`;
   });
 
   return [
     `Форма: ${submission.formTitle}`,
-    `Статус: ${submission.status}`,
+    `Статус: ${readDispatcherSubmissionStatusLabel(submission.status)}`,
     `Кратко: ${submission.summary}`,
-    `Получено: ${submission.receivedAt}`,
     "",
     "Данные:",
     ...payloadLines,
@@ -380,8 +386,45 @@ function readVisitorNameSuffix(submission: DispatcherSubmission) {
   return fio.length === 0 ? "" : `: ${fio}`;
 }
 
-function readFieldLabel(field: DispatcherFormField | undefined, fallback: string) {
-  return field?.label ?? fallback;
+function readProductionNotificationFieldLabel(
+  field: DispatcherFormField | undefined,
+  fieldName: string,
+) {
+  if (field !== undefined) {
+    return field.label;
+  }
+
+  if (fieldName === "reportMonth") {
+    return "Месяц отчета";
+  }
+
+  const match =
+    /^(forming|sorting|unformed|chamotte)(Brand|Fact)([1-9]\d?)$/u.exec(
+      fieldName,
+    );
+
+  if (match === null || Number(match[3]) > 50) {
+    return fieldName;
+  }
+
+  const category = match[1] as ProductionCategory;
+  const fieldLabel =
+    match[2] === "Brand" ? "Марка изделия" : "Факт по марке";
+
+  return `${productionCategoryLabels[category]} — ${fieldLabel} ${match[3]}`;
+}
+
+function readDispatcherSubmissionStatusLabel(
+  status: DispatcherSubmissionStatus,
+) {
+  const labels: Record<DispatcherSubmissionStatus, string> = {
+    received: "Получено",
+    queued: "В очереди",
+    accepted: "Принято",
+    rejected: "Отклонено",
+  };
+
+  return labels[status];
 }
 
 function dedupeValues(values: readonly string[]) {

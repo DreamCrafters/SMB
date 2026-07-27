@@ -2,6 +2,7 @@ import type {
   AccountNavigationItem,
   AccountPosition,
   AccountType,
+  BoardAssignmentAccess,
 } from "./contracts/accounts";
 
 export type NavigationItem = {
@@ -17,6 +18,31 @@ export type AuthOption = {
   description: string;
   scope: string;
 };
+
+export const boardAssignmentAccessOptions: ReadonlyArray<{
+  id: Exclude<BoardAssignmentAccess, "none">;
+  label: string;
+}> = [
+  {
+    id: "view",
+    label: "Поручения Совета директоров (только просмотр)",
+  },
+  {
+    id: "create",
+    label:
+      "Поручения Совета директоров (просмотр и создание поручений)",
+  },
+  {
+    id: "execute",
+    label:
+      "Поручения Совета директоров (исполнение и отправка на проверку)",
+  },
+  {
+    id: "review",
+    label:
+      "Поручения Совета директоров (создание, приёмка и возврат на доработку)",
+  },
+];
 
 export const shellCopy = {
   productName: "НМОУ Вектор",

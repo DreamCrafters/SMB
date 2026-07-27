@@ -1,5 +1,6 @@
 import type {
   AccountCapability,
+  BoardAssignmentAccess,
   AccountNavigationItem,
   AccountPosition,
   AccountScope,
@@ -39,6 +40,7 @@ export type AdminPositionSummary = {
   accountType: AccountType;
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
+  boardAssignmentAccess: BoardAssignmentAccess;
   isProtected: boolean;
   usageCount: number;
   createdAt: string;
@@ -48,6 +50,7 @@ export type AdminPositionsListResponse = { positions: AdminPositionSummary[] };
 export type SaveAdminPositionRequest = {
   displayName: string;
   navigationItems: AccountNavigationItem[];
+  boardAssignmentAccess: BoardAssignmentAccess;
 };
 export type SaveAdminPositionResponse = { position: AdminPositionSummary };
 

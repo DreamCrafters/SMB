@@ -1643,6 +1643,120 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "026_board_assignment_schedules",
+    statements: [
+      `
+      alter table board_assignments
+        add column recurrence varchar(16) null after due_date,
+        add column active_from date null after recurrence,
+        add column active_to date null after active_from,
+        add column current_occurrence_date date null after active_to;
+      `,
+      `
+      update board_assignments
+      set recurrence = case
+        when lower(due_date) = 'постоянно'
+          or lower(due_date) like '%ежеднев%' then 'daily'
+        when lower(due_date) like '%еженедель%' then 'weekly'
+        when due_date like '%Ежемесячно%'
+          or lower(due_date) like '%ежемесяч%' then 'monthly'
+        when lower(due_date) like '%ежегод%' then 'yearly'
+        else 'once'
+      end;
+      `,
+      `
+      update board_assignments
+      set active_from = case id
+            when 'protocol-369-assignment-2-3' then '2026-07-24'
+            when 'protocol-369-assignment-4-2' then '2026-07-20'
+            when 'protocol-369-assignment-5-2' then '2026-08-05'
+            else meeting_date
+          end,
+          active_to = case
+            when id = 'protocol-369-assignment-2-3' then '2026-07-24'
+            when id = 'protocol-369-assignment-2-4' then '2026-12-31'
+            when id = 'protocol-369-assignment-4-2' then '2026-07-20'
+            when id = 'protocol-369-assignment-5-2' then '2027-01-05'
+            when recurrence = 'once' then meeting_date
+            else '2099-12-31'
+          end;
+      `,
+      `
+      update board_assignments
+      set current_occurrence_date = active_from;
+      `,
+      `
+      alter table board_assignments
+        modify recurrence varchar(16) not null,
+        modify active_from date not null,
+        modify active_to date not null,
+        modify current_occurrence_date date not null,
+        add key idx_board_assignments_active_occurrence (
+          status,
+          current_occurrence_date
+        ),
+        add constraint chk_board_assignments_recurrence
+          check (recurrence in ('daily', 'weekly', 'monthly', 'yearly', 'once')),
+        add constraint chk_board_assignments_active_range
+          check (active_from <= active_to),
+        add constraint chk_board_assignments_current_occurrence
+          check (current_occurrence_date between active_from and active_to);
+      `,
+    ],
+  },
+  {
+    id: "027_board_assignment_editing_and_completion_history",
+    statements: [
+      `
+      create table if not exists board_assignment_edit_revisions (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        assignment_id varchar(120) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        edit_comment text not null,
+        edited_by_user_id varchar(120) not null,
+        edited_by_account_id varchar(120) not null,
+        edited_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_board_assignment_edit_revision_id (id),
+        key idx_board_assignment_edit_revisions_assignment (
+          assignment_id,
+          sequence_id
+        ),
+        constraint fk_board_assignment_edit_revision_assignment
+          foreign key (assignment_id) references board_assignments(id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists board_assignment_completion_snapshots (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        assignment_id varchar(120) not null,
+        occurrence_date date not null,
+        snapshot json not null,
+        completed_by_user_id varchar(120) not null,
+        completed_by_account_id varchar(120) not null,
+        completed_by_display_name varchar(255) not null,
+        completed_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_board_assignment_completion_id (id),
+        unique key uq_board_assignment_completion_occurrence (
+          assignment_id,
+          occurrence_date
+        ),
+        key idx_board_assignment_completions_completed (
+          completed_at,
+          sequence_id
+        ),
+        constraint fk_board_assignment_completion_assignment
+          foreign key (assignment_id) references board_assignments(id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

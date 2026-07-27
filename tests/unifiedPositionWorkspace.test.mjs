@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { nonAdminNavigationItems } from "../.test-build/src/content.js";
+import {
+  boardAssignmentAccessOptions,
+  nonAdminNavigationItems,
+} from "../.test-build/src/content.js";
 
 const projectRoot = new URL("../", import.meta.url);
 
@@ -11,7 +14,7 @@ test("every non-admin position uses the complete unified workspace catalog", asy
     [
       "business.overview",
       "business.dispatcher",
-    "business.work",
+      "business.work",
       "business.production_plan",
       "business.refractory_shop",
       "business.laboratory_results",
@@ -26,9 +29,26 @@ test("every non-admin position uses the complete unified workspace catalog", asy
 
   assert.equal(positionFormSource?.includes("accountType"), false);
   assert.equal(appSource.includes("<span>Базовый кабинет</span>"), false);
-  assert.match(appSource, /\{nonAdminNavigationItems\.map\(\(item\) => \(/u);
+  assert.match(
+    appSource,
+    /\{nonAdminNavigationItems\s*\.filter\([\s\S]*?item\.id !== "business\.board_assignments"/u,
+  );
+  assert.match(
+    appSource,
+    /\{boardAssignmentAccessOptions\.map\(\(option\) => \(/u,
+  );
   assert.match(
     appSource,
     /disabled=\{!canManageAccess \|\| position\.accountType === "admin"\}/u,
+  );
+
+  assert.deepEqual(
+    boardAssignmentAccessOptions.map(({ label }) => label),
+    [
+      "Поручения Совета директоров (только просмотр)",
+      "Поручения Совета директоров (просмотр и создание поручений)",
+      "Поручения Совета директоров (исполнение и отправка на проверку)",
+      "Поручения Совета директоров (создание, приёмка и возврат на доработку)",
+    ],
   );
 });

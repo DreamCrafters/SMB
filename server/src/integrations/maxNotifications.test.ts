@@ -137,6 +137,14 @@ test("createMaxNotificationService sends production reports to equipment recipie
     JSON.parse(sent[0]?.body ?? "{}").text,
     /^\[SMB Monitor\] Форма: Выработка$/mu,
   );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /^Статус: Получено$/mu,
+  );
+  assert.doesNotMatch(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /^Получено:/mu,
+  );
 });
 
 test("createMaxNotificationService marks every test-site message at the end", async () => {

@@ -5,6 +5,17 @@ import type {
   AccountType,
 } from "./auth.js";
 
+export const boardAssignmentAccessLevels = [
+  "none",
+  "view",
+  "create",
+  "execute",
+  "review",
+] as const;
+
+export type BoardAssignmentAccess =
+  (typeof boardAssignmentAccessLevels)[number];
+
 export const accountTypeByPosition: Record<AccountPosition, AccountType> = {
   administrator: "admin",
   business_owner: "business_owner",
@@ -107,6 +118,7 @@ export function resolveCapabilitiesForNavigation(
 export function resolveCapabilitiesForPosition(
   position: AccountPosition,
   navigationItems: AccountNavigationItem[],
+  boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
 ) {
   const capabilities = resolveCapabilitiesForNavigation(navigationItems);
 
@@ -115,20 +127,62 @@ export function resolveCapabilitiesForPosition(
   }
 
   const boardCapabilities: AccountCapability[] =
-    position === "general_director"
+    boardAssignmentAccess === "execute"
       ? ["business.execute_board_assignments"]
-      : position === "board_chair" ||
-          position === "board_deputy_chair" ||
-          position === "board_assignment_reviewer"
+      : boardAssignmentAccess === "review"
         ? [
             "business.create_board_assignments",
             "business.review_board_assignments",
           ]
-        : position === "board_member"
+        : boardAssignmentAccess === "create"
           ? ["business.create_board_assignments"]
           : [];
 
   return Array.from(new Set([...capabilities, ...boardCapabilities]));
+}
+
+export function isBoardAssignmentAccess(
+  value: unknown,
+): value is BoardAssignmentAccess {
+  return boardAssignmentAccessLevels.includes(value as BoardAssignmentAccess);
+}
+
+export function readBoardAssignmentAccess(
+  capabilities: AccountCapability[],
+  navigationItems: AccountNavigationItem[],
+): BoardAssignmentAccess {
+  if (!navigationItems.includes("business.board_assignments")) {
+    return "none";
+  }
+  if (capabilities.includes("business.review_board_assignments")) {
+    return "review";
+  }
+  if (capabilities.includes("business.execute_board_assignments")) {
+    return "execute";
+  }
+  if (capabilities.includes("business.create_board_assignments")) {
+    return "create";
+  }
+  return "view";
+}
+
+function getDefaultBoardAssignmentAccess(
+  position: AccountPosition,
+): BoardAssignmentAccess {
+  if (position === "general_director") {
+    return "execute";
+  }
+  if (
+    position === "board_chair" ||
+    position === "board_deputy_chair" ||
+    position === "board_assignment_reviewer"
+  ) {
+    return "review";
+  }
+  if (position === "board_member") {
+    return "create";
+  }
+  return "view";
 }
 
 export function validateNavigationItemsForAccountType(

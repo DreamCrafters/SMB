@@ -16,6 +16,7 @@ import type {
   SetAdminAccountNavigationRequest,
   SetAdminAccountNavigationResponse,
 } from "../contracts";
+import { boardAssignmentAccessLevels } from "../contracts/accounts.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
   describeRemoteNetworkFailure,
@@ -619,6 +620,10 @@ function isAdminPositionSummary(value: unknown): value is AdminPositionSummary {
     typeof value.accountType === "string" &&
     Array.isArray(value.navigationItems) &&
     Array.isArray(value.capabilities) &&
+    typeof value.boardAssignmentAccess === "string" &&
+    boardAssignmentAccessLevels.includes(
+      value.boardAssignmentAccess as (typeof boardAssignmentAccessLevels)[number],
+    ) &&
     typeof value.isProtected === "boolean" &&
     typeof value.usageCount === "number" &&
     typeof value.createdAt === "string"

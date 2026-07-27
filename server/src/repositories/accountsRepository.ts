@@ -5,6 +5,8 @@ import { resolveAccountProvisioningScope } from "../domain/accountProvisioning.j
 import {
   defaultPositionByAccountType,
   navigationItemsByAccountType,
+  readBoardAssignmentAccess,
+  type BoardAssignmentAccess,
 } from "../domain/accountAccessConfiguration.js";
 import {
   hashPassword,
@@ -38,6 +40,7 @@ export type AdminPositionSummary = {
   accountType: AccountType;
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
+  boardAssignmentAccess: BoardAssignmentAccess;
   isProtected: boolean;
   usageCount: number;
   createdAt: string;
@@ -244,7 +247,18 @@ export function createAccountsRepository(
       [id, input.displayName, accountType,
         JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities)],
     );
-    return { id, ...input, accountType, isProtected: false, usageCount: 0, createdAt: new Date().toISOString() };
+    return {
+      id,
+      ...input,
+      accountType,
+      boardAssignmentAccess: readBoardAssignmentAccess(
+        input.capabilities,
+        input.navigationItems,
+      ),
+      isProtected: false,
+      usageCount: 0,
+      createdAt: new Date().toISOString(),
+    };
   }
 
   async function updatePosition(input: UpdatePositionInput) {
@@ -277,8 +291,16 @@ export function createAccountsRepository(
         [input.id],
       );
       await connection.commit();
-      return { ...mapPositionRow(current), displayName: input.displayName,
-        navigationItems: input.navigationItems, capabilities: input.capabilities };
+      return {
+        ...mapPositionRow(current),
+        displayName: input.displayName,
+        navigationItems: input.navigationItems,
+        capabilities: input.capabilities,
+        boardAssignmentAccess: readBoardAssignmentAccess(
+          input.capabilities,
+          input.navigationItems,
+        ),
+      };
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -743,12 +765,18 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
 
 function mapPositionRow(row: PositionRow): AdminPositionSummary {
   const accountType = row.account_type as AccountType;
+  const navigationItems = readNavigationItems(row.navigation_items, accountType);
+  const capabilities = readCapabilities(row.capabilities);
   return {
     id: row.id,
     displayName: row.display_name,
     accountType,
-    navigationItems: readNavigationItems(row.navigation_items, accountType),
-    capabilities: readCapabilities(row.capabilities),
+    navigationItems,
+    capabilities,
+    boardAssignmentAccess: readBoardAssignmentAccess(
+      capabilities,
+      navigationItems,
+    ),
     isProtected: row.is_protected === true || row.is_protected === 1,
     usageCount: Number(row.usage_count ?? 0),
     createdAt: toDate(row.created_at).toISOString(),

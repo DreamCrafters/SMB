@@ -13,8 +13,8 @@ import {
 } from "../domain/auth.js";
 import {
   accountTypeByPosition,
+  isBoardAssignmentAccess,
   resolveCapabilitiesForPosition,
-  resolveCapabilitiesForNavigation,
   validateNonAdminNavigationItems,
 } from "../domain/accountAccessConfiguration.js";
 import {
@@ -68,9 +68,13 @@ import {
 } from "../domain/laboratoryBankAssignment.js";
 import {
   boardAssignmentStatuses,
+  getBoardAssignmentOccurrenceOnOrAfter,
+  getNextBoardAssignmentOccurrenceDate,
   getBoardAssignmentPermissions,
+  isBoardAssignmentActiveOn,
   validateBoardAssignmentAction,
   validateBoardAssignmentCreateRequest,
+  validateBoardAssignmentUpdateRequest,
   type BoardAssignmentAction,
   type BoardAssignmentStatus,
 } from "../domain/boardAssignment.js";
@@ -468,6 +472,7 @@ export function createApiServer({
       if (
         url.pathname === "/api/board-assignments" ||
         /^\/api\/board-assignments\/[^/]+(?:\/action)?$/u.test(url.pathname) ||
+        /^\/api\/board-assignment-completions(?:\/[^/]+)?$/u.test(url.pathname) ||
         /^\/api\/board-assignment-materials\/[^/]+$/u.test(url.pathname)
       ) {
         await handleBoardAssignmentsRequest({
@@ -481,6 +486,7 @@ export function createApiServer({
           boardAssignmentMaterials,
           audit,
           databaseTransaction,
+          now,
         });
         return;
       }
@@ -1003,6 +1009,7 @@ async function handleBoardAssignmentsRequest({
   boardAssignmentMaterials,
   audit,
   databaseTransaction,
+  now,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -1014,6 +1021,7 @@ async function handleBoardAssignmentsRequest({
   boardAssignmentMaterials: BoardAssignmentMaterialsSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
+  now: () => Date;
 }) {
   const access = await requireCapability(req, res, {
     config,
@@ -1067,6 +1075,63 @@ async function handleBoardAssignmentsRequest({
     return;
   }
 
+  if (url.pathname === "/api/board-assignment-completions") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для истории выполнений используется GET.",
+        },
+      });
+      return;
+    }
+
+    const filters = readBoardAssignmentFilters(url);
+    if (!filters.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: filters.message,
+        },
+      });
+      return;
+    }
+    const { status: _status, ...historyFilters } = filters.value;
+    sendJson(res, 200, {
+      completions: await boardAssignments.listCompletions(historyFilters),
+      permissions,
+    });
+    return;
+  }
+
+  const completionMatch =
+    /^\/api\/board-assignment-completions\/([a-zA-Z0-9-]{1,120})$/u.exec(
+      url.pathname,
+    );
+  if (completionMatch !== null) {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для снимка выполненного поручения используется GET.",
+        },
+      });
+      return;
+    }
+
+    const completionId = completionMatch[1];
+    const completion = completionId === undefined
+      ? undefined
+      : await boardAssignments.readCompletionById(completionId);
+    if (completion === undefined) {
+      sendBoardAssignmentNotFound(res);
+      return;
+    }
+
+    sendJson(res, 200, { completion, permissions });
+    return;
+  }
+
   if (url.pathname === "/api/board-assignments") {
     if (req.method === "GET") {
       const filters = readBoardAssignmentFilters(url);
@@ -1080,8 +1145,12 @@ async function handleBoardAssignmentsRequest({
         return;
       }
 
+      const today = buildIncidentOverviewPeriod(now()).today;
       sendJson(res, 200, {
-        assignments: await boardAssignments.list(filters.value),
+        assignments: await boardAssignments.list(
+          filters.value,
+          permissions.canExecute ? { activeOn: today } : undefined,
+        ),
         permissions,
       });
       return;
@@ -1200,10 +1269,38 @@ async function handleBoardAssignmentsRequest({
           };
         }
 
+        const today = buildIncidentOverviewPeriod(now()).today;
+        if (
+          validation.value.action === "submit_for_review" &&
+          !isBoardAssignmentActiveOn(current, today)
+        ) {
+          return {
+            kind: "invalid" as const,
+            message: "Поручение пока не активно для исполнения.",
+          };
+        }
+        const nextOccurrenceDate =
+          validation.value.action === "complete"
+            ? getNextBoardAssignmentOccurrenceDate({
+                recurrence: current.recurrence,
+                activeFrom: current.activeFrom,
+                activeTo: current.activeTo,
+                completedOn: today,
+              })
+            : undefined;
+        const storedStatus = nextOccurrenceDate === undefined
+          ? validation.value.status
+          : "in_progress";
         const assignment = await boardAssignments.applyAction({
           assignmentId,
           expectedStatus: current.status,
-          status: validation.value.status,
+          status: storedStatus,
+          commentStatus: validation.value.status,
+          currentOccurrenceDate:
+            nextOccurrenceDate ?? current.currentOccurrenceDate,
+          ...(validation.value.action === "complete"
+            ? { completedOccurrenceDate: current.currentOccurrenceDate }
+            : {}),
           comment: validation.value.comment,
           actor: {
             userId: access.profile.userId,
@@ -1256,21 +1353,155 @@ async function handleBoardAssignmentsRequest({
   const detailMatch =
     /^\/api\/board-assignments\/([a-zA-Z0-9-]{1,120})$/u.exec(url.pathname);
   if (detailMatch !== null) {
+    const assignmentId = detailMatch[1];
+    if (assignmentId === undefined) {
+      sendBoardAssignmentNotFound(res);
+      return;
+    }
+
+    if (req.method === "PATCH") {
+      if (!permissions.canCreate) {
+        sendJson(res, 403, {
+          error: {
+            code: "access_denied",
+            message: "Редактировать поручения может член Совета директоров.",
+          },
+        });
+        return;
+      }
+
+      const validation = validateBoardAssignmentUpdateRequest(
+        await readJsonBody(req),
+      );
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      try {
+        const result = await databaseTransaction.run(async () => {
+          const current = await boardAssignments.readByIdForUpdate(assignmentId);
+          if (current === undefined) {
+            return { kind: "not_found" as const };
+          }
+          if (current.status === "completed") {
+            return { kind: "completed" as const };
+          }
+
+          const currentOccurrenceDate =
+            getBoardAssignmentOccurrenceOnOrAfter({
+              recurrence: validation.value.recurrence,
+              activeFrom: validation.value.activeFrom,
+              activeTo: validation.value.activeTo,
+              targetDate: current.currentOccurrenceDate,
+            });
+          if (currentOccurrenceDate === undefined) {
+            return {
+              kind: "invalid" as const,
+              message:
+                "Новый период не содержит текущего или будущего исполнения.",
+            };
+          }
+
+          const {
+            expectedUpdatedAt,
+            ...assignmentUpdate
+          } = validation.value;
+          const assignment = await boardAssignments.update({
+            assignmentId,
+            expectedUpdatedAt,
+            currentOccurrenceDate,
+            current,
+            assignment: assignmentUpdate,
+            actor: {
+              userId: access.profile.userId,
+              accountId: access.profile.activeAccess.accountId,
+              displayName: access.profile.displayName,
+            },
+          });
+          await audit.record({
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "board_assignment.update",
+            summary: `Изменено поручение Совета директоров: ${assignment.summary}`,
+            details: [
+              { label: "Причина изменения", value: assignmentUpdate.comment },
+              { label: "Протокол", value: assignment.protocolNumber },
+              { label: "Пункт решения", value: assignment.decisionNumber },
+              { label: "Срок исполнения", value: assignment.dueDate },
+            ],
+            targetType: "board_assignment",
+            targetId: assignment.id,
+          });
+          return { kind: "saved" as const, assignment };
+        });
+
+        if (result.kind === "not_found") {
+          sendBoardAssignmentNotFound(res);
+          return;
+        }
+        if (result.kind === "completed") {
+          sendJson(res, 409, {
+            error: {
+              code: "invalid_response",
+              message: "Завершённое поручение нельзя редактировать.",
+            },
+          });
+          return;
+        }
+        if (result.kind === "invalid") {
+          sendJson(res, 400, {
+            error: {
+              code: "invalid_response",
+              message: result.message,
+            },
+          });
+          return;
+        }
+
+        sendJson(res, 200, { assignment: result.assignment, permissions });
+        return;
+      } catch (error) {
+        if (error instanceof BoardAssignmentChangedError) {
+          sendJson(res, 409, {
+            error: {
+              code: "invalid_response",
+              message: error.message,
+            },
+          });
+          return;
+        }
+
+        throw error;
+      }
+    }
+
     if (req.method !== "GET") {
       sendJson(res, 405, {
         error: {
           code: "access_denied",
-          message: "Для карточки поручения используется GET.",
+          message: "Для карточки поручения используются GET и PATCH.",
         },
       });
       return;
     }
 
-    const assignmentId = detailMatch[1];
-    const assignment = assignmentId === undefined
-      ? undefined
-      : await boardAssignments.readById(assignmentId);
-    if (assignment === undefined) {
+    const assignment = await boardAssignments.readById(assignmentId);
+    const isVisibleToExecutor =
+      assignment !== undefined &&
+      (
+        !permissions.canExecute ||
+        isBoardAssignmentActiveOn(
+          assignment,
+          buildIncidentOverviewPeriod(now()).today,
+        )
+      );
+    if (assignment === undefined || !isVisibleToExecutor) {
       sendBoardAssignmentNotFound(res);
       return;
     }
@@ -1360,24 +1591,39 @@ function buildBoardAssignmentActionAuditEvent({
     submit_for_review: {
       action: "board_assignment.submit_for_review" as const,
       summary: "Поручение передано на проверку",
+      result: "На проверке",
     },
     return_for_revision: {
       action: "board_assignment.return_for_revision" as const,
       summary: "Поручение возвращено на доработку",
+      result: "На доработке",
     },
     complete: {
       action: "board_assignment.complete" as const,
       summary: "Поручение принято и завершено",
+      result: "Завершено",
     },
   }[action];
+  const hasNextOccurrence =
+    action === "complete" && assignment.status === "in_progress";
 
   return {
     actor: buildAuditActor(profile),
     category: "data_change",
     action: actionDetails.action,
-    summary: `${actionDetails.summary}: ${assignment.summary}`,
+    summary: `${
+      hasNextOccurrence
+        ? "Исполнение поручения принято; назначен следующий повтор"
+        : actionDetails.summary
+    }: ${assignment.summary}`,
     details: [
-      { label: "Статус", value: assignment.status },
+      { label: "Результат", value: actionDetails.result },
+      ...(hasNextOccurrence
+        ? [{
+            label: "Следующая дата исполнения",
+            value: assignment.currentOccurrenceDate,
+          }]
+        : []),
       { label: "Протокол", value: assignment.protocolNumber },
       { label: "Пункт решения", value: assignment.decisionNumber },
     ],
@@ -4345,7 +4591,7 @@ async function handleAdminAccountsRequest({
       sendJson(res, 200, { ok: true });
       return;
     }
-    const validation = validateUpdatePositionRequest(await readJsonBody(req), existing);
+    const validation = validateUpdatePositionRequest(await readJsonBody(req));
     if (!validation.ok) {
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
@@ -4646,10 +4892,21 @@ function validateCreatePositionRequest(input: unknown):
   }
 
   const unknownFields = Object.keys(input).filter(
-    (key) => key !== "displayName" && key !== "navigationItems",
+    (key) =>
+      key !== "displayName" &&
+      key !== "navigationItems" &&
+      key !== "boardAssignmentAccess",
   );
   const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
   const navigationItems = Array.isArray(input.navigationItems) ? input.navigationItems : [];
+  const hasBoardAssignments = navigationItems.includes(
+    "business.board_assignments",
+  );
+  const boardAssignmentAccess = input.boardAssignmentAccess === undefined
+    ? hasBoardAssignments
+      ? "view"
+      : "none"
+    : input.boardAssignmentAccess;
   const errors: string[] = [];
 
   if (unknownFields.length > 0) {
@@ -4665,21 +4922,40 @@ function validateCreatePositionRequest(input: unknown):
   ) {
     errors.push("Выберите хотя бы одну доступную вкладку.");
   }
+  if (!isBoardAssignmentAccess(boardAssignmentAccess)) {
+    errors.push("Выберите поддерживаемый вариант доступа к поручениям.");
+  } else if (
+    (boardAssignmentAccess === "none") === hasBoardAssignments
+  ) {
+    errors.push(
+      "Вариант доступа к поручениям не соответствует выбранным вкладкам.",
+    );
+  }
   if (errors.length > 0) {
     return { ok: false, errors };
   }
+
+  const validatedBoardAssignmentAccess = isBoardAssignmentAccess(
+    boardAssignmentAccess,
+  )
+    ? boardAssignmentAccess
+    : "none";
 
   return {
     ok: true,
     value: {
       displayName,
       navigationItems,
-      capabilities: resolveCapabilitiesForNavigation(navigationItems),
+      capabilities: resolveCapabilitiesForPosition(
+        "position-custom",
+        navigationItems,
+        validatedBoardAssignmentAccess,
+      ),
     },
   };
 }
 
-function validateUpdatePositionRequest(input: unknown, existing: AdminPositionSummary):
+function validateUpdatePositionRequest(input: unknown):
   | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
   const validation = validateCreatePositionRequest(input);
@@ -4692,10 +4968,7 @@ function validateUpdatePositionRequest(input: unknown, existing: AdminPositionSu
     value: {
       displayName: validation.value.displayName,
       navigationItems: validation.value.navigationItems,
-      capabilities: resolveCapabilitiesForPosition(
-        existing.id,
-        validation.value.navigationItems,
-      ),
+      capabilities: validation.value.capabilities,
     },
   };
 }

@@ -2,9 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import {
+  formatBoardAssignmentSchedule,
+  isBoardAssignmentRecurrence,
   isBoardAssignmentStatus,
+  type BoardAssignmentRecurrence,
   type BoardAssignmentStatus,
   type ValidatedBoardAssignmentCreateRequest,
+  type ValidatedBoardAssignmentUpdateRequest,
 } from "../domain/boardAssignment.js";
 
 export type BoardAssignmentActor = {
@@ -29,6 +33,10 @@ export type BoardAssignmentSummary = {
   summary: string;
   coExecutors: string[];
   dueDate: string;
+  recurrence: BoardAssignmentRecurrence;
+  activeFrom: string;
+  activeTo: string;
+  currentOccurrenceDate: string;
   status: BoardAssignmentStatus;
   createdByDisplayName: string;
   createdAt: string;
@@ -44,6 +52,22 @@ export type BoardAssignment = BoardAssignmentSummary & {
   comments: BoardAssignmentComment[];
 };
 
+export type BoardAssignmentCompletionSummary = {
+  id: string;
+  assignmentId: string;
+  occurrenceDate: string;
+  completedByDisplayName: string;
+  completedAt: string;
+  assignment: BoardAssignmentSummary;
+};
+
+export type BoardAssignmentCompletion = Omit<
+  BoardAssignmentCompletionSummary,
+  "assignment"
+> & {
+  assignment: BoardAssignment;
+};
+
 export type BoardAssignmentFilters = {
   status?: BoardAssignmentStatus;
   meetingDateFrom?: string;
@@ -52,20 +76,43 @@ export type BoardAssignmentFilters = {
 };
 
 export type BoardAssignmentsRepository = {
-  list: (filters?: BoardAssignmentFilters) => Promise<BoardAssignmentSummary[]>;
+  list: (
+    filters?: BoardAssignmentFilters,
+    options?: { activeOn?: string },
+  ) => Promise<BoardAssignmentSummary[]>;
   readById: (id: string) => Promise<BoardAssignment | undefined>;
   readByIdForUpdate: (id: string) => Promise<BoardAssignment | undefined>;
   create: (input: {
     assignment: ValidatedBoardAssignmentCreateRequest;
     actor: BoardAssignmentActor;
   }) => Promise<BoardAssignment>;
+  update: (input: {
+    assignmentId: string;
+    expectedUpdatedAt: string;
+    currentOccurrenceDate: string;
+    current: BoardAssignment;
+    assignment: Omit<
+      ValidatedBoardAssignmentUpdateRequest,
+      "expectedUpdatedAt"
+    >;
+    actor: BoardAssignmentActor;
+  }) => Promise<BoardAssignment>;
   applyAction: (input: {
     assignmentId: string;
     expectedStatus: BoardAssignmentStatus;
     status: BoardAssignmentStatus;
+    commentStatus: BoardAssignmentStatus;
+    currentOccurrenceDate: string;
+    completedOccurrenceDate?: string;
     comment: string;
     actor: BoardAssignmentActor;
   }) => Promise<BoardAssignment>;
+  listCompletions: (
+    filters?: Omit<BoardAssignmentFilters, "status">,
+  ) => Promise<BoardAssignmentCompletionSummary[]>;
+  readCompletionById: (
+    id: string,
+  ) => Promise<BoardAssignmentCompletion | undefined>;
 };
 
 export class BoardAssignmentChangedError extends Error {
@@ -84,6 +131,10 @@ type BoardAssignmentRow = RowDataPacket & {
   details: string;
   co_executors: unknown;
   due_date: string;
+  recurrence: string;
+  active_from: Date | string;
+  active_to: Date | string;
+  current_occurrence_date: Date | string;
   status: string;
   source_material_key: string | null;
   source_material_file_name: string | null;
@@ -105,6 +156,15 @@ type BoardAssignmentCommentRow = RowDataPacket & {
   created_at: Date | string;
 };
 
+type BoardAssignmentCompletionRow = RowDataPacket & {
+  id: string;
+  assignment_id: string;
+  occurrence_date: Date | string;
+  snapshot: unknown;
+  completed_by_display_name: string;
+  completed_at: Date | string;
+};
+
 type BoardAssignmentsRepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
@@ -114,7 +174,9 @@ const assignmentSelect = `
   select assignments.id, assignments.meeting_date,
     assignments.protocol_number, assignments.decision_number,
     assignments.summary, assignments.details, assignments.co_executors,
-    assignments.due_date, assignments.status,
+    assignments.due_date, assignments.recurrence,
+    assignments.active_from, assignments.active_to,
+    assignments.current_occurrence_date, assignments.status,
     assignments.source_material_key, assignments.source_material_file_name,
     assignments.created_by_user_id, assignments.created_by_account_id,
     assignments.created_by_display_name, assignments.created_at,
@@ -129,7 +191,10 @@ export function createBoardAssignmentsRepository(
     now = () => new Date(),
   }: BoardAssignmentsRepositoryOptions = {},
 ): BoardAssignmentsRepository {
-  async function list(filters: BoardAssignmentFilters = {}) {
+  async function list(
+    filters: BoardAssignmentFilters = {},
+    { activeOn }: { activeOn?: string } = {},
+  ) {
     const conditions: string[] = [];
     const parameters: unknown[] = [];
 
@@ -158,11 +223,23 @@ export function createBoardAssignmentsRepository(
       );
       parameters.push(pattern, pattern, pattern, pattern, pattern, pattern);
     }
+    if (activeOn !== undefined) {
+      conditions.push(
+        `assignments.status in ('in_progress', 'revision_requested')`,
+        "assignments.current_occurrence_date <= ?",
+        `assignments.current_occurrence_date
+          between assignments.active_from and assignments.active_to`,
+      );
+      parameters.push(activeOn);
+    }
 
     const [rows] = await pool.query<BoardAssignmentRow[]>(
       `${assignmentSelect}
       ${conditions.length === 0 ? "" : `where ${conditions.join(" and ")}`}
       order by
+        ${activeOn === undefined
+          ? ""
+          : "assignments.current_occurrence_date asc,"}
         case when assignments.status = 'completed' then 1 else 0 end asc,
         assignments.meeting_date desc,
         assignments.created_at desc`,
@@ -230,13 +307,15 @@ export function createBoardAssignmentsRepository(
   }) {
     const assignmentId = createId();
     const createdAt = formatSqlDateTime(now());
+    const dueDate = formatBoardAssignmentSchedule(assignment);
 
     await pool.query(
       `insert into board_assignments (
         id, meeting_date, protocol_number, decision_number, summary, details,
-        co_executors, due_date, status, created_by_user_id,
+        co_executors, due_date, recurrence, active_from, active_to,
+        current_occurrence_date, status, created_by_user_id,
         created_by_account_id, created_by_display_name, created_at, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, ?, ?)`,
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, ?, ?)`,
       [
         assignmentId,
         assignment.meetingDate,
@@ -245,7 +324,11 @@ export function createBoardAssignmentsRepository(
         assignment.summary,
         assignment.details,
         JSON.stringify(assignment.coExecutors),
-        assignment.dueDate,
+        dueDate,
+        assignment.recurrence,
+        assignment.activeFrom,
+        assignment.activeTo,
+        assignment.activeFrom,
         actor.userId,
         actor.accountId,
         actor.displayName,
@@ -273,25 +356,49 @@ export function createBoardAssignmentsRepository(
     return saved;
   }
 
-  async function applyAction({
+  async function update({
     assignmentId,
-    expectedStatus,
-    status,
-    comment,
+    expectedUpdatedAt,
+    currentOccurrenceDate,
+    current,
+    assignment,
     actor,
   }: {
     assignmentId: string;
-    expectedStatus: BoardAssignmentStatus;
-    status: BoardAssignmentStatus;
-    comment: string;
+    expectedUpdatedAt: string;
+    currentOccurrenceDate: string;
+    current: BoardAssignment;
+    assignment: Omit<
+      ValidatedBoardAssignmentUpdateRequest,
+      "expectedUpdatedAt"
+    >;
     actor: BoardAssignmentActor;
   }) {
     const changedAt = formatSqlDateTime(now());
+    const dueDate = formatBoardAssignmentSchedule(assignment);
     const [result] = await pool.query<ResultSetHeader>(
       `update board_assignments
-      set status = ?, updated_at = ?
-      where id = ? and status = ?`,
-      [status, changedAt, assignmentId, expectedStatus],
+      set meeting_date = ?, protocol_number = ?, decision_number = ?,
+        summary = ?, details = ?, co_executors = ?, due_date = ?,
+        recurrence = ?, active_from = ?, active_to = ?,
+        current_occurrence_date = ?, updated_at = ?
+      where id = ? and updated_at = ? and status <> 'completed'`,
+      [
+        assignment.meetingDate,
+        assignment.protocolNumber,
+        assignment.decisionNumber,
+        assignment.summary,
+        assignment.details,
+        JSON.stringify(assignment.coExecutors),
+        dueDate,
+        assignment.recurrence,
+        assignment.activeFrom,
+        assignment.activeTo,
+        currentOccurrenceDate,
+        changedAt,
+        assignmentId,
+        formatSqlDateTime(new Date(expectedUpdatedAt)),
+      ],
     );
 
     if (result.affectedRows !== 1) {
@@ -300,8 +407,8 @@ export function createBoardAssignmentsRepository(
 
     await insertComment({
       assignmentId,
-      comment,
-      status,
+      comment: assignment.comment,
+      status: current.status,
       actor,
       createdAt: changedAt,
     });
@@ -312,7 +419,163 @@ export function createBoardAssignmentsRepository(
       throw new Error("Updated board assignment could not be read.");
     }
 
+    await pool.query(
+      `insert into board_assignment_edit_revisions (
+        id, assignment_id, before_snapshot, after_snapshot, edit_comment,
+        edited_by_user_id, edited_by_account_id, edited_by_display_name,
+        created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        createId(),
+        assignmentId,
+        JSON.stringify(current),
+        JSON.stringify(saved),
+        assignment.comment,
+        actor.userId,
+        actor.accountId,
+        actor.displayName,
+        changedAt,
+      ],
+    );
+
     return saved;
+  }
+
+  async function applyAction({
+    assignmentId,
+    expectedStatus,
+    status,
+    commentStatus,
+    currentOccurrenceDate,
+    completedOccurrenceDate,
+    comment,
+    actor,
+  }: {
+    assignmentId: string;
+    expectedStatus: BoardAssignmentStatus;
+    status: BoardAssignmentStatus;
+    commentStatus: BoardAssignmentStatus;
+    currentOccurrenceDate: string;
+    completedOccurrenceDate?: string;
+    comment: string;
+    actor: BoardAssignmentActor;
+  }) {
+    const changedAt = formatSqlDateTime(now());
+    const [result] = await pool.query<ResultSetHeader>(
+      `update board_assignments
+      set status = ?, current_occurrence_date = ?, updated_at = ?
+      where id = ? and status = ?`,
+      [
+        status,
+        currentOccurrenceDate,
+        changedAt,
+        assignmentId,
+        expectedStatus,
+      ],
+    );
+
+    if (result.affectedRows !== 1) {
+      throw new BoardAssignmentChangedError();
+    }
+
+    await insertComment({
+      assignmentId,
+      comment,
+      status: commentStatus,
+      actor,
+      createdAt: changedAt,
+    });
+
+    const saved = await readById(assignmentId);
+
+    if (saved === undefined) {
+      throw new Error("Updated board assignment could not be read.");
+    }
+
+    if (completedOccurrenceDate !== undefined) {
+      const snapshot: BoardAssignment = {
+        ...saved,
+        currentOccurrenceDate: completedOccurrenceDate,
+        status: "completed",
+      };
+      await pool.query(
+        `insert into board_assignment_completion_snapshots (
+          id, assignment_id, occurrence_date, snapshot,
+          completed_by_user_id, completed_by_account_id,
+          completed_by_display_name, completed_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          createId(),
+          assignmentId,
+          completedOccurrenceDate,
+          JSON.stringify(snapshot),
+          actor.userId,
+          actor.accountId,
+          actor.displayName,
+          changedAt,
+        ],
+      );
+    }
+
+    return saved;
+  }
+
+  async function listCompletions(
+    filters: Omit<BoardAssignmentFilters, "status"> = {},
+  ) {
+    const conditions: string[] = [];
+    const parameters: unknown[] = [];
+
+    addFilter(
+      conditions,
+      parameters,
+      filters.meetingDateFrom,
+      "json_unquote(json_extract(completions.snapshot, '$.meetingDate')) >= ?",
+    );
+    addFilter(
+      conditions,
+      parameters,
+      filters.meetingDateTo,
+      "json_unquote(json_extract(completions.snapshot, '$.meetingDate')) <= ?",
+    );
+    if (filters.query !== undefined) {
+      const pattern = `%${filters.query.toLocaleLowerCase("ru-RU")}%`;
+      conditions.push(
+        `(lower(json_unquote(json_extract(completions.snapshot, '$.summary'))) like ?
+          or lower(json_unquote(json_extract(completions.snapshot, '$.details'))) like ?
+          or lower(json_extract(completions.snapshot, '$.coExecutors')) like ?
+          or lower(json_unquote(json_extract(completions.snapshot, '$.protocolNumber'))) like ?
+          or lower(json_unquote(json_extract(completions.snapshot, '$.decisionNumber'))) like ?)`,
+      );
+      parameters.push(pattern, pattern, pattern, pattern, pattern);
+    }
+
+    const [rows] = await pool.query<BoardAssignmentCompletionRow[]>(
+      `select completions.id, completions.assignment_id,
+        completions.occurrence_date, completions.snapshot,
+        completions.completed_by_display_name, completions.completed_at
+      from board_assignment_completion_snapshots completions
+      ${conditions.length === 0 ? "" : `where ${conditions.join(" and ")}`}
+      order by completions.completed_at desc, completions.sequence_id desc`,
+      parameters,
+    );
+
+    return rows.map(mapCompletionSummary);
+  }
+
+  async function readCompletionById(id: string) {
+    const [rows] = await pool.query<BoardAssignmentCompletionRow[]>(
+      `select completions.id, completions.assignment_id,
+        completions.occurrence_date, completions.snapshot,
+        completions.completed_by_display_name, completions.completed_at
+      from board_assignment_completion_snapshots completions
+      where completions.id = ?
+      limit 1`,
+      [id],
+    );
+    const row = rows[0];
+
+    return row === undefined ? undefined : mapCompletion(row);
   }
 
   async function insertComment({
@@ -351,13 +614,19 @@ export function createBoardAssignmentsRepository(
     readById,
     readByIdForUpdate,
     create,
+    update,
     applyAction,
+    listCompletions,
+    readCompletionById,
   };
 }
 
 function mapSummary(row: BoardAssignmentRow): BoardAssignmentSummary {
   if (!isBoardAssignmentStatus(row.status)) {
     throw new Error("Stored board assignment status is invalid.");
+  }
+  if (!isBoardAssignmentRecurrence(row.recurrence)) {
+    throw new Error("Stored board assignment recurrence is invalid.");
   }
 
   return {
@@ -368,6 +637,10 @@ function mapSummary(row: BoardAssignmentRow): BoardAssignmentSummary {
     summary: row.summary,
     coExecutors: readStringArray(row.co_executors),
     dueDate: row.due_date,
+    recurrence: row.recurrence,
+    activeFrom: formatDateOnly(row.active_from),
+    activeTo: formatDateOnly(row.active_to),
+    currentOccurrenceDate: formatDateOnly(row.current_occurrence_date),
     status: row.status,
     createdByDisplayName: row.created_by_display_name,
     createdAt: new Date(row.created_at).toISOString(),
@@ -386,6 +659,32 @@ function mapComment(row: BoardAssignmentCommentRow): BoardAssignmentComment {
     comment: row.comment_text,
     statusAfter: row.status_after,
     createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapCompletionSummary(
+  row: BoardAssignmentCompletionRow,
+): BoardAssignmentCompletionSummary {
+  const completion = mapCompletion(row);
+  const { details: _details, sourceMaterial: _sourceMaterial, comments: _comments, ...summary } =
+    completion.assignment;
+
+  return {
+    ...completion,
+    assignment: summary,
+  };
+}
+
+function mapCompletion(
+  row: BoardAssignmentCompletionRow,
+): BoardAssignmentCompletion {
+  return {
+    id: row.id,
+    assignmentId: row.assignment_id,
+    occurrenceDate: formatDateOnly(row.occurrence_date),
+    completedByDisplayName: row.completed_by_display_name,
+    completedAt: new Date(row.completed_at).toISOString(),
+    assignment: readBoardAssignmentSnapshot(row.snapshot),
   };
 }
 
@@ -411,6 +710,69 @@ function readStringArray(value: unknown) {
   }
 
   return parsed;
+}
+
+function readBoardAssignmentSnapshot(value: unknown): BoardAssignment {
+  const parsed = typeof value === "string" ? parseJson(value) : value;
+
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed)
+  ) {
+    throw new Error("Stored board assignment completion snapshot is invalid.");
+  }
+
+  const snapshot = parsed as Partial<BoardAssignment>;
+  if (
+    typeof snapshot.id !== "string" ||
+    typeof snapshot.meetingDate !== "string" ||
+    typeof snapshot.protocolNumber !== "string" ||
+    typeof snapshot.decisionNumber !== "string" ||
+    typeof snapshot.summary !== "string" ||
+    typeof snapshot.details !== "string" ||
+    !Array.isArray(snapshot.coExecutors) ||
+    !snapshot.coExecutors.every((item) => typeof item === "string") ||
+    typeof snapshot.dueDate !== "string" ||
+    !isBoardAssignmentRecurrence(snapshot.recurrence) ||
+    typeof snapshot.activeFrom !== "string" ||
+    typeof snapshot.activeTo !== "string" ||
+    typeof snapshot.currentOccurrenceDate !== "string" ||
+    !isBoardAssignmentStatus(snapshot.status) ||
+    typeof snapshot.createdByDisplayName !== "string" ||
+    typeof snapshot.createdAt !== "string" ||
+    typeof snapshot.updatedAt !== "string" ||
+    !Array.isArray(snapshot.comments) ||
+    !snapshot.comments.every(isBoardAssignmentCommentSnapshot) ||
+    (
+      snapshot.sourceMaterial !== undefined &&
+      (
+        snapshot.sourceMaterial === null ||
+        typeof snapshot.sourceMaterial !== "object" ||
+        typeof snapshot.sourceMaterial.key !== "string" ||
+        typeof snapshot.sourceMaterial.fileName !== "string"
+      )
+    )
+  ) {
+    throw new Error("Stored board assignment completion snapshot is invalid.");
+  }
+
+  return snapshot as BoardAssignment;
+}
+
+function isBoardAssignmentCommentSnapshot(
+  value: unknown,
+): value is BoardAssignmentComment {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const comment = value as Partial<BoardAssignmentComment>;
+  return typeof comment.id === "string" &&
+    typeof comment.authorDisplayName === "string" &&
+    typeof comment.comment === "string" &&
+    isBoardAssignmentStatus(comment.statusAfter) &&
+    typeof comment.createdAt === "string";
 }
 
 function parseJson(value: string) {

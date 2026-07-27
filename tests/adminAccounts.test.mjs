@@ -108,6 +108,7 @@ test("admin positions service lists and creates positions without a base cabinet
     accountType: "business_owner",
     navigationItems: ["business.overview", "business.dispatcher"],
     capabilities: ["business.view_dashboard", "business.view_dispatcher_feed"],
+    boardAssignmentAccess: "none",
     isProtected: false,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -122,6 +123,7 @@ test("admin positions service lists and creates positions without a base cabinet
   const created = await createAdminPosition({
     displayName: "Главный инженер",
     navigationItems: ["business.overview", "business.dispatcher_form"],
+    boardAssignmentAccess: "none",
   }, { baseUrl: "http://api.test" });
 
   assert.equal(list.status, "ready");
@@ -130,6 +132,7 @@ test("admin positions service lists and creates positions without a base cabinet
   assert.deepEqual(JSON.parse(calls[1].init.body), {
     displayName: "Главный инженер",
     navigationItems: ["business.overview", "business.dispatcher_form"],
+    boardAssignmentAccess: "none",
   });
 });
 
@@ -141,6 +144,7 @@ test("admin positions service updates only the title and unified tabs", async ()
     accountType: "dispatcher",
     navigationItems: ["business.dispatcher_form"],
     capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
+    boardAssignmentAccess: "none",
     isProtected: false,
     usageCount: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -153,6 +157,7 @@ test("admin positions service updates only the title and unified tabs", async ()
   const result = await updateAdminPosition(position.id, {
     displayName: position.displayName,
     navigationItems: ["business.overview", "business.dispatcher_form"],
+    boardAssignmentAccess: "none",
   }, { baseUrl: "http://api.test" });
 
   assert.equal(result.status, "ready");
@@ -160,6 +165,7 @@ test("admin positions service updates only the title and unified tabs", async ()
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     displayName: "Диспетчер производства",
     navigationItems: ["business.overview", "business.dispatcher_form"],
+    boardAssignmentAccess: "none",
   });
 });
 
@@ -184,6 +190,7 @@ test("unused laboratory system position can be deleted", () => {
     accountType: "business_owner",
     navigationItems: ["business.laboratory_results"],
     capabilities: ["business.manage_laboratory_results"],
+    boardAssignmentAccess: "none",
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -197,6 +204,7 @@ test("administrator system position cannot be deleted", () => {
     accountType: "admin",
     navigationItems: ["admin.accounts"],
     capabilities: ["platform.manage_access"],
+    boardAssignmentAccess: "none",
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",
@@ -210,6 +218,7 @@ test("other unused system positions stay protected", () => {
     accountType: "business_owner",
     navigationItems: ["business.production_plan"],
     capabilities: ["business.manage_production_plan"],
+    boardAssignmentAccess: "none",
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",

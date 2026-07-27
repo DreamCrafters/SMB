@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   accountTypeByPosition,
   navigationItemsByAccountType,
+  readBoardAssignmentAccess,
   resolveCapabilitiesForPosition,
   resolveCapabilitiesForNavigation,
   validateNavigationItemsForAccountType,
@@ -111,36 +112,93 @@ test("navigation selection expands only to its server capabilities", () => {
   ]);
 });
 
-test("board assignment actions are derived from the assigned position", () => {
+test("board assignment actions are derived from the selected access variant", () => {
   const navigationItems = ["business.board_assignments"] as const;
 
   assert.deepEqual(
-    resolveCapabilitiesForPosition("board_member", [...navigationItems]),
+    resolveCapabilitiesForPosition(
+      "position-observer",
+      [...navigationItems],
+      "view",
+    ),
+    [
+      "business.view_board_assignments",
+    ],
+  );
+  assert.deepEqual(
+    resolveCapabilitiesForPosition(
+      "position-secretary",
+      [...navigationItems],
+      "create",
+    ),
     [
       "business.view_board_assignments",
       "business.create_board_assignments",
     ],
   );
   assert.deepEqual(
-    resolveCapabilitiesForPosition("general_director", [...navigationItems]),
+    resolveCapabilitiesForPosition(
+      "position-executor",
+      [...navigationItems],
+      "execute",
+    ),
     [
       "business.view_board_assignments",
       "business.execute_board_assignments",
     ],
   );
+  assert.deepEqual(
+    resolveCapabilitiesForPosition(
+      "position-reviewer",
+      [...navigationItems],
+      "review",
+    ),
+    [
+      "business.view_board_assignments",
+      "business.create_board_assignments",
+      "business.review_board_assignments",
+    ],
+  );
+});
 
-  for (const position of [
-    "board_chair",
-    "board_deputy_chair",
-    "board_assignment_reviewer",
-  ]) {
-    assert.deepEqual(
-      resolveCapabilitiesForPosition(position, [...navigationItems]),
+test("stored board assignment capabilities resolve to one editable access variant", () => {
+  assert.equal(readBoardAssignmentAccess([], []), "none");
+  assert.equal(
+    readBoardAssignmentAccess(
+      ["business.view_board_assignments"],
+      ["business.board_assignments"],
+    ),
+    "view",
+  );
+  assert.equal(
+    readBoardAssignmentAccess(
+      [
+        "business.view_board_assignments",
+        "business.create_board_assignments",
+      ],
+      ["business.board_assignments"],
+    ),
+    "create",
+  );
+  assert.equal(
+    readBoardAssignmentAccess(
+      [
+        "business.view_board_assignments",
+        "business.execute_board_assignments",
+      ],
+      ["business.board_assignments"],
+    ),
+    "execute",
+  );
+  assert.equal(
+    readBoardAssignmentAccess(
       [
         "business.view_board_assignments",
         "business.create_board_assignments",
         "business.review_board_assignments",
       ],
-    );
-  }
+      ["business.board_assignments"],
+    ),
+    "review",
+  );
 });

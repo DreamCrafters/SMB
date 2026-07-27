@@ -61,6 +61,17 @@ export const accountCapabilities = [
 
 export type AccountCapability = (typeof accountCapabilities)[number];
 
+export const boardAssignmentAccessLevels = [
+  "none",
+  "view",
+  "create",
+  "execute",
+  "review",
+] as const;
+
+export type BoardAssignmentAccess =
+  (typeof boardAssignmentAccessLevels)[number];
+
 export type AccountScope =
   | {
       kind: "platform";

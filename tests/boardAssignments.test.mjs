@@ -22,7 +22,11 @@ const summary = {
   decisionNumber: "2.3",
   summary: "Подготовить анализ причин невыполнения плановых показателей",
   coExecutors: ["Экономист"],
-  dueDate: "До 24.07.2026",
+  dueDate: "Каждый месяц, с 01.08.2026 по 31.12.2026",
+  recurrence: "monthly",
+  activeFrom: "2026-08-01",
+  activeTo: "2026-12-31",
+  currentOccurrenceDate: "2026-08-01",
   status: "in_progress",
   createdByDisplayName: "Протокол №369",
   createdAt: "2026-07-10T08:00:00.000Z",
@@ -110,7 +114,9 @@ test("board assignments service sends create and immutable action comment payloa
       summary: summary.summary,
       details: detail.details,
       coExecutors: ["Экономист"],
-      dueDate: "До 24.07.2026",
+      recurrence: "monthly",
+      activeFrom: "2026-08-01",
+      activeTo: "2026-12-31",
       comment: "Внесено по протоколу.",
     }, { baseUrl: "http://api.test" });
     await applyBoardAssignmentAction(
@@ -129,7 +135,9 @@ test("board assignments service sends create and immutable action comment payloa
       summary: summary.summary,
       details: detail.details,
       coExecutors: ["Экономист"],
-      dueDate: "До 24.07.2026",
+      recurrence: "monthly",
+      activeFrom: "2026-08-01",
+      activeTo: "2026-12-31",
       comment: "Внесено по протоколу.",
     });
     assert.deepEqual(JSON.parse(requests[1].init.body), {
@@ -167,9 +175,13 @@ test("board assignments service does not expose network diagnostics to business 
   }
 });
 
-test("board assignments workspace keeps the required table and cancel-without-save flow", async () => {
+test("board assignments workspace keeps the register, cancel flow, and distinct access layouts", async () => {
   const source = await readFile(
     new URL("../src/BoardAssignments.tsx", import.meta.url),
+    "utf8",
+  );
+  const styles = await readFile(
+    new URL("../src/styles.css", import.meta.url),
     "utf8",
   );
 
@@ -190,4 +202,18 @@ test("board assignments workspace keeps the required table and cancel-without-sa
   assert.match(source, /setCreateInput\(emptyCreateInput\)/u);
   assert.match(source, /setCoExecutorsText\(""\)/u);
   assert.match(source, /setCreateComment\(""\)/u);
+  for (const accessLayout of [
+    "view-notice",
+    "create-overview",
+    "executor-overview",
+    "executor-list",
+    "review-overview",
+    "review-queue",
+  ]) {
+    assert.match(styles, new RegExp(`\\.board-assignment-${accessLayout}`, "u"));
+  }
+  assert.match(source, /Отправить на проверку/u);
+  assert.match(source, /Принять исполнение/u);
+  assert.match(source, /Вернуть на доработку/u);
+  assert.doesNotMatch(styles, /\.board-assignment-access-card/u);
 });

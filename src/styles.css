@@ -3765,6 +3765,14 @@ p {
   justify-content: space-between;
 }
 
+.board-assignments-heading nav,
+.board-assignment-dialog-heading-actions {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .board-assignments-heading h1,
 .board-assignment-dialog-heading h2,
 .board-assignment-comments h3 {
@@ -3772,12 +3780,307 @@ p {
   color: var(--ink);
 }
 
-.board-assignments-heading p {
-  max-width: 760px;
-  margin: var(--density-2) 0 0;
+.board-assignment-executor-overview {
+  display: flex;
+  gap: var(--density-5);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--density-5);
+  border: 1px solid rgba(155, 106, 34, 0.25);
+  border-radius: var(--radius);
+  background: linear-gradient(
+    135deg,
+    rgba(155, 106, 34, 0.12),
+    rgba(255, 255, 255, 0.82)
+  );
+}
+
+.board-assignment-executor-overview span {
+  color: #7b541d;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.board-assignment-executor-overview h2,
+.board-assignment-executor-overview p {
+  margin: 0;
+}
+
+.board-assignment-executor-overview h2 {
+  margin-top: var(--density-1);
+  color: var(--ink);
+  font-size: clamp(22px, 3vw, 30px);
+}
+
+.board-assignment-executor-overview p {
+  max-width: 720px;
+  margin-top: var(--density-2);
   color: var(--muted);
   font-weight: 700;
   line-height: 1.5;
+}
+
+.board-assignment-executor-overview > strong {
+  display: grid;
+  min-width: 84px;
+  padding: var(--density-3);
+  border-radius: var(--radius);
+  color: #6c4919;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 30px;
+  text-align: center;
+}
+
+.board-assignment-executor-overview > strong small {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.board-assignment-create-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--density-5);
+  align-items: center;
+  padding: var(--density-5);
+  border: 1px solid rgba(50, 114, 86, 0.24);
+  border-radius: var(--radius);
+  background: linear-gradient(
+    135deg,
+    rgba(50, 114, 86, 0.11),
+    rgba(255, 255, 255, 0.84)
+  );
+}
+
+.board-assignment-create-overview > div:first-child {
+  display: grid;
+  justify-items: start;
+}
+
+.board-assignment-create-overview > div:first-child > span {
+  color: var(--emerald);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.board-assignment-create-overview h2,
+.board-assignment-create-overview p {
+  margin: 0;
+}
+
+.board-assignment-create-overview h2 {
+  margin-top: var(--density-1);
+  color: var(--ink);
+  font-size: clamp(22px, 3vw, 30px);
+}
+
+.board-assignment-create-overview p {
+  max-width: 720px;
+  margin-top: var(--density-2);
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.board-assignment-create-overview .primary-button {
+  margin-top: var(--density-4);
+}
+
+.board-assignment-create-count {
+  display: grid;
+  min-width: 116px;
+  padding: var(--density-4);
+  border: 1px solid rgba(50, 114, 86, 0.18);
+  border-radius: var(--radius);
+  color: var(--emerald);
+  background: rgba(255, 255, 255, 0.76);
+  text-align: center;
+}
+
+.board-assignment-create-count strong {
+  font-size: 34px;
+}
+
+.board-assignment-create-count span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.board-assignment-review-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--density-5);
+  align-items: center;
+  padding: var(--density-5);
+  border-radius: var(--radius);
+  color: #f4f7f7;
+  background: var(--nav);
+  box-shadow: var(--shadow-soft);
+}
+
+.board-assignment-review-overview > div:first-child > span {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.board-assignment-review-overview h2,
+.board-assignment-review-overview p {
+  margin: 0;
+}
+
+.board-assignment-review-overview h2 {
+  margin-top: var(--density-1);
+  color: #fff;
+  font-size: clamp(22px, 3vw, 30px);
+}
+
+.board-assignment-review-overview p {
+  max-width: 720px;
+  margin-top: var(--density-2);
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.board-assignment-review-actions {
+  display: flex;
+  gap: var(--density-3);
+  align-items: stretch;
+}
+
+.board-assignment-review-actions > strong {
+  display: grid;
+  min-width: 100px;
+  padding: var(--density-3);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 30px;
+  text-align: center;
+}
+
+.board-assignment-review-actions > strong small {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.board-assignment-review-actions .secondary-button {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.board-assignment-view-notice {
+  display: flex;
+  gap: var(--density-4);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--density-3) var(--density-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.board-assignment-view-notice > div {
+  display: flex;
+  gap: var(--density-3);
+  align-items: center;
+}
+
+.board-assignment-view-notice > div > span {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-raised);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.board-assignment-view-notice p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.board-assignment-view-notice > strong {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.board-assignment-history-overview {
+  display: flex;
+  gap: var(--density-5);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--density-5);
+  border: 1px solid rgba(81, 106, 119, 0.24);
+  border-radius: var(--radius);
+  background: linear-gradient(
+    135deg,
+    rgba(81, 106, 119, 0.11),
+    rgba(255, 255, 255, 0.86)
+  );
+}
+
+.board-assignment-history-overview span {
+  color: var(--blue-gray);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.board-assignment-history-overview h2,
+.board-assignment-history-overview p {
+  margin: 0;
+}
+
+.board-assignment-history-overview h2 {
+  margin-top: var(--density-1);
+  color: var(--ink);
+  font-size: clamp(22px, 3vw, 30px);
+}
+
+.board-assignment-history-overview p {
+  max-width: 720px;
+  margin-top: var(--density-2);
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.board-assignment-history-overview > strong {
+  display: grid;
+  min-width: 100px;
+  padding: var(--density-3);
+  border-radius: var(--radius);
+  color: var(--blue-gray);
+  background: rgba(255, 255, 255, 0.74);
+  font-size: 30px;
+  text-align: center;
+}
+
+.board-assignment-history-overview > strong small {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
 }
 
 .board-assignment-filters {
@@ -3789,6 +4092,14 @@ p {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-raised);
+}
+
+.board-assignment-filters.is-compact {
+  grid-template-columns: minmax(260px, 1fr) auto;
+}
+
+.board-assignment-filters.is-history {
+  grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
 }
 
 .board-assignment-filters label,
@@ -3804,6 +4115,7 @@ p {
 .board-assignment-filters input,
 .board-assignment-filters select,
 .board-assignment-form-grid input,
+.board-assignment-form-grid select,
 .board-assignment-form-grid textarea,
 .board-assignment-decision textarea,
 .board-assignment-decision select {
@@ -3827,6 +4139,7 @@ p {
 .board-assignment-filters input:focus,
 .board-assignment-filters select:focus,
 .board-assignment-form-grid input:focus,
+.board-assignment-form-grid select:focus,
 .board-assignment-form-grid textarea:focus,
 .board-assignment-decision textarea:focus,
 .board-assignment-decision select:focus {
@@ -3849,6 +4162,196 @@ p {
   border-radius: var(--radius);
   background: var(--surface-raised);
   box-shadow: var(--shadow-soft);
+}
+
+.board-assignment-executor-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: var(--density-3);
+}
+
+.board-assignment-executor-card {
+  display: grid;
+  gap: var(--density-3);
+  min-width: 0;
+  padding: var(--density-4);
+  border: 1px solid var(--line);
+  border-top: 4px solid #9b6a22;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-soft);
+}
+
+.board-assignment-executor-card.is-revision_requested {
+  border-top-color: var(--brick);
+}
+
+.board-assignment-executor-card-heading {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.board-assignment-executor-card-heading > span:last-child {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.board-assignment-executor-card > .board-assignment-link {
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.board-assignment-executor-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.board-assignment-executor-card dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
+  gap: var(--density-3);
+  margin: 0;
+  padding: var(--density-3);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.board-assignment-executor-card dl > div {
+  display: grid;
+  gap: 3px;
+}
+
+.board-assignment-executor-card dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.board-assignment-executor-card dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.board-assignment-executor-card > .secondary-button {
+  justify-self: start;
+}
+
+.board-assignment-executor-empty {
+  grid-column: 1 / -1;
+  padding: var(--density-6);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface-subtle);
+  text-align: center;
+}
+
+.board-assignment-executor-empty strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.board-assignment-executor-empty p {
+  margin: var(--density-2) 0 0;
+  font-weight: 700;
+}
+
+.board-assignment-review-queue {
+  display: grid;
+  gap: var(--density-3);
+  padding: var(--density-4);
+  border: 1px solid rgba(46, 98, 135, 0.24);
+  border-radius: var(--radius);
+  background: rgba(104, 161, 196, 0.07);
+}
+
+.board-assignment-review-queue > header {
+  display: flex;
+  gap: var(--density-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.board-assignment-review-queue > header span {
+  color: #245572;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.board-assignment-review-queue > header h2 {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 20px;
+}
+
+.board-assignment-review-queue > header > strong {
+  display: grid;
+  place-items: center;
+  min-width: 42px;
+  min-height: 42px;
+  border-radius: 50%;
+  color: #245572;
+  background: rgba(104, 161, 196, 0.15);
+  font-size: 18px;
+}
+
+.board-assignment-review-queue > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--density-3);
+}
+
+.board-assignment-review-card {
+  display: grid;
+  gap: var(--density-3);
+  padding: var(--density-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.board-assignment-review-card > div {
+  display: flex;
+  gap: var(--density-2);
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.board-assignment-review-card h3,
+.board-assignment-review-card p {
+  margin: 0;
+}
+
+.board-assignment-review-card h3 {
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.board-assignment-review-card p {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.board-assignment-review-card .primary-button {
+  justify-self: start;
 }
 
 .board-assignment-table-wrap {
@@ -3939,6 +4442,20 @@ p {
   font-size: 11px;
 }
 
+.board-assignment-schedule-summary {
+  display: grid;
+  gap: 3px;
+}
+
+.board-assignment-schedule-summary > strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.board-assignment-schedule-summary > small {
+  margin: 0;
+}
+
 .board-assignment-status {
   display: inline-flex;
   align-items: center;
@@ -4016,8 +4533,55 @@ p {
   grid-column: 1 / -1;
 }
 
+.board-assignment-schedule-fields {
+  min-width: 0;
+  margin: 0;
+  padding: var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.board-assignment-schedule-fields legend {
+  padding: 0 var(--density-1);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.board-assignment-schedule-fields > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--density-3);
+}
+
+.board-assignment-schedule-fields > small {
+  display: block;
+  margin-top: var(--density-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
 .board-assignment-details {
   margin: 0;
+}
+
+.board-assignment-snapshot-note {
+  display: grid;
+  gap: 3px;
+  padding: var(--density-3);
+  border: 1px solid rgba(50, 114, 86, 0.28);
+  border-radius: var(--radius);
+  color: var(--emerald);
+  background: rgba(50, 114, 86, 0.08);
+}
+
+.board-assignment-snapshot-note span,
+.board-assignment-snapshot-note small {
+  color: var(--muted);
+  font-weight: 750;
 }
 
 .board-assignment-details > div {
@@ -4081,6 +4645,17 @@ p {
   border-top: 1px solid var(--line);
 }
 
+.board-assignment-decision.is-execute,
+.board-assignment-decision.is-review {
+  grid-template-columns: 1fr;
+}
+
+.board-assignment-return-button {
+  border-color: rgba(169, 91, 67, 0.35);
+  color: var(--brick);
+  background: rgba(169, 91, 67, 0.08);
+}
+
 .board-assignment-decision .form-message,
 .board-assignment-decision .board-assignment-dialog-actions {
   grid-column: 1 / -1;
@@ -4088,6 +4663,14 @@ p {
 
 @media (max-width: 980px) {
   .board-assignment-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .board-assignment-filters.is-compact {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .board-assignment-filters.is-history {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -4099,7 +4682,11 @@ p {
 
 @media (max-width: 680px) {
   .board-assignments-heading,
-  .board-assignment-dialog-heading {
+  .board-assignment-dialog-heading,
+  .board-assignment-executor-overview,
+  .board-assignment-create-overview,
+  .board-assignment-review-overview,
+  .board-assignment-history-overview {
     align-items: stretch;
     flex-direction: column;
   }
@@ -4108,6 +4695,19 @@ p {
   .board-assignment-form-grid,
   .board-assignment-details,
   .board-assignment-decision {
+    grid-template-columns: 1fr;
+  }
+
+  .board-assignment-create-overview,
+  .board-assignment-review-overview,
+  .board-assignment-history-overview,
+  .board-assignment-executor-card dl,
+  .board-assignment-schedule-fields > div,
+  .board-assignment-filters.is-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .board-assignment-filters.is-history {
     grid-template-columns: 1fr;
   }
 
@@ -4133,6 +4733,16 @@ p {
   .board-assignment-dialog {
     max-height: 94vh;
     padding: var(--density-4);
+  }
+
+  .board-assignment-review-actions,
+  .board-assignment-review-card > div,
+  .board-assignment-view-notice,
+  .board-assignment-view-notice > div,
+  .board-assignment-dialog-heading-actions,
+  .board-assignments-heading nav {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

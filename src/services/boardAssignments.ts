@@ -1,12 +1,16 @@
 import {
+  boardAssignmentRecurrences,
   boardAssignmentStatuses,
   type BoardAssignment,
   type BoardAssignmentActionInput,
+  type BoardAssignmentCompletion,
+  type BoardAssignmentCompletionSummary,
   type BoardAssignmentCreateInput,
   type BoardAssignmentFilters,
   type BoardAssignmentPermissions,
   type BoardAssignmentStatus,
   type BoardAssignmentSummary,
+  type BoardAssignmentUpdateInput,
 } from "../contracts/boardAssignments.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -16,6 +20,7 @@ import {
 import { readShortUserMessage } from "./userFacingMessages.js";
 
 const assignmentsPath = "/api/board-assignments";
+const completionsPath = "/api/board-assignment-completions";
 const materialsPath = "/api/board-assignment-materials";
 
 type RequestOptions = {
@@ -41,6 +46,22 @@ export type BoardAssignmentResult =
   | {
       status: "ready";
       assignment: BoardAssignment;
+      permissions: BoardAssignmentPermissions;
+    }
+  | ErrorResult;
+
+export type BoardAssignmentCompletionsResult =
+  | {
+      status: "ready";
+      completions: BoardAssignmentCompletionSummary[];
+      permissions: BoardAssignmentPermissions;
+    }
+  | ErrorResult;
+
+export type BoardAssignmentCompletionResult =
+  | {
+      status: "ready";
+      completion: BoardAssignmentCompletion;
       permissions: BoardAssignmentPermissions;
     }
   | ErrorResult;
@@ -111,6 +132,19 @@ export async function createBoardAssignment(
   return requestAssignmentJson(assignmentsPath, "POST", request, options);
 }
 
+export async function updateBoardAssignment(
+  assignmentId: string,
+  request: BoardAssignmentUpdateInput,
+  options: RequestOptions = {},
+): Promise<BoardAssignmentResult> {
+  return requestAssignmentJson(
+    `${assignmentsPath}/${encodeURIComponent(assignmentId)}`,
+    "PATCH",
+    request,
+    options,
+  );
+}
+
 export async function applyBoardAssignmentAction(
   assignmentId: string,
   request: BoardAssignmentActionInput,
@@ -170,10 +204,77 @@ export async function requestBoardAssignmentMaterial(
   }
 }
 
+export async function requestBoardAssignmentCompletions(
+  filters: Omit<BoardAssignmentFilters, "status"> = {},
+  options: RequestOptions = {},
+): Promise<BoardAssignmentCompletionsResult> {
+  const params = new URLSearchParams();
+  if (filters.meetingDateFrom !== undefined) {
+    params.set("meetingDateFrom", filters.meetingDateFrom);
+  }
+  if (filters.meetingDateTo !== undefined) {
+    params.set("meetingDateTo", filters.meetingDateTo);
+  }
+  if (filters.query !== undefined) params.set("query", filters.query);
+
+  const suffix = params.size === 0 ? "" : `?${params.toString()}`;
+  const result = await requestJson(
+    `${completionsPath}${suffix}`,
+    "GET",
+    undefined,
+    options,
+  );
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !Array.isArray(result.payload.completions) ||
+    !result.payload.completions.every(isBoardAssignmentCompletionSummary) ||
+    !isBoardAssignmentPermissions(result.payload.permissions)
+  ) {
+    return invalidResponse("Не удалось загрузить историю выполнений.");
+  }
+
+  return {
+    status: "ready",
+    completions: result.payload.completions,
+    permissions: result.payload.permissions,
+  };
+}
+
+export async function requestBoardAssignmentCompletion(
+  completionId: string,
+  options: RequestOptions = {},
+): Promise<BoardAssignmentCompletionResult> {
+  const result = await requestJson(
+    `${completionsPath}/${encodeURIComponent(completionId)}`,
+    "GET",
+    undefined,
+    options,
+  );
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !isBoardAssignmentCompletion(result.payload.completion) ||
+    !isBoardAssignmentPermissions(result.payload.permissions)
+  ) {
+    return invalidResponse("Не удалось загрузить выполненное поручение.");
+  }
+
+  return {
+    status: "ready",
+    completion: result.payload.completion,
+    permissions: result.payload.permissions,
+  };
+}
+
 async function requestAssignmentJson(
   path: string,
-  method: "GET" | "POST",
-  body: BoardAssignmentCreateInput | BoardAssignmentActionInput | undefined,
+  method: "GET" | "POST" | "PATCH",
+  body:
+    | BoardAssignmentCreateInput
+    | BoardAssignmentUpdateInput
+    | BoardAssignmentActionInput
+    | undefined,
   options: RequestOptions,
 ): Promise<BoardAssignmentResult> {
   const result = await requestJson(path, method, body, options);
@@ -196,8 +297,12 @@ async function requestAssignmentJson(
 
 async function requestJson(
   path: string,
-  method: "GET" | "POST",
-  body: BoardAssignmentCreateInput | BoardAssignmentActionInput | undefined,
+  method: "GET" | "POST" | "PATCH",
+  body:
+    | BoardAssignmentCreateInput
+    | BoardAssignmentUpdateInput
+    | BoardAssignmentActionInput
+    | undefined,
   { baseUrl, signal }: RequestOptions,
 ): Promise<{ status: "ready"; payload: unknown } | ErrorResult> {
   const endpoint = resolveApiEndpoint(path, path, { baseUrl });
@@ -276,10 +381,40 @@ function isBoardAssignmentSummary(
     Array.isArray(value.coExecutors) &&
     value.coExecutors.every((item) => typeof item === "string") &&
     typeof value.dueDate === "string" &&
+    boardAssignmentRecurrences.includes(
+      value.recurrence as (typeof boardAssignmentRecurrences)[number],
+    ) &&
+    typeof value.activeFrom === "string" &&
+    typeof value.activeTo === "string" &&
+    typeof value.currentOccurrenceDate === "string" &&
     isBoardAssignmentStatus(value.status) &&
     typeof value.createdByDisplayName === "string" &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string";
+}
+
+function isBoardAssignmentCompletionSummary(
+  value: unknown,
+): value is BoardAssignmentCompletionSummary {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.assignmentId === "string" &&
+    typeof value.occurrenceDate === "string" &&
+    typeof value.completedByDisplayName === "string" &&
+    typeof value.completedAt === "string" &&
+    isBoardAssignmentSummary(value.assignment);
+}
+
+function isBoardAssignmentCompletion(
+  value: unknown,
+): value is BoardAssignmentCompletion {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.assignmentId === "string" &&
+    typeof value.occurrenceDate === "string" &&
+    typeof value.completedByDisplayName === "string" &&
+    typeof value.completedAt === "string" &&
+    isBoardAssignment(value.assignment);
 }
 
 function isBoardAssignmentPermissions(

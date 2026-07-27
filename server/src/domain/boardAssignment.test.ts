@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ServerUserProfile } from "./auth.js";
 import {
+  getBoardAssignmentOccurrenceOnOrAfter,
+  getNextBoardAssignmentOccurrenceDate,
   getBoardAssignmentPermissions,
+  isBoardAssignmentActiveOn,
   validateBoardAssignmentAction,
   validateBoardAssignmentCreateRequest,
+  validateBoardAssignmentUpdateRequest,
 } from "./boardAssignment.js";
 
 test("board assignment creation accepts protocol fields and normalizes co-executors", () => {
@@ -16,7 +20,9 @@ test("board assignment creation accepts protocol fields and normalizes co-execut
     details:
       "Представить Совету директоров письменный анализ причин невыполнения плановых показателей.",
     coExecutors: ["Экономист", " Финансовый директор ", "Экономист"],
-    dueDate: "Ежемесячно, не позднее 5-го числа следующего месяца",
+    recurrence: "monthly",
+    activeFrom: "2026-08-01",
+    activeTo: "2026-12-31",
     comment: "Поручение внесено по протоколу.",
   });
 
@@ -30,10 +36,36 @@ test("board assignment creation accepts protocol fields and normalizes co-execut
       details:
         "Представить Совету директоров письменный анализ причин невыполнения плановых показателей.",
       coExecutors: ["Экономист", "Финансовый директор"],
-      dueDate: "Ежемесячно, не позднее 5-го числа следующего месяца",
+      recurrence: "monthly",
+      activeFrom: "2026-08-01",
+      activeTo: "2026-12-31",
       comment: "Поручение внесено по протоколу.",
     },
   });
+});
+
+test("board assignment editing requires an explicit change comment", () => {
+  const request = {
+    meetingDate: "2026-07-10",
+    protocolNumber: "369",
+    decisionNumber: "2.3",
+    summary: "Подготовить анализ причин невыполнения плана",
+    details: "Представить Совету директоров письменный анализ.",
+    coExecutors: ["Экономист"],
+    recurrence: "monthly",
+    activeFrom: "2026-08-01",
+    activeTo: "2026-12-31",
+  };
+
+  assert.equal(validateBoardAssignmentUpdateRequest(request).ok, false);
+  assert.equal(
+    validateBoardAssignmentUpdateRequest({
+      ...request,
+      comment: "Уточнены сроки.",
+      expectedUpdatedAt: "2026-07-20T08:00:00.000Z",
+    }).ok,
+    true,
+  );
 });
 
 test("board assignment creation rejects missing fields, an invalid meeting date and unknown input", () => {
@@ -44,7 +76,9 @@ test("board assignment creation rejects missing fields, an invalid meeting date 
     summary: "",
     details: "",
     coExecutors: "Экономист",
-    dueDate: "",
+    recurrence: "sometimes",
+    activeFrom: "2026-08-10",
+    activeTo: "2026-08-01",
     extra: "unexpected",
   });
 
@@ -57,8 +91,118 @@ test("board assignment creation rejects missing fields, an invalid meeting date 
   assert.match(result.errors.join(" "), /Краткое содержание/u);
   assert.match(result.errors.join(" "), /Полное содержание/u);
   assert.match(result.errors.join(" "), /Соисполнители/u);
-  assert.match(result.errors.join(" "), /Срок исполнения/u);
+  assert.match(result.errors.join(" "), /периодичность/u);
+  assert.match(result.errors.join(" "), /начала/u);
+  assert.match(result.errors.join(" "), /окончания/u);
   assert.match(result.errors.join(" "), /неизвестные поля/u);
+});
+
+test("board assignment recurrence advances from its anchor without accumulating missed runs", () => {
+  assert.equal(
+    getNextBoardAssignmentOccurrenceDate({
+      recurrence: "daily",
+      activeFrom: "2026-07-10",
+      activeTo: "2026-07-31",
+      completedOn: "2026-07-27",
+    }),
+    "2026-07-28",
+  );
+  assert.equal(
+    getNextBoardAssignmentOccurrenceDate({
+      recurrence: "weekly",
+      activeFrom: "2026-07-10",
+      activeTo: "2026-08-31",
+      completedOn: "2026-07-27",
+    }),
+    "2026-07-31",
+  );
+  assert.equal(
+    getNextBoardAssignmentOccurrenceDate({
+      recurrence: "monthly",
+      activeFrom: "2026-01-31",
+      activeTo: "2026-04-30",
+      completedOn: "2026-02-28",
+    }),
+    "2026-03-31",
+  );
+  assert.equal(
+    getNextBoardAssignmentOccurrenceDate({
+      recurrence: "yearly",
+      activeFrom: "2024-02-29",
+      activeTo: "2028-12-31",
+      completedOn: "2026-03-01",
+    }),
+    "2027-02-28",
+  );
+  assert.equal(
+    getNextBoardAssignmentOccurrenceDate({
+      recurrence: "monthly",
+      activeFrom: "2026-01-31",
+      activeTo: "2026-02-28",
+      completedOn: "2026-02-28",
+    }),
+    undefined,
+  );
+  assert.equal(
+    getNextBoardAssignmentOccurrenceDate({
+      recurrence: "once",
+      activeFrom: "2026-07-10",
+      activeTo: "2026-07-31",
+      completedOn: "2026-07-10",
+    }),
+    undefined,
+  );
+});
+
+test("board assignment editing keeps the current cycle at the next date of the new schedule", () => {
+  assert.equal(
+    getBoardAssignmentOccurrenceOnOrAfter({
+      recurrence: "weekly",
+      activeFrom: "2026-07-15",
+      activeTo: "2026-12-31",
+      targetDate: "2026-08-10",
+    }),
+    "2026-08-12",
+  );
+  assert.equal(
+    getBoardAssignmentOccurrenceOnOrAfter({
+      recurrence: "once",
+      activeFrom: "2026-07-15",
+      activeTo: "2026-07-15",
+      targetDate: "2026-08-10",
+    }),
+    undefined,
+  );
+});
+
+test("executor activity starts on the occurrence date and keeps overdue work active", () => {
+  assert.equal(
+    isBoardAssignmentActiveOn({
+      status: "in_progress",
+      currentOccurrenceDate: "2026-08-01",
+      activeFrom: "2026-08-01",
+      activeTo: "2026-08-31",
+    }, "2026-07-31"),
+    false,
+  );
+  assert.equal(
+    isBoardAssignmentActiveOn({
+      status: "revision_requested",
+      currentOccurrenceDate: "2026-08-01",
+      activeFrom: "2026-08-01",
+      activeTo: "2026-08-31",
+    }, "2026-09-05"),
+    true,
+  );
+  assert.equal(
+    isBoardAssignmentActiveOn({
+      status: "under_review",
+      currentOccurrenceDate: "2026-08-01",
+      activeFrom: "2026-08-01",
+      activeTo: "2026-08-31",
+    }, "2026-08-10"),
+    false,
+  );
 });
 
 test("board assignment permissions separate creation, execution and review authority", () => {

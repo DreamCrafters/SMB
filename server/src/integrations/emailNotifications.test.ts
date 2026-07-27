@@ -37,10 +37,26 @@ test("buildDispatcherSubmissionEmail sends incident openings to common recipient
 test("buildDispatcherSubmissionEmail sends production reports to equipment recipients", () => {
   const submission = buildSubmission("production", {
     reportDate: "27.07.2026",
-    formingProductBrand: "ША-5",
-    formingDay: "12",
+    jarShipmentStart1: "760",
+    jarShipmentEnd1: "760",
+    jarShipmentStart2: "316",
+    jarShipmentEnd2: "316",
+    jarShipmentStart3: "1208",
+    jarShipmentEnd3: "1256",
+    formingBrand1: "ШЦУ-15 (вес 1,39), т",
+    formingBrand2: "ША-8",
+    formingFact1: "19.79",
+    formingFact2: "33.16",
+    sortingBrand1: "ШБ-5 класс 4",
+    sortingBrand2: "ШБ-22",
+    sortingFact1: "9.31",
+    sortingFact2: "7.72",
+    chamotteBrand1: "Мертель МШ-28 (ШГР-28), т",
+    chamotteFact1: "60",
+    reportMonth: "2026-07",
   });
   submission.formTitle = "Выработка";
+  submission.summary = "Дата отчета: 27.07.2026";
 
   const message = buildDispatcherSubmissionEmail(
     submission,
@@ -51,7 +67,39 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
 
   assert.deepEqual(message?.to, ["common@example.com"]);
   assert.equal(message?.subject, "[SMB Monitor] Выработка");
-  assert.match(message?.text ?? "", /^Форма: Выработка$/mu);
+  assert.equal(
+    message?.text,
+    [
+      "Форма: Выработка",
+      "Статус: Получено",
+      "Кратко: Дата отчета: 27.07.2026",
+      "",
+      "Данные:",
+      "Дата отчета: 27.07.2026",
+      "Замеры банок — Банка 1, начало дня, по отгрузкам: 760",
+      "Замеры банок — Банка 1, конец дня, по отгрузкам: 760",
+      "Замеры банок — Банка 2, начало дня, по отгрузкам: 316",
+      "Замеры банок — Банка 2, конец дня, по отгрузкам: 316",
+      "Замеры банок — Банка 3, начало дня, по отгрузкам: 1208",
+      "Замеры банок — Банка 3, конец дня, по отгрузкам: 1256",
+      "Формовка — Марка изделия 1: ШЦУ-15 (вес 1,39), т",
+      "Формовка — Марка изделия 2: ША-8",
+      "Формовка — Факт по марке 1: 19.79",
+      "Формовка — Факт по марке 2: 33.16",
+      "Сортировка — Марка изделия 1: ШБ-5 класс 4",
+      "Сортировка — Марка изделия 2: ШБ-22",
+      "Сортировка — Факт по марке 1: 9.31",
+      "Сортировка — Факт по марке 2: 7.72",
+      "Цех обжига шамота — Марка изделия 1: Мертель МШ-28 (ШГР-28), т",
+      "Цех обжига шамота — Факт по марке 1: 60",
+      "Месяц отчета: 2026-07",
+    ].join("\n"),
+  );
+  assert.doesNotMatch(message?.text ?? "", /^Получено:/mu);
+  assert.doesNotMatch(
+    message?.text ?? "",
+    /(?:forming|sorting|unformed|chamotte)(?:Brand|Fact)\d+|reportMonth/u,
+  );
 });
 
 test("buildDispatcherSubmissionEmail adds mechanical recipients for mechanical incidents", () => {

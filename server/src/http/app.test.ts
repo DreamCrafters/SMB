@@ -48,6 +48,8 @@ import type { LaboratoryResultsRepository } from "../repositories/laboratoryResu
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type {
   BoardAssignment,
+  BoardAssignmentCompletion,
+  BoardAssignmentCompletionSummary,
   BoardAssignmentFilters,
   BoardAssignmentsRepository,
 } from "../repositories/boardAssignmentsRepository.js";
@@ -2140,6 +2142,7 @@ const accounts: AccountsRepository = {
         accountType: "dispatcher",
         navigationItems: ["business.dispatcher", "business.dispatcher_form"],
         capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
+        boardAssignmentAccess: "none",
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -2150,6 +2153,7 @@ const accounts: AccountsRepository = {
         accountType: "business_owner",
         navigationItems: ["business.overview", "business.dispatcher"],
         capabilities: ["business.view_all_statistics", "business.view_dispatcher_feed"],
+        boardAssignmentAccess: "none",
         isProtected: true,
         usageCount: 0,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -2157,10 +2161,10 @@ const accounts: AccountsRepository = {
     ];
   },
   async createPosition(input) {
-    return { id: "created-position", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async updatePosition(input) {
-    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async deletePosition() {
     return "deleted";
@@ -2316,7 +2320,7 @@ test("admin positions API creates a position with tabs from the unified workspac
     ...accounts,
     async createPosition(input) {
       createdInput = input;
-      return { id: "position-chief", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -2338,13 +2342,67 @@ test("admin positions API creates a position with tabs from the unified workspac
   assert.equal(createdInput?.capabilities.includes("business.view_dispatcher_feed"), true);
 });
 
+test("admin positions API stores the selected board assignment access variant", async () => {
+  const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createPosition(input) {
+      created.push(input);
+      return {
+        id: "position-board-reviewer",
+        accountType: "business_owner",
+        ...input,
+        boardAssignmentAccess: "review",
+        isProtected: false,
+        usageCount: 0,
+        createdAt: "2026-07-27T00:00:00.000Z",
+      };
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const headers = {
+      "Content-Type": "application/json",
+      "X-SMB-Dev-Session": sessionId,
+    };
+    const response = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "Проверяющий поручений",
+        navigationItems: ["business.board_assignments"],
+        boardAssignmentAccess: "review",
+      }),
+    });
+    const invalidResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "Несогласованная должность",
+        navigationItems: ["business.overview"],
+        boardAssignmentAccess: "execute",
+      }),
+    });
+
+    assert.equal(response.status, 201);
+    assert.equal(invalidResponse.status, 400);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.deepEqual(created[0]?.capabilities, [
+    "business.view_board_assignments",
+    "business.create_board_assignments",
+    "business.review_board_assignments",
+  ]);
+});
+
 test("admin positions API requires a tab and rejects the removed base cabinet field", async () => {
   const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-worker", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -2373,7 +2431,7 @@ test("admin positions API accepts every business tab but rejects admin tabs", as
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
-      return { id: "position-shared", accountType: "business_owner", ...input, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -2418,6 +2476,7 @@ test("admin positions API updates a protected non-admin position without changin
     accountType: "dispatcher" as const,
     navigationItems: ["business.dispatcher_form" as const],
     capabilities: ["business.submit_dispatcher_forms" as const],
+    boardAssignmentAccess: "none" as const,
     isProtected: true,
     usageCount: 2,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -2467,6 +2526,7 @@ test("admin positions API keeps the administrator outside the unified workspace"
         accountType: "admin",
         navigationItems: ["admin.accounts"],
         capabilities: ["platform.manage_users", "platform.manage_access"],
+        boardAssignmentAccess: "none",
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -2516,6 +2576,7 @@ test("admin positions API deletes only an unused position", async () => {
     accountType: "worker" as const,
     navigationItems: [],
     capabilities: [],
+    boardAssignmentAccess: "none" as const,
     isProtected: false,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -2557,6 +2618,7 @@ test("admin positions API deletes an unused laboratory system position", async (
     accountType: "business_owner" as const,
     navigationItems: ["business.laboratory_results" as const],
     capabilities: ["business.manage_laboratory_results" as const],
+    boardAssignmentAccess: "none" as const,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -2586,6 +2648,7 @@ test("admin positions API keeps other unused system positions", async () => {
     accountType: "business_owner" as const,
     navigationItems: ["business.production_plan" as const],
     capabilities: ["business.manage_production_plan" as const],
+    boardAssignmentAccess: "none" as const,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",
@@ -5582,6 +5645,10 @@ test("board assignment API enforces creation, execution and review capabilities"
     details: "Представить Совету директоров письменный анализ.",
     coExecutors: ["Экономист"],
     dueDate: "До 24.07.2026",
+    recurrence: "daily",
+    activeFrom: "2026-07-10",
+    activeTo: "2026-07-31",
+    currentOccurrenceDate: "2026-07-10",
     status: "in_progress",
     createdByDisplayName: profile.displayName,
     createdAt: "2026-07-10T08:00:00.000Z",
@@ -5589,9 +5656,12 @@ test("board assignment API enforces creation, execution and review capabilities"
     comments: [],
   };
   let listFilters: BoardAssignmentFilters | undefined;
+  let listOptions: { activeOn?: string } | undefined;
+  let completedOccurrenceDate: string | undefined;
   const repository: BoardAssignmentsRepository = {
-    async list(filters) {
+    async list(filters, options) {
       listFilters = filters;
+      listOptions = options;
       return [current];
     },
     async readById() {
@@ -5604,6 +5674,8 @@ test("board assignment API enforces creation, execution and review capabilities"
       current = {
         ...current,
         ...input.assignment,
+        dueDate: "Каждый день, с 10.07.2026 по 31.07.2026",
+        currentOccurrenceDate: input.assignment.activeFrom,
         createdByDisplayName: input.actor.displayName,
         comments: input.assignment.comment === undefined
           ? []
@@ -5617,22 +5689,38 @@ test("board assignment API enforces creation, execution and review capabilities"
       };
       return current;
     },
+    async update(input) {
+      current = {
+        ...current,
+        ...input.assignment,
+        currentOccurrenceDate: input.currentOccurrenceDate,
+      };
+      return current;
+    },
     async applyAction(input) {
+      completedOccurrenceDate = input.completedOccurrenceDate;
       current = {
         ...current,
         status: input.status,
+        currentOccurrenceDate: input.currentOccurrenceDate,
         comments: [
           ...current.comments,
           {
             id: `comment-${current.comments.length + 1}`,
             authorDisplayName: input.actor.displayName,
             comment: input.comment,
-            statusAfter: input.status,
+            statusAfter: input.commentStatus,
             createdAt: "2026-07-20T10:00:00.000Z",
           },
         ],
       };
       return current;
+    },
+    async listCompletions() {
+      return [];
+    },
+    async readCompletionById() {
+      return undefined;
     },
   };
   const events: Parameters<AuditRepository["record"]>[0][] = [];
@@ -5655,6 +5743,7 @@ test("board assignment API enforces creation, execution and review capabilities"
         return operation();
       },
     },
+    now: () => new Date("2026-07-20T10:00:00.000Z"),
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -5694,7 +5783,9 @@ test("board assignment API enforces creation, execution and review capabilities"
         summary: "Подготовить анализ причин невыполнения плана",
         details: "Представить Совету директоров письменный анализ.",
         coExecutors: ["Экономист"],
-        dueDate: "До 24.07.2026",
+        recurrence: "daily",
+        activeFrom: "2026-07-10",
+        activeTo: "2026-07-31",
         comment: "Внесено по протоколу.",
       }),
     });
@@ -5706,6 +5797,19 @@ test("board assignment API enforces creation, execution and review capabilities"
       "business.view_board_assignments",
       "business.execute_board_assignments",
     ];
+    const activeListResponse = await fetch(
+      `${baseUrl}/api/board-assignments`,
+      { headers },
+    );
+    assert.equal(activeListResponse.status, 200);
+    assert.deepEqual(listOptions, { activeOn: "2026-07-20" });
+    current.currentOccurrenceDate = "2026-07-21";
+    const inactiveDetailResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-1`,
+      { headers },
+    );
+    assert.equal(inactiveDetailResponse.status, 404);
+    current.currentOccurrenceDate = "2026-07-10";
     const submitResponse = await fetch(
       `${baseUrl}/api/board-assignments/assignment-1/action`,
       {
@@ -5739,7 +5843,10 @@ test("board assignment API enforces creation, execution and review capabilities"
       },
     );
     assert.equal(completeResponse.status, 200);
-    assert.equal(current.status, "completed");
+    assert.equal(current.status, "in_progress");
+    assert.equal(current.currentOccurrenceDate, "2026-07-21");
+    assert.equal(completedOccurrenceDate, "2026-07-10");
+    assert.equal(current.comments.at(-1)?.statusAfter, "completed");
     assert.deepEqual(
       events.map((event) => event.action),
       [
@@ -5748,6 +5855,12 @@ test("board assignment API enforces creation, execution and review capabilities"
         "board_assignment.complete",
       ],
     );
+    assert.deepEqual(events.at(-1)?.details, [
+      { label: "Результат", value: "Завершено" },
+      { label: "Следующая дата исполнения", value: "2026-07-21" },
+      { label: "Протокол", value: "369" },
+      { label: "Пункт решения", value: "2.3" },
+    ]);
 
     profile.activeAccess.position = "administrator";
     profile.activeAccess.positionDisplayName = "Администратор";
@@ -5766,7 +5879,9 @@ test("board assignment API enforces creation, execution and review capabilities"
           summary: "Недоступное администратору поручение",
           details: "Администратор не должен создавать поручения.",
           coExecutors: [],
-          dueDate: "До 31.07.2026",
+          recurrence: "once",
+          activeFrom: "2026-07-10",
+          activeTo: "2026-07-31",
         }),
       },
     );
@@ -5785,6 +5900,305 @@ test("board assignment API enforces creation, execution and review capabilities"
     assert.equal(forbiddenAdminCreateResponse.status, 403);
     assert.equal(forbiddenAdminActionResponse.status, 403);
     assert.equal(events.length, 3);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("board assignment API lets any creator edit a live assignment but keeps a completed one immutable", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.position = "board_member";
+  profile.activeAccess.positionDisplayName = "Член Совета директоров";
+  profile.activeAccess.navigationItems = ["business.board_assignments"];
+  profile.activeAccess.capabilities = [
+    "business.view_board_assignments",
+    "business.create_board_assignments",
+  ];
+  let current: BoardAssignment = {
+    id: "assignment-edit",
+    meetingDate: "2026-07-10",
+    protocolNumber: "369",
+    decisionNumber: "2.3",
+    summary: "Первоначальное содержание",
+    details: "Первоначальное полное содержание.",
+    coExecutors: ["Экономист"],
+    dueDate: "Каждый месяц, с 10.07.2026 по 31.12.2026",
+    recurrence: "monthly",
+    activeFrom: "2026-07-10",
+    activeTo: "2026-12-31",
+    currentOccurrenceDate: "2026-08-10",
+    status: "under_review",
+    createdByDisplayName: "Белов Ю.И.",
+    createdAt: "2026-07-10T08:00:00.000Z",
+    updatedAt: "2026-07-20T08:00:00.000Z",
+    comments: [],
+  };
+  let updateInput: Record<string, unknown> | undefined;
+  const repository = {
+    async list() {
+      return [current];
+    },
+    async readById() {
+      return current;
+    },
+    async readByIdForUpdate() {
+      return current;
+    },
+    async create() {
+      return current;
+    },
+    async applyAction() {
+      return current;
+    },
+    async update(input: Record<string, unknown>) {
+      updateInput = input;
+      const assignment = input.assignment as Record<string, unknown>;
+      current = {
+        ...current,
+        ...assignment,
+        dueDate: "Каждую неделю, с 15.07.2026 по 31.12.2026",
+        updatedAt: "2026-07-28T10:00:00.000Z",
+      };
+      return current;
+    },
+  } as unknown as BoardAssignmentsRepository;
+  const events: Parameters<AuditRepository["record"]>[0][] = [];
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    boardAssignments: repository,
+    referenceDataSource: emptyReferenceDataSource,
+    audit: {
+      async record(event) {
+        events.push(event);
+      },
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+    now: () => new Date("2026-07-28T10:00:00.000Z"),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+  const updateBody = {
+    meetingDate: "2026-07-12",
+    protocolNumber: "370",
+    decisionNumber: "3.1",
+    summary: "Уточнённое содержание",
+    details: "Уточнённое полное содержание.",
+    coExecutors: ["Экономист", "Главный инженер"],
+    recurrence: "weekly",
+    activeFrom: "2026-07-15",
+    activeTo: "2026-12-31",
+    comment: "Исправлены сроки и содержание.",
+    expectedUpdatedAt: "2026-07-20T08:00:00.000Z",
+  };
+  const { expectedUpdatedAt, ...assignmentUpdateBody } = updateBody;
+
+  try {
+    const updateResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-edit`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(updateBody),
+      },
+    );
+
+    assert.equal(updateResponse.status, 200);
+    assert.deepEqual(
+      updateInput === undefined
+        ? undefined
+        : {
+            assignmentId: updateInput.assignmentId,
+            expectedUpdatedAt: updateInput.expectedUpdatedAt,
+            assignment: updateInput.assignment,
+            actor: updateInput.actor,
+          },
+      {
+        assignmentId: "assignment-edit",
+        expectedUpdatedAt,
+        assignment: assignmentUpdateBody,
+        actor: {
+          userId: profile.userId,
+          accountId: profile.activeAccess.accountId,
+          displayName: profile.displayName,
+        },
+      },
+    );
+    assert.equal(events.at(-1)?.action, "board_assignment.update");
+
+    current.status = "completed";
+    updateInput = undefined;
+    const completedResponse = await fetch(
+      `${baseUrl}/api/board-assignments/assignment-edit`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(updateBody),
+      },
+    );
+
+    assert.equal(completedResponse.status, 409);
+    assert.equal(updateInput, undefined);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("board assignment completion history returns immutable accepted snapshots", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["business.board_assignments"];
+  profile.activeAccess.capabilities = ["business.view_board_assignments"];
+  const assignment: BoardAssignment = {
+    id: "assignment-history",
+    meetingDate: "2026-07-10",
+    protocolNumber: "369",
+    decisionNumber: "2.4",
+    summary: "Состояние поручения на момент приёмки",
+    details: "Это содержание не меняется после завершения периода.",
+    coExecutors: ["Экономист"],
+    dueDate: "Каждый месяц, с 10.07.2026 по 31.12.2026",
+    recurrence: "monthly",
+    activeFrom: "2026-07-10",
+    activeTo: "2026-12-31",
+    currentOccurrenceDate: "2026-07-10",
+    status: "completed",
+    createdByDisplayName: "Белов Ю.И.",
+    createdAt: "2026-07-10T08:00:00.000Z",
+    updatedAt: "2026-07-28T12:00:00.000Z",
+    comments: [{
+      id: "completion-comment",
+      authorDisplayName: "Лариков А.Т.",
+      comment: "Исполнение принято.",
+      statusAfter: "completed",
+      createdAt: "2026-07-28T12:00:00.000Z",
+    }],
+  };
+  const completion: BoardAssignmentCompletion = {
+    id: "completion-1",
+    assignmentId: assignment.id,
+    occurrenceDate: "2026-07-10",
+    completedByDisplayName: "Лариков А.Т.",
+    completedAt: "2026-07-28T12:00:00.000Z",
+    assignment,
+  };
+  const completionSummary: BoardAssignmentCompletionSummary = {
+    ...completion,
+    assignment: {
+      id: assignment.id,
+      meetingDate: assignment.meetingDate,
+      protocolNumber: assignment.protocolNumber,
+      decisionNumber: assignment.decisionNumber,
+      summary: assignment.summary,
+      coExecutors: assignment.coExecutors,
+      dueDate: assignment.dueDate,
+      recurrence: assignment.recurrence,
+      activeFrom: assignment.activeFrom,
+      activeTo: assignment.activeTo,
+      currentOccurrenceDate: assignment.currentOccurrenceDate,
+      status: assignment.status,
+      createdByDisplayName: assignment.createdByDisplayName,
+      createdAt: assignment.createdAt,
+      updatedAt: assignment.updatedAt,
+    },
+  };
+  let historyFilters: Omit<BoardAssignmentFilters, "status"> | undefined;
+  const repository = {
+    async list() {
+      return [];
+    },
+    async readById() {
+      return undefined;
+    },
+    async readByIdForUpdate() {
+      return undefined;
+    },
+    async create() {
+      throw new Error("not used");
+    },
+    async update() {
+      throw new Error("not used");
+    },
+    async applyAction() {
+      throw new Error("not used");
+    },
+    async listCompletions(filters: Omit<BoardAssignmentFilters, "status">) {
+      historyFilters = filters;
+      return [completionSummary];
+    },
+    async readCompletionById(id: string) {
+      return id === completion.id ? completion : undefined;
+    },
+  } as unknown as BoardAssignmentsRepository;
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    boardAssignments: repository,
+    referenceDataSource: emptyReferenceDataSource,
+    audit: {
+      async record() {},
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const listResponse = await fetch(
+      `${baseUrl}/api/board-assignment-completions?meetingDateFrom=2026-07-01&query=состояние`,
+      { headers },
+    );
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(historyFilters, {
+      meetingDateFrom: "2026-07-01",
+      query: "состояние",
+    });
+    const listPayload = await listResponse.json() as {
+      completions: BoardAssignmentCompletionSummary[];
+    };
+    assert.equal(listPayload.completions[0]?.id, "completion-1");
+
+    const detailResponse = await fetch(
+      `${baseUrl}/api/board-assignment-completions/completion-1`,
+      { headers },
+    );
+    assert.equal(detailResponse.status, 200);
+    const detailPayload = await detailResponse.json() as {
+      completion: BoardAssignmentCompletion;
+    };
+    assert.equal(detailPayload.completion.assignment.status, "completed");
+    assert.equal(
+      detailPayload.completion.assignment.comments.at(-1)?.comment,
+      "Исполнение принято.",
+    );
   } finally {
     server.close();
     await once(server, "close");

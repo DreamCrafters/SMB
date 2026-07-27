@@ -15,6 +15,10 @@ const assignmentRow = {
   details: "Представить Совету директоров письменный анализ.",
   co_executors: JSON.stringify(["Экономист"]),
   due_date: "Ежемесячно до конца 2026 года",
+  recurrence: "monthly",
+  active_from: "2026-07-10",
+  active_to: "2026-12-31",
+  current_occurrence_date: "2026-07-10",
   status: "in_progress",
   source_material_key: "protocol-369-2026-07-10",
   source_material_file_name: "Протокол 369 10.07.2026 v2.pdf",
@@ -66,7 +70,9 @@ test("board assignment repository stores the task and immutable initial comment"
       summary: "Подготовить анализ причин невыполнения плана",
       details: "Представить Совету директоров письменный анализ.",
       coExecutors: ["Экономист"],
-      dueDate: "До 24.07.2026",
+      recurrence: "monthly",
+      activeFrom: "2026-07-10",
+      activeTo: "2026-12-31",
       comment: "Поручение внесено по протоколу.",
     },
     actor: {
@@ -78,6 +84,8 @@ test("board assignment repository stores the task and immutable initial comment"
 
   assert.equal(saved.id, "assignment-1");
   assert.equal(saved.dueDate, "Ежемесячно до конца 2026 года");
+  assert.equal(saved.recurrence, "monthly");
+  assert.equal(saved.currentOccurrenceDate, "2026-07-10");
   assert.equal(
     saved.sourceMaterial?.fileName,
     "Протокол 369 10.07.2026 v2.pdf",
@@ -90,6 +98,30 @@ test("board assignment repository stores the task and immutable initial comment"
     "assignment-1",
     "board-user",
   ]);
+});
+
+test("board assignment repository limits the executor list to active occurrences", async () => {
+  let querySql = "";
+  let queryParameters: readonly unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      querySql = sql;
+      queryParameters = parameters ?? [];
+      return [[assignmentRow], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool);
+
+  const rows = await repository.list({}, { activeOn: "2026-07-27" });
+
+  assert.equal(rows.length, 1);
+  assert.match(querySql, /assignments\.status in \('in_progress', 'revision_requested'\)/u);
+  assert.match(querySql, /assignments\.current_occurrence_date <= \?/u);
+  assert.match(
+    querySql,
+    /assignments\.current_occurrence_date\s+between assignments\.active_from and assignments\.active_to/u,
+  );
+  assert.deepEqual(queryParameters, ["2026-07-27"]);
 });
 
 test("board assignment repository filters the register without interpolating user input", async () => {
@@ -181,6 +213,8 @@ test("board assignment repository applies a guarded status transition and append
     assignmentId: "assignment-1",
     expectedStatus: "in_progress",
     status: "under_review",
+    commentStatus: "under_review",
+    currentOccurrenceDate: "2026-07-10",
     comment: "Работа выполнена.",
     actor: {
       userId: "director-user",
@@ -198,6 +232,7 @@ test("board assignment repository applies a guarded status transition and append
   assert.match(update?.sql ?? "", /where id = \? and status = \?/u);
   assert.deepEqual(update?.parameters, [
     "under_review",
+    "2026-07-10",
     "2026-07-20 10:00:00.000",
     "assignment-1",
     "in_progress",
@@ -220,6 +255,8 @@ test("board assignment repository detects a concurrent status change", async () 
       assignmentId: "assignment-1",
       expectedStatus: "in_progress",
       status: "under_review",
+      commentStatus: "under_review",
+      currentOccurrenceDate: "2026-07-10",
       comment: "Работа выполнена.",
       actor: {
         userId: "director-user",
@@ -230,3 +267,263 @@ test("board assignment repository detects a concurrent status change", async () 
     BoardAssignmentChangedError,
   );
 });
+
+test("board assignment repository edits the live version and records both states", async () => {
+  const queries: Array<{ sql: string; parameters?: readonly unknown[] }> = [];
+  const editedRow = {
+    ...assignmentRow,
+    meeting_date: "2026-07-12",
+    protocol_number: "370",
+    decision_number: "3.1",
+    summary: "Уточнённое содержание",
+    details: "Уточнённое полное содержание.",
+    co_executors: JSON.stringify(["Экономист", "Главный инженер"]),
+    due_date: "Каждую неделю, с 15.07.2026 по 31.12.2026",
+    recurrence: "weekly",
+    active_from: "2026-07-15",
+    active_to: "2026-12-31",
+    current_occurrence_date: "2026-08-12",
+    updated_at: "2026-07-28T10:00:00.000Z",
+  };
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      queries.push({ sql, parameters });
+
+      if (sql.includes("update board_assignments")) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (
+        sql.includes("from board_assignments assignments") &&
+        sql.includes("where assignments.id = ?")
+      ) {
+        return [[editedRow], []];
+      }
+      if (sql.includes("from board_assignment_comments")) {
+        return [[
+          commentRow,
+          {
+            ...commentRow,
+            id: "edit-comment",
+            comment_text: "Исправлены сроки и содержание.",
+            created_at: "2026-07-28T10:00:00.000Z",
+          },
+        ], []];
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+  const ids = ["edit-comment", "edit-revision"];
+  const repository = createBoardAssignmentsRepository(pool, {
+    createId: () => ids.shift() ?? "unexpected-id",
+    now: () => new Date("2026-07-28T10:00:00.000Z"),
+  });
+  const saved = await repository.update({
+    assignmentId: "assignment-1",
+    expectedUpdatedAt: "2026-07-10T08:00:00.000Z",
+    currentOccurrenceDate: "2026-08-12",
+    current: {
+      ...mapFixtureAssignment(),
+      currentOccurrenceDate: "2026-08-10",
+    },
+    assignment: {
+      meetingDate: "2026-07-12",
+      protocolNumber: "370",
+      decisionNumber: "3.1",
+      summary: "Уточнённое содержание",
+      details: "Уточнённое полное содержание.",
+      coExecutors: ["Экономист", "Главный инженер"],
+      recurrence: "weekly",
+      activeFrom: "2026-07-15",
+      activeTo: "2026-12-31",
+      comment: "Исправлены сроки и содержание.",
+    },
+    actor: {
+      userId: "board-user-2",
+      accountId: "board-access-2",
+      displayName: "Другой член Совета",
+    },
+  });
+
+  assert.equal(saved.summary, "Уточнённое содержание");
+  assert.equal(saved.currentOccurrenceDate, "2026-08-12");
+  const update = queries.find((query) =>
+    query.sql.includes("update board_assignments")
+  );
+  assert.match(update?.sql ?? "", /status <> 'completed'/u);
+  assert.deepEqual(update?.parameters?.slice(-2), [
+    "assignment-1",
+    "2026-07-10 08:00:00.000",
+  ]);
+  const revision = queries.find((query) =>
+    query.sql.includes("insert into board_assignment_edit_revisions")
+  );
+  assert.ok(revision);
+  assert.equal(revision.parameters?.[4], "Исправлены сроки и содержание.");
+  assert.match(
+    String(revision.parameters?.[2]),
+    /Подготовить анализ причин невыполнения плана/u,
+  );
+  assert.match(String(revision.parameters?.[3]), /Уточнённое содержание/u);
+});
+
+test("board assignment repository snapshots an accepted occurrence before advancing the repeat", async () => {
+  const queries: Array<{ sql: string; parameters?: readonly unknown[] }> = [];
+  const nextRow = {
+    ...assignmentRow,
+    current_occurrence_date: "2026-08-10",
+    status: "in_progress",
+    updated_at: "2026-07-28T12:00:00.000Z",
+  };
+  const completedComment = {
+    ...commentRow,
+    id: "completion-comment",
+    author_display_name: "Лариков А.Т.",
+    comment_text: "Исполнение принято.",
+    status_after: "completed",
+    created_at: "2026-07-28T12:00:00.000Z",
+  };
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      queries.push({ sql, parameters });
+
+      if (sql.includes("update board_assignments")) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (
+        sql.includes("from board_assignments assignments") &&
+        sql.includes("where assignments.id = ?")
+      ) {
+        return [[nextRow], []];
+      }
+      if (sql.includes("from board_assignment_comments")) {
+        return [[commentRow, completedComment], []];
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+  const ids = ["completion-comment", "completion-snapshot"];
+  const repository = createBoardAssignmentsRepository(pool, {
+    createId: () => ids.shift() ?? "unexpected-id",
+    now: () => new Date("2026-07-28T12:00:00.000Z"),
+  });
+
+  const saved = await repository.applyAction({
+    assignmentId: "assignment-1",
+    expectedStatus: "under_review",
+    status: "in_progress",
+    commentStatus: "completed",
+    currentOccurrenceDate: "2026-08-10",
+    completedOccurrenceDate: "2026-07-10",
+    comment: "Исполнение принято.",
+    actor: {
+      userId: "chair-user",
+      accountId: "chair-access",
+      displayName: "Лариков А.Т.",
+    },
+  });
+
+  assert.equal(saved.status, "in_progress");
+  assert.equal(saved.currentOccurrenceDate, "2026-08-10");
+  const snapshotInsert = queries.find((query) =>
+    query.sql.includes("insert into board_assignment_completion_snapshots")
+  );
+  assert.ok(snapshotInsert);
+  const snapshot = JSON.parse(
+    String(snapshotInsert.parameters?.[3]),
+  ) as {
+    status: string;
+    currentOccurrenceDate: string;
+    comments: Array<{ comment: string; statusAfter: string }>;
+  };
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.currentOccurrenceDate, "2026-07-10");
+  assert.deepEqual(snapshot.comments.at(-1), {
+    id: "completion-comment",
+    authorDisplayName: "Лариков А.Т.",
+    comment: "Исполнение принято.",
+    statusAfter: "completed",
+    createdAt: "2026-07-28T12:00:00.000Z",
+  });
+});
+
+test("board assignment repository reads completed snapshots independently of the live row", async () => {
+  const completedSnapshot = {
+    ...mapFixtureAssignment(),
+    currentOccurrenceDate: "2026-07-10",
+    status: "completed" as const,
+  };
+  let listSql = "";
+  let listParameters: readonly unknown[] = [];
+  const completionRow = {
+    id: "completion-1",
+    assignment_id: "assignment-1",
+    occurrence_date: "2026-07-10",
+    snapshot: JSON.stringify(completedSnapshot),
+    completed_by_display_name: "Лариков А.Т.",
+    completed_at: "2026-07-28T12:00:00.000Z",
+  };
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      if (sql.includes("from board_assignment_completion_snapshots")) {
+        listSql = sql;
+        listParameters = parameters ?? [];
+        return [[completionRow], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool);
+
+  const completions = await repository.listCompletions({
+    meetingDateFrom: "2026-07-01",
+    query: "анализ",
+  });
+
+  assert.equal(completions[0]?.id, "completion-1");
+  assert.equal(completions[0]?.assignment.status, "completed");
+  assert.equal(completions[0]?.occurrenceDate, "2026-07-10");
+  assert.match(listSql, /json_extract\(completions\.snapshot/u);
+  assert.match(listSql, /order by completions\.completed_at desc/u);
+  assert.deepEqual(listParameters, [
+    "2026-07-01",
+    "%анализ%",
+    "%анализ%",
+    "%анализ%",
+    "%анализ%",
+    "%анализ%",
+  ]);
+});
+
+function mapFixtureAssignment() {
+  return {
+    id: assignmentRow.id,
+    meetingDate: assignmentRow.meeting_date,
+    protocolNumber: assignmentRow.protocol_number,
+    decisionNumber: assignmentRow.decision_number,
+    summary: assignmentRow.summary,
+    details: assignmentRow.details,
+    coExecutors: ["Экономист"],
+    dueDate: assignmentRow.due_date,
+    recurrence: "monthly" as const,
+    activeFrom: assignmentRow.active_from,
+    activeTo: assignmentRow.active_to,
+    currentOccurrenceDate: assignmentRow.current_occurrence_date,
+    status: "in_progress" as const,
+    sourceMaterial: {
+      key: assignmentRow.source_material_key,
+      fileName: assignmentRow.source_material_file_name,
+    },
+    createdByDisplayName: assignmentRow.created_by_display_name,
+    createdAt: assignmentRow.created_at,
+    updatedAt: assignmentRow.updated_at,
+    comments: [{
+      id: commentRow.id,
+      authorDisplayName: commentRow.author_display_name,
+      comment: commentRow.comment_text,
+      statusAfter: "in_progress" as const,
+      createdAt: commentRow.created_at,
+    }],
+  };
+}

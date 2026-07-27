@@ -4,21 +4,29 @@ import {
   type FormEvent,
 } from "react";
 import {
+  boardAssignmentActions,
+  boardAssignmentRecurrences,
   boardAssignmentStatuses,
   type BoardAssignment,
-  type BoardAssignmentAction,
+  type BoardAssignmentCompletion,
+  type BoardAssignmentCompletionSummary,
   type BoardAssignmentCreateInput,
   type BoardAssignmentFilters,
   type BoardAssignmentPermissions,
+  type BoardAssignmentRecurrence,
   type BoardAssignmentStatus,
   type BoardAssignmentSummary,
+  type BoardAssignmentUpdateInput,
 } from "./contracts";
 import {
   applyBoardAssignmentAction,
   createBoardAssignment,
   requestBoardAssignment,
+  requestBoardAssignmentCompletion,
+  requestBoardAssignmentCompletions,
   requestBoardAssignmentMaterial,
   requestBoardAssignments,
+  updateBoardAssignment,
 } from "./services/boardAssignments";
 import { LoadingIndicator } from "./LoadingIndicator";
 
@@ -28,6 +36,16 @@ const statusLabels: Record<BoardAssignmentStatus, string> = {
   revision_requested: "На доработке",
   completed: "Завершено",
 };
+
+const recurrenceLabels: Record<BoardAssignmentRecurrence, string> = {
+  daily: "Каждый день",
+  weekly: "Каждую неделю",
+  monthly: "Каждый месяц",
+  yearly: "Каждый год",
+  once: "Один раз",
+};
+
+type BoardAssignmentAccessMode = "view" | "create" | "execute" | "review";
 
 const emptyPermissions: BoardAssignmentPermissions = {
   canView: true,
@@ -43,7 +61,9 @@ const emptyCreateInput: BoardAssignmentCreateInput = {
   summary: "",
   details: "",
   coExecutors: [],
-  dueDate: "",
+  recurrence: "once",
+  activeFrom: "",
+  activeTo: "",
 };
 
 type ListState =
@@ -56,6 +76,20 @@ type DetailState =
   | { status: "ready"; assignment: BoardAssignment }
   | { status: "error"; message: string };
 
+type CompletionListState =
+  | { status: "loading"; completions: BoardAssignmentCompletionSummary[] }
+  | { status: "ready"; completions: BoardAssignmentCompletionSummary[] }
+  | {
+      status: "error";
+      completions: BoardAssignmentCompletionSummary[];
+      message: string;
+    };
+
+type CompletionDetailState =
+  | { status: "loading" }
+  | { status: "ready"; completion: BoardAssignmentCompletion }
+  | { status: "error"; message: string };
+
 export function BoardAssignmentsWorkspace({
   isAdminPreviewMode,
   onShowToast,
@@ -64,6 +98,7 @@ export function BoardAssignmentsWorkspace({
   onShowToast: (title: string, message: string) => void;
 }) {
   const [filters, setFilters] = useState<BoardAssignmentFilters>({});
+  const [registerMode, setRegisterMode] = useState<"live" | "history">("live");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<BoardAssignmentStatus | "">("");
   const [meetingDateFrom, setMeetingDateFrom] = useState("");
@@ -76,12 +111,23 @@ export function BoardAssignmentsWorkspace({
   const [permissions, setPermissions] = useState(emptyPermissions);
   const [selectedId, setSelectedId] = useState<string>();
   const [detailState, setDetailState] = useState<DetailState>();
+  const [completionListState, setCompletionListState] =
+    useState<CompletionListState>({
+      status: "loading",
+      completions: [],
+    });
+  const [selectedCompletionId, setSelectedCompletionId] = useState<string>();
+  const [completionDetailState, setCompletionDetailState] =
+    useState<CompletionDetailState>();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [createInput, setCreateInput] = useState(emptyCreateInput);
   const [coExecutorsText, setCoExecutorsText] = useState("");
   const [createComment, setCreateComment] = useState("");
-  const [action, setAction] =
-    useState<BoardAssignmentAction>("submit_for_review");
+  const [editInput, setEditInput] =
+    useState<BoardAssignmentCreateInput>(emptyCreateInput);
+  const [editCoExecutorsText, setEditCoExecutorsText] = useState("");
+  const [editComment, setEditComment] = useState("");
   const [actionComment, setActionComment] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isMaterialOpening, setIsMaterialOpening] = useState(false);
@@ -117,6 +163,38 @@ export function BoardAssignmentsWorkspace({
   }, [filters, listVersion]);
 
   useEffect(() => {
+    if (registerMode !== "history") return;
+
+    const controller = new AbortController();
+    setCompletionListState((current) => ({
+      status: "loading",
+      completions: current.completions,
+    }));
+    const { status: _status, ...historyFilters } = filters;
+    void requestBoardAssignmentCompletions(historyFilters, {
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.status === "error") {
+        setCompletionListState((current) => ({
+          status: "error",
+          completions: current.completions,
+          message: result.message,
+        }));
+        return;
+      }
+
+      setPermissions(result.permissions);
+      setCompletionListState({
+        status: "ready",
+        completions: result.completions,
+      });
+    });
+
+    return () => controller.abort();
+  }, [filters, listVersion, registerMode]);
+
+  useEffect(() => {
     if (selectedId === undefined) {
       setDetailState(undefined);
       return;
@@ -135,13 +213,42 @@ export function BoardAssignmentsWorkspace({
 
       setPermissions(result.permissions);
       setDetailState({ status: "ready", assignment: result.assignment });
-      setAction(readDefaultAction(result.assignment, result.permissions));
       setActionComment("");
       setFormMessage("");
     });
 
     return () => controller.abort();
   }, [selectedId]);
+
+  useEffect(() => {
+    if (selectedCompletionId === undefined) {
+      setCompletionDetailState(undefined);
+      return;
+    }
+
+    const controller = new AbortController();
+    setCompletionDetailState({ status: "loading" });
+    void requestBoardAssignmentCompletion(selectedCompletionId, {
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.status === "error") {
+        setCompletionDetailState({
+          status: "error",
+          message: result.message,
+        });
+        return;
+      }
+
+      setPermissions(result.permissions);
+      setCompletionDetailState({
+        status: "ready",
+        completion: result.completion,
+      });
+    });
+
+    return () => controller.abort();
+  }, [selectedCompletionId]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -196,6 +303,48 @@ export function BoardAssignmentsWorkspace({
     );
   }
 
+  async function saveEditedAssignment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      isAdminPreviewMode ||
+      isSaving ||
+      detailState?.status !== "ready"
+    ) {
+      return;
+    }
+
+    const request: BoardAssignmentUpdateInput = {
+      ...editInput,
+      coExecutors: editCoExecutorsText
+        .split(/[,\n;]/u)
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+      comment: editComment.trim(),
+      expectedUpdatedAt: detailState.assignment.updatedAt,
+    };
+    setIsSaving(true);
+    setFormMessage("");
+    const result = await updateBoardAssignment(
+      detailState.assignment.id,
+      request,
+    );
+    setIsSaving(false);
+
+    if (result.status === "error") {
+      setFormMessage(result.message);
+      return;
+    }
+
+    setIsEditOpen(false);
+    setEditComment("");
+    setDetailState({ status: "ready", assignment: result.assignment });
+    setListVersion((current) => current + 1);
+    onShowToast(
+      "Поручение обновлено",
+      "Изменения синхронизированы для текущего и следующих исполнений.",
+    );
+  }
+
   async function saveAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
@@ -206,11 +355,18 @@ export function BoardAssignmentsWorkspace({
       return;
     }
 
+    const submitterAction = (event.nativeEvent as SubmitEvent).submitter
+      ?.getAttribute("value");
+    const requestedAction = boardAssignmentActions.find(
+      (item) => item === submitterAction,
+    );
+    if (requestedAction === undefined) return;
+
     setIsSaving(true);
     setFormMessage("");
     const result = await applyBoardAssignmentAction(
       detailState.assignment.id,
-      { action, comment: actionComment },
+      { action: requestedAction, comment: actionComment },
     );
     setIsSaving(false);
 
@@ -219,11 +375,29 @@ export function BoardAssignmentsWorkspace({
       return;
     }
 
-    setDetailState({ status: "ready", assignment: result.assignment });
-    setAction(readDefaultAction(result.assignment, result.permissions));
-    setActionComment("");
+    if (
+      requestedAction === "submit_for_review" &&
+      result.permissions.canExecute
+    ) {
+      setSelectedId(undefined);
+    } else {
+      setDetailState({ status: "ready", assignment: result.assignment });
+      setActionComment("");
+    }
     setListVersion((current) => current + 1);
-    onShowToast("Статус обновлён", statusLabels[result.assignment.status]);
+    if (
+      requestedAction === "complete" &&
+      result.assignment.status === "in_progress"
+    ) {
+      onShowToast(
+        "Выполнение принято",
+        `Следующая дата: ${
+          formatCalendarDate(result.assignment.currentOccurrenceDate)
+        }.`,
+      );
+    } else {
+      onShowToast("Статус обновлён", statusLabels[result.assignment.status]);
+    }
   }
 
   async function openMaterial(material: { key: string; fileName: string }) {
@@ -260,35 +434,208 @@ export function BoardAssignmentsWorkspace({
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   }
 
+  function openCreateDialog() {
+    setFormMessage("");
+    setIsCreateOpen(true);
+  }
+
+  function openEditDialog(assignment: BoardAssignment) {
+    setEditInput({
+      meetingDate: assignment.meetingDate,
+      protocolNumber: assignment.protocolNumber,
+      decisionNumber: assignment.decisionNumber,
+      summary: assignment.summary,
+      details: assignment.details,
+      coExecutors: assignment.coExecutors,
+      recurrence: assignment.recurrence,
+      activeFrom: assignment.activeFrom,
+      activeTo: assignment.activeTo,
+    });
+    setEditCoExecutorsText(assignment.coExecutors.join("\n"));
+    setEditComment("");
+    setFormMessage("");
+    setIsEditOpen(true);
+  }
+
+  function switchRegisterMode(mode: "live" | "history") {
+    setRegisterMode(mode);
+    setSelectedId(undefined);
+    setSelectedCompletionId(undefined);
+    setStatus("");
+    setFilters((current) => {
+      const { status: _status, ...remaining } = current;
+      return remaining;
+    });
+  }
+
   const canCreate = permissions.canCreate && !isAdminPreviewMode;
+  const accessMode = readBoardAssignmentAccessMode(permissions);
+  const reviewAssignments = listState.assignments.filter(
+    (assignment) => assignment.status === "under_review",
+  );
+  const activeListState =
+    registerMode === "history" ? completionListState : listState;
 
   return (
-    <main className="board-assignments-workspace">
+    <main
+      className={`board-assignments-workspace is-access-${accessMode}`}
+    >
       <header className="board-assignments-heading">
         <div>
           <span className="eyebrow">Совет директоров</span>
           <h1>Поручения Генеральному директору</h1>
-          <p>
-            Единый реестр поручений, сроков, исполнения и решений по проверке.
-          </p>
         </div>
-        {canCreate ? (
+        <nav aria-label="Разделы поручений">
           <button
-            className="primary-button"
+            className={registerMode === "live"
+              ? "primary-button"
+              : "secondary-button"}
             type="button"
-            onClick={() => {
-              setFormMessage("");
-              setIsCreateOpen(true);
-            }}
+            onClick={() => switchRegisterMode("live")}
           >
-            Добавить поручение
+            Текущие поручения
           </button>
-        ) : null}
+          <button
+            className={registerMode === "history"
+              ? "primary-button"
+              : "secondary-button"}
+            type="button"
+            onClick={() => switchRegisterMode("history")}
+          >
+            История выполненных
+          </button>
+        </nav>
       </header>
 
-      <form className="board-assignment-filters" onSubmit={applyFilters}>
+      {registerMode === "history" ? (
+        <section
+          className="board-assignment-history-overview"
+          aria-label="История выполненных поручений"
+        >
+          <div>
+            <span>Архив принятых исполнений</span>
+            <h2>История выполненных</h2>
+            <p>
+              Здесь сохранено точное состояние каждого поручения на момент
+              приёмки. Последующие изменения живого поручения архив не меняют.
+            </p>
+          </div>
+          <strong>
+            {completionListState.completions.length}
+            <small>выполнено</small>
+          </strong>
+        </section>
+      ) : accessMode === "execute" ? (
+        <section
+          className="board-assignment-executor-overview"
+          aria-label="Режим исполнения"
+        >
+          <div>
+            <span>К исполнению</span>
+            <h2>Активные поручения</h2>
+            <p>
+              Здесь только поручения, которые нужно выполнить сейчас.
+              Повторяющиеся появятся автоматически в следующую дату.
+            </p>
+          </div>
+          <strong>
+            {listState.assignments.length}
+            <small>сейчас</small>
+          </strong>
+        </section>
+      ) : accessMode === "create" ? (
+        <section
+          className="board-assignment-create-overview"
+          aria-label="Постановка поручений"
+        >
+          <div>
+            <span>Постановка поручений</span>
+            <h2>Создать новое поручение</h2>
+            <p>
+              Зафиксируйте решение Совета директоров, срок и ответственных.
+              После сохранения поручение сразу появится в реестре.
+            </p>
+            {canCreate ? (
+              <button
+                className="primary-button"
+                type="button"
+                onClick={openCreateDialog}
+              >
+                Добавить поручение
+              </button>
+            ) : null}
+          </div>
+          <div className="board-assignment-create-count">
+            <strong>{listState.assignments.length}</strong>
+            <span>показано в реестре</span>
+          </div>
+        </section>
+      ) : accessMode === "review" ? (
+        <section
+          className="board-assignment-review-overview"
+          aria-label="Очередь приёмки"
+        >
+          <div>
+            <span>Приёмка исполнения</span>
+            <h2>Ожидают решения</h2>
+            <p>
+              Сначала проверьте результат и комментарии исполнителя, затем
+              примите работу или верните её с понятным замечанием.
+            </p>
+          </div>
+          <div className="board-assignment-review-actions">
+            <strong>
+              {reviewAssignments.length}
+              <small>на проверке</small>
+            </strong>
+            {canCreate ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={openCreateDialog}
+              >
+                Добавить поручение
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : (
+        <section
+          className="board-assignment-view-notice"
+          aria-label="Режим просмотра"
+        >
+          <div>
+            <span>Только просмотр</span>
+            <p>
+              Можно открывать поручения, читать комментарии и пользоваться
+              фильтрами. Изменение данных недоступно.
+            </p>
+          </div>
+          <strong>
+            {listState.assignments.length}{" "}
+            {formatAssignmentCount(listState.assignments.length)}
+          </strong>
+        </section>
+      )}
+
+      <form
+        className={`board-assignment-filters${
+          accessMode === "execute" && registerMode === "live"
+            ? " is-compact"
+            : registerMode === "history"
+            ? " is-history"
+            : ""
+        }`}
+        onSubmit={applyFilters}
+      >
         <label className="board-assignment-search">
-          <span>Поиск</span>
+          <span>
+            {registerMode === "history"
+              ? "Найти выполненное поручение"
+              : accessMode === "execute"
+              ? "Найти активное поручение"
+              : "Поиск"}
+          </span>
           <input
             maxLength={200}
             placeholder="Поручение, протокол, пункт, соисполнитель"
@@ -299,45 +646,53 @@ export function BoardAssignmentsWorkspace({
             }}
           />
         </label>
-        <label>
-          <span>Статус</span>
-          <select
-            value={status}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setStatus(value as BoardAssignmentStatus | "");
-            }}
-          >
-            <option value="">Все статусы</option>
-            {boardAssignmentStatuses.map((item) => (
-              <option key={item} value={item}>{statusLabels[item]}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Заседание с</span>
-          <input
-            max={meetingDateTo || undefined}
-            type="date"
-            value={meetingDateFrom}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setMeetingDateFrom(value);
-            }}
-          />
-        </label>
-        <label>
-          <span>Заседание по</span>
-          <input
-            min={meetingDateFrom || undefined}
-            type="date"
-            value={meetingDateTo}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setMeetingDateTo(value);
-            }}
-          />
-        </label>
+        {accessMode === "execute" && registerMode === "live" ? null : (
+          <>
+            {registerMode === "live" ? (
+              <label>
+                <span>Статус</span>
+                <select
+                  value={status}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setStatus(value as BoardAssignmentStatus | "");
+                  }}
+                >
+                  <option value="">Все статусы</option>
+                  {boardAssignmentStatuses.map((item) => (
+                    <option key={item} value={item}>
+                      {statusLabels[item]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label>
+              <span>Заседание с</span>
+              <input
+                max={meetingDateTo || undefined}
+                type="date"
+                value={meetingDateFrom}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setMeetingDateFrom(value);
+                }}
+              />
+            </label>
+            <label>
+              <span>Заседание по</span>
+              <input
+                min={meetingDateFrom || undefined}
+                type="date"
+                value={meetingDateTo}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setMeetingDateTo(value);
+                }}
+              />
+            </label>
+          </>
+        )}
         <div className="board-assignment-filter-actions">
           <button className="primary-button" type="submit">Показать</button>
           <button
@@ -350,18 +705,186 @@ export function BoardAssignmentsWorkspace({
         </div>
       </form>
 
-      {listState.status === "loading" ? (
+      {activeListState.status === "loading" ? (
         <LoadingIndicator label="Загружаем поручения…" variant="inline" />
       ) : null}
-      {listState.status === "error" ? (
+      {activeListState.status === "error" ? (
         <p className="form-message is-error" role="alert">
-          {listState.message}
+          {activeListState.message}
         </p>
       ) : null}
 
-      <section className="board-assignment-register" aria-label="Реестр поручений">
-        <div className="board-assignment-table-wrap">
-          <table className="board-assignment-table">
+      {registerMode === "history" ? (
+        <section
+          className="board-assignment-register"
+          aria-label="История выполненных поручений"
+        >
+          <div className="board-assignment-table-wrap">
+            <table className="board-assignment-table board-assignment-history-table">
+              <thead>
+                <tr>
+                  <th>Принято</th>
+                  <th>Краткое содержание поручения</th>
+                  <th>Дата исполнения</th>
+                  <th>Принял</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {completionListState.completions.map((completion) => (
+                  <tr key={completion.id}>
+                    <td>{formatTimestamp(completion.completedAt)}</td>
+                    <td>
+                      <button
+                        className="board-assignment-link"
+                        type="button"
+                        onClick={() => setSelectedCompletionId(completion.id)}
+                      >
+                        {completion.assignment.summary}
+                      </button>
+                      <small>
+                        Протокол №{completion.assignment.protocolNumber},
+                        {" "}пункт {completion.assignment.decisionNumber}
+                      </small>
+                    </td>
+                    <td>{formatCalendarDate(completion.occurrenceDate)}</td>
+                    <td>{completion.completedByDisplayName}</td>
+                    <td>
+                      <span className="board-assignment-status is-completed">
+                        Завершено
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {completionListState.status !== "loading" &&
+                completionListState.completions.length === 0 ? (
+                  <tr>
+                    <td className="board-assignment-empty" colSpan={5}>
+                      Выполненных поручений по выбранным фильтрам нет.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : accessMode === "execute" ? (
+        <section
+          className="board-assignment-executor-list"
+          aria-label="Активные поручения"
+        >
+          {listState.assignments.map((assignment) => (
+            <article
+              className={`board-assignment-executor-card is-${assignment.status}`}
+              key={assignment.id}
+            >
+              <div className="board-assignment-executor-card-heading">
+                <span
+                  className={`board-assignment-status is-${assignment.status}`}
+                >
+                  {statusLabels[assignment.status]}
+                </span>
+                <span>
+                  К исполнению{" "}
+                  {formatCalendarDate(assignment.currentOccurrenceDate)}
+                </span>
+              </div>
+              <button
+                className="board-assignment-link"
+                type="button"
+                onClick={() => setSelectedId(assignment.id)}
+              >
+                {assignment.summary}
+              </button>
+              <p>
+                Протокол №{assignment.protocolNumber}, пункт{" "}
+                {assignment.decisionNumber}
+              </p>
+              <dl>
+                <div>
+                  <dt>Повтор</dt>
+                  <dd>{recurrenceLabels[assignment.recurrence]}</dd>
+                </div>
+                <div>
+                  <dt>Соисполнители</dt>
+                  <dd>
+                    {assignment.coExecutors.length === 0
+                      ? "Не указаны"
+                      : assignment.coExecutors.join(", ")}
+                  </dd>
+                </div>
+              </dl>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setSelectedId(assignment.id)}
+              >
+                Открыть и отчитаться
+              </button>
+            </article>
+          ))}
+          {listState.status !== "loading" &&
+          listState.assignments.length === 0 ? (
+            <div className="board-assignment-executor-empty">
+              <strong>Активных поручений сейчас нет</strong>
+              <p>Следующее повторяющееся поручение появится в нужную дату.</p>
+            </div>
+          ) : null}
+        </section>
+      ) : (
+        <>
+          {accessMode === "review" && reviewAssignments.length > 0 ? (
+            <section
+              className="board-assignment-review-queue"
+              aria-label="Поручения, ожидающие решения"
+            >
+              <header>
+                <div>
+                  <span>Требуют внимания</span>
+                  <h2>Проверить исполнение</h2>
+                </div>
+                <strong>{reviewAssignments.length}</strong>
+              </header>
+              <div>
+                {reviewAssignments.map((assignment) => (
+                  <article
+                    className="board-assignment-review-card"
+                    key={assignment.id}
+                  >
+                    <div>
+                      <span>
+                        К исполнению{" "}
+                        {formatCalendarDate(assignment.currentOccurrenceDate)}
+                      </span>
+                      <span>
+                        Протокол №{assignment.protocolNumber}, пункт{" "}
+                        {assignment.decisionNumber}
+                      </span>
+                    </div>
+                    <h3>{assignment.summary}</h3>
+                    <p>
+                      {assignment.coExecutors.length === 0
+                        ? "Без соисполнителей"
+                        : `Соисполнители: ${assignment.coExecutors.join(", ")}`}
+                    </p>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() => setSelectedId(assignment.id)}
+                    >
+                      Проверить исполнение
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          <section
+            className="board-assignment-register"
+            aria-label="Реестр поручений"
+          >
+            <div className="board-assignment-table-wrap">
+              <table className="board-assignment-table">
             <thead>
               <tr>
                 <th>Дата заседания Совета директоров</th>
@@ -393,7 +916,20 @@ export function BoardAssignmentsWorkspace({
                       ? "—"
                       : assignment.coExecutors.join(", ")}
                   </td>
-                  <td>{assignment.dueDate}</td>
+                  <td>
+                    <span className="board-assignment-schedule-summary">
+                      <strong>{recurrenceLabels[assignment.recurrence]}</strong>
+                      <small>
+                        Текущая дата:{" "}
+                        {formatCalendarDate(assignment.currentOccurrenceDate)}
+                      </small>
+                      <small>
+                        Период: {formatCalendarDate(assignment.activeFrom)}
+                        {" — "}
+                        {formatCalendarDate(assignment.activeTo)}
+                      </small>
+                    </span>
+                  </td>
                   <td>
                     <span
                       className={`board-assignment-status is-${assignment.status}`}
@@ -412,12 +948,15 @@ export function BoardAssignmentsWorkspace({
                 </tr>
               ) : null}
             </tbody>
-          </table>
-        </div>
-      </section>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
 
       {isCreateOpen ? (
-        <BoardAssignmentCreateDialog
+        <BoardAssignmentEditorDialog
+          mode="create"
           createInput={createInput}
           coExecutorsText={coExecutorsText}
           comment={createComment}
@@ -438,9 +977,29 @@ export function BoardAssignmentsWorkspace({
         />
       ) : null}
 
-      {selectedId === undefined ? null : (
+      {isEditOpen ? (
+        <BoardAssignmentEditorDialog
+          mode="edit"
+          createInput={editInput}
+          coExecutorsText={editCoExecutorsText}
+          comment={editComment}
+          formMessage={formMessage}
+          isSaving={isSaving}
+          onChange={setEditInput}
+          onCoExecutorsChange={setEditCoExecutorsText}
+          onCommentChange={setEditComment}
+          onCancel={() => {
+            if (isSaving) return;
+            setIsEditOpen(false);
+            setEditComment("");
+            setFormMessage("");
+          }}
+          onSubmit={saveEditedAssignment}
+        />
+      ) : null}
+
+      {selectedId === undefined || isEditOpen ? null : (
         <BoardAssignmentDetailDialog
-          action={action}
           actionComment={actionComment}
           detailState={detailState}
           formMessage={formMessage}
@@ -448,7 +1007,6 @@ export function BoardAssignmentsWorkspace({
           isMaterialOpening={isMaterialOpening}
           isSaving={isSaving}
           permissions={permissions}
-          onActionChange={setAction}
           onCommentChange={setActionComment}
           onCancel={() => {
             if (isSaving) return;
@@ -458,14 +1016,50 @@ export function BoardAssignmentsWorkspace({
           onOpenMaterial={(material) => {
             void openMaterial(material);
           }}
+          onEdit={openEditDialog}
           onSubmit={saveAction}
+        />
+      )}
+
+      {selectedCompletionId === undefined ? null : (
+        <BoardAssignmentDetailDialog
+          actionComment=""
+          detailState={
+            completionDetailState?.status === "ready"
+              ? {
+                  status: "ready",
+                  assignment: completionDetailState.completion.assignment,
+                }
+              : completionDetailState
+          }
+          formMessage=""
+          isAdminPreviewMode={false}
+          isMaterialOpening={isMaterialOpening}
+          isSaving={false}
+          permissions={emptyPermissions}
+          snapshotMeta={
+            completionDetailState?.status === "ready"
+              ? {
+                  completedAt: completionDetailState.completion.completedAt,
+                  completedByDisplayName:
+                    completionDetailState.completion.completedByDisplayName,
+                }
+              : undefined
+          }
+          onCommentChange={() => {}}
+          onCancel={() => setSelectedCompletionId(undefined)}
+          onOpenMaterial={(material) => {
+            void openMaterial(material);
+          }}
+          onSubmit={() => {}}
         />
       )}
     </main>
   );
 }
 
-function BoardAssignmentCreateDialog({
+function BoardAssignmentEditorDialog({
+  mode,
   createInput,
   coExecutorsText,
   comment,
@@ -477,6 +1071,7 @@ function BoardAssignmentCreateDialog({
   onCancel,
   onSubmit,
 }: {
+  mode: "create" | "edit";
   createInput: BoardAssignmentCreateInput;
   coExecutorsText: string;
   comment: string;
@@ -488,17 +1083,54 @@ function BoardAssignmentCreateDialog({
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  function updateField(
-    field: Exclude<keyof BoardAssignmentCreateInput, "coExecutors">,
-    value: string,
+  function updateField<
+    Field extends Exclude<keyof BoardAssignmentCreateInput, "coExecutors">,
+  >(
+    field: Field,
+    value: BoardAssignmentCreateInput[Field],
   ) {
     onChange({ ...createInput, [field]: value });
   }
 
+  function updateMeetingDate(value: string) {
+    const shouldSyncFrom =
+      createInput.activeFrom === "" ||
+      createInput.activeFrom === createInput.meetingDate;
+    const shouldSyncTo =
+      createInput.activeTo === "" ||
+      createInput.activeTo === createInput.meetingDate;
+
+    onChange({
+      ...createInput,
+      meetingDate: value,
+      activeFrom: shouldSyncFrom ? value : createInput.activeFrom,
+      activeTo: shouldSyncTo ? value : createInput.activeTo,
+    });
+  }
+
+  function updateActiveFrom(value: string) {
+    onChange({
+      ...createInput,
+      activeFrom: value,
+      activeTo:
+        createInput.activeTo === "" || createInput.activeTo < value
+          ? value
+          : createInput.activeTo,
+    });
+  }
+
   return (
-    <div className="admin-db-modal-backdrop" role="presentation">
+    <div
+      className="admin-db-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onCancel();
+        }
+      }}
+    >
       <form
-        aria-labelledby="board-assignment-create-title"
+        aria-labelledby="board-assignment-editor-title"
         aria-modal="true"
         className="board-assignment-dialog"
         role="dialog"
@@ -506,9 +1138,13 @@ function BoardAssignmentCreateDialog({
       >
         <header className="board-assignment-dialog-heading">
           <div>
-            <span className="eyebrow">Новое поручение</span>
-            <h2 id="board-assignment-create-title">
-              Поручение Генеральному директору
+            <span className="eyebrow">
+              {mode === "edit" ? "Редактирование поручения" : "Новое поручение"}
+            </span>
+            <h2 id="board-assignment-editor-title">
+              {mode === "edit"
+                ? "Изменить поручение"
+                : "Поручение Генеральному директору"}
             </h2>
           </div>
           <button
@@ -530,7 +1166,7 @@ function BoardAssignmentCreateDialog({
               value={createInput.meetingDate}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                updateField("meetingDate", value);
+                updateMeetingDate(value);
               }}
             />
           </label>
@@ -558,19 +1194,61 @@ function BoardAssignmentCreateDialog({
               }}
             />
           </label>
-          <label>
-            <span>Срок исполнения</span>
-            <input
-              maxLength={255}
-              placeholder="Например: до 24.07.2026 или ежемесячно"
-              required
-              value={createInput.dueDate}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                updateField("dueDate", value);
-              }}
-            />
-          </label>
+          <fieldset className="board-assignment-schedule-fields is-wide">
+            <legend>Срок исполнения</legend>
+            <div>
+              <label>
+                <span>Периодичность</span>
+                <select
+                  required
+                  value={createInput.recurrence}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateField(
+                      "recurrence",
+                      value as BoardAssignmentRecurrence,
+                    );
+                  }}
+                >
+                  {boardAssignmentRecurrences.map((item) => (
+                    <option key={item} value={item}>
+                      {recurrenceLabels[item]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Действует с</span>
+                <input
+                  max={createInput.activeTo || undefined}
+                  required
+                  type="date"
+                  value={createInput.activeFrom}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateActiveFrom(value);
+                  }}
+                />
+              </label>
+              <label>
+                <span>Действует по</span>
+                <input
+                  min={createInput.activeFrom || undefined}
+                  required
+                  type="date"
+                  value={createInput.activeTo}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    updateField("activeTo", value);
+                  }}
+                />
+              </label>
+            </div>
+            <small>
+              После приёмки повторяющееся поручение появится исполнителю в
+              следующую дату внутри выбранного периода.
+            </small>
+          </fieldset>
           <label className="is-wide">
             <span>Краткое содержание поручения</span>
             <input
@@ -610,9 +1288,14 @@ function BoardAssignmentCreateDialog({
             />
           </label>
           <label className="is-wide">
-            <span>Комментарий при создании</span>
+            <span>
+              {mode === "edit"
+                ? "Комментарий к изменению"
+                : "Комментарий при создании"}
+            </span>
             <textarea
               maxLength={4_000}
+              required={mode === "edit"}
               rows={3}
               value={comment}
               onChange={(event) => {
@@ -637,6 +1320,8 @@ function BoardAssignmentCreateDialog({
           <button className="primary-button" disabled={isSaving} type="submit">
             {isSaving
               ? <LoadingIndicator label="Сохраняем…" variant="button" />
+              : mode === "edit"
+              ? "Сохранить изменения"
               : "Добавить поручение"}
           </button>
         </footer>
@@ -650,38 +1335,65 @@ function BoardAssignmentDetailDialog({
   permissions,
   isAdminPreviewMode,
   isMaterialOpening,
-  action,
   actionComment,
   isSaving,
   formMessage,
-  onActionChange,
   onCommentChange,
   onCancel,
   onOpenMaterial,
+  onEdit,
   onSubmit,
+  snapshotMeta,
 }: {
   detailState: DetailState | undefined;
   permissions: BoardAssignmentPermissions;
   isAdminPreviewMode: boolean;
   isMaterialOpening: boolean;
-  action: BoardAssignmentAction;
   actionComment: string;
   isSaving: boolean;
   formMessage: string;
-  onActionChange: (value: BoardAssignmentAction) => void;
   onCommentChange: (value: string) => void;
   onCancel: () => void;
   onOpenMaterial: (material: { key: string; fileName: string }) => void;
+  onEdit?: (assignment: BoardAssignment) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  snapshotMeta?: {
+    completedAt: string;
+    completedByDisplayName: string;
+  };
 }) {
   const assignment =
     detailState?.status === "ready" ? detailState.assignment : undefined;
-  const actions = assignment === undefined
-    ? []
-    : readAvailableActions(assignment, permissions);
+  const canSubmitForReview =
+    assignment !== undefined &&
+    permissions.canExecute &&
+    (
+      assignment.status === "in_progress" ||
+      assignment.status === "revision_requested"
+    );
+  const canDecide =
+    assignment !== undefined &&
+    permissions.canReview &&
+    assignment.status === "under_review";
+  const hasAction = canSubmitForReview || canDecide;
+  const canEdit =
+    assignment !== undefined &&
+    permissions.canCreate &&
+    assignment.status !== "completed" &&
+    !isAdminPreviewMode &&
+    onEdit !== undefined &&
+    snapshotMeta === undefined;
 
   return (
-    <div className="admin-db-modal-backdrop" role="presentation">
+    <div
+      className="admin-db-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onCancel();
+        }
+      }}
+    >
       <section
         aria-labelledby="board-assignment-detail-title"
         aria-modal="true"
@@ -690,19 +1402,35 @@ function BoardAssignmentDetailDialog({
       >
         <header className="board-assignment-dialog-heading">
           <div>
-            <span className="eyebrow">Карточка поручения</span>
+            <span className="eyebrow">
+              {snapshotMeta === undefined
+                ? "Карточка поручения"
+                : "Снимок выполненного поручения"}
+            </span>
             <h2 id="board-assignment-detail-title">
               {assignment?.summary ?? "Поручение Совета директоров"}
             </h2>
           </div>
-          <button
-            className="secondary-button"
-            disabled={isSaving}
-            type="button"
-            onClick={onCancel}
-          >
-            Отмена
-          </button>
+          <div className="board-assignment-dialog-heading-actions">
+            {canEdit ? (
+              <button
+                className="primary-button"
+                disabled={isSaving}
+                type="button"
+                onClick={() => onEdit?.(assignment)}
+              >
+                Редактировать
+              </button>
+            ) : null}
+            <button
+              className="secondary-button"
+              disabled={isSaving}
+              type="button"
+              onClick={onCancel}
+            >
+              Отмена
+            </button>
+          </div>
         </header>
 
         {detailState === undefined || detailState.status === "loading" ? (
@@ -713,6 +1441,15 @@ function BoardAssignmentDetailDialog({
           </p>
         ) : (
           <>
+            {snapshotMeta === undefined ? null : (
+              <div className="board-assignment-snapshot-note">
+                <strong>Принято {formatTimestamp(snapshotMeta.completedAt)}</strong>
+                <span>{snapshotMeta.completedByDisplayName}</span>
+                <small>
+                  Это неизменяемая версия поручения на момент завершения.
+                </small>
+              </div>
+            )}
             <dl className="board-assignment-details">
               <div>
                 <dt>Дата заседания</dt>
@@ -727,7 +1464,21 @@ function BoardAssignmentDetailDialog({
               </div>
               <div>
                 <dt>Срок исполнения</dt>
-                <dd>{detailState.assignment.dueDate}</dd>
+                <dd>
+                  {recurrenceLabels[detailState.assignment.recurrence]}
+                  {" · "}
+                  {formatCalendarDate(
+                    detailState.assignment.currentOccurrenceDate,
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Период действия</dt>
+                <dd>
+                  {formatCalendarDate(detailState.assignment.activeFrom)}
+                  {" — "}
+                  {formatCalendarDate(detailState.assignment.activeTo)}
+                </dd>
               </div>
               <div>
                 <dt>Статус</dt>
@@ -789,7 +1540,7 @@ function BoardAssignmentDetailDialog({
               )}
             </section>
 
-            {actions.length === 0 || isAdminPreviewMode ? (
+            {!hasAction || isAdminPreviewMode ? (
               <footer className="board-assignment-dialog-actions">
                 {isAdminPreviewMode ? (
                   <small>В режиме просмотра действия отключены.</small>
@@ -803,9 +1554,22 @@ function BoardAssignmentDetailDialog({
                 </button>
               </footer>
             ) : (
-              <form className="board-assignment-decision" onSubmit={onSubmit}>
+              <form
+                className={`board-assignment-decision${
+                  canSubmitForReview
+                    ? " is-execute"
+                    : canDecide
+                    ? " is-review"
+                    : ""
+                }`}
+                onSubmit={onSubmit}
+              >
                 <label>
-                  <span>Комментарий</span>
+                  <span>
+                    {canDecide
+                      ? "Комментарий к решению"
+                      : "Комментарий"}
+                  </span>
                   <textarea
                     maxLength={4_000}
                     required
@@ -816,22 +1580,6 @@ function BoardAssignmentDetailDialog({
                       onCommentChange(value);
                     }}
                   />
-                </label>
-                <label>
-                  <span>Статус</span>
-                  <select
-                    value={action}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      onActionChange(value as BoardAssignmentAction);
-                    }}
-                  >
-                    {actions.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
                 </label>
                 {formMessage === "" ? null : (
                   <p className="form-message is-error" role="alert">
@@ -847,15 +1595,52 @@ function BoardAssignmentDetailDialog({
                   >
                     Отмена
                   </button>
-                  <button
-                    className="primary-button"
-                    disabled={isSaving}
-                    type="submit"
-                  >
-                    {isSaving
-                      ? <LoadingIndicator label="Отправляем…" variant="button" />
-                      : "Отправить"}
-                  </button>
+                  {canDecide ? (
+                    <>
+                      <button
+                        className="secondary-button board-assignment-return-button"
+                        disabled={isSaving}
+                        name="action"
+                        type="submit"
+                        value="return_for_revision"
+                      >
+                        Вернуть на доработку
+                      </button>
+                      <button
+                        className="primary-button"
+                        disabled={isSaving}
+                        name="action"
+                        type="submit"
+                        value="complete"
+                      >
+                        {isSaving
+                          ? (
+                            <LoadingIndicator
+                              label="Сохраняем решение…"
+                              variant="button"
+                            />
+                          )
+                          : "Принять исполнение"}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="primary-button"
+                      disabled={isSaving}
+                      name="action"
+                      type="submit"
+                      value="submit_for_review"
+                    >
+                      {isSaving
+                        ? (
+                          <LoadingIndicator
+                            label="Отправляем…"
+                            variant="button"
+                          />
+                        )
+                        : "Отправить на проверку"}
+                    </button>
+                  )}
                 </footer>
               </form>
             )}
@@ -866,38 +1651,13 @@ function BoardAssignmentDetailDialog({
   );
 }
 
-function readAvailableActions(
-  assignment: BoardAssignment,
+function readBoardAssignmentAccessMode(
   permissions: BoardAssignmentPermissions,
-) {
-  if (
-    permissions.canExecute &&
-    (
-      assignment.status === "in_progress" ||
-      assignment.status === "revision_requested"
-    )
-  ) {
-    return [{
-      value: "submit_for_review" as const,
-      label: "Отправить на проверку",
-    }];
-  }
-  if (permissions.canReview && assignment.status === "under_review") {
-    return [
-      { value: "complete" as const, label: "Завершено" },
-      { value: "return_for_revision" as const, label: "На доработку" },
-    ];
-  }
-
-  return [];
-}
-
-function readDefaultAction(
-  assignment: BoardAssignment,
-  permissions: BoardAssignmentPermissions,
-): BoardAssignmentAction {
-  return readAvailableActions(assignment, permissions)[0]?.value ??
-    "submit_for_review";
+): BoardAssignmentAccessMode {
+  if (permissions.canReview) return "review";
+  if (permissions.canExecute) return "execute";
+  if (permissions.canCreate) return "create";
+  return "view";
 }
 
 function formatCalendarDate(value: string) {
@@ -905,6 +1665,17 @@ function formatCalendarDate(value: string) {
   return year === undefined || month === undefined || day === undefined
     ? value
     : `${day}.${month}.${year}`;
+}
+
+function formatAssignmentCount(value: number) {
+  const absolute = Math.abs(value);
+  const modulo100 = absolute % 100;
+  if (modulo100 >= 11 && modulo100 <= 14) return "поручений";
+
+  const modulo10 = absolute % 10;
+  if (modulo10 === 1) return "поручение";
+  if (modulo10 >= 2 && modulo10 <= 4) return "поручения";
+  return "поручений";
 }
 
 function formatTimestamp(value: string) {

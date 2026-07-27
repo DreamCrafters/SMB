@@ -8,6 +8,17 @@ export const boardAssignmentStatuses = [
 export type BoardAssignmentStatus =
   (typeof boardAssignmentStatuses)[number];
 
+export const boardAssignmentRecurrences = [
+  "daily",
+  "weekly",
+  "monthly",
+  "yearly",
+  "once",
+] as const;
+
+export type BoardAssignmentRecurrence =
+  (typeof boardAssignmentRecurrences)[number];
+
 export const boardAssignmentActions = [
   "submit_for_review",
   "return_for_revision",
@@ -40,6 +51,10 @@ export type BoardAssignmentSummary = {
   summary: string;
   coExecutors: string[];
   dueDate: string;
+  recurrence: BoardAssignmentRecurrence;
+  activeFrom: string;
+  activeTo: string;
+  currentOccurrenceDate: string;
   status: BoardAssignmentStatus;
   createdByDisplayName: string;
   createdAt: string;
@@ -53,6 +68,22 @@ export type BoardAssignment = BoardAssignmentSummary & {
     fileName: string;
   };
   comments: BoardAssignmentComment[];
+};
+
+export type BoardAssignmentCompletionSummary = {
+  id: string;
+  assignmentId: string;
+  occurrenceDate: string;
+  completedByDisplayName: string;
+  completedAt: string;
+  assignment: BoardAssignmentSummary;
+};
+
+export type BoardAssignmentCompletion = Omit<
+  BoardAssignmentCompletionSummary,
+  "assignment"
+> & {
+  assignment: BoardAssignment;
 };
 
 export type BoardAssignmentFilters = {
@@ -69,9 +100,17 @@ export type BoardAssignmentCreateInput = {
   summary: string;
   details: string;
   coExecutors: string[];
-  dueDate: string;
+  recurrence: BoardAssignmentRecurrence;
+  activeFrom: string;
+  activeTo: string;
   comment?: string;
 };
+
+export type BoardAssignmentUpdateInput =
+  Omit<BoardAssignmentCreateInput, "comment"> & {
+    comment: string;
+    expectedUpdatedAt: string;
+  };
 
 export type BoardAssignmentActionInput = {
   action: BoardAssignmentAction;

@@ -26,6 +26,7 @@ export const auditEventActions = [
   "laboratory_result.submit",
   "laboratory_bank.assign",
   "board_assignment.create",
+  "board_assignment.update",
   "board_assignment.submit_for_review",
   "board_assignment.return_for_revision",
   "board_assignment.complete",

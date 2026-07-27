@@ -14,6 +14,7 @@ import {
   type AccountNavigationItem,
   type AccountPosition,
   type AccountType,
+  type BoardAssignmentAccess,
   type AdminAccountSummary,
   type AdminPositionSummary,
   type AdminDatabaseCellValue,
@@ -50,6 +51,7 @@ import {
 import {
   accountPositionLabels,
   authOptions,
+  boardAssignmentAccessOptions,
   navigationItemsByAccountType,
   nonAdminNavigationItems,
   shellCopy,
@@ -8928,6 +8930,7 @@ type AdminPositionFormState = {
   id?: string;
   displayName: string;
   navigationItems: AccountNavigationItem[];
+  boardAssignmentAccess: BoardAssignmentAccess;
 };
 
 const emptyAdminPositionForm: AdminPositionFormState = {
@@ -8940,6 +8943,7 @@ const emptyAdminPositionForm: AdminPositionFormState = {
         id !== "business.production_plan",
     )
     .map(({ id }) => id),
+  boardAssignmentAccess: "view",
 };
 
 const adminAccountPositionOptions: AccountPosition[] = [
@@ -8974,6 +8978,22 @@ function getNavigationOptionsForPosition(position: AccountPosition) {
 
 function formatNavigationItemLabel(item: NavigationItem) {
   return `${item.label} (${item.description})`;
+}
+
+function formatPositionNavigationItem(
+  position: AdminPositionSummary,
+  navigationItemId: AccountNavigationItem,
+) {
+  if (navigationItemId === "business.board_assignments") {
+    return boardAssignmentAccessOptions.find(
+      ({ id }) => id === position.boardAssignmentAccess,
+    )?.label ?? "Поручения Совета директоров";
+  }
+
+  return [
+    ...navigationItemsByAccountType.admin,
+    ...nonAdminNavigationItems,
+  ].find(({ id }) => id === navigationItemId)?.label ?? navigationItemId;
 }
 
 function buildAdminPreviewAccountForPosition(
@@ -9197,6 +9217,7 @@ function AdminAccountsWorkspace({
       navigationItems: position.navigationItems.filter((id) =>
         nonAdminNavigationItems.some((item) => item.id === id),
       ),
+      boardAssignmentAccess: position.boardAssignmentAccess,
     });
     setPositionFormStatus("");
     setIsPositionModalOpen(true);
@@ -9215,6 +9236,7 @@ function AdminAccountsWorkspace({
     const value = {
       displayName: positionForm.displayName.trim(),
       navigationItems: positionForm.navigationItems,
+      boardAssignmentAccess: positionForm.boardAssignmentAccess,
     };
     const result = positionForm.id === undefined
       ? await createAdminPosition(value)
@@ -9746,9 +9768,9 @@ function AdminAccountsWorkspace({
                 {positionsState.positions.map((position) => (
                   <tr key={position.id}>
                     <td>{position.displayName}</td>
-                    <td>{position.navigationItems.map((id) =>
-                      [...navigationItemsByAccountType.admin, ...nonAdminNavigationItems].find((item) => item.id === id)?.label ?? id
-                    ).join(", ")}</td>
+                    <td>{position.navigationItems
+                      .map((id) => formatPositionNavigationItem(position, id))
+                      .join(", ")}</td>
                     <td>{position.usageCount}</td>
                     <td>
                       <div className="admin-position-actions">
@@ -9947,18 +9969,54 @@ function AdminAccountsWorkspace({
               <fieldset className="admin-account-navigation-fieldset">
                 <legend>Доступ к вкладкам слева</legend>
                 <div className="admin-account-navigation-grid">
-                  {nonAdminNavigationItems.map((item) => (
-                    <label key={item.id} className="admin-account-navigation-option">
-                      <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
-                        const isChecked = event.currentTarget.checked;
-                        setPositionForm((current) => ({
-                          ...current,
-                          navigationItems: isChecked
-                            ? Array.from(new Set([...current.navigationItems, item.id]))
-                            : current.navigationItems.filter((id) => id !== item.id),
-                        }));
-                      }} />
-                      <span>{formatNavigationItemLabel(item)}</span>
+                  {nonAdminNavigationItems
+                    .filter(
+                      (item) => item.id !== "business.board_assignments",
+                    )
+                    .map((item) => (
+                      <label key={item.id} className="admin-account-navigation-option">
+                        <input type="checkbox" checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
+                          const isChecked = event.currentTarget.checked;
+                          setPositionForm((current) => ({
+                            ...current,
+                            navigationItems: isChecked
+                              ? Array.from(new Set([...current.navigationItems, item.id]))
+                              : current.navigationItems.filter((id) => id !== item.id),
+                          }));
+                        }} />
+                        <span>{formatNavigationItemLabel(item)}</span>
+                      </label>
+                    ))}
+                  {boardAssignmentAccessOptions.map((option) => (
+                    <label
+                      key={option.id}
+                      className="admin-account-navigation-option"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={
+                          positionForm.boardAssignmentAccess === option.id
+                        }
+                        onChange={(event) => {
+                          const isChecked = event.currentTarget.checked;
+                          setPositionForm((current) => ({
+                            ...current,
+                            navigationItems: isChecked
+                              ? Array.from(new Set([
+                                  ...current.navigationItems,
+                                  "business.board_assignments",
+                                ]))
+                              : current.navigationItems.filter(
+                                  (id) =>
+                                    id !== "business.board_assignments",
+                                ),
+                            boardAssignmentAccess: isChecked
+                              ? option.id
+                              : "none",
+                          }));
+                        }}
+                      />
+                      <span>{option.label}</span>
                     </label>
                   ))}
                 </div>
