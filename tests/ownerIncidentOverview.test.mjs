@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { JSDOM } from "jsdom";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
-test("owner overview keeps new counters and restores operational sections", async () => {
+test("owner overview renders every operational section as glanceable metrics", async () => {
   const vite = await createServer({
     appType: "custom",
     logLevel: "silent",
@@ -70,36 +71,38 @@ test("owner overview keeps new counters and restores operational sections", asyn
         },
       }),
     );
+    const document = new JSDOM(html).window.document;
 
-    for (const text of [
-      "Коротко с начала месяца",
-      "Инциденты",
-      "Всего за месяц",
-      "Закрыто из них",
-      "Сегодня",
-      "Не закрыто сейчас",
-      "Лаборатория",
-      "Испытаний за месяц",
-      "Испытаний сегодня",
-      ">12<",
-      ">8<",
-      ">2<",
-      ">4<",
-      ">31<",
-      ">3<",
-      "Оборудование",
-      "Работало",
-      "Прессов - 2 шт",
-      "Выработка",
-      "46",
-      "Посетители",
-      "Было посетителей - 3 чел",
-      "Фридману",
-      "невышедших посетителей",
-      "1 чел",
-    ]) {
-      assert.match(html, new RegExp(text, "u"));
-    }
+    assert.match(html, /Коротко с начала месяца/u);
+    assert.deepEqual(readOverviewMetrics(document, "Инциденты"), [
+      ["Всего за месяц", "12"],
+      ["Закрыто из них", "8"],
+      ["Сегодня", "2"],
+      ["Не закрыто сейчас", "4"],
+    ]);
+    assert.deepEqual(readOverviewMetrics(document, "Лаборатория"), [
+      ["Испытаний за месяц", "31"],
+      ["Испытаний сегодня", "3"],
+    ]);
+    assert.deepEqual(readOverviewMetrics(document, "Оборудование"), [
+      ["Последний отчёт", "23.07.2026"],
+      ["Работало прессов", "2"],
+    ]);
+    assert.deepEqual(readOverviewMetrics(document, "Выработка"), [
+      ["Всего за месяц, т", "46"],
+    ]);
+    assert.deepEqual(readOverviewMetrics(document, "Посетители"), [
+      ["Последний день посещений", "23.07.2026"],
+      ["Посетителей в этот день", "3"],
+      ["Не вышли сейчас", "1"],
+    ]);
+    assert.match(html, /Обновлено: 23\.07\.2026/u);
+    assert.match(html, /К кому приходили: Фридману/u);
+    assert.ok(
+      document
+        .querySelector('section[aria-label="Посетители"]')
+        ?.querySelector(".owner-overview-metric-attention"),
+    );
 
     for (const removedIncidentCard of [
       "Последний инцидент",
@@ -111,3 +114,18 @@ test("owner overview keeps new counters and restores operational sections", asyn
     await vite.close();
   }
 });
+
+function readOverviewMetrics(document, sectionLabel) {
+  const section = document.querySelector(
+    `section[aria-label="${sectionLabel}"]`,
+  );
+  assert.ok(section, `Missing overview section: ${sectionLabel}`);
+
+  return Array.from(
+    section.querySelectorAll(".owner-overview-metrics > div"),
+    (metric) => [
+      metric.querySelector("dt")?.textContent,
+      metric.querySelector("dd")?.textContent,
+    ],
+  );
+}

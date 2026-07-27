@@ -729,7 +729,8 @@ export default function App() {
       !hasCapability(accessProfile.profile, "business.view_dispatcher_feed") ||
       (
         visibleDispatcherTab !== "dispatcher" &&
-        visibleDispatcherTab !== "overview"
+        visibleDispatcherTab !== "overview" &&
+        visibleDispatcherTab !== "dispatcher_form"
       )
     ) {
       setDispatcherFeed(initialDispatcherFeedState);
@@ -2272,6 +2273,9 @@ function RoleWorkspace({
             isSubmitting={isDataEntrySubmitting}
             onSubmit={onDataEntrySubmit}
             dispatcherForms={dispatcherForms}
+            dispatcherFeed={dispatcherFeed}
+            dispatcherFeedFilters={dispatcherFeedFilters}
+            onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
             currentUserDisplayName={profile.displayName}
             isAdminPreviewMode={isAdminPreviewMode}
             refreshVersion={dispatcherSubmissionVersion}
@@ -2471,13 +2475,15 @@ export function OwnerOverviewPanel({
 function OwnerOverviewMetrics({
   title,
   metrics,
+  note,
 }: {
   title: string;
   metrics: Array<{
     label: string;
-    value: number;
+    value: number | string;
     tone?: "attention";
   }>;
+  note?: string;
 }) {
   return (
     <section className="owner-overview-block" aria-label={title}>
@@ -2493,10 +2499,23 @@ function OwnerOverviewMetrics({
             key={metric.label}
           >
             <dt>{metric.label}</dt>
-            <dd>{metric.value}</dd>
+            <dd
+              className={
+                typeof metric.value === "string"
+                  ? "owner-overview-metric-value-text"
+                  : undefined
+              }
+            >
+              {typeof metric.value === "number"
+                ? formatNumber(metric.value)
+                : metric.value}
+            </dd>
           </div>
         ))}
       </dl>
+      {note === undefined ? null : (
+        <p className="owner-overview-note">{note}</p>
+      )}
     </section>
   );
 }
@@ -2506,19 +2525,29 @@ function OwnerEquipmentOverviewBlock({
 }: {
   overview: OwnerDispatcherOverview;
 }) {
+  const equipment = overview.equipment;
+
   return (
-    <section className="owner-overview-block" aria-label="Оборудование">
-      <h3>Оборудование</h3>
-      {overview.equipment === undefined ? (
-        <p className="owner-overview-status">Нет отчётов по оборудованию.</p>
-      ) : (
-        <p className="owner-overview-lead">
-          Последняя дата обновления отчета по оборудованию —{" "}
-          <strong>{formatDateTime(overview.equipment.updatedAt)}</strong>.
-          Работало {formatEquipmentWorkingCounts(overview.equipment.workingCounts)}.
-        </p>
-      )}
-    </section>
+    <OwnerOverviewMetrics
+      title="Оборудование"
+      metrics={[
+        {
+          label: "Последний отчёт",
+          value: equipment === undefined
+            ? "—"
+            : formatDateOnly(equipment.reportDate ?? equipment.updatedAt),
+        },
+        ...(equipment?.workingCounts.map((item) => ({
+          label: `Работало ${item.label.toLocaleLowerCase("ru-RU")}`,
+          value: item.count,
+        })) ?? []),
+      ]}
+      note={
+        equipment === undefined
+          ? "Отчётов пока нет."
+          : `Обновлено: ${formatDateTime(equipment.updatedAt)}`
+      }
+    />
   );
 }
 
@@ -2528,19 +2557,20 @@ function OwnerProductionOverviewBlock({
   overview: OwnerDispatcherOverview;
 }) {
   return (
-    <section className="owner-overview-block" aria-label="Выработка">
-      <h3>Выработка</h3>
-      {overview.production === undefined ? (
-        <p className="owner-overview-status">
-          Нет отчётов по выработке за текущий месяц.
-        </p>
-      ) : (
-        <p className="owner-overview-lead">
-          Общая выработка за текущий месяц —{" "}
-          <strong>{formatNumber(overview.production.totalFact)} т</strong>.
-        </p>
-      )}
-    </section>
+    <OwnerOverviewMetrics
+      title="Выработка"
+      metrics={[
+        {
+          label: "Всего за месяц, т",
+          value: overview.production?.totalFact ?? "—",
+        },
+      ]}
+      note={
+        overview.production === undefined
+          ? "Отчётов за текущий месяц пока нет."
+          : undefined
+      }
+    />
   );
 }
 
@@ -2550,31 +2580,38 @@ function OwnerVisitorsOverviewBlock({
   overview: OwnerDispatcherOverview;
 }) {
   const visitors = overview.visitors;
+  const visitorHosts =
+    visitors.hosts.length === 0
+      ? "не указано"
+      : visitors.hosts.join(", ");
 
   return (
-    <section className="owner-overview-block" aria-label="Посетители">
-      <h3>Посетители</h3>
-      {visitors.latestDate === undefined ? (
-        <p className="owner-overview-status">Нет входов посетителей.</p>
-      ) : (
-        <>
-          <p className="owner-overview-lead">
-            Последние посетители были {formatDateOnly(visitors.latestDate)}.
-            Было посетителей - {visitors.count} чел.
-          </p>
-          <p className="owner-overview-line">
-            Приходили к{" "}
-            {visitors.hosts.length === 0
-              ? "не указано"
-              : visitors.hosts.join(", ")}.
-          </p>
-        </>
-      )}
-      <p className="owner-overview-line">
-        Количество невышедших посетителей на данный момент -{" "}
-        {visitors.openCount} чел.
-      </p>
-    </section>
+    <OwnerOverviewMetrics
+      title="Посетители"
+      metrics={[
+        {
+          label: "Последний день посещений",
+          value:
+            visitors.latestDate === undefined
+              ? "—"
+              : formatDateOnly(visitors.latestDate),
+        },
+        {
+          label: "Посетителей в этот день",
+          value: visitors.count,
+        },
+        {
+          label: "Не вышли сейчас",
+          value: visitors.openCount,
+          tone: visitors.openCount > 0 ? "attention" : undefined,
+        },
+      ]}
+      note={
+        visitors.latestDate === undefined
+          ? "Посещений пока нет."
+          : `К кому приходили: ${visitorHosts}`
+      }
+    />
   );
 }
 
@@ -3260,6 +3297,9 @@ export function DataEntryWorkspace({
   isSubmitting,
   onSubmit,
   dispatcherForms,
+  dispatcherFeed,
+  dispatcherFeedFilters,
+  onDispatcherFeedFiltersChange,
   currentUserDisplayName,
   isAdminPreviewMode,
   refreshVersion,
@@ -3274,6 +3314,11 @@ export function DataEntryWorkspace({
   isSubmitting: boolean;
   onSubmit: DataEntrySubmitHandler;
   dispatcherForms: DispatcherFormsLoadState;
+  dispatcherFeed: DispatcherFeedLoadState;
+  dispatcherFeedFilters: DispatcherFeedFilterState;
+  onDispatcherFeedFiltersChange: (
+    patch: Partial<DispatcherFeedFilterState>,
+  ) => void;
   currentUserDisplayName: string;
   isAdminPreviewMode: boolean;
   refreshVersion: number;
@@ -3285,6 +3330,7 @@ export function DataEntryWorkspace({
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRefractoryReviewOpen, setIsRefractoryReviewOpen] = useState(false);
   const formLeaveGuardRef = useRef<FormLeaveGuard | undefined>(undefined);
   const currentForm = forms.find((form) => form.id === selectedFormId);
@@ -3318,6 +3364,7 @@ export function DataEntryWorkspace({
       !forms.some((form) => form.id === selectedFormId)
     ) {
       formLeaveGuardRef.current = undefined;
+      setIsHistoryOpen(false);
       setSelectedFormId("");
     }
   }, [forms, selectedFormId]);
@@ -3326,6 +3373,7 @@ export function DataEntryWorkspace({
     const continueSelection = () => {
       formLeaveGuardRef.current = undefined;
       onResetStatus();
+      setIsHistoryOpen(false);
       setIsRefractoryReviewOpen(false);
       setSelectedFormId(formId);
       if (formId.length > 0) {
@@ -3345,6 +3393,7 @@ export function DataEntryWorkspace({
 
   function handleSuccessfulSubmit(message: string) {
     formLeaveGuardRef.current = undefined;
+    setIsHistoryOpen(false);
     onShowToast("Отправлено", message);
     setSelectedFormId("");
   }
@@ -3361,6 +3410,24 @@ export function DataEntryWorkspace({
     setSelectedFormId("");
     setIsRefractoryReviewOpen(true);
     void recordAuditScreenView("dispatcher.refractory_review");
+  }
+
+  function handleOpenHistory() {
+    const groupByForm: Partial<Record<DispatcherFormId, DispatcherFeedGroup>> = {
+      production: "production",
+      equipment: "equipment",
+      incident: "incidents",
+      incident_close: "incidents",
+      visitor: "visitors",
+      visitor_exit: "visitors",
+    };
+
+    onDispatcherFeedFiltersChange({
+      group:
+        groupByForm[currentForm?.id ?? "production"] ??
+        dispatcherFeedFilters.group,
+    });
+    setIsHistoryOpen(true);
   }
 
   if (isRefractoryReviewOpen) {
@@ -3447,13 +3514,55 @@ export function DataEntryWorkspace({
 
   return (
     <section className="data-entry-surface" aria-label={ariaLabel}>
-      <form className="data-entry-form" onSubmit={handleSubmit}>
+      {isHistoryOpen ? (
+        <div className="dispatcher-form-history">
+          <div className="dispatcher-form-toolbar">
+            <strong>История диспетчерских форм</strong>
+            <div className="dispatcher-form-toolbar-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setIsHistoryOpen(false)}
+              >
+                Вернуться к форме
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => handleSelectForm("")}
+              >
+                К выбору формы
+              </button>
+            </div>
+          </div>
+          <DispatcherFeedPanel
+            dispatcherFeed={dispatcherFeed}
+            dispatcherForms={dispatcherForms}
+            filters={dispatcherFeedFilters}
+            onFiltersChange={onDispatcherFeedFiltersChange}
+          />
+        </div>
+      ) : null}
+      <form
+        className="data-entry-form"
+        hidden={isHistoryOpen}
+        onSubmit={handleSubmit}
+      >
         <input name="formId" type="hidden" value={currentForm.id} readOnly />
         {isLocalTestMode ? (
           <p className="form-status form-status-local">{localTestModeMessage}</p>
         ) : null}
         <div className="dispatcher-form-toolbar">
-          <strong>{currentForm.title}</strong>
+          <div className="dispatcher-form-toolbar-leading">
+            <strong>{currentForm.title}</strong>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={handleOpenHistory}
+            >
+              Посмотреть историю
+            </button>
+          </div>
           <button
             className="secondary-button"
             type="button"
@@ -10830,16 +10939,6 @@ function formatDateOnly(value: string) {
     month: "2-digit",
     year: "numeric",
   });
-}
-
-function formatEquipmentWorkingCounts(
-  counts: NonNullable<OwnerDispatcherOverview["equipment"]>["workingCounts"],
-) {
-  if (counts.length === 0) {
-    return "нет данных по позициям оборудования";
-  }
-
-  return counts.map((item) => `${item.label} - ${item.count} шт`).join("; ");
 }
 
 function formatNumber(value: number) {

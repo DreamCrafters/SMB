@@ -31,7 +31,11 @@ export function readDispatcherNotificationRecipients(
     return dedupeValues(recipients.visitors);
   }
 
-  if (submission.formId !== "equipment" && !isIncidentForm(submission.formId)) {
+  if (
+    submission.formId !== "equipment" &&
+    submission.formId !== "production" &&
+    !isIncidentForm(submission.formId)
+  ) {
     return [];
   }
 

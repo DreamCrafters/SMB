@@ -34,6 +34,26 @@ test("buildDispatcherSubmissionEmail sends incident openings to common recipient
   assert.match(message?.text ?? "", /Место: Цех №1/);
 });
 
+test("buildDispatcherSubmissionEmail sends production reports to equipment recipients", () => {
+  const submission = buildSubmission("production", {
+    reportDate: "27.07.2026",
+    formingProductBrand: "ША-5",
+    formingDay: "12",
+  });
+  submission.formTitle = "Выработка";
+
+  const message = buildDispatcherSubmissionEmail(
+    submission,
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+  );
+
+  assert.deepEqual(message?.to, ["common@example.com"]);
+  assert.equal(message?.subject, "[SMB Monitor] Выработка");
+  assert.match(message?.text ?? "", /^Форма: Выработка$/mu);
+});
+
 test("buildDispatcherSubmissionEmail adds mechanical recipients for mechanical incidents", () => {
   const message = buildDispatcherSubmissionEmail(
     buildSubmission("incident", {

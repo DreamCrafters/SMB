@@ -865,6 +865,12 @@ p {
   line-height: 1;
 }
 
+.owner-overview-metrics .owner-overview-metric-value-text {
+  font-size: clamp(22px, 3vw, 30px);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
 .owner-overview-metrics .owner-overview-metric-attention {
   border-color: color-mix(in srgb, var(--brick) 40%, var(--line));
   background: color-mix(in srgb, var(--brick) 7%, var(--surface-raised));
@@ -874,21 +880,13 @@ p {
   color: var(--brick);
 }
 
-.owner-overview-lead,
-.owner-overview-line {
+.owner-overview-note {
   margin: 0;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
-.owner-overview-lead {
-  color: var(--text);
-  font-weight: 800;
-}
-
-.owner-overview-line {
   color: var(--muted);
+  font-size: 12px;
   font-weight: 800;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .owner-overview-status {
@@ -1149,6 +1147,23 @@ p {
   font-size: 18px;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.dispatcher-form-toolbar-leading,
+.dispatcher-form-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: center;
+}
+
+.dispatcher-form-history {
+  display: grid;
+  gap: var(--density-4);
+}
+
+.data-entry-form[hidden] {
+  display: none;
 }
 
 .dispatcher-form-fields {

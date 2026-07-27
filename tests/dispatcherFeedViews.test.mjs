@@ -632,6 +632,38 @@ test("visitor helpers close entries when exit has the same received timestamp", 
   assert.equal(rows[0].exitAt, "04.07.2026 09:15");
 });
 
+test("buildVisitorVisitRows sorts completed visits by exit time descending", () => {
+  const submissions = [
+    buildSubmission("visit-july", "visitor", {
+      fio: "Июльский посетитель",
+      entryAt: "31.07.2026 08:00",
+    }),
+    buildSubmission("visit-july-exit", "visitor_exit", {
+      visitorEntryId: "visit-july",
+      fio: "Июльский посетитель",
+      exitAt: "31.07.2026 12:00",
+    }),
+    buildSubmission("visit-august", "visitor", {
+      fio: "Августовский посетитель",
+      entryAt: "01.08.2026 08:00",
+    }),
+    buildSubmission("visit-august-exit", "visitor_exit", {
+      visitorEntryId: "visit-august",
+      fio: "Августовский посетитель",
+      exitAt: "01.08.2026 09:00",
+    }),
+    buildSubmission("visit-open", "visitor", {
+      fio: "Посетитель без выхода",
+      entryAt: "02.08.2026 08:00",
+    }),
+  ];
+
+  assert.deepEqual(
+    buildVisitorVisitRows(submissions, {}).map((visitor) => visitor.entryId),
+    ["visit-august", "visit-july", "visit-open"],
+  );
+});
+
 test("buildVisitorVisitRows supports ranges and an empty all-time range", () => {
   const submissions = [
     buildSubmission("visit-june", "visitor", {

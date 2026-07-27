@@ -17,7 +17,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("clicking the active left navigation tab returns to its main page", async () => {
+test("dispatcher form opens shared history and active navigation resets the workspace", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -71,6 +71,40 @@ test("clicking the active left navigation tab returns to its main page", async (
           ],
         });
       }
+      if (url.pathname === "/api/dispatcher/submissions") {
+        return jsonResponse({
+          submissions: [
+            {
+              id: "incident-1",
+              formId: "incident",
+              formTitle: "Открытие инцидента",
+              payload: {
+                incidentNumber: "INC-2026-1",
+                datetime: "24.07.2026 10:00",
+              },
+              summary: "INC-2026-1",
+              status: "received",
+              submittedByAccountId: "dispatcher-access",
+              submittedAt: "2026-07-24T07:00:00.000Z",
+              receivedAt: "2026-07-24T07:00:00.000Z",
+            },
+          ],
+          productionReportTables: {
+            forming: [],
+            sorting: [],
+            unformed: [],
+            chamotte: [],
+            jars: [],
+            granulation: [],
+          },
+          productionMonthOverview: null,
+          receivedAt: "2026-07-24T07:00:00.000Z",
+          summary: {
+            total: 1,
+            byForm: [{ formId: "incident", count: 1 }],
+          },
+        });
+      }
 
       return jsonResponse({});
     };
@@ -97,6 +131,56 @@ test("clicking the active left navigation tab returns to its main page", async (
 
     await React.act(async () => formButton.click());
     assert.ok(rootElement.querySelector(".data-entry-form"));
+    const draftInput = rootElement.querySelector('input[name="description"]');
+    assert.ok(draftInput);
+    draftInput.value = "Черновик инцидента";
+
+    const historyButton = Array.from(
+      rootElement.querySelectorAll(".dispatcher-form-toolbar button"),
+    ).find((button) => button.textContent === "Посмотреть историю");
+    assert.ok(historyButton);
+
+    await React.act(async () => historyButton.click());
+
+    const hiddenForm = rootElement.querySelector(".data-entry-form");
+    assert.ok(hiddenForm);
+    assert.equal(hiddenForm.hidden, true);
+    const historyPanel = rootElement.querySelector(
+      'section[aria-label="Диспетчерская"]',
+    );
+    assert.ok(historyPanel);
+    assert.deepEqual(
+      Array.from(
+        historyPanel.querySelectorAll(".dispatcher-feed-group-button"),
+        (button) => button.textContent,
+      ),
+      ["Выработка", "Оборудование", "Инциденты", "Посетители"],
+    );
+    assert.equal(
+      Array.from(
+        historyPanel.querySelectorAll(".dispatcher-feed-group-button"),
+      ).find((button) => button.textContent === "Инциденты")
+        ?.getAttribute("aria-pressed"),
+      "true",
+    );
+    assert.deepEqual(
+      Array.from(
+        historyPanel.querySelectorAll(".dispatcher-period-button"),
+        (button) => button.textContent,
+      ),
+      ["Сегодня", "Текущий месяц", "Текущий год", "Своё", "Все незакрытые"],
+    );
+
+    const returnToFormButton = Array.from(
+      rootElement.querySelectorAll(".dispatcher-form-toolbar button"),
+    ).find((button) => button.textContent === "Вернуться к форме");
+    assert.ok(returnToFormButton);
+    await React.act(async () => returnToFormButton.click());
+    assert.equal(rootElement.querySelector(".data-entry-form")?.hidden, false);
+    assert.equal(
+      rootElement.querySelector('input[name="description"]')?.value,
+      "Черновик инцидента",
+    );
 
     const activeNavigationButton = rootElement.querySelector(
       '.primary-nav .nav-item[aria-current="page"]',
@@ -139,7 +223,10 @@ function buildDispatcherProfile() {
       positionDisplayName: "Диспетчер",
       displayName: "Диспетчер",
       scope: { kind: "organization" },
-      capabilities: ["business.submit_dispatcher_forms"],
+      capabilities: [
+        "business.submit_dispatcher_forms",
+        "business.view_dispatcher_feed",
+      ],
       navigationItems: ["business.dispatcher_form"],
       issuedAt: "2026-07-24T08:00:00.000Z",
     },

@@ -874,7 +874,7 @@ export function buildVisitorVisitRows(
         exitAt: exit?.payload.exitAt,
       };
     })
-    .sort((left, right) => left.entryAt.localeCompare(right.entryAt));
+    .sort(compareVisitorVisitRowsByExitDescending);
 }
 
 export function buildOpenVisitorOptions(
@@ -1374,6 +1374,32 @@ function compareSubmissionsAscending(
   }
 
   return readVisitorLifecycleRank(left) - readVisitorLifecycleRank(right);
+}
+
+function compareVisitorVisitRowsByExitDescending(
+  left: VisitorVisitRow,
+  right: VisitorVisitRow,
+) {
+  const leftExitAt = readPayloadDateTime(left.exitAt);
+  const rightExitAt = readPayloadDateTime(right.exitAt);
+
+  if (leftExitAt === undefined && rightExitAt !== undefined) {
+    return 1;
+  }
+
+  if (leftExitAt !== undefined && rightExitAt === undefined) {
+    return -1;
+  }
+
+  if (leftExitAt !== undefined && rightExitAt !== undefined) {
+    const exitAtDelta = rightExitAt - leftExitAt;
+
+    if (exitAtDelta !== 0) {
+      return exitAtDelta;
+    }
+  }
+
+  return 0;
 }
 
 function readVisitorLifecycleRank(submission: DispatcherSubmission) {

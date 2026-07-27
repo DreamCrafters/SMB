@@ -104,6 +104,41 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   });
 });
 
+test("createMaxNotificationService sends production reports to equipment recipients", async () => {
+  const sent: { url: string; body: string }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+  const submission = buildSubmission("production", {
+    reportDate: "27.07.2026",
+    formingProductBrand: "ША-5",
+    formingDay: "12",
+  });
+  submission.formTitle = "Выработка";
+
+  await service.sendDispatcherSubmissionNotification(submission, recipients);
+
+  assert.deepEqual(sent.map((item) => item.url), [
+    "https://platform-api2.max.ru/messages?user_id=-1001",
+  ]);
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /^\[SMB Monitor\] Форма: Выработка$/mu,
+  );
+});
+
 test("createMaxNotificationService marks every test-site message at the end", async () => {
   const sentBodies: string[] = [];
   const service = createMaxNotificationService(

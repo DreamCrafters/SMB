@@ -727,6 +727,18 @@ test("dispatcher opens pending refractory reports from a separate choice button"
             source: "remote",
             forms: [],
           },
+          dispatcherFeed: {
+            status: "loading",
+            message: "Загружаем историю.",
+          },
+          dispatcherFeedFilters: {
+            group: "equipment",
+            period: "custom",
+            dateFrom: "",
+            dateTo: "",
+            incidentView: "period",
+          },
+          onDispatcherFeedFiltersChange() {},
           currentUserDisplayName: "Диспетчер",
           isAdminPreviewMode: false,
           refreshVersion: 0,
