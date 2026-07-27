@@ -2169,6 +2169,9 @@ const accounts: AccountsRepository = {
   async deletePosition() {
     return "deleted";
   },
+  async setPositionOrder() {
+    return true;
+  },
 };
 
 test("dev access options list current positions and open the selected cabinet", async () => {
@@ -2340,6 +2343,78 @@ test("admin positions API creates a position with tabs from the unified workspac
 
   assert.deepEqual(createdInput?.navigationItems, ["business.overview", "business.dispatcher_form"]);
   assert.equal(createdInput?.capabilities.includes("business.view_dispatcher_feed"), true);
+});
+
+test("admin positions API saves the complete order and rejects a stale catalog", async () => {
+  const requestedOrders: string[][] = [];
+  let shouldAccept = true;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setPositionOrder(positionIds) {
+      requestedOrders.push(positionIds);
+      return shouldAccept;
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const headers = {
+      "Content-Type": "application/json",
+      "X-SMB-Dev-Session": sessionId,
+    };
+    const response = await fetch(`${baseUrl}/api/admin/positions/order`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        positionIds: ["business_owner", "dispatcher"],
+      }),
+    });
+    shouldAccept = false;
+    const staleResponse = await fetch(`${baseUrl}/api/admin/positions/order`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        positionIds: ["dispatcher"],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(staleResponse.status, 409);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.deepEqual(requestedOrders, [
+    ["business_owner", "dispatcher"],
+    ["dispatcher"],
+  ]);
+});
+
+test("admin positions order API rejects duplicate ids before writing", async () => {
+  let didWrite = false;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setPositionOrder() {
+      didWrite = true;
+      return true;
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(`${baseUrl}/api/admin/positions/order`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": sessionId,
+      },
+      body: JSON.stringify({
+        positionIds: ["dispatcher", "dispatcher"],
+      }),
+    });
+
+    assert.equal(response.status, 400);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.equal(didWrite, false);
 });
 
 test("admin positions API stores the selected board assignment access variant", async () => {
@@ -2640,22 +2715,25 @@ test("admin positions API deletes an unused laboratory system position", async (
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 
-test("admin positions API keeps other unused system positions", async () => {
+test("admin positions API deletes an unused program-created non-admin position", async () => {
   let didDelete = false;
-  const economistPosition = {
-    id: "economist",
-    displayName: "Экономист",
+  const reviewerPosition = {
+    id: "board_assignment_reviewer",
+    displayName: "Член Совета директоров с правом приёмки поручений",
     accountType: "business_owner" as const,
-    navigationItems: ["business.production_plan" as const],
-    capabilities: ["business.manage_production_plan" as const],
-    boardAssignmentAccess: "none" as const,
+    navigationItems: ["business.board_assignments" as const],
+    capabilities: [
+      "business.view_board_assignments" as const,
+      "business.review_board_assignments" as const,
+    ],
+    boardAssignmentAccess: "review" as const,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",
   };
   const repository: AccountsRepository = {
     ...accounts,
-    async listPositions() { return [economistPosition]; },
+    async listPositions() { return [reviewerPosition]; },
     async deletePosition() {
       didDelete = true;
       return "deleted";
@@ -2664,13 +2742,16 @@ test("admin positions API keeps other unused system positions", async () => {
 
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "admin");
-    const response = await fetch(`${baseUrl}/api/admin/positions/economist`, {
-      method: "DELETE",
-      headers: { "X-SMB-Dev-Session": sessionId },
-    });
+    const response = await fetch(
+      `${baseUrl}/api/admin/positions/board_assignment_reviewer`,
+      {
+        method: "DELETE",
+        headers: { "X-SMB-Dev-Session": sessionId },
+      },
+    );
 
-    assert.equal(response.status, 409);
-    assert.equal(didDelete, false);
+    assert.equal(response.status, 200);
+    assert.equal(didDelete, true);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 

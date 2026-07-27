@@ -283,6 +283,55 @@ test("board assignment history migration preserves edit revisions and completed 
   );
 });
 
+test("position order migration preserves the current catalog order and indexes it", async () => {
+  const appliedIds = new Set([
+    "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
+    "003_equipment_report_revisions", "004_auth_users_sessions_accesses",
+    "005_account_positions_and_navigation", "006_account_access_levels",
+    "007_expand_non_admin_access_catalog", "008_remove_system_full_access_levels",
+    "009_remove_account_access_levels", "010_dynamic_account_positions",
+    "011_empty_worker_workspace", "012_split_manager_dispatcher_access",
+    "013_protect_used_account_positions", "014_dispatcher_spreadsheet_import_source",
+    "015_user_audit_events", "016_remove_departments", "017_single_organization_scope",
+    "018_production_plan_revisions", "019_production_category_plans_and_brands",
+    "020_production_plan_month_locks", "021_refractory_report_revisions",
+    "022_google_sheets_production_brands", "023_laboratory_results",
+    "024_laboratory_bank_assignments", "025_board_assignments",
+    "026_board_assignment_schedules",
+    "027_board_assignment_editing_and_completion_history",
+  ]);
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [appliedIds.has(id) ? [{ id }] : [], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(
+    statements[0] ?? "",
+    /add column sort_order int null after is_protected/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /row_number\(\) over \(\s*order by is_protected desc, display_name asc, id asc\s*\)/u,
+  );
+  assert.match(
+    statements[2] ?? "",
+    /modify sort_order int unsigned not null.*add key idx_account_positions_sort_order \(sort_order\)/u,
+  );
+});
+
 test("access level presets are removed without changing account rights", async () => {
   const appliedIds = new Set([
     "001_dispatcher_submissions_mysql",

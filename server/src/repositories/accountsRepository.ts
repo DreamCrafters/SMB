@@ -123,6 +123,7 @@ export type AccountsRepository = {
   createPosition: (input: CreatePositionInput) => Promise<AdminPositionSummary>;
   updatePosition: (input: UpdatePositionInput) => Promise<AdminPositionSummary | undefined>;
   deletePosition: (id: string) => Promise<DeletePositionResult>;
+  setPositionOrder: (positionIds: string[]) => Promise<boolean>;
 };
 
 export class AccountLoginAlreadyExistsError extends Error {
@@ -177,7 +178,6 @@ type AccountPositionAssignmentRow = RowDataPacket & {
 
 type DeletePositionRow = RowDataPacket & {
   account_type: string;
-  is_protected: number | boolean;
   usage_count: number | string;
 };
 
@@ -217,7 +217,7 @@ export function createAccountsRepository(
     const [rows] = await pool.query<AccountRow[]>(`
       ${accountRowSelect}
       where accesses.is_active = 1
-      order by positions.display_name asc, users.display_name asc,
+      order by positions.sort_order asc, users.display_name asc,
         accesses.created_at desc, accesses.id desc
     `);
 
@@ -232,7 +232,7 @@ export function createAccountsRepository(
         (select count(*) from account_accesses accesses
           where accesses.position_code = positions.id) as usage_count
       from account_positions positions
-      order by positions.is_protected desc, positions.display_name asc
+      order by positions.sort_order asc, positions.display_name asc
     `);
     return rows.map(mapPositionRow);
   }
@@ -242,8 +242,11 @@ export function createAccountsRepository(
     const accountType = "business_owner" as const;
     await pool.query(
       `insert into account_positions (
-        id, display_name, account_type, navigation_items, capabilities, is_protected
-      ) values (?, ?, ?, ?, ?, 0)`,
+        id, display_name, account_type, navigation_items, capabilities,
+        is_protected, sort_order
+      )
+      select ?, ?, ?, ?, ?, 0, coalesce(max(sort_order), -1) + 1
+      from account_positions`,
       [id, input.displayName, accountType,
         JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities)],
     );
@@ -315,7 +318,6 @@ export function createAccountsRepository(
       await connection.beginTransaction();
       const [rows] = await connection.query<DeletePositionRow[]>(
         `select positions.account_type,
-          positions.is_protected,
           (select count(*) from account_accesses accesses
             where accesses.position_code = positions.id) as usage_count
          from account_positions positions
@@ -328,13 +330,7 @@ export function createAccountsRepository(
         await connection.rollback();
         return "not_found";
       }
-      if (
-        position.account_type === "admin" ||
-        (
-          (position.is_protected === true || position.is_protected === 1) &&
-          id !== "laboratory_assistant"
-        )
-      ) {
+      if (position.account_type === "admin") {
         await connection.rollback();
         return "protected";
       }
@@ -351,6 +347,48 @@ export function createAccountsRepository(
       if (isForeignKeyReferenceError(error)) {
         return "in_use";
       }
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async function setPositionOrder(positionIds: string[]) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.query<IdRow[]>(
+        `select id
+         from account_positions
+         order by sort_order asc, display_name asc
+         for update`,
+      );
+      const currentIds = rows.map((row) => row.id);
+      const requestedIds = new Set(positionIds);
+      if (
+        positionIds.length !== currentIds.length ||
+        requestedIds.size !== positionIds.length ||
+        currentIds.some((id) => !requestedIds.has(id))
+      ) {
+        await connection.rollback();
+        return false;
+      }
+
+      const orderCases = positionIds.map(() => "when ? then ?").join(" ");
+      const placeholders = positionIds.map(() => "?").join(", ");
+      await connection.query(
+        `update account_positions
+         set sort_order = case id ${orderCases} else sort_order end
+         where id in (${placeholders})`,
+        [
+          ...positionIds.flatMap((id, index) => [id, index]),
+          ...positionIds,
+        ],
+      );
+      await connection.commit();
+      return true;
+    } catch (error) {
+      await connection.rollback();
       throw error;
     } finally {
       connection.release();
@@ -730,6 +768,7 @@ export function createAccountsRepository(
     createPosition,
     updatePosition,
     deletePosition,
+    setPositionOrder,
   };
 }
 

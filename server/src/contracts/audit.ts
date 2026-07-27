@@ -38,6 +38,7 @@ export const auditEventActions = [
   "admin.account_position_update",
   "admin.position_create",
   "admin.position_update",
+  "admin.position_order_update",
   "admin.position_delete",
 ] as const;
 

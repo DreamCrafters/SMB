@@ -1757,6 +1757,32 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "028_account_position_order",
+    statements: [
+      `
+      alter table account_positions
+        add column sort_order int null after is_protected;
+      `,
+      `
+      update account_positions as positions
+      join (
+        select
+          id,
+          row_number() over (
+            order by is_protected desc, display_name asc, id asc
+          ) - 1 as next_sort_order
+        from account_positions
+      ) as ranked on ranked.id = positions.id
+      set positions.sort_order = ranked.next_sort_order;
+      `,
+      `
+      alter table account_positions
+        modify sort_order int unsigned not null,
+        add key idx_account_positions_sort_order (sort_order);
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

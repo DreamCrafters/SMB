@@ -7,6 +7,7 @@ import type {
   CreateAdminAccountRequest,
   CreateAdminAccountResponse,
   ResetAdminAccountPasswordRequest,
+  SaveAdminPositionOrderRequest,
   SaveAdminPositionRequest,
   SaveAdminPositionResponse,
   SetAdminAccountLoginEnabledRequest,
@@ -86,7 +87,6 @@ export type DeleteAdminPositionResult =
 export function canDeleteAdminPosition(position: AdminPositionSummary) {
   return (
     position.accountType !== "admin" &&
-    (!position.isProtected || position.id === "laboratory_assistant") &&
     position.usageCount === 0
   );
 }
@@ -110,6 +110,57 @@ export async function updateAdminPosition(
   options: AdminAccountsRequestOptions = {},
 ): Promise<SaveAdminPositionResult> {
   return requestPositionSave(`${ADMIN_POSITIONS_PATH}/${encodeURIComponent(id)}`, "PATCH", value, options);
+}
+
+export async function saveAdminPositionOrder(
+  positionIds: SaveAdminPositionOrderRequest["positionIds"],
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<AdminPositionsResult> {
+  const path = `${ADMIN_POSITIONS_PATH}/order`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+  try {
+    const response = await fetch(endpoint, {
+      method: "PUT",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify({ positionIds }),
+    });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Не удалось сохранить порядок должностей.",
+      );
+    }
+    if (isAdminPositionsListResponse(payload)) {
+      return { status: "ready", positions: payload.positions };
+    }
+    return {
+      status: "error",
+      message: "Сервер вернул порядок должностей в неподдерживаемом формате.",
+      code: "invalid_response",
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        status: "error",
+        message: "Сохранение порядка должностей отменено.",
+      };
+    }
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось сохранить порядок должностей.",
+        { baseUrl },
+      ),
+      code: "network_error",
+    };
+  }
 }
 
 export async function deleteAdminPosition(

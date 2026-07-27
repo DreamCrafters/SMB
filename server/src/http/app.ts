@@ -4537,6 +4537,64 @@ async function handleAdminAccountsRequest({
     return;
   }
 
+  if (url.pathname === "/api/admin/positions/order") {
+    if (req.method !== "PUT") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Метод не поддерживается.",
+        },
+      });
+      return;
+    }
+    const validation = validatePositionOrderRequest(await readJsonBody(req));
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+    const currentPositions = await accounts.listPositions();
+    const positionNameById = new Map(
+      currentPositions.map((position) => [position.id, position.displayName]),
+    );
+    const didUpdate = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => accounts.setPositionOrder(validation.value.positionIds),
+      buildEvent: (saved) => saved
+        ? {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.position_order_update",
+            summary: "Изменён порядок должностей",
+            details: [{
+              label: "Новый порядок",
+              value: validation.value.positionIds
+                .map((id) => positionNameById.get(id) ?? id)
+                .join(" → "),
+            }],
+            targetType: "account_position",
+          }
+        : undefined,
+    });
+    if (!didUpdate) {
+      sendJson(res, 409, {
+        error: {
+          code: "invalid_response",
+          message:
+            "Список должностей изменился. Обновите страницу и повторите попытку.",
+        },
+      });
+      return;
+    }
+    sendJson(res, 200, { positions: await accounts.listPositions() });
+    return;
+  }
+
   if (url.pathname.startsWith("/api/admin/positions/")) {
     if (req.method !== "PATCH" && req.method !== "DELETE") {
       sendJson(res, 405, { error: { code: "access_denied", message: "Метод не поддерживается." } });
@@ -4548,15 +4606,8 @@ async function handleAdminAccountsRequest({
       sendJson(res, 404, { error: { code: "not_found", message: "Должность не найдена." } });
       return;
     }
-    if (
-      existing.accountType === "admin" ||
-      (
-        req.method === "DELETE" &&
-        existing.isProtected &&
-        existing.id !== "laboratory_assistant"
-      )
-    ) {
-      sendJson(res, 409, { error: { code: "invalid_response", message: "Эту системную должность нельзя изменить или удалить." } });
+    if (existing.accountType === "admin") {
+      sendJson(res, 409, { error: { code: "invalid_response", message: "Должность администратора нельзя изменить или удалить." } });
       return;
     }
     if (req.method === "DELETE") {
@@ -4585,7 +4636,7 @@ async function handleAdminAccountsRequest({
         return;
       }
       if (result === "protected") {
-        sendJson(res, 409, { error: { code: "invalid_response", message: "Системную должность нельзя удалить." } });
+        sendJson(res, 409, { error: { code: "invalid_response", message: "Должность администратора нельзя удалить." } });
         return;
       }
       sendJson(res, 200, { ok: true });
@@ -4970,6 +5021,45 @@ function validateUpdatePositionRequest(input: unknown):
       navigationItems: validation.value.navigationItems,
       capabilities: validation.value.capabilities,
     },
+  };
+}
+
+function validatePositionOrderRequest(input: unknown):
+  | { ok: true; value: { positionIds: string[] } }
+  | { ok: false; errors: string[] } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return { ok: false, errors: ["Payload must be a JSON object."] };
+  }
+
+  const unknownFields = Object.keys(input).filter(
+    (key) => key !== "positionIds",
+  );
+  const positionIds = Array.isArray(input.positionIds)
+    ? input.positionIds
+    : [];
+  const errors: string[] = [];
+
+  if (unknownFields.length > 0) {
+    errors.push("Запрос содержит неизвестные поля.");
+  }
+  if (
+    positionIds.length === 0 ||
+    !positionIds.every(
+      (id) => typeof id === "string" && id.trim().length > 0,
+    )
+  ) {
+    errors.push("Передайте полный список должностей.");
+  } else if (new Set(positionIds).size !== positionIds.length) {
+    errors.push("Каждая должность должна встречаться в списке один раз.");
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: { positionIds: positionIds as string[] },
   };
 }
 

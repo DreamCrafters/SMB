@@ -41,6 +41,13 @@ test("every non-admin position uses the complete unified workspace catalog", asy
     appSource,
     /disabled=\{!canManageAccess \|\| position\.accountType === "admin"\}/u,
   );
+  assert.match(appSource, /"Сохранить порядок"/u);
+  assert.match(appSource, />\s*Выше\s*</u);
+  assert.match(appSource, />\s*Ниже\s*</u);
+  assert.match(
+    appSource,
+    /saveAdminPositionOrder\(\s*positionOrderDraft\.map\(\(position\) => position\.id\)/u,
+  );
 
   assert.deepEqual(
     boardAssignmentAccessOptions.map(({ label }) => label),

@@ -7,7 +7,7 @@ import {
   createAccountsRepository,
 } from "./accountsRepository.js";
 
-test("listAccounts groups equal positions and sorts names within each group", async () => {
+test("listAccounts follows the server-owned position order and sorts names within each group", async () => {
   let selectSql = "";
   const pool = {
     async query(sql: string) {
@@ -20,7 +20,125 @@ test("listAccounts groups equal positions and sorts names within each group", as
 
   assert.match(
     selectSql,
-    /order by positions\.display_name asc, users\.display_name asc/,
+    /order by positions\.sort_order asc, users\.display_name asc/,
+  );
+});
+
+test("listPositions follows the server-owned position order", async () => {
+  let selectSql = "";
+  const pool = {
+    async query(sql: string) {
+      selectSql = sql.replace(/\s+/g, " ").trim();
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  await createAccountsRepository(pool).listPositions();
+
+  assert.match(
+    selectSql,
+    /order by positions\.sort_order asc, positions\.display_name asc/,
+  );
+});
+
+test("setPositionOrder atomically assigns every current position its requested order", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  let didCommit = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() { didCommit = true; },
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+      if (normalized.startsWith("select id from account_positions")) {
+        return [[
+          { id: "administrator" },
+          { id: "dispatcher" },
+          { id: "general_director" },
+        ], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const didUpdate = await createAccountsRepository(pool).setPositionOrder([
+    "general_director",
+    "administrator",
+    "dispatcher",
+  ]);
+
+  assert.equal(didUpdate, true);
+  assert.equal(didCommit, true);
+  const update = queries.find((query) =>
+    query.sql.startsWith("update account_positions set sort_order")
+  );
+  assert.deepEqual(update?.params, [
+    "general_director", 0,
+    "administrator", 1,
+    "dispatcher", 2,
+    "general_director",
+    "administrator",
+    "dispatcher",
+  ]);
+});
+
+test("setPositionOrder rejects an incomplete position list without writing", async () => {
+  let didUpdate = false;
+  let didRollback = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() { didRollback = true; },
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select id from account_positions")) {
+        return [[{ id: "administrator" }, { id: "dispatcher" }], []];
+      }
+      if (normalized.startsWith("update account_positions")) {
+        didUpdate = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).setPositionOrder([
+    "administrator",
+  ]);
+
+  assert.equal(result, false);
+  assert.equal(didUpdate, false);
+  assert.equal(didRollback, true);
+});
+
+test("createPosition appends a new position after the current order", async () => {
+  let insertSql = "";
+  const pool = {
+    async query(sql: string) {
+      insertSql = sql.replace(/\s+/g, " ").trim();
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  await createAccountsRepository(pool, {
+    createId: () => "chief-engineer",
+  }).createPosition({
+    displayName: "Главный инженер",
+    navigationItems: ["business.overview"],
+    capabilities: ["business.view_all_statistics"],
+  });
+
+  assert.match(
+    insertSql,
+    /coalesce\(max\(sort_order\), -1\) \+ 1 from account_positions/u,
   );
 });
 
@@ -342,7 +460,7 @@ test("deletePosition deletes only an unused custom position", async () => {
   );
 });
 
-test("deletePosition deletes an unused protected non-admin position", async () => {
+test("deletePosition deletes an unused program-created non-admin position", async () => {
   let didDelete = false;
   const connection = {
     async beginTransaction() {},
@@ -366,7 +484,9 @@ test("deletePosition deletes an unused protected non-admin position", async () =
   };
   const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
 
-  const result = await createAccountsRepository(pool).deletePosition("laboratory_assistant");
+  const result = await createAccountsRepository(pool).deletePosition(
+    "board_assignment_reviewer",
+  );
 
   assert.equal(result, "deleted");
   assert.equal(didDelete, true);
@@ -398,7 +518,7 @@ test("deletePosition keeps the administrator system position", async () => {
   assert.equal(didDelete, false);
 });
 
-test("deletePosition keeps other unused protected system positions", async () => {
+test("deletePosition keeps an assigned program-created position", async () => {
   let didDelete = false;
   const connection = {
     async beginTransaction() {},
@@ -411,7 +531,7 @@ test("deletePosition keeps other unused protected system positions", async () =>
         return [[{
           account_type: "business_owner",
           is_protected: 1,
-          usage_count: 0,
+          usage_count: 1,
         }], []];
       }
       if (normalized.startsWith("delete from account_positions")) {
@@ -422,9 +542,11 @@ test("deletePosition keeps other unused protected system positions", async () =>
   };
   const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
 
-  const result = await createAccountsRepository(pool).deletePosition("economist");
+  const result = await createAccountsRepository(pool).deletePosition(
+    "board_assignment_reviewer",
+  );
 
-  assert.equal(result, "protected");
+  assert.equal(result, "in_use");
   assert.equal(didDelete, false);
 });
 

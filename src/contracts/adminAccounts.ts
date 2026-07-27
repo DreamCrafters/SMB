@@ -47,6 +47,7 @@ export type AdminPositionSummary = {
 };
 
 export type AdminPositionsListResponse = { positions: AdminPositionSummary[] };
+export type SaveAdminPositionOrderRequest = { positionIds: AccountPosition[] };
 export type SaveAdminPositionRequest = {
   displayName: string;
   navigationItems: AccountNavigationItem[];

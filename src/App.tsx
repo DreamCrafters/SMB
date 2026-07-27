@@ -165,6 +165,7 @@ import {
   requestAdminAccounts,
   requestAdminPositions,
   resetAdminAccountPassword,
+  saveAdminPositionOrder,
   setAdminAccountLoginEnabled,
   setAdminAccountPosition,
   updateAdminPosition,
@@ -8996,6 +8997,31 @@ function formatPositionNavigationItem(
   ].find(({ id }) => id === navigationItemId)?.label ?? navigationItemId;
 }
 
+function moveAdminPosition(
+  positions: AdminPositionSummary[],
+  positionId: string,
+  direction: -1 | 1,
+) {
+  const currentIndex = positions.findIndex(
+    (position) => position.id === positionId,
+  );
+  const nextIndex = currentIndex + direction;
+  if (
+    currentIndex < 0 ||
+    nextIndex < 0 ||
+    nextIndex >= positions.length
+  ) {
+    return positions;
+  }
+
+  const next = [...positions];
+  [next[currentIndex], next[nextIndex]] = [
+    next[nextIndex],
+    next[currentIndex],
+  ];
+  return next;
+}
+
 function buildAdminPreviewAccountForPosition(
   position: AccountPosition,
 ): AdminAccountSummary {
@@ -9065,6 +9091,10 @@ function AdminAccountsWorkspace({
     status: "loading",
     message: "Загружаем должности.",
   });
+  const [positionOrderDraft, setPositionOrderDraft] = useState<
+    AdminPositionSummary[]
+  >();
+  const [isSavingPositionOrder, setIsSavingPositionOrder] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [revealedPasswords, setRevealedPasswords] = useState<
     Record<string, string>
@@ -9126,7 +9156,10 @@ function AdminAccountsWorkspace({
       }
     });
     requestAdminPositions({ signal: controller.signal }).then((result) => {
-      if (!controller.signal.aborted) setPositionsState(result);
+      if (!controller.signal.aborted) {
+        setPositionsState(result);
+        setPositionOrderDraft(undefined);
+      }
     });
 
     return () => {
@@ -9273,6 +9306,49 @@ function AdminAccountsWorkspace({
     }
     setWorkspaceStatus("");
     onShowToast("Удалено", `Должность «${position.displayName}» удалена.`);
+    setRefreshVersion((version) => version + 1);
+  }
+
+  function handleMovePosition(positionId: string, direction: -1 | 1) {
+    if (positionsState.status !== "ready" || isSavingPositionOrder) {
+      return;
+    }
+
+    setPositionOrderDraft((current) =>
+      moveAdminPosition(
+        current ?? positionsState.positions,
+        positionId,
+        direction,
+      )
+    );
+    setWorkspaceStatus("");
+  }
+
+  async function handleSavePositionOrder() {
+    if (
+      positionOrderDraft === undefined ||
+      isSavingPositionOrder
+    ) {
+      return;
+    }
+
+    setIsSavingPositionOrder(true);
+    setWorkspaceStatus("");
+    const result = await saveAdminPositionOrder(
+      positionOrderDraft.map((position) => position.id),
+    );
+    setIsSavingPositionOrder(false);
+    if (result.status !== "ready") {
+      setWorkspaceStatus(result.message);
+      return;
+    }
+
+    setPositionsState(result);
+    setPositionOrderDraft(undefined);
+    onShowToast(
+      "Порядок сохранён",
+      "Списки должностей и учётных записей обновлены.",
+    );
     setRefreshVersion((version) => version + 1);
   }
 
@@ -9530,6 +9606,8 @@ function AdminAccountsWorkspace({
   }
 
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
+  const displayedPositions = positionOrderDraft ??
+    (positionsState.status === "ready" ? positionsState.positions : []);
 
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
@@ -9759,14 +9837,93 @@ function AdminAccountsWorkspace({
           </div>
         ) : null}
 
-        <h3 className="admin-positions-title">Должности и доступы</h3>
+        <div className="admin-positions-heading">
+          <div>
+            <h3 className="admin-positions-title">Должности и доступы</h3>
+            <p>
+              Задайте порядок один раз — он применяется в списке аккаунтов,
+              выборе должности и режиме просмотра.
+            </p>
+          </div>
+          <div className="admin-position-order-actions">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={
+                !canManageAccess ||
+                positionOrderDraft === undefined ||
+                isSavingPositionOrder
+              }
+              onClick={handleSavePositionOrder}
+            >
+              {isSavingPositionOrder ? (
+                <LoadingIndicator
+                  label="Сохраняем…"
+                  variant="button"
+                />
+              ) : "Сохранить порядок"}
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={
+                positionOrderDraft === undefined ||
+                isSavingPositionOrder
+              }
+              onClick={() => setPositionOrderDraft(undefined)}
+            >
+              Отменить
+            </button>
+          </div>
+        </div>
         {positionsState.status === "ready" ? (
           <div className="admin-db-table-scroll">
             <table className="admin-db-data-table admin-positions-table">
-              <thead><tr><th>Должность</th><th>Вкладки слева</th><th>Аккаунты</th><th /></tr></thead>
+              <thead>
+                <tr>
+                  <th>Порядок</th>
+                  <th>Должность</th>
+                  <th>Вкладки слева</th>
+                  <th>Аккаунты</th>
+                  <th />
+                </tr>
+              </thead>
               <tbody>
-                {positionsState.positions.map((position) => (
+                {displayedPositions.map((position, index) => (
                   <tr key={position.id}>
+                    <td>
+                      <div className="admin-position-order-cell">
+                        <span aria-label={`Позиция ${index + 1}`}>
+                          {index + 1}
+                        </span>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          aria-label={`Поднять должность «${position.displayName}» выше`}
+                          disabled={
+                            !canManageAccess ||
+                            index === 0 ||
+                            isSavingPositionOrder
+                          }
+                          onClick={() => handleMovePosition(position.id, -1)}
+                        >
+                          Выше
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          aria-label={`Опустить должность «${position.displayName}» ниже`}
+                          disabled={
+                            !canManageAccess ||
+                            index === displayedPositions.length - 1 ||
+                            isSavingPositionOrder
+                          }
+                          onClick={() => handleMovePosition(position.id, 1)}
+                        >
+                          Ниже
+                        </button>
+                      </div>
+                    </td>
                     <td>{position.displayName}</td>
                     <td>{position.navigationItems
                       .map((id) => formatPositionNavigationItem(position, id))
@@ -9785,7 +9942,13 @@ function AdminAccountsWorkspace({
                         <button
                           className="secondary-button secondary-button-danger"
                           type="button"
-                          title={position.usageCount > 0 ? "Должность назначена аккаунтам." : undefined}
+                          title={
+                            position.accountType === "admin"
+                              ? "Должность администратора удалить нельзя."
+                              : position.usageCount > 0
+                                ? "Сначала назначьте этим аккаунтам другую должность."
+                                : undefined
+                          }
                           disabled={
                             !canManageAccess ||
                             !canDeleteAdminPosition(position) ||

@@ -10,6 +10,7 @@ import {
   requestAdminAccounts,
   requestAdminPositions,
   resetAdminAccountPassword,
+  saveAdminPositionOrder,
   setAdminAccountPosition,
   setAdminAccountLoginEnabled,
   setAdminAccountNavigation,
@@ -183,6 +184,54 @@ test("admin positions service deletes an unused position", async () => {
   assert.equal(calls[0].url, "http://api.test/api/admin/positions/position-unused");
 });
 
+test("admin positions service saves the complete position order", async () => {
+  const calls = [];
+  const positions = [
+    {
+      id: "general_director",
+      displayName: "Генеральный директор",
+      accountType: "business_owner",
+      navigationItems: ["business.overview"],
+      capabilities: ["business.view_all_statistics"],
+      boardAssignmentAccess: "none",
+      isProtected: true,
+      usageCount: 1,
+      createdAt: "2026-07-12T00:00:00.000Z",
+    },
+    {
+      id: "administrator",
+      displayName: "Администратор",
+      accountType: "admin",
+      navigationItems: ["admin.accounts"],
+      capabilities: ["platform.manage_access"],
+      boardAssignmentAccess: "none",
+      isProtected: true,
+      usageCount: 1,
+      createdAt: "2026-07-10T00:00:00.000Z",
+    },
+  ];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({ positions });
+  };
+
+  const result = await saveAdminPositionOrder(
+    positions.map(({ id }) => id),
+    { baseUrl: "http://api.test" },
+  );
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.positions.map(({ id }) => id), [
+    "general_director",
+    "administrator",
+  ]);
+  assert.equal(calls[0].url, "http://api.test/api/admin/positions/order");
+  assert.equal(calls[0].init.method, "PUT");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    positionIds: ["general_director", "administrator"],
+  });
+});
+
 test("unused laboratory system position can be deleted", () => {
   assert.equal(canDeleteAdminPosition({
     id: "laboratory_assistant",
@@ -211,16 +260,36 @@ test("administrator system position cannot be deleted", () => {
   }), false);
 });
 
-test("other unused system positions stay protected", () => {
+test("unused program-created non-admin position can be deleted", () => {
   assert.equal(canDeleteAdminPosition({
-    id: "economist",
-    displayName: "Экономист",
+    id: "board_assignment_reviewer",
+    displayName: "Член Совета директоров с правом приёмки поручений",
     accountType: "business_owner",
-    navigationItems: ["business.production_plan"],
-    capabilities: ["business.manage_production_plan"],
-    boardAssignmentAccess: "none",
+    navigationItems: ["business.board_assignments"],
+    capabilities: [
+      "business.view_board_assignments",
+      "business.review_board_assignments",
+    ],
+    boardAssignmentAccess: "review",
     isProtected: true,
     usageCount: 0,
+    createdAt: "2026-07-10T00:00:00.000Z",
+  }), true);
+});
+
+test("assigned program-created non-admin position cannot be deleted", () => {
+  assert.equal(canDeleteAdminPosition({
+    id: "board_assignment_reviewer",
+    displayName: "Член Совета директоров с правом приёмки поручений",
+    accountType: "business_owner",
+    navigationItems: ["business.board_assignments"],
+    capabilities: [
+      "business.view_board_assignments",
+      "business.review_board_assignments",
+    ],
+    boardAssignmentAccess: "review",
+    isProtected: true,
+    usageCount: 1,
     createdAt: "2026-07-10T00:00:00.000Z",
   }), false);
 });

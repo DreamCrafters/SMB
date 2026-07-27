@@ -2414,9 +2414,32 @@ p {
   justify-content: flex-end;
 }
 
-.admin-positions-title {
+.admin-positions-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-3);
+  align-items: flex-end;
+  justify-content: space-between;
   margin: var(--density-5) 0 var(--density-1);
+}
+
+.admin-positions-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-positions-title {
+  margin: 0;
   font-size: 20px;
+}
+
+.admin-positions-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .admin-positions-table td:nth-child(3) {
@@ -2425,10 +2448,32 @@ p {
   white-space: normal;
 }
 
+.admin-position-order-actions,
 .admin-position-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--density-2);
   align-items: center;
+}
+
+.admin-position-order-cell {
+  display: grid;
+  grid-template-columns: 24px repeat(2, auto);
+  gap: 6px;
+  align-items: center;
+}
+
+.admin-position-order-cell > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.admin-position-order-cell .secondary-button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .admin-accounts-table th,
