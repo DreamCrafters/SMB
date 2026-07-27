@@ -2474,10 +2474,15 @@ export function OwnerOverviewPanel({
 
 function OwnerOverviewMetrics({
   title,
+  headingMeta,
   metrics,
   note,
 }: {
   title: string;
+  headingMeta?: {
+    label: string;
+    value: string;
+  };
   metrics: Array<{
     label: string;
     value: number | string;
@@ -2487,7 +2492,15 @@ function OwnerOverviewMetrics({
 }) {
   return (
     <section className="owner-overview-block" aria-label={title}>
-      <h3>{title}</h3>
+      <div className="owner-overview-block-header">
+        <h3>{title}</h3>
+        {headingMeta === undefined ? null : (
+          <p className="owner-overview-heading-meta">
+            <span>{headingMeta.label}</span>
+            <strong>{headingMeta.value}</strong>
+          </p>
+        )}
+      </div>
       <dl className="owner-overview-metrics">
         {metrics.map((metric) => (
           <div
@@ -2530,13 +2543,14 @@ function OwnerEquipmentOverviewBlock({
   return (
     <OwnerOverviewMetrics
       title="Оборудование"
-      metrics={[
-        {
-          label: "Последний отчёт",
-          value: equipment === undefined
+      headingMeta={{
+        label: "Последний отчёт",
+        value:
+          equipment === undefined
             ? "—"
             : formatDateOnly(equipment.reportDate ?? equipment.updatedAt),
-        },
+      }}
+      metrics={[
         ...(equipment?.workingCounts.map((item) => ({
           label: `Работало ${item.label.toLocaleLowerCase("ru-RU")}`,
           value: item.count,
@@ -2588,14 +2602,14 @@ function OwnerVisitorsOverviewBlock({
   return (
     <OwnerOverviewMetrics
       title="Посетители"
+      headingMeta={{
+        label: "Последний день посещений",
+        value:
+          visitors.latestDate === undefined
+            ? "—"
+            : formatDateOnly(visitors.latestDate),
+      }}
       metrics={[
-        {
-          label: "Последний день посещений",
-          value:
-            visitors.latestDate === undefined
-              ? "—"
-              : formatDateOnly(visitors.latestDate),
-        },
         {
           label: "Посетителей в этот день",
           value: visitors.count,

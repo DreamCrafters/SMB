@@ -84,15 +84,21 @@ test("owner overview renders every operational section as glanceable metrics", a
       ["Испытаний за месяц", "31"],
       ["Испытаний сегодня", "3"],
     ]);
+    assert.deepEqual(readOverviewHeadingMeta(document, "Оборудование"), [
+      "Последний отчёт",
+      "23.07.2026",
+    ]);
     assert.deepEqual(readOverviewMetrics(document, "Оборудование"), [
-      ["Последний отчёт", "23.07.2026"],
       ["Работало прессов", "2"],
     ]);
     assert.deepEqual(readOverviewMetrics(document, "Выработка"), [
       ["Всего за месяц, т", "46"],
     ]);
+    assert.deepEqual(readOverviewHeadingMeta(document, "Посетители"), [
+      "Последний день посещений",
+      "23.07.2026",
+    ]);
     assert.deepEqual(readOverviewMetrics(document, "Посетители"), [
-      ["Последний день посещений", "23.07.2026"],
       ["Посетителей в этот день", "3"],
       ["Не вышли сейчас", "1"],
     ]);
@@ -128,4 +134,19 @@ function readOverviewMetrics(document, sectionLabel) {
       metric.querySelector("dd")?.textContent,
     ],
   );
+}
+
+function readOverviewHeadingMeta(document, sectionLabel) {
+  const section = document.querySelector(
+    `section[aria-label="${sectionLabel}"]`,
+  );
+  assert.ok(section, `Missing overview section: ${sectionLabel}`);
+
+  const headingMeta = section.querySelector(".owner-overview-heading-meta");
+  assert.ok(headingMeta, `Missing overview heading meta: ${sectionLabel}`);
+
+  return [
+    headingMeta.querySelector("span")?.textContent,
+    headingMeta.querySelector("strong")?.textContent,
+  ];
 }
