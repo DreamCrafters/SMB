@@ -36,6 +36,8 @@ test("dispatcher form opens shared history and active navigation resets the work
   });
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -198,6 +200,11 @@ test("dispatcher form opens shared history and active navigation resets the work
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
+    if (previousRemoteApiUrl === undefined) {
+      delete process.env.VITE_SMB_REMOTE_API_URL;
+    } else {
+      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+    }
     await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
