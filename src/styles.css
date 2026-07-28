@@ -4609,6 +4609,103 @@ p {
   line-height: 1.45;
 }
 
+.board-assignment-document-fields {
+  min-width: 0;
+  margin: 0;
+  padding: var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.board-assignment-document-fields legend {
+  padding: 0 var(--density-1);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.board-assignment-document-picker {
+  display: flex;
+  gap: var(--density-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.board-assignment-form-grid .board-assignment-document-picker label {
+  display: inline-flex;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.board-assignment-document-picker input[type="file"] {
+  position: absolute;
+  width: 1px;
+  min-height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.board-assignment-document-picker small,
+.board-assignment-document-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.board-assignment-document-empty {
+  margin: var(--density-3) 0 0;
+}
+
+.board-assignment-document-list {
+  display: grid;
+  gap: var(--density-2);
+  margin: var(--density-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-assignment-document-list li {
+  display: flex;
+  gap: var(--density-3);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: var(--density-2) var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.board-assignment-document-list li > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.board-assignment-document-list strong {
+  overflow-wrap: anywhere;
+}
+
+.board-assignment-document-list small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.board-assignment-document-list li.is-removed {
+  border-style: dashed;
+  opacity: 0.68;
+}
+
+.board-assignment-document-list li.is-removed strong {
+  text-decoration: line-through;
+}
+
 .board-assignment-details {
   margin: 0;
 }
@@ -4653,6 +4750,13 @@ p {
   font-weight: 800;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.board-assignment-detail-documents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--density-2);
+  align-items: flex-start;
 }
 
 .board-assignment-comments {
@@ -4784,6 +4888,8 @@ p {
   .board-assignment-review-card > div,
   .board-assignment-view-notice,
   .board-assignment-view-notice > div,
+  .board-assignment-document-picker,
+  .board-assignment-document-list li,
   .board-assignment-dialog-heading-actions,
   .board-assignments-heading nav {
     align-items: stretch;

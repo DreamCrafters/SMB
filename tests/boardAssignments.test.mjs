@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   createBoardAssignment,
   applyBoardAssignmentAction,
+  deleteBoardAssignmentDocument,
   requestBoardAssignment,
   requestBoardAssignments,
+  uploadBoardAssignmentDocument,
 } from "../.test-build/src/services/boardAssignments.js";
 
 const permissions = {
@@ -40,6 +42,12 @@ const detail = {
     key: "protocol-369-2026-07-10",
     fileName: "Протокол 369 10.07.2026 v2.pdf",
   },
+  documents: [{
+    id: "document-1",
+    fileName: "Протокол 369 10.07.2026 v2.pdf",
+    sizeBytes: 412_000,
+    uploadedAt: "2026-07-10T08:00:00.000Z",
+  }],
   comments: [{
     id: "comment-1",
     authorDisplayName: "Фридман Е.М.",
@@ -149,6 +157,60 @@ test("board assignments service sends create and immutable action comment payloa
   }
 });
 
+test("board assignments service uploads raw PDFs and removes them by protected id", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init = {}) => {
+    requests.push({ url: input.toString(), init });
+    if (init.method === "DELETE") {
+      return jsonResponse({ ok: true });
+    }
+    return jsonResponse({
+      document: {
+        id: "document-5",
+        fileName: "Протокол №369.pdf",
+        sizeBytes: 9,
+        uploadedAt: "2026-07-28T09:00:00.000Z",
+      },
+    }, 201);
+  };
+
+  try {
+    const file = new File(
+      [new TextEncoder().encode("%PDF-1.7")],
+      "Протокол №369.pdf",
+      { type: "application/pdf" },
+    );
+    const upload = await uploadBoardAssignmentDocument(
+      summary.id,
+      file,
+      { baseUrl: "http://api.test" },
+    );
+    const removal = await deleteBoardAssignmentDocument(
+      summary.id,
+      "document-5",
+      { baseUrl: "http://api.test" },
+    );
+
+    assert.equal(upload.status, "ready");
+    assert.equal(removal.status, "ready");
+    assert.equal(
+      requests[0].url,
+      "http://api.test/api/board-assignments/protocol-369-assignment-2-3/documents?fileName=%D0%9F%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB+%E2%84%96369.pdf",
+    );
+    assert.equal(requests[0].init.method, "POST");
+    assert.equal(requests[0].init.headers["Content-Type"], "application/pdf");
+    assert.equal(requests[0].init.body, file);
+    assert.equal(
+      requests[1].url,
+      "http://api.test/api/board-assignments/protocol-369-assignment-2-3/documents/document-5",
+    );
+    assert.equal(requests[1].init.method, "DELETE");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("board assignments service does not expose network diagnostics to business users", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
@@ -202,6 +264,11 @@ test("board assignments workspace keeps the register, cancel flow, and distinct 
   assert.match(source, /setCreateInput\(emptyCreateInput\)/u);
   assert.match(source, /setCoExecutorsText\(""\)/u);
   assert.match(source, /setCreateComment\(""\)/u);
+  assert.match(source, /accept="application\/pdf,.pdf"/u);
+  assert.match(source, /multiple/u);
+  assert.match(source, /До 5 PDF-файлов/u);
+  assert.match(source, /Удалить/u);
+  assert.match(source, /Вернуть/u);
   for (const accessLayout of [
     "view-notice",
     "create-overview",

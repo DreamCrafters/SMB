@@ -40,6 +40,19 @@ const commentRow = {
   created_at: "2026-07-10T08:00:00.000Z",
 };
 
+const documentRow = {
+  id: "document-1",
+  assignment_id: "assignment-1",
+  storage_key: null,
+  file_name: "Приложение к протоколу.pdf",
+  mime_type: "application/pdf",
+  byte_size: 1_024,
+  pdf_data: Buffer.from("%PDF-test"),
+  uploaded_by_display_name: "Белов Ю.И.",
+  created_at: "2026-07-10T08:00:00.000Z",
+  deleted_at: null,
+};
+
 test("board assignment repository stores the task and immutable initial comment", async () => {
   const queries: Array<{ sql: string; parameters?: readonly unknown[] }> = [];
   const pool = {
@@ -51,6 +64,9 @@ test("board assignment repository stores the task and immutable initial comment"
       }
       if (sql.includes("from board_assignment_comments")) {
         return [[commentRow], []];
+      }
+      if (sql.includes("from board_assignment_documents")) {
+        return [[documentRow], []];
       }
 
       return [{ affectedRows: 1 }, []];
@@ -90,6 +106,12 @@ test("board assignment repository stores the task and immutable initial comment"
     saved.sourceMaterial?.fileName,
     "Протокол 369 10.07.2026 v2.pdf",
   );
+  assert.deepEqual(saved.documents, [{
+    id: "document-1",
+    fileName: "Приложение к протоколу.pdf",
+    sizeBytes: 1_024,
+    uploadedAt: "2026-07-10T08:00:00.000Z",
+  }]);
   assert.equal(saved.comments[0]?.authorDisplayName, "Белов Ю.И.");
   assert.match(queries[0]?.sql ?? "", /insert into board_assignments/u);
   assert.match(queries[1]?.sql ?? "", /insert into board_assignment_comments/u);
@@ -98,6 +120,117 @@ test("board assignment repository stores the task and immutable initial comment"
     "assignment-1",
     "board-user",
   ]);
+});
+
+test("board assignment repository stores a fifth PDF and rejects a sixth", async () => {
+  let activeDocumentCount = 4;
+  let insertCount = 0;
+  const queries: Array<{ sql: string; parameters?: readonly unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      queries.push({ sql, parameters });
+
+      if (sql.includes("from board_assignments assignments") && sql.includes("for update")) {
+        return [[{
+          status: "in_progress",
+          document_count: activeDocumentCount,
+        }], []];
+      }
+      if (sql.includes("insert into board_assignment_documents")) {
+        insertCount += 1;
+        activeDocumentCount += 1;
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool, {
+    createId: () => "document-5",
+    now: () => new Date("2026-07-28T14:00:00.000Z"),
+  });
+  const input = {
+    assignmentId: "assignment-1",
+    fileName: "Финансовое приложение.pdf",
+    pdf: Buffer.from("%PDF-1.7\n"),
+    actor: {
+      userId: "board-user",
+      accountId: "board-access",
+      displayName: "Белов Ю.И.",
+    },
+  };
+
+  const saved = await repository.addDocument(input);
+  const rejected = await repository.addDocument(input);
+
+  assert.deepEqual(saved, {
+    kind: "saved",
+    document: {
+      id: "document-5",
+      fileName: "Финансовое приложение.pdf",
+      sizeBytes: 9,
+      uploadedAt: "2026-07-28T14:00:00.000Z",
+    },
+  });
+  assert.deepEqual(rejected, { kind: "limit_reached" });
+  assert.equal(insertCount, 1);
+  const insert = queries.find((query) =>
+    query.sql.includes("insert into board_assignment_documents")
+  );
+  assert.equal(insert?.parameters?.[3], "Финансовое приложение.pdf");
+  assert.deepEqual(insert?.parameters?.[6], Buffer.from("%PDF-1.7\n"));
+});
+
+test("board assignment repository soft-deletes a live document but keeps its PDF readable", async () => {
+  const queries: Array<{ sql: string; parameters?: readonly unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: readonly unknown[]) {
+      queries.push({ sql, parameters });
+
+      if (sql.includes("from board_assignment_documents documents") && sql.includes("for update")) {
+        return [[{
+          id: documentRow.id,
+          file_name: documentRow.file_name,
+          byte_size: documentRow.byte_size,
+          created_at: documentRow.created_at,
+          assignment_status: "in_progress",
+          deleted_at: null,
+        }], []];
+      }
+      if (
+        sql.includes("from board_assignment_documents documents") &&
+        sql.includes("where documents.id = ?")
+      ) {
+        return [[documentRow], []];
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createBoardAssignmentsRepository(pool, {
+    now: () => new Date("2026-07-28T14:30:00.000Z"),
+  });
+
+  const removed = await repository.removeDocument({
+    assignmentId: "assignment-1",
+    documentId: "document-1",
+  });
+  const stored = await repository.readDocument("document-1");
+
+  assert.deepEqual(removed, {
+    kind: "removed",
+    document: {
+      id: "document-1",
+      fileName: "Приложение к протоколу.pdf",
+      sizeBytes: 1_024,
+      uploadedAt: "2026-07-10T08:00:00.000Z",
+    },
+  });
+  assert.equal(stored?.fileName, "Приложение к протоколу.pdf");
+  assert.deepEqual(stored?.pdf, Buffer.from("%PDF-test"));
+  const softDelete = queries.find((query) =>
+    query.sql.includes("update board_assignment_documents")
+  );
+  assert.match(softDelete?.sql ?? "", /set deleted_at = \?/u);
 });
 
 test("board assignment repository limits the executor list to active occurrences", async () => {
@@ -197,6 +330,9 @@ test("board assignment repository applies a guarded status transition and append
             created_at: "2026-07-20T10:00:00.000Z",
           },
         ], []];
+      }
+      if (sql.includes("from board_assignment_documents")) {
+        return [[documentRow], []];
       }
 
       return [[], []];
@@ -309,6 +445,9 @@ test("board assignment repository edits the live version and records both states
           },
         ], []];
       }
+      if (sql.includes("from board_assignment_documents")) {
+        return [[documentRow], []];
+      }
 
       return [{ affectedRows: 1 }, []];
     },
@@ -399,6 +538,9 @@ test("board assignment repository snapshots an accepted occurrence before advanc
       if (sql.includes("from board_assignment_comments")) {
         return [[commentRow, completedComment], []];
       }
+      if (sql.includes("from board_assignment_documents")) {
+        return [[documentRow], []];
+      }
 
       return [{ affectedRows: 1 }, []];
     },
@@ -436,6 +578,7 @@ test("board assignment repository snapshots an accepted occurrence before advanc
     status: string;
     currentOccurrenceDate: string;
     comments: Array<{ comment: string; statusAfter: string }>;
+    documents: Array<{ id: string; fileName: string }>;
   };
   assert.equal(snapshot.status, "completed");
   assert.equal(snapshot.currentOccurrenceDate, "2026-07-10");
@@ -446,6 +589,12 @@ test("board assignment repository snapshots an accepted occurrence before advanc
     statusAfter: "completed",
     createdAt: "2026-07-28T12:00:00.000Z",
   });
+  assert.deepEqual(snapshot.documents, [{
+    id: "document-1",
+    fileName: "Приложение к протоколу.pdf",
+    sizeBytes: 1_024,
+    uploadedAt: "2026-07-10T08:00:00.000Z",
+  }]);
 });
 
 test("board assignment repository reads completed snapshots independently of the live row", async () => {
@@ -515,6 +664,12 @@ function mapFixtureAssignment() {
       key: assignmentRow.source_material_key,
       fileName: assignmentRow.source_material_file_name,
     },
+    documents: [{
+      id: documentRow.id,
+      fileName: documentRow.file_name,
+      sizeBytes: documentRow.byte_size,
+      uploadedAt: documentRow.created_at,
+    }],
     createdByDisplayName: assignmentRow.created_by_display_name,
     createdAt: assignmentRow.created_at,
     updatedAt: assignmentRow.updated_at,

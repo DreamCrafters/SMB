@@ -43,6 +43,16 @@ export type BoardAssignmentComment = {
   createdAt: string;
 };
 
+export const maxBoardAssignmentDocuments = 5;
+export const maxBoardAssignmentDocumentBytes = 10_000_000;
+
+export type BoardAssignmentDocument = {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
 export type BoardAssignmentSummary = {
   id: string;
   meetingDate: string;
@@ -63,6 +73,7 @@ export type BoardAssignmentSummary = {
 
 export type BoardAssignment = BoardAssignmentSummary & {
   details: string;
+  documents?: BoardAssignmentDocument[];
   sourceMaterial?: {
     key: string;
     fileName: string;

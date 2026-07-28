@@ -25,6 +25,18 @@ export type BoardAssignmentComment = {
   createdAt: string;
 };
 
+export type BoardAssignmentDocument = {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
+export type StoredBoardAssignmentDocument = BoardAssignmentDocument & {
+  storageKey?: string;
+  pdf?: Buffer;
+};
+
 export type BoardAssignmentSummary = {
   id: string;
   meetingDate: string;
@@ -45,6 +57,7 @@ export type BoardAssignmentSummary = {
 
 export type BoardAssignment = BoardAssignmentSummary & {
   details: string;
+  documents: BoardAssignmentDocument[];
   sourceMaterial?: {
     key: string;
     fileName: string;
@@ -113,6 +126,25 @@ export type BoardAssignmentsRepository = {
   readCompletionById: (
     id: string,
   ) => Promise<BoardAssignmentCompletion | undefined>;
+  addDocument: (input: {
+    assignmentId: string;
+    fileName: string;
+    pdf: Buffer;
+    actor: BoardAssignmentActor;
+  }) => Promise<
+    | { kind: "saved"; document: BoardAssignmentDocument }
+    | { kind: "not_found" | "immutable" | "limit_reached" }
+  >;
+  removeDocument: (input: {
+    assignmentId: string;
+    documentId: string;
+  }) => Promise<
+    | { kind: "removed"; document: BoardAssignmentDocument }
+    | { kind: "not_found" | "immutable" }
+  >;
+  readDocument: (
+    id: string,
+  ) => Promise<StoredBoardAssignmentDocument | undefined>;
 };
 
 export class BoardAssignmentChangedError extends Error {
@@ -165,6 +197,33 @@ type BoardAssignmentCompletionRow = RowDataPacket & {
   completed_at: Date | string;
 };
 
+type BoardAssignmentDocumentRow = RowDataPacket & {
+  id: string;
+  assignment_id: string;
+  storage_key: string | null;
+  file_name: string;
+  mime_type: string;
+  byte_size: number | string;
+  pdf_data: Buffer | null;
+  uploaded_by_display_name: string;
+  created_at: Date | string;
+  deleted_at: Date | string | null;
+};
+
+type BoardAssignmentDocumentCountRow = RowDataPacket & {
+  status: string;
+  document_count: number | string;
+};
+
+type BoardAssignmentDocumentLockRow = RowDataPacket & {
+  id: string;
+  file_name: string;
+  byte_size: number | string;
+  created_at: Date | string;
+  assignment_status: string;
+  deleted_at: Date | string | null;
+};
+
 type BoardAssignmentsRepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
@@ -183,6 +242,8 @@ const assignmentSelect = `
     assignments.updated_at
   from board_assignments assignments
 `;
+
+const maxBoardAssignmentDocuments = 5;
 
 export function createBoardAssignmentsRepository(
   pool: DatabasePool,
@@ -271,10 +332,21 @@ export function createBoardAssignmentsRepository(
       order by created_at asc, sequence_id asc`,
       [id],
     );
+    const [documentRows] = await pool.query<BoardAssignmentDocumentRow[]>(
+      `select documents.id, documents.assignment_id, documents.storage_key,
+        documents.file_name, documents.mime_type, documents.byte_size,
+        documents.pdf_data, documents.uploaded_by_display_name,
+        documents.created_at, documents.deleted_at
+      from board_assignment_documents documents
+      where documents.assignment_id = ? and documents.deleted_at is null
+      order by documents.sequence_id asc`,
+      [id],
+    );
 
     return {
       ...mapSummary(row),
       details: row.details,
+      documents: documentRows.map(mapDocument),
       ...(
         row.source_material_key === null ||
           row.source_material_file_name === null
@@ -578,6 +650,150 @@ export function createBoardAssignmentsRepository(
     return row === undefined ? undefined : mapCompletion(row);
   }
 
+  async function addDocument({
+    assignmentId,
+    fileName,
+    pdf,
+    actor,
+  }: {
+    assignmentId: string;
+    fileName: string;
+    pdf: Buffer;
+    actor: BoardAssignmentActor;
+  }) {
+    const [rows] = await pool.query<BoardAssignmentDocumentCountRow[]>(
+      `select assignments.status,
+        (select count(*) from board_assignment_documents documents
+          where documents.assignment_id = assignments.id
+            and documents.deleted_at is null) as document_count
+      from board_assignments assignments
+      where assignments.id = ?
+      limit 1 for update`,
+      [assignmentId],
+    );
+    const assignment = rows[0];
+
+    if (assignment === undefined) {
+      return { kind: "not_found" as const };
+    }
+    if (assignment.status === "completed") {
+      return { kind: "immutable" as const };
+    }
+    if (Number(assignment.document_count) >= maxBoardAssignmentDocuments) {
+      return { kind: "limit_reached" as const };
+    }
+
+    const documentId = createId();
+    const uploadedAt = formatSqlDateTime(now());
+    await pool.query(
+      `insert into board_assignment_documents (
+        id, assignment_id, storage_key, file_name, mime_type, byte_size,
+        pdf_data, uploaded_by_user_id, uploaded_by_account_id,
+        uploaded_by_display_name, created_at
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        documentId,
+        assignmentId,
+        null,
+        fileName,
+        "application/pdf",
+        pdf.length,
+        pdf,
+        actor.userId,
+        actor.accountId,
+        actor.displayName,
+        uploadedAt,
+      ],
+    );
+    await pool.query(
+      "update board_assignments set updated_at = ? where id = ?",
+      [uploadedAt, assignmentId],
+    );
+
+    return {
+      kind: "saved" as const,
+      document: {
+        id: documentId,
+        fileName,
+        sizeBytes: pdf.length,
+        uploadedAt: parseSqlDateTime(uploadedAt),
+      },
+    };
+  }
+
+  async function removeDocument({
+    assignmentId,
+    documentId,
+  }: {
+    assignmentId: string;
+    documentId: string;
+  }) {
+    const [rows] = await pool.query<BoardAssignmentDocumentLockRow[]>(
+      `select documents.id, documents.file_name, documents.byte_size,
+        documents.created_at, documents.deleted_at,
+        assignments.status as assignment_status
+      from board_assignment_documents documents
+      join board_assignments assignments on assignments.id = documents.assignment_id
+      where assignments.id = ? and documents.id = ?
+      limit 1 for update`,
+      [assignmentId, documentId],
+    );
+    const document = rows[0];
+
+    if (document === undefined || document.deleted_at !== null) {
+      return { kind: "not_found" as const };
+    }
+    if (document.assignment_status === "completed") {
+      return { kind: "immutable" as const };
+    }
+
+    const deletedAt = formatSqlDateTime(now());
+    await pool.query(
+      `update board_assignment_documents
+      set deleted_at = ?
+      where assignment_id = ? and id = ? and deleted_at is null`,
+      [deletedAt, assignmentId, documentId],
+    );
+    await pool.query(
+      "update board_assignments set updated_at = ? where id = ?",
+      [deletedAt, assignmentId],
+    );
+
+    return {
+      kind: "removed" as const,
+      document: {
+        id: document.id,
+        fileName: document.file_name,
+        sizeBytes: Number(document.byte_size),
+        uploadedAt: new Date(document.created_at).toISOString(),
+      },
+    };
+  }
+
+  async function readDocument(id: string) {
+    const [rows] = await pool.query<BoardAssignmentDocumentRow[]>(
+      `select documents.id, documents.assignment_id, documents.storage_key,
+        documents.file_name, documents.mime_type, documents.byte_size,
+        documents.pdf_data, documents.uploaded_by_display_name,
+        documents.created_at, documents.deleted_at
+      from board_assignment_documents documents
+      where documents.id = ?
+      limit 1`,
+      [id],
+    );
+    const row = rows[0];
+
+    if (row === undefined) {
+      return undefined;
+    }
+
+    return {
+      ...mapDocument(row),
+      ...(row.storage_key === null ? {} : { storageKey: row.storage_key }),
+      ...(row.pdf_data === null ? {} : { pdf: row.pdf_data }),
+    };
+  }
+
   async function insertComment({
     assignmentId,
     comment,
@@ -618,6 +834,9 @@ export function createBoardAssignmentsRepository(
     applyAction,
     listCompletions,
     readCompletionById,
+    addDocument,
+    removeDocument,
+    readDocument,
   };
 }
 
@@ -662,12 +881,26 @@ function mapComment(row: BoardAssignmentCommentRow): BoardAssignmentComment {
   };
 }
 
+function mapDocument(row: BoardAssignmentDocumentRow): BoardAssignmentDocument {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    sizeBytes: Number(row.byte_size),
+    uploadedAt: new Date(row.created_at).toISOString(),
+  };
+}
+
 function mapCompletionSummary(
   row: BoardAssignmentCompletionRow,
 ): BoardAssignmentCompletionSummary {
   const completion = mapCompletion(row);
-  const { details: _details, sourceMaterial: _sourceMaterial, comments: _comments, ...summary } =
-    completion.assignment;
+  const {
+    details: _details,
+    documents: _documents,
+    sourceMaterial: _sourceMaterial,
+    comments: _comments,
+    ...summary
+  } = completion.assignment;
 
   return {
     ...completion,
@@ -745,6 +978,13 @@ function readBoardAssignmentSnapshot(value: unknown): BoardAssignment {
     !Array.isArray(snapshot.comments) ||
     !snapshot.comments.every(isBoardAssignmentCommentSnapshot) ||
     (
+      snapshot.documents !== undefined &&
+      (
+        !Array.isArray(snapshot.documents) ||
+        !snapshot.documents.every(isBoardAssignmentDocumentSnapshot)
+      )
+    ) ||
+    (
       snapshot.sourceMaterial !== undefined &&
       (
         snapshot.sourceMaterial === null ||
@@ -757,7 +997,35 @@ function readBoardAssignmentSnapshot(value: unknown): BoardAssignment {
     throw new Error("Stored board assignment completion snapshot is invalid.");
   }
 
-  return snapshot as BoardAssignment;
+  return {
+    ...snapshot,
+    documents: snapshot.documents ?? (
+      snapshot.sourceMaterial === undefined
+        ? []
+        : [{
+            id: snapshot.sourceMaterial.key,
+            fileName: snapshot.sourceMaterial.fileName,
+            sizeBytes: 0,
+            uploadedAt: snapshot.createdAt,
+          }]
+    ),
+  } as BoardAssignment;
+}
+
+function isBoardAssignmentDocumentSnapshot(
+  value: unknown,
+): value is BoardAssignmentDocument {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const document = value as Partial<BoardAssignmentDocument>;
+  return typeof document.id === "string" &&
+    typeof document.fileName === "string" &&
+    typeof document.sizeBytes === "number" &&
+    Number.isFinite(document.sizeBytes) &&
+    document.sizeBytes >= 0 &&
+    typeof document.uploadedAt === "string";
 }
 
 function isBoardAssignmentCommentSnapshot(
@@ -773,6 +1041,10 @@ function isBoardAssignmentCommentSnapshot(
     typeof comment.comment === "string" &&
     isBoardAssignmentStatus(comment.statusAfter) &&
     typeof comment.createdAt === "string";
+}
+
+function parseSqlDateTime(value: string) {
+  return new Date(`${value.replace(" ", "T")}Z`).toISOString();
 }
 
 function parseJson(value: string) {

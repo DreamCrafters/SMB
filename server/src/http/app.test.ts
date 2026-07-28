@@ -5734,6 +5734,7 @@ test("board assignment API enforces creation, execution and review capabilities"
     createdByDisplayName: profile.displayName,
     createdAt: "2026-07-10T08:00:00.000Z",
     updatedAt: "2026-07-10T08:00:00.000Z",
+    documents: [],
     comments: [],
   };
   let listFilters: BoardAssignmentFilters | undefined;
@@ -5801,6 +5802,15 @@ test("board assignment API enforces creation, execution and review capabilities"
       return [];
     },
     async readCompletionById() {
+      return undefined;
+    },
+    async addDocument() {
+      return { kind: "not_found" };
+    },
+    async removeDocument() {
+      return { kind: "not_found" };
+    },
+    async readDocument() {
       return undefined;
     },
   };
@@ -5987,6 +5997,205 @@ test("board assignment API enforces creation, execution and review capabilities"
   }
 });
 
+test("board assignment API lets creators upload and remove up to five protected PDFs", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.position = "board_member";
+  profile.activeAccess.positionDisplayName = "Член Совета директоров";
+  profile.activeAccess.navigationItems = ["business.board_assignments"];
+  profile.activeAccess.capabilities = [
+    "business.view_board_assignments",
+    "business.create_board_assignments",
+  ];
+  const initialDocuments = Array.from({ length: 4 }, (_, index) => ({
+    id: `document-${index + 1}`,
+    fileName: `Приложение ${index + 1}.pdf`,
+    sizeBytes: 100,
+    uploadedAt: "2026-07-10T08:00:00.000Z",
+  }));
+  const storedPdf = Buffer.from("%PDF-1.7\nprotected");
+  let documents = [...initialDocuments];
+  let uploadedFileName = "";
+  let uploadedPdf: Uint8Array = new Uint8Array();
+  const assignment: BoardAssignment = {
+    id: "assignment-documents",
+    meetingDate: "2026-07-10",
+    protocolNumber: "369",
+    decisionNumber: "2.3",
+    summary: "Поручение с приложениями",
+    details: "К поручению можно приложить до пяти PDF.",
+    coExecutors: [],
+    dueDate: "Один раз, 10.07.2026",
+    recurrence: "once",
+    activeFrom: "2026-07-10",
+    activeTo: "2026-07-10",
+    currentOccurrenceDate: "2026-07-10",
+    status: "in_progress",
+    createdByDisplayName: profile.displayName,
+    createdAt: "2026-07-10T08:00:00.000Z",
+    updatedAt: "2026-07-10T08:00:00.000Z",
+    documents,
+    comments: [],
+  };
+  const repository: BoardAssignmentsRepository = {
+    async list() { return [assignment]; },
+    async readById() {
+      assignment.documents = documents;
+      return assignment;
+    },
+    async readByIdForUpdate() {
+      assignment.documents = documents;
+      return assignment;
+    },
+    async create() { return assignment; },
+    async update() { return assignment; },
+    async applyAction() { return assignment; },
+    async listCompletions() { return []; },
+    async readCompletionById() { return undefined; },
+    async addDocument(input) {
+      if (assignment.status === "completed") {
+        return { kind: "immutable" };
+      }
+      if (documents.length >= 5) {
+        return { kind: "limit_reached" };
+      }
+      uploadedFileName = input.fileName;
+      uploadedPdf = input.pdf;
+      const document = {
+        id: "document-5",
+        fileName: input.fileName,
+        sizeBytes: input.pdf.length,
+        uploadedAt: "2026-07-28T14:00:00.000Z",
+      };
+      documents = [...documents, document];
+      return { kind: "saved", document };
+    },
+    async removeDocument(input) {
+      const document = documents.find(({ id }) => id === input.documentId);
+      if (document === undefined) {
+        return { kind: "not_found" };
+      }
+      documents = documents.filter(({ id }) => id !== input.documentId);
+      return { kind: "removed", document };
+    },
+    async readDocument(id) {
+      const document = [...documents, {
+        id: "document-5",
+        fileName: uploadedFileName,
+        sizeBytes: uploadedPdf.length,
+        uploadedAt: "2026-07-28T14:00:00.000Z",
+      }].find((item) => item.id === id);
+      return document === undefined
+        ? undefined
+        : { ...document, pdf: storedPdf };
+    },
+  };
+  const events: Parameters<AuditRepository["record"]>[0][] = [];
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    boardAssignments: repository,
+    referenceDataSource: emptyReferenceDataSource,
+    audit: {
+      async record(event) { events.push(event); },
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: {
+      async run(operation) { return operation(); },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const cookie = `${productionConfig.session.cookieName}=prod-session`;
+  const uploadUrl =
+    `${baseUrl}/api/board-assignments/${assignment.id}/documents?` +
+    new URLSearchParams({ fileName: "Финансовое приложение.pdf" });
+
+  try {
+    const uploadResponse = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/pdf",
+        Cookie: cookie,
+      },
+      body: storedPdf,
+    });
+    const uploadPayload = await uploadResponse.json();
+    const uploadedDocument = isRecord(uploadPayload) &&
+        isRecord(uploadPayload.document)
+      ? uploadPayload.document
+      : undefined;
+
+    assert.equal(uploadResponse.status, 201);
+    assert.equal(uploadedDocument?.fileName, "Финансовое приложение.pdf");
+    assert.equal(uploadedFileName, "Финансовое приложение.pdf");
+    assert.deepEqual(uploadedPdf, storedPdf);
+
+    const limitResponse = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/pdf",
+        Cookie: cookie,
+      },
+      body: storedPdf,
+    });
+    assert.equal(limitResponse.status, 409);
+    assert.match(JSON.stringify(await limitResponse.json()), /пяти/u);
+
+    const materialResponse = await fetch(
+      `${baseUrl}/api/board-assignment-materials/document-5`,
+      { headers: { Cookie: cookie } },
+    );
+    assert.equal(materialResponse.status, 200);
+    assert.equal(materialResponse.headers.get("content-type"), "application/pdf");
+    assert.deepEqual(Buffer.from(await materialResponse.arrayBuffer()), storedPdf);
+
+    const deleteResponse = await fetch(
+      `${baseUrl}/api/board-assignments/${assignment.id}/documents/document-5`,
+      {
+        method: "DELETE",
+        headers: { Cookie: cookie },
+      },
+    );
+    assert.equal(deleteResponse.status, 200);
+    assert.equal(documents.length, 4);
+    assert.deepEqual(
+      events.map(({ action }) => action),
+      ["board_assignment.document_upload", "board_assignment.document_delete"],
+    );
+
+    const invalidResponse = await fetch(
+      `${baseUrl}/api/board-assignments/${assignment.id}/documents?` +
+        new URLSearchParams({ fileName: "Не PDF.pdf" }),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/pdf",
+          Cookie: cookie,
+        },
+        body: Buffer.from("not a pdf"),
+      },
+    );
+    assert.equal(invalidResponse.status, 400);
+
+    profile.activeAccess.capabilities = ["business.view_board_assignments"];
+    const forbiddenResponse = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/pdf",
+        Cookie: cookie,
+      },
+      body: storedPdf,
+    });
+    assert.equal(forbiddenResponse.status, 403);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("board assignment API lets any creator edit a live assignment but keeps a completed one immutable", async () => {
   const profile = buildProductionProfile("business_owner");
   profile.activeAccess.position = "board_member";
@@ -6013,6 +6222,7 @@ test("board assignment API lets any creator edit a live assignment but keeps a c
     createdByDisplayName: "Белов Ю.И.",
     createdAt: "2026-07-10T08:00:00.000Z",
     updatedAt: "2026-07-20T08:00:00.000Z",
+    documents: [],
     comments: [],
   };
   let updateInput: Record<string, unknown> | undefined;
@@ -6162,6 +6372,7 @@ test("board assignment completion history returns immutable accepted snapshots",
     createdByDisplayName: "Белов Ю.И.",
     createdAt: "2026-07-10T08:00:00.000Z",
     updatedAt: "2026-07-28T12:00:00.000Z",
+    documents: [],
     comments: [{
       id: "completion-comment",
       authorDisplayName: "Лариков А.Т.",

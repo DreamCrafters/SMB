@@ -6,6 +6,7 @@ import {
   type BoardAssignmentCompletion,
   type BoardAssignmentCompletionSummary,
   type BoardAssignmentCreateInput,
+  type BoardAssignmentDocument,
   type BoardAssignmentFilters,
   type BoardAssignmentPermissions,
   type BoardAssignmentStatus,
@@ -72,6 +73,14 @@ export type BoardAssignmentMaterialResult =
       blob: Blob;
       fileName: string;
     }
+  | ErrorResult;
+
+export type BoardAssignmentDocumentMutationResult =
+  | { status: "ready"; document: BoardAssignmentDocument }
+  | ErrorResult;
+
+export type BoardAssignmentDocumentRemovalResult =
+  | { status: "ready" }
   | ErrorResult;
 
 export async function requestBoardAssignments(
@@ -158,11 +167,97 @@ export async function applyBoardAssignmentAction(
   );
 }
 
+export async function uploadBoardAssignmentDocument(
+  assignmentId: string,
+  file: File,
+  { baseUrl, signal }: RequestOptions = {},
+): Promise<BoardAssignmentDocumentMutationResult> {
+  const params = new URLSearchParams({ fileName: file.name });
+  const path = `${assignmentsPath}/${encodeURIComponent(assignmentId)}/documents?${params.toString()}`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/pdf",
+      }),
+      credentials: "include",
+      signal,
+      body: file,
+    });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        "Не удалось загрузить документ поручения.",
+      );
+    }
+    if (!isRecord(payload) || !isBoardAssignmentDocument(payload.document)) {
+      return invalidResponse("Не удалось загрузить документ поручения.");
+    }
+
+    return { status: "ready", document: payload.document };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { status: "error", message: "Загрузка документа отменена." };
+    }
+    return {
+      status: "error",
+      code: "network_error",
+      message: "Не удалось загрузить документ поручения.",
+    };
+  }
+}
+
+export async function deleteBoardAssignmentDocument(
+  assignmentId: string,
+  documentId: string,
+  { baseUrl, signal }: RequestOptions = {},
+): Promise<BoardAssignmentDocumentRemovalResult> {
+  const path = `${assignmentsPath}/${encodeURIComponent(assignmentId)}/documents/${encodeURIComponent(documentId)}`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "DELETE",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        "Не удалось удалить документ поручения.",
+      );
+    }
+    if (!isRecord(payload) || payload.ok !== true) {
+      return invalidResponse("Не удалось удалить документ поручения.");
+    }
+
+    return { status: "ready" };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { status: "error", message: "Удаление документа отменено." };
+    }
+    return {
+      status: "error",
+      code: "network_error",
+      message: "Не удалось удалить документ поручения.",
+    };
+  }
+}
+
 export async function requestBoardAssignmentMaterial(
-  material: { key: string; fileName: string },
+  material:
+    | Pick<BoardAssignmentDocument, "id" | "fileName">
+    | { key: string; fileName: string },
   { baseUrl, signal }: RequestOptions = {},
 ): Promise<BoardAssignmentMaterialResult> {
-  const path = `${materialsPath}/${encodeURIComponent(material.key)}`;
+  const materialId = "id" in material ? material.id : material.key;
+  const path = `${materialsPath}/${encodeURIComponent(materialId)}`;
   const endpoint = resolveApiEndpoint(path, path, { baseUrl });
 
   try {
@@ -357,6 +452,13 @@ function isBoardAssignment(value: unknown): value is BoardAssignment {
         typeof record.sourceMaterial.fileName === "string"
       )
     ) &&
+    (
+      record.documents === undefined ||
+      (
+        Array.isArray(record.documents) &&
+        record.documents.every(isBoardAssignmentDocument)
+      )
+    ) &&
     Array.isArray(record.comments) &&
     record.comments.every((comment: unknown) =>
       isRecord(comment) &&
@@ -367,6 +469,18 @@ function isBoardAssignment(value: unknown): value is BoardAssignment {
       typeof comment.createdAt === "string"
     )
   );
+}
+
+function isBoardAssignmentDocument(
+  value: unknown,
+): value is BoardAssignmentDocument {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.fileName === "string" &&
+    typeof value.sizeBytes === "number" &&
+    Number.isSafeInteger(value.sizeBytes) &&
+    value.sizeBytes >= 0 &&
+    typeof value.uploadedAt === "string";
 }
 
 function isBoardAssignmentSummary(

@@ -1783,6 +1783,72 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "029_board_assignment_documents",
+    statements: [
+      `
+      create table if not exists board_assignment_documents (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(160) not null,
+        assignment_id varchar(120) not null,
+        storage_key varchar(120) null,
+        file_name varchar(255) not null,
+        mime_type varchar(80) not null,
+        byte_size int unsigned not null,
+        pdf_data mediumblob null,
+        uploaded_by_user_id varchar(120) not null,
+        uploaded_by_account_id varchar(120) not null,
+        uploaded_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        deleted_at timestamp(3) null,
+        unique key uq_board_assignment_document_id (id),
+        key idx_board_assignment_documents_live (
+          assignment_id,
+          deleted_at,
+          sequence_id
+        ),
+        constraint fk_board_assignment_document_assignment
+          foreign key (assignment_id) references board_assignments(id)
+          on delete restrict,
+        constraint chk_board_assignment_document_pdf
+          check (mime_type = 'application/pdf'),
+        constraint chk_board_assignment_document_storage
+          check (pdf_data is not null or storage_key is not null)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into board_assignment_documents (
+        id,
+        assignment_id,
+        storage_key,
+        file_name,
+        mime_type,
+        byte_size,
+        pdf_data,
+        uploaded_by_user_id,
+        uploaded_by_account_id,
+        uploaded_by_display_name,
+        created_at
+      )
+      select
+        concat('legacy-', assignments.id),
+        assignments.id,
+        assignments.source_material_key,
+        assignments.source_material_file_name,
+        'application/pdf',
+        0,
+        null,
+        assignments.created_by_user_id,
+        assignments.created_by_account_id,
+        assignments.created_by_display_name,
+        assignments.created_at
+      from board_assignments assignments
+      where assignments.source_material_key is not null
+        and assignments.source_material_file_name is not null
+      on duplicate key update id = values(id);
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

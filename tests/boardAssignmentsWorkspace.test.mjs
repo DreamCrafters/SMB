@@ -298,6 +298,17 @@ test("board assignment creation offers one-time and recurring schedule choices",
     );
     assert.equal(findLabel(rootElement, "Действует с") !== undefined, true);
     assert.equal(findLabel(rootElement, "Действует по") !== undefined, true);
+    const documentInput = rootElement.querySelector(
+      '.board-assignment-document-fields input[type="file"]',
+    );
+    assert.ok(documentInput);
+    assert.equal(documentInput.multiple, true);
+    assert.equal(documentInput.accept, "application/pdf,.pdf");
+    assert.match(
+      rootElement.querySelector(".board-assignment-document-fields")
+        ?.textContent ?? "",
+      /До 5 PDF-файлов.*10 МБ/u,
+    );
 
     const meetingDateInput = findLabel(
       rootElement,
@@ -653,6 +664,12 @@ test("board assignment creator edits live tasks and opens immutable completion h
   const detail = {
     ...summary,
     details: "Первоначальное полное содержание.",
+    documents: [{
+      id: "document-1",
+      fileName: "Протокол 369.pdf",
+      sizeBytes: 412_000,
+      uploadedAt: "2026-07-10T08:00:00.000Z",
+    }],
     comments: [],
   };
   const completedSnapshot = {
@@ -753,6 +770,30 @@ test("board assignment creator edits live tasks and opens immutable completion h
       rootElement.querySelector('[role="dialog"]')?.textContent ?? "",
       /Редактирование поручения/u,
     );
+    assert.match(
+      rootElement.querySelector(".board-assignment-document-list")
+        ?.textContent ?? "",
+      /Протокол 369\.pdf.*412 КБ.*Удалить/su,
+    );
+    const removeDocumentButton = Array.from(
+      rootElement.querySelectorAll(
+        ".board-assignment-document-list button",
+      ),
+    ).find((button) => button.textContent?.trim() === "Удалить");
+    assert.ok(removeDocumentButton);
+    await React.act(async () => removeDocumentButton.click());
+    assert.match(
+      rootElement.querySelector(".board-assignment-document-list")
+        ?.textContent ?? "",
+      /Вернуть/u,
+    );
+    const restoreDocumentButton = Array.from(
+      rootElement.querySelectorAll(
+        ".board-assignment-document-list button",
+      ),
+    ).find((button) => button.textContent?.trim() === "Вернуть");
+    assert.ok(restoreDocumentButton);
+    await React.act(async () => restoreDocumentButton.click());
     const summaryInput = findLabel(
       rootElement,
       "Краткое содержание поручения",

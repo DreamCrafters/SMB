@@ -214,9 +214,17 @@ type AppDependencies = {
 type JsonPayload = Record<string, unknown> | unknown[];
 
 const maxBodyBytes = 100_000;
+const maxBoardAssignmentDocumentBytes = 10_000_000;
 const devSessionCookie = "smb_dev_access_session";
 const devSessionHeader = "x-smb-dev-session";
 const accountHeader = "x-smb-account-id";
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("Request body is too large.");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
 
 export function createApiServer({
   config,
@@ -472,6 +480,9 @@ export function createApiServer({
       if (
         url.pathname === "/api/board-assignments" ||
         /^\/api\/board-assignments\/[^/]+(?:\/action)?$/u.test(url.pathname) ||
+        /^\/api\/board-assignments\/[^/]+\/documents(?:\/[^/]+)?$/u.test(
+          url.pathname,
+        ) ||
         /^\/api\/board-assignment-completions(?:\/[^/]+)?$/u.test(url.pathname) ||
         /^\/api\/board-assignment-materials\/[^/]+$/u.test(url.pathname)
       ) {
@@ -1033,7 +1044,7 @@ async function handleBoardAssignmentsRequest({
 
   const permissions = getBoardAssignmentPermissions(access.profile);
   const materialMatch =
-    /^\/api\/board-assignment-materials\/([a-zA-Z0-9-]{1,120})$/u.exec(
+    /^\/api\/board-assignment-materials\/([a-zA-Z0-9-]{1,160})$/u.exec(
       url.pathname,
     );
   if (materialMatch !== null) {
@@ -1047,10 +1058,23 @@ async function handleBoardAssignmentsRequest({
       return;
     }
 
-    const materialKey = materialMatch[1];
-    const material = materialKey === undefined
+    const materialId = materialMatch[1];
+    const storedDocument = materialId === undefined
       ? undefined
-      : await boardAssignmentMaterials.read(materialKey);
+      : await boardAssignments?.readDocument(materialId);
+    const storedMaterial = storedDocument?.storageKey === undefined
+      ? undefined
+      : await boardAssignmentMaterials.read(storedDocument.storageKey);
+    const legacyMaterial =
+      storedDocument === undefined && materialId !== undefined
+        ? await boardAssignmentMaterials.read(materialId)
+        : undefined;
+    const material = storedDocument?.pdf === undefined
+      ? (storedMaterial ?? legacyMaterial)
+      : {
+          fileName: storedDocument.fileName,
+          pdf: storedDocument.pdf,
+        };
     if (material === undefined) {
       sendJson(res, 404, {
         error: {
@@ -1070,6 +1094,199 @@ async function handleBoardAssignmentsRequest({
       error: {
         code: "server_error",
         message: "Хранилище поручений Совета директоров не настроено.",
+      },
+    });
+    return;
+  }
+
+  const documentMatch =
+    /^\/api\/board-assignments\/([a-zA-Z0-9-]{1,120})\/documents(?:\/([a-zA-Z0-9-]{1,160}))?$/u.exec(
+      url.pathname,
+    );
+  if (documentMatch !== null) {
+    if (!permissions.canCreate) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Изменять документы поручения может член Совета директоров.",
+        },
+      });
+      return;
+    }
+
+    const assignmentId = documentMatch[1];
+    const documentId = documentMatch[2];
+    if (assignmentId === undefined) {
+      sendBoardAssignmentNotFound(res);
+      return;
+    }
+
+    if (req.method === "POST" && documentId === undefined) {
+      const fileName = readBoardAssignmentDocumentFileName(
+        url.searchParams.get("fileName"),
+      );
+      if (fileName === undefined) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Выберите PDF-файл с корректным названием.",
+          },
+        });
+        return;
+      }
+      if ((req.headers["content-type"] ?? "").split(";")[0]?.trim() !==
+        "application/pdf") {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Можно загружать только документы в формате PDF.",
+          },
+        });
+        return;
+      }
+
+      let pdf: Buffer;
+      try {
+        pdf = await readBinaryBody(req, maxBoardAssignmentDocumentBytes);
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) {
+          sendJson(res, 413, {
+            error: {
+              code: "invalid_response",
+              message: "Размер одного PDF не должен превышать 10 МБ.",
+            },
+          });
+          return;
+        }
+        throw error;
+      }
+      if (
+        pdf.length < 5 ||
+        pdf.subarray(0, 5).toString("ascii") !== "%PDF-"
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Выбранный файл не является корректным PDF.",
+          },
+        });
+        return;
+      }
+
+      const result = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => boardAssignments.addDocument({
+          assignmentId,
+          fileName,
+          pdf,
+          actor: {
+            userId: access.profile.userId,
+            accountId: access.profile.activeAccess.accountId,
+            displayName: access.profile.displayName,
+          },
+        }),
+        buildEvent: (uploadResult) => uploadResult.kind === "saved"
+          ? {
+              actor: buildAuditActor(access.profile),
+              category: "data_change",
+              action: "board_assignment.document_upload",
+              summary: `Добавлен документ поручения: ${uploadResult.document.fileName}`,
+              details: [{
+                label: "Документ",
+                value: uploadResult.document.fileName,
+              }],
+              targetType: "board_assignment",
+              targetId: assignmentId,
+            }
+          : undefined,
+      });
+      if (result.kind === "not_found") {
+        sendBoardAssignmentNotFound(res);
+        return;
+      }
+      if (result.kind === "immutable") {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Документы завершённого поручения нельзя изменять.",
+          },
+        });
+        return;
+      }
+      if (result.kind === "limit_reached") {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "К одному поручению можно прикрепить не более пяти документов.",
+          },
+        });
+        return;
+      }
+      if (result.kind !== "saved") {
+        sendJson(res, 500, {
+          error: {
+            code: "server_error",
+            message: "Не удалось сохранить документ поручения.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 201, { document: result.document });
+      return;
+    }
+
+    if (req.method === "DELETE" && documentId !== undefined) {
+      const result = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => boardAssignments.removeDocument({
+          assignmentId,
+          documentId,
+        }),
+        buildEvent: (removeResult) => removeResult.kind === "removed"
+          ? {
+              actor: buildAuditActor(access.profile),
+              category: "data_change",
+              action: "board_assignment.document_delete",
+              summary: `Удалён документ поручения: ${removeResult.document.fileName}`,
+              details: [{
+                label: "Документ",
+                value: removeResult.document.fileName,
+              }],
+              targetType: "board_assignment",
+              targetId: assignmentId,
+            }
+          : undefined,
+      });
+      if (result.kind === "not_found") {
+        sendJson(res, 404, {
+          error: {
+            code: "not_found",
+            message: "Документ поручения не найден.",
+          },
+        });
+        return;
+      }
+      if (result.kind === "immutable") {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Документы завершённого поручения нельзя изменять.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Для документов поручения используются POST и DELETE.",
       },
     });
     return;
@@ -6440,6 +6657,66 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
     });
     req.on("error", reject);
   });
+}
+
+function readBinaryBody(
+  req: IncomingMessage,
+  maxBytes: number,
+): Promise<Buffer> {
+  const contentLength = Number(req.headers["content-length"]);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    req.resume();
+    return Promise.reject(new RequestBodyTooLargeError());
+  }
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let byteLength = 0;
+    let isTooLarge = false;
+
+    req.on("data", (chunk: Buffer | string) => {
+      if (isTooLarge) {
+        return;
+      }
+
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      byteLength += buffer.length;
+      if (byteLength > maxBytes) {
+        isTooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+
+      chunks.push(buffer);
+    });
+    req.on("end", () => {
+      if (isTooLarge) {
+        reject(new RequestBodyTooLargeError());
+        return;
+      }
+
+      resolve(Buffer.concat(chunks, byteLength));
+    });
+    req.on("error", reject);
+  });
+}
+
+function readBoardAssignmentDocumentFileName(value: string | null) {
+  if (value === null) {
+    return undefined;
+  }
+
+  const normalized = value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  if (
+    normalized.length === 0 ||
+    normalized.length > 255 ||
+    !/\.pdf$/iu.test(normalized) ||
+    /[\\/\u0000-\u001f\u007f]/u.test(normalized)
+  ) {
+    return undefined;
+  }
+
+  return normalized;
 }
 
 function readSubmittedByAccountId(

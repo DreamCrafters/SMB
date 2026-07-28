@@ -7,10 +7,13 @@ import {
   boardAssignmentActions,
   boardAssignmentRecurrences,
   boardAssignmentStatuses,
+  maxBoardAssignmentDocumentBytes,
+  maxBoardAssignmentDocuments,
   type BoardAssignment,
   type BoardAssignmentCompletion,
   type BoardAssignmentCompletionSummary,
   type BoardAssignmentCreateInput,
+  type BoardAssignmentDocument,
   type BoardAssignmentFilters,
   type BoardAssignmentPermissions,
   type BoardAssignmentRecurrence,
@@ -21,11 +24,13 @@ import {
 import {
   applyBoardAssignmentAction,
   createBoardAssignment,
+  deleteBoardAssignmentDocument,
   requestBoardAssignment,
   requestBoardAssignmentCompletion,
   requestBoardAssignmentCompletions,
   requestBoardAssignmentMaterial,
   requestBoardAssignments,
+  uploadBoardAssignmentDocument,
   updateBoardAssignment,
 } from "./services/boardAssignments";
 import { LoadingIndicator } from "./LoadingIndicator";
@@ -44,6 +49,10 @@ const recurrenceLabels: Record<BoardAssignmentRecurrence, string> = {
   yearly: "Каждый год",
   once: "Один раз",
 };
+
+type BoardAssignmentMaterialReference =
+  | Pick<BoardAssignmentDocument, "id" | "fileName">
+  | { key: string; fileName: string };
 
 type BoardAssignmentAccessMode = "view" | "create" | "execute" | "review";
 
@@ -124,10 +133,15 @@ export function BoardAssignmentsWorkspace({
   const [createInput, setCreateInput] = useState(emptyCreateInput);
   const [coExecutorsText, setCoExecutorsText] = useState("");
   const [createComment, setCreateComment] = useState("");
+  const [createDocuments, setCreateDocuments] = useState<File[]>([]);
   const [editInput, setEditInput] =
     useState<BoardAssignmentCreateInput>(emptyCreateInput);
   const [editCoExecutorsText, setEditCoExecutorsText] = useState("");
   const [editComment, setEditComment] = useState("");
+  const [editDocuments, setEditDocuments] = useState<File[]>([]);
+  const [editRemovedDocumentIds, setEditRemovedDocumentIds] = useState<
+    string[]
+  >([]);
   const [actionComment, setActionComment] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isMaterialOpening, setIsMaterialOpening] = useState(false);
@@ -268,6 +282,24 @@ export function BoardAssignmentsWorkspace({
     setFilters({});
   }
 
+  async function uploadDocuments(assignmentId: string, files: File[]) {
+    for (const file of files) {
+      const result = await uploadBoardAssignmentDocument(assignmentId, file);
+      if (result.status === "error") return result.message;
+    }
+    return undefined;
+  }
+
+  async function refreshAssignment(assignmentId: string) {
+    const result = await requestBoardAssignment(assignmentId);
+    if (result.status === "error") {
+      setDetailState({ status: "error", message: result.message });
+      return;
+    }
+    setPermissions(result.permissions);
+    setDetailState({ status: "ready", assignment: result.assignment });
+  }
+
   async function saveAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isAdminPreviewMode || isSaving) return;
@@ -284,23 +316,38 @@ export function BoardAssignmentsWorkspace({
         ? {}
         : { comment: createComment.trim() }),
     });
-    setIsSaving(false);
 
     if (result.status === "error") {
+      setIsSaving(false);
       setFormMessage(result.message);
       return;
     }
 
+    const documentError = await uploadDocuments(
+      result.assignment.id,
+      createDocuments,
+    );
+    setIsSaving(false);
     setIsCreateOpen(false);
     setCreateInput(emptyCreateInput);
     setCoExecutorsText("");
     setCreateComment("");
+    setCreateDocuments([]);
     setListVersion((current) => current + 1);
     setSelectedId(result.assignment.id);
-    onShowToast(
-      "Поручение добавлено",
-      "Новое поручение появилось в общем реестре.",
-    );
+    if (documentError === undefined) {
+      onShowToast(
+        "Поручение добавлено",
+        createDocuments.length === 0
+          ? "Новое поручение появилось в общем реестре."
+          : "Поручение и документы появились в общем реестре.",
+      );
+    } else {
+      onShowToast(
+        "Поручение создано",
+        `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование.`,
+      );
+    }
   }
 
   async function saveEditedAssignment(event: FormEvent<HTMLFormElement>) {
@@ -328,21 +375,48 @@ export function BoardAssignmentsWorkspace({
       detailState.assignment.id,
       request,
     );
-    setIsSaving(false);
 
     if (result.status === "error") {
+      setIsSaving(false);
       setFormMessage(result.message);
       return;
     }
 
+    let documentError: string | undefined;
+    for (const documentId of editRemovedDocumentIds) {
+      const deleteResult = await deleteBoardAssignmentDocument(
+        detailState.assignment.id,
+        documentId,
+      );
+      if (deleteResult.status === "error") {
+        documentError = deleteResult.message;
+        break;
+      }
+    }
+    if (documentError === undefined) {
+      documentError = await uploadDocuments(
+        detailState.assignment.id,
+        editDocuments,
+      );
+    }
+    await refreshAssignment(detailState.assignment.id);
+    setIsSaving(false);
     setIsEditOpen(false);
     setEditComment("");
-    setDetailState({ status: "ready", assignment: result.assignment });
+    setEditDocuments([]);
+    setEditRemovedDocumentIds([]);
     setListVersion((current) => current + 1);
-    onShowToast(
-      "Поручение обновлено",
-      "Изменения синхронизированы для текущего и следующих исполнений.",
-    );
+    if (documentError === undefined) {
+      onShowToast(
+        "Поручение обновлено",
+        "Изменения синхронизированы для текущего и следующих исполнений.",
+      );
+    } else {
+      onShowToast(
+        "Поля поручения обновлены",
+        `Не все изменения документов сохранены: ${documentError} Откройте редактирование и повторите действие.`,
+      );
+    }
   }
 
   async function saveAction(event: FormEvent<HTMLFormElement>) {
@@ -400,7 +474,7 @@ export function BoardAssignmentsWorkspace({
     }
   }
 
-  async function openMaterial(material: { key: string; fileName: string }) {
+  async function openMaterial(material: BoardAssignmentMaterialReference) {
     if (isMaterialOpening) return;
 
     const previewWindow = window.open("", "_blank");
@@ -436,6 +510,7 @@ export function BoardAssignmentsWorkspace({
 
   function openCreateDialog() {
     setFormMessage("");
+    setCreateDocuments([]);
     setIsCreateOpen(true);
   }
 
@@ -453,6 +528,8 @@ export function BoardAssignmentsWorkspace({
     });
     setEditCoExecutorsText(assignment.coExecutors.join("\n"));
     setEditComment("");
+    setEditDocuments([]);
+    setEditRemovedDocumentIds([]);
     setFormMessage("");
     setIsEditOpen(true);
   }
@@ -960,17 +1037,24 @@ export function BoardAssignmentsWorkspace({
           createInput={createInput}
           coExecutorsText={coExecutorsText}
           comment={createComment}
+          existingDocuments={[]}
           formMessage={formMessage}
           isSaving={isSaving}
+          pendingDocuments={createDocuments}
+          removedDocumentIds={[]}
           onChange={setCreateInput}
           onCoExecutorsChange={setCoExecutorsText}
           onCommentChange={setCreateComment}
+          onDocumentError={setFormMessage}
+          onPendingDocumentsChange={setCreateDocuments}
+          onToggleExistingDocument={() => {}}
           onCancel={() => {
             if (isSaving) return;
             setIsCreateOpen(false);
             setCreateInput(emptyCreateInput);
             setCoExecutorsText("");
             setCreateComment("");
+            setCreateDocuments([]);
             setFormMessage("");
           }}
           onSubmit={saveAssignment}
@@ -983,15 +1067,33 @@ export function BoardAssignmentsWorkspace({
           createInput={editInput}
           coExecutorsText={editCoExecutorsText}
           comment={editComment}
+          existingDocuments={
+            detailState?.status === "ready"
+              ? readAssignmentDocuments(detailState.assignment)
+              : []
+          }
           formMessage={formMessage}
           isSaving={isSaving}
+          pendingDocuments={editDocuments}
+          removedDocumentIds={editRemovedDocumentIds}
           onChange={setEditInput}
           onCoExecutorsChange={setEditCoExecutorsText}
           onCommentChange={setEditComment}
+          onDocumentError={setFormMessage}
+          onPendingDocumentsChange={setEditDocuments}
+          onToggleExistingDocument={(documentId) => {
+            setEditRemovedDocumentIds((current) =>
+              current.includes(documentId)
+                ? current.filter((id) => id !== documentId)
+                : [...current, documentId]
+            );
+          }}
           onCancel={() => {
             if (isSaving) return;
             setIsEditOpen(false);
             setEditComment("");
+            setEditDocuments([]);
+            setEditRemovedDocumentIds([]);
             setFormMessage("");
           }}
           onSubmit={saveEditedAssignment}
@@ -1063,11 +1165,17 @@ function BoardAssignmentEditorDialog({
   createInput,
   coExecutorsText,
   comment,
+  existingDocuments,
   formMessage,
   isSaving,
+  pendingDocuments,
+  removedDocumentIds,
   onChange,
   onCoExecutorsChange,
   onCommentChange,
+  onDocumentError,
+  onPendingDocumentsChange,
+  onToggleExistingDocument,
   onCancel,
   onSubmit,
 }: {
@@ -1075,11 +1183,17 @@ function BoardAssignmentEditorDialog({
   createInput: BoardAssignmentCreateInput;
   coExecutorsText: string;
   comment: string;
+  existingDocuments: BoardAssignmentDocument[];
   formMessage: string;
   isSaving: boolean;
+  pendingDocuments: File[];
+  removedDocumentIds: string[];
   onChange: (value: BoardAssignmentCreateInput) => void;
   onCoExecutorsChange: (value: string) => void;
   onCommentChange: (value: string) => void;
+  onDocumentError: (message: string) => void;
+  onPendingDocumentsChange: (files: File[]) => void;
+  onToggleExistingDocument: (documentId: string) => void;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -1117,6 +1231,64 @@ function BoardAssignmentEditorDialog({
           ? value
           : createInput.activeTo,
     });
+  }
+
+  function addDocuments(files: File[]) {
+    if (files.length === 0) return;
+
+    const activeExistingDocuments = existingDocuments.filter(
+      (document) => !removedDocumentIds.includes(document.id),
+    );
+    if (
+      activeExistingDocuments.length +
+        pendingDocuments.length +
+        files.length >
+      maxBoardAssignmentDocuments
+    ) {
+      onDocumentError(
+        "К поручению можно прикрепить не более пяти документов.",
+      );
+      return;
+    }
+
+    const knownDocumentKeys = new Set([
+      ...activeExistingDocuments.map((document) => ({
+        name: document.fileName,
+        size: document.sizeBytes,
+      })),
+      ...pendingDocuments.map((file) => ({
+        name: file.name,
+        size: file.size,
+      })),
+    ].map((document) => `${document.name}\u0000${document.size}`));
+    for (const file of files) {
+      if (
+        !file.name.toLocaleLowerCase("ru-RU").endsWith(".pdf") ||
+        (file.type !== "" && file.type !== "application/pdf")
+      ) {
+        onDocumentError(`«${file.name}» не является PDF-файлом.`);
+        return;
+      }
+      if (file.size === 0) {
+        onDocumentError(`«${file.name}» пустой и не может быть загружен.`);
+        return;
+      }
+      if (file.size > maxBoardAssignmentDocumentBytes) {
+        onDocumentError(
+          `Размер «${file.name}» превышает допустимые 10 МБ.`,
+        );
+        return;
+      }
+      const documentKey = `${file.name}\u0000${file.size}`;
+      if (knownDocumentKeys.has(documentKey)) {
+        onDocumentError(`«${file.name}» уже добавлен к поручению.`);
+        return;
+      }
+      knownDocumentKeys.add(documentKey);
+    }
+
+    onDocumentError("");
+    onPendingDocumentsChange([...pendingDocuments, ...files]);
   }
 
   return (
@@ -1274,6 +1446,85 @@ function BoardAssignmentEditorDialog({
               }}
             />
           </label>
+          <fieldset className="board-assignment-document-fields is-wide">
+            <legend>Документы PDF</legend>
+            <div className="board-assignment-document-picker">
+              <label className="secondary-button">
+                <span>Выбрать документы</span>
+                <input
+                  accept="application/pdf,.pdf"
+                  disabled={isSaving}
+                  multiple
+                  type="file"
+                  onChange={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? []);
+                    event.currentTarget.value = "";
+                    addDocuments(files);
+                  }}
+                />
+              </label>
+              <small>
+                До 5 PDF-файлов, не более 10 МБ каждый. Документы будут
+                доступны только пользователям с доступом к поручениям.
+              </small>
+            </div>
+            {existingDocuments.length === 0 &&
+              pendingDocuments.length === 0 ? (
+              <p className="board-assignment-document-empty">
+                Документы пока не добавлены.
+              </p>
+            ) : (
+              <ul className="board-assignment-document-list">
+                {existingDocuments.map((document) => {
+                  const isRemoved = removedDocumentIds.includes(document.id);
+                  return (
+                    <li
+                      className={isRemoved ? "is-removed" : undefined}
+                      key={document.id}
+                    >
+                      <span>
+                        <strong>{document.fileName}</strong>
+                        <small>
+                          {document.sizeBytes === 0
+                            ? "Загруженный документ"
+                            : formatFileSize(document.sizeBytes)}
+                        </small>
+                      </span>
+                      <button
+                        className="secondary-button"
+                        disabled={isSaving}
+                        type="button"
+                        onClick={() => onToggleExistingDocument(document.id)}
+                      >
+                        {isRemoved ? "Вернуть" : "Удалить"}
+                      </button>
+                    </li>
+                  );
+                })}
+                {pendingDocuments.map((file, index) => (
+                  <li key={`${file.name}-${file.size}-${file.lastModified}`}>
+                    <span>
+                      <strong>{file.name}</strong>
+                      <small>Новый · {formatFileSize(file.size)}</small>
+                    </span>
+                    <button
+                      className="secondary-button"
+                      disabled={isSaving}
+                      type="button"
+                      onClick={() => onPendingDocumentsChange(
+                        pendingDocuments.filter(
+                          (_document, documentIndex) =>
+                            documentIndex !== index,
+                        ),
+                      )}
+                    >
+                      Удалить
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </fieldset>
           <label className="is-wide">
             <span>Соисполнители</span>
             <textarea
@@ -1354,7 +1605,7 @@ function BoardAssignmentDetailDialog({
   formMessage: string;
   onCommentChange: (value: string) => void;
   onCancel: () => void;
-  onOpenMaterial: (material: { key: string; fileName: string }) => void;
+  onOpenMaterial: (material: BoardAssignmentMaterialReference) => void;
   onEdit?: (assignment: BoardAssignment) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   snapshotMeta?: {
@@ -1364,6 +1615,9 @@ function BoardAssignmentDetailDialog({
 }) {
   const assignment =
     detailState?.status === "ready" ? detailState.assignment : undefined;
+  const documents = assignment === undefined
+    ? []
+    : readAssignmentDocuments(assignment);
   const canSubmitForReview =
     assignment !== undefined &&
     permissions.canExecute &&
@@ -1510,22 +1764,25 @@ function BoardAssignmentDetailDialog({
                 <dt>Внёс поручение</dt>
                 <dd>{detailState.assignment.createdByDisplayName}</dd>
               </div>
-              {detailState.assignment.sourceMaterial === undefined ? null : (
-                <div>
-                  <dt>Дополнительный материал</dt>
-                  <dd>
-                    <button
-                      className="board-assignment-link"
-                      disabled={isMaterialOpening}
-                      type="button"
-                      onClick={() => onOpenMaterial(
-                        detailState.assignment.sourceMaterial!,
-                      )}
-                    >
-                      {isMaterialOpening
-                        ? "Открываем…"
-                        : detailState.assignment.sourceMaterial.fileName}
-                    </button>
+              {documents.length === 0 ? null : (
+                <div className="is-wide">
+                  <dt>
+                    {documents.length === 1 ? "Документ" : "Документы"}
+                  </dt>
+                  <dd className="board-assignment-detail-documents">
+                    {documents.map((document) => (
+                      <button
+                        className="board-assignment-link"
+                        disabled={isMaterialOpening}
+                        key={document.id}
+                        type="button"
+                        onClick={() => onOpenMaterial(document)}
+                      >
+                        {isMaterialOpening
+                          ? "Открываем…"
+                          : document.fileName}
+                      </button>
+                    ))}
                   </dd>
                 </div>
               )}
@@ -1658,6 +1915,31 @@ function readBoardAssignmentAccessMode(
   if (permissions.canExecute) return "execute";
   if (permissions.canCreate) return "create";
   return "view";
+}
+
+function readAssignmentDocuments(
+  assignment: BoardAssignment,
+): BoardAssignmentDocument[] {
+  if (assignment.documents !== undefined && assignment.documents.length > 0) {
+    return assignment.documents;
+  }
+  if (assignment.sourceMaterial === undefined) return [];
+
+  return [{
+    id: assignment.sourceMaterial.key,
+    fileName: assignment.sourceMaterial.fileName,
+    sizeBytes: 0,
+    uploadedAt: assignment.createdAt,
+  }];
+}
+
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes < 1_000_000) {
+    return `${Math.max(1, Math.round(sizeBytes / 1_000))} КБ`;
+  }
+  return `${(sizeBytes / 1_000_000).toLocaleString("ru-RU", {
+    maximumFractionDigits: 1,
+  })} МБ`;
 }
 
 function formatCalendarDate(value: string) {
