@@ -1,3 +1,5 @@
+import type { LaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
+
 export type LaboratorySampleRegistrationJournalSubmission = {
   sampleNumber: string;
   laboratorySampleCode: string;
@@ -6,20 +8,9 @@ export type LaboratorySampleRegistrationJournalSubmission = {
   sampleName: string;
   registrationDate: string;
   samplingLocation: string;
-  al2o3: string;
-  fe2o3: string;
-  sio2: string;
-  cao2: string;
-  p2o5: string;
-  lossOnIgnition: string;
-  moisture: string;
-  chemicalAnalysisDate: string;
-  chemicalAnalysisLaboratoryAssistant: string;
-  batchNumber: string;
-  notes?: string;
 };
 
-export const laboratorySampleRegistrationJournalFields = [
+export const laboratorySampleRegistrationFields = [
   {
     id: "sampleNumber",
     label: "№ пробы",
@@ -62,50 +53,16 @@ export const laboratorySampleRegistrationJournalFields = [
     section: "registration",
     kind: "text",
   },
-  { id: "al2o3", label: "Al2O3", section: "analysis", kind: "indicator" },
-  { id: "fe2o3", label: "Fe2O3", section: "analysis", kind: "indicator" },
-  { id: "sio2", label: "SiO2", section: "analysis", kind: "indicator" },
-  { id: "cao2", label: "CaO2", section: "analysis", kind: "indicator" },
-  { id: "p2o5", label: "P2O5", section: "analysis", kind: "indicator" },
-  {
-    id: "lossOnIgnition",
-    label: "ппп",
-    section: "analysis",
-    kind: "indicator",
-  },
-  {
-    id: "moisture",
-    label: "Влажность",
-    section: "analysis",
-    kind: "indicator",
-  },
-  {
-    id: "chemicalAnalysisDate",
-    label: "Дата хим. анализа",
-    section: "analysis",
-    kind: "date",
-  },
-  {
-    id: "chemicalAnalysisLaboratoryAssistant",
-    label: "Лаборант (химический анализ)",
-    section: "analysis",
-    kind: "text",
-  },
-  {
-    id: "batchNumber",
-    label: "Номер партии",
-    section: "analysis",
-    kind: "text",
-  },
 ] as const satisfies readonly {
-  id: Exclude<keyof LaboratorySampleRegistrationJournalSubmission, "notes">;
+  id: keyof LaboratorySampleRegistrationJournalSubmission;
   label: string;
-  section: "registration" | "analysis";
-  kind: "text" | "date" | "indicator";
+  section: "registration";
+  kind: "text" | "date";
 }[];
 
 export type LaboratorySampleRegistrationJournalRecord =
-  LaboratorySampleRegistrationJournalSubmission & {
+  LaboratorySampleRegistrationJournalSubmission &
+  Partial<LaboratoryChemicalAnalysisValues> & {
     id: string;
     createdAt: string;
   };

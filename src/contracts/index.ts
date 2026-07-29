@@ -12,4 +12,5 @@ export * from "./laboratoryResults";
 export * from "./laboratoryBanks";
 export * from "./rotaryKiln2FiringJournal";
 export * from "./laboratorySampleRegistrationJournal";
+export * from "./laboratoryChemicalAnalysisJournal";
 export * from "./workflow";

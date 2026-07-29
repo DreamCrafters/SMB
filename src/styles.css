@@ -4986,17 +4986,20 @@ p {
   white-space: normal;
 }
 
-.sample-registration-journal {
+.sample-registration-journal,
+.chemical-analysis-journal {
   display: grid;
   gap: var(--density-5);
 }
 
-.sample-registration-journal-form {
+.sample-registration-journal-form,
+.chemical-analysis-journal-form {
   display: grid;
   gap: var(--density-4);
 }
 
-.sample-registration-journal-heading h2 {
+.sample-registration-journal-heading h2,
+.chemical-analysis-journal-heading h2 {
   margin: var(--density-1) 0 0;
   font-size: clamp(20px, 2vw, 28px);
 }
@@ -5017,8 +5020,14 @@ p {
   min-width: 2800px;
 }
 
+.chemical-analysis-journal-table {
+  min-width: 2100px;
+}
+
 .sample-registration-journal-table th:last-child,
-.sample-registration-journal-table td:last-child {
+.sample-registration-journal-table td:last-child,
+.chemical-analysis-journal-table th:last-child,
+.chemical-analysis-journal-table td:last-child {
   min-width: 260px;
   white-space: normal;
 }

@@ -12,6 +12,7 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
 import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
+import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   requestLaboratoryProtocolPdf,
@@ -30,7 +31,8 @@ type LaboratoryWorkspacePanel =
   | "results"
   | "banks"
   | "kiln-journal"
-  | "sample-registration";
+  | "sample-registration"
+  | "chemical-analysis";
 
 type ReferenceState =
   | { status: "loading" }
@@ -392,6 +394,18 @@ export function LaboratoryResultsWorkspace({
         >
           Регистрация проб
         </button>
+        <button
+          aria-selected={activePanel === "chemical-analysis"}
+          className={activePanel === "chemical-analysis" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("chemical-analysis");
+            setFormMessage("");
+          }}
+        >
+          Химические анализы
+        </button>
       </div>
 
       {activePanel === "banks" ? (
@@ -407,6 +421,12 @@ export function LaboratoryResultsWorkspace({
         />
       ) : activePanel === "sample-registration" ? (
         <LaboratorySampleRegistrationJournal
+          profile={profile}
+          isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
+        />
+      ) : activePanel === "chemical-analysis" ? (
+        <LaboratoryChemicalAnalysisJournal
           profile={profile}
           isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}

@@ -48,6 +48,7 @@ import type { LaboratoryResultsRepository } from "../repositories/laboratoryResu
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
+import type { LaboratoryChemicalAnalysisJournalRepository } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
 import type {
   BoardAssignment,
   BoardAssignmentCompletion,
@@ -881,7 +882,7 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
   );
 });
 
-test("sample registration journal saves and filters manually entered records", async () => {
+test("sample registration journal saves and filters registration records", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
     displayName: "Иванова Анна",
@@ -918,6 +919,12 @@ test("sample registration journal saves and filters manually entered records", a
             createdAt: "2026-07-30T08:30:00.000Z",
           }];
     },
+    async listOptions() {
+      return [];
+    },
+    async findOptionById() {
+      return undefined;
+    },
   };
   const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
   const audit: AuditRepository = {
@@ -940,17 +947,6 @@ test("sample registration journal saves and filters manually entered records", a
     sampleName: "Шамот молотый",
     registrationDate: "2026-07-29",
     samplingLocation: "Склад сырья",
-    al2o3: "31,4",
-    fe2o3: "2,1",
-    sio2: "58,7",
-    cao2: "< 0,1",
-    p2o5: "0,03",
-    lossOnIgnition: "4,2",
-    moisture: "0,8",
-    chemicalAnalysisDate: "2026-07-30",
-    chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
-    batchNumber: "П-42",
-    notes: "Без отклонений.",
   };
 
   await withApiServer(
@@ -1020,6 +1016,187 @@ test("sample registration journal saves and filters manually entered records", a
     undefined,
     undefined,
     journal,
+  );
+});
+
+test("chemical analysis journal saves an analysis for a registered sample", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  const sampleOption = {
+    id: "sample-registration-1",
+    laboratorySampleCode: "ЛП-2026-017",
+    sampleNumber: "17-А",
+    sampleName: "Шамот молотый",
+    samplingDate: "2026-07-29",
+    registrationDate: "2026-07-30",
+  };
+  let requestedSampleFilters:
+    | Parameters<LaboratorySampleRegistrationJournalRepository["listOptions"]>[0]
+    | undefined;
+  const sampleJournal: LaboratorySampleRegistrationJournalRepository = {
+    async create() {
+      throw new Error("not used");
+    },
+    async list() {
+      return [];
+    },
+    async listOptions(filters) {
+      requestedSampleFilters = filters;
+      return [sampleOption];
+    },
+    async findOptionById(id) {
+      return id === sampleOption.id ? sampleOption : undefined;
+    },
+  };
+  let savedInput:
+    | Parameters<LaboratoryChemicalAnalysisJournalRepository["create"]>[0]
+    | undefined;
+  let requestedFilters:
+    | Parameters<LaboratoryChemicalAnalysisJournalRepository["list"]>[0]
+    | undefined;
+  const chemicalJournal: LaboratoryChemicalAnalysisJournalRepository = {
+    async create(input) {
+      savedInput = input;
+      return {
+        id: "chemical-analysis-1",
+        ...input.analysis,
+        laboratorySampleCode: input.sample.laboratorySampleCode,
+        sampleNumber: input.sample.sampleNumber,
+        sampleName: input.sample.sampleName,
+        createdAt: "2026-07-30T08:30:00.000Z",
+      };
+    },
+    async list(filters) {
+      requestedFilters = filters;
+      return savedInput === undefined
+        ? []
+        : [{
+            id: "chemical-analysis-1",
+            ...savedInput.analysis,
+            laboratorySampleCode: savedInput.sample.laboratorySampleCode,
+            sampleNumber: savedInput.sample.sampleNumber,
+            sampleName: savedInput.sample.sampleName,
+            createdAt: "2026-07-30T08:30:00.000Z",
+          }];
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+  const analysis = {
+    sampleRegistrationId: "sample-registration-1",
+    chemicalAnalysisDate: "2026-07-30",
+    chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
+    batchNumber: "П-42",
+    al2o3: "31,4",
+    fe2o3: "2,1",
+    sio2: "58,7",
+    cao2: "< 0,1",
+    p2o5: "0,03",
+    lossOnIgnition: "4,2",
+    moisture: "0,8",
+    notes: "Без отклонений.",
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(analysis),
+        },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal?dateFrom=2026-07-01&dateTo=2026-07-31&query=ЛП-2026-017&sampleQuery=Шамот`,
+        { headers },
+      );
+      const unknownSampleResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            ...analysis,
+            sampleRegistrationId: "missing-registration",
+          }),
+        },
+      );
+
+      assert.equal(createResponse.status, 201);
+      assert.equal(listResponse.status, 200);
+      assert.deepEqual(await listResponse.json(), {
+        records: [{
+          id: "chemical-analysis-1",
+          ...analysis,
+          laboratorySampleCode: "ЛП-2026-017",
+          sampleNumber: "17-А",
+          sampleName: "Шамот молотый",
+          createdAt: "2026-07-30T08:30:00.000Z",
+        }],
+        sampleOptions: [sampleOption],
+      });
+      assert.equal(unknownSampleResponse.status, 400);
+      assert.deepEqual(requestedFilters, {
+        dateFrom: "2026-07-01",
+        dateTo: "2026-07-31",
+        query: "ЛП-2026-017",
+      });
+      assert.deepEqual(requestedSampleFilters, { query: "Шамот" });
+      assert.equal(savedInput?.submittedByUserId, profile.userId);
+      assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+      assert.equal(
+        auditEvents[0]?.action,
+        "laboratory_chemical_analysis.submit",
+      );
+      assert.equal(
+        auditEvents[0]?.targetType,
+        "laboratory_chemical_analysis",
+      );
+      assert.equal(auditEvents[0]?.targetId, "chemical-analysis-1");
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    sampleJournal,
+    chemicalJournal,
   );
 });
 
@@ -6803,6 +6980,8 @@ async function withApiServer(
   rotaryKiln2FiringJournal?: RotaryKiln2FiringJournalRepository,
   laboratorySampleRegistrationJournal?:
     LaboratorySampleRegistrationJournalRepository,
+  laboratoryChemicalAnalysisJournal?:
+    LaboratoryChemicalAnalysisJournalRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -6832,6 +7011,7 @@ async function withApiServer(
     laboratoryBankAssignments,
     rotaryKiln2FiringJournal,
     laboratorySampleRegistrationJournal,
+    laboratoryChemicalAnalysisJournal,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,

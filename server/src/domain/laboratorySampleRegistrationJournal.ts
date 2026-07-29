@@ -1,5 +1,5 @@
 import {
-  laboratorySampleRegistrationJournalFields,
+  laboratorySampleRegistrationFields,
   type LaboratorySampleRegistrationJournalSubmission,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 
@@ -8,7 +8,6 @@ export type LaboratorySampleRegistrationJournalValidation =
   | { ok: false; errors: string[] };
 
 const maxShortTextLength = 120;
-const maxNotesLength = 2_000;
 
 export function validateLaboratorySampleRegistrationJournalSubmission(
   input: unknown,
@@ -26,7 +25,7 @@ export function validateLaboratorySampleRegistrationJournalSubmission(
     string
   >();
 
-  for (const field of laboratorySampleRegistrationJournalFields) {
+  for (const field of laboratorySampleRegistrationFields) {
     const value = field.kind === "date"
       ? readCalendarDate(input[field.id])
       : readText(input[field.id], maxShortTextLength);
@@ -35,11 +34,6 @@ export function validateLaboratorySampleRegistrationJournalSubmission(
     } else {
       values.set(field.id, value);
     }
-  }
-
-  const notes = readOptionalText(input.notes, maxNotesLength);
-  if (input.notes !== undefined && input.notes !== null && notes === undefined) {
-    errors.push(`Примечания должны содержать не больше ${maxNotesLength} символов.`);
   }
 
   if (errors.length > 0) {
@@ -57,18 +51,6 @@ export function validateLaboratorySampleRegistrationJournalSubmission(
       sampleName: values.get("sampleName")!,
       registrationDate: values.get("registrationDate")!,
       samplingLocation: values.get("samplingLocation")!,
-      al2o3: values.get("al2o3")!,
-      fe2o3: values.get("fe2o3")!,
-      sio2: values.get("sio2")!,
-      cao2: values.get("cao2")!,
-      p2o5: values.get("p2o5")!,
-      lossOnIgnition: values.get("lossOnIgnition")!,
-      moisture: values.get("moisture")!,
-      chemicalAnalysisDate: values.get("chemicalAnalysisDate")!,
-      chemicalAnalysisLaboratoryAssistant:
-        values.get("chemicalAnalysisLaboratoryAssistant")!,
-      batchNumber: values.get("batchNumber")!,
-      ...(notes === undefined ? {} : { notes }),
     },
   };
 }
@@ -86,11 +68,6 @@ function readCalendarDate(value: unknown) {
       date.getUTCDate() === day
     ? value
     : undefined;
-}
-
-function readOptionalText(value: unknown, maxLength: number) {
-  if (value === undefined || value === null || value === "") return undefined;
-  return readText(value, maxLength);
 }
 
 function readText(value: unknown, maxLength: number) {

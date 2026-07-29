@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
-  laboratorySampleRegistrationJournalFields,
+  laboratoryChemicalAnalysisFields,
+  laboratorySampleRegistrationFields,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
   type ServerUserProfile,
@@ -33,13 +34,6 @@ type HistoryState =
     };
 
 const journalTitle = "Журнал регистрации отбора проб";
-
-const registrationFields = laboratorySampleRegistrationJournalFields.filter(
-  (field) => field.section === "registration",
-);
-const analysisFields = laboratorySampleRegistrationJournalFields.filter(
-  (field) => field.section === "analysis",
-);
 
 export function LaboratorySampleRegistrationJournal({
   profile,
@@ -144,7 +138,7 @@ export function LaboratorySampleRegistrationJournal({
         <section className="sample-registration-journal-section">
           <h3>Регистрация отбора</h3>
           <div className="laboratory-form-grid">
-            {registrationFields.map((field) => (
+            {laboratorySampleRegistrationFields.map((field) => (
               <JournalInput
                 field={field.id}
                 key={field.id}
@@ -154,34 +148,6 @@ export function LaboratorySampleRegistrationJournal({
                 onChange={updateField}
               />
             ))}
-          </div>
-        </section>
-
-        <section className="sample-registration-journal-section">
-          <h3>Химический анализ</h3>
-          <div className="laboratory-form-grid">
-            {analysisFields.map((field) => (
-              <JournalInput
-                field={field.id}
-                inputMode={field.kind === "indicator" ? "decimal" : undefined}
-                key={field.id}
-                label={field.label}
-                type={field.kind === "date" ? "date" : "text"}
-                value={form[field.id]}
-                onChange={updateField}
-              />
-            ))}
-            <label className="laboratory-field-wide">
-              <span>Примечания</span>
-              <textarea
-                maxLength={2_000}
-                value={form.notes}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  updateField("notes", value);
-                }}
-              />
-            </label>
           </div>
         </section>
 
@@ -297,23 +263,36 @@ function JournalTable({
       <table className="data-table laboratory-results-table sample-registration-journal-table">
         <thead>
           <tr>
-            {laboratorySampleRegistrationJournalFields.map((field) => (
+            {laboratorySampleRegistrationFields.map((field) => (
               <th key={field.id}>{field.label}</th>
             ))}
-            <th>Примечания</th>
+            {laboratoryChemicalAnalysisFields.map((field) => (
+              <th key={field.id}>{field.label}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {records.map((record) => (
             <tr key={record.id}>
-              {laboratorySampleRegistrationJournalFields.map((field) => (
+              {laboratorySampleRegistrationFields.map((field) => (
                 <td key={field.id}>
                   {field.kind === "date"
                     ? formatDate(record[field.id])
                     : record[field.id]}
                 </td>
               ))}
-              <td>{record.notes ?? "—"}</td>
+              {laboratoryChemicalAnalysisFields.map((field) => {
+                const value = record[field.id];
+                return (
+                  <td key={field.id}>
+                    {value === undefined
+                      ? "—"
+                      : field.kind === "date"
+                        ? formatDate(value)
+                        : value}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -332,17 +311,6 @@ function createEmptyForm(laboratoryAssistant: string): FormState {
     sampleName: "",
     registrationDate: today,
     samplingLocation: "",
-    al2o3: "",
-    fe2o3: "",
-    sio2: "",
-    cao2: "",
-    p2o5: "",
-    lossOnIgnition: "",
-    moisture: "",
-    chemicalAnalysisDate: today,
-    chemicalAnalysisLaboratoryAssistant: laboratoryAssistant,
-    batchNumber: "",
-    notes: "",
   };
 }
 
@@ -350,7 +318,7 @@ function buildSubmission(
   form: FormState,
 ): LaboratorySampleRegistrationJournalSubmission | undefined {
   if (
-    laboratorySampleRegistrationJournalFields.some(
+    laboratorySampleRegistrationFields.some(
       (field) => form[field.id].trim() === "",
     )
   ) {
@@ -365,18 +333,6 @@ function buildSubmission(
     sampleName: form.sampleName.trim(),
     registrationDate: form.registrationDate,
     samplingLocation: form.samplingLocation.trim(),
-    al2o3: form.al2o3.trim(),
-    fe2o3: form.fe2o3.trim(),
-    sio2: form.sio2.trim(),
-    cao2: form.cao2.trim(),
-    p2o5: form.p2o5.trim(),
-    lossOnIgnition: form.lossOnIgnition.trim(),
-    moisture: form.moisture.trim(),
-    chemicalAnalysisDate: form.chemicalAnalysisDate,
-    chemicalAnalysisLaboratoryAssistant:
-      form.chemicalAnalysisLaboratoryAssistant.trim(),
-    batchNumber: form.batchNumber.trim(),
-    ...(form.notes.trim() === "" ? {} : { notes: form.notes.trim() }),
   };
 }
 

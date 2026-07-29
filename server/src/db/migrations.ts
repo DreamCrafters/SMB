@@ -1923,6 +1923,58 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "032_laboratory_chemical_analysis_journal",
+    statements: [
+      `
+      alter table laboratory_sample_registration_journal
+        modify al2o3 varchar(120) null,
+        modify fe2o3 varchar(120) null,
+        modify sio2 varchar(120) null,
+        modify cao2 varchar(120) null,
+        modify p2o5 varchar(120) null,
+        modify loss_on_ignition varchar(120) null,
+        modify moisture varchar(120) null,
+        modify chemical_analysis_date date null,
+        modify chemical_analysis_laboratory_assistant varchar(120) null,
+        modify batch_number varchar(120) null;
+      `,
+      `
+      create table if not exists laboratory_chemical_analysis_journal (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        sample_registration_id char(36) not null,
+        chemical_analysis_date date not null,
+        chemical_analysis_laboratory_assistant varchar(120) not null,
+        batch_number varchar(120) not null,
+        al2o3 varchar(120) not null,
+        fe2o3 varchar(120) not null,
+        sio2 varchar(120) not null,
+        cao2 varchar(120) not null,
+        p2o5 varchar(120) not null,
+        loss_on_ignition varchar(120) not null,
+        moisture varchar(120) not null,
+        notes text null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uniq_laboratory_chemical_analysis_id (id),
+        key idx_laboratory_chemical_analysis_sample (
+          sample_registration_id,
+          sequence_id
+        ),
+        key idx_laboratory_chemical_analysis_recorded (
+          chemical_analysis_date,
+          created_at
+        ),
+        constraint fk_laboratory_chemical_analysis_sample
+          foreign key (sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

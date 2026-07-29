@@ -66,6 +66,9 @@ import {
 import {
   validateLaboratorySampleRegistrationJournalSubmission,
 } from "../domain/laboratorySampleRegistrationJournal.js";
+import {
+  validateLaboratoryChemicalAnalysisJournalSubmission,
+} from "../domain/laboratoryChemicalAnalysisJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
   listEligibleLaboratoryBankProducts,
@@ -188,6 +191,7 @@ import type { LaboratoryResultsRepository } from "../repositories/laboratoryResu
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
+import type { LaboratoryChemicalAnalysisJournalRepository } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
 import {
   BoardAssignmentChangedError,
   type BoardAssignmentFilters,
@@ -213,6 +217,8 @@ type AppDependencies = {
   rotaryKiln2FiringJournal?: RotaryKiln2FiringJournalRepository;
   laboratorySampleRegistrationJournal?:
     LaboratorySampleRegistrationJournalRepository;
+  laboratoryChemicalAnalysisJournal?:
+    LaboratoryChemicalAnalysisJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
   boardAssignmentMaterials?: BoardAssignmentMaterialsSource;
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
@@ -269,6 +275,7 @@ export function createApiServer({
   laboratoryBankAssignments,
   rotaryKiln2FiringJournal,
   laboratorySampleRegistrationJournal,
+  laboratoryChemicalAnalysisJournal,
   boardAssignments,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
   bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
@@ -548,6 +555,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/banks" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
         url.pathname === "/api/laboratory/sample-registration-journal" ||
+        url.pathname === "/api/laboratory/chemical-analysis-journal" ||
         /^\/api\/laboratory\/results\/[a-zA-Z0-9-]{1,100}\/protocol\.pdf$/u.test(
           url.pathname,
         )
@@ -564,6 +572,7 @@ export function createApiServer({
           laboratoryBankAssignments,
           rotaryKiln2FiringJournal,
           laboratorySampleRegistrationJournal,
+          laboratoryChemicalAnalysisJournal,
           productionBrands,
           audit,
           databaseTransaction,
@@ -1878,6 +1887,7 @@ async function handleLaboratoryRequest({
   laboratoryBankAssignments,
   rotaryKiln2FiringJournal,
   laboratorySampleRegistrationJournal,
+  laboratoryChemicalAnalysisJournal,
   productionBrands,
   audit,
   databaseTransaction,
@@ -1894,6 +1904,9 @@ async function handleLaboratoryRequest({
   rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository | undefined;
   laboratorySampleRegistrationJournal:
     | LaboratorySampleRegistrationJournalRepository
+    | undefined;
+  laboratoryChemicalAnalysisJournal:
+    | LaboratoryChemicalAnalysisJournalRepository
     | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
@@ -2118,9 +2131,130 @@ async function handleLaboratoryRequest({
           },
           { label: "Дата отбора", value: record.samplingDate },
           { label: "Наименование пробы", value: record.sampleName },
-          { label: "Номер партии", value: record.batchNumber },
+          { label: "Место отбора пробы", value: record.samplingLocation },
         ],
         targetType: "laboratory_sample_registration",
+        targetId: record.id,
+      }),
+    });
+
+    sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
+    if (
+      laboratoryChemicalAnalysisJournal === undefined ||
+      laboratorySampleRegistrationJournal === undefined
+    ) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала химических анализов не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const dateFrom = readOptionalQueryParam(url, "dateFrom");
+      const dateTo = readOptionalQueryParam(url, "dateTo");
+      const query = readOptionalQueryParam(url, "query");
+      const sampleQuery = readOptionalQueryParam(url, "sampleQuery");
+
+      if (
+        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+        (query !== undefined && query.length > 120) ||
+        (sampleQuery !== undefined && sampleQuery.length > 120)
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Проверьте фильтры журнала химических анализов.",
+          },
+        });
+        return;
+      }
+
+      const [records, sampleOptions] = await Promise.all([
+        laboratoryChemicalAnalysisJournal.list({
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+        }),
+        laboratorySampleRegistrationJournal.listOptions({
+          ...(sampleQuery === undefined ? {} : { query: sampleQuery }),
+        }),
+      ]);
+      sendJson(res, 200, { records, sampleOptions });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryChemicalAnalysisJournalSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const sample = await laboratorySampleRegistrationJournal.findOptionById(
+      validation.value.sampleRegistrationId,
+    );
+    if (sample === undefined) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Выберите код лабораторной пробы из журнала регистрации.",
+        },
+      });
+      return;
+    }
+
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratoryChemicalAnalysisJournal.create({
+        analysis: validation.value,
+        sample,
+        submittedByUserId: access.profile.userId,
+        submittedByAccountId: access.profile.activeAccess.accountId,
+      }),
+      buildEvent: (record) => ({
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "laboratory_chemical_analysis.submit",
+        summary: "Добавлена запись журнала химических анализов",
+        details: [
+          {
+            label: "Код лабораторной пробы",
+            value: record.laboratorySampleCode,
+          },
+          { label: "Дата хим. анализа", value: record.chemicalAnalysisDate },
+          {
+            label: "Лаборант",
+            value: record.chemicalAnalysisLaboratoryAssistant,
+          },
+          { label: "Номер партии", value: record.batchNumber },
+        ],
+        targetType: "laboratory_chemical_analysis",
         targetId: record.id,
       }),
     });

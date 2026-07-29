@@ -18,7 +18,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("laboratory workspace supports results, banks, and both laboratory journals", async () => {
+test("laboratory workspace supports results, banks, and laboratory journals", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -44,6 +44,8 @@ test("laboratory workspace supports results, banks, and both laboratory journals
   const kilnJournalRequests = [];
   const sampleRegistrationSubmissions = [];
   const sampleRegistrationRequests = [];
+  const chemicalAnalysisSubmissions = [];
+  const chemicalAnalysisRequests = [];
 
   try {
     const { LaboratoryResultsWorkspace } = await vite.ssrLoadModule(
@@ -205,6 +207,69 @@ test("laboratory workspace supports results, banks, and both laboratory journals
             notes: "Без отклонений.",
             createdAt: "2026-07-30T08:30:00.000Z",
           }],
+        });
+      }
+      if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          chemicalAnalysisSubmissions.push(submission);
+          return jsonResponse({
+            record: {
+              id: "chemical-analysis-created",
+              ...submission,
+              laboratorySampleCode: "ЛП-2026-017",
+              sampleNumber: "17-А",
+              sampleName: "Шамот молотый",
+              createdAt: "2026-07-31T08:30:00.000Z",
+            },
+          }, 201);
+        }
+        chemicalAnalysisRequests.push(Object.fromEntries(url.searchParams));
+        const sampleOptions = url.searchParams.get("sampleQuery") === "другая"
+          ? [{
+              id: "sample-registration-legacy",
+              laboratorySampleCode: "ЛП-2026-017",
+              sampleNumber: "17-А",
+              sampleName: "Шамот молотый",
+              samplingDate: "2026-06-20",
+              registrationDate: "2026-06-21",
+            }]
+          : [{
+              id: "sample-registration-1",
+              laboratorySampleCode: "ЛП-2026-017",
+              sampleNumber: "17-А",
+              sampleName: "Шамот молотый",
+              samplingDate: "2026-07-29",
+              registrationDate: "2026-07-30",
+            }, {
+              id: "sample-registration-legacy",
+              laboratorySampleCode: "ЛП-2026-017",
+              sampleNumber: "17-А",
+              sampleName: "Шамот молотый",
+              samplingDate: "2026-06-20",
+              registrationDate: "2026-06-21",
+            }];
+        return jsonResponse({
+          records: [{
+            id: "chemical-analysis-1",
+            sampleRegistrationId: "sample-registration-1",
+            laboratorySampleCode: "ЛП-2026-017",
+            sampleNumber: "17-А",
+            sampleName: "Шамот молотый",
+            chemicalAnalysisDate: "2026-07-30",
+            chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
+            batchNumber: "П-42",
+            al2o3: "31,4",
+            fe2o3: "2,1",
+            sio2: "58,7",
+            cao2: "< 0,1",
+            p2o5: "0,03",
+            lossOnIgnition: "4,2",
+            moisture: "0,8",
+            notes: "Без отклонений.",
+            createdAt: "2026-07-30T08:30:00.000Z",
+          }],
+          sampleOptions,
         });
       }
       if (url.pathname === "/api/laboratory/results" && init.method === "POST") {
@@ -522,17 +587,6 @@ test("laboratory workspace supports results, banks, and both laboratory journals
       "Наименование пробы": "Глина огнеупорная",
       "Дата регистрации": "2026-07-30",
       "Место отбора пробы": "Склад сырья",
-      "Al2O3": "30,8",
-      "Fe2O3": "2,3",
-      "SiO2": "59,1",
-      "CaO2": "< 0,1",
-      "P2O5": "0,04",
-      "ппп": "4,1",
-      "Влажность": "0,7",
-      "Дата хим. анализа": "2026-07-31",
-      "Лаборант (химический анализ)": "Петрова П.П.",
-      "Номер партии": "П-43",
-      "Примечания": "Соответствует требованиям.",
     };
     await React.act(async () => {
       for (const [label, value] of Object.entries(sampleRegistrationValues)) {
@@ -555,17 +609,6 @@ test("laboratory workspace supports results, banks, and both laboratory journals
       sampleName: "Глина огнеупорная",
       registrationDate: "2026-07-30",
       samplingLocation: "Склад сырья",
-      al2o3: "30,8",
-      fe2o3: "2,3",
-      sio2: "59,1",
-      cao2: "< 0,1",
-      p2o5: "0,04",
-      lossOnIgnition: "4,1",
-      moisture: "0,7",
-      chemicalAnalysisDate: "2026-07-31",
-      chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
-      batchNumber: "П-43",
-      notes: "Соответствует требованиям.",
     });
 
     const sampleRegistrationFilters = rootElement.querySelector(
@@ -586,6 +629,137 @@ test("laboratory workspace supports results, banks, and both laboratory journals
       sampleRegistrationRequests.some(
         (request) => request.query === "ЛП-2026-017",
       )
+    );
+
+    const chemicalAnalysisTab = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find(
+      (button) => button.textContent?.trim() === "Химические анализы",
+    );
+    assert.ok(chemicalAnalysisTab);
+    await React.act(async () => chemicalAnalysisTab.click());
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Журнал химических анализов")
+    );
+    await waitFor(React, () =>
+      rootElement.textContent.includes("ЛП-2026-017")
+    );
+
+    const chemicalAnalysisForm = rootElement.querySelector(
+      ".chemical-analysis-journal-form",
+    );
+    assert.ok(chemicalAnalysisForm);
+    const registeredSampleSearch = findControlByLabel(
+      chemicalAnalysisForm,
+      "Поиск зарегистрированной пробы",
+    );
+    await React.act(async () => {
+      setNativeInputValue(registeredSampleSearch, "ЛП-2026-017");
+      registeredSampleSearch.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () =>
+      chemicalAnalysisRequests.some(
+        (request) => request.sampleQuery === "ЛП-2026-017",
+      )
+    );
+    const sampleSelect = findControlByLabel(
+      chemicalAnalysisForm,
+      "Код лабораторной пробы",
+      "select",
+    );
+    const sampleOptionLabels = Array.from(sampleSelect.querySelectorAll("option"))
+      .slice(1)
+      .map((option) => option.textContent);
+    assert.equal(sampleOptionLabels.length, 2);
+    assert.notEqual(sampleOptionLabels[0], sampleOptionLabels[1]);
+    assert.match(sampleOptionLabels[0], /отбор 29\.07\.2026/u);
+    assert.match(sampleOptionLabels[1], /регистрация 21\.06\.2026/u);
+    const chemicalAnalysisValues = {
+      "Дата хим. анализа": "2026-07-31",
+      "Лаборант": "Петрова П.П.",
+      "Номер партии": "П-43",
+      "Al2O3": "30,8",
+      "Fe2O3": "2,3",
+      "SiO2": "59,1",
+      "CaO2": "< 0,1",
+      "P2O5": "0,04",
+      "ппп": "4,1",
+      "Влажность": "0,7",
+      "Примечания": "Соответствует требованиям.",
+    };
+    await React.act(async () => {
+      setNativeInputValue(sampleSelect, "sample-registration-1");
+      sampleSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await React.act(async () => {
+      setNativeInputValue(registeredSampleSearch, "другая");
+      registeredSampleSearch.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () =>
+      chemicalAnalysisRequests.some(
+        (request) => request.sampleQuery === "другая",
+      )
+    );
+    const preservedSampleSelect = findControlByLabel(
+      chemicalAnalysisForm,
+      "Код лабораторной пробы",
+      "select",
+    );
+    assert.equal(preservedSampleSelect.value, "sample-registration-1");
+    assert.equal(
+      Array.from(preservedSampleSelect.options).some(
+        (option) => option.value === "sample-registration-1",
+      ),
+      true,
+    );
+    await React.act(async () => {
+      for (const [label, value] of Object.entries(chemicalAnalysisValues)) {
+        const input = findControlByLabel(chemicalAnalysisForm, label);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+    });
+    await React.act(async () => {
+      chemicalAnalysisForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => chemicalAnalysisSubmissions.length === 1);
+    assert.deepEqual(chemicalAnalysisSubmissions[0], {
+      sampleRegistrationId: "sample-registration-1",
+      chemicalAnalysisDate: "2026-07-31",
+      chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
+      batchNumber: "П-43",
+      al2o3: "30,8",
+      fe2o3: "2,3",
+      sio2: "59,1",
+      cao2: "< 0,1",
+      p2o5: "0,04",
+      lossOnIgnition: "4,1",
+      moisture: "0,7",
+      notes: "Соответствует требованиям.",
+    });
+
+    const chemicalAnalysisFilters = rootElement.querySelector(
+      ".chemical-analysis-journal-filters",
+    );
+    assert.ok(chemicalAnalysisFilters);
+    const chemicalSearchInput = findControlByLabel(
+      chemicalAnalysisFilters,
+      "Поиск",
+    );
+    await React.act(async () => {
+      setNativeInputValue(chemicalSearchInput, "П-42");
+      chemicalSearchInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () =>
+      chemicalAnalysisRequests.some((request) => request.query === "П-42")
     );
     await React.act(async () => root.unmount());
   } finally {

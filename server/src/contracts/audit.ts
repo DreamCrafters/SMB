@@ -27,6 +27,7 @@ export const auditEventActions = [
   "laboratory_bank.assign",
   "rotary_kiln_2_firing_record.submit",
   "laboratory_sample_registration.submit",
+  "laboratory_chemical_analysis.submit",
   "board_assignment.create",
   "board_assignment.update",
   "board_assignment.document_upload",
@@ -65,6 +66,7 @@ export const auditTargetTypes = [
   "laboratory_bank_assignment",
   "rotary_kiln_2_firing_record",
   "laboratory_sample_registration",
+  "laboratory_chemical_analysis",
   "board_assignment",
 ] as const;
 
