@@ -133,6 +133,35 @@ test("auth screen returns its own scroll container to the top after pageshow", a
   }
 });
 
+test("auth DOM setup supports a getter-only Node navigator", () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  const originalNavigator = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "navigator",
+  );
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    enumerable: true,
+    get: () => ({ userAgent: "Node.js" }),
+  });
+  const previousGlobals = captureDomGlobals();
+
+  try {
+    installDomGlobals(dom.window);
+    assert.equal(globalThis.navigator, dom.window.navigator);
+
+    restoreDomGlobals(previousGlobals);
+    assert.deepEqual(
+      Object.getOwnPropertyDescriptor(globalThis, "navigator"),
+      previousGlobals.navigator,
+    );
+  } finally {
+    dom.window.close();
+    restoreGlobal("navigator", originalNavigator);
+  }
+});
+
 function jsonResponse(payload, init = {}) {
   return new Response(JSON.stringify(payload), {
     status: 200,
@@ -151,30 +180,50 @@ function createDeferred() {
 }
 
 function captureDomGlobals() {
-  return new Map(
+  return Object.fromEntries(
     DOM_GLOBAL_NAMES.map((name) => [
       name,
-      Object.prototype.hasOwnProperty.call(globalThis, name)
-        ? globalThis[name]
-        : undefined,
+      Object.getOwnPropertyDescriptor(globalThis, name),
     ]),
   );
 }
 
 function installDomGlobals(window) {
-  for (const name of DOM_GLOBAL_NAMES) {
-    globalThis[name] =
-      name === "IS_REACT_ACT_ENVIRONMENT" ? true : window[name];
+  const domGlobals = {
+    document: window.document,
+    Element: window.Element,
+    Event: window.Event,
+    FormData: window.FormData,
+    HTMLElement: window.HTMLElement,
+    HTMLInputElement: window.HTMLInputElement,
+    MouseEvent: window.MouseEvent,
+    navigator: window.navigator,
+    Node: window.Node,
+    window,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+
+  for (const [name, value] of Object.entries(domGlobals)) {
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
   }
 }
 
 function restoreDomGlobals(previousGlobals) {
-  for (const [name, value] of previousGlobals) {
-    if (value === undefined) {
-      delete globalThis[name];
-    } else {
-      globalThis[name] = value;
-    }
+  for (const [name, descriptor] of Object.entries(previousGlobals)) {
+    restoreGlobal(name, descriptor);
+  }
+}
+
+function restoreGlobal(name, descriptor) {
+  if (descriptor === undefined) {
+    delete globalThis[name];
+  } else {
+    Object.defineProperty(globalThis, name, descriptor);
   }
 }
 
