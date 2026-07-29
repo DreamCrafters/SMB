@@ -4986,6 +4986,43 @@ p {
   white-space: normal;
 }
 
+.sample-registration-journal {
+  display: grid;
+  gap: var(--density-5);
+}
+
+.sample-registration-journal-form {
+  display: grid;
+  gap: var(--density-4);
+}
+
+.sample-registration-journal-heading h2 {
+  margin: var(--density-1) 0 0;
+  font-size: clamp(20px, 2vw, 28px);
+}
+
+.sample-registration-journal-section {
+  display: grid;
+  gap: var(--density-3);
+  padding-top: var(--density-3);
+  border-top: 1px solid var(--line);
+}
+
+.sample-registration-journal-section h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.sample-registration-journal-table {
+  min-width: 2800px;
+}
+
+.sample-registration-journal-table th:last-child,
+.sample-registration-journal-table td:last-child {
+  min-width: 260px;
+  white-space: normal;
+}
+
 .laboratory-banks {
   display: grid;
   gap: var(--density-5);

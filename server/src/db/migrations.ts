@@ -1884,6 +1884,45 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "031_laboratory_sample_registration_journal",
+    statements: [
+      `
+      create table if not exists laboratory_sample_registration_journal (
+        id char(36) not null primary key,
+        sample_number varchar(120) not null,
+        laboratory_sample_code varchar(120) not null,
+        sampling_date date not null,
+        sampling_laboratory_assistant varchar(120) not null,
+        sample_name varchar(120) not null,
+        registration_date date not null,
+        sampling_location varchar(120) not null,
+        al2o3 varchar(120) not null,
+        fe2o3 varchar(120) not null,
+        sio2 varchar(120) not null,
+        cao2 varchar(120) not null,
+        p2o5 varchar(120) not null,
+        loss_on_ignition varchar(120) not null,
+        moisture varchar(120) not null,
+        chemical_analysis_date date not null,
+        chemical_analysis_laboratory_assistant varchar(120) not null,
+        batch_number varchar(120) not null,
+        notes text null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_sample_registration_recorded (
+          registration_date,
+          created_at
+        ),
+        key idx_laboratory_sample_registration_code (
+          laboratory_sample_code,
+          registration_date
+        )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

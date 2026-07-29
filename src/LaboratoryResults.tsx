@@ -11,6 +11,7 @@ import type {
 import { LoadingIndicator } from "./LoadingIndicator";
 import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
 import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
+import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   requestLaboratoryProtocolPdf,
@@ -25,6 +26,11 @@ import {
 } from "./useProductionBrands";
 
 type ShowToast = (title: string, message: string) => void;
+type LaboratoryWorkspacePanel =
+  | "results"
+  | "banks"
+  | "kiln-journal"
+  | "sample-registration";
 
 type ReferenceState =
   | { status: "loading" }
@@ -76,8 +82,8 @@ export function LaboratoryResultsWorkspace({
   onShowToast: ShowToast;
 }) {
   const [section, setSection] = useState<LaboratorySection>("incoming");
-  const [isBanksOpen, setIsBanksOpen] = useState(false);
-  const [isKilnJournalOpen, setIsKilnJournalOpen] = useState(false);
+  const [activePanel, setActivePanel] =
+    useState<LaboratoryWorkspacePanel>("results");
   const [referenceState, setReferenceState] = useState<ReferenceState>({
     status: "loading",
   });
@@ -169,8 +175,7 @@ export function LaboratoryResultsWorkspace({
 
   function selectSection(nextSection: LaboratorySection) {
     setSection(nextSection);
-    setIsBanksOpen(false);
-    setIsKilnJournalOpen(false);
+    setActivePanel("results");
     setForm(createEmptyForm());
     setFormMessage("");
     setMaterialFilter("");
@@ -335,9 +340,11 @@ export function LaboratoryResultsWorkspace({
       <div className="laboratory-section-tabs" role="tablist" aria-label="Раздел контроля">
         {(Object.keys(sectionLabels) as LaboratorySection[]).map((item) => (
           <button
-            aria-selected={!isBanksOpen && !isKilnJournalOpen && section === item}
+            aria-selected={
+              activePanel === "results" && section === item
+            }
             className={
-              !isBanksOpen && !isKilnJournalOpen && section === item
+              activePanel === "results" && section === item
                 ? "is-active"
                 : ""
             }
@@ -350,40 +357,56 @@ export function LaboratoryResultsWorkspace({
           </button>
         ))}
         <button
-          aria-selected={isBanksOpen}
-          className={isBanksOpen ? "is-active" : ""}
+          aria-selected={activePanel === "banks"}
+          className={activePanel === "banks" ? "is-active" : ""}
           role="tab"
           type="button"
           onClick={() => {
-            setIsBanksOpen(true);
-            setIsKilnJournalOpen(false);
+            setActivePanel("banks");
             setFormMessage("");
           }}
         >
           Банки
         </button>
         <button
-          aria-selected={isKilnJournalOpen}
-          className={isKilnJournalOpen ? "is-active" : ""}
+          aria-selected={activePanel === "kiln-journal"}
+          className={activePanel === "kiln-journal" ? "is-active" : ""}
           role="tab"
           type="button"
           onClick={() => {
-            setIsBanksOpen(false);
-            setIsKilnJournalOpen(true);
+            setActivePanel("kiln-journal");
             setFormMessage("");
           }}
         >
           Журнал печи 2
         </button>
+        <button
+          aria-selected={activePanel === "sample-registration"}
+          className={activePanel === "sample-registration" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("sample-registration");
+            setFormMessage("");
+          }}
+        >
+          Регистрация проб
+        </button>
       </div>
 
-      {isBanksOpen ? (
+      {activePanel === "banks" ? (
         <LaboratoryBanksPanel
           isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
-      ) : isKilnJournalOpen ? (
+      ) : activePanel === "kiln-journal" ? (
         <LaboratoryRotaryKiln2FiringJournal
+          profile={profile}
+          isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
+        />
+      ) : activePanel === "sample-registration" ? (
+        <LaboratorySampleRegistrationJournal
           profile={profile}
           isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}

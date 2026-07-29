@@ -24,6 +24,7 @@ import { createRefractoryReportsRepository } from "./repositories/refractoryRepo
 import { createLaboratoryResultsRepository } from "./repositories/laboratoryResultsRepository.js";
 import { createLaboratoryBankAssignmentsRepository } from "./repositories/laboratoryBankAssignmentsRepository.js";
 import { createRotaryKiln2FiringJournalRepository } from "./repositories/rotaryKiln2FiringJournalRepository.js";
+import { createLaboratorySampleRegistrationJournalRepository } from "./repositories/laboratorySampleRegistrationJournalRepository.js";
 import { createBoardAssignmentsRepository } from "./repositories/boardAssignmentsRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
@@ -77,6 +78,8 @@ const server = createApiServer({
   laboratoryBankAssignments: createLaboratoryBankAssignmentsRepository(pool),
   rotaryKiln2FiringJournal:
     createRotaryKiln2FiringJournalRepository(pool),
+  laboratorySampleRegistrationJournal:
+    createLaboratorySampleRegistrationJournalRepository(pool),
   boardAssignments: createBoardAssignmentsRepository(pool),
   audit: createAuditRepository(pool),
   databaseTransaction: database.transaction,

@@ -47,6 +47,7 @@ import type {
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
+import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
 import type {
   BoardAssignment,
   BoardAssignmentCompletion,
@@ -869,6 +870,148 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
     audit,
     undefined,
     passthroughProductionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    journal,
+  );
+});
+
+test("sample registration journal saves and filters manually entered records", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  let savedInput:
+    | Parameters<LaboratorySampleRegistrationJournalRepository["create"]>[0]
+    | undefined;
+  let requestedFilters:
+    | Parameters<LaboratorySampleRegistrationJournalRepository["list"]>[0]
+    | undefined;
+  const journal: LaboratorySampleRegistrationJournalRepository = {
+    async create(input) {
+      savedInput = input;
+      return {
+        id: "sample-registration-1",
+        ...input.record,
+        createdAt: "2026-07-30T08:30:00.000Z",
+      };
+    },
+    async list(filters) {
+      requestedFilters = filters;
+      return savedInput === undefined
+        ? []
+        : [{
+            id: "sample-registration-1",
+            ...savedInput.record,
+            createdAt: "2026-07-30T08:30:00.000Z",
+          }];
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+  const record = {
+    sampleNumber: "17-А",
+    laboratorySampleCode: "ЛП-2026-017",
+    samplingDate: "2026-07-29",
+    samplingLaboratoryAssistant: "Иванова А.А.",
+    sampleName: "Шамот молотый",
+    registrationDate: "2026-07-29",
+    samplingLocation: "Склад сырья",
+    al2o3: "31,4",
+    fe2o3: "2,1",
+    sio2: "58,7",
+    cao2: "< 0,1",
+    p2o5: "0,03",
+    lossOnIgnition: "4,2",
+    moisture: "0,8",
+    chemicalAnalysisDate: "2026-07-30",
+    chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
+    batchNumber: "П-42",
+    notes: "Без отклонений.",
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(record),
+        },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-journal?dateFrom=2026-07-01&dateTo=2026-07-31&query=ЛП-2026-017`,
+        { headers },
+      );
+      const invalidFilterResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-journal?dateTo=2026-02-30`,
+        { headers },
+      );
+
+      assert.equal(createResponse.status, 201);
+      assert.equal(listResponse.status, 200);
+      assert.deepEqual(await listResponse.json(), {
+        records: [{
+          id: "sample-registration-1",
+          ...record,
+          createdAt: "2026-07-30T08:30:00.000Z",
+        }],
+      });
+      assert.equal(invalidFilterResponse.status, 400);
+      assert.deepEqual(requestedFilters, {
+        dateFrom: "2026-07-01",
+        dateTo: "2026-07-31",
+        query: "ЛП-2026-017",
+      });
+      assert.equal(savedInput?.submittedByUserId, profile.userId);
+      assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+      assert.equal(
+        auditEvents[0]?.action,
+        "laboratory_sample_registration.submit",
+      );
+      assert.equal(
+        auditEvents[0]?.targetType,
+        "laboratory_sample_registration",
+      );
+      assert.equal(auditEvents[0]?.targetId, "sample-registration-1");
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
     undefined,
     undefined,
     undefined,
@@ -6658,6 +6801,8 @@ async function withApiServer(
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource,
   now?: () => Date,
   rotaryKiln2FiringJournal?: RotaryKiln2FiringJournalRepository,
+  laboratorySampleRegistrationJournal?:
+    LaboratorySampleRegistrationJournalRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -6686,6 +6831,7 @@ async function withApiServer(
     laboratoryResults,
     laboratoryBankAssignments,
     rotaryKiln2FiringJournal,
+    laboratorySampleRegistrationJournal,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,

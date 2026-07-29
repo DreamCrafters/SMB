@@ -63,6 +63,9 @@ import {
 import {
   validateRotaryKiln2FiringJournalSubmission,
 } from "../domain/rotaryKiln2FiringJournal.js";
+import {
+  validateLaboratorySampleRegistrationJournalSubmission,
+} from "../domain/laboratorySampleRegistrationJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
   listEligibleLaboratoryBankProducts,
@@ -184,6 +187,7 @@ import {
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
+import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
 import {
   BoardAssignmentChangedError,
   type BoardAssignmentFilters,
@@ -207,6 +211,8 @@ type AppDependencies = {
   laboratoryResults?: LaboratoryResultsRepository;
   laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository;
   rotaryKiln2FiringJournal?: RotaryKiln2FiringJournalRepository;
+  laboratorySampleRegistrationJournal?:
+    LaboratorySampleRegistrationJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
   boardAssignmentMaterials?: BoardAssignmentMaterialsSource;
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
@@ -262,6 +268,7 @@ export function createApiServer({
   laboratoryResults,
   laboratoryBankAssignments,
   rotaryKiln2FiringJournal,
+  laboratorySampleRegistrationJournal,
   boardAssignments,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
   bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
@@ -540,6 +547,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/results" ||
         url.pathname === "/api/laboratory/banks" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
+        url.pathname === "/api/laboratory/sample-registration-journal" ||
         /^\/api\/laboratory\/results\/[a-zA-Z0-9-]{1,100}\/protocol\.pdf$/u.test(
           url.pathname,
         )
@@ -555,6 +563,7 @@ export function createApiServer({
           laboratoryResults,
           laboratoryBankAssignments,
           rotaryKiln2FiringJournal,
+          laboratorySampleRegistrationJournal,
           productionBrands,
           audit,
           databaseTransaction,
@@ -1868,6 +1877,7 @@ async function handleLaboratoryRequest({
   laboratoryResults,
   laboratoryBankAssignments,
   rotaryKiln2FiringJournal,
+  laboratorySampleRegistrationJournal,
   productionBrands,
   audit,
   databaseTransaction,
@@ -1882,6 +1892,9 @@ async function handleLaboratoryRequest({
   laboratoryResults: LaboratoryResultsRepository | undefined;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
   rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository | undefined;
+  laboratorySampleRegistrationJournal:
+    | LaboratorySampleRegistrationJournalRepository
+    | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -2012,6 +2025,102 @@ async function handleLaboratoryRequest({
           { label: "Насыпной вес", value: String(record.bulkDensity) },
         ],
         targetType: "rotary_kiln_2_firing_record",
+        targetId: record.id,
+      }),
+    });
+
+    sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/sample-registration-journal") {
+    if (laboratorySampleRegistrationJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала регистрации отбора проб не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const dateFrom = readOptionalQueryParam(url, "dateFrom");
+      const dateTo = readOptionalQueryParam(url, "dateTo");
+      const query = readOptionalQueryParam(url, "query");
+
+      if (
+        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+        (query !== undefined && query.length > 120)
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Проверьте фильтры журнала регистрации отбора проб.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        records: await laboratorySampleRegistrationJournal.list({
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+        }),
+      });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratorySampleRegistrationJournalSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratorySampleRegistrationJournal.create({
+        record: validation.value,
+        submittedByUserId: access.profile.userId,
+        submittedByAccountId: access.profile.activeAccess.accountId,
+      }),
+      buildEvent: (record) => ({
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "laboratory_sample_registration.submit",
+        summary: "Добавлена запись журнала регистрации отбора проб",
+        details: [
+          { label: "№ пробы", value: record.sampleNumber },
+          {
+            label: "Код лабораторной пробы",
+            value: record.laboratorySampleCode,
+          },
+          { label: "Дата отбора", value: record.samplingDate },
+          { label: "Наименование пробы", value: record.sampleName },
+          { label: "Номер партии", value: record.batchNumber },
+        ],
+        targetType: "laboratory_sample_registration",
         targetId: record.id,
       }),
     });

@@ -95,6 +95,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "026_board_assignment_schedules",
     "027_board_assignment_editing_and_completion_history",
     "028_account_position_order", "029_board_assignment_documents",
+    "031_laboratory_sample_registration_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -120,6 +121,62 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     /create table if not exists rotary_kiln_2_firing_journal/u,
   );
   assert.match(statements[0] ?? "", /bulk_density decimal\(14,4\) not null/u);
+  assert.match(
+    statements[0] ?? "",
+    /submitted_by_user_id varchar\(120\) not null/u,
+  );
+  assert.equal(
+    statements[1],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("sample registration journal migration creates append-only laboratory storage", async () => {
+  const appliedIds = new Set([
+    "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
+    "003_equipment_report_revisions", "004_auth_users_sessions_accesses",
+    "005_account_positions_and_navigation", "006_account_access_levels",
+    "007_expand_non_admin_access_catalog", "008_remove_system_full_access_levels",
+    "009_remove_account_access_levels", "010_dynamic_account_positions",
+    "011_empty_worker_workspace", "012_split_manager_dispatcher_access",
+    "013_protect_used_account_positions", "014_dispatcher_spreadsheet_import_source",
+    "015_user_audit_events", "016_remove_departments", "017_single_organization_scope",
+    "018_production_plan_revisions", "019_production_category_plans_and_brands",
+    "020_production_plan_month_locks", "021_refractory_report_revisions",
+    "022_google_sheets_production_brands", "023_laboratory_results",
+    "024_laboratory_bank_assignments", "025_board_assignments",
+    "026_board_assignment_schedules",
+    "027_board_assignment_editing_and_completion_history",
+    "028_account_position_order", "029_board_assignment_documents",
+    "030_rotary_kiln_2_firing_journal",
+  ]);
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [appliedIds.has(id) ? [{ id }] : [], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(
+    statements[0] ?? "",
+    /create table if not exists laboratory_sample_registration_journal/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /laboratory_sample_code varchar\(120\) not null/u,
+  );
   assert.match(
     statements[0] ?? "",
     /submitted_by_user_id varchar\(120\) not null/u,
