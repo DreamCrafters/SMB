@@ -138,6 +138,8 @@ test("buildDispatcherSubmissionEmail sends complete incident closure context", (
     incidentType: "Поломка оборудования по эл. части",
     criticality: "Средний",
     description: "Пресс 2 встал по эл. части",
+    rootCauses: "Отказ контактора",
+    preventiveMeasures: "Плановая проверка контакторов",
     closureDateTime: "28.07.2026 14:00",
     approvedBy: "Фридман",
   });
@@ -155,6 +157,8 @@ test("buildDispatcherSubmissionEmail sends complete incident closure context", (
     "Тип: Поломка оборудования по эл. части",
     "Критичность: Средний",
     "Описание: Пресс 2 встал по эл. части",
+    "Корневые причины: Отказ контактора",
+    "Предотвращающие меры: Плановая проверка контакторов",
     "Закрыт: 28.07.2026 14:00",
     "Утвердил: Фридман",
   ].join("\n");

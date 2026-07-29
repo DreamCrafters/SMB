@@ -255,6 +255,12 @@ function buildIncidentClosureNotificationText(submission: DispatcherSubmission) 
     ...buildOptionalPayloadLine(submission, "incidentType", "Тип"),
     ...buildOptionalPayloadLine(submission, "criticality", "Критичность"),
     ...buildOptionalPayloadLine(submission, "description", "Описание"),
+    ...buildOptionalPayloadLine(submission, "rootCauses", "Корневые причины"),
+    ...buildOptionalPayloadLine(
+      submission,
+      "preventiveMeasures",
+      "Предотвращающие меры",
+    ),
     ...buildOptionalPayloadLine(submission, "closureDateTime", "Закрыт"),
     ...buildOptionalPayloadLine(submission, "approvedBy", "Утвердил"),
   ].join("\n");
