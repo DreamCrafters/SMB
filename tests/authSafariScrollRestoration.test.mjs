@@ -107,6 +107,29 @@ test("auth screen returns its own scroll container to the top after pageshow", a
       "Safari-restored auth scroll position must not clip the page header",
     );
 
+    await React.act(async () => {
+      dom.window.dispatchEvent(new dom.window.Event("pageshow"));
+      await new Promise((resolve) => dom.window.setTimeout(resolve, 25));
+      authShell.scrollTop = 56;
+      authShell.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.setTimeout(resolve, 25));
+    });
+
+    assert.equal(
+      authShell.scrollTop,
+      0,
+      "a late Safari scroll restoration must not clip the page header",
+    );
+
+    authShell.dispatchEvent(new dom.window.Event("wheel"));
+    authShell.scrollTop = 40;
+    authShell.dispatchEvent(new dom.window.Event("scroll"));
+    assert.equal(
+      authShell.scrollTop,
+      40,
+      "real user input must release the restoration guard",
+    );
+
     authShell.scrollTop = 64;
     devAccessOptionsResponse.resolve();
     await waitFor(

@@ -384,6 +384,7 @@ type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
 const toastVisibleDurationMs = 4_000;
 const toastExitDurationMs = 260;
 const toastShiftDurationMs = 220;
+const authScrollRestoreGuardDurationMs = 1_000;
 const mobileNavigationMediaQuery = "(max-width: 820px)";
 
 const initialAccessProfileState: AccessProfileLoadState = {
@@ -1624,7 +1625,16 @@ function AuthScreen({
       message: "Загружаем тестовые аккаунты.",
     });
   useLayoutEffect(() => {
+    const authShell = authShellRef.current;
+    if (authShell === null) {
+      return;
+    }
+    const authScrollContainer = authShell;
+
     let resetFrameId = 0;
+    let restoreGuardTimerId = 0;
+    let isRestoreGuardActive = false;
+    const previousScrollRestoration = window.history.scrollRestoration;
     const canUseAnimationFrame =
       typeof window.requestAnimationFrame === "function" &&
       typeof window.cancelAnimationFrame === "function";
@@ -1637,30 +1647,61 @@ function AuthScreen({
       : window.clearTimeout.bind(window);
 
     function resetAuthScroll() {
-      const authShell = authShellRef.current;
+      authScrollContainer.scrollTop = 0;
+      authScrollContainer.scrollLeft = 0;
+    }
 
-      if (authShell === null) {
-        return;
+    function releaseRestoreGuard() {
+      isRestoreGuardActive = false;
+      window.clearTimeout(restoreGuardTimerId);
+    }
+
+    function keepRestoredPageAtTop() {
+      if (isRestoreGuardActive) {
+        resetAuthScroll();
       }
-
-      authShell.scrollTop = 0;
-      authShell.scrollLeft = 0;
     }
 
     function resetAuthScrollAfterPageRestore() {
+      isRestoreGuardActive = true;
       resetAuthScroll();
       cancelScheduledReset(resetFrameId);
       resetFrameId = scheduleReset(resetAuthScroll);
+      window.clearTimeout(restoreGuardTimerId);
+      restoreGuardTimerId = window.setTimeout(
+        releaseRestoreGuard,
+        authScrollRestoreGuardDurationMs,
+      );
     }
 
+    window.history.scrollRestoration = "manual";
     resetAuthScrollAfterPageRestore();
     window.addEventListener("pageshow", resetAuthScrollAfterPageRestore);
     window.addEventListener("pagehide", resetAuthScroll);
+    authScrollContainer.addEventListener("scroll", keepRestoredPageAtTop);
+    authScrollContainer.addEventListener("wheel", releaseRestoreGuard, {
+      passive: true,
+    });
+    authScrollContainer.addEventListener("touchstart", releaseRestoreGuard, {
+      passive: true,
+    });
+    authScrollContainer.addEventListener("pointerdown", releaseRestoreGuard);
+    authScrollContainer.addEventListener("keydown", releaseRestoreGuard);
 
     return () => {
+      releaseRestoreGuard();
       cancelScheduledReset(resetFrameId);
+      window.history.scrollRestoration = previousScrollRestoration;
       window.removeEventListener("pageshow", resetAuthScrollAfterPageRestore);
       window.removeEventListener("pagehide", resetAuthScroll);
+      authScrollContainer.removeEventListener("scroll", keepRestoredPageAtTop);
+      authScrollContainer.removeEventListener("wheel", releaseRestoreGuard);
+      authScrollContainer.removeEventListener("touchstart", releaseRestoreGuard);
+      authScrollContainer.removeEventListener(
+        "pointerdown",
+        releaseRestoreGuard,
+      );
+      authScrollContainer.removeEventListener("keydown", releaseRestoreGuard);
     };
   }, [accessProfile.status, devAccessOptions.status, mode]);
   useEffect(() => {

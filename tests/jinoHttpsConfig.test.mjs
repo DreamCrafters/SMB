@@ -20,6 +20,16 @@ test("Jino Apache config forces HTTPS through the proxy-aware header", async () 
   assert.match(config, /X-Content-Type-Options "nosniff"/);
 });
 
+test("Jino Apache config revalidates HTML after every deploy", async () => {
+  const config = await readFile(new URL("public/.htaccess", projectRoot), "utf8");
+
+  assert.match(config, /<FilesMatch "\\\.\(\?:html\)\$">/);
+  assert.match(
+    config,
+    /Header always set Cache-Control "no-cache, no-store, must-revalidate"/,
+  );
+});
+
 test("Jino deploy requires and publishes the hidden Apache config", async () => {
   const deployScript = await readFile(
     new URL("scripts/deploy-jino-dual-env.sh", projectRoot),
