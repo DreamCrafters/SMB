@@ -1615,6 +1615,7 @@ function AuthScreen({
   onLogin: (credentials: { login: string; password: string }) => void;
   mode: "test" | "production";
 }) {
+  const authShellRef = useRef<HTMLElement>(null);
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [devAccessOptions, setDevAccessOptions] =
@@ -1622,6 +1623,46 @@ function AuthScreen({
       status: "loading",
       message: "Загружаем тестовые аккаунты.",
     });
+  useLayoutEffect(() => {
+    let resetFrameId = 0;
+    const canUseAnimationFrame =
+      typeof window.requestAnimationFrame === "function" &&
+      typeof window.cancelAnimationFrame === "function";
+    const scheduleReset = canUseAnimationFrame
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) =>
+          window.setTimeout(() => callback(window.performance.now()), 0);
+    const cancelScheduledReset = canUseAnimationFrame
+      ? window.cancelAnimationFrame.bind(window)
+      : window.clearTimeout.bind(window);
+
+    function resetAuthScroll() {
+      const authShell = authShellRef.current;
+
+      if (authShell === null) {
+        return;
+      }
+
+      authShell.scrollTop = 0;
+      authShell.scrollLeft = 0;
+    }
+
+    function resetAuthScrollAfterPageRestore() {
+      resetAuthScroll();
+      cancelScheduledReset(resetFrameId);
+      resetFrameId = scheduleReset(resetAuthScroll);
+    }
+
+    resetAuthScrollAfterPageRestore();
+    window.addEventListener("pageshow", resetAuthScrollAfterPageRestore);
+    window.addEventListener("pagehide", resetAuthScroll);
+
+    return () => {
+      cancelScheduledReset(resetFrameId);
+      window.removeEventListener("pageshow", resetAuthScrollAfterPageRestore);
+      window.removeEventListener("pagehide", resetAuthScroll);
+    };
+  }, [accessProfile.status, devAccessOptions.status, mode]);
   useEffect(() => {
     if (mode === "production") {
       return;
@@ -1682,7 +1723,7 @@ function AuthScreen({
   }
 
   return (
-    <main className="auth-shell">
+    <main className="auth-shell" ref={authShellRef}>
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="brand-mark" aria-hidden="true">
           <img alt="" src="/nmou-vector-icon.png" />
