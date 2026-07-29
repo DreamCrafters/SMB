@@ -30,16 +30,16 @@ type LaboratoryChemicalAnalysisJournalRow = RowDataPacket & {
   laboratory_sample_code: string;
   sample_number: string;
   sample_name: string;
-  chemical_analysis_date: Date | string;
-  chemical_analysis_laboratory_assistant: string;
+  chemical_analysis_date: Date | string | null;
+  chemical_analysis_laboratory_assistant: string | null;
   batch_number: string;
-  al2o3: string;
-  fe2o3: string;
-  sio2: string;
-  cao2: string;
-  p2o5: string;
-  loss_on_ignition: string;
-  moisture: string;
+  al2o3: string | null;
+  fe2o3: string | null;
+  sio2: string | null;
+  cao2: string | null;
+  p2o5: string | null;
+  loss_on_ignition: string | null;
+  moisture: string | null;
   notes: string | null;
   created_at: Date | string;
 };
@@ -87,16 +87,16 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
         [
           id,
           analysis.sampleRegistrationId,
-          analysis.chemicalAnalysisDate,
-          analysis.chemicalAnalysisLaboratoryAssistant,
+          analysis.chemicalAnalysisDate ?? null,
+          analysis.chemicalAnalysisLaboratoryAssistant ?? null,
           analysis.batchNumber,
-          analysis.al2o3,
-          analysis.fe2o3,
-          analysis.sio2,
-          analysis.cao2,
-          analysis.p2o5,
-          analysis.lossOnIgnition,
-          analysis.moisture,
+          analysis.al2o3 ?? null,
+          analysis.fe2o3 ?? null,
+          analysis.sio2 ?? null,
+          analysis.cao2 ?? null,
+          analysis.p2o5 ?? null,
+          analysis.lossOnIgnition ?? null,
+          analysis.moisture ?? null,
           analysis.notes ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
@@ -171,7 +171,10 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           on registration.id = analysis.sample_registration_id
         ${where}
         order by
-          analysis.chemical_analysis_date desc,
+          coalesce(
+            analysis.chemical_analysis_date,
+            date(analysis.created_at)
+          ) desc,
           analysis.created_at desc,
           analysis.sequence_id desc
         limit ?`,
@@ -192,17 +195,25 @@ function mapRecord(
     laboratorySampleCode: row.laboratory_sample_code,
     sampleNumber: row.sample_number,
     sampleName: row.sample_name,
-    chemicalAnalysisDate: formatDate(row.chemical_analysis_date),
-    chemicalAnalysisLaboratoryAssistant:
-      row.chemical_analysis_laboratory_assistant,
     batchNumber: row.batch_number,
-    al2o3: row.al2o3,
-    fe2o3: row.fe2o3,
-    sio2: row.sio2,
-    cao2: row.cao2,
-    p2o5: row.p2o5,
-    lossOnIgnition: row.loss_on_ignition,
-    moisture: row.moisture,
+    ...(row.chemical_analysis_date === null
+      ? {}
+      : { chemicalAnalysisDate: formatDate(row.chemical_analysis_date) }),
+    ...(row.chemical_analysis_laboratory_assistant === null
+      ? {}
+      : {
+          chemicalAnalysisLaboratoryAssistant:
+            row.chemical_analysis_laboratory_assistant,
+        }),
+    ...(row.al2o3 === null ? {} : { al2o3: row.al2o3 }),
+    ...(row.fe2o3 === null ? {} : { fe2o3: row.fe2o3 }),
+    ...(row.sio2 === null ? {} : { sio2: row.sio2 }),
+    ...(row.cao2 === null ? {} : { cao2: row.cao2 }),
+    ...(row.p2o5 === null ? {} : { p2o5: row.p2o5 }),
+    ...(row.loss_on_ignition === null
+      ? {}
+      : { lossOnIgnition: row.loss_on_ignition }),
+    ...(row.moisture === null ? {} : { moisture: row.moisture }),
     ...(row.notes === null ? {} : { notes: row.notes }),
     createdAt: new Date(row.created_at).toISOString(),
   };

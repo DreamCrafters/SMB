@@ -1,14 +1,14 @@
 export type LaboratoryChemicalAnalysisValues = {
-  chemicalAnalysisDate: string;
-  chemicalAnalysisLaboratoryAssistant: string;
   batchNumber: string;
-  al2o3: string;
-  fe2o3: string;
-  sio2: string;
-  cao2: string;
-  p2o5: string;
-  lossOnIgnition: string;
-  moisture: string;
+  chemicalAnalysisDate?: string;
+  chemicalAnalysisLaboratoryAssistant?: string;
+  al2o3?: string;
+  fe2o3?: string;
+  sio2?: string;
+  cao2?: string;
+  p2o5?: string;
+  lossOnIgnition?: string;
+  moisture?: string;
   notes?: string;
 };
 
@@ -17,13 +17,13 @@ export const laboratoryChemicalAnalysisFields = [
     id: "chemicalAnalysisDate",
     label: "Дата хим. анализа",
     kind: "date",
-    required: true,
+    required: false,
   },
   {
     id: "chemicalAnalysisLaboratoryAssistant",
     label: "Лаборант",
     kind: "text",
-    required: true,
+    required: false,
   },
   {
     id: "batchNumber",
@@ -35,43 +35,43 @@ export const laboratoryChemicalAnalysisFields = [
     id: "al2o3",
     label: "Al2O3",
     kind: "indicator",
-    required: true,
+    required: false,
   },
   {
     id: "fe2o3",
     label: "Fe2O3",
     kind: "indicator",
-    required: true,
+    required: false,
   },
   {
     id: "sio2",
     label: "SiO2",
     kind: "indicator",
-    required: true,
+    required: false,
   },
   {
     id: "cao2",
     label: "CaO2",
     kind: "indicator",
-    required: true,
+    required: false,
   },
   {
     id: "p2o5",
     label: "P2O5",
     kind: "indicator",
-    required: true,
+    required: false,
   },
   {
     id: "lossOnIgnition",
     label: "ппп",
     kind: "indicator",
-    required: true,
+    required: false,
   },
   {
     id: "moisture",
     label: "Влажность",
     kind: "indicator",
-    required: true,
+    required: false,
   },
   {
     id: "notes",

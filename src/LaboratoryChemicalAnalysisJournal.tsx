@@ -374,17 +374,27 @@ function buildSubmission(
 
   return {
     sampleRegistrationId: form.sampleRegistrationId,
-    chemicalAnalysisDate: form.chemicalAnalysisDate,
-    chemicalAnalysisLaboratoryAssistant:
-      form.chemicalAnalysisLaboratoryAssistant.trim(),
     batchNumber: form.batchNumber.trim(),
-    al2o3: form.al2o3.trim(),
-    fe2o3: form.fe2o3.trim(),
-    sio2: form.sio2.trim(),
-    cao2: form.cao2.trim(),
-    p2o5: form.p2o5.trim(),
-    lossOnIgnition: form.lossOnIgnition.trim(),
-    moisture: form.moisture.trim(),
+    ...(form.chemicalAnalysisDate === ""
+      ? {}
+      : { chemicalAnalysisDate: form.chemicalAnalysisDate }),
+    ...(form.chemicalAnalysisLaboratoryAssistant.trim() === ""
+      ? {}
+      : {
+          chemicalAnalysisLaboratoryAssistant:
+            form.chemicalAnalysisLaboratoryAssistant.trim(),
+        }),
+    ...(form.al2o3.trim() === "" ? {} : { al2o3: form.al2o3.trim() }),
+    ...(form.fe2o3.trim() === "" ? {} : { fe2o3: form.fe2o3.trim() }),
+    ...(form.sio2.trim() === "" ? {} : { sio2: form.sio2.trim() }),
+    ...(form.cao2.trim() === "" ? {} : { cao2: form.cao2.trim() }),
+    ...(form.p2o5.trim() === "" ? {} : { p2o5: form.p2o5.trim() }),
+    ...(form.lossOnIgnition.trim() === ""
+      ? {}
+      : { lossOnIgnition: form.lossOnIgnition.trim() }),
+    ...(form.moisture.trim() === ""
+      ? {}
+      : { moisture: form.moisture.trim() }),
     ...(form.notes.trim() === "" ? {} : { notes: form.notes.trim() }),
   };
 }

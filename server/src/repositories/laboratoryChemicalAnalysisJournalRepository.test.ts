@@ -18,6 +18,11 @@ const analysis = {
   notes: "Без отклонений.",
 };
 
+const minimalAnalysis = {
+  sampleRegistrationId: "sample-registration-1",
+  batchNumber: "П-42",
+};
+
 const sample = {
   id: "sample-registration-1",
   laboratorySampleCode: "ЛП-2026-017",
@@ -41,13 +46,13 @@ test("chemical analysis repository stores linked append-only record", async () =
   });
 
   assert.deepEqual(await repository.create({
-    analysis,
+    analysis: minimalAnalysis,
     sample,
     submittedByUserId: "laboratory-user",
     submittedByAccountId: "laboratory-account",
   }), {
     id: "chemical-analysis-1",
-    ...analysis,
+    ...minimalAnalysis,
     laboratorySampleCode: "ЛП-2026-017",
     sampleNumber: "17-А",
     sampleName: "Шамот молотый",
@@ -60,17 +65,17 @@ test("chemical analysis repository stores linked append-only record", async () =
   assert.deepEqual(queries[0]?.parameters, [
     "chemical-analysis-1",
     "sample-registration-1",
-    "2026-07-30",
-    "Петрова П.П.",
+    null,
+    null,
     "П-42",
-    "31,4",
-    "2,1",
-    "58,7",
-    "< 0,1",
-    "0,03",
-    "4,2",
-    "0,8",
-    "Без отклонений.",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
     "laboratory-user",
     "laboratory-account",
     "2026-07-30T08:30:00.000Z",
@@ -133,4 +138,41 @@ test("chemical analysis repository lists linked samples with filters", async () 
     "ЛП-2026-017",
     200,
   ]);
+});
+
+test("chemical analysis repository omits optional values when they are absent", async () => {
+  const pool = {
+    async query() {
+      return [[{
+        id: "chemical-analysis-2",
+        sample_registration_id: "sample-registration-1",
+        laboratory_sample_code: "ЛП-2026-017",
+        sample_number: "17-А",
+        sample_name: "Шамот молотый",
+        chemical_analysis_date: null,
+        chemical_analysis_laboratory_assistant: null,
+        batch_number: "П-42",
+        al2o3: null,
+        fe2o3: null,
+        sio2: null,
+        cao2: null,
+        p2o5: null,
+        loss_on_ignition: null,
+        moisture: null,
+        notes: null,
+        created_at: "2026-07-30T09:30:00.000Z",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  assert.deepEqual(await repository.list(), [{
+    id: "chemical-analysis-2",
+    sampleRegistrationId: "sample-registration-1",
+    laboratorySampleCode: "ЛП-2026-017",
+    sampleNumber: "17-А",
+    sampleName: "Шамот молотый",
+    batchNumber: "П-42",
+    createdAt: "2026-07-30T09:30:00.000Z",
+  }]);
 });

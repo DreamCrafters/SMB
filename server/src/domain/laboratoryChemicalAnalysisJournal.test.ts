@@ -37,7 +37,25 @@ test("chemical analysis journal accepts and normalizes a complete record", () =>
   });
 });
 
-test("chemical analysis journal reports every invalid field", () => {
+test("chemical analysis journal accepts only a registered sample and batch number", () => {
+  const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleRegistrationId: " sample-registration-17 ",
+    batchNumber: " П-42 ",
+    chemicalAnalysisDate: "",
+    chemicalAnalysisLaboratoryAssistant: " ",
+    al2o3: null,
+  });
+
+  assert.deepEqual(validation, {
+    ok: true,
+    value: {
+      sampleRegistrationId: "sample-registration-17",
+      batchNumber: "П-42",
+    },
+  });
+});
+
+test("chemical analysis journal rejects invalid provided optional values", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
     sampleRegistrationId: "",
     chemicalAnalysisDate: "2026-02-30",
@@ -61,13 +79,9 @@ test("chemical analysis journal reports every invalid field", () => {
     "Проверьте поле «Дата хим. анализа».",
     "Проверьте поле «Лаборант».",
     "Проверьте поле «Номер партии».",
-    "Проверьте поле «Al2O3».",
     "Проверьте поле «Fe2O3».",
     "Проверьте поле «SiO2».",
-    "Проверьте поле «CaO2».",
-    "Проверьте поле «P2O5».",
     "Проверьте поле «ппп».",
-    "Проверьте поле «Влажность».",
     "Поле «Примечания» должно содержать не больше 2000 символов.",
   ]);
 });

@@ -33,24 +33,26 @@ export function validateLaboratoryChemicalAnalysisJournalSubmission(
   }
 
   for (const field of laboratoryChemicalAnalysisFields) {
+    const rawValue = input[field.id];
+    const maxLength = field.kind === "notes"
+      ? maxNotesLength
+      : maxShortTextLength;
     const value = field.kind === "date"
-      ? readCalendarDate(input[field.id])
+      ? readCalendarDate(rawValue)
       : field.required
-        ? readText(input[field.id], maxShortTextLength)
-        : readOptionalText(input[field.id], maxNotesLength);
+        ? readText(rawValue, maxLength)
+        : readOptionalText(rawValue, maxLength);
 
     if (field.required && value === undefined) {
       errors.push(`Проверьте поле «${field.label}».`);
     } else if (
       !field.required &&
-      input[field.id] !== undefined &&
-      input[field.id] !== null &&
-      input[field.id] !== "" &&
+      isProvidedValue(rawValue) &&
       value === undefined
     ) {
-      errors.push(
-        `Поле «${field.label}» должно содержать не больше ${maxNotesLength} символов.`,
-      );
+      errors.push(field.kind === "notes"
+        ? `Поле «${field.label}» должно содержать не больше ${maxNotesLength} символов.`
+        : `Проверьте поле «${field.label}».`);
     } else if (value !== undefined) {
       values.set(field.id, value);
     }
@@ -64,20 +66,36 @@ export function validateLaboratoryChemicalAnalysisJournalSubmission(
     ok: true,
     value: {
       sampleRegistrationId,
-      chemicalAnalysisDate: values.get("chemicalAnalysisDate")!,
-      chemicalAnalysisLaboratoryAssistant:
-        values.get("chemicalAnalysisLaboratoryAssistant")!,
       batchNumber: values.get("batchNumber")!,
-      al2o3: values.get("al2o3")!,
-      fe2o3: values.get("fe2o3")!,
-      sio2: values.get("sio2")!,
-      cao2: values.get("cao2")!,
-      p2o5: values.get("p2o5")!,
-      lossOnIgnition: values.get("lossOnIgnition")!,
-      moisture: values.get("moisture")!,
+      ...(values.has("chemicalAnalysisDate")
+        ? { chemicalAnalysisDate: values.get("chemicalAnalysisDate")! }
+        : {}),
+      ...(values.has("chemicalAnalysisLaboratoryAssistant")
+        ? {
+            chemicalAnalysisLaboratoryAssistant:
+              values.get("chemicalAnalysisLaboratoryAssistant")!,
+          }
+        : {}),
+      ...(values.has("al2o3") ? { al2o3: values.get("al2o3")! } : {}),
+      ...(values.has("fe2o3") ? { fe2o3: values.get("fe2o3")! } : {}),
+      ...(values.has("sio2") ? { sio2: values.get("sio2")! } : {}),
+      ...(values.has("cao2") ? { cao2: values.get("cao2")! } : {}),
+      ...(values.has("p2o5") ? { p2o5: values.get("p2o5")! } : {}),
+      ...(values.has("lossOnIgnition")
+        ? { lossOnIgnition: values.get("lossOnIgnition")! }
+        : {}),
+      ...(values.has("moisture")
+        ? { moisture: values.get("moisture")! }
+        : {}),
       ...(values.has("notes") ? { notes: values.get("notes")! } : {}),
     },
   };
+}
+
+function isProvidedValue(value: unknown) {
+  return value !== undefined &&
+    value !== null &&
+    !(typeof value === "string" && value.trim() === "");
 }
 
 function readCalendarDate(value: unknown) {

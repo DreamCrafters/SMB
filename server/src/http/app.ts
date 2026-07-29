@@ -2247,11 +2247,18 @@ async function handleLaboratoryRequest({
             label: "Код лабораторной пробы",
             value: record.laboratorySampleCode,
           },
-          { label: "Дата хим. анализа", value: record.chemicalAnalysisDate },
-          {
-            label: "Лаборант",
-            value: record.chemicalAnalysisLaboratoryAssistant,
-          },
+          ...(record.chemicalAnalysisDate === undefined
+            ? []
+            : [{
+                label: "Дата хим. анализа",
+                value: record.chemicalAnalysisDate,
+              }]),
+          ...(record.chemicalAnalysisLaboratoryAssistant === undefined
+            ? []
+            : [{
+                label: "Лаборант",
+                value: record.chemicalAnalysisLaboratoryAssistant,
+              }]),
           { label: "Номер партии", value: record.batchNumber },
         ],
         targetType: "laboratory_chemical_analysis",

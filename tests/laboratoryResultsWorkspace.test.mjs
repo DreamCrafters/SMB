@@ -649,6 +649,27 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ".chemical-analysis-journal-form",
     );
     assert.ok(chemicalAnalysisForm);
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Номер партии").required,
+      true,
+    );
+    for (const optionalLabel of [
+      "Дата хим. анализа",
+      "Лаборант",
+      "Al2O3",
+      "Fe2O3",
+      "SiO2",
+      "CaO2",
+      "P2O5",
+      "ппп",
+      "Влажность",
+      "Примечания",
+    ]) {
+      assert.equal(
+        findControlByLabel(chemicalAnalysisForm, optionalLabel).required,
+        false,
+      );
+    }
     const registeredSampleSearch = findControlByLabel(
       chemicalAnalysisForm,
       "Поиск зарегистрированной пробы",
@@ -676,19 +697,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.notEqual(sampleOptionLabels[0], sampleOptionLabels[1]);
     assert.match(sampleOptionLabels[0], /отбор 29\.07\.2026/u);
     assert.match(sampleOptionLabels[1], /регистрация 21\.06\.2026/u);
-    const chemicalAnalysisValues = {
-      "Дата хим. анализа": "2026-07-31",
-      "Лаборант": "Петрова П.П.",
-      "Номер партии": "П-43",
-      "Al2O3": "30,8",
-      "Fe2O3": "2,3",
-      "SiO2": "59,1",
-      "CaO2": "< 0,1",
-      "P2O5": "0,04",
-      "ппп": "4,1",
-      "Влажность": "0,7",
-      "Примечания": "Соответствует требованиям.",
-    };
     await React.act(async () => {
       setNativeInputValue(sampleSelect, "sample-registration-1");
       sampleSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
@@ -717,7 +725,11 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       true,
     );
     await React.act(async () => {
-      for (const [label, value] of Object.entries(chemicalAnalysisValues)) {
+      for (const [label, value] of Object.entries({
+        "Дата хим. анализа": "",
+        "Лаборант": "",
+        "Номер партии": "П-43",
+      })) {
         const input = findControlByLabel(chemicalAnalysisForm, label);
         setNativeInputValue(input, value);
         input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
@@ -731,17 +743,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () => chemicalAnalysisSubmissions.length === 1);
     assert.deepEqual(chemicalAnalysisSubmissions[0], {
       sampleRegistrationId: "sample-registration-1",
-      chemicalAnalysisDate: "2026-07-31",
-      chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
       batchNumber: "П-43",
-      al2o3: "30,8",
-      fe2o3: "2,3",
-      sio2: "59,1",
-      cao2: "< 0,1",
-      p2o5: "0,04",
-      lossOnIgnition: "4,1",
-      moisture: "0,7",
-      notes: "Соответствует требованиям.",
     });
 
     const chemicalAnalysisFilters = rootElement.querySelector(

@@ -1975,6 +1975,23 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "033_optional_laboratory_chemical_analysis_values",
+    statements: [
+      `
+      alter table laboratory_chemical_analysis_journal
+        modify chemical_analysis_date date null,
+        modify chemical_analysis_laboratory_assistant varchar(120) null,
+        modify al2o3 varchar(120) null,
+        modify fe2o3 varchar(120) null,
+        modify sio2 varchar(120) null,
+        modify cao2 varchar(120) null,
+        modify p2o5 varchar(120) null,
+        modify loss_on_ignition varchar(120) null,
+        modify moisture varchar(120) null;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {
