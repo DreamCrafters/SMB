@@ -4916,9 +4916,9 @@ p {
 
 .laboratory-section-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  max-width: 720px;
+  max-width: 960px;
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -4948,6 +4948,42 @@ p {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.rotary-kiln-journal {
+  display: grid;
+  gap: var(--density-5);
+}
+
+.rotary-kiln-journal-heading {
+  grid-column: 1 / -1;
+  margin-bottom: var(--density-4);
+}
+
+.rotary-kiln-journal-heading h2 {
+  margin: var(--density-1) 0 0;
+  font-size: clamp(20px, 2vw, 28px);
+}
+
+.rotary-kiln-journal-average {
+  width: fit-content;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface-subtle);
+  font-weight: 900;
+}
+
+.rotary-kiln-journal-table {
+  min-width: 2600px;
+}
+
+.rotary-kiln-journal-table th:last-child,
+.rotary-kiln-journal-table td:last-child {
+  min-width: 300px;
+  white-space: normal;
 }
 
 .laboratory-banks {

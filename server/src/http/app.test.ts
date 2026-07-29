@@ -46,6 +46,7 @@ import type {
 } from "../repositories/refractoryReportsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
+import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type {
   BoardAssignment,
   BoardAssignmentCompletion,
@@ -738,6 +739,144 @@ test("laboratory API reads the live matrix and saves the session-authored result
     laboratoryResults,
     laboratoryBankAssignments,
     bankVolumeReferenceDataSource,
+  );
+});
+
+test("rotary kiln 2 firing journal saves, filters, and averages records", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  let savedInput:
+    | Parameters<RotaryKiln2FiringJournalRepository["create"]>[0]
+    | undefined;
+  let requestedFilters:
+    | Parameters<RotaryKiln2FiringJournalRepository["list"]>[0]
+    | undefined;
+  const journal: RotaryKiln2FiringJournalRepository = {
+    async create(input) {
+      savedInput = input;
+      return {
+        id: "kiln-record-1",
+        ...input.record,
+        createdAt: "2026-07-29T08:30:00.000Z",
+      };
+    },
+    async list(filters) {
+      requestedFilters = filters;
+      return {
+        records: savedInput === undefined
+          ? []
+          : [{
+              id: "kiln-record-1",
+              ...savedInput.record,
+              createdAt: "2026-07-29T08:30:00.000Z",
+            }],
+        averageBulkDensity: savedInput?.record.bulkDensity ?? null,
+      };
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+  const record = {
+    recordDate: "2026-07-29",
+    recordTime: "08:05",
+    waterAbsorption: 4.2,
+    temperatureBeforeCyclone: 850,
+    temperatureBeforeFilter: 210.5,
+    temperatureInFieldChamber: 118,
+    temperatureAtRollback: 96,
+    gasConsumptionPerHour: 320.4,
+    vacuum: 14.5,
+    pressure: 1.8,
+    shiftSupervisor: "Петров П.П.",
+    burnerOperator: "Сидоров С.С.",
+    laboratoryAssistant: "Иванова А.А.",
+    sievePass05: 0.7,
+    bulkDensity: 1.16,
+    kilnLoadBucketsPerHour: 12,
+    note: "Краткая остановка для осмотра.",
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(record),
+        },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-07-01&dateTo=2026-07-31&query=Петров`,
+        { headers },
+      );
+      const invalidFilterResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-02-30`,
+        { headers },
+      );
+
+      assert.equal(createResponse.status, 201);
+      assert.equal(listResponse.status, 200);
+      assert.deepEqual(await listResponse.json(), {
+        records: [{
+          id: "kiln-record-1",
+          ...record,
+          createdAt: "2026-07-29T08:30:00.000Z",
+        }],
+        averageBulkDensity: 1.16,
+      });
+      assert.equal(invalidFilterResponse.status, 400);
+      assert.deepEqual(requestedFilters, {
+        dateFrom: "2026-07-01",
+        dateTo: "2026-07-31",
+        query: "Петров",
+      });
+      assert.equal(savedInput?.submittedByUserId, profile.userId);
+      assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+      assert.equal(auditEvents[0]?.action, "rotary_kiln_2_firing_record.submit");
+      assert.equal(auditEvents[0]?.targetType, "rotary_kiln_2_firing_record");
+      assert.equal(auditEvents[0]?.targetId, "kiln-record-1");
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    journal,
   );
 });
 
@@ -6518,6 +6657,7 @@ async function withApiServer(
   laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository,
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource,
   now?: () => Date,
+  rotaryKiln2FiringJournal?: RotaryKiln2FiringJournalRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -6545,6 +6685,7 @@ async function withApiServer(
     laboratoryReferenceDataSource,
     laboratoryResults,
     laboratoryBankAssignments,
+    rotaryKiln2FiringJournal,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,

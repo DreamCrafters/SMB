@@ -1849,6 +1849,41 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "030_rotary_kiln_2_firing_journal",
+    statements: [
+      `
+      create table if not exists rotary_kiln_2_firing_journal (
+        id char(36) not null primary key,
+        record_date date not null,
+        record_time char(5) not null,
+        water_absorption decimal(14,4) not null,
+        temperature_before_cyclone decimal(14,4) not null,
+        temperature_before_filter decimal(14,4) not null,
+        temperature_in_field_chamber decimal(14,4) not null,
+        temperature_at_rollback decimal(14,4) not null,
+        gas_consumption_per_hour decimal(14,4) not null,
+        vacuum_value decimal(14,4) not null,
+        pressure_value decimal(14,4) not null,
+        shift_supervisor varchar(120) not null,
+        burner_operator varchar(120) not null,
+        laboratory_assistant varchar(120) not null,
+        sieve_pass_05 decimal(14,4) not null,
+        bulk_density decimal(14,4) not null,
+        kiln_load_buckets_per_hour decimal(14,4) not null,
+        note text null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_rotary_kiln_2_firing_journal_recorded (
+          record_date,
+          record_time,
+          created_at
+        )
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

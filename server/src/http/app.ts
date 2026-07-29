@@ -60,6 +60,9 @@ import {
   validateLaboratoryResultSubmission,
   type LaboratorySection,
 } from "../domain/laboratoryResult.js";
+import {
+  validateRotaryKiln2FiringJournalSubmission,
+} from "../domain/rotaryKiln2FiringJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
   listEligibleLaboratoryBankProducts,
@@ -180,6 +183,7 @@ import {
 } from "../repositories/refractoryReportsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
+import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import {
   BoardAssignmentChangedError,
   type BoardAssignmentFilters,
@@ -202,6 +206,7 @@ type AppDependencies = {
   laboratoryReferenceDataSource?: LaboratoryReferenceDataSource;
   laboratoryResults?: LaboratoryResultsRepository;
   laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository;
+  rotaryKiln2FiringJournal?: RotaryKiln2FiringJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
   boardAssignmentMaterials?: BoardAssignmentMaterialsSource;
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
@@ -256,6 +261,7 @@ export function createApiServer({
   ),
   laboratoryResults,
   laboratoryBankAssignments,
+  rotaryKiln2FiringJournal,
   boardAssignments,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
   bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
@@ -533,6 +539,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/reference" ||
         url.pathname === "/api/laboratory/results" ||
         url.pathname === "/api/laboratory/banks" ||
+        url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
         /^\/api\/laboratory\/results\/[a-zA-Z0-9-]{1,100}\/protocol\.pdf$/u.test(
           url.pathname,
         )
@@ -547,6 +554,7 @@ export function createApiServer({
           laboratoryReferenceDataSource,
           laboratoryResults,
           laboratoryBankAssignments,
+          rotaryKiln2FiringJournal,
           productionBrands,
           audit,
           databaseTransaction,
@@ -1859,6 +1867,7 @@ async function handleLaboratoryRequest({
   laboratoryReferenceDataSource,
   laboratoryResults,
   laboratoryBankAssignments,
+  rotaryKiln2FiringJournal,
   productionBrands,
   audit,
   databaseTransaction,
@@ -1872,6 +1881,7 @@ async function handleLaboratoryRequest({
   laboratoryReferenceDataSource: LaboratoryReferenceDataSource;
   laboratoryResults: LaboratoryResultsRepository | undefined;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
+  rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -1915,6 +1925,98 @@ async function handleLaboratoryRequest({
       laboratoryReferenceDataSource,
     );
     if (reference !== undefined) sendJson(res, 200, { reference });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/rotary-kiln-2-journal") {
+    if (rotaryKiln2FiringJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала вращающейся печи 2 не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const dateFrom = readOptionalQueryParam(url, "dateFrom");
+      const dateTo = readOptionalQueryParam(url, "dateTo");
+      const query = readOptionalQueryParam(url, "query");
+
+      if (
+        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+        (query !== undefined && query.length > 120)
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Проверьте фильтры журнала вращающейся печи 2.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, await rotaryKiln2FiringJournal.list({
+        ...(dateFrom === undefined ? {} : { dateFrom }),
+        ...(dateTo === undefined ? {} : { dateTo }),
+        ...(query === undefined ? {} : { query }),
+      }));
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateRotaryKiln2FiringJournalSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => rotaryKiln2FiringJournal.create({
+        record: validation.value,
+        submittedByUserId: access.profile.userId,
+        submittedByAccountId: access.profile.activeAccess.accountId,
+      }),
+      buildEvent: (record) => ({
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "rotary_kiln_2_firing_record.submit",
+        summary: "Добавлена запись журнала вращающейся печи 2",
+        details: [
+          { label: "Дата", value: record.recordDate },
+          { label: "Время", value: record.recordTime },
+          { label: "Мастер смены", value: record.shiftSupervisor },
+          { label: "Обжигальщик", value: record.burnerOperator },
+          { label: "Лаборант", value: record.laboratoryAssistant },
+          { label: "Насыпной вес", value: String(record.bulkDensity) },
+        ],
+        targetType: "rotary_kiln_2_firing_record",
+        targetId: record.id,
+      }),
+    });
+
+    sendJson(res, 201, { record: saved });
     return;
   }
 

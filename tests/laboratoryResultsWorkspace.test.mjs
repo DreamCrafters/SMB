@@ -18,7 +18,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("incoming laboratory workspace keeps all indicators open and adds multiple samples", async () => {
+test("laboratory workspace supports results, banks, and the rotary kiln 2 journal", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -40,6 +40,8 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
     server: { middlewareMode: true },
   });
   const submissions = [];
+  const kilnJournalSubmissions = [];
+  const kilnJournalRequests = [];
 
   try {
     const { LaboratoryResultsWorkspace } = await vite.ssrLoadModule(
@@ -106,6 +108,63 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
             analysisDate: "2026-07-23",
             bulkDensityTonsPerCubicMeter: 1.16,
           }],
+        });
+      }
+      if (url.pathname === "/api/laboratory/rotary-kiln-2-journal") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          kilnJournalSubmissions.push(submission);
+          return jsonResponse({
+            record: {
+              id: "kiln-record-created",
+              ...submission,
+              createdAt: "2026-07-29T08:30:00.000Z",
+            },
+          }, 201);
+        }
+        kilnJournalRequests.push(Object.fromEntries(url.searchParams));
+        return jsonResponse({
+          records: [{
+            id: "kiln-record-1",
+            recordDate: "2026-07-29",
+            recordTime: "08:05",
+            waterAbsorption: 4.2,
+            temperatureBeforeCyclone: 850,
+            temperatureBeforeFilter: 210.5,
+            temperatureInFieldChamber: 118,
+            temperatureAtRollback: 96,
+            gasConsumptionPerHour: 320.4,
+            vacuum: 14.5,
+            pressure: 1.8,
+            shiftSupervisor: "Петров П.П.",
+            burnerOperator: "Сидоров С.С.",
+            laboratoryAssistant: "Иванова А.А.",
+            sievePass05: 0.7,
+            bulkDensity: 1.16,
+            kilnLoadBucketsPerHour: 12,
+            note: "Краткая остановка для осмотра.",
+            createdAt: "2026-07-29T08:30:00.000Z",
+          }, {
+            id: "kiln-record-2",
+            recordDate: "2026-07-28",
+            recordTime: "20:10",
+            waterAbsorption: 4.4,
+            temperatureBeforeCyclone: 845,
+            temperatureBeforeFilter: 208,
+            temperatureInFieldChamber: 116,
+            temperatureAtRollback: 95,
+            gasConsumptionPerHour: 318,
+            vacuum: 14,
+            pressure: 1.7,
+            shiftSupervisor: "Кузнецов К.К.",
+            burnerOperator: "Смирнов С.С.",
+            laboratoryAssistant: "Иванова А.А.",
+            sievePass05: 0.8,
+            bulkDensity: 1.24,
+            kilnLoadBucketsPerHour: 11,
+            createdAt: "2026-07-28T20:30:00.000Z",
+          }],
+          averageBulkDensity: 1.2,
         });
       }
       if (url.pathname === "/api/laboratory/results" && init.method === "POST") {
@@ -284,6 +343,117 @@ test("incoming laboratory workspace keeps all indicators open and adds multiple 
         (label) => label.textContent === "Результат готовой продукции",
       ),
       true,
+    );
+
+    const kilnJournalTab = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Журнал печи 2",
+    );
+    assert.ok(kilnJournalTab);
+    await React.act(async () => kilnJournalTab.click());
+    await waitFor(React, () =>
+      rootElement.textContent.includes(
+        "Журнал контроля параметров обжига вращающейся печи 2",
+      )
+    );
+    await waitFor(React, () => rootElement.textContent.includes("Петров П.П."));
+
+    const expectedJournalLabels = [
+      "Дата",
+      "Время",
+      "Водопоглощение",
+      "t перед циклоном",
+      "t перед фильтром",
+      "t в полевой камере",
+      "t на откатной",
+      "Расход газа в час",
+      "Разряжение",
+      "Давление",
+      "Мастер смены",
+      "Обжигальщик",
+      "Лаборант",
+      "Проход ч/з сито 0,5",
+      "Насыпной вес",
+      "Загрузка печи в ковшах в час",
+      "Примечание (в т.ч. причины простоя, инциденты и пр.)",
+    ];
+    const journalForm = rootElement.querySelector(".rotary-kiln-journal-form");
+    assert.ok(journalForm);
+    for (const label of expectedJournalLabels) {
+      assert.ok(findControlByLabel(journalForm, label));
+    }
+    const average = rootElement.querySelector(".rotary-kiln-journal-average");
+    const filters = rootElement.querySelector(".rotary-kiln-journal-filters");
+    assert.ok(average);
+    assert.ok(filters);
+    assert.equal(average.textContent?.trim(), "Средний насыпной вес: 1,2");
+    assert.equal(
+      Boolean(
+        average.compareDocumentPosition(filters) &
+          dom.window.Node.DOCUMENT_POSITION_FOLLOWING
+      ),
+      true,
+    );
+
+    const journalValues = {
+      "Дата": "2026-07-29",
+      "Время": "12:15",
+      "Водопоглощение": "4.3",
+      "t перед циклоном": "852",
+      "t перед фильтром": "212",
+      "t в полевой камере": "119",
+      "t на откатной": "97",
+      "Расход газа в час": "321",
+      "Разряжение": "14.6",
+      "Давление": "1.9",
+      "Мастер смены": "Петров П.П.",
+      "Обжигальщик": "Сидоров С.С.",
+      "Лаборант": "Иванова А.А.",
+      "Проход ч/з сито 0,5": "0.75",
+      "Насыпной вес": "1.18",
+      "Загрузка печи в ковшах в час": "12",
+      "Примечание (в т.ч. причины простоя, инциденты и пр.)":
+        "Работа без отклонений.",
+    };
+    await React.act(async () => {
+      for (const [label, value] of Object.entries(journalValues)) {
+        const input = findControlByLabel(journalForm, label);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+    });
+    await React.act(async () => {
+      journalForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => kilnJournalSubmissions.length === 1);
+    assert.deepEqual(kilnJournalSubmissions[0], {
+      recordDate: "2026-07-29",
+      recordTime: "12:15",
+      waterAbsorption: 4.3,
+      temperatureBeforeCyclone: 852,
+      temperatureBeforeFilter: 212,
+      temperatureInFieldChamber: 119,
+      temperatureAtRollback: 97,
+      gasConsumptionPerHour: 321,
+      vacuum: 14.6,
+      pressure: 1.9,
+      shiftSupervisor: "Петров П.П.",
+      burnerOperator: "Сидоров С.С.",
+      laboratoryAssistant: "Иванова А.А.",
+      sievePass05: 0.75,
+      bulkDensity: 1.18,
+      kilnLoadBucketsPerHour: 12,
+      note: "Работа без отклонений.",
+    });
+
+    const searchInput = findControlByLabel(filters, "Поиск");
+    await React.act(async () => {
+      setNativeInputValue(searchInput, "Петров");
+      searchInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await waitFor(React, () =>
+      kilnJournalRequests.some((request) => request.query === "Петров")
     );
     await React.act(async () => root.unmount());
   } finally {

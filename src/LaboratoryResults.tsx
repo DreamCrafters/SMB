@@ -10,6 +10,7 @@ import type {
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
+import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   requestLaboratoryProtocolPdf,
@@ -76,6 +77,7 @@ export function LaboratoryResultsWorkspace({
 }) {
   const [section, setSection] = useState<LaboratorySection>("incoming");
   const [isBanksOpen, setIsBanksOpen] = useState(false);
+  const [isKilnJournalOpen, setIsKilnJournalOpen] = useState(false);
   const [referenceState, setReferenceState] = useState<ReferenceState>({
     status: "loading",
   });
@@ -168,6 +170,7 @@ export function LaboratoryResultsWorkspace({
   function selectSection(nextSection: LaboratorySection) {
     setSection(nextSection);
     setIsBanksOpen(false);
+    setIsKilnJournalOpen(false);
     setForm(createEmptyForm());
     setFormMessage("");
     setMaterialFilter("");
@@ -332,8 +335,12 @@ export function LaboratoryResultsWorkspace({
       <div className="laboratory-section-tabs" role="tablist" aria-label="Раздел контроля">
         {(Object.keys(sectionLabels) as LaboratorySection[]).map((item) => (
           <button
-            aria-selected={!isBanksOpen && section === item}
-            className={!isBanksOpen && section === item ? "is-active" : ""}
+            aria-selected={!isBanksOpen && !isKilnJournalOpen && section === item}
+            className={
+              !isBanksOpen && !isKilnJournalOpen && section === item
+                ? "is-active"
+                : ""
+            }
             key={item}
             role="tab"
             type="button"
@@ -349,15 +356,35 @@ export function LaboratoryResultsWorkspace({
           type="button"
           onClick={() => {
             setIsBanksOpen(true);
+            setIsKilnJournalOpen(false);
             setFormMessage("");
           }}
         >
           Банки
         </button>
+        <button
+          aria-selected={isKilnJournalOpen}
+          className={isKilnJournalOpen ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setIsBanksOpen(false);
+            setIsKilnJournalOpen(true);
+            setFormMessage("");
+          }}
+        >
+          Журнал печи 2
+        </button>
       </div>
 
       {isBanksOpen ? (
         <LaboratoryBanksPanel
+          isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
+        />
+      ) : isKilnJournalOpen ? (
+        <LaboratoryRotaryKiln2FiringJournal
+          profile={profile}
           isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
