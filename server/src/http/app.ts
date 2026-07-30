@@ -235,6 +235,8 @@ const maxBoardAssignmentDocumentBytes = 10_000_000;
 const devSessionCookie = "smb_dev_access_session";
 const devSessionHeader = "x-smb-dev-session";
 const accountHeader = "x-smb-account-id";
+const laboratoryProtocolPathPattern =
+  /^\/api\/laboratory\/results\/([a-zA-Z0-9-]{1,100})\/protocol\.pdf$/u;
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -556,9 +558,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
         url.pathname === "/api/laboratory/sample-registration-journal" ||
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
-        /^\/api\/laboratory\/results\/[a-zA-Z0-9-]{1,100}\/protocol\.pdf$/u.test(
-          url.pathname,
-        )
+        laboratoryProtocolPathPattern.test(url.pathname)
       ) {
         await handleLaboratoryRequest({
           req,
@@ -1920,12 +1920,21 @@ async function handleLaboratoryRequest({
 
   if (access === undefined) return;
 
-  if (
-    !hasProfileCapability(
-      access.profile,
-      "business.manage_laboratory_results",
-    )
-  ) {
+  const canManageLaboratory = hasProfileCapability(
+    access.profile,
+    "business.manage_laboratory_results",
+  );
+  const isLaboratoryReadRequest = req.method === "GET" && (
+    url.pathname === "/api/laboratory/reference" ||
+    url.pathname === "/api/laboratory/results" ||
+    laboratoryProtocolPathPattern.test(url.pathname)
+  );
+  const canReadLaboratory = canManageLaboratory || (
+    isLaboratoryReadRequest &&
+    hasProfileCapability(access.profile, "business.view_laboratory_results")
+  );
+
+  if (!canReadLaboratory) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
@@ -2357,10 +2366,7 @@ async function handleLaboratoryRequest({
     return;
   }
 
-  const protocolMatch =
-    /^\/api\/laboratory\/results\/([a-zA-Z0-9-]{1,100})\/protocol\.pdf$/u.exec(
-      url.pathname,
-    );
+  const protocolMatch = laboratoryProtocolPathPattern.exec(url.pathname);
   if (protocolMatch !== null) {
     if (req.method !== "GET") {
       sendJson(res, 405, {
@@ -2407,6 +2413,7 @@ async function handleLaboratoryRequest({
     const dateTo = url.searchParams.get("dateTo") ?? undefined;
     const materialValue = url.searchParams.get("material") ?? undefined;
     const brandValue = url.searchParams.get("brand") ?? undefined;
+    const nameValue = url.searchParams.get("name") ?? undefined;
     const section = sectionValue === undefined
       ? undefined
       : laboratorySections.includes(sectionValue as LaboratorySection)
@@ -2414,6 +2421,7 @@ async function handleLaboratoryRequest({
         : undefined;
     const materialLabel = materialValue?.trim().replace(/\s+/gu, " ");
     const productBrand = brandValue?.trim().replace(/\s+/gu, " ");
+    const nameQuery = nameValue?.trim().replace(/\s+/gu, " ");
 
     if (
       (sectionValue !== undefined && section === undefined) ||
@@ -2422,7 +2430,9 @@ async function handleLaboratoryRequest({
       (materialLabel !== undefined &&
         (materialLabel.length === 0 || materialLabel.length > 120)) ||
       (productBrand !== undefined &&
-        (productBrand.length === 0 || productBrand.length > 120))
+        (productBrand.length === 0 || productBrand.length > 120)) ||
+      (nameQuery !== undefined &&
+        (nameQuery.length === 0 || nameQuery.length > 120))
     ) {
       sendJson(res, 400, {
         error: {
@@ -2440,6 +2450,7 @@ async function handleLaboratoryRequest({
         ...(dateTo === undefined ? {} : { dateTo }),
         ...(materialLabel === undefined ? {} : { materialLabel }),
         ...(productBrand === undefined ? {} : { productBrand }),
+        ...(nameQuery === undefined ? {} : { nameQuery }),
       }),
     });
     return;
@@ -4332,6 +4343,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.production_plan": "План выработки",
     "business.refractory_shop": "Огнеупорный цех",
     "business.laboratory_results": "Результаты испытаний",
+    "business.laboratory_review": "Лаборатория",
     "business.board_assignments": "Поручения Совета директоров",
     "business.dispatcher_form": "Форма",
   };

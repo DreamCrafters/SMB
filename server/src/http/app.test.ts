@@ -744,6 +744,134 @@ test("laboratory API reads the live matrix and saves the session-authored result
   );
 });
 
+test("laboratory review access reads results by name but cannot change laboratory data", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Петров Пётр",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "general_director",
+      positionDisplayName: "Генеральный директор",
+      navigationItems: ["business.laboratory_review"],
+      capabilities: ["business.view_laboratory_results"],
+    },
+  };
+  const storedResult = {
+    id: "laboratory-result-1",
+    section: "finished_product" as const,
+    analysisDate: "2026-07-22",
+    materialLabel: "Неформованные изделия",
+    productBrand: "ШКИ-66",
+    purpose: "Определение химического состава",
+    protocolNote: "Соответствует требованиям.",
+    values: { al2o3: "31,4" },
+    laboratoryAssistantDisplayName: "Иванова Анна",
+    createdAt: "2026-07-22T08:30:00.000Z",
+  };
+  const laboratoryReferenceDataSource: LaboratoryReferenceDataSource = {
+    async read() {
+      return {
+        indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
+        incomingTestProfiles: [],
+        finishedProductTypes: [{
+          label: "Неформованные изделия",
+          indicatorIds: ["al2o3"],
+        }],
+      };
+    },
+  };
+  const laboratoryResultFilters: Parameters<
+    LaboratoryResultsRepository["list"]
+  >[0][] = [];
+  const laboratoryResults: LaboratoryResultsRepository = {
+    async create() {
+      throw new Error("Laboratory review access must not create results.");
+    },
+    async list(filters) {
+      laboratoryResultFilters.push(filters);
+      return [storedResult];
+    },
+    async readOverviewSummary() {
+      return { monthTotal: 1, todayTotal: 0 };
+    },
+    async findById() {
+      return storedResult;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = {
+        "Content-Type": "application/json",
+        Cookie: "smb_session=prod-session",
+      };
+      const referenceResponse = await fetch(
+        `${baseUrl}/api/laboratory/reference`,
+        { headers },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/results?name=%D0%A8%D0%9A%D0%98&dateFrom=2026-07-01`,
+        { headers },
+      );
+      const protocolResponse = await fetch(
+        `${baseUrl}/api/laboratory/results/laboratory-result-1/protocol.pdf`,
+        { headers },
+      );
+      const createResponse = await fetch(`${baseUrl}/api/laboratory/results`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          section: "finished_product",
+          analysisDate: "2026-07-22",
+          materialLabel: "Неформованные изделия",
+          productBrand: "ШКИ-66",
+          purpose: "Определение химического состава",
+          protocolNote: "Соответствует требованиям.",
+          values: { al2o3: "31,4" },
+        }),
+      });
+      const banksResponse = await fetch(`${baseUrl}/api/laboratory/banks`, {
+        headers,
+      });
+      const kilnJournalResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
+        { headers },
+      );
+
+      assert.equal(referenceResponse.status, 200);
+      assert.equal(listResponse.status, 200);
+      assert.equal(protocolResponse.status, 200);
+      assert.equal(
+        protocolResponse.headers.get("content-type"),
+        "application/pdf",
+      );
+      assert.equal(createResponse.status, 403);
+      assert.equal(banksResponse.status, 403);
+      assert.equal(kilnJournalResponse.status, 403);
+      assert.deepEqual(laboratoryResultFilters, [{
+        dateFrom: "2026-07-01",
+        nameQuery: "ШКИ",
+      }]);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    laboratoryReferenceDataSource,
+    laboratoryResults,
+  );
+});
+
 test("rotary kiln 2 firing journal saves, filters, and averages records", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),

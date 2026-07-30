@@ -102,6 +102,9 @@ test("navigation selection expands only to its server capabilities", () => {
   assert.deepEqual(resolveCapabilitiesForNavigation(["business.laboratory_results"]), [
     "business.manage_laboratory_results",
   ]);
+  assert.deepEqual(resolveCapabilitiesForNavigation(["business.laboratory_review"]), [
+    "business.view_laboratory_results",
+  ]);
   assert.deepEqual(resolveCapabilitiesForNavigation(["business.board_assignments"]), [
     "business.view_board_assignments",
   ]);

@@ -237,6 +237,7 @@ import {
   type ReturnedRefractoryShift,
 } from "./services/refractoryReports";
 import { LaboratoryResultsWorkspace } from "./LaboratoryResults";
+import { LaboratoryReviewWorkspace } from "./LaboratoryReview";
 import { BoardAssignmentsWorkspace } from "./BoardAssignments";
 
 type BusinessTab =
@@ -246,6 +247,7 @@ type BusinessTab =
   | "production_plan"
   | "refractory_shop"
   | "laboratory_results"
+  | "laboratory_review"
   | "board_assignments"
   | "user_actions"
   | "dispatcher_form";
@@ -258,6 +260,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   production_plan: "business.production_plan",
   refractory_shop: "business.refractory_shop",
   laboratory_results: "business.laboratory_results",
+  laboratory_review: "business.laboratory_review",
   board_assignments: "business.board_assignments",
   user_actions: "business.user_actions",
   dispatcher_form: "business.dispatcher_form",
@@ -498,6 +501,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "refractory_shop";
     case "business.laboratory_results":
       return "laboratory_results";
+    case "business.laboratory_review":
+      return "laboratory_review";
     case "business.board_assignments":
       return "board_assignments";
     case "business.user_actions":
@@ -2345,6 +2350,14 @@ function RoleWorkspace({
         return (
           <LaboratoryResultsWorkspace
             profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        );
+      }
+      if (effectiveOwnerTab === "laboratory_review") {
+        return (
+          <LaboratoryReviewWorkspace
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />

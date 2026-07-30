@@ -65,6 +65,10 @@ test("laboratory service reads reference, filtered history, and saved result", a
       { section: "incoming", dateFrom: "2026-07-01", materialLabel: "Глина" },
       { baseUrl: "http://api.test" },
     );
+    const byName = await requestLaboratoryResults(
+      { nameQuery: "Глина", dateTo: "2026-07-31" },
+      { baseUrl: "http://api.test" },
+    );
     const saved = await submitLaboratoryResult(
       {
         section: "incoming",
@@ -82,13 +86,18 @@ test("laboratory service reads reference, filtered history, and saved result", a
 
     assert.equal(reference.status, "ready");
     assert.equal(history.status, "ready");
+    assert.equal(byName.status, "ready");
     assert.equal(saved.status, "ready");
     assert.equal(saved.status === "ready" ? saved.result.id : undefined, "laboratory-result-1");
     assert.equal(
       calls[1].url,
       "http://api.test/api/laboratory/results?section=incoming&dateFrom=2026-07-01&material=%D0%93%D0%BB%D0%B8%D0%BD%D0%B0",
     );
-    assert.deepEqual(JSON.parse(calls[2].init.body), {
+    assert.equal(
+      calls[2].url,
+      "http://api.test/api/laboratory/results?dateTo=2026-07-31&name=%D0%93%D0%BB%D0%B8%D0%BD%D0%B0",
+    );
+    assert.deepEqual(JSON.parse(calls[3].init.body), {
       section: "incoming",
       analysisDate: "2026-07-22",
       materialLabel: "Глина",

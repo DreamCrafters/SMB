@@ -5282,6 +5282,31 @@ p {
   gap: var(--density-4);
 }
 
+.laboratory-review .laboratory-section-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.laboratory-review-filters {
+  display: grid;
+  gap: var(--density-4);
+  padding: var(--density-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.laboratory-review-filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+}
+
+.laboratory-review-filter-buttons button.is-active {
+  border-color: var(--blue-gray);
+  background: var(--blue-gray-soft);
+}
+
 .laboratory-history-heading {
   display: grid;
   gap: var(--density-4);

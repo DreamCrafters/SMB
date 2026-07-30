@@ -60,6 +60,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.production_plan",
   "business.refractory_shop",
   "business.laboratory_results",
+  "business.laboratory_review",
   "business.board_assignments",
   "business.dispatcher_form",
 ];
@@ -79,6 +80,7 @@ const capabilitiesByNavigationItem: Record<
     "business.submit_refractory_reports",
     "business.review_refractory_reports",
     "business.manage_laboratory_results",
+    "business.view_laboratory_results",
     "business.view_board_assignments",
   ],
   "admin.accounts": ["platform.manage_users", "platform.manage_access"],
@@ -99,6 +101,7 @@ const capabilitiesByNavigationItem: Record<
   "business.production_plan": ["business.manage_production_plan"],
   "business.refractory_shop": ["business.submit_refractory_reports"],
   "business.laboratory_results": ["business.manage_laboratory_results"],
+  "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
   "business.dispatcher_form": [
     "business.submit_dispatcher_forms",

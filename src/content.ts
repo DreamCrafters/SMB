@@ -166,6 +166,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "active",
     },
     {
+      id: "business.laboratory_review",
+      label: "Лаборатория",
+      description: "Просмотр результатов испытаний",
+      state: "active",
+    },
+    {
       id: "business.board_assignments",
       label: "Поручения Совета директоров",
       description: "Постановка, исполнение и приёмка поручений",

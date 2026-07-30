@@ -26,6 +26,7 @@ export type LaboratoryResultFilters = {
   dateTo?: string;
   materialLabel?: string;
   productBrand?: string;
+  nameQuery?: string;
   limit?: number;
 };
 
@@ -150,6 +151,13 @@ export function createLaboratoryResultsRepository(
       if (filters.productBrand !== undefined) {
         clauses.push("product_brand = ?");
         parameters.push(filters.productBrand);
+      }
+      if (filters.nameQuery !== undefined) {
+        const pattern = `%${escapeLikePattern(filters.nameQuery)}%`;
+        clauses.push(
+          "(material_label like ? or coalesce(product_brand, '') like ?)",
+        );
+        parameters.push(pattern, pattern);
       }
 
       const limit = Math.min(
@@ -372,6 +380,10 @@ function formatDate(value: Date | string) {
   return typeof value === "string"
     ? value.slice(0, 10)
     : value.toISOString().slice(0, 10);
+}
+
+export function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/gu, (character) => `\\${character}`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

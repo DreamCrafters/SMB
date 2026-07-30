@@ -104,10 +104,13 @@ export const localDevAccessOptions: DevAccessOption[] =
                 id !== "business.production_plan" &&
                 id !== "business.laboratory_results",
             ),
-            capabilities: resolveLocalBoardAssignmentCapabilities(
-              definition.position,
-              accountCapabilitiesByType.business_owner,
-            ),
+            capabilities: [
+              ...resolveLocalBoardAssignmentCapabilities(
+                definition.position,
+                accountCapabilitiesByType.business_owner,
+              ),
+              "business.view_laboratory_results",
+            ],
           }
       : {
           ...definition,
@@ -117,6 +120,7 @@ export const localDevAccessOptions: DevAccessOption[] =
                 id !== "business.user_actions" &&
                 id !== "business.production_plan" &&
                 id !== "business.laboratory_results" &&
+                id !== "business.laboratory_review" &&
                 id !== "business.board_assignments",
             )
             .map(({ id }) => id),

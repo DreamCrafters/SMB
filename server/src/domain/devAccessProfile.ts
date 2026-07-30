@@ -111,12 +111,14 @@ export function buildDefaultDevAccessOptions(): DevAccessOption[] {
             ...definition,
             navigationItems: [
               ...navigationItemsByAccountType.business_owner,
+              "business.laboratory_review",
               "business.board_assignments",
             ],
             capabilities: resolveCapabilitiesForPosition(
               definition.position,
               [
                 ...navigationItemsByAccountType.business_owner,
+                "business.laboratory_review",
                 "business.board_assignments",
               ],
             ),

@@ -141,6 +141,31 @@ test("laboratory repository lists filtered results newest first", async () => {
   ]);
 });
 
+test("laboratory repository matches a name query against object and brand", async () => {
+  let querySql = "";
+  let queryParameters: unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      querySql = sql;
+      queryParameters = parameters ?? [];
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryResultsRepository(pool);
+
+  await repository.list({ nameQuery: "100%_ШКИ" });
+
+  assert.match(
+    querySql,
+    /\(material_label like \? or coalesce\(product_brand, ''\) like \?\)/u,
+  );
+  assert.deepEqual(queryParameters, [
+    "%100\\%\\_ШКИ%",
+    "%100\\%\\_ШКИ%",
+    100,
+  ]);
+});
+
 test("laboratory repository counts saved tests for the current month and today", async () => {
   let querySql = "";
   let queryParameters: unknown[] = [];

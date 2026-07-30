@@ -61,6 +61,9 @@ export async function requestLaboratoryResults(
   if (filters.productBrand !== undefined) {
     params.set("brand", filters.productBrand);
   }
+  if (filters.nameQuery !== undefined) {
+    params.set("name", filters.nameQuery);
+  }
   const suffix = params.size === 0 ? "" : `?${params.toString()}`;
   const result = await requestJson(
     `${RESULTS_PATH}${suffix}`,

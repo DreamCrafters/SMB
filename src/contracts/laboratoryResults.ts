@@ -83,4 +83,6 @@ export type LaboratoryResultFilters = {
   dateTo?: string;
   materialLabel?: string;
   productBrand?: string;
+  /** Substring match across the tested object and the product brand. */
+  nameQuery?: string;
 };

@@ -28,6 +28,7 @@ export const accountNavigationItems = [
   "business.production_plan",
   "business.refractory_shop",
   "business.laboratory_results",
+  "business.laboratory_review",
   "business.board_assignments",
   "business.dispatcher_form",
 ] as const;
@@ -53,6 +54,7 @@ export const accountCapabilities = [
   "business.submit_refractory_reports",
   "business.review_refractory_reports",
   "business.manage_laboratory_results",
+  "business.view_laboratory_results",
   "business.view_board_assignments",
   "business.create_board_assignments",
   "business.execute_board_assignments",
