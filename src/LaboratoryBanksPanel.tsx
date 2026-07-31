@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   BankNumber,
   LaboratoryBankAssignment,
-  LaboratoryBankProduct,
+  RotaryKiln2MaterialBulkDensity,
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
@@ -15,9 +15,9 @@ const bankNumbers = [1, 2, 3] as const;
 const bankLabels: Record<BankNumber, string> = { 1: "I", 2: "II", 3: "III" };
 
 type BanksState =
-  | { status: "loading"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleProducts: LaboratoryBankProduct[] }
-  | { status: "ready"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleProducts: LaboratoryBankProduct[] }
-  | { status: "error"; message: string; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; eligibleProducts: LaboratoryBankProduct[] };
+  | { status: "loading"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; availableMaterials: RotaryKiln2MaterialBulkDensity[] }
+  | { status: "ready"; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; availableMaterials: RotaryKiln2MaterialBulkDensity[] }
+  | { status: "error"; message: string; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; availableMaterials: RotaryKiln2MaterialBulkDensity[] };
 
 export function LaboratoryBanksPanel({
   isAdminPreviewMode,
@@ -30,10 +30,10 @@ export function LaboratoryBanksPanel({
     status: "loading",
     currentAssignments: [],
     history: [],
-    eligibleProducts: [],
+    availableMaterials: [],
   });
   const [bankNumber, setBankNumber] = useState<BankNumber>(1);
-  const [productKey, setProductKey] = useState("");
+  const [material, setMaterial] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -50,39 +50,36 @@ export function LaboratoryBanksPanel({
             message: readShortUserMessage(result.message, "Не удалось загрузить данные банок."),
             currentAssignments: [],
             history: [],
-            eligibleProducts: [],
+            availableMaterials: [],
           });
     });
     return () => controller.abort();
   }, [refreshVersion]);
 
-  const productByKey = useMemo(() => new Map(
-    state.eligibleProducts.map((product) => [
-      product.laboratoryResultId,
-      product,
-    ]),
-  ), [state.eligibleProducts]);
+  const materialByName = useMemo(() => new Map(
+    state.availableMaterials.map((item) => [item.material, item]),
+  ), [state.availableMaterials]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isAdminPreviewMode) return;
-    const product = productByKey.get(productKey);
-    if (product === undefined) {
-      setMessage("Выберите результат готовой продукции с насыпным весом.");
+    const selected = materialByName.get(material);
+    if (selected === undefined) {
+      setMessage("Выберите материал из журнала печи 2.");
       return;
     }
     setIsSaving(true);
     setMessage("Сохраняем назначение…");
     const result = await assignLaboratoryBank({
       bankNumber,
-      laboratoryResultId: product.laboratoryResultId,
+      material: selected.material,
     });
     setIsSaving(false);
     if (result.status === "error") {
       setMessage(readShortUserMessage(result.message, "Не удалось назначить содержимое банки."));
       return;
     }
-    setProductKey("");
+    setMaterial("");
     setMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
@@ -114,13 +111,13 @@ export function LaboratoryBanksPanel({
                 <strong>{assignment?.materialLabel ?? "Не назначено"}</strong>
                 {assignment === undefined ? (
                   <small>
-                    Выберите результат готовой продукции перед отправкой сводки
+                    Выберите материал из журнала печи 2 перед отправкой сводки
                     ЦОШ.
                   </small>
                 ) : (
                   <small>
-                    Вид продукции: {assignment.sampleIdentifier}<br />
-                    Насыпной вес: {formatNumber(assignment.bulkDensityTonsPerCubicMeter)} т/м³
+                    Насыпной вес: {formatNumber(assignment.bulkDensityTonsPerCubicMeter)} т/м³<br />
+                    {describeBulkDensitySource(assignment)}
                   </small>
                 )}
               </article>
@@ -144,23 +141,25 @@ export function LaboratoryBanksPanel({
           </select>
         </label>
         <label className="laboratory-bank-sample-field">
-          <span>Результат готовой продукции</span>
-          <select required value={productKey} onChange={(event) => {
+          <span>Производимый материал</span>
+          <select required value={material} onChange={(event) => {
             const value = event.currentTarget.value;
-            setProductKey(value);
+            setMaterial(value);
             setMessage("");
           }}>
-            <option value="">Выберите результат</option>
-            {state.eligibleProducts.map((product) => (
-              <option
-                key={product.laboratoryResultId}
-                value={product.laboratoryResultId}
-              >
-                {formatDate(product.analysisDate)} · {product.productBrand} · {product.productType} · {formatNumber(product.bulkDensityTonsPerCubicMeter)} т/м³
+            <option value="">Выберите материал</option>
+            {state.availableMaterials.map((item) => (
+              <option key={item.material} value={item.material}>
+                {item.material} · {formatNumber(item.averageBulkDensityTonsPerCubicMeter)} т/м³ · {formatSampleCount(item.sampleCount)}
               </option>
             ))}
           </select>
         </label>
+        {state.status === "ready" && state.availableMaterials.length === 0 ? (
+          <p className="laboratory-empty-note">
+            В журнале печи 2 ещё нет записей с производимым материалом.
+          </p>
+        ) : null}
         <button className="primary-button" disabled={isAdminPreviewMode || isSaving || state.status !== "ready"} type="submit">
           {isSaving ? <LoadingIndicator label="Сохраняем…" variant="button" /> : "Назначить содержимое"}
         </button>
@@ -179,13 +178,13 @@ export function LaboratoryBanksPanel({
         ) : (
           <div className="table-scroll laboratory-table-scroll">
             <table className="data-table laboratory-results-table">
-              <thead><tr><th>Дата</th><th>Банка</th><th>Содержимое</th><th>Источник результата</th><th>Насыпной вес, т/м³</th><th>Лаборант</th></tr></thead>
+              <thead><tr><th>Дата</th><th>Банка</th><th>Содержимое</th><th>Основание насыпного веса</th><th>Насыпной вес, т/м³</th><th>Лаборант</th></tr></thead>
               <tbody>{state.history.map((assignment) => (
                 <tr key={assignment.assignmentId}>
                   <td>{formatDateTime(assignment.assignedAt)}</td>
                   <td>{bankLabels[assignment.bankNumber]}</td>
                   <td>{assignment.materialLabel}</td>
-                  <td>{assignment.sampleIdentifier}</td>
+                  <td>{describeBulkDensitySource(assignment)}</td>
                   <td>{formatNumber(assignment.bulkDensityTonsPerCubicMeter)}</td>
                   <td>{assignment.assignedByDisplayName}</td>
                 </tr>
@@ -198,13 +197,27 @@ export function LaboratoryBanksPanel({
   );
 }
 
-function formatNumber(value: number) {
-  return value.toLocaleString("ru-RU", { maximumFractionDigits: 6 });
+/**
+ * Назначения, сохранённые до перехода на журнал печи 2, остаются в истории со
+ * ссылкой на результат испытаний.
+ */
+function describeBulkDensitySource(assignment: LaboratoryBankAssignment) {
+  if (assignment.bulkDensitySource !== "rotary_kiln_2_journal") {
+    return `Результат испытаний: ${assignment.sampleIdentifier ?? "—"}`;
+  }
+  return assignment.bulkDensitySampleCount === undefined
+    ? "Журнал печи 2"
+    : `Журнал печи 2, ${formatSampleCount(assignment.bulkDensitySampleCount)}`;
 }
 
-function formatDate(value: string) {
-  const [year, month, day] = value.split("-");
-  return `${day}.${month}.${year}`;
+function formatSampleCount(sampleCount: number) {
+  const isSingle = sampleCount % 10 === 1 && sampleCount % 100 !== 11;
+
+  return `среднее по ${sampleCount} ${isSingle ? "записи" : "записям"}`;
+}
+
+function formatNumber(value: number) {
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: 6 });
 }
 
 function formatDateTime(value: string) {

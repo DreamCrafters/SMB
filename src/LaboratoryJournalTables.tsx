@@ -19,6 +19,11 @@ import { formatLaboratoryDate } from "./LaboratoryResultsTable";
  */
 export const centralLabTabLabel = "ЦЗЛ (Центральная заводская лаборатория)";
 
+/**
+ * Материал стоит сразу после времени: по нему считается насыпной вес банок.
+ */
+export const rotaryKiln2ProducedMaterialLabel = "Производимый материал";
+
 export const rotaryKiln2EarlyNumericFields = [
   ["waterAbsorption", "Водопоглощение"],
   ["temperatureBeforeCyclone", "t перед циклоном"],
@@ -152,6 +157,7 @@ export function RotaryKiln2FiringTable({
           <tr>
             <th>Дата</th>
             <th>Время</th>
+            <th>{rotaryKiln2ProducedMaterialLabel}</th>
             {rotaryKiln2EarlyNumericFields.map(([field, label]) => (
               <th key={field}>{label}</th>
             ))}
@@ -169,6 +175,7 @@ export function RotaryKiln2FiringTable({
             <tr key={record.id}>
               <td>{formatLaboratoryDate(record.recordDate)}</td>
               <td>{record.recordTime}</td>
+              <td>{record.producedMaterial ?? "—"}</td>
               {rotaryKiln2EarlyNumericFields.map(([field]) => (
                 <td key={field}>{formatLaboratoryNumber(record[field])}</td>
               ))}

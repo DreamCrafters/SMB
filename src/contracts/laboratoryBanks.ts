@@ -1,23 +1,27 @@
+import type { RotaryKiln2MaterialBulkDensity } from "./rotaryKiln2FiringJournal";
+
 export type BankNumber = 1 | 2 | 3;
+
+/**
+ * Насыпной вес банки приходит из журнала печи 2; `laboratory_result` остаётся
+ * только у назначений, сохранённых до перехода на журнал.
+ */
+export type BankBulkDensitySource =
+  | "rotary_kiln_2_journal"
+  | "laboratory_result";
 
 export type LaboratoryBankAssignment = {
   assignmentId: string;
   bankNumber: BankNumber;
-  laboratoryResultId: string;
-  sampleIndex: number;
-  sampleIdentifier: string;
   materialLabel: string;
   bulkDensityTonsPerCubicMeter: number;
+  bulkDensitySource: BankBulkDensitySource;
+  bulkDensitySampleCount?: number;
+  laboratoryResultId?: string;
+  sampleIndex?: number;
+  sampleIdentifier?: string;
   assignedByDisplayName: string;
   assignedAt: string;
-};
-
-export type LaboratoryBankProduct = {
-  laboratoryResultId: string;
-  productType: string;
-  productBrand: string;
-  analysisDate: string;
-  bulkDensityTonsPerCubicMeter: number;
 };
 
 export type BankVolumeReference = {
@@ -27,7 +31,7 @@ export type BankVolumeReference = {
 export type LaboratoryBanksResponse = {
   currentAssignments: LaboratoryBankAssignment[];
   history: LaboratoryBankAssignment[];
-  eligibleProducts: LaboratoryBankProduct[];
+  availableMaterials: RotaryKiln2MaterialBulkDensity[];
 };
 
 export type DispatcherProductionBankContent = Pick<

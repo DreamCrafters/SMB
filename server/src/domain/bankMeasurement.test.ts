@@ -38,9 +38,8 @@ test("bank measurement calculates average, table volume, and material mass", () 
       bankLabel: "I",
       material: "ШКИ",
       assignmentId: "assignment-1",
-      laboratoryResultId: "result-1",
-      sampleIndex: 0,
-      sampleIdentifier: "Проба 1",
+      bulkDensitySource: "rotary_kiln_2_journal",
+      bulkDensitySampleCount: 10,
       assignmentAssignedAt: "2026-07-23T08:00:00.000Z",
       measurements: [0, 0.1, 0.2, 0.3],
       averageHeightMeters: 0.15,
@@ -65,9 +64,8 @@ test("bank measurement accepts any positive number of measurements", () => {
       bankLabel: "II",
       material: "ШКИ-66",
       assignmentId: "assignment-2",
-      laboratoryResultId: "result-2",
-      sampleIndex: 0,
-      sampleIdentifier: "Проба 2",
+      bulkDensitySource: "rotary_kiln_2_journal",
+      bulkDensitySampleCount: 10,
       assignmentAssignedAt: "2026-07-23T08:00:00.000Z",
       measurements: [10, 10.5, 11],
       averageHeightMeters: 10.5,
@@ -124,8 +122,43 @@ test("COSH calculation requires all three banks and keeps assignment snapshots",
   assert.equal(complete.ok, true);
   if (!complete.ok) return;
   assert.equal(complete.value.length, 3);
-  assert.equal(complete.value[1]?.sampleIdentifier, "Проба 2");
+  assert.equal(complete.value[1]?.material, "ШКИ-66");
   assert.equal(complete.value[2]?.materialMassTons, 0);
+});
+
+test("bank measurement keeps calculating a legacy laboratory result snapshot", () => {
+  const result = calculateBankMeasurement({
+    assignment: {
+      assignmentId: "assignment-legacy",
+      bankNumber: 1,
+      materialLabel: "ШКИ",
+      bulkDensityTonsPerCubicMeter: 1.16,
+      bulkDensitySource: "laboratory_result",
+      laboratoryResultId: "result-1",
+      sampleIndex: 0,
+      sampleIdentifier: "Неформованные изделия",
+      assignedAt: "2026-07-23T08:00:00.000Z",
+    },
+    measurements: [15],
+    volumeReference,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    {
+      bulkDensitySource: result.value.bulkDensitySource,
+      bulkDensitySampleCount: result.value.bulkDensitySampleCount,
+      sampleIdentifier: result.value.sampleIdentifier,
+      materialMassTons: result.value.materialMassTons,
+    },
+    {
+      bulkDensitySource: "laboratory_result",
+      bulkDensitySampleCount: undefined,
+      sampleIdentifier: "Неформованные изделия",
+      materialMassTons: 0,
+    },
+  );
 });
 
 function buildAssignment(
@@ -136,11 +169,10 @@ function buildAssignment(
   return {
     assignmentId: `assignment-${bankNumber}`,
     bankNumber,
-    laboratoryResultId: `result-${bankNumber}`,
-    sampleIndex: 0,
-    sampleIdentifier: `Проба ${bankNumber}`,
     materialLabel,
     bulkDensityTonsPerCubicMeter,
+    bulkDensitySource: "rotary_kiln_2_journal",
+    bulkDensitySampleCount: 10,
     assignedAt: "2026-07-23T08:00:00.000Z",
   };
 }

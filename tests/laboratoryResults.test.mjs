@@ -145,19 +145,30 @@ test("laboratory service downloads the selected result protocol as PDF", async (
   }
 });
 
-test("laboratory banks service reads assignments and submits a finished product", async () => {
+test("laboratory banks service reads assignments and submits a kiln journal material", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   const assignment = {
     assignmentId: "assignment-1",
     bankNumber: 1,
+    materialLabel: "ШКИ-66",
+    bulkDensityTonsPerCubicMeter: 1.16,
+    bulkDensitySource: "rotary_kiln_2_journal",
+    bulkDensitySampleCount: 10,
+    assignedByDisplayName: "Иванова Анна",
+    assignedAt: "2026-07-23T08:00:00.000Z",
+  };
+  const legacyAssignment = {
+    assignmentId: "assignment-legacy",
+    bankNumber: 2,
+    materialLabel: "ШГР-28",
+    bulkDensityTonsPerCubicMeter: 1.09,
+    bulkDensitySource: "laboratory_result",
     laboratoryResultId: "result-1",
     sampleIndex: 0,
     sampleIdentifier: "Неформованные изделия",
-    materialLabel: "ШКИ-66",
-    bulkDensityTonsPerCubicMeter: 1.16,
     assignedByDisplayName: "Иванова Анна",
-    assignedAt: "2026-07-23T08:00:00.000Z",
+    assignedAt: "2026-07-22T08:00:00.000Z",
   };
   globalThis.fetch = async (input, init = {}) => {
     requests.push({ url: input.toString(), init });
@@ -165,13 +176,12 @@ test("laboratory banks service reads assignments and submits a finished product"
       ? jsonResponse({ assignment }, 201)
       : jsonResponse({
           currentAssignments: [assignment],
-          history: [assignment],
-          eligibleProducts: [{
-            laboratoryResultId: "result-1",
-            productType: "Неформованные изделия",
-            productBrand: "ШКИ-66",
-            analysisDate: "2026-07-23",
-            bulkDensityTonsPerCubicMeter: 1.16,
+          history: [assignment, legacyAssignment],
+          availableMaterials: [{
+            material: "ШКИ-66",
+            averageBulkDensityTonsPerCubicMeter: 1.16,
+            sampleCount: 10,
+            latestRecordDate: "2026-07-30",
           }],
         });
   };
@@ -180,14 +190,16 @@ test("laboratory banks service reads assignments and submits a finished product"
     const loaded = await requestLaboratoryBanks({ baseUrl: "http://api.test" });
     const saved = await assignLaboratoryBank({
       bankNumber: 1,
-      laboratoryResultId: "result-1",
+      material: "ШКИ-66",
     }, { baseUrl: "http://api.test" });
 
     assert.equal(loaded.status, "ready");
+    assert.equal(loaded.availableMaterials[0]?.sampleCount, 10);
+    assert.equal(loaded.history[1]?.bulkDensitySource, "laboratory_result");
     assert.equal(saved.status, "ready");
     assert.deepEqual(JSON.parse(requests[1].init.body), {
       bankNumber: 1,
-      laboratoryResultId: "result-1",
+      material: "ШКИ-66",
     });
   } finally {
     globalThis.fetch = originalFetch;

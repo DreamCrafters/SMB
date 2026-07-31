@@ -38,6 +38,7 @@ export function validateRotaryKiln2FiringJournalSubmission(
   const errors: string[] = [];
   const recordDate = readCalendarDate(input.recordDate);
   const recordTime = readTime(input.recordTime);
+  const producedMaterial = readText(input.producedMaterial, maxShortTextLength);
   const shiftSupervisor = readText(input.shiftSupervisor, maxShortTextLength);
   const burnerOperator = readText(input.burnerOperator, maxShortTextLength);
   const laboratoryAssistant = readText(
@@ -55,6 +56,9 @@ export function validateRotaryKiln2FiringJournalSubmission(
   }
   if (recordTime === undefined) {
     errors.push("Укажите корректное время.");
+  }
+  if (producedMaterial === undefined) {
+    errors.push("Укажите производимый материал.");
   }
   validateNumericFields(input, numericFields.slice(0, 8), errors, numericValues);
   if (shiftSupervisor === undefined) {
@@ -75,6 +79,7 @@ export function validateRotaryKiln2FiringJournalSubmission(
     errors.length > 0 ||
     recordDate === undefined ||
     recordTime === undefined ||
+    producedMaterial === undefined ||
     shiftSupervisor === undefined ||
     burnerOperator === undefined ||
     laboratoryAssistant === undefined
@@ -87,6 +92,7 @@ export function validateRotaryKiln2FiringJournalSubmission(
     value: {
       recordDate,
       recordTime,
+      producedMaterial,
       waterAbsorption: numericValues.get("waterAbsorption")!,
       temperatureBeforeCyclone: numericValues.get("temperatureBeforeCyclone")!,
       temperatureBeforeFilter: numericValues.get("temperatureBeforeFilter")!,

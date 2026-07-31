@@ -495,11 +495,10 @@ function buildBankAssignment(bankNumber, materialLabel, density) {
   return {
     assignmentId: `assignment-${bankNumber}`,
     bankNumber,
-    laboratoryResultId: `result-${bankNumber}`,
-    sampleIndex: 0,
-    sampleIdentifier: `Проба ${bankNumber}`,
     materialLabel,
     bulkDensityTonsPerCubicMeter: density,
+    bulkDensitySource: "rotary_kiln_2_journal",
+    bulkDensitySampleCount: 10,
     assignedByDisplayName: "Лаборант",
     assignedAt: "2026-07-23T08:00:00.000Z",
   };

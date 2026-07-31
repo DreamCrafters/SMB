@@ -10,14 +10,27 @@ export type BankVolumeReference = {
   points: readonly BankVolumeReferencePoint[];
 };
 
+/**
+ * Насыпной вес банки берётся из среднего по последним записям журнала печи 2;
+ * `laboratory_result` остаётся только у назначений, сохранённых до этого.
+ */
+export const bankBulkDensitySources = [
+  "rotary_kiln_2_journal",
+  "laboratory_result",
+] as const;
+export type BankBulkDensitySource = (typeof bankBulkDensitySources)[number];
+
 export type BankAssignmentSnapshot = {
   assignmentId: string;
   bankNumber: BankNumber;
-  laboratoryResultId: string;
-  sampleIndex: number;
-  sampleIdentifier: string;
   materialLabel: string;
   bulkDensityTonsPerCubicMeter: number;
+  bulkDensitySource: BankBulkDensitySource;
+  /** Сколько записей журнала печи 2 усреднено для текущего насыпного веса. */
+  bulkDensitySampleCount?: number;
+  laboratoryResultId?: string;
+  sampleIndex?: number;
+  sampleIdentifier?: string;
   assignedAt: string;
 };
 
@@ -26,9 +39,11 @@ export type BankMeasurementCalculation = {
   bankLabel: string;
   material: string;
   assignmentId: string;
-  laboratoryResultId: string;
-  sampleIndex: number;
-  sampleIdentifier: string;
+  bulkDensitySource: BankBulkDensitySource;
+  bulkDensitySampleCount?: number;
+  laboratoryResultId?: string;
+  sampleIndex?: number;
+  sampleIdentifier?: string;
   assignmentAssignedAt: string;
   measurements: number[];
   averageHeightMeters: number;
@@ -117,9 +132,19 @@ export function calculateBankMeasurement({
       bankLabel: bankLabels[assignment.bankNumber],
       material: assignment.materialLabel,
       assignmentId: assignment.assignmentId,
-      laboratoryResultId: assignment.laboratoryResultId,
-      sampleIndex: assignment.sampleIndex,
-      sampleIdentifier: assignment.sampleIdentifier,
+      bulkDensitySource: assignment.bulkDensitySource,
+      ...(assignment.bulkDensitySampleCount === undefined
+        ? {}
+        : { bulkDensitySampleCount: assignment.bulkDensitySampleCount }),
+      ...(assignment.laboratoryResultId === undefined
+        ? {}
+        : { laboratoryResultId: assignment.laboratoryResultId }),
+      ...(assignment.sampleIndex === undefined
+        ? {}
+        : { sampleIndex: assignment.sampleIndex }),
+      ...(assignment.sampleIdentifier === undefined
+        ? {}
+        : { sampleIdentifier: assignment.sampleIdentifier }),
       assignmentAssignedAt: assignment.assignedAt,
       measurements: [...measurements],
       averageHeightMeters: roundToThreeDecimals(averageHeightMeters),

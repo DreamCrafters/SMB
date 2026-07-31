@@ -599,11 +599,10 @@ test("laboratory API reads the live matrix and saves the session-authored result
       const assignment = {
         assignmentId: "bank-assignment-1",
         bankNumber: input.bankNumber,
-        laboratoryResultId: input.laboratoryResultId,
-        sampleIndex: input.sampleIndex,
-        sampleIdentifier: input.sampleIdentifier,
         materialLabel: input.materialLabel,
         bulkDensityTonsPerCubicMeter: input.bulkDensityTonsPerCubicMeter,
+        bulkDensitySource: input.bulkDensitySource,
+        bulkDensitySampleCount: input.bulkDensitySampleCount,
         assignedByDisplayName: input.assignedByDisplayName,
         assignedAt: "2026-07-22T09:00:00.000Z",
       };
@@ -615,6 +614,29 @@ test("laboratory API reads the live matrix and saves the session-authored result
     },
     async listHistory() {
       return currentBankAssignments;
+    },
+  };
+  const kilnMaterialFilters: Parameters<
+    RotaryKiln2FiringJournalRepository["listMaterialBulkDensities"]
+  >[0][] = [];
+  const kilnJournal: RotaryKiln2FiringJournalRepository = {
+    async create() {
+      throw new Error("The bank flow must not create kiln records.");
+    },
+    async list() {
+      return { records: [], averageBulkDensity: null };
+    },
+    async listMaterialBulkDensities(filters) {
+      kilnMaterialFilters.push(filters);
+      const materials = [{
+        material: "ШКИ-66",
+        averageBulkDensityTonsPerCubicMeter: 1.16,
+        sampleCount: 10,
+        latestRecordDate: "2026-07-30",
+      }];
+      return filters?.material === undefined
+        ? materials
+        : materials.filter((item) => item.material === filters.material);
     },
   };
   const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
@@ -666,10 +688,15 @@ test("laboratory API reads the live matrix and saves the session-authored result
         {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            bankNumber: 1,
-            laboratoryResultId: "laboratory-result-1",
-          }),
+          body: JSON.stringify({ bankNumber: 1, material: "ШКИ-66" }),
+        },
+      );
+      const unknownMaterialResponse = await fetch(
+        `${baseUrl}/api/laboratory/banks`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ bankNumber: 1, material: "ШГР-28" }),
         },
       );
       const banksResponse = await fetch(`${baseUrl}/api/laboratory/banks`, {
@@ -684,6 +711,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
       assert.equal(protocolResponse.headers.get("content-type"), "application/pdf");
       assert.equal(protocol.subarray(0, 5).toString("ascii"), "%PDF-");
       assert.equal(assignBankResponse.status, 201);
+      assert.equal(unknownMaterialResponse.status, 400);
       assert.equal(banksResponse.status, 200);
       assert.equal(
         isRecord(banksPayload) && Array.isArray(banksPayload.currentAssignments)
@@ -692,20 +720,29 @@ test("laboratory API reads the live matrix and saves the session-authored result
         "ШКИ-66",
       );
       assert.deepEqual(
-        isRecord(banksPayload) && Array.isArray(banksPayload.eligibleProducts)
-          ? banksPayload.eligibleProducts
+        isRecord(banksPayload) && Array.isArray(banksPayload.availableMaterials)
+          ? banksPayload.availableMaterials
           : undefined,
         [{
-          laboratoryResultId: "laboratory-result-1",
-          productType: "Неформованные изделия",
-          productBrand: "ШКИ-66",
-          analysisDate: "2026-07-22",
-          bulkDensityTonsPerCubicMeter: 1.16,
+          material: "ШКИ-66",
+          averageBulkDensityTonsPerCubicMeter: 1.16,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-30",
         }],
       );
+      assert.deepEqual(kilnMaterialFilters, [
+        { material: "ШКИ-66" },
+        { material: "ШГР-28" },
+        undefined,
+      ]);
       assert.equal(currentBankAssignments[0]?.bulkDensityTonsPerCubicMeter, 1.16);
-      assert.ok(laboratoryResultFilters.some((filters) =>
-        filters?.section === "finished_product" && filters.limit === 200
+      assert.equal(
+        currentBankAssignments[0]?.bulkDensitySource,
+        "rotary_kiln_2_journal",
+      );
+      assert.equal(currentBankAssignments[0]?.bulkDensitySampleCount, 10);
+      assert.ok(laboratoryResultFilters.every((filters) =>
+        filters?.limit === undefined
       ));
       assert.equal(savedInput?.laboratoryAssistantDisplayName, "Иванова Анна");
       assert.deepEqual(savedInput?.protocolReference, {
@@ -741,6 +778,8 @@ test("laboratory API reads the live matrix and saves the session-authored result
     laboratoryResults,
     laboratoryBankAssignments,
     bankVolumeReferenceDataSource,
+    undefined,
+    kilnJournal,
   );
 });
 
@@ -808,6 +847,9 @@ test("laboratory review access reads every journal by name but cannot change lab
     async list(filters) {
       kilnJournalFilters.push(filters);
       return { records: [], averageBulkDensity: null };
+    },
+    async listMaterialBulkDensities() {
+      return [];
     },
   };
   const sampleRegistrationFilters: Parameters<
@@ -978,6 +1020,14 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
         averageBulkDensity: savedInput?.record.bulkDensity ?? null,
       };
     },
+    async listMaterialBulkDensities() {
+      return savedInput === undefined ? [] : [{
+        material: savedInput.record.producedMaterial,
+        averageBulkDensityTonsPerCubicMeter: savedInput.record.bulkDensity,
+        sampleCount: 1,
+        latestRecordDate: savedInput.record.recordDate,
+      }];
+    },
   };
   const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
   const audit: AuditRepository = {
@@ -995,6 +1045,7 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
   const record = {
     recordDate: "2026-07-29",
     recordTime: "08:05",
+    producedMaterial: "ШКИ-66",
     waterAbsorption: 4.2,
     temperatureBeforeCyclone: 850,
     temperatureBeforeFilter: 210.5,
@@ -1052,6 +1103,10 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
       assert.equal(auditEvents[0]?.action, "rotary_kiln_2_firing_record.submit");
       assert.equal(auditEvents[0]?.targetType, "rotary_kiln_2_firing_record");
       assert.equal(auditEvents[0]?.targetId, "kiln-record-1");
+      assert.equal(savedInput?.record.producedMaterial, "ШКИ-66");
+      assert.ok(auditEvents[0]?.details?.some((detail) =>
+        detail.label === "Производимый материал" && detail.value === "ШКИ-66"
+      ));
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -7231,11 +7286,10 @@ function buildLaboratoryBankAssignment(
   return {
     assignmentId: `assignment-${bankNumber}`,
     bankNumber,
-    laboratoryResultId: `result-${bankNumber}`,
-    sampleIndex: 0,
-    sampleIdentifier: `Проба ${bankNumber}`,
     materialLabel,
     bulkDensityTonsPerCubicMeter,
+    bulkDensitySource: "rotary_kiln_2_journal" as const,
+    bulkDensitySampleCount: 10,
     assignedByDisplayName: "Лаборант",
     assignedAt: "2026-07-23T08:00:00.000Z",
   };

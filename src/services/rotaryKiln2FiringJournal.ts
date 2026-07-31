@@ -123,6 +123,8 @@ function isJournalRecord(value: unknown): value is RotaryKiln2FiringJournalRecor
     typeof value.id === "string" &&
     typeof value.recordDate === "string" &&
     typeof value.recordTime === "string" &&
+    (value.producedMaterial === undefined ||
+      typeof value.producedMaterial === "string") &&
     numericFieldNames.every((field) => typeof value[field] === "number") &&
     typeof value.shiftSupervisor === "string" &&
     typeof value.burnerOperator === "string" &&

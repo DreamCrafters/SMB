@@ -40,6 +40,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     server: { middlewareMode: true },
   });
   const submissions = [];
+  const bankAssignments = [];
   const kilnJournalSubmissions = [];
   const kilnJournalRequests = [];
   const sampleRegistrationSubmissions = [];
@@ -72,45 +73,59 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         return jsonResponse({ labels: ["ША-22"] });
       }
       if (url.pathname === "/api/laboratory/banks") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          bankAssignments.push(submission);
+          return jsonResponse({
+            assignment: {
+              assignmentId: "assignment-created",
+              bankNumber: submission.bankNumber,
+              materialLabel: submission.material,
+              bulkDensityTonsPerCubicMeter: 1.18,
+              bulkDensitySource: "rotary_kiln_2_journal",
+              bulkDensitySampleCount: 3,
+              assignedByDisplayName: "Иванова Анна",
+              assignedAt: "2026-07-31T08:30:00.000Z",
+            },
+          }, 201);
+        }
         return jsonResponse({
           currentAssignments: [{
             assignmentId: "assignment-1",
             bankNumber: 1,
-            laboratoryResultId: "laboratory-result-existing",
-            sampleIndex: 0,
-            sampleIdentifier: "Неформованные изделия",
             materialLabel: "ШКИ-66",
             bulkDensityTonsPerCubicMeter: 1.16,
+            bulkDensitySource: "rotary_kiln_2_journal",
+            bulkDensitySampleCount: 10,
             assignedByDisplayName: "Иванова Анна",
             assignedAt: "2026-07-22T08:30:00.000Z",
           }],
           history: [{
             assignmentId: "assignment-1",
             bankNumber: 1,
-            laboratoryResultId: "laboratory-result-existing",
-            sampleIndex: 0,
-            sampleIdentifier: "Неформованные изделия",
             materialLabel: "ШКИ-66",
             bulkDensityTonsPerCubicMeter: 1.16,
+            bulkDensitySource: "rotary_kiln_2_journal",
+            bulkDensitySampleCount: 10,
             assignedByDisplayName: "Иванова Анна",
             assignedAt: "2026-07-22T08:30:00.000Z",
           }, {
             assignmentId: "assignment-2",
             bankNumber: 2,
+            materialLabel: "ША-22",
+            bulkDensityTonsPerCubicMeter: 1.2,
+            bulkDensitySource: "laboratory_result",
             laboratoryResultId: "laboratory-result-finished",
             sampleIndex: 0,
             sampleIdentifier: "Неформованные изделия",
-            materialLabel: "ША-22",
-            bulkDensityTonsPerCubicMeter: 1.2,
             assignedByDisplayName: "Иванова Анна",
             assignedAt: "2026-07-22T09:30:00.000Z",
           }],
-          eligibleProducts: [{
-            laboratoryResultId: "laboratory-result-finished",
-            productType: "Неформованные изделия",
-            productBrand: "ШКИ-66",
-            analysisDate: "2026-07-23",
-            bulkDensityTonsPerCubicMeter: 1.16,
+          availableMaterials: [{
+            material: "ША-22",
+            averageBulkDensityTonsPerCubicMeter: 1.18,
+            sampleCount: 3,
+            latestRecordDate: "2026-07-30",
           }],
         });
       }
@@ -132,6 +147,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             id: "kiln-record-1",
             recordDate: "2026-07-29",
             recordTime: "08:05",
+            producedMaterial: "ША-22",
             waterAbsorption: 4.2,
             temperatureBeforeCyclone: 850,
             temperatureBeforeFilter: 210.5,
@@ -319,107 +335,21 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       );
     });
     await waitFor(React, () =>
-      rootElement.querySelectorAll(".laboratory-indicator-grid input").length === 2
+      rootElement.querySelectorAll(".laboratory-bank-card").length === 3
     );
 
-    assert.equal(
-      Array.from(rootElement.querySelectorAll("button")).some(
-        (button) => button.textContent?.trim() === "Показать все показатели",
-      ),
-      false,
-    );
-    assert.equal(rootElement.querySelectorAll(".laboratory-sample-card").length, 1);
-    assert.equal(
-      Array.from(rootElement.querySelectorAll("label > span")).filter(
-        (label) => label.textContent === "Объект испытаний",
-      ).length,
-      2,
-    );
-    assert.equal(
-      Array.from(rootElement.querySelectorAll("th")).some(
-        (heading) => heading.textContent === "Объект испытаний",
-      ),
-      true,
-    );
-    assert.equal(
-      Array.from(rootElement.querySelectorAll("button")).some(
-        (button) => button.textContent?.trim() === "Открыть PDF",
-      ),
-      true,
-    );
-    const historyCell = rootElement.querySelector(".laboratory-results-table td");
-    assert.ok(historyCell);
-    const historyCellStyle = dom.window.getComputedStyle(historyCell);
-    assert.deepEqual({
-      hasDownloadButton: Array.from(rootElement.querySelectorAll("button")).some(
-        (button) => button.textContent?.trim() === "Скачать PDF",
-      ),
-      historyCellBorderBottomStyle: historyCellStyle.borderBottomStyle,
-      historyCellBorderRightStyle: historyCellStyle.borderRightStyle,
-    }, {
-      hasDownloadButton: false,
-      historyCellBorderBottomStyle: "solid",
-      historyCellBorderRightStyle: "solid",
-    });
-
-    const addSampleButton = Array.from(rootElement.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Добавить пробу",
-    );
-    assert.ok(addSampleButton);
-    await React.act(async () => addSampleButton.click());
-    const sampleCards = rootElement.querySelectorAll(".laboratory-sample-card");
-    assert.equal(sampleCards.length, 2);
-
-    const materialInput = findInputByLabel(rootElement, "Объект испытаний");
-    const protocolNoteInput = findControlByLabel(
-      rootElement,
-      "Примечание к протоколу",
-    );
-    const firstSampleInput = findInputByLabel(
-      sampleCards[0],
-      "Номер пробы, идентификатор транспорта",
-    );
-    const secondSampleInput = findInputByLabel(
-      sampleCards[1],
-      "Номер пробы, идентификатор транспорта",
-    );
-    const firstIndicator = findInputByLabel(sampleCards[0], "Al2O3");
-    const secondIndicator = findInputByLabel(sampleCards[1], "Прочность");
-
-    await React.act(async () => {
-      setNativeInputValue(materialInput, "Глина огнеупорная");
-      materialInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      setNativeInputValue(protocolNoteInput, "Соответствует требованиям.");
-      protocolNoteInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      setNativeInputValue(firstSampleInput, "Вагон 12345");
-      firstSampleInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      setNativeInputValue(firstIndicator, "31,4");
-      firstIndicator.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      setNativeInputValue(secondSampleInput, "Автомобиль А123БВ");
-      secondSampleInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      setNativeInputValue(secondIndicator, "38,1");
-      secondIndicator.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-    });
-    await React.act(async () => {
-      rootElement.querySelector(".laboratory-form").dispatchEvent(
-        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+    // Разделы контроля скрыты: насыпной вес считается по журналу печи 2.
+    for (const hiddenSection of ["Входящий контроль", "Контроль готовой продукции"]) {
+      assert.equal(
+        Array.from(rootElement.querySelectorAll("button")).some(
+          (button) => button.textContent?.trim() === hiddenSection,
+        ),
+        false,
       );
-    });
-    await waitFor(React, () => submissions.length === 1);
+    }
+    assert.equal(rootElement.querySelectorAll(".laboratory-form").length, 0);
+    assert.equal(submissions.length, 0);
 
-    assert.equal(submissions[0].materialLabel, "Глина огнеупорная");
-    assert.equal(submissions[0].purpose, "Определение химического состава и свойств");
-    assert.equal(submissions[0].protocolNote, "Соответствует требованиям.");
-    assert.deepEqual(submissions[0].samples, [
-      {
-        sampleIdentifier: "Вагон 12345",
-        values: { al2o3: "31,4" },
-      },
-      {
-        sampleIdentifier: "Автомобиль А123БВ",
-        values: { strength: "38,1" },
-      },
-    ]);
     const banksTab = Array.from(rootElement.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Банки",
     );
@@ -429,10 +359,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       rootElement.querySelectorAll(".laboratory-bank-card").length === 3
     );
     assert.match(rootElement.textContent, /Насыпной вес: 1,16 т\/м³/u);
-    assert.match(rootElement.textContent, /Вид продукции: Неформованные изделия/u);
+    assert.match(rootElement.textContent, /Журнал печи 2, среднее по 10 записям/u);
     assert.match(
       rootElement.textContent,
-      /23\.07\.2026 · ШКИ-66 · Неформованные изделия/u,
+      /Результат испытаний: Неформованные изделия/u,
+    );
+    assert.match(
+      rootElement.textContent,
+      /ША-22 · 1,18 т\/м³ · среднее по 3 записям/u,
     );
     const bankHistoryTable = rootElement.querySelector(
       ".laboratory-bank-history .laboratory-results-table",
@@ -443,12 +377,25 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     assert.equal(bankHistoryCellStyle.borderRightStyle, "solid");
     assert.equal(bankHistoryCellStyle.borderBottomStyle, "solid");
-    assert.equal(
-      Array.from(rootElement.querySelectorAll("label > span")).some(
-        (label) => label.textContent === "Результат готовой продукции",
-      ),
-      true,
+    const bankMaterialSelect = findControlByLabel(
+      rootElement.querySelector(".laboratory-bank-assignment-form"),
+      "Производимый материал",
+      "select",
     );
+    assert.ok(bankMaterialSelect);
+    await React.act(async () => {
+      setNativeInputValue(bankMaterialSelect, "ША-22");
+      bankMaterialSelect.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
+    await React.act(async () => {
+      rootElement.querySelector(".laboratory-bank-assignment-form").dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => bankAssignments.length === 1);
+    assert.deepEqual(bankAssignments[0], { bankNumber: 1, material: "ША-22" });
 
     const findTabByText = (text) =>
       Array.from(rootElement.querySelectorAll("button")).find(
@@ -482,6 +429,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     const expectedJournalLabels = [
       "Дата",
       "Время",
+      "Производимый материал",
       "Водопоглощение",
       "t перед циклоном",
       "t перед фильтром",
@@ -519,6 +467,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     const journalValues = {
       "Дата": "2026-07-29",
       "Время": "12:15",
+      "Производимый материал": "ША-22",
       "Водопоглощение": "4.3",
       "t перед циклоном": "852",
       "t перед фильтром": "212",
@@ -552,6 +501,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.deepEqual(kilnJournalSubmissions[0], {
       recordDate: "2026-07-29",
       recordTime: "12:15",
+      producedMaterial: "ША-22",
       waterAbsorption: 4.3,
       temperatureBeforeCyclone: 852,
       temperatureBeforeFilter: 212,

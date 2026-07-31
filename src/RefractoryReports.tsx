@@ -589,7 +589,7 @@ function CoshForm({
                   </div>
                   <small>
                     {density === undefined
-                      ? "Лаборатория должна выбрать результат готовой продукции"
+                      ? "Лаборатория должна назначить материал из журнала печи 2"
                       : `Насыпной вес ${formatTableTotal(density)} т/м³`}
                   </small>
                 </header>

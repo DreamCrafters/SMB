@@ -1992,6 +1992,35 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "034_rotary_kiln_2_produced_material_bank_density",
+    statements: [
+      `
+      alter table rotary_kiln_2_firing_journal
+        add column produced_material varchar(120) null after record_time,
+        add key idx_rotary_kiln_2_firing_journal_material (
+          produced_material,
+          record_date,
+          record_time,
+          created_at
+        );
+      `,
+      `
+      alter table laboratory_bank_assignments
+        drop foreign key fk_laboratory_bank_assignment_result;
+      `,
+      `
+      alter table laboratory_bank_assignments
+        add column bulk_density_source varchar(40) not null
+          default 'laboratory_result' after bulk_density,
+        add column bulk_density_sample_count int unsigned null
+          after bulk_density_source,
+        modify laboratory_result_id char(36) null,
+        modify sample_index int unsigned null,
+        modify sample_identifier varchar(255) null;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

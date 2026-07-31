@@ -1,16 +1,17 @@
-import type { StoredLaboratoryResult } from "../repositories/laboratoryResultsRepository.js";
+import type { RotaryKiln2MaterialBulkDensity } from "../contracts/rotaryKiln2FiringJournal.js";
 import { bankNumbers, type BankNumber } from "./bankMeasurement.js";
 
 export type LaboratoryBankAssignmentRequest = {
   bankNumber: BankNumber;
-  laboratoryResultId: string;
-  sampleIndex: number;
+  material: string;
 };
 
-export type LaboratoryBankAssignmentSelection = LaboratoryBankAssignmentRequest & {
-  sampleIdentifier: string;
+export type LaboratoryBankAssignmentSelection = {
+  bankNumber: BankNumber;
   materialLabel: string;
   bulkDensityTonsPerCubicMeter: number;
+  bulkDensitySource: "rotary_kiln_2_journal";
+  bulkDensitySampleCount: number;
 };
 
 export type LaboratoryBankAssignmentValidation =
@@ -21,100 +22,75 @@ export type LaboratoryBankAssignmentResolution =
   | { ok: true; value: LaboratoryBankAssignmentSelection }
   | { ok: false; error: string };
 
+const maxMaterialLength = 120;
+
 export function validateLaboratoryBankAssignmentRequest(
   input: unknown,
 ): LaboratoryBankAssignmentValidation {
-  if (!isRecord(input)) {
-    return {
-      ok: false,
-      error: "Проверьте выбранную банку и результат готовой продукции.",
-    };
-  }
+  const invalid = {
+    ok: false,
+    error: "Проверьте выбранную банку и материал из журнала печи 2.",
+  } as const;
+
+  if (!isRecord(input)) return invalid;
 
   const bankNumber = input.bankNumber;
-  const laboratoryResultId = input.laboratoryResultId;
-  const sampleIndex = input.sampleIndex === undefined ? 0 : input.sampleIndex;
+  const material = typeof input.material === "string"
+    ? input.material.trim().replace(/\s+/gu, " ")
+    : "";
   if (
     !bankNumbers.includes(bankNumber as BankNumber) ||
-    typeof laboratoryResultId !== "string" ||
-    !/^[a-zA-Z0-9-]{1,100}$/u.test(laboratoryResultId) ||
-    sampleIndex !== 0
+    material === "" ||
+    material.length > maxMaterialLength
   ) {
-    return {
-      ok: false,
-      error: "Проверьте выбранную банку и результат готовой продукции.",
-    };
+    return invalid;
   }
 
   return {
     ok: true,
-    value: {
-      bankNumber: bankNumber as BankNumber,
-      laboratoryResultId,
-      sampleIndex: Number(sampleIndex),
-    },
+    value: { bankNumber: bankNumber as BankNumber, material },
   };
 }
 
+/**
+ * Насыпной вес не вводится вручную: его даёт среднее по последним записям
+ * журнала печи 2 для выбранного материала.
+ */
 export function resolveLaboratoryBankAssignment(
   request: LaboratoryBankAssignmentRequest,
-  result: StoredLaboratoryResult | undefined,
+  materialBulkDensity: RotaryKiln2MaterialBulkDensity | undefined,
 ): LaboratoryBankAssignmentResolution {
-  if (
-    result === undefined ||
-    result.section !== "finished_product" ||
-    request.sampleIndex !== 0
-  ) {
+  if (materialBulkDensity === undefined || materialBulkDensity.sampleCount < 1) {
     return {
       ok: false,
-      error: "Выбранный результат готовой продукции не найден.",
+      error:
+        `Для материала «${request.material}» нет записей насыпного веса в журнале печи 2.`,
     };
   }
 
-  const bulkDensityTonsPerCubicMeter = readPositiveLocalizedNumber(
-    result.values.bulk_density,
-  );
-  if (bulkDensityTonsPerCubicMeter === undefined) {
+  const bulkDensityTonsPerCubicMeter =
+    materialBulkDensity.averageBulkDensityTonsPerCubicMeter;
+  if (
+    !Number.isFinite(bulkDensityTonsPerCubicMeter) ||
+    bulkDensityTonsPerCubicMeter <= 0
+  ) {
     return {
       ok: false,
-      error: "В выбранном результате не указан корректный насыпной вес.",
+      error:
+        `Средний насыпной вес материала «${request.material}» в журнале печи 2 должен быть больше нуля.`,
     };
   }
 
   return {
     ok: true,
     value: {
-      ...request,
-      sampleIdentifier: result.materialLabel,
-      materialLabel: result.productBrand,
+      bankNumber: request.bankNumber,
+      materialLabel: materialBulkDensity.material,
       bulkDensityTonsPerCubicMeter,
+      bulkDensitySource: "rotary_kiln_2_journal",
+      bulkDensitySampleCount: materialBulkDensity.sampleCount,
     },
   };
-}
-
-export function listEligibleLaboratoryBankProducts(
-  results: readonly StoredLaboratoryResult[],
-) {
-  return results.flatMap((result) => {
-    if (result.section !== "finished_product") return [];
-    const bulkDensityTonsPerCubicMeter = readPositiveLocalizedNumber(
-      result.values.bulk_density,
-    );
-    return bulkDensityTonsPerCubicMeter === undefined
-      ? []
-      : [{
-          laboratoryResultId: result.id,
-          productType: result.materialLabel,
-          productBrand: result.productBrand,
-          analysisDate: result.analysisDate,
-          bulkDensityTonsPerCubicMeter,
-        }];
-  });
-}
-
-function readPositiveLocalizedNumber(value: string | undefined) {
-  const parsed = Number((value ?? "").trim().replace(/\s/gu, "").replace(",", "."));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

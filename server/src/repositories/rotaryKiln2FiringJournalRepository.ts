@@ -6,10 +6,16 @@ import type {
   RotaryKiln2FiringJournalRecord,
   RotaryKiln2FiringJournalSelection,
   RotaryKiln2FiringJournalSubmission,
+  RotaryKiln2MaterialBulkDensity,
 } from "../contracts/rotaryKiln2FiringJournal.js";
 
 type RepositoryFilters = RotaryKiln2FiringJournalFilters & {
   limit?: number;
+};
+
+export type RotaryKiln2MaterialBulkDensityFilters = {
+  material?: string;
+  sampleSize?: number;
 };
 
 export type RotaryKiln2FiringJournalRepository = {
@@ -21,12 +27,16 @@ export type RotaryKiln2FiringJournalRepository = {
   list: (
     filters?: RepositoryFilters,
   ) => Promise<RotaryKiln2FiringJournalSelection>;
+  listMaterialBulkDensities: (
+    filters?: RotaryKiln2MaterialBulkDensityFilters,
+  ) => Promise<RotaryKiln2MaterialBulkDensity[]>;
 };
 
 type RotaryKiln2FiringJournalRow = RowDataPacket & {
   id: string;
   record_date: Date | string;
   record_time: string;
+  produced_material: string | null;
   water_absorption: number | string;
   temperature_before_cyclone: number | string;
   temperature_before_filter: number | string;
@@ -46,6 +56,13 @@ type RotaryKiln2FiringJournalRow = RowDataPacket & {
   average_bulk_density: number | string | null;
 };
 
+type RotaryKiln2MaterialBulkDensityRow = RowDataPacket & {
+  material: string;
+  average_bulk_density: number | string;
+  sample_count: number | string;
+  latest_record_date: Date | string;
+};
+
 type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
@@ -53,6 +70,13 @@ type RepositoryOptions = {
 
 const defaultListLimit = 200;
 const maxListLimit = 500;
+
+/**
+ * Насыпной вес материала считается по последним записям журнала печи 2. Пока их
+ * меньше десяти, среднее берётся по всем накопленным.
+ */
+export const rotaryKiln2BulkDensitySampleSize = 10;
+const maxBulkDensitySampleSize = 100;
 
 export function createRotaryKiln2FiringJournalRepository(
   pool: DatabasePool,
@@ -72,6 +96,7 @@ export function createRotaryKiln2FiringJournalRepository(
           id,
           record_date,
           record_time,
+          produced_material,
           water_absorption,
           temperature_before_cyclone,
           temperature_before_filter,
@@ -90,11 +115,12 @@ export function createRotaryKiln2FiringJournalRepository(
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           record.recordDate,
           record.recordTime,
+          record.producedMaterial,
           record.waterAbsorption,
           record.temperatureBeforeCyclone,
           record.temperatureBeforeFilter,
@@ -159,6 +185,7 @@ export function createRotaryKiln2FiringJournalRepository(
             id,
             record_date,
             record_time,
+            produced_material,
             water_absorption,
             temperature_before_cyclone,
             temperature_before_filter,
@@ -195,7 +222,60 @@ export function createRotaryKiln2FiringJournalRepository(
           : Number(rows[0].average_bulk_density),
       };
     },
+
+    async listMaterialBulkDensities(filters = {}) {
+      const sampleSize = Math.min(
+        Math.max(
+          Math.trunc(filters.sampleSize ?? rotaryKiln2BulkDensitySampleSize),
+          1,
+        ),
+        maxBulkDensitySampleSize,
+      );
+      const materialClause = filters.material === undefined
+        ? ""
+        : "and produced_material = ?";
+      const [rows] = await pool.query<RotaryKiln2MaterialBulkDensityRow[]>(
+        `select
+          ranked.produced_material as material,
+          avg(ranked.bulk_density) as average_bulk_density,
+          count(*) as sample_count,
+          max(ranked.record_date) as latest_record_date
+        from (
+          select
+            produced_material,
+            bulk_density,
+            record_date,
+            row_number() over (
+              partition by produced_material
+              order by record_date desc, record_time desc, created_at desc, id desc
+            ) as position
+          from rotary_kiln_2_firing_journal
+          where produced_material is not null
+            and produced_material <> ''
+            ${materialClause}
+        ) as ranked
+        where ranked.position <= ?
+        group by ranked.produced_material
+        order by ranked.produced_material asc`,
+        filters.material === undefined
+          ? [sampleSize]
+          : [filters.material, sampleSize],
+      );
+
+      return rows.map((row) => ({
+        material: row.material,
+        averageBulkDensityTonsPerCubicMeter: roundToSixDecimals(
+          Number(row.average_bulk_density),
+        ),
+        sampleCount: Number(row.sample_count),
+        latestRecordDate: formatDate(row.latest_record_date),
+      }));
+    },
   };
+}
+
+function roundToSixDecimals(value: number) {
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
 
 function mapRecord(
@@ -205,6 +285,9 @@ function mapRecord(
     id: row.id,
     recordDate: formatDate(row.record_date),
     recordTime: row.record_time.slice(0, 5),
+    ...(row.produced_material === null || row.produced_material === ""
+      ? {}
+      : { producedMaterial: row.produced_material }),
     waterAbsorption: Number(row.water_absorption),
     temperatureBeforeCyclone: Number(row.temperature_before_cyclone),
     temperatureBeforeFilter: Number(row.temperature_before_filter),

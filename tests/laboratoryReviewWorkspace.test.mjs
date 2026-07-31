@@ -133,6 +133,7 @@ test("laboratory review filters every journal by section, date, and nomenclature
             id: "kiln-record-1",
             recordDate: "2026-07-22",
             recordTime: "08:30",
+            producedMaterial: "ША-22",
             waterAbsorption: 6.1,
             temperatureBeforeCyclone: 940,
             temperatureBeforeFilter: 320,
@@ -341,6 +342,13 @@ test("laboratory review filters every journal by section, date, and nomenclature
       container.querySelector(".laboratory-review-excluded-note"),
       null,
     );
+    // Руководитель видит тот же столбец материала, что и лаборант.
+    assert.ok(
+      Array.from(container.querySelectorAll("th")).some(
+        (heading) => heading.textContent === "Производимый материал",
+      ),
+    );
+    assert.match(container.textContent, /ША-22/u);
 
     assert.equal(
       container.querySelector("form"),

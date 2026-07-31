@@ -91,6 +91,8 @@ export type RefractoryCoshPayload = {
     bankLabel?: string;
     material?: string;
     assignmentId?: string;
+    bulkDensitySource?: string;
+    bulkDensitySampleCount?: number;
     laboratoryResultId?: string;
     sampleIndex?: number;
     sampleIdentifier?: string;

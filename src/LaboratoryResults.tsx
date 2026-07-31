@@ -72,6 +72,15 @@ type FormState = {
 const sectionLabels = laboratorySectionLabels;
 
 /**
+ * Разделы контроля скрыты из корневого ряда: насыпной вес банок считается по
+ * журналу печи 2, поэтому лаборант больше не вносит входящий контроль и
+ * контроль готовой продукции. Сохранённые результаты остаются доступны
+ * руководителям во вкладке `Лаборатория`, а вернуть ввод можно, снова
+ * перечислив разделы здесь.
+ */
+const visibleControlSections: readonly LaboratorySection[] = [];
+
+/**
  * Журналы ЦЗЛ убраны из общего ряда вкладок лаборатории и открываются только
  * из кнопки `ЦЗЛ`; этот список задаёт порядок кнопок внутри группы.
  */
@@ -97,9 +106,12 @@ export function LaboratoryResultsWorkspace({
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
-  const [section, setSection] = useState<LaboratorySection>("incoming");
-  const [activePanel, setActivePanel] =
-    useState<LaboratoryWorkspacePanel>("results");
+  const [section, setSection] = useState<LaboratorySection>(
+    visibleControlSections[0] ?? "incoming",
+  );
+  const [activePanel, setActivePanel] = useState<LaboratoryWorkspacePanel>(
+    visibleControlSections.length === 0 ? "banks" : "results",
+  );
   const [centralLabJournal, setCentralLabJournal] = useState<CentralLabJournalId>(
     centralLabJournals[0].id,
   );
@@ -122,6 +134,7 @@ export function LaboratoryResultsWorkspace({
     useProductionBrands({ creationDisabled: true });
 
   useEffect(() => {
+    if (activePanel !== "results") return;
     const controller = new AbortController();
     setReferenceState({ status: "loading" });
     requestLaboratoryReference({ signal: controller.signal }).then((result) => {
@@ -139,9 +152,10 @@ export function LaboratoryResultsWorkspace({
       );
     });
     return () => controller.abort();
-  }, []);
+  }, [activePanel]);
 
   useEffect(() => {
+    if (activePanel !== "results") return;
     const controller = new AbortController();
     setHistoryState((current) => ({
       status: "loading",
@@ -176,7 +190,15 @@ export function LaboratoryResultsWorkspace({
       );
     });
     return () => controller.abort();
-  }, [brandFilter, dateFrom, dateTo, materialFilter, refreshVersion, section]);
+  }, [
+    activePanel,
+    brandFilter,
+    dateFrom,
+    dateTo,
+    materialFilter,
+    refreshVersion,
+    section,
+  ]);
 
   const productTypes = referenceState.status === "ready"
     ? referenceState.reference.finishedProductTypes
@@ -361,7 +383,7 @@ export function LaboratoryResultsWorkspace({
         role="tablist"
         aria-label="Разделы лаборатории"
       >
-        {(Object.keys(sectionLabels) as LaboratorySection[]).map((item) => (
+        {visibleControlSections.map((item) => (
           <button
             aria-selected={
               activePanel === "results" && section === item

@@ -71,7 +71,6 @@ import {
 } from "../domain/laboratoryChemicalAnalysisJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
-  listEligibleLaboratoryBankProducts,
   resolveLaboratoryBankAssignment,
   validateLaboratoryBankAssignmentRequest,
 } from "../domain/laboratoryBankAssignment.js";
@@ -2028,6 +2027,19 @@ async function handleLaboratoryRequest({
       return;
     }
 
+    const materialReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "producedMaterial",
+        label: validation.value.producedMaterial,
+      }],
+      logEvent: "rotary_kiln_2_brands.google_sheets_fetch_failed",
+    });
+    if (materialReferences === undefined) return;
+    validation.value.producedMaterial = materialReferences[0]?.label ??
+      validation.value.producedMaterial;
+
     const saved = await runAuditedMutation({
       transaction: databaseTransaction,
       audit,
@@ -2044,6 +2056,10 @@ async function handleLaboratoryRequest({
         details: [
           { label: "Дата", value: record.recordDate },
           { label: "Время", value: record.recordTime },
+          {
+            label: "Производимый материал",
+            value: record.producedMaterial ?? "",
+          },
           { label: "Мастер смены", value: record.shiftSupervisor },
           { label: "Обжигальщик", value: record.burnerOperator },
           { label: "Лаборант", value: record.laboratoryAssistant },
@@ -2289,7 +2305,10 @@ async function handleLaboratoryRequest({
   }
 
   if (url.pathname === "/api/laboratory/banks") {
-    if (laboratoryResults === undefined || laboratoryBankAssignments === undefined) {
+    if (
+      laboratoryBankAssignments === undefined ||
+      rotaryKiln2FiringJournal === undefined
+    ) {
       sendJson(res, 503, {
         error: { code: "server_error", message: "Хранилище назначений банок не настроено." },
       });
@@ -2297,16 +2316,11 @@ async function handleLaboratoryRequest({
     }
 
     if (req.method === "GET") {
-      const finishedProductResults = await laboratoryResults.list({
-        section: "finished_product",
-        limit: 200,
-      });
       sendJson(res, 200, {
         currentAssignments: await laboratoryBankAssignments.listCurrent(),
         history: await laboratoryBankAssignments.listHistory(),
-        eligibleProducts: listEligibleLaboratoryBankProducts(
-          finishedProductResults,
-        ),
+        availableMaterials: await rotaryKiln2FiringJournal
+          .listMaterialBulkDensities(),
       });
       return;
     }
@@ -2327,9 +2341,11 @@ async function handleLaboratoryRequest({
       });
       return;
     }
+    const [materialBulkDensity] = await rotaryKiln2FiringJournal
+      .listMaterialBulkDensities({ material: validation.value.material });
     const resolution = resolveLaboratoryBankAssignment(
       validation.value,
-      await laboratoryResults.findById(validation.value.laboratoryResultId),
+      materialBulkDensity,
     );
     if (!resolution.ok) {
       sendJson(res, 400, {
@@ -2354,8 +2370,11 @@ async function handleLaboratoryRequest({
         summary: `Назначено содержимое банки ${["I", "II", "III"][saved.bankNumber - 1]}`,
         details: [
           { label: "Марка", value: saved.materialLabel },
-          { label: "Вид продукции", value: saved.sampleIdentifier },
           { label: "Насыпной вес", value: String(saved.bulkDensityTonsPerCubicMeter) },
+          {
+            label: "Записей журнала печи 2",
+            value: String(saved.bulkDensitySampleCount ?? 0),
+          },
         ],
         targetType: "laboratory_bank_assignment",
         targetId: saved.assignmentId,

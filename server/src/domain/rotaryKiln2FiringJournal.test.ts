@@ -6,6 +6,7 @@ test("rotary kiln 2 firing journal accepts and normalizes a complete record", ()
   const validation = validateRotaryKiln2FiringJournalSubmission({
     recordDate: "2026-07-29",
     recordTime: "08:05",
+    producedMaterial: "  ШКИ-66 ",
     waterAbsorption: 4.2,
     temperatureBeforeCyclone: 850,
     temperatureBeforeFilter: 210.5,
@@ -28,6 +29,7 @@ test("rotary kiln 2 firing journal accepts and normalizes a complete record", ()
     value: {
       recordDate: "2026-07-29",
       recordTime: "08:05",
+      producedMaterial: "ШКИ-66",
       waterAbsorption: 4.2,
       temperatureBeforeCyclone: 850,
       temperatureBeforeFilter: 210.5,
@@ -51,6 +53,7 @@ test("rotary kiln 2 firing journal reports every invalid field", () => {
   const validation = validateRotaryKiln2FiringJournalSubmission({
     recordDate: "2026-02-30",
     recordTime: "24:10",
+    producedMaterial: "  ",
     waterAbsorption: "4,2",
     temperatureBeforeCyclone: Number.POSITIVE_INFINITY,
     temperatureBeforeFilter: 1_000_000_000,
@@ -74,6 +77,7 @@ test("rotary kiln 2 firing journal reports every invalid field", () => {
   assert.deepEqual(validation.errors, [
     "Укажите корректную дату.",
     "Укажите корректное время.",
+    "Укажите производимый материал.",
     "Проверьте поле «Водопоглощение».",
     "Проверьте поле «t перед циклоном».",
     "Проверьте поле «t перед фильтром».",

@@ -107,7 +107,7 @@ function buildCoshPayloadLines(payload: RefractoryCoshPayload) {
       [
         `Банка ${["I", "II", "III"][row.jarNumber - 1]}: ${row.values.map(formatValue).join("; ")}`,
         `содержимое ${formatValue(row.material)}`,
-        `источник результата ${formatValue(row.sampleIdentifier)}`,
+        `основание насыпного веса ${formatBulkDensitySource(row)}`,
         `среднее ${formatValue(row.averageHeightMeters)} м`,
         `объём ${formatValue(row.volumeCubicMeters)} м³`,
         `насыпной вес ${formatValue(row.bulkDensityTonsPerCubicMeter)} т/м³`,
@@ -267,6 +267,24 @@ function formatValue(value: string | number | undefined) {
   }
 
   return typeof value === "number" ? String(value).replace(".", ",") : value;
+}
+
+/**
+ * Насыпной вес приходит из журнала печи 2; старые ревизии сохранили ссылку на
+ * результат испытаний, поэтому обе формулировки остаются читаемыми.
+ */
+function formatBulkDensitySource(row: {
+  bulkDensitySource?: string;
+  bulkDensitySampleCount?: number;
+  sampleIdentifier?: string;
+}) {
+  if (row.bulkDensitySource === "rotary_kiln_2_journal") {
+    return row.bulkDensitySampleCount === undefined
+      ? "журнал печи 2"
+      : `журнал печи 2, среднее по ${row.bulkDensitySampleCount} записям`;
+  }
+
+  return `результат испытаний ${formatValue(row.sampleIdentifier)}`;
 }
 
 function formatSupplySource(value: "I" | "II" | "III" | "street") {

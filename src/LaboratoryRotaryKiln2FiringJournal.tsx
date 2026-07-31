@@ -9,13 +9,19 @@ import {
   RotaryKiln2FiringTable,
   rotaryKiln2EarlyNumericFields,
   rotaryKiln2LateNumericFields,
+  rotaryKiln2ProducedMaterialLabel,
 } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   requestRotaryKiln2FiringJournal,
   submitRotaryKiln2FiringJournalRecord,
 } from "./services/rotaryKiln2FiringJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import {
+  normalizeProductBrandKey,
+  useProductionBrands,
+} from "./useProductionBrands";
 
 type ShowToast = (title: string, body: string) => void;
 type FormState = Record<keyof RotaryKiln2FiringJournalSubmission, string>;
@@ -58,6 +64,8 @@ export function LaboratoryRotaryKiln2FiringJournal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const { labels: productBrands, loadState: productBrandsLoadState } =
+    useProductionBrands({ creationDisabled: true });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,6 +116,13 @@ export function LaboratoryRotaryKiln2FiringJournal({
       setFormMessage("Заполните все обязательные поля корректными значениями.");
       return;
     }
+    const materialKey = normalizeProductBrandKey(submission.producedMaterial);
+    if (!productBrands.some((label) => normalizeProductBrandKey(label) === materialKey)) {
+      setFormMessage(
+        `Выберите ${rotaryKiln2ProducedMaterialLabel.toLowerCase()} из справочника номенклатуры.`,
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     setFormMessage("Сохраняем запись…");
@@ -153,6 +168,17 @@ export function LaboratoryRotaryKiln2FiringJournal({
             value={form.recordTime}
             onChange={updateField}
           />
+          <label>
+            <span>{rotaryKiln2ProducedMaterialLabel}</span>
+            <ProductBrandPicker
+              ariaLabel={rotaryKiln2ProducedMaterialLabel}
+              disabled={productBrandsLoadState.status !== "ready"}
+              labels={productBrands}
+              name="producedMaterial"
+              value={form.producedMaterial}
+              onChange={(value) => updateField("producedMaterial", value)}
+            />
+          </label>
           {rotaryKiln2EarlyNumericFields.map(([field, label]) => (
             <JournalInput
               field={field}
@@ -309,6 +335,7 @@ function createEmptyForm(laboratoryAssistant: string): FormState {
     recordTime: `${String(now.getHours()).padStart(2, "0")}:${String(
       now.getMinutes(),
     ).padStart(2, "0")}`,
+    producedMaterial: "",
     waterAbsorption: "",
     temperatureBeforeCyclone: "",
     temperatureBeforeFilter: "",
@@ -333,6 +360,7 @@ function buildSubmission(
   const numericValues = Object.fromEntries(
     allNumericFields.map(([field]) => [field, Number(form[field])]),
   ) as Record<(typeof allNumericFields)[number][0], number>;
+  const producedMaterial = form.producedMaterial.trim().replace(/\s+/gu, " ");
   const textFields = [
     form.shiftSupervisor.trim(),
     form.burnerOperator.trim(),
@@ -342,6 +370,7 @@ function buildSubmission(
   if (
     form.recordDate === "" ||
     form.recordTime === "" ||
+    producedMaterial === "" ||
     textFields.some((value) => value === "") ||
     allNumericFields.some(([field]) =>
       form[field].trim() === "" || !Number.isFinite(numericValues[field])
@@ -353,6 +382,7 @@ function buildSubmission(
   return {
     recordDate: form.recordDate,
     recordTime: form.recordTime,
+    producedMaterial,
     waterAbsorption: numericValues.waterAbsorption,
     temperatureBeforeCyclone: numericValues.temperatureBeforeCyclone,
     temperatureBeforeFilter: numericValues.temperatureBeforeFilter,

@@ -2,8 +2,8 @@ import type {
   BankNumber,
   LaboratoryBankAssignment,
   LaboratoryBanksResponse,
-  LaboratoryBankProduct,
 } from "../contracts/laboratoryBanks.js";
+import type { RotaryKiln2MaterialBulkDensity } from "../contracts/rotaryKiln2FiringJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import { describeRemoteNetworkFailure, resolveApiEndpoint } from "./remoteServer.js";
 
@@ -27,7 +27,7 @@ export async function requestLaboratoryBanks(
 export async function assignLaboratoryBank(
   input: {
     bankNumber: BankNumber;
-    laboratoryResultId: string;
+    material: string;
   },
   options: RequestOptions = {},
 ): Promise<{ status: "ready"; assignment: LaboratoryBankAssignment } | ErrorResult> {
@@ -81,8 +81,8 @@ function isLaboratoryBanksResponse(value: unknown): value is LaboratoryBanksResp
     value.currentAssignments.every(isLaboratoryBankAssignment) &&
     Array.isArray(value.history) &&
     value.history.every(isLaboratoryBankAssignment) &&
-    Array.isArray(value.eligibleProducts) &&
-    value.eligibleProducts.every(isLaboratoryBankProduct);
+    Array.isArray(value.availableMaterials) &&
+    value.availableMaterials.every(isMaterialBulkDensity);
 }
 
 export function isLaboratoryBankAssignment(
@@ -91,24 +91,24 @@ export function isLaboratoryBankAssignment(
   return isRecord(value) &&
     typeof value.assignmentId === "string" &&
     isBankNumber(value.bankNumber) &&
-    typeof value.laboratoryResultId === "string" &&
-    Number.isInteger(value.sampleIndex) &&
-    typeof value.sampleIdentifier === "string" &&
     typeof value.materialLabel === "string" &&
     isFiniteNumber(value.bulkDensityTonsPerCubicMeter) &&
+    (value.bulkDensitySource === "rotary_kiln_2_journal" ||
+      value.bulkDensitySource === "laboratory_result") &&
+    (value.bulkDensitySampleCount === undefined ||
+      Number.isInteger(value.bulkDensitySampleCount)) &&
     typeof value.assignedByDisplayName === "string" &&
     typeof value.assignedAt === "string";
 }
 
-function isLaboratoryBankProduct(
+function isMaterialBulkDensity(
   value: unknown,
-): value is LaboratoryBankProduct {
+): value is RotaryKiln2MaterialBulkDensity {
   return isRecord(value) &&
-    typeof value.laboratoryResultId === "string" &&
-    typeof value.productType === "string" &&
-    typeof value.productBrand === "string" &&
-    typeof value.analysisDate === "string" &&
-    isFiniteNumber(value.bulkDensityTonsPerCubicMeter);
+    typeof value.material === "string" &&
+    isFiniteNumber(value.averageBulkDensityTonsPerCubicMeter) &&
+    Number.isInteger(value.sampleCount) &&
+    typeof value.latestRecordDate === "string";
 }
 
 function isBankNumber(value: unknown): value is BankNumber {

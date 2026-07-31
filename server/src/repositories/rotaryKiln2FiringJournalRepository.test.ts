@@ -6,6 +6,7 @@ import { createRotaryKiln2FiringJournalRepository } from "./rotaryKiln2FiringJou
 const record = {
   recordDate: "2026-07-29",
   recordTime: "08:05",
+  producedMaterial: "ШКИ-66",
   waterAbsorption: 4.2,
   temperatureBeforeCyclone: 850,
   temperatureBeforeFilter: 210.5,
@@ -52,6 +53,7 @@ test("rotary kiln 2 firing repository stores every parameter and session author"
     "kiln-record-1",
     "2026-07-29",
     "08:05",
+    "ШКИ-66",
     4.2,
     850,
     210.5,
@@ -84,6 +86,7 @@ test("rotary kiln 2 firing repository averages exactly the filtered displayed ro
         id: "kiln-record-1",
         record_date: "2026-07-29",
         record_time: "08:05",
+        produced_material: "ШКИ-66",
         water_absorption: "4.2000",
         temperature_before_cyclone: "850.0000",
         temperature_before_filter: "210.5000",
@@ -132,4 +135,53 @@ test("rotary kiln 2 firing repository averages exactly the filtered displayed ro
     "Петров",
     200,
   ]);
+});
+
+test("rotary kiln 2 firing repository averages the last records of each material", async () => {
+  let querySql = "";
+  let queryParameters: unknown[] = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      querySql = sql;
+      queryParameters = parameters ?? [];
+      return [[{
+        material: "ШКИ-66",
+        average_bulk_density: "1.1633333333",
+        sample_count: "3",
+        latest_record_date: "2026-07-30",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRotaryKiln2FiringJournalRepository(pool);
+
+  const materials = await repository.listMaterialBulkDensities();
+
+  assert.deepEqual(materials, [{
+    material: "ШКИ-66",
+    averageBulkDensityTonsPerCubicMeter: 1.163333,
+    sampleCount: 3,
+    latestRecordDate: "2026-07-30",
+  }]);
+  assert.match(querySql, /row_number\(\) over \(\s*partition by produced_material/u);
+  assert.match(querySql, /where ranked\.position <= \?/u);
+  assert.match(querySql, /produced_material is not null/u);
+  assert.deepEqual(queryParameters, [10]);
+});
+
+test("rotary kiln 2 firing repository can average a single requested material", async () => {
+  let queryParameters: unknown[] = [];
+  const pool = {
+    async query(_sql: string, parameters?: unknown[]) {
+      queryParameters = parameters ?? [];
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRotaryKiln2FiringJournalRepository(pool);
+
+  const materials = await repository.listMaterialBulkDensities({
+    material: "ШГР-28",
+  });
+
+  assert.deepEqual(materials, []);
+  assert.deepEqual(queryParameters, ["ШГР-28", 10]);
 });
