@@ -4941,6 +4941,12 @@ p {
   box-shadow: 0 6px 16px rgba(37, 53, 63, 0.08);
 }
 
+/* Журналы ЦЗЛ — вложенный ряд под кнопкой группы. */
+.laboratory-central-lab-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-left: var(--density-4);
+}
+
 .laboratory-form,
 .laboratory-history {
   padding: var(--density-4);
@@ -5391,6 +5397,10 @@ p {
   .laboratory-indicator-grid,
   .laboratory-filters {
     grid-template-columns: 1fr;
+  }
+
+  .laboratory-central-lab-tabs {
+    margin-left: 0;
   }
 
   .laboratory-field-wide {

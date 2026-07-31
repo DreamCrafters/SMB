@@ -34,8 +34,10 @@ export type LaboratoryReviewJournal = {
 };
 
 /**
- * One button list, like the laboratory assistant tab: the control sections are
- * entries of the results journal, the other journals follow them.
+ * One flat button list of search scopes: the control sections are entries of the
+ * results journal, the other journals follow them. The laboratory assistant tab
+ * groups its own journals under `ЦЗЛ`, but here the scopes stay in one row so
+ * `Все испытания` can search across journals.
  */
 export type LaboratoryReviewViewId =
   | "all"

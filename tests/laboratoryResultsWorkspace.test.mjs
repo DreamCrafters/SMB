@@ -450,10 +450,27 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       true,
     );
 
-    const kilnJournalTab = Array.from(rootElement.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Журнал печи 2",
-    );
+    const findTabByText = (text) =>
+      Array.from(rootElement.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === text,
+      );
+
+    // Журналы ЦЗЛ доступны только из кнопки группы, а не из общего ряда вкладок.
+    for (const journalLabel of [
+      "Журнал печи 2",
+      "Регистрация проб",
+      "Химические анализы",
+    ]) {
+      assert.equal(findTabByText(journalLabel), undefined);
+    }
+    const centralLabTab = findTabByText("ЦЗЛ (Центральная заводская лаборатория)");
+    assert.ok(centralLabTab);
+    await React.act(async () => centralLabTab.click());
+
+    const kilnJournalTab = findTabByText("Журнал печи 2");
     assert.ok(kilnJournalTab);
+    assert.ok(findTabByText("Регистрация проб"));
+    assert.ok(findTabByText("Химические анализы"));
     await React.act(async () => kilnJournalTab.click());
     await waitFor(React, () =>
       rootElement.textContent.includes(

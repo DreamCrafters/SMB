@@ -31,9 +31,8 @@ import {
 } from "./useProductionBrands";
 
 type ShowToast = (title: string, message: string) => void;
-type LaboratoryWorkspacePanel =
-  | "results"
-  | "banks"
+type LaboratoryWorkspacePanel = "results" | "banks" | "central-lab";
+type CentralLabJournalId =
   | "kiln-journal"
   | "sample-registration"
   | "chemical-analysis";
@@ -71,6 +70,21 @@ type FormState = {
 
 const sectionLabels = laboratorySectionLabels;
 
+const centralLabLabel = "ЦЗЛ (Центральная заводская лаборатория)";
+
+/**
+ * Журналы ЦЗЛ убраны из общего ряда вкладок лаборатории и открываются только
+ * из кнопки `ЦЗЛ`; этот список задаёт порядок кнопок внутри группы.
+ */
+const centralLabJournals: readonly {
+  id: CentralLabJournalId;
+  label: string;
+}[] = [
+  { id: "kiln-journal", label: "Журнал печи 2" },
+  { id: "sample-registration", label: "Регистрация проб" },
+  { id: "chemical-analysis", label: "Химические анализы" },
+];
+
 const incomingPurpose = "Определение химического состава и свойств";
 const maxIncomingSamples = 100;
 let nextSampleKey = 1;
@@ -87,6 +101,9 @@ export function LaboratoryResultsWorkspace({
   const [section, setSection] = useState<LaboratorySection>("incoming");
   const [activePanel, setActivePanel] =
     useState<LaboratoryWorkspacePanel>("results");
+  const [centralLabJournal, setCentralLabJournal] = useState<CentralLabJournalId>(
+    centralLabJournals[0].id,
+  );
   const [referenceState, setReferenceState] = useState<ReferenceState>({
     status: "loading",
   });
@@ -340,7 +357,11 @@ export function LaboratoryResultsWorkspace({
         </div>
       </header>
 
-      <div className="laboratory-section-tabs" role="tablist" aria-label="Раздел контроля">
+      <div
+        className="laboratory-section-tabs"
+        role="tablist"
+        aria-label="Разделы лаборатории"
+      >
         {(Object.keys(sectionLabels) as LaboratorySection[]).map((item) => (
           <button
             aria-selected={
@@ -372,66 +393,65 @@ export function LaboratoryResultsWorkspace({
           Банки
         </button>
         <button
-          aria-selected={activePanel === "kiln-journal"}
-          className={activePanel === "kiln-journal" ? "is-active" : ""}
+          aria-selected={activePanel === "central-lab"}
+          className={activePanel === "central-lab" ? "is-active" : ""}
           role="tab"
           type="button"
           onClick={() => {
-            setActivePanel("kiln-journal");
+            setActivePanel("central-lab");
             setFormMessage("");
           }}
         >
-          Журнал печи 2
-        </button>
-        <button
-          aria-selected={activePanel === "sample-registration"}
-          className={activePanel === "sample-registration" ? "is-active" : ""}
-          role="tab"
-          type="button"
-          onClick={() => {
-            setActivePanel("sample-registration");
-            setFormMessage("");
-          }}
-        >
-          Регистрация проб
-        </button>
-        <button
-          aria-selected={activePanel === "chemical-analysis"}
-          className={activePanel === "chemical-analysis" ? "is-active" : ""}
-          role="tab"
-          type="button"
-          onClick={() => {
-            setActivePanel("chemical-analysis");
-            setFormMessage("");
-          }}
-        >
-          Химические анализы
+          {centralLabLabel}
         </button>
       </div>
+
+      {activePanel === "central-lab" ? (
+        <div
+          className="laboratory-section-tabs laboratory-central-lab-tabs"
+          role="tablist"
+          aria-label="Журналы ЦЗЛ"
+        >
+          {centralLabJournals.map((journal) => (
+            <button
+              aria-selected={centralLabJournal === journal.id}
+              className={centralLabJournal === journal.id ? "is-active" : ""}
+              key={journal.id}
+              role="tab"
+              type="button"
+              onClick={() => setCentralLabJournal(journal.id)}
+            >
+              {journal.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {activePanel === "banks" ? (
         <LaboratoryBanksPanel
           isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
-      ) : activePanel === "kiln-journal" ? (
-        <LaboratoryRotaryKiln2FiringJournal
-          profile={profile}
-          isAdminPreviewMode={isAdminPreviewMode}
-          onShowToast={onShowToast}
-        />
-      ) : activePanel === "sample-registration" ? (
-        <LaboratorySampleRegistrationJournal
-          profile={profile}
-          isAdminPreviewMode={isAdminPreviewMode}
-          onShowToast={onShowToast}
-        />
-      ) : activePanel === "chemical-analysis" ? (
-        <LaboratoryChemicalAnalysisJournal
-          profile={profile}
-          isAdminPreviewMode={isAdminPreviewMode}
-          onShowToast={onShowToast}
-        />
+      ) : activePanel === "central-lab" ? (
+        centralLabJournal === "kiln-journal" ? (
+          <LaboratoryRotaryKiln2FiringJournal
+            profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        ) : centralLabJournal === "sample-registration" ? (
+          <LaboratorySampleRegistrationJournal
+            profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        ) : (
+          <LaboratoryChemicalAnalysisJournal
+            profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        )
       ) : (
         <>
       {referenceState.status === "loading" ? (
