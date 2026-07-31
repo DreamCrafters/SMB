@@ -13,6 +13,7 @@ import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
 import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
 import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
+import { centralLabTabLabel } from "./LaboratoryJournalTables";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   laboratorySectionLabels,
@@ -69,8 +70,6 @@ type FormState = {
 };
 
 const sectionLabels = laboratorySectionLabels;
-
-const centralLabLabel = "ЦЗЛ (Центральная заводская лаборатория)";
 
 /**
  * Журналы ЦЗЛ убраны из общего ряда вкладок лаборатории и открываются только
@@ -402,7 +401,7 @@ export function LaboratoryResultsWorkspace({
             setFormMessage("");
           }}
         >
-          {centralLabLabel}
+          {centralLabTabLabel}
         </button>
       </div>
 

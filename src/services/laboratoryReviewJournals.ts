@@ -34,21 +34,23 @@ export type LaboratoryReviewJournal = {
 };
 
 /**
- * One flat button list of search scopes: the control sections are entries of the
- * results journal, the other journals follow them. The laboratory assistant tab
- * groups its own journals under `ЦЗЛ`, but here the scopes stay in one row so
- * `Все испытания` can search across journals.
+ * Search scopes, split into two rows like the laboratory assistant tab: the root
+ * row holds `Все испытания`, the control sections of the results journal and the
+ * `ЦЗЛ` group button, and the central laboratory journals open inside that group.
  */
 export type LaboratoryReviewViewId =
   | "all"
   | LaboratorySection
   | LaboratoryReviewJournalId;
 
+export type LaboratoryReviewViewGroup = "root" | "central-lab";
+
 export type LaboratoryReviewView = {
   id: LaboratoryReviewViewId;
   label: string;
   journal: LaboratoryReviewJournalSelection;
   section: LaboratoryReviewSection;
+  group: LaboratoryReviewViewGroup;
 };
 
 export type LaboratoryReviewJournalExclusion = {
@@ -85,38 +87,59 @@ export const laboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
 ];
 
 export const laboratoryReviewViews: readonly LaboratoryReviewView[] = [
-  { id: "all", label: "Все испытания", journal: "all", section: "all" },
+  {
+    id: "all",
+    label: "Все испытания",
+    journal: "all",
+    section: "all",
+    group: "root",
+  },
   {
     id: "incoming",
     label: "Входящий контроль",
     journal: "results",
     section: "incoming",
+    group: "root",
   },
   {
     id: "finished_product",
     label: "Выходящий контроль",
     journal: "results",
     section: "finished_product",
+    group: "root",
   },
   {
     id: "sample_registration",
     label: "Регистрация проб",
     journal: "sample_registration",
     section: "all",
+    group: "central-lab",
   },
   {
     id: "chemical_analysis",
     label: "Химические анализы",
     journal: "chemical_analysis",
     section: "all",
+    group: "central-lab",
   },
   {
     id: "rotary_kiln_2",
     label: "Журнал печи 2",
     journal: "rotary_kiln_2",
     section: "all",
+    group: "central-lab",
   },
 ];
+
+/** Buttons of the root row; the `ЦЗЛ` button is rendered after them. */
+export const laboratoryReviewRootViews = laboratoryReviewViews.filter(
+  (view) => view.group === "root",
+);
+
+/** Buttons of the nested row, opened from the `ЦЗЛ` button. */
+export const laboratoryReviewCentralLabViews = laboratoryReviewViews.filter(
+  (view) => view.group === "central-lab",
+);
 
 const nameExclusionReason = "не содержит наименования (номенклатуры)";
 

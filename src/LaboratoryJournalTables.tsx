@@ -12,6 +12,13 @@ import { formatLaboratoryDate } from "./LaboratoryResultsTable";
  * the management review tab share them, so a journal keeps one column layout.
  */
 
+/**
+ * These three journals belong to the central plant laboratory, so both tabs hide
+ * them behind one group button instead of listing them next to the control
+ * sections.
+ */
+export const centralLabTabLabel = "ЦЗЛ (Центральная заводская лаборатория)";
+
 export const rotaryKiln2EarlyNumericFields = [
   ["waterAbsorption", "Водопоглощение"],
   ["temperatureBeforeCyclone", "t перед циклоном"],

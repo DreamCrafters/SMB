@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  laboratoryReviewCentralLabViews,
   laboratoryReviewJournals,
+  laboratoryReviewRootViews,
   laboratoryReviewViews,
   selectLaboratoryReviewJournals,
 } from "../.test-build/src/services/laboratoryReviewJournals.js";
@@ -12,17 +14,30 @@ function readView(id) {
   return view;
 }
 
-test("one button list holds every control section and journal", () => {
+test("the root row holds the control sections and the CZL group holds the journals", () => {
   assert.deepEqual(
-    laboratoryReviewViews.map((view) => [view.id, view.journal, view.section]),
+    laboratoryReviewViews.map((view) => [
+      view.id,
+      view.journal,
+      view.section,
+      view.group,
+    ]),
     [
-      ["all", "all", "all"],
-      ["incoming", "results", "incoming"],
-      ["finished_product", "results", "finished_product"],
-      ["sample_registration", "sample_registration", "all"],
-      ["chemical_analysis", "chemical_analysis", "all"],
-      ["rotary_kiln_2", "rotary_kiln_2", "all"],
+      ["all", "all", "all", "root"],
+      ["incoming", "results", "incoming", "root"],
+      ["finished_product", "results", "finished_product", "root"],
+      ["sample_registration", "sample_registration", "all", "central-lab"],
+      ["chemical_analysis", "chemical_analysis", "all", "central-lab"],
+      ["rotary_kiln_2", "rotary_kiln_2", "all", "central-lab"],
     ],
+  );
+  assert.deepEqual(
+    laboratoryReviewRootViews.map((view) => view.id),
+    ["all", "incoming", "finished_product"],
+  );
+  assert.deepEqual(
+    laboratoryReviewCentralLabViews.map((view) => view.id),
+    ["sample_registration", "chemical_analysis", "rotary_kiln_2"],
   );
 });
 

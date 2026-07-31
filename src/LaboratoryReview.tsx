@@ -8,6 +8,7 @@ import type {
   RotaryKiln2FiringJournalRecord,
 } from "./contracts";
 import {
+  centralLabTabLabel,
   LaboratoryChemicalAnalysisTable,
   LaboratorySampleRegistrationTable,
   RotaryKiln2FiringTable,
@@ -24,6 +25,8 @@ import {
   requestLaboratoryResults,
 } from "./services/laboratoryResults";
 import {
+  laboratoryReviewCentralLabViews,
+  laboratoryReviewRootViews,
   laboratoryReviewViews,
   selectLaboratoryReviewJournals,
   type LaboratoryReviewView,
@@ -76,6 +79,7 @@ export function LaboratoryReviewWorkspace({
     nameQuery: isNameFilterEnabled ? nameQuery.trim() : "",
   };
   const section: LaboratoryTableSection = view.section;
+  const isCentralLabGroupOpen = view.group === "central-lab";
   const { visible, excluded } = useMemo(
     () => selectLaboratoryReviewJournals(view, { isNameFilterEnabled }),
     [isNameFilterEnabled, view],
@@ -121,7 +125,7 @@ export function LaboratoryReviewWorkspace({
         role="tablist"
         aria-label="Раздел лабораторных испытаний"
       >
-        {laboratoryReviewViews.map((item) => (
+        {laboratoryReviewRootViews.map((item) => (
           <button
             aria-selected={view.id === item.id}
             className={view.id === item.id ? "is-active" : ""}
@@ -133,7 +137,37 @@ export function LaboratoryReviewWorkspace({
             {item.label}
           </button>
         ))}
+        <button
+          aria-selected={isCentralLabGroupOpen}
+          className={isCentralLabGroupOpen ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => setView(laboratoryReviewCentralLabViews[0])}
+        >
+          {centralLabTabLabel}
+        </button>
       </div>
+
+      {isCentralLabGroupOpen ? (
+        <div
+          className="laboratory-section-tabs laboratory-central-lab-tabs"
+          role="tablist"
+          aria-label="Журналы ЦЗЛ"
+        >
+          {laboratoryReviewCentralLabViews.map((item) => (
+            <button
+              aria-selected={view.id === item.id}
+              className={view.id === item.id ? "is-active" : ""}
+              key={item.id}
+              role="tab"
+              type="button"
+              onClick={() => setView(item)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <section className="laboratory-review-filters" aria-label="Фильтры испытаний">
         <div className="laboratory-review-filter-buttons">

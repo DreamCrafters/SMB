@@ -174,22 +174,21 @@ test("laboratory review filters every journal by section, date, and nomenclature
       name: null,
     });
 
-    // Sections and journals share one button list, like the laboratory assistant tab.
-    const viewTabs = Array.from(
-      container.querySelectorAll(".laboratory-section-tabs button"),
-    ).map((button) => button.textContent);
-    assert.deepEqual(viewTabs, [
+    // The journals hide behind the CZL button, like on the laboratory assistant tab.
+    const readViewTabs = () =>
+      Array.from(
+        container.querySelectorAll(".laboratory-section-tabs button"),
+      ).map((button) => button.textContent);
+    assert.deepEqual(readViewTabs(), [
       "Все испытания",
       "Входящий контроль",
       "Выходящий контроль",
-      "Регистрация проб",
-      "Химические анализы",
-      "Журнал печи 2",
+      "ЦЗЛ (Центральная заводская лаборатория)",
     ]);
     assert.equal(
       container.querySelectorAll("[role=\"tablist\"]").length,
       1,
-      "The review tab keeps a single list of views.",
+      "The nested row stays closed until the CZL group is opened.",
     );
 
     // Journals keep different table formats, so every matching one gets its own table.
@@ -311,11 +310,24 @@ test("laboratory review filters every journal by section, date, and nomenclature
     await waitFor(React, () => resultRequests.at(-1)?.dateFrom === null);
     assert.equal(resultRequests.at(-1)?.name, "ШКИ");
 
-    // A single journal can be searched on its own.
+    // A single journal can be searched on its own, once the CZL group is opened.
     await React.act(async () => {
       findButtonByText(container, "По наименованию (номенклатуре)")
         .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     });
+    await React.act(async () => {
+      findButtonByText(container, "ЦЗЛ (Центральная заводская лаборатория)")
+        .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.deepEqual(readViewTabs(), [
+      "Все испытания",
+      "Входящий контроль",
+      "Выходящий контроль",
+      "ЦЗЛ (Центральная заводская лаборатория)",
+      "Регистрация проб",
+      "Химические анализы",
+      "Журнал печи 2",
+    ]);
     await React.act(async () => {
       findButtonByText(container, "Журнал печи 2").dispatchEvent(
         new dom.window.MouseEvent("click", { bubbles: true }),
