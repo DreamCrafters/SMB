@@ -174,25 +174,23 @@ test("laboratory review filters every journal by section, date, and nomenclature
       name: null,
     });
 
-    const journalTabs = Array.from(
-      container.querySelectorAll(".laboratory-review-journal-tabs button"),
+    // Sections and journals share one button list, like the laboratory assistant tab.
+    const viewTabs = Array.from(
+      container.querySelectorAll(".laboratory-section-tabs button"),
     ).map((button) => button.textContent);
-    assert.deepEqual(journalTabs, [
-      "Все журналы",
-      "Результаты испытаний",
+    assert.deepEqual(viewTabs, [
+      "Все испытания",
+      "Входящий контроль",
+      "Выходящий контроль",
       "Регистрация проб",
       "Химические анализы",
       "Журнал печи 2",
     ]);
-
-    const sectionTabs = Array.from(
-      container.querySelectorAll(".laboratory-section-tabs button"),
-    ).map((button) => button.textContent);
-    assert.deepEqual(sectionTabs, [
-      "Все испытания",
-      "Входящий контроль",
-      "Выходящий контроль",
-    ]);
+    assert.equal(
+      container.querySelectorAll("[role=\"tablist\"]").length,
+      1,
+      "The review tab keeps a single list of views.",
+    );
 
     // Journals keep different table formats, so every matching one gets its own table.
     await waitFor(React, () => kilnJournalRequests.length > 0);
@@ -218,7 +216,7 @@ test("laboratory review filters every journal by section, date, and nomenclature
     ).map((row) => row.querySelectorAll("td")[1]?.textContent);
     assert.deepEqual(sectionCells, ["Входящий контроль", "Выходящий контроль"]);
 
-    // The control section exists only in the results journal.
+    // A control section is an entry of the results journal, so it shows that table alone.
     await React.act(async () => {
       findButtonByText(container, "Выходящий контроль").dispatchEvent(
         new dom.window.MouseEvent("click", { bubbles: true }),
@@ -228,10 +226,9 @@ test("laboratory review filters every journal by section, date, and nomenclature
       resultRequests.some((request) => request.section === "finished_product")
     );
     assert.deepEqual(readJournalTitles(container), ["Результаты испытаний"]);
-    assert.match(
-      container.querySelector(".laboratory-review-excluded-note")?.textContent
-        ?? "",
-      /не делится на входящий и выходящий контроль/u,
+    assert.equal(
+      container.querySelector(".laboratory-review-excluded-note"),
+      null,
     );
 
     await React.act(async () => {

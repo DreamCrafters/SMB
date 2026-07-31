@@ -4914,8 +4914,7 @@ p {
   margin-bottom: 0;
 }
 
-.laboratory-section-tabs,
-.laboratory-review-journal-tabs {
+.laboratory-section-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -4926,8 +4925,7 @@ p {
   background: var(--surface-subtle);
 }
 
-.laboratory-section-tabs button,
-.laboratory-review-journal-tabs button {
+.laboratory-section-tabs button {
   min-height: 42px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -4936,8 +4934,7 @@ p {
   font-weight: 850;
 }
 
-.laboratory-section-tabs button.is-active,
-.laboratory-review-journal-tabs button.is-active {
+.laboratory-section-tabs button.is-active {
   border-color: var(--line-strong);
   color: var(--ink);
   background: var(--surface-raised);
@@ -5285,8 +5282,7 @@ p {
   gap: var(--density-4);
 }
 
-.laboratory-review .laboratory-section-tabs,
-.laboratory-review-journal-tabs {
+.laboratory-review .laboratory-section-tabs {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
@@ -5391,7 +5387,6 @@ p {
 
 @media (max-width: 720px) {
   .laboratory-section-tabs,
-  .laboratory-review-journal-tabs,
   .laboratory-form-grid,
   .laboratory-indicator-grid,
   .laboratory-filters {

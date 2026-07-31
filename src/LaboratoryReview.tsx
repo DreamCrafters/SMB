@@ -24,9 +24,9 @@ import {
   requestLaboratoryResults,
 } from "./services/laboratoryResults";
 import {
-  laboratoryReviewJournals,
+  laboratoryReviewViews,
   selectLaboratoryReviewJournals,
-  type LaboratoryReviewJournalSelection,
+  type LaboratoryReviewView,
 } from "./services/laboratoryReviewJournals";
 import { requestLaboratorySampleRegistrationJournal } from "./services/laboratorySampleRegistrationJournal";
 import { requestRotaryKiln2FiringJournal } from "./services/rotaryKiln2FiringJournal";
@@ -51,23 +51,6 @@ const reviewSectionLabels: Record<LaboratorySection, string> = {
   finished_product: "Выходящий контроль",
 };
 
-const sectionFilters: ReadonlyArray<{
-  id: LaboratoryTableSection;
-  label: string;
-}> = [
-  { id: "all", label: "Все испытания" },
-  { id: "incoming", label: reviewSectionLabels.incoming },
-  { id: "finished_product", label: reviewSectionLabels.finished_product },
-];
-
-const journalFilters: ReadonlyArray<{
-  id: LaboratoryReviewJournalSelection;
-  label: string;
-}> = [
-  { id: "all", label: "Все журналы" },
-  ...laboratoryReviewJournals.map(({ id, label }) => ({ id, label })),
-];
-
 const maxNameQueryLength = 120;
 
 export function LaboratoryReviewWorkspace({
@@ -77,9 +60,9 @@ export function LaboratoryReviewWorkspace({
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
-  const [journalSelection, setJournalSelection] =
-    useState<LaboratoryReviewJournalSelection>("all");
-  const [section, setSection] = useState<LaboratoryTableSection>("all");
+  const [view, setView] = useState<LaboratoryReviewView>(
+    laboratoryReviewViews[0],
+  );
   const [isDateFilterEnabled, setIsDateFilterEnabled] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -92,12 +75,10 @@ export function LaboratoryReviewWorkspace({
     dateTo: isDateFilterEnabled ? dateTo : "",
     nameQuery: isNameFilterEnabled ? nameQuery.trim() : "",
   };
+  const section: LaboratoryTableSection = view.section;
   const { visible, excluded } = useMemo(
-    () => selectLaboratoryReviewJournals(journalSelection, {
-      section,
-      isNameFilterEnabled,
-    }),
-    [isNameFilterEnabled, journalSelection, section],
+    () => selectLaboratoryReviewJournals(view, { isNameFilterEnabled }),
+    [isNameFilterEnabled, view],
   );
 
   useEffect(() => {
@@ -136,39 +117,20 @@ export function LaboratoryReviewWorkspace({
       </header>
 
       <div
-        className="laboratory-review-journal-tabs"
-        role="tablist"
-        aria-label="Журнал лабораторных испытаний"
-      >
-        {journalFilters.map((filter) => (
-          <button
-            aria-selected={journalSelection === filter.id}
-            className={journalSelection === filter.id ? "is-active" : ""}
-            key={filter.id}
-            role="tab"
-            type="button"
-            onClick={() => setJournalSelection(filter.id)}
-          >
-            {filter.label}
-          </button>
-        ))}
-      </div>
-
-      <div
         className="laboratory-section-tabs"
         role="tablist"
         aria-label="Раздел лабораторных испытаний"
       >
-        {sectionFilters.map((filter) => (
+        {laboratoryReviewViews.map((item) => (
           <button
-            aria-selected={section === filter.id}
-            className={section === filter.id ? "is-active" : ""}
-            key={filter.id}
+            aria-selected={view.id === item.id}
+            className={view.id === item.id ? "is-active" : ""}
+            key={item.id}
             role="tab"
             type="button"
-            onClick={() => setSection(filter.id)}
+            onClick={() => setView(item)}
           >
-            {filter.label}
+            {item.label}
           </button>
         ))}
       </div>

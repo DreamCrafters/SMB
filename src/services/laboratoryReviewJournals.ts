@@ -21,20 +21,32 @@ export type LaboratoryReviewJournalSelection =
 export type LaboratoryReviewSection = LaboratorySection | "all";
 
 export type LaboratoryReviewFilters = {
-  section: LaboratoryReviewSection;
   isNameFilterEnabled: boolean;
 };
 
 export type LaboratoryReviewJournal = {
   id: LaboratoryReviewJournalId;
-  /** Label of the journal button. */
-  label: string;
   /** Heading above the journal table. */
   title: string;
   /** Which date the period filter narrows in this journal. */
   dateFilterLabel: string;
-  supportsSection: boolean;
   supportsNameQuery: boolean;
+};
+
+/**
+ * One button list, like the laboratory assistant tab: the control sections are
+ * entries of the results journal, the other journals follow them.
+ */
+export type LaboratoryReviewViewId =
+  | "all"
+  | LaboratorySection
+  | LaboratoryReviewJournalId;
+
+export type LaboratoryReviewView = {
+  id: LaboratoryReviewViewId;
+  label: string;
+  journal: LaboratoryReviewJournalSelection;
+  section: LaboratoryReviewSection;
 };
 
 export type LaboratoryReviewJournalExclusion = {
@@ -42,54 +54,79 @@ export type LaboratoryReviewJournalExclusion = {
   reason: string;
 };
 
+/** Stacking order of the tables, kept the same as the button order below. */
 export const laboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
   {
     id: "results",
-    label: "Результаты испытаний",
     title: "Результаты испытаний",
     dateFilterLabel: "дата анализа",
-    supportsSection: true,
     supportsNameQuery: true,
   },
   {
     id: "sample_registration",
-    label: "Регистрация проб",
     title: "Журнал регистрации отбора проб",
     dateFilterLabel: "дата регистрации",
-    supportsSection: false,
     supportsNameQuery: true,
   },
   {
     id: "chemical_analysis",
-    label: "Химические анализы",
     title: "Журнал химических анализов",
     dateFilterLabel: "дата химического анализа",
-    supportsSection: false,
     supportsNameQuery: true,
   },
   {
     id: "rotary_kiln_2",
-    label: "Журнал печи 2",
     title: "Журнал контроля параметров обжига вращающейся печи 2",
     dateFilterLabel: "дата записи",
-    supportsSection: false,
     supportsNameQuery: false,
   },
 ];
 
-const sectionExclusionReason =
-  "не делится на входящий и выходящий контроль";
+export const laboratoryReviewViews: readonly LaboratoryReviewView[] = [
+  { id: "all", label: "Все испытания", journal: "all", section: "all" },
+  {
+    id: "incoming",
+    label: "Входящий контроль",
+    journal: "results",
+    section: "incoming",
+  },
+  {
+    id: "finished_product",
+    label: "Выходящий контроль",
+    journal: "results",
+    section: "finished_product",
+  },
+  {
+    id: "sample_registration",
+    label: "Регистрация проб",
+    journal: "sample_registration",
+    section: "all",
+  },
+  {
+    id: "chemical_analysis",
+    label: "Химические анализы",
+    journal: "chemical_analysis",
+    section: "all",
+  },
+  {
+    id: "rotary_kiln_2",
+    label: "Журнал печи 2",
+    journal: "rotary_kiln_2",
+    section: "all",
+  },
+];
+
 const nameExclusionReason = "не содержит наименования (номенклатуры)";
 
 export function selectLaboratoryReviewJournals(
-  selection: LaboratoryReviewJournalSelection,
+  view: LaboratoryReviewView,
   filters: LaboratoryReviewFilters,
 ): {
   visible: LaboratoryReviewJournal[];
   excluded: LaboratoryReviewJournalExclusion[];
 } {
   const requested = laboratoryReviewJournals.filter(
-    (journal) => selection === "all" || journal.id === selection,
+    (journal) => view.journal === "all" || journal.id === view.journal,
   );
   const visible: LaboratoryReviewJournal[] = [];
   const excluded: LaboratoryReviewJournalExclusion[] = [];
@@ -107,9 +144,6 @@ function readExclusionReason(
   journal: LaboratoryReviewJournal,
   filters: LaboratoryReviewFilters,
 ) {
-  if (filters.section !== "all" && !journal.supportsSection) {
-    return sectionExclusionReason;
-  }
   if (filters.isNameFilterEnabled && !journal.supportsNameQuery) {
     return nameExclusionReason;
   }
