@@ -6,6 +6,7 @@ import {
   type LaboratorySampleRegistrationOption,
   type ServerUserProfile,
 } from "./contracts";
+import { LaboratoryChemicalAnalysisTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
   requestLaboratoryChemicalAnalysisJournal,
@@ -289,56 +290,8 @@ export function LaboratoryChemicalAnalysisJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
-        <JournalTable records={history.records} />
+        <LaboratoryChemicalAnalysisTable records={history.records} />
       </section>
-    </div>
-  );
-}
-
-function JournalTable({
-  records,
-}: {
-  records: LaboratoryChemicalAnalysisJournalRecord[];
-}) {
-  if (records.length === 0) {
-    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
-  }
-
-  return (
-    <div className="table-scroll laboratory-table-scroll">
-      <table className="data-table laboratory-results-table chemical-analysis-journal-table">
-        <thead>
-          <tr>
-            <th>Код лабораторной пробы</th>
-            <th>№ пробы</th>
-            <th>Наименование пробы</th>
-            {laboratoryChemicalAnalysisFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {records.map((record) => (
-            <tr key={record.id}>
-              <td>{record.laboratorySampleCode}</td>
-              <td>{record.sampleNumber}</td>
-              <td>{record.sampleName}</td>
-              {laboratoryChemicalAnalysisFields.map((field) => {
-                const value = record[field.id];
-                return (
-                  <td key={field.id}>
-                    {value === undefined
-                      ? "—"
-                      : field.kind === "date"
-                        ? formatDate(value)
-                        : value}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

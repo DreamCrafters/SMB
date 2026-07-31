@@ -113,6 +113,8 @@ export type LaboratoryChemicalAnalysisJournalFilters = {
   dateTo?: string;
   query?: string;
   sampleQuery?: string;
+  /** Substring match across the sample nomenclature only. */
+  nameQuery?: string;
 };
 
 export type LaboratoryChemicalAnalysisJournalSelection = {

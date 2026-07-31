@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
-  laboratoryChemicalAnalysisFields,
   laboratorySampleRegistrationFields,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
   type ServerUserProfile,
 } from "./contracts";
+import { LaboratorySampleRegistrationTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
   requestLaboratorySampleRegistrationJournal,
@@ -210,7 +210,7 @@ export function LaboratorySampleRegistrationJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
-        <JournalTable records={history.records} />
+        <LaboratorySampleRegistrationTable records={history.records} />
       </section>
     </div>
   );
@@ -249,58 +249,6 @@ function JournalInput<Field extends keyof FormState>({
   );
 }
 
-function JournalTable({
-  records,
-}: {
-  records: LaboratorySampleRegistrationJournalRecord[];
-}) {
-  if (records.length === 0) {
-    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
-  }
-
-  return (
-    <div className="table-scroll laboratory-table-scroll">
-      <table className="data-table laboratory-results-table sample-registration-journal-table">
-        <thead>
-          <tr>
-            {laboratorySampleRegistrationFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
-            ))}
-            {laboratoryChemicalAnalysisFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {records.map((record) => (
-            <tr key={record.id}>
-              {laboratorySampleRegistrationFields.map((field) => (
-                <td key={field.id}>
-                  {field.kind === "date"
-                    ? formatDate(record[field.id])
-                    : record[field.id]}
-                </td>
-              ))}
-              {laboratoryChemicalAnalysisFields.map((field) => {
-                const value = record[field.id];
-                return (
-                  <td key={field.id}>
-                    {value === undefined
-                      ? "—"
-                      : field.kind === "date"
-                        ? formatDate(value)
-                        : value}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function createEmptyForm(laboratoryAssistant: string): FormState {
   const today = formatLocalCalendarDate(new Date());
   return {
@@ -334,11 +282,6 @@ function buildSubmission(
     registrationDate: form.registrationDate,
     samplingLocation: form.samplingLocation.trim(),
   };
-}
-
-function formatDate(value: string) {
-  const [year, month, day] = value.split("-");
-  return year && month && day ? `${day}.${month}.${year}` : value;
 }
 
 function formatLocalCalendarDate(value: Date) {

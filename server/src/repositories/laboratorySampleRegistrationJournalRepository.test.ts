@@ -108,6 +108,7 @@ test("sample registration repository filters history by registration date and se
     dateFrom: "2026-07-01",
     dateTo: "2026-07-31",
     query: "ЛП-2026-017",
+    nameQuery: "Шамот_100%",
   });
 
   assert.deepEqual(records, [{
@@ -132,10 +133,12 @@ test("sample registration repository filters history by registration date and se
     querySql,
     /registration\.registration_date desc/u,
   );
+  assert.match(querySql, /registration\.sample_name like \?/u);
   assert.deepEqual(queryParameters, [
     "2026-07-01",
     "2026-07-31",
     "ЛП-2026-017",
+    "%Шамот\\_100\\%%",
     200,
   ]);
 });

@@ -7,6 +7,7 @@ import type {
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import type { LaboratorySampleRegistrationOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { DatabasePool } from "../db/pool.js";
+import { escapeLikePattern } from "./laboratoryResultsRepository.js";
 
 type RepositoryFilters = LaboratorySampleRegistrationJournalFilters & {
   limit?: number;
@@ -155,6 +156,10 @@ export function createLaboratorySampleRegistrationJournalRepository(
           ?
         ) > 0`);
         parameters.push(filters.query);
+      }
+      if (filters.nameQuery !== undefined) {
+        clauses.push("registration.sample_name like ?");
+        parameters.push(`%${escapeLikePattern(filters.nameQuery)}%`);
       }
 
       const limit = Math.min(

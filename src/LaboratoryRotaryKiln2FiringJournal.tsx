@@ -4,6 +4,12 @@ import type {
   RotaryKiln2FiringJournalSubmission,
   ServerUserProfile,
 } from "./contracts";
+import {
+  formatLaboratoryNumber,
+  RotaryKiln2FiringTable,
+  rotaryKiln2EarlyNumericFields,
+  rotaryKiln2LateNumericFields,
+} from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
   requestRotaryKiln2FiringJournal,
@@ -26,24 +32,10 @@ type SelectionState =
 const journalTitle =
   "Журнал контроля параметров обжига вращающейся печи 2";
 
-const earlyNumericFields = [
-  ["waterAbsorption", "Водопоглощение"],
-  ["temperatureBeforeCyclone", "t перед циклоном"],
-  ["temperatureBeforeFilter", "t перед фильтром"],
-  ["temperatureInFieldChamber", "t в полевой камере"],
-  ["temperatureAtRollback", "t на откатной"],
-  ["gasConsumptionPerHour", "Расход газа в час"],
-  ["vacuum", "Разряжение"],
-  ["pressure", "Давление"],
+const allNumericFields = [
+  ...rotaryKiln2EarlyNumericFields,
+  ...rotaryKiln2LateNumericFields,
 ] as const;
-
-const lateNumericFields = [
-  ["sievePass05", "Проход ч/з сито 0,5"],
-  ["bulkDensity", "Насыпной вес"],
-  ["kilnLoadBucketsPerHour", "Загрузка печи в ковшах в час"],
-] as const;
-
-const allNumericFields = [...earlyNumericFields, ...lateNumericFields] as const;
 
 export function LaboratoryRotaryKiln2FiringJournal({
   profile,
@@ -161,7 +153,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
             value={form.recordTime}
             onChange={updateField}
           />
-          {earlyNumericFields.map(([field, label]) => (
+          {rotaryKiln2EarlyNumericFields.map(([field, label]) => (
             <JournalInput
               field={field}
               key={field}
@@ -189,7 +181,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
             value={form.laboratoryAssistant}
             onChange={updateField}
           />
-          {lateNumericFields.map(([field, label]) => (
+          {rotaryKiln2LateNumericFields.map(([field, label]) => (
             <JournalInput
               field={field}
               key={field}
@@ -273,7 +265,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
           : selection.status === "error"
             ? <p className="form-message is-error" role="alert">{selection.message}</p>
             : null}
-        <JournalTable records={selection.records} />
+        <RotaryKiln2FiringTable records={selection.records} />
       </section>
     </div>
   );
@@ -307,49 +299,6 @@ function JournalInput<Field extends keyof FormState>({
         }}
       />
     </label>
-  );
-}
-
-function JournalTable({ records }: { records: RotaryKiln2FiringJournalRecord[] }) {
-  if (records.length === 0) {
-    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
-  }
-
-  return (
-    <div className="table-scroll laboratory-table-scroll">
-      <table className="data-table laboratory-results-table rotary-kiln-journal-table">
-        <thead>
-          <tr>
-            <th>Дата</th>
-            <th>Время</th>
-            {earlyNumericFields.map(([field, label]) => <th key={field}>{label}</th>)}
-            <th>Мастер смены</th>
-            <th>Обжигальщик</th>
-            <th>Лаборант</th>
-            {lateNumericFields.map(([field, label]) => <th key={field}>{label}</th>)}
-            <th>Примечание</th>
-          </tr>
-        </thead>
-        <tbody>
-          {records.map((record) => (
-            <tr key={record.id}>
-              <td>{formatDate(record.recordDate)}</td>
-              <td>{record.recordTime}</td>
-              {earlyNumericFields.map(([field]) => (
-                <td key={field}>{formatNumber(record[field])}</td>
-              ))}
-              <td>{record.shiftSupervisor}</td>
-              <td>{record.burnerOperator}</td>
-              <td>{record.laboratoryAssistant}</td>
-              {lateNumericFields.map(([field]) => (
-                <td key={field}>{formatNumber(record[field])}</td>
-              ))}
-              <td>{record.note ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -423,13 +372,7 @@ function buildSubmission(
 }
 
 function formatAverage(value: number | null) {
-  return value === null ? "—" : formatNumber(value);
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: 4,
-  }).format(value);
+  return value === null ? "—" : formatLaboratoryNumber(value);
 }
 
 function formatDate(value: string) {

@@ -744,7 +744,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
   );
 });
 
-test("laboratory review access reads results by name but cannot change laboratory data", async () => {
+test("laboratory review access reads every journal by name but cannot change laboratory data", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
     displayName: "Петров Пётр",
@@ -798,6 +798,48 @@ test("laboratory review access reads results by name but cannot change laborator
       return storedResult;
     },
   };
+  const kilnJournalFilters: Parameters<
+    RotaryKiln2FiringJournalRepository["list"]
+  >[0][] = [];
+  const kilnJournal: RotaryKiln2FiringJournalRepository = {
+    async create() {
+      throw new Error("Laboratory review access must not create kiln records.");
+    },
+    async list(filters) {
+      kilnJournalFilters.push(filters);
+      return { records: [], averageBulkDensity: null };
+    },
+  };
+  const sampleRegistrationFilters: Parameters<
+    LaboratorySampleRegistrationJournalRepository["list"]
+  >[0][] = [];
+  const sampleRegistrationJournal: LaboratorySampleRegistrationJournalRepository = {
+    async create() {
+      throw new Error("Laboratory review access must not create samples.");
+    },
+    async list(filters) {
+      sampleRegistrationFilters.push(filters);
+      return [];
+    },
+    async listOptions() {
+      return [];
+    },
+    async findOptionById() {
+      return undefined;
+    },
+  };
+  const chemicalAnalysisFilters: Parameters<
+    LaboratoryChemicalAnalysisJournalRepository["list"]
+  >[0][] = [];
+  const chemicalAnalysisJournal: LaboratoryChemicalAnalysisJournalRepository = {
+    async create() {
+      throw new Error("Laboratory review access must not create analyses.");
+    },
+    async list(filters) {
+      chemicalAnalysisFilters.push(filters);
+      return [];
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -834,8 +876,20 @@ test("laboratory review access reads results by name but cannot change laborator
         headers,
       });
       const kilnJournalResponse = await fetch(
-        `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-07-01`,
         { headers },
+      );
+      const sampleRegistrationResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-journal?name=%D0%A8%D0%9A%D0%98`,
+        { headers },
+      );
+      const chemicalAnalysisResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal?name=%D0%A8%D0%9A%D0%98`,
+        { headers },
+      );
+      const kilnJournalCreateResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
+        { method: "POST", headers, body: JSON.stringify({}) },
       );
 
       assert.equal(referenceResponse.status, 200);
@@ -847,11 +901,17 @@ test("laboratory review access reads results by name but cannot change laborator
       );
       assert.equal(createResponse.status, 403);
       assert.equal(banksResponse.status, 403);
-      assert.equal(kilnJournalResponse.status, 403);
+      assert.equal(kilnJournalResponse.status, 200);
+      assert.equal(sampleRegistrationResponse.status, 200);
+      assert.equal(chemicalAnalysisResponse.status, 200);
+      assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
         dateFrom: "2026-07-01",
         nameQuery: "ШКИ",
       }]);
+      assert.deepEqual(kilnJournalFilters, [{ dateFrom: "2026-07-01" }]);
+      assert.deepEqual(sampleRegistrationFilters, [{ nameQuery: "ШКИ" }]);
+      assert.deepEqual(chemicalAnalysisFilters, [{ nameQuery: "ШКИ" }]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -869,6 +929,12 @@ test("laboratory review access reads results by name but cannot change laborator
     undefined,
     laboratoryReferenceDataSource,
     laboratoryResults,
+    undefined,
+    undefined,
+    undefined,
+    kilnJournal,
+    sampleRegistrationJournal,
+    chemicalAnalysisJournal,
   );
 });
 

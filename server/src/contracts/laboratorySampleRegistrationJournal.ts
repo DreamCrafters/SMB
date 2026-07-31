@@ -71,4 +71,6 @@ export type LaboratorySampleRegistrationJournalFilters = {
   dateFrom?: string;
   dateTo?: string;
   query?: string;
+  /** Substring match across the sample nomenclature only. */
+  nameQuery?: string;
 };

@@ -1927,6 +1927,9 @@ async function handleLaboratoryRequest({
   const isLaboratoryReadRequest = req.method === "GET" && (
     url.pathname === "/api/laboratory/reference" ||
     url.pathname === "/api/laboratory/results" ||
+    url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
+    url.pathname === "/api/laboratory/sample-registration-journal" ||
+    url.pathname === "/api/laboratory/chemical-analysis-journal" ||
     laboratoryProtocolPathPattern.test(url.pathname)
   );
   const canReadLaboratory = canManageLaboratory || (
@@ -2070,12 +2073,14 @@ async function handleLaboratoryRequest({
       const dateFrom = readOptionalQueryParam(url, "dateFrom");
       const dateTo = readOptionalQueryParam(url, "dateTo");
       const query = readOptionalQueryParam(url, "query");
+      const nameQuery = readOptionalQueryParam(url, "name");
 
       if (
         (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
         (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
         (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
-        (query !== undefined && query.length > 120)
+        (query !== undefined && query.length > 120) ||
+        (nameQuery !== undefined && nameQuery.length > 120)
       ) {
         sendJson(res, 400, {
           error: {
@@ -2091,6 +2096,7 @@ async function handleLaboratoryRequest({
           ...(dateFrom === undefined ? {} : { dateFrom }),
           ...(dateTo === undefined ? {} : { dateTo }),
           ...(query === undefined ? {} : { query }),
+          ...(nameQuery === undefined ? {} : { nameQuery }),
         }),
       });
       return;
@@ -2170,13 +2176,15 @@ async function handleLaboratoryRequest({
       const dateTo = readOptionalQueryParam(url, "dateTo");
       const query = readOptionalQueryParam(url, "query");
       const sampleQuery = readOptionalQueryParam(url, "sampleQuery");
+      const nameQuery = readOptionalQueryParam(url, "name");
 
       if (
         (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
         (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
         (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
         (query !== undefined && query.length > 120) ||
-        (sampleQuery !== undefined && sampleQuery.length > 120)
+        (sampleQuery !== undefined && sampleQuery.length > 120) ||
+        (nameQuery !== undefined && nameQuery.length > 120)
       ) {
         sendJson(res, 400, {
           error: {
@@ -2192,6 +2200,7 @@ async function handleLaboratoryRequest({
           ...(dateFrom === undefined ? {} : { dateFrom }),
           ...(dateTo === undefined ? {} : { dateTo }),
           ...(query === undefined ? {} : { query }),
+          ...(nameQuery === undefined ? {} : { nameQuery }),
         }),
         laboratorySampleRegistrationJournal.listOptions({
           ...(sampleQuery === undefined ? {} : { query: sampleQuery }),

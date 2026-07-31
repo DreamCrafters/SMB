@@ -43,6 +43,7 @@ export async function requestLaboratoryChemicalAnalysisJournal(
   if (filters.sampleQuery !== undefined) {
     params.set("sampleQuery", filters.sampleQuery);
   }
+  if (filters.nameQuery !== undefined) params.set("name", filters.nameQuery);
   const suffix = params.size === 0 ? "" : `?${params.toString()}`;
   const result = await requestJson(
     `${JOURNAL_PATH}${suffix}`,

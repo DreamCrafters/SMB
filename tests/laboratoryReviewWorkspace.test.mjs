@@ -18,7 +18,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("laboratory review filters results by section, analysis date, and nomenclature", async () => {
+test("laboratory review filters every journal by section, date, and nomenclature", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -40,6 +40,9 @@ test("laboratory review filters results by section, analysis date, and nomenclat
     server: { middlewareMode: true },
   });
   const resultRequests = [];
+  const sampleRegistrationRequests = [];
+  const chemicalAnalysisRequests = [];
+  const kilnJournalRequests = [];
 
   try {
     const { LaboratoryReviewWorkspace } = await vite.ssrLoadModule(
@@ -91,6 +94,64 @@ test("laboratory review filters results by section, analysis date, and nomenclat
           ],
         });
       }
+      if (url.pathname === "/api/laboratory/sample-registration-journal") {
+        sampleRegistrationRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "sample-registration-1",
+            sampleNumber: "17-А",
+            laboratorySampleCode: "ЛП-2026-017",
+            samplingDate: "2026-07-20",
+            samplingLaboratoryAssistant: "Иванова А.А.",
+            sampleName: "Глина марки ГИМ-2",
+            registrationDate: "2026-07-20",
+            samplingLocation: "Склад сырья",
+            createdAt: "2026-07-20T08:30:00.000Z",
+          }],
+        });
+      }
+      if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
+        chemicalAnalysisRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "chemical-analysis-1",
+            sampleRegistrationId: "sample-registration-1",
+            laboratorySampleCode: "ЛП-2026-017",
+            sampleNumber: "17-А",
+            sampleName: "Глина марки ГИМ-2",
+            batchNumber: "П-42",
+            chemicalAnalysisDate: "2026-07-21",
+            createdAt: "2026-07-21T08:30:00.000Z",
+          }],
+          sampleOptions: [],
+        });
+      }
+      if (url.pathname === "/api/laboratory/rotary-kiln-2-journal") {
+        kilnJournalRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "kiln-record-1",
+            recordDate: "2026-07-22",
+            recordTime: "08:30",
+            waterAbsorption: 6.1,
+            temperatureBeforeCyclone: 940,
+            temperatureBeforeFilter: 320,
+            temperatureInFieldChamber: 1180,
+            temperatureAtRollback: 260,
+            gasConsumptionPerHour: 1450,
+            vacuum: 12,
+            pressure: 3,
+            shiftSupervisor: "Сидоров С.С.",
+            burnerOperator: "Кузнецов К.К.",
+            laboratoryAssistant: "Иванова Анна",
+            sievePass05: 88,
+            bulkDensity: 1.16,
+            kilnLoadBucketsPerHour: 24,
+            createdAt: "2026-07-22T08:30:00.000Z",
+          }],
+          averageBulkDensity: 1.16,
+        });
+      }
       throw new Error(`Unexpected request: ${url.pathname}`);
     };
 
@@ -113,6 +174,17 @@ test("laboratory review filters results by section, analysis date, and nomenclat
       name: null,
     });
 
+    const journalTabs = Array.from(
+      container.querySelectorAll(".laboratory-review-journal-tabs button"),
+    ).map((button) => button.textContent);
+    assert.deepEqual(journalTabs, [
+      "Все журналы",
+      "Результаты испытаний",
+      "Регистрация проб",
+      "Химические анализы",
+      "Журнал печи 2",
+    ]);
+
     const sectionTabs = Array.from(
       container.querySelectorAll(".laboratory-section-tabs button"),
     ).map((button) => button.textContent);
@@ -122,8 +194,18 @@ test("laboratory review filters results by section, analysis date, and nomenclat
       "Выходящий контроль",
     ]);
 
+    // Journals keep different table formats, so every matching one gets its own table.
+    await waitFor(React, () => kilnJournalRequests.length > 0);
+    assert.deepEqual(readJournalTitles(container), [
+      "Результаты испытаний",
+      "Журнал регистрации отбора проб",
+      "Журнал химических анализов",
+      "Журнал контроля параметров обжига вращающейся печи 2",
+    ]);
+
+    const resultsTable = readJournalSections(container)[0];
     const headers = Array.from(
-      container.querySelectorAll(".laboratory-results-table thead th"),
+      resultsTable.querySelectorAll(".laboratory-results-table thead th"),
     ).map((cell) => cell.textContent);
     assert.deepEqual(headers.slice(0, 4), [
       "Дата анализа",
@@ -132,10 +214,11 @@ test("laboratory review filters results by section, analysis date, and nomenclat
       "Номер пробы / марка",
     ]);
     const sectionCells = Array.from(
-      container.querySelectorAll(".laboratory-results-table tbody tr"),
+      resultsTable.querySelectorAll(".laboratory-results-table tbody tr"),
     ).map((row) => row.querySelectorAll("td")[1]?.textContent);
     assert.deepEqual(sectionCells, ["Входящий контроль", "Выходящий контроль"]);
 
+    // The control section exists only in the results journal.
     await React.act(async () => {
       findButtonByText(container, "Выходящий контроль").dispatchEvent(
         new dom.window.MouseEvent("click", { bubbles: true }),
@@ -144,6 +227,19 @@ test("laboratory review filters results by section, analysis date, and nomenclat
     await waitFor(React, () =>
       resultRequests.some((request) => request.section === "finished_product")
     );
+    assert.deepEqual(readJournalTitles(container), ["Результаты испытаний"]);
+    assert.match(
+      container.querySelector(".laboratory-review-excluded-note")?.textContent
+        ?? "",
+      /не делится на входящий и выходящий контроль/u,
+    );
+
+    await React.act(async () => {
+      findButtonByText(container, "Все испытания").dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => readJournalTitles(container).length === 4);
 
     assert.equal(
       container.querySelector(".laboratory-review-filters .laboratory-filters"),
@@ -164,9 +260,13 @@ test("laboratory review filters results by section, analysis date, and nomenclat
       );
     });
     await waitFor(React, () =>
-      resultRequests.some((request) => request.dateFrom === "2026-07-21")
+      kilnJournalRequests.at(-1)?.dateFrom === "2026-07-21"
     );
+    assert.equal(resultRequests.at(-1)?.dateFrom, "2026-07-21");
+    assert.equal(sampleRegistrationRequests.at(-1)?.dateFrom, "2026-07-21");
+    assert.equal(chemicalAnalysisRequests.at(-1)?.dateFrom, "2026-07-21");
 
+    // Only journals with a nomenclature can answer the name filter.
     await React.act(async () => {
       findButtonByText(container, "По наименованию (номенклатуре)")
         .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -179,14 +279,31 @@ test("laboratory review filters results by section, analysis date, and nomenclat
     await waitFor(React, () =>
       resultRequests.some((request) => request.name === "ШКИ")
     );
+    await waitFor(React, () =>
+      chemicalAnalysisRequests.at(-1)?.name === "ШКИ"
+    );
 
-    const combined = resultRequests.at(-1);
-    assert.deepEqual(combined, {
-      section: "finished_product",
+    assert.deepEqual(resultRequests.at(-1), {
+      section: null,
       dateFrom: "2026-07-21",
       dateTo: null,
       name: "ШКИ",
     });
+    assert.deepEqual(sampleRegistrationRequests.at(-1), {
+      dateFrom: "2026-07-21",
+      dateTo: null,
+      name: "ШКИ",
+    });
+    assert.deepEqual(readJournalTitles(container), [
+      "Результаты испытаний",
+      "Журнал регистрации отбора проб",
+      "Журнал химических анализов",
+    ]);
+    assert.match(
+      container.querySelector(".laboratory-review-excluded-note")?.textContent
+        ?? "",
+      /не содержит наименования \(номенклатуры\)/u,
+    );
 
     // Switching a filter off must drop its value from the next request.
     await React.act(async () => {
@@ -196,6 +313,25 @@ test("laboratory review filters results by section, analysis date, and nomenclat
     });
     await waitFor(React, () => resultRequests.at(-1)?.dateFrom === null);
     assert.equal(resultRequests.at(-1)?.name, "ШКИ");
+
+    // A single journal can be searched on its own.
+    await React.act(async () => {
+      findButtonByText(container, "По наименованию (номенклатуре)")
+        .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+    await React.act(async () => {
+      findButtonByText(container, "Журнал печи 2").dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => readJournalTitles(container).length === 1);
+    assert.deepEqual(readJournalTitles(container), [
+      "Журнал контроля параметров обжига вращающейся печи 2",
+    ]);
+    assert.equal(
+      container.querySelector(".laboratory-review-excluded-note"),
+      null,
+    );
 
     assert.equal(
       container.querySelector("form"),
@@ -211,6 +347,24 @@ test("laboratory review filters results by section, analysis date, and nomenclat
     dom.window.close();
   }
 });
+
+function readJournalFilters(url) {
+  return {
+    dateFrom: url.searchParams.get("dateFrom"),
+    dateTo: url.searchParams.get("dateTo"),
+    name: url.searchParams.get("name"),
+  };
+}
+
+function readJournalSections(root) {
+  return Array.from(root.querySelectorAll(".laboratory-review-journal"));
+}
+
+function readJournalTitles(root) {
+  return readJournalSections(root).map(
+    (section) => section.querySelector("h2")?.textContent,
+  );
+}
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {

@@ -44,6 +44,7 @@ export async function requestLaboratorySampleRegistrationJournal(
   if (filters.dateFrom !== undefined) params.set("dateFrom", filters.dateFrom);
   if (filters.dateTo !== undefined) params.set("dateTo", filters.dateTo);
   if (filters.query !== undefined) params.set("query", filters.query);
+  if (filters.nameQuery !== undefined) params.set("name", filters.nameQuery);
   const suffix = params.size === 0 ? "" : `?${params.toString()}`;
   const result = await requestJson(
     `${JOURNAL_PATH}${suffix}`,

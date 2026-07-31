@@ -117,6 +117,7 @@ test("chemical analysis repository lists linked samples with filters", async () 
     dateFrom: "2026-07-01",
     dateTo: "2026-07-31",
     query: "ЛП-2026-017",
+    nameQuery: "Шамот_100%",
   }), [{
     id: "chemical-analysis-1",
     ...analysisWithoutNotes,
@@ -132,10 +133,12 @@ test("chemical analysis repository lists linked samples with filters", async () 
   assert.match(querySql, /analysis\.chemical_analysis_date >= \?/u);
   assert.match(querySql, /analysis\.chemical_analysis_date <= \?/u);
   assert.match(querySql, /instr\(/u);
+  assert.match(querySql, /registration\.sample_name like \?/u);
   assert.deepEqual(queryParameters, [
     "2026-07-01",
     "2026-07-31",
     "ЛП-2026-017",
+    "%Шамот\\_100\\%%",
     200,
   ]);
 });
