@@ -58,9 +58,12 @@ export type MaxNotificationDependencies = {
   fetchImpl?: typeof fetch;
   httpClient?: MaxHttpClient;
   readTextFile?: (path: string) => Promise<string>;
+  sleep?: (milliseconds: number) => Promise<void>;
 };
 
 const maxMessageLength = 4000;
+const maxSendAttempts = 3;
+const maxRetryDelayMs = 1000;
 
 export function createMaxNotificationService(
   config: MaxNotificationConfig,
@@ -88,6 +91,7 @@ export function createMaxNotificationService(
       : createMaxFetchClient(dependencies.fetchImpl ?? fetch));
   const readTextFile =
     dependencies.readTextFile ?? ((path: string) => readFile(path, "utf8"));
+  const sleep = dependencies.sleep ?? defaultSleep;
   const caCertificatePromise =
     config.caCertFile === undefined
       ? Promise.resolve(undefined)
@@ -95,16 +99,17 @@ export function createMaxNotificationService(
 
   return {
     async sendDispatcherSubmissionNotification(submission, recipients) {
-      const userIds = readDispatcherNotificationRecipients(
-        submission,
-        recipients,
+      const logContext = { formId: submission.formId };
+      const userIds = readMaxDeliveryTargets(
+        readDispatcherNotificationRecipients(submission, recipients),
+        config,
+        "dispatcher_notifications",
+        logContext,
       );
 
       if (userIds.length === 0) {
         if (isMaxNotifiableSubmission(submission)) {
-          console.warn("dispatcher_notifications.max_no_recipients", {
-            formId: submission.formId,
-          });
+          console.warn("dispatcher_notifications.max_no_recipients", logContext);
         }
 
         return;
@@ -119,31 +124,32 @@ export function createMaxNotificationService(
       );
       const caCertificate = await caCertificatePromise;
 
-      await Promise.all(
-        userIds.map((userId) =>
-          sendMaxMessage(httpClient, config, userId, text, caCertificate),
-        ),
+      await deliverMaxMessages(
+        httpClient,
+        config,
+        userIds,
+        [text],
+        caCertificate,
+        sleep,
+        "dispatcher_notifications",
+        logContext,
       );
-      console.info("dispatcher_notifications.max_sent", {
-        formId: submission.formId,
-        recipientIdType: config.recipientIdType,
-        recipientCount: userIds.length,
-      });
     },
     async sendEquipmentReportNotification(submissions, recipients, status) {
       if (submissions.length === 0) {
         return;
       }
 
-      const userIds = readEquipmentReportNotificationRecipients(
-        submissions,
-        recipients,
+      const logContext = { formId: "equipment" };
+      const userIds = readMaxDeliveryTargets(
+        readEquipmentReportNotificationRecipients(submissions, recipients),
+        config,
+        "dispatcher_notifications",
+        logContext,
       );
 
       if (userIds.length === 0) {
-        console.warn("dispatcher_notifications.max_no_recipients", {
-          formId: "equipment",
-        });
+        console.warn("dispatcher_notifications.max_no_recipients", logContext);
         return;
       }
 
@@ -156,31 +162,35 @@ export function createMaxNotificationService(
       );
       const caCertificate = await caCertificatePromise;
 
-      await Promise.all(
-        userIds.map((userId) =>
-          sendMaxMessage(httpClient, config, userId, text, caCertificate),
-        ),
+      await deliverMaxMessages(
+        httpClient,
+        config,
+        userIds,
+        [text],
+        caCertificate,
+        sleep,
+        "dispatcher_notifications",
+        logContext,
       );
-      console.info("dispatcher_notifications.max_sent", {
-        formId: "equipment",
-        recipientIdType: config.recipientIdType,
-        recipientCount: userIds.length,
-      });
     },
     async sendRefractoryReportNotification(
       report,
       recipients,
       notificationKind,
     ) {
-      const userIds = dedupeRefractoryMaxRecipients(recipients);
       const logPrefix = notificationKind === "approved"
         ? "refractory_notifications"
         : "refractory_review_notifications";
+      const logContext = { reportType: report.reportType };
+      const userIds = readMaxDeliveryTargets(
+        dedupeRefractoryMaxRecipients(recipients),
+        config,
+        logPrefix,
+        logContext,
+      );
 
       if (userIds.length === 0) {
-        console.warn(`${logPrefix}.max_no_recipients`, {
-          reportType: report.reportType,
-        });
+        console.warn(`${logPrefix}.max_no_recipients`, logContext);
         return;
       }
 
@@ -203,27 +213,154 @@ export function createMaxNotificationService(
           ];
       const caCertificate = await caCertificatePromise;
 
-      await Promise.all(
-        userIds.map(async (userId) => {
-          for (const text of texts) {
-            await sendMaxMessage(
-              httpClient,
-              config,
-              userId,
-              text,
-              caCertificate,
-            );
-          }
-        }),
+      await deliverMaxMessages(
+        httpClient,
+        config,
+        userIds,
+        texts,
+        caCertificate,
+        sleep,
+        logPrefix,
+        logContext,
       );
-      console.info(`${logPrefix}.max_sent`, {
-        reportType: report.reportType,
-        recipientIdType: config.recipientIdType,
-        recipientCount: userIds.length,
-        messageCount: texts.length,
-      });
     },
   };
+}
+
+/**
+ * Каждый адресат получает сообщение отдельно и по очереди: групповая
+ * параллельная отправка теряла последние ID списка, а один недоступный
+ * адресат обрывал общий результат и скрывал остальные ошибки.
+ */
+async function deliverMaxMessages(
+  httpClient: MaxHttpClient,
+  config: MaxNotificationConfig,
+  userIds: readonly string[],
+  texts: readonly string[],
+  caCertificate: string | undefined,
+  sleep: (milliseconds: number) => Promise<void>,
+  logPrefix: string,
+  logContext: Record<string, string>,
+) {
+  const failures: { userId: string; error: unknown }[] = [];
+  let deliveredCount = 0;
+
+  for (const userId of userIds) {
+    try {
+      for (const text of texts) {
+        await sendMaxMessageWithRetry(
+          httpClient,
+          config,
+          userId,
+          text,
+          caCertificate,
+          sleep,
+        );
+      }
+
+      deliveredCount += 1;
+    } catch (error) {
+      failures.push({ userId, error });
+      console.warn(`${logPrefix}.max_recipient_failed`, {
+        ...logContext,
+        recipientIdType: config.recipientIdType,
+        recipientId: userId,
+        error: readMaxErrorMessage(error),
+      });
+    }
+  }
+
+  console.info(`${logPrefix}.max_sent`, {
+    ...logContext,
+    recipientIdType: config.recipientIdType,
+    recipientCount: userIds.length,
+    deliveredCount,
+    messageCount: texts.length,
+  });
+
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((failure) => failure.error),
+      `MAX delivery failed for ${failures.length} of ${
+        userIds.length
+      } recipients — ${failures
+        .map((failure) => `${failure.userId}: ${readMaxErrorMessage(failure.error)}`)
+        .join("; ")}`,
+    );
+  }
+}
+
+/**
+ * Токен бота лежит в той же колонке таблицы, что и ID адресатов, поэтому его
+ * нужно отбросить: иначе каждое уведомление уходило ещё и на несуществующего
+ * адресата и всегда завершалось ошибкой.
+ */
+function readMaxDeliveryTargets(
+  userIds: readonly string[],
+  config: MaxNotificationConfig,
+  logPrefix: string,
+  logContext: Record<string, string>,
+) {
+  const botToken = config.botToken?.trim() ?? "";
+  const targets = userIds.filter(
+    (userId) => botToken.length === 0 || userId !== botToken,
+  );
+
+  if (targets.length !== userIds.length) {
+    console.warn(`${logPrefix}.max_bot_token_recipient_skipped`, logContext);
+  }
+
+  return targets;
+}
+
+async function sendMaxMessageWithRetry(
+  httpClient: MaxHttpClient,
+  config: MaxNotificationConfig,
+  userId: string,
+  text: string,
+  caCertificate: string | undefined,
+  sleep: (milliseconds: number) => Promise<void>,
+) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await sendMaxMessage(httpClient, config, userId, text, caCertificate);
+      return;
+    } catch (error) {
+      if (attempt >= maxSendAttempts || !isRetryableMaxError(error)) {
+        throw error;
+      }
+
+      await sleep(maxRetryDelayMs * attempt);
+    }
+  }
+}
+
+function isRetryableMaxError(error: unknown) {
+  if (error instanceof MaxResponseError) {
+    return error.status === 429 || error.status >= 500;
+  }
+
+  return true;
+}
+
+function readMaxErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function defaultSleep(milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+class MaxResponseError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "MaxResponseError";
+    this.status = status;
+  }
 }
 
 async function sendMaxMessage(
@@ -252,7 +389,8 @@ async function sendMaxMessage(
   });
 
   if (!response.ok) {
-    throw new Error(
+    throw new MaxResponseError(
+      response.status,
       `MAX responded with ${response.status}: ${await readMaxErrorBody(
         response,
       )}`,

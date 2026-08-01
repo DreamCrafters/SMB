@@ -159,6 +159,11 @@ const defaultGoogleTokenUri = "https://oauth2.googleapis.com/token";
 const productionBrandsSheetTitle = "Номенклатура";
 const laboratorySheetTitle = "Лаборатория";
 const banksSheetTitle = "Банки";
+/**
+ * ID адресата MAX — это число или короткий идентификатор. Ограничение длины
+ * отсекает токен бота, который в таблице хранится в той же колонке, что и ID.
+ */
+const maxRecipientIdLength = 32;
 const notificationRecipientRanges = {
   incidentAndEquipment: [{ startRow: 2, endRow: 20 }],
   mechanicalDowntime: [{ startRow: 22, endRow: 25 }],
@@ -1274,10 +1279,29 @@ function readMaxUserIdsFromColumnRows(
 }
 
 function readMaxUserIdsFromCell(value: string) {
+  const groupSeparatedId = readGroupSeparatedMaxUserId(value);
+
+  if (groupSeparatedId !== undefined) {
+    return [groupSeparatedId];
+  }
+
   return value
     .split(/[\s,;|]+/u)
     .map(normalizeMaxRecipientId)
     .filter((userId): userId is string => userId !== undefined);
+}
+
+/**
+ * Числовой ID, введённый в Google Sheets как число, может прийти с разрядными
+ * пробелами (`334 864 352`). Такую ячейку нужно читать как один ID, а не как
+ * три обрывка; несколько ID в одной ячейке разделяются группами другой длины.
+ */
+function readGroupSeparatedMaxUserId(value: string) {
+  const trimmed = value.trim();
+
+  return /^\d{1,3}(?:\s\d{3})+$/u.test(trimmed)
+    ? trimmed.replace(/\s+/gu, "")
+    : undefined;
 }
 
 function normalizeMaxRecipientId(value: string) {
@@ -1288,6 +1312,7 @@ function normalizeMaxRecipientId(value: string) {
 
   if (
     userId.length === 0 ||
+    userId.length > maxRecipientIdLength ||
     !/\d/u.test(userId) ||
     !/^-?[a-zA-Z0-9_][a-zA-Z0-9_-]*$/u.test(userId)
   ) {

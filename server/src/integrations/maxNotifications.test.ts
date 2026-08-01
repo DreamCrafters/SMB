@@ -345,6 +345,120 @@ test("createMaxNotificationService rejects when MAX responds with an error", asy
   );
 });
 
+test("createMaxNotificationService keeps sending after a failed recipient", async () => {
+  const sentUserIds: string[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input) {
+        const userId = new URL(String(input)).searchParams.get("user_id") ?? "";
+
+        sentUserIds.push(userId);
+
+        return userId === "4002"
+          ? new Response(JSON.stringify({ message: "chat not found" }), {
+              status: 404,
+            })
+          : new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await assert.rejects(
+    () =>
+      service.sendDispatcherSubmissionNotification(
+        buildSubmission("visitor", { fio: "Иванов И.И." }),
+        { ...recipients, visitors: ["4001", "4002", "4003"] },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      assert.match(error.message, /1 of 3 recipients/u);
+      assert.match(error.message, /4002: MAX responded with 404/u);
+      return true;
+    },
+  );
+
+  assert.deepEqual(sentUserIds, ["4001", "4002", "4003"]);
+});
+
+test("createMaxNotificationService skips the bot token stored with recipients", async () => {
+  const sentUserIds: string[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "sheet-bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input) {
+        sentUserIds.push(
+          new URL(String(input)).searchParams.get("user_id") ?? "",
+        );
+
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await service.sendDispatcherSubmissionNotification(
+    buildSubmission("incident", { incidentNumber: "INC-2026-1" }),
+    {
+      ...recipients,
+      incidentAndEquipment: ["sheet-bot-token", "1001"],
+      mechanicalDowntime: [],
+      electricalDowntime: [],
+    },
+  );
+
+  assert.deepEqual(sentUserIds, ["1001"]);
+});
+
+test("createMaxNotificationService retries a throttled recipient", async () => {
+  const sentUserIds: string[] = [];
+  const delays: number[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input) {
+        const userId = new URL(String(input)).searchParams.get("user_id") ?? "";
+
+        sentUserIds.push(userId);
+
+        return sentUserIds.filter((value) => value === userId).length === 1
+          ? new Response(JSON.stringify({ message: "too many requests" }), {
+              status: 429,
+            })
+          : new Response(null, { status: 200 });
+      },
+      async sleep(milliseconds) {
+        delays.push(milliseconds);
+      },
+    },
+  );
+
+  await service.sendDispatcherSubmissionNotification(
+    buildSubmission("visitor", { fio: "Иванов И.И." }),
+    { ...recipients, visitors: ["4001"] },
+  );
+
+  assert.deepEqual(sentUserIds, ["4001", "4001"]);
+  assert.deepEqual(delays, [1000]);
+});
+
 test("createMaxNotificationService can send to chat_id", async () => {
   const sentUrls: string[] = [];
   const service = createMaxNotificationService(
