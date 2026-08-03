@@ -174,7 +174,7 @@ export function applyIncidentStateRules(
 
   const payload = {
     ...value.draft.payload,
-    ...readIncidentOpeningContext(openIncident.submission),
+    ...readIncidentOpeningContext(openIncident.submission.payload),
   };
 
   return {
@@ -189,11 +189,13 @@ export function applyIncidentStateRules(
   };
 }
 
-function readIncidentOpeningContext(submission: DispatcherSubmission) {
+export function readIncidentOpeningContext(
+  payload: DispatcherSubmission["payload"],
+) {
   const context: DispatcherSubmission["payload"] = {};
 
   for (const fieldName of incidentOpeningContextFieldNames) {
-    const value = submission.payload[fieldName]?.trim();
+    const value = payload[fieldName]?.trim();
 
     if (value !== undefined && value.length > 0) {
       context[fieldName] = value;

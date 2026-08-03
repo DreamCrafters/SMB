@@ -144,6 +144,83 @@ test("dispatcher row update validates form values and preserves server fields", 
   );
 });
 
+test("incident text corrections reach the stored closure of the same incident", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, values });
+
+      if (normalized.startsWith("select form_id")) {
+        return [[{
+          form_id: "incident",
+          payload: JSON.stringify({
+            incidentNumber: "INC-2026-51",
+            datetime: "28.07.2026 09:33",
+            location: "ОЦ (Огнеупорный цех)",
+            incidentType: "Травма",
+            description: "тихонова г а получила травму руки",
+            criticality: "Средний",
+            responsible: "Шубник В.С.",
+            immediateActions: "Вызван мастер смены",
+            incidentStatus: "Новый",
+          }),
+          summary: "INC-2026-51 · ОЦ (Огнеупорный цех) · Травма · Средний",
+          status: "received",
+          period: "2026-07",
+        }], []];
+      }
+
+      if (normalized.startsWith("select id, payload, summary, period")) {
+        return [[{
+          id: "closure-id",
+          payload: JSON.stringify({
+            incidentNumber: "INC-2026-51",
+            rootCauses: "Не соблюдён регламент уборки",
+            preventiveMeasures: "Проверка графика уборки",
+            closureDateTime: "28.07.2026 10:36",
+            approvedBy: "Фридман",
+            datetime: "28.07.2026 09:33",
+            location: "ОЦ (Огнеупорный цех)",
+            incidentType: "Травма",
+            criticality: "Средний",
+            description: "тихонова г а получила травму руки",
+          }),
+          summary: "INC-2026-51 · 28.07.2026 10:36 · Фридман",
+          period: "2026-07",
+        }], []];
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+
+  await createAdminDatabaseRepository(pool).updateRow({
+    tableName: "dispatcher_submissions",
+    primaryKey: { id: "opening-id" },
+    values: {
+      "payload.incidentType": "Нарушение регламента",
+      "payload.description": "Отсутствие уборки в цехе",
+    },
+  });
+
+  const closureLookup = queries.find((query) =>
+    query.sql.startsWith("select id, payload, summary, period"),
+  );
+  const closureUpdate = queries.find((query) =>
+    query.sql.startsWith("update dispatcher_submissions set period = ?, raw_value"),
+  );
+  const closurePayload = JSON.parse(String(closureUpdate?.values?.[3])) as Record<string, string>;
+
+  assert.deepEqual(closureLookup?.values, ["INC-2026-51"]);
+  assert.equal(closureUpdate?.values?.at(-1), "closure-id");
+  assert.equal(closurePayload.incidentType, "Нарушение регламента");
+  assert.equal(closurePayload.description, "Отсутствие уборки в цехе");
+  assert.equal(closurePayload.datetime, "28.07.2026 09:33");
+  assert.equal(closurePayload.rootCauses, "Не соблюдён регламент уборки");
+  assert.equal(closurePayload.approvedBy, "Фридман");
+});
+
 test("equipment edits keep report identity and append a full report revision", async () => {
   const queries: Array<{ sql: string; values?: unknown[] }> = [];
   const pool = {

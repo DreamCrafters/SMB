@@ -12,6 +12,7 @@ import {
   type DispatcherSubmissionPayload,
   type DispatcherSubmissionStatus,
 } from "../domain/dispatcherSubmission.js";
+import { readIncidentOpeningContext } from "../domain/dispatcherIncidentState.js";
 import {
   buildDispatcherLegacyValues,
   recordEquipmentReportRevisionForDate,
@@ -165,6 +166,13 @@ type DispatcherEditorRow = RowDataPacket & {
   payload: unknown;
   summary: string;
   status: string;
+  period: string;
+};
+
+type IncidentClosureRow = RowDataPacket & {
+  id: string;
+  payload: unknown;
+  summary: string;
   period: string;
 };
 
@@ -571,6 +579,10 @@ async function updateDispatcherSubmission(
     ],
   );
 
+  if (form?.id === "incident" && hasPayloadChanges) {
+    await syncIncidentClosureContext(pool, nextPayload);
+  }
+
   if (form?.id === "equipment" && hasPayloadChanges) {
     const reportDate = nextPayload.reportDate?.trim();
     const submittedByAccountId = value.changedByAccountId?.trim();
@@ -586,6 +598,51 @@ async function updateDispatcherSubmission(
       reportDate,
       submittedByAccountId,
     });
+  }
+}
+
+// A closure stores its own copy of the opening date, place, type, criticality
+// and description, so correcting an opening has to refresh that copy as well.
+async function syncIncidentClosureContext(
+  pool: DatabasePool,
+  openingPayload: DispatcherSubmissionPayload,
+) {
+  const incidentNumber = openingPayload.incidentNumber?.trim();
+
+  if (incidentNumber === undefined || incidentNumber.length === 0) {
+    return;
+  }
+
+  const [rows] = await pool.query<IncidentClosureRow[]>(
+    `select id, payload, summary, period
+     from dispatcher_submissions
+     where form_id = 'incident_close'
+       and json_unquote(json_extract(payload, '$.incidentNumber')) = ?`,
+    [incidentNumber],
+  );
+  const context = readIncidentOpeningContext(openingPayload);
+
+  for (const row of rows) {
+    const payload = { ...readDispatcherPayload(row.payload), ...context };
+    const legacy = buildDispatcherLegacyValues(
+      payload,
+      "incident_close",
+      row.summary,
+      row.period,
+    );
+
+    await pool.query(
+      `update dispatcher_submissions
+       set period = ?, raw_value = ?, comment = ?, payload = ?
+       where id = ?`,
+      [
+        legacy.period,
+        legacy.rawValue,
+        legacy.comment,
+        JSON.stringify(payload),
+        row.id,
+      ],
+    );
   }
 }
 
