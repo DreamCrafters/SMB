@@ -27,6 +27,7 @@ import {
   type DispatcherFormDefinition,
   type DispatcherFormField,
   type DispatcherFormId,
+  type DispatcherProductionBankContent,
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
   type ProductionBrandCategoryRow,
@@ -6159,6 +6160,8 @@ export function DispatcherFeedPanel({
       : emptyProductionReportTables,
     selectedDateRange,
   );
+  const bankContents =
+    dispatcherFeed.status === "ready" ? dispatcherFeed.bankContents : [];
   const incidentRows = showAllOpenIncidents
     ? buildOpenIncidentRows(
         dispatcherFeed.status === "ready" ? dispatcherFeed.openIncidents : [],
@@ -6325,6 +6328,7 @@ export function DispatcherFeedPanel({
         <ProductionReportSummaryTable
           form={productionForm}
           tables={productionTables}
+          bankContents={bankContents}
           submissions={submissions}
         />
       ) : null}
@@ -6492,10 +6496,12 @@ const legacyProductionDetailFields: readonly DispatcherFormField[] = [
 export function ProductionReportSummaryTable({
   form,
   tables,
+  bankContents,
   submissions,
 }: {
   form: DispatcherFormDefinition | undefined;
   tables: ProductionReportTables;
+  bankContents: readonly DispatcherProductionBankContent[];
   submissions: DispatcherSubmission[];
 }) {
   const firstAvailableSection = productionReportSectionOptions.find(
@@ -6603,6 +6609,7 @@ export function ProductionReportSummaryTable({
       ) : section === "jars" ? (
         <ProductionJarDashboardTable
           rows={tables.jars}
+          bankContents={bankContents}
           formAvailable={form !== undefined}
           onOpen={setDetailReportId}
         />
@@ -6681,13 +6688,19 @@ function ProductionBrandDashboardTable({
 
 function ProductionJarDashboardTable({
   rows,
+  bankContents,
   formAvailable,
   onOpen,
 }: {
   rows: ProductionJarMeasurementRow[];
+  bankContents: readonly DispatcherProductionBankContent[];
   formAvailable: boolean;
   onOpen: (reportId: string) => void;
 }) {
+  const materialByBankNumber = new Map<number, string>(
+    bankContents.map((content) => [content.bankNumber, content.materialLabel]),
+  );
+
   return (
     <div className="production-dashboard-table-wrap">
       <table className="production-dashboard-table">
@@ -6695,6 +6708,7 @@ function ProductionJarDashboardTable({
           <tr>
             <th scope="col">Дата</th>
             <th scope="col">Банка</th>
+            <th scope="col">Содержимое</th>
             <th scope="col">Начало дня</th>
             <th scope="col">Конец дня</th>
             <th scope="col">Расход</th>
@@ -6711,6 +6725,9 @@ function ProductionJarDashboardTable({
                 />
               </td>
               <td>{row.jarNumber}</td>
+              <td>
+                {materialByBankNumber.get(row.jarNumber) ?? "Не назначено"}
+              </td>
               <td>{formatOptionalNumber(row.start)}</td>
               <td>{formatOptionalNumber(row.end)}</td>
               <td>{formatOptionalNumber(row.consumption)}</td>

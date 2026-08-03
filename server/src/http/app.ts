@@ -188,7 +188,10 @@ import {
   type RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
-import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
+import type {
+  LaboratoryBankAssignment,
+  LaboratoryBankAssignmentsRepository,
+} from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
 import type { LaboratoryChemicalAnalysisJournalRepository } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
@@ -780,12 +783,18 @@ export function createApiServer({
             await listAllIncidentSubmissions(dispatcherSubmissions),
             now(),
           );
+          const bankContents = laboratoryBankAssignments === undefined
+            ? []
+            : toDispatcherBankContents(
+                await laboratoryBankAssignments.listCurrent(),
+              );
 
           sendJson(res, 200, {
             submissions,
             productionReportTables,
             productionMonthOverview: productionMonthOverview ?? null,
             openIncidents,
+            bankContents,
             receivedAt: new Date().toISOString(),
             summary,
           });
@@ -3590,12 +3599,22 @@ async function handleDispatcherProductionBankContentsRequest({
   sendJson(res, 200, {
     reportDate,
     previousReportDate: measurementSnapshot.previousReportDate,
-    bankContents: currentAssignments.map((assignment) => ({
-      bankNumber: assignment.bankNumber,
-      materialLabel: assignment.materialLabel,
-    })),
+    bankContents: toDispatcherBankContents(currentAssignments),
     bankMeasurements: measurementSnapshot.bankMeasurements,
   });
+}
+
+/**
+ * Наружу отдаётся только номер банки и назначенный Лабораторией материал:
+ * насыпной вес и автор назначения остаются внутри лабораторного контура.
+ */
+function toDispatcherBankContents(
+  assignments: readonly LaboratoryBankAssignment[],
+) {
+  return assignments.map((assignment) => ({
+    bankNumber: assignment.bankNumber,
+    materialLabel: assignment.materialLabel,
+  }));
 }
 
 async function readDispatcherProductionBankMeasurements(

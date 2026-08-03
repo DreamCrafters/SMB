@@ -737,6 +737,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
         productionReportTables: emptyProductionReportTables,
         productionMonthOverview: null,
         openIncidents: [],
+        bankContents: [],
         receivedAt: "2026-06-18T00:00:02.000Z",
         summary: {
           total: 1,
@@ -796,6 +797,7 @@ test("requestCompleteDispatcherFeed reads every history page", async () => {
         productionReportTables: emptyProductionReportTables,
         productionMonthOverview: null,
         openIncidents: [],
+        bankContents: [],
         receivedAt: "2026-06-18T00:00:02.000Z",
         summary: {
           total: 3,

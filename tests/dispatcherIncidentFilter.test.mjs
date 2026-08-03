@@ -48,6 +48,7 @@ test("dispatcher incidents render every unclosed incident with one active filter
               openedAt: "10.12.2025 10:00",
             },
           ],
+          bankContents: [],
           receivedAt: "2026-07-20T10:00:00.000Z",
           summary: { total: 3, byForm: [] },
           source: "remote",

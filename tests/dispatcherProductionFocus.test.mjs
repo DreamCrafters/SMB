@@ -185,6 +185,7 @@ test("production dashboard selects the first section that receives live rows", a
         React.createElement(ProductionReportSummaryTable, {
           form: undefined,
           submissions: [],
+          bankContents: [],
           tables: emptyTables,
         }),
       );
@@ -195,6 +196,7 @@ test("production dashboard selects the first section that receives live rows", a
         React.createElement(ProductionReportSummaryTable, {
           form: undefined,
           submissions: [],
+          bankContents: [],
           tables: {
             ...emptyTables,
             unformed: [
@@ -223,6 +225,104 @@ test("production dashboard selects the first section that receives live rows", a
       rootElement.textContent ?? "",
       /Нет данных для выбранной таблицы и периода/u,
     );
+
+    await React.act(async () => root.unmount());
+  } finally {
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+test("jar dashboard table shows the current bank content next to the number", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+
+  installDomGlobals(dom.window);
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(ProductionReportSummaryTable, {
+          form: undefined,
+          submissions: [],
+          bankContents: [{ bankNumber: 1, materialLabel: "ШКИ" }],
+          tables: {
+            forming: [],
+            sorting: [],
+            unformed: [],
+            chamotte: [],
+            jars: [
+              {
+                reportId: "production-today",
+                reportDate: "2026-07-18",
+                receivedAt: "2026-07-18T18:00:00.000Z",
+                jarNumber: 1,
+                start: 120,
+                end: 100,
+                consumption: 20,
+              },
+              {
+                reportId: "production-today",
+                reportDate: "2026-07-18",
+                receivedAt: "2026-07-18T18:00:00.000Z",
+                jarNumber: 2,
+                start: 80,
+                end: 60,
+                consumption: 20,
+              },
+            ],
+            granulation: [],
+          },
+        }),
+      );
+    });
+
+    const headers = [
+      ...dom.window.document.querySelectorAll(
+        ".production-dashboard-table thead th",
+      ),
+    ].map((cell) => cell.textContent);
+    const firstRow = [
+      ...dom.window.document.querySelectorAll(
+        ".production-dashboard-table tbody tr:first-child td",
+      ),
+    ].map((cell) => cell.textContent);
+    const secondRow = [
+      ...dom.window.document.querySelectorAll(
+        ".production-dashboard-table tbody tr:nth-child(2) td",
+      ),
+    ].map((cell) => cell.textContent);
+
+    assert.deepEqual(headers, [
+      "Дата",
+      "Банка",
+      "Содержимое",
+      "Начало дня",
+      "Конец дня",
+      "Расход",
+    ]);
+    assert.equal(firstRow[1], "1");
+    assert.equal(firstRow[2], "ШКИ");
+    assert.equal(secondRow[1], "2");
+    assert.equal(secondRow[2], "Не назначено");
 
     await React.act(async () => root.unmount());
   } finally {
@@ -368,6 +468,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         productionReportTables: emptyProductionTables(),
         productionMonthOverview: null,
         openIncidents: [],
+        bankContents: [],
         receivedAt: "2026-07-18T18:00:02.000Z",
         summary: {
           total: 1,
@@ -389,6 +490,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         productionReportTables: emptyProductionTables(),
         productionMonthOverview: null,
         openIncidents: [],
+        bankContents: [],
         receivedAt: "2026-07-17T00:00:00.000Z",
         summary: { total: 0, byForm: [] },
       });
@@ -402,6 +504,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         productionReportTables: emptyProductionTables(),
         productionMonthOverview: null,
         openIncidents: [],
+        bankContents: [],
         receivedAt: "2026-07-19T00:00:00.000Z",
         summary: { total: 0, byForm: [] },
       });

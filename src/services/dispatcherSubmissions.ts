@@ -13,6 +13,7 @@ import type {
   DispatcherSubmissionPayload,
   DispatcherSubmissionResponse,
   DispatcherSubmissionStatus,
+  DispatcherProductionBankContent,
   OpenIncidentSummary,
   ProductionMonthOverview,
   ProductionMetricRow,
@@ -97,6 +98,7 @@ export type DispatcherFeedReadyState = {
   productionReportTables: ProductionReportTables;
   productionMonthOverview: ProductionMonthOverview | null;
   openIncidents: OpenIncidentSummary[];
+  bankContents: DispatcherProductionBankContent[];
   receivedAt: string;
   summary: DispatcherFeedSummary;
   source?: "remote" | "local_test";
@@ -799,6 +801,7 @@ export async function requestDispatcherFeed({
         productionReportTables: payload.productionReportTables,
         productionMonthOverview: payload.productionMonthOverview,
         openIncidents: payload.openIncidents,
+        bankContents: payload.bankContents,
         receivedAt: payload.receivedAt,
         summary: payload.summary,
       };
@@ -1137,6 +1140,7 @@ function requestLocalDispatcherFeed({
     productionMonthOverview:
       buildProductionMonthOverview(productionReportTables) ?? null,
     openIncidents: buildOpenIncidentSummaries(allSubmissions),
+    bankContents: [],
     receivedAt: new Date().toISOString(),
     summary: buildLocalDispatcherSummary(matchingSubmissions),
     source: "local_test",
@@ -1691,8 +1695,22 @@ function isDispatcherFeedResponse(value: unknown): value is DispatcherFeedRespon
       isProductionMonthOverview(value.productionMonthOverview)) &&
     Array.isArray(value.openIncidents) &&
     value.openIncidents.every(isOpenIncidentSummary) &&
+    Array.isArray(value.bankContents) &&
+    value.bankContents.every(isDispatcherProductionBankContent) &&
     typeof value.receivedAt === "string" &&
     isDispatcherFeedSummary(value.summary)
+  );
+}
+
+function isDispatcherProductionBankContent(
+  value: unknown,
+): value is DispatcherProductionBankContent {
+  return (
+    isRecord(value) &&
+    (value.bankNumber === 1 || value.bankNumber === 2 ||
+      value.bankNumber === 3) &&
+    typeof value.materialLabel === "string" &&
+    value.materialLabel.trim().length > 0
   );
 }
 

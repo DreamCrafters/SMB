@@ -1,3 +1,5 @@
+import type { DispatcherProductionBankContent } from "./laboratoryBanks.js";
+
 export type DataEntryStatus =
   | "draft"
   | "submitted"
@@ -166,6 +168,8 @@ export type DispatcherFeedResponse = {
   productionReportTables: ProductionReportTables;
   productionMonthOverview: ProductionMonthOverview | null;
   openIncidents: OpenIncidentSummary[];
+  /** Текущее содержимое банок, назначенное Лабораторией. */
+  bankContents: DispatcherProductionBankContent[];
   receivedAt: string;
   summary: DispatcherFeedSummary;
 };

@@ -5353,6 +5353,56 @@ test("remote API returns server-calculated production report tables", async () =
   }, repository);
 });
 
+test("remote API returns the current bank contents with the dispatcher feed", async () => {
+  const assignments = [
+    buildLaboratoryBankAssignment(1, "ШКИ", 1.16),
+    buildLaboratoryBankAssignment(3, "ШГР-28", 1.09),
+  ];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() { throw new Error("not used"); },
+    async listCurrent() { return assignments; },
+    async listHistory() { return assignments; },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "business_owner");
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+        },
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        isRecord(payload) ? payload.bankContents : undefined,
+        [
+          { bankNumber: 1, materialLabel: "ШКИ" },
+          { bankNumber: 3, materialLabel: "ШГР-28" },
+        ],
+      );
+    },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+  );
+});
+
 test("remote API returns every unclosed incident with a filtered feed page", async () => {
   const openedIncident = {
     id: "incident-old-open",
