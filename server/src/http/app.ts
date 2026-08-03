@@ -2280,6 +2280,11 @@ async function handleLaboratoryRequest({
                 label: "Наименование пробы",
                 value: `${result.before.sampleName} → ${result.record.sampleName}`,
               },
+              {
+                label: "Водопоглощение",
+                value:
+                  `${result.before.waterAbsorption ?? "—"} → ${result.record.waterAbsorption ?? "—"}`,
+              },
             ],
             targetType: "laboratory_sample_registration",
             targetId: result.record.id,
@@ -2388,7 +2393,10 @@ async function handleLaboratoryRequest({
           { label: "Дата отбора", value: record.samplingDate },
           { label: "Наименование пробы", value: record.sampleName },
           { label: "Место отбора пробы", value: record.samplingLocation },
-          { label: "Водопоглощение", value: record.waterAbsorption },
+          {
+            label: "Водопоглощение",
+            value: record.waterAbsorption ?? "—",
+          },
         ],
         targetType: "laboratory_sample_registration",
         targetId: record.id,

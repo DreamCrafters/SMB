@@ -8,14 +8,11 @@ export type LaboratorySampleRegistrationJournalSubmission = {
   sampleName: string;
   registrationDate: string;
   samplingLocation: string;
-  waterAbsorption: string;
+  waterAbsorption?: string;
 };
 
 export type LaboratorySampleRegistrationCorrection =
-  Omit<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption"> &
-  Partial<
-    Pick<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption">
-  >;
+  LaboratorySampleRegistrationJournalSubmission;
 
 export type LaboratorySampleRegistrationDraft = Pick<
   LaboratorySampleRegistrationJournalSubmission,
@@ -97,8 +94,7 @@ export const laboratorySampleRegistrationFields = [
 }[];
 
 export type LaboratorySampleRegistrationJournalRecord =
-  Omit<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption"> &
-  Partial<Pick<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption">> &
+  LaboratorySampleRegistrationJournalSubmission &
   Partial<LaboratoryChemicalAnalysisValues> & {
     id: string;
     createdAt: string;

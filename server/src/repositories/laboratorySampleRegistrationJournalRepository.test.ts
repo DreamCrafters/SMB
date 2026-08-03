@@ -72,6 +72,34 @@ test("sample registration repository stores the complete record and session auth
   ]);
 });
 
+test("sample registration repository stores missing water absorption as null", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool, {
+    createId: () => "sample-registration-without-water",
+    now: () => new Date("2026-08-04T08:30:00.000Z"),
+  });
+  const { waterAbsorption: _waterAbsorption, ...recordWithoutWater } = record;
+
+  const saved = await repository.create({
+    record: recordWithoutWater,
+    submittedByUserId: "laboratory-user",
+    submittedByAccountId: "laboratory-account",
+  });
+
+  assert.equal(queries[0]?.parameters?.[8], null);
+  assert.deepEqual(saved, {
+    id: "sample-registration-without-water",
+    ...recordWithoutWater,
+    createdAt: "2026-08-04T08:30:00.000Z",
+  });
+});
+
 test("sample registration repository filters history by registration date and search", async () => {
   let querySql = "";
   let queryParameters: unknown[] = [];
@@ -173,8 +201,9 @@ test("sample registration repository corrects a stable record and stores a revis
     createId: () => "sample-revision-1",
     now: () => new Date("2026-08-03T09:15:00.000Z"),
   });
+  const { waterAbsorption: _waterAbsorption, ...recordWithoutWater } = record;
   const corrected = {
-    ...record,
+    ...recordWithoutWater,
     sampleNumber: "19",
     laboratorySampleCode: ".19",
     sampleName: "Шамот исправленный",
@@ -205,6 +234,7 @@ test("sample registration repository corrects a stable record and stores a revis
     queries[2]?.sql ?? "",
     /insert into laboratory_sample_registration_revisions/u,
   );
+  assert.equal(queries[1]?.parameters?.[7], null);
   assert.deepEqual(queries[2]?.parameters, [
     "sample-revision-1",
     "sample-registration-1",

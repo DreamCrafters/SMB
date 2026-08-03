@@ -612,7 +612,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.equal(laboratorySampleCodeInput.readOnly, false);
     assert.equal(
       findControlByLabel(sampleRegistrationForm, "Водопоглощение").required,
-      true,
+      false,
     );
     await React.act(async () => {
       setNativeInputValue(sampleNumberInput, "25-А");
@@ -667,7 +667,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Наименование пробы": "Глина огнеупорная",
       "Дата регистрации": "2026-07-30",
       "Место отбора пробы": "Пункт контроля № 2",
-      "Водопоглощение": "4,6",
     };
     await React.act(async () => {
       for (const [label, value] of Object.entries(sampleRegistrationValues)) {
@@ -690,7 +689,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleName: "Глина огнеупорная",
       registrationDate: "2026-07-30",
       samplingLocation: "Пункт контроля № 2",
-      waterAbsorption: "4,6",
     });
     await waitFor(React, () =>
       sampleNumberInput.value === "27" &&

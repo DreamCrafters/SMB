@@ -1242,8 +1242,9 @@ test("sample registration journal saves and filters registration records", async
     samplingLocation: "Склад сырья",
     waterAbsorption: "4,6",
   };
+  const { waterAbsorption: _waterAbsorption, ...recordWithoutWater } = record;
   const correctedRecord = {
-    ...record,
+    ...recordWithoutWater,
     sampleNumber: "19",
     laboratorySampleCode: ".19",
     sampleName: "Шамот исправленный",
@@ -1341,6 +1342,10 @@ test("sample registration journal saves and filters registration records", async
       );
       assert.ok(auditEvents[0]?.details?.some(
         (detail) => detail.label === "Водопоглощение" && detail.value === "4,6",
+      ));
+      assert.ok(auditEvents[1]?.details?.some(
+        (detail) =>
+          detail.label === "Водопоглощение" && detail.value === "4,6 → —",
       ));
     },
     dispatcherSubmissions,

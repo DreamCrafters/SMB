@@ -151,7 +151,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           record.sampleName,
           record.registrationDate,
           record.samplingLocation,
-          record.waterAbsorption,
+          record.waterAbsorption ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -185,8 +185,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
 
       const before = mapEditableRecord(current);
       const correctedAt = now().toISOString();
-      const nextWaterAbsorption = input.record.waterAbsorption ??
-        current.water_absorption;
+      const nextWaterAbsorption = input.record.waterAbsorption ?? null;
       const correctedRecord: LaboratorySampleRegistrationCorrection = {
         ...input.record,
         ...(nextWaterAbsorption === null

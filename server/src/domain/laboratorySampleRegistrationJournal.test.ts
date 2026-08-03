@@ -32,6 +32,32 @@ test("sample registration journal accepts and normalizes a complete record", () 
   });
 });
 
+test("sample registration journal accepts an empty water absorption", () => {
+  const validation = validateLaboratorySampleRegistrationJournalSubmission({
+    sampleNumber: "18",
+    laboratorySampleCode: ".18",
+    samplingDate: "2026-08-04",
+    samplingLaboratoryAssistant: "Иванова А.А.",
+    sampleName: "Шамот",
+    registrationDate: "2026-08-04",
+    samplingLocation: "Склад сырья",
+    waterAbsorption: " ",
+  });
+
+  assert.deepEqual(validation, {
+    ok: true,
+    value: {
+      sampleNumber: "18",
+      laboratorySampleCode: ".18",
+      samplingDate: "2026-08-04",
+      samplingLaboratoryAssistant: "Иванова А.А.",
+      sampleName: "Шамот",
+      registrationDate: "2026-08-04",
+      samplingLocation: "Склад сырья",
+    },
+  });
+});
+
 test("sample registration correction accepts a legacy record without water absorption", () => {
   const validation = validateLaboratorySampleRegistrationCorrection({
     sampleNumber: "17-А",
@@ -57,7 +83,7 @@ test("sample registration journal reports invalid and missing fields", () => {
     sampleName: null,
     registrationDate: "29.07.2026",
     samplingLocation: [],
-    waterAbsorption: " ",
+    waterAbsorption: [],
   });
 
   assert.equal(validation.ok, false);

@@ -16,23 +16,17 @@ const maxShortTextLength = 120;
 export function validateLaboratorySampleRegistrationJournalSubmission(
   input: unknown,
 ): LaboratorySampleRegistrationJournalValidation {
-  const validation = validateLaboratorySampleRegistrationRecord(input, true);
-  if (!validation.ok) return validation;
-  return {
-    ok: true,
-    value: validation.value as LaboratorySampleRegistrationJournalSubmission,
-  };
+  return validateLaboratorySampleRegistrationRecord(input);
 }
 
 export function validateLaboratorySampleRegistrationCorrection(
   input: unknown,
 ): LaboratorySampleRegistrationCorrectionValidation {
-  return validateLaboratorySampleRegistrationRecord(input, false);
+  return validateLaboratorySampleRegistrationRecord(input);
 }
 
 function validateLaboratorySampleRegistrationRecord(
   input: unknown,
-  requiresWaterAbsorption: boolean,
 ): LaboratorySampleRegistrationCorrectionValidation {
   if (!isRecord(input)) {
     return {
@@ -63,11 +57,8 @@ function validateLaboratorySampleRegistrationRecord(
     input.waterAbsorption,
     maxShortTextLength,
   );
-  if (
-    (requiresWaterAbsorption && waterAbsorption === undefined) ||
-    (!requiresWaterAbsorption && input.waterAbsorption !== undefined &&
-      waterAbsorption === undefined)
-  ) {
+  if (!isMissingOptionalText(input.waterAbsorption) &&
+    waterAbsorption === undefined) {
     errors.push("Проверьте поле «Водопоглощение».");
   }
 
@@ -89,6 +80,11 @@ function validateLaboratorySampleRegistrationRecord(
       ...(waterAbsorption === undefined ? {} : { waterAbsorption }),
     },
   };
+}
+
+function isMissingOptionalText(value: unknown) {
+  return value === undefined || value === null ||
+    (typeof value === "string" && value.trim() === "");
 }
 
 function readCalendarDate(value: unknown) {
