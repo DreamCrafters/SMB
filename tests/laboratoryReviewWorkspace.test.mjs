@@ -18,7 +18,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("laboratory review filters every journal by section, date, and nomenclature", async () => {
+test("laboratory review filters every journal by date and nomenclature", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -39,6 +39,7 @@ test("laboratory review filters every journal by section, date, and nomenclature
     logLevel: "silent",
     server: { middlewareMode: true },
   });
+  const referenceRequests = [];
   const resultRequests = [];
   const sampleRegistrationRequests = [];
   const chemicalAnalysisRequests = [];
@@ -52,6 +53,7 @@ test("laboratory review filters every journal by section, date, and nomenclature
       const url = new URL(String(input), "http://127.0.0.1:5173/");
 
       if (url.pathname === "/api/laboratory/reference") {
+        referenceRequests.push(url.pathname);
         return jsonResponse({
           reference: {
             indicators: [{ id: "al2o3", label: "Al2O3", standard: "ГОСТ 1" }],
@@ -166,14 +168,7 @@ test("laboratory review filters every journal by section, date, and nomenclature
         }),
       );
     });
-    await waitFor(React, () => resultRequests.length > 0);
-
-    assert.deepEqual(resultRequests[0], {
-      section: null,
-      dateFrom: null,
-      dateTo: null,
-      name: null,
-    });
+    await waitFor(React, () => kilnJournalRequests.length > 0);
 
     // The journals hide behind the CZL button, like on the laboratory assistant tab.
     const readViewTabs = () =>
@@ -182,8 +177,6 @@ test("laboratory review filters every journal by section, date, and nomenclature
       ).map((button) => button.textContent);
     assert.deepEqual(readViewTabs(), [
       "Все испытания",
-      "Входящий контроль",
-      "Выходящий контроль",
       "ЦЗЛ (Центральная заводская лаборатория)",
     ]);
     assert.equal(
@@ -193,50 +186,15 @@ test("laboratory review filters every journal by section, date, and nomenclature
     );
 
     // Journals keep different table formats, so every matching one gets its own table.
-    await waitFor(React, () => kilnJournalRequests.length > 0);
     assert.deepEqual(readJournalTitles(container), [
-      "Результаты испытаний",
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
       "Журнал контроля параметров обжига вращающейся печи 2",
     ]);
 
-    const resultsTable = readJournalSections(container)[0];
-    const headers = Array.from(
-      resultsTable.querySelectorAll(".laboratory-results-table thead th"),
-    ).map((cell) => cell.textContent);
-    assert.deepEqual(headers.slice(0, 4), [
-      "Дата анализа",
-      "Раздел",
-      "Объект испытаний / вид продукции",
-      "Номер пробы / марка",
-    ]);
-    const sectionCells = Array.from(
-      resultsTable.querySelectorAll(".laboratory-results-table tbody tr"),
-    ).map((row) => row.querySelectorAll("td")[1]?.textContent);
-    assert.deepEqual(sectionCells, ["Входящий контроль", "Выходящий контроль"]);
-
-    // A control section is an entry of the results journal, so it shows that table alone.
-    await React.act(async () => {
-      findButtonByText(container, "Выходящий контроль").dispatchEvent(
-        new dom.window.MouseEvent("click", { bubbles: true }),
-      );
-    });
-    await waitFor(React, () =>
-      resultRequests.some((request) => request.section === "finished_product")
-    );
-    assert.deepEqual(readJournalTitles(container), ["Результаты испытаний"]);
-    assert.equal(
-      container.querySelector(".laboratory-review-excluded-note"),
-      null,
-    );
-
-    await React.act(async () => {
-      findButtonByText(container, "Все испытания").dispatchEvent(
-        new dom.window.MouseEvent("click", { bubbles: true }),
-      );
-    });
-    await waitFor(React, () => readJournalTitles(container).length === 4);
+    // Входящий и выходящий контроль убраны у всех, кто просматривает анализы.
+    assert.deepEqual(resultRequests, []);
+    assert.deepEqual(referenceRequests, []);
 
     assert.equal(
       container.querySelector(".laboratory-review-filters .laboratory-filters"),
@@ -259,7 +217,6 @@ test("laboratory review filters every journal by section, date, and nomenclature
     await waitFor(React, () =>
       kilnJournalRequests.at(-1)?.dateFrom === "2026-07-21"
     );
-    assert.equal(resultRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(sampleRegistrationRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(chemicalAnalysisRequests.at(-1)?.dateFrom, "2026-07-21");
 
@@ -274,25 +231,15 @@ test("laboratory review filters every journal by section, date, and nomenclature
       nameInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
     await waitFor(React, () =>
-      resultRequests.some((request) => request.name === "ШКИ")
-    );
-    await waitFor(React, () =>
       chemicalAnalysisRequests.at(-1)?.name === "ШКИ"
     );
 
-    assert.deepEqual(resultRequests.at(-1), {
-      section: null,
-      dateFrom: "2026-07-21",
-      dateTo: null,
-      name: "ШКИ",
-    });
     assert.deepEqual(sampleRegistrationRequests.at(-1), {
       dateFrom: "2026-07-21",
       dateTo: null,
       name: "ШКИ",
     });
     assert.deepEqual(readJournalTitles(container), [
-      "Результаты испытаний",
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
     ]);
@@ -308,8 +255,10 @@ test("laboratory review filters every journal by section, date, and nomenclature
         new dom.window.MouseEvent("click", { bubbles: true }),
       );
     });
-    await waitFor(React, () => resultRequests.at(-1)?.dateFrom === null);
-    assert.equal(resultRequests.at(-1)?.name, "ШКИ");
+    await waitFor(React, () =>
+      sampleRegistrationRequests.at(-1)?.dateFrom === null
+    );
+    assert.equal(sampleRegistrationRequests.at(-1)?.name, "ШКИ");
 
     // A single journal can be searched on its own, once the CZL group is opened.
     await React.act(async () => {
@@ -322,8 +271,6 @@ test("laboratory review filters every journal by section, date, and nomenclature
     });
     assert.deepEqual(readViewTabs(), [
       "Все испытания",
-      "Входящий контроль",
-      "Выходящий контроль",
       "ЦЗЛ (Центральная заводская лаборатория)",
       "Регистрация проб",
       "Химические анализы",
@@ -354,6 +301,11 @@ test("laboratory review filters every journal by section, date, and nomenclature
       container.querySelector("form"),
       null,
       "Review tab must not expose any data entry form.",
+    );
+    assert.deepEqual(
+      resultRequests,
+      [],
+      "No filter may bring the removed control sections back into the review.",
     );
 
     await React.act(async () => root.unmount());

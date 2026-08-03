@@ -35,8 +35,8 @@ export type LaboratoryReviewJournal = {
 
 /**
  * Search scopes, split into two rows like the laboratory assistant tab: the root
- * row holds `Все испытания`, the control sections of the results journal and the
- * `ЦЗЛ` group button, and the central laboratory journals open inside that group.
+ * row holds `Все испытания` and the `ЦЗЛ` group button, and the central
+ * laboratory journals open inside that group.
  */
 export type LaboratoryReviewViewId =
   | "all"
@@ -58,8 +58,18 @@ export type LaboratoryReviewJournalExclusion = {
   reason: string;
 };
 
+/**
+ * Разделы контроля убраны у всех, кто просматривает лабораторные анализы:
+ * входящий и выходящий контроль признаны некорректными и будут заменены другой
+ * логикой в других местах. Вместе с ними из просмотра уходит и журнал
+ * результатов испытаний — он состоит только из этих разделов. Сохранённые
+ * результаты, их PDF-протоколы и код журнала остаются на месте, а вернуть их в
+ * просмотр можно, снова перечислив разделы здесь.
+ */
+export const visibleLaboratoryReviewSections: readonly LaboratorySection[] = [];
+
 /** Stacking order of the tables, kept the same as the button order below. */
-export const laboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
+const allLaboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
   {
     id: "results",
     title: "Результаты испытаний",
@@ -86,7 +96,12 @@ export const laboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
   },
 ];
 
-export const laboratoryReviewViews: readonly LaboratoryReviewView[] = [
+export const laboratoryReviewJournals = allLaboratoryReviewJournals.filter(
+  (journal) =>
+    journal.id !== "results" || visibleLaboratoryReviewSections.length > 0,
+);
+
+const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
   {
     id: "all",
     label: "Все испытания",
@@ -130,6 +145,12 @@ export const laboratoryReviewViews: readonly LaboratoryReviewView[] = [
     group: "central-lab",
   },
 ];
+
+export const laboratoryReviewViews = allLaboratoryReviewViews.filter(
+  (view) =>
+    view.section === "all" ||
+    visibleLaboratoryReviewSections.includes(view.section),
+);
 
 /** Buttons of the root row; the `ЦЗЛ` button is rendered after them. */
 export const laboratoryReviewRootViews = laboratoryReviewViews.filter(

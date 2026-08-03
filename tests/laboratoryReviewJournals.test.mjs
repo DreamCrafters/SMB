@@ -14,7 +14,7 @@ function readView(id) {
   return view;
 }
 
-test("the root row holds the control sections and the CZL group holds the journals", () => {
+test("the root row keeps every test scope and the CZL group holds the journals", () => {
   assert.deepEqual(
     laboratoryReviewViews.map((view) => [
       view.id,
@@ -24,8 +24,6 @@ test("the root row holds the control sections and the CZL group holds the journa
     ]),
     [
       ["all", "all", "all", "root"],
-      ["incoming", "results", "incoming", "root"],
-      ["finished_product", "results", "finished_product", "root"],
       ["sample_registration", "sample_registration", "all", "central-lab"],
       ["chemical_analysis", "chemical_analysis", "all", "central-lab"],
       ["rotary_kiln_2", "rotary_kiln_2", "all", "central-lab"],
@@ -33,12 +31,32 @@ test("the root row holds the control sections and the CZL group holds the journa
   );
   assert.deepEqual(
     laboratoryReviewRootViews.map((view) => view.id),
-    ["all", "incoming", "finished_product"],
+    ["all"],
   );
   assert.deepEqual(
     laboratoryReviewCentralLabViews.map((view) => view.id),
     ["sample_registration", "chemical_analysis", "rotary_kiln_2"],
   );
+});
+
+test("the control sections and their results journal are gone from the review", () => {
+  assert.deepEqual(
+    laboratoryReviewViews.filter((view) => view.section !== "all"),
+    [],
+  );
+  assert.deepEqual(
+    laboratoryReviewJournals.map((journal) => journal.id),
+    ["sample_registration", "chemical_analysis", "rotary_kiln_2"],
+  );
+
+  const { visible, excluded } = selectLaboratoryReviewJournals(readView("all"), {
+    isNameFilterEnabled: false,
+  });
+  assert.equal(
+    visible.some((journal) => journal.id === "results"),
+    false,
+  );
+  assert.deepEqual(excluded, []);
 });
 
 test("every laboratory journal is shown while no narrowing filter is on", () => {
@@ -53,23 +71,12 @@ test("every laboratory journal is shown while no narrowing filter is on", () => 
   assert.deepEqual(excluded, []);
 });
 
-test("a control section keeps only the results journal", () => {
-  const { visible, excluded } = selectLaboratoryReviewJournals(
-    readView("finished_product"),
-    { isNameFilterEnabled: false },
-  );
-
-  assert.deepEqual(visible.map((journal) => journal.id), ["results"]);
-  assert.deepEqual(excluded, []);
-});
-
 test("nomenclature filter drops the journal without a nomenclature column", () => {
   const { visible, excluded } = selectLaboratoryReviewJournals(readView("all"), {
     isNameFilterEnabled: true,
   });
 
   assert.deepEqual(visible.map((journal) => journal.id), [
-    "results",
     "sample_registration",
     "chemical_analysis",
   ]);

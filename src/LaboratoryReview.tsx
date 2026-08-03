@@ -26,6 +26,7 @@ import {
 } from "./services/laboratoryResults";
 import {
   laboratoryReviewCentralLabViews,
+  laboratoryReviewJournals,
   laboratoryReviewRootViews,
   laboratoryReviewViews,
   selectLaboratoryReviewJournals,
@@ -55,6 +56,11 @@ const reviewSectionLabels: Record<LaboratorySection, string> = {
 };
 
 const maxNameQueryLength = 120;
+
+/** Справочник показателей нужен только таблице результатов испытаний. */
+const isResultsJournalVisible = laboratoryReviewJournals.some(
+  (journal) => journal.id === "results",
+);
 
 export function LaboratoryReviewWorkspace({
   isAdminPreviewMode,
@@ -86,6 +92,7 @@ export function LaboratoryReviewWorkspace({
   );
 
   useEffect(() => {
+    if (!isResultsJournalVisible) return;
     const controller = new AbortController();
     requestLaboratoryReference({ signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;

@@ -162,7 +162,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
     {
       id: "business.laboratory_results",
       label: "Результаты испытаний",
-      description: "Входящий контроль и готовая продукция",
+      description: "Банки и журналы ЦЗЛ",
       state: "active",
     },
     {
