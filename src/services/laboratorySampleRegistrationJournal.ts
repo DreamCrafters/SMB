@@ -1,5 +1,6 @@
 import {
   laboratorySampleRegistrationFields,
+  type LaboratorySampleRegistrationCorrection,
   type LaboratorySampleRegistrationDraft,
   type LaboratorySampleRegistrationJournalFilters,
   type LaboratorySampleRegistrationJournalRecord,
@@ -137,12 +138,37 @@ export async function submitLaboratorySampleRegistrationJournalRecord(
   options: RequestOptions = {},
 ): Promise<LaboratorySampleRegistrationJournalSaveResult> {
   const result = await requestJson(JOURNAL_PATH, "POST", submission, options);
+  return readJournalSaveResult(
+    result,
+    "Сервер не вернул сохранённую запись журнала регистрации отбора проб.",
+  );
+}
 
+export async function correctLaboratorySampleRegistrationJournalRecord(
+  id: string,
+  submission: LaboratorySampleRegistrationCorrection,
+  options: RequestOptions = {},
+): Promise<LaboratorySampleRegistrationJournalSaveResult> {
+  const result = await requestJson(
+    `${JOURNAL_PATH}/${encodeURIComponent(id)}`,
+    "PATCH",
+    submission,
+    options,
+  );
+
+  return readJournalSaveResult(
+    result,
+    "Сервер не вернул исправленную запись журнала регистрации отбора проб.",
+  );
+}
+
+function readJournalSaveResult(
+  result: { status: "ready"; payload: unknown } | ErrorResult,
+  invalidMessage: string,
+): LaboratorySampleRegistrationJournalSaveResult {
   if (result.status === "error") return result;
   if (!isRecord(result.payload) || !isJournalRecord(result.payload.record)) {
-    return invalidResponse(
-      "Сервер не вернул сохранённую запись журнала регистрации отбора проб.",
-    );
+    return invalidResponse(invalidMessage);
   }
 
   return { status: "ready", record: result.payload.record };
@@ -150,8 +176,11 @@ export async function submitLaboratorySampleRegistrationJournalRecord(
 
 async function requestJson(
   path: string,
-  method: "GET" | "POST",
-  body: LaboratorySampleRegistrationJournalSubmission | undefined,
+  method: "GET" | "POST" | "PATCH",
+  body:
+    | LaboratorySampleRegistrationJournalSubmission
+    | LaboratorySampleRegistrationCorrection
+    | undefined,
   { baseUrl, signal }: RequestOptions,
 ): Promise<{ status: "ready"; payload: unknown } | ErrorResult> {
   const endpoint = resolveApiEndpoint(path, path, { baseUrl });

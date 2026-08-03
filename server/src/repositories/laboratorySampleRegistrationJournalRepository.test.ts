@@ -134,8 +134,9 @@ test("sample registration repository filters history by registration date and se
   );
   assert.match(
     querySql,
-    /registration\.registration_date desc/u,
+    /cast\(trim\(registration\.sample_number\) as unsigned\)[\s\S]+end desc/u,
   );
+  assert.match(querySql, /registration\.sample_number desc/u);
   assert.match(querySql, /registration\.sample_name like \?/u);
   assert.deepEqual(queryParameters, [
     "2026-07-01",
@@ -144,6 +145,137 @@ test("sample registration repository filters history by registration date and se
     "%Шамот\\_100\\%%",
     200,
   ]);
+});
+
+test("sample registration repository corrects a stable record and stores a revision", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/select[\s\S]+for update/u.test(sql)) {
+        return [[{
+          id: "sample-registration-1",
+          sample_number: record.sampleNumber,
+          laboratory_sample_code: record.laboratorySampleCode,
+          sampling_date: record.samplingDate,
+          sampling_laboratory_assistant: record.samplingLaboratoryAssistant,
+          sample_name: record.sampleName,
+          registration_date: record.registrationDate,
+          sampling_location: record.samplingLocation,
+          water_absorption: record.waterAbsorption,
+          created_at: "2026-07-30T08:30:00.000Z",
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool, {
+    createId: () => "sample-revision-1",
+    now: () => new Date("2026-08-03T09:15:00.000Z"),
+  });
+  const corrected = {
+    ...record,
+    sampleNumber: "19",
+    laboratorySampleCode: ".19",
+    sampleName: "Шамот исправленный",
+  };
+
+  const result = await repository.update({
+    id: "sample-registration-1",
+    record: corrected,
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  });
+
+  assert.deepEqual(result, {
+    before: record,
+    record: {
+      id: "sample-registration-1",
+      ...corrected,
+      createdAt: "2026-07-30T08:30:00.000Z",
+    },
+  });
+  assert.match(queries[0]?.sql ?? "", /for update/u);
+  assert.match(
+    queries[1]?.sql ?? "",
+    /update laboratory_sample_registration_journal/u,
+  );
+  assert.match(
+    queries[2]?.sql ?? "",
+    /insert into laboratory_sample_registration_revisions/u,
+  );
+  assert.deepEqual(queries[2]?.parameters, [
+    "sample-revision-1",
+    "sample-registration-1",
+    JSON.stringify(record),
+    JSON.stringify(corrected),
+    "laboratory-user",
+    "laboratory-account",
+    "Иванова Анна",
+    "2026-08-03T09:15:00.000Z",
+  ]);
+});
+
+test("sample registration correction preserves missing legacy water absorption", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/select[\s\S]+for update/u.test(sql)) {
+        return [[{
+          id: "sample-registration-legacy",
+          sample_number: "7",
+          laboratory_sample_code: ".7",
+          sampling_date: "2026-07-01",
+          sampling_laboratory_assistant: "Иванова А.А.",
+          sample_name: "Шамот",
+          registration_date: "2026-07-01",
+          sampling_location: "Склад сырья",
+          water_absorption: null,
+          created_at: "2026-07-01T08:30:00.000Z",
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool, {
+    createId: () => "sample-revision-legacy",
+    now: () => new Date("2026-08-03T10:00:00.000Z"),
+  });
+  const correction = {
+    sampleNumber: "7",
+    laboratorySampleCode: ".7-И",
+    samplingDate: "2026-07-01",
+    samplingLaboratoryAssistant: "Иванова А.А.",
+    sampleName: "Шамот исправленный",
+    registrationDate: "2026-07-01",
+    samplingLocation: "Склад сырья",
+  };
+
+  const result = await repository.update({
+    id: "sample-registration-legacy",
+    record: correction,
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  });
+
+  assert.equal(queries[1]?.parameters?.[7], null);
+  assert.deepEqual(
+    JSON.parse(String(queries[2]?.parameters?.[2])),
+    {
+      sampleNumber: "7",
+      laboratorySampleCode: ".7",
+      samplingDate: "2026-07-01",
+      samplingLaboratoryAssistant: "Иванова А.А.",
+      sampleName: "Шамот",
+      registrationDate: "2026-07-01",
+      samplingLocation: "Склад сырья",
+    },
+  );
+  assert.deepEqual(JSON.parse(String(queries[2]?.parameters?.[3])), correction);
+  assert.equal(result?.record.waterAbsorption, undefined);
 });
 
 test("sample registration repository omits chemistry until an analysis exists", async () => {

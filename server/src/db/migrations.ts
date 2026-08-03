@@ -2056,6 +2056,31 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "038_laboratory_sample_registration_revisions",
+    statements: [
+      `
+      create table if not exists laboratory_sample_registration_revisions (
+        id char(36) not null primary key,
+        sample_registration_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_sample_registration_revisions_sample (
+          sample_registration_id,
+          created_at
+        ),
+        constraint fk_laboratory_sample_registration_revision_sample
+          foreign key (sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

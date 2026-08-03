@@ -3,6 +3,7 @@ import type { RowDataPacket } from "mysql2/promise";
 import type {
   LaboratorySampleRegistrationJournalFilters,
   LaboratorySampleRegistrationJournalRecord,
+  LaboratorySampleRegistrationCorrection,
   LaboratorySampleRegistrationJournalSubmission,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import type { LaboratorySampleRegistrationOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
@@ -19,12 +20,24 @@ type LaboratorySampleRegistrationJournalCreatedRecord =
     createdAt: string;
   };
 
+export type LaboratorySampleRegistrationCorrectionResult = {
+  before: LaboratorySampleRegistrationCorrection;
+  record: LaboratorySampleRegistrationJournalRecord;
+};
+
 export type LaboratorySampleRegistrationJournalRepository = {
   create: (input: {
     record: LaboratorySampleRegistrationJournalSubmission;
     submittedByUserId: string;
     submittedByAccountId: string;
   }) => Promise<LaboratorySampleRegistrationJournalCreatedRecord>;
+  update: (input: {
+    id: string;
+    record: LaboratorySampleRegistrationCorrection;
+    correctedByUserId: string;
+    correctedByAccountId: string;
+    correctedByDisplayName: string;
+  }) => Promise<LaboratorySampleRegistrationCorrectionResult | undefined>;
   list: (
     filters?: RepositoryFilters,
   ) => Promise<LaboratorySampleRegistrationJournalRecord[]>;
@@ -70,6 +83,19 @@ type LaboratorySampleRegistrationOptionRow = RowDataPacket & {
   sample_name: string;
   sampling_date: Date | string;
   registration_date: Date | string;
+};
+
+type LaboratorySampleRegistrationEditableRow = RowDataPacket & {
+  id: string;
+  sample_number: string;
+  laboratory_sample_code: string;
+  sampling_date: Date | string;
+  sampling_laboratory_assistant: string;
+  sample_name: string;
+  registration_date: Date | string;
+  sampling_location: string;
+  water_absorption: string | null;
+  created_at: Date | string;
 };
 
 type LaboratorySamplingLocationRow = RowDataPacket & {
@@ -133,6 +159,95 @@ export function createLaboratorySampleRegistrationJournalRepository(
       );
 
       return { id, ...record, createdAt };
+    },
+
+    async update(input) {
+      const [rows] = await pool.query<LaboratorySampleRegistrationEditableRow[]>(
+        `select
+          id,
+          sample_number,
+          laboratory_sample_code,
+          sampling_date,
+          sampling_laboratory_assistant,
+          sample_name,
+          registration_date,
+          sampling_location,
+          water_absorption,
+          created_at
+        from laboratory_sample_registration_journal
+        where id = ?
+        limit 1
+        for update`,
+        [input.id],
+      );
+      const current = rows[0];
+      if (current === undefined) return undefined;
+
+      const before = mapEditableRecord(current);
+      const correctedAt = now().toISOString();
+      const nextWaterAbsorption = input.record.waterAbsorption ??
+        current.water_absorption;
+      const correctedRecord: LaboratorySampleRegistrationCorrection = {
+        ...input.record,
+        ...(nextWaterAbsorption === null
+          ? {}
+          : { waterAbsorption: nextWaterAbsorption }),
+      };
+      await pool.query(
+        `update laboratory_sample_registration_journal
+        set
+          sample_number = ?,
+          laboratory_sample_code = ?,
+          sampling_date = ?,
+          sampling_laboratory_assistant = ?,
+          sample_name = ?,
+          registration_date = ?,
+          sampling_location = ?,
+          water_absorption = ?
+        where id = ?`,
+        [
+          input.record.sampleNumber,
+          input.record.laboratorySampleCode,
+          input.record.samplingDate,
+          input.record.samplingLaboratoryAssistant,
+          input.record.sampleName,
+          input.record.registrationDate,
+          input.record.samplingLocation,
+          nextWaterAbsorption,
+          input.id,
+        ],
+      );
+      await pool.query(
+        `insert into laboratory_sample_registration_revisions (
+          id,
+          sample_registration_id,
+          before_snapshot,
+          after_snapshot,
+          corrected_by_user_id,
+          corrected_by_account_id,
+          corrected_by_display_name,
+          created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          createId(),
+          input.id,
+          JSON.stringify(before),
+          JSON.stringify(correctedRecord),
+          input.correctedByUserId,
+          input.correctedByAccountId,
+          input.correctedByDisplayName,
+          correctedAt,
+        ],
+      );
+
+      return {
+        before,
+        record: {
+          id: input.id,
+          ...correctedRecord,
+          createdAt: new Date(current.created_at).toISOString(),
+        },
+      };
     },
 
     async list(filters = {}) {
@@ -234,6 +349,12 @@ export function createLaboratorySampleRegistrationJournalRepository(
           )
         ${where}
         order by
+          case
+            when trim(registration.sample_number) regexp '^[0-9]+'
+              then cast(trim(registration.sample_number) as unsigned)
+            else null
+          end desc,
+          registration.sample_number desc,
           registration.registration_date desc,
           registration.created_at desc,
           registration.id desc
@@ -323,6 +444,23 @@ export function createLaboratorySampleRegistrationJournalRepository(
 
       return rows[0] === undefined ? undefined : mapOption(rows[0]);
     },
+  };
+}
+
+function mapEditableRecord(
+  row: LaboratorySampleRegistrationEditableRow,
+): LaboratorySampleRegistrationCorrection {
+  return {
+    sampleNumber: row.sample_number,
+    laboratorySampleCode: row.laboratory_sample_code,
+    samplingDate: formatDate(row.sampling_date),
+    samplingLaboratoryAssistant: row.sampling_laboratory_assistant,
+    sampleName: row.sample_name,
+    registrationDate: formatDate(row.registration_date),
+    samplingLocation: row.sampling_location,
+    ...(row.water_absorption === null
+      ? {}
+      : { waterAbsorption: row.water_absorption }),
   };
 }
 

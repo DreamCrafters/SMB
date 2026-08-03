@@ -1,10 +1,14 @@
 import {
   laboratorySampleRegistrationFields,
+  type LaboratorySampleRegistrationCorrection,
   type LaboratorySampleRegistrationJournalSubmission,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 
 export type LaboratorySampleRegistrationJournalValidation =
   | { ok: true; value: LaboratorySampleRegistrationJournalSubmission }
+  | { ok: false; errors: string[] };
+export type LaboratorySampleRegistrationCorrectionValidation =
+  | { ok: true; value: LaboratorySampleRegistrationCorrection }
   | { ok: false; errors: string[] };
 
 const maxShortTextLength = 120;
@@ -12,6 +16,24 @@ const maxShortTextLength = 120;
 export function validateLaboratorySampleRegistrationJournalSubmission(
   input: unknown,
 ): LaboratorySampleRegistrationJournalValidation {
+  const validation = validateLaboratorySampleRegistrationRecord(input, true);
+  if (!validation.ok) return validation;
+  return {
+    ok: true,
+    value: validation.value as LaboratorySampleRegistrationJournalSubmission,
+  };
+}
+
+export function validateLaboratorySampleRegistrationCorrection(
+  input: unknown,
+): LaboratorySampleRegistrationCorrectionValidation {
+  return validateLaboratorySampleRegistrationRecord(input, false);
+}
+
+function validateLaboratorySampleRegistrationRecord(
+  input: unknown,
+  requiresWaterAbsorption: boolean,
+): LaboratorySampleRegistrationCorrectionValidation {
   if (!isRecord(input)) {
     return {
       ok: false,
@@ -26,6 +48,7 @@ export function validateLaboratorySampleRegistrationJournalSubmission(
   >();
 
   for (const field of laboratorySampleRegistrationFields) {
+    if (field.id === "waterAbsorption") continue;
     const value = field.kind === "date"
       ? readCalendarDate(input[field.id])
       : readText(input[field.id], maxShortTextLength);
@@ -34,6 +57,18 @@ export function validateLaboratorySampleRegistrationJournalSubmission(
     } else {
       values.set(field.id, value);
     }
+  }
+
+  const waterAbsorption = readText(
+    input.waterAbsorption,
+    maxShortTextLength,
+  );
+  if (
+    (requiresWaterAbsorption && waterAbsorption === undefined) ||
+    (!requiresWaterAbsorption && input.waterAbsorption !== undefined &&
+      waterAbsorption === undefined)
+  ) {
+    errors.push("Проверьте поле «Водопоглощение».");
   }
 
   if (errors.length > 0) {
@@ -51,7 +86,7 @@ export function validateLaboratorySampleRegistrationJournalSubmission(
       sampleName: values.get("sampleName")!,
       registrationDate: values.get("registrationDate")!,
       samplingLocation: values.get("samplingLocation")!,
-      waterAbsorption: values.get("waterAbsorption")!,
+      ...(waterAbsorption === undefined ? {} : { waterAbsorption }),
     },
   };
 }

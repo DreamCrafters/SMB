@@ -3,6 +3,7 @@ import {
   buildLaboratorySampleCodeDraft,
   laboratorySampleRegistrationFields,
   laboratorySampleRegistrationSamplingLocations,
+  type LaboratorySampleRegistrationCorrection,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
   type ServerUserProfile,
@@ -10,6 +11,7 @@ import {
 import { LaboratorySampleRegistrationTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
+  correctLaboratorySampleRegistrationJournalRecord,
   requestLaboratorySampleRegistrationDraft,
   requestLaboratorySampleRegistrationLocations,
   requestLaboratorySampleRegistrationJournal,
@@ -61,6 +63,11 @@ export function LaboratorySampleRegistrationJournal({
   >(() => [...laboratorySampleRegistrationSamplingLocations]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
+  const [editingRecordId, setEditingRecordId] = useState<string>();
+  const [
+    editingAllowsMissingWaterAbsorption,
+    setEditingAllowsMissingWaterAbsorption,
+  ] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const isLaboratorySampleCodeAuto = useRef(true);
 
@@ -174,17 +181,31 @@ export function LaboratorySampleRegistrationJournal({
     event.preventDefault();
     if (isAdminPreviewMode) return;
 
-    const submission = buildSubmission(form);
-    if (submission === undefined) {
+    const saveRequest = editingRecordId === undefined
+      ? { kind: "create" as const, submission: buildSubmission(form) }
+      : {
+          kind: "correct" as const,
+          id: editingRecordId,
+          submission: buildCorrection(
+            form,
+            editingAllowsMissingWaterAbsorption,
+          ),
+        };
+    if (saveRequest.submission === undefined) {
       setFormMessage("Заполните все обязательные поля.");
       return;
     }
 
     setIsSubmitting(true);
     setFormMessage("Сохраняем запись…");
-    const result = await submitLaboratorySampleRegistrationJournalRecord(
-      submission,
-    );
+    const result = saveRequest.kind === "create"
+      ? await submitLaboratorySampleRegistrationJournalRecord(
+          saveRequest.submission,
+        )
+      : await correctLaboratorySampleRegistrationJournalRecord(
+          saveRequest.id,
+          saveRequest.submission,
+        );
     setIsSubmitting(false);
 
     if (result.status === "error") {
@@ -195,8 +216,8 @@ export function LaboratorySampleRegistrationJournal({
       return;
     }
 
-    isLaboratorySampleCodeAuto.current = true;
-    setForm(createEmptyForm(profile.displayName));
+    const wasEditing = editingRecordId !== undefined;
+    resetForm();
     setSamplingLocationOptions((current) => mergeSamplingLocationOptions(
       current,
       [result.record.samplingLocation],
@@ -204,9 +225,35 @@ export function LaboratorySampleRegistrationJournal({
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
-      "Запись сохранена",
+      wasEditing ? "Проба исправлена" : "Запись сохранена",
       `${result.record.sampleNumber} · ${result.record.laboratorySampleCode}.`,
     );
+  }
+
+  function editRecord(record: LaboratorySampleRegistrationJournalRecord) {
+    isLaboratorySampleCodeAuto.current = false;
+    setEditingRecordId(record.id);
+    setEditingAllowsMissingWaterAbsorption(
+      record.waterAbsorption === undefined,
+    );
+    setForm({
+      sampleNumber: record.sampleNumber,
+      laboratorySampleCode: record.laboratorySampleCode,
+      samplingDate: record.samplingDate,
+      samplingLaboratoryAssistant: record.samplingLaboratoryAssistant,
+      sampleName: record.sampleName,
+      registrationDate: record.registrationDate,
+      samplingLocation: record.samplingLocation,
+      waterAbsorption: record.waterAbsorption ?? "",
+    });
+    setFormMessage("");
+  }
+
+  function resetForm() {
+    isLaboratorySampleCodeAuto.current = true;
+    setEditingRecordId(undefined);
+    setEditingAllowsMissingWaterAbsorption(false);
+    setForm(createEmptyForm(profile.displayName));
   }
 
   return (
@@ -218,6 +265,9 @@ export function LaboratorySampleRegistrationJournal({
         <div className="sample-registration-journal-heading">
           <span className="eyebrow">Лаборатория</span>
           <h2>{journalTitle}</h2>
+          {editingRecordId === undefined
+            ? null
+            : <p>Редактирование пробы {form.laboratorySampleCode}</p>}
         </div>
 
         <section className="sample-registration-journal-section">
@@ -237,6 +287,8 @@ export function LaboratorySampleRegistrationJournal({
                 inputMode={field.id === "waterAbsorption"
                   ? "decimal"
                   : undefined}
+                required={field.id !== "waterAbsorption" ||
+                  !editingAllowsMissingWaterAbsorption}
                 type={field.kind === "date" ? "date" : "text"}
                 value={form[field.id]}
                 onChange={updateField}
@@ -253,8 +305,26 @@ export function LaboratorySampleRegistrationJournal({
           >
             {isSubmitting
               ? <LoadingIndicator label="Сохраняем…" variant="button" />
-              : "Внести данные"}
+              : editingRecordId === undefined
+                ? "Внести данные"
+                : "Сохранить изменения"}
           </button>
+          {editingRecordId === undefined
+            ? null
+            : (
+                <button
+                  className="secondary-button"
+                  disabled={isSubmitting}
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setFormMessage("");
+                    setRefreshVersion((value) => value + 1);
+                  }}
+                >
+                  Отменить
+                </button>
+              )}
           {isAdminPreviewMode
             ? <small>В режиме просмотра сохранение отключено.</small>
             : null}
@@ -304,7 +374,10 @@ export function LaboratorySampleRegistrationJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
-        <LaboratorySampleRegistrationTable records={history.records} />
+        <LaboratorySampleRegistrationTable
+          records={history.records}
+          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+        />
       </section>
     </div>
   );
@@ -317,6 +390,7 @@ function JournalInput<Field extends keyof FormState>({
   inputMode,
   options,
   placeholder,
+  required = true,
   value,
   onChange,
 }: {
@@ -326,6 +400,7 @@ function JournalInput<Field extends keyof FormState>({
   inputMode?: "decimal";
   options?: readonly string[];
   placeholder?: string;
+  required?: boolean;
   value: string;
   onChange: (field: Field, value: string) => void;
 }) {
@@ -335,7 +410,7 @@ function JournalInput<Field extends keyof FormState>({
     <label>
       <span>{label}</span>
       <input
-        required
+        required={required}
         inputMode={inputMode}
         maxLength={type === "text" ? 120 : undefined}
         list={options === undefined ? undefined : listId}
@@ -397,13 +472,37 @@ function createEmptyForm(laboratoryAssistant: string): FormState {
 function buildSubmission(
   form: FormState,
 ): LaboratorySampleRegistrationJournalSubmission | undefined {
+  const record = buildFormRecord(form, true);
+  if (record?.waterAbsorption === undefined) return undefined;
+
+  return {
+    ...record,
+    waterAbsorption: record.waterAbsorption,
+  };
+}
+
+function buildCorrection(
+  form: FormState,
+  allowsMissingWaterAbsorption: boolean,
+): LaboratorySampleRegistrationCorrection | undefined {
+  return buildFormRecord(form, !allowsMissingWaterAbsorption);
+}
+
+function buildFormRecord(
+  form: FormState,
+  requiresWaterAbsorption: boolean,
+): LaboratorySampleRegistrationCorrection | undefined {
   if (
     laboratorySampleRegistrationFields.some(
-      (field) => form[field.id].trim() === "",
+      (field) =>
+        (field.id !== "waterAbsorption" || requiresWaterAbsorption) &&
+        form[field.id].trim() === "",
     )
   ) {
     return undefined;
   }
+
+  const waterAbsorption = form.waterAbsorption.trim();
 
   return {
     sampleNumber: form.sampleNumber.trim(),
@@ -413,7 +512,7 @@ function buildSubmission(
     sampleName: form.sampleName.trim(),
     registrationDate: form.registrationDate,
     samplingLocation: form.samplingLocation.trim(),
-    waterAbsorption: form.waterAbsorption.trim(),
+    ...(waterAbsorption === "" ? {} : { waterAbsorption }),
   };
 }
 

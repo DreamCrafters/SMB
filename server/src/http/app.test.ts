@@ -859,6 +859,9 @@ test("laboratory review access reads every journal by name but cannot change lab
     async create() {
       throw new Error("Laboratory review access must not create samples.");
     },
+    async update() {
+      throw new Error("Laboratory review access must not correct samples.");
+    },
     async list(filters) {
       sampleRegistrationFilters.push(filters);
       return [];
@@ -931,6 +934,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/sample-registration-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
       );
+      const sampleRegistrationCorrectionResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-journal/sample-registration-1`,
+        { method: "PATCH", headers, body: JSON.stringify({}) },
+      );
       const sampleRegistrationLocationsResponse = await fetch(
         `${baseUrl}/api/laboratory/sample-registration-locations`,
         { headers },
@@ -959,6 +966,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(banksResponse.status, 403);
       assert.equal(kilnJournalResponse.status, 200);
       assert.equal(sampleRegistrationResponse.status, 200);
+      assert.equal(sampleRegistrationCorrectionResponse.status, 403);
       assert.equal(sampleRegistrationLocationsResponse.status, 403);
       assert.equal(sampleRegistrationDraftResponse.status, 403);
       assert.equal(chemicalAnalysisResponse.status, 200);
@@ -1162,6 +1170,9 @@ test("sample registration journal saves and filters registration records", async
   let savedInput:
     | Parameters<LaboratorySampleRegistrationJournalRepository["create"]>[0]
     | undefined;
+  let correctedInput:
+    | Parameters<LaboratorySampleRegistrationJournalRepository["update"]>[0]
+    | undefined;
   let requestedFilters:
     | Parameters<LaboratorySampleRegistrationJournalRepository["list"]>[0]
     | undefined;
@@ -1172,6 +1183,17 @@ test("sample registration journal saves and filters registration records", async
         id: "sample-registration-1",
         ...input.record,
         createdAt: "2026-07-30T08:30:00.000Z",
+      };
+    },
+    async update(input) {
+      correctedInput = input;
+      return {
+        before: savedInput?.record ?? input.record,
+        record: {
+          id: input.id,
+          ...input.record,
+          createdAt: "2026-07-30T08:30:00.000Z",
+        },
       };
     },
     async list(filters) {
@@ -1220,6 +1242,12 @@ test("sample registration journal saves and filters registration records", async
     samplingLocation: "Склад сырья",
     waterAbsorption: "4,6",
   };
+  const correctedRecord = {
+    ...record,
+    sampleNumber: "19",
+    laboratorySampleCode: ".19",
+    sampleName: "Шамот исправленный",
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -1229,6 +1257,14 @@ test("sample registration journal saves and filters registration records", async
           method: "POST",
           headers,
           body: JSON.stringify(record),
+        },
+      );
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-journal/sample-registration-1`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(correctedRecord),
         },
       );
       const listResponse = await fetch(
@@ -1249,6 +1285,14 @@ test("sample registration journal saves and filters registration records", async
       );
 
       assert.equal(createResponse.status, 201);
+      assert.equal(correctionResponse.status, 200);
+      assert.deepEqual(await correctionResponse.json(), {
+        record: {
+          id: "sample-registration-1",
+          ...correctedRecord,
+          createdAt: "2026-07-30T08:30:00.000Z",
+        },
+      });
       assert.equal(listResponse.status, 200);
       assert.deepEqual(await listResponse.json(), {
         records: [{
@@ -1283,6 +1327,18 @@ test("sample registration journal saves and filters registration records", async
         "laboratory_sample_registration",
       );
       assert.equal(auditEvents[0]?.targetId, "sample-registration-1");
+      assert.equal(correctedInput?.id, "sample-registration-1");
+      assert.equal(correctedInput?.correctedByUserId, profile.userId);
+      assert.equal(
+        correctedInput?.correctedByAccountId,
+        profile.activeAccess.accountId,
+      );
+      assert.equal(correctedInput?.correctedByDisplayName, profile.displayName);
+      assert.deepEqual(correctedInput?.record, correctedRecord);
+      assert.equal(
+        auditEvents[1]?.action,
+        "laboratory_sample_registration.correct",
+      );
       assert.ok(auditEvents[0]?.details?.some(
         (detail) => detail.label === "Водопоглощение" && detail.value === "4,6",
       ));
@@ -1336,6 +1392,9 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
     | undefined;
   const sampleJournal: LaboratorySampleRegistrationJournalRepository = {
     async create() {
+      throw new Error("not used");
+    },
+    async update() {
       throw new Error("not used");
     },
     async list() {
@@ -3222,6 +3281,9 @@ test("account preview navigation grants reads without business mutations", async
   const sampleRegistrationJournal: LaboratorySampleRegistrationJournalRepository = {
     async create() {
       throw new Error("Account preview must not create samples.");
+    },
+    async update() {
+      throw new Error("Account preview must not correct samples.");
     },
     async list() {
       return [];

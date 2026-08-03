@@ -69,6 +69,7 @@ import {
   validateRotaryKiln2FiringJournalSubmission,
 } from "../domain/rotaryKiln2FiringJournal.js";
 import {
+  validateLaboratorySampleRegistrationCorrection,
   validateLaboratorySampleRegistrationJournalSubmission,
 } from "../domain/laboratorySampleRegistrationJournal.js";
 import {
@@ -251,6 +252,8 @@ const devSessionHeader = "x-smb-dev-session";
 const accountHeader = "x-smb-account-id";
 const laboratoryProtocolPathPattern =
   /^\/api\/laboratory\/results\/([a-zA-Z0-9-]{1,100})\/protocol\.pdf$/u;
+const laboratorySampleRegistrationRecordPathPattern =
+  /^\/api\/laboratory\/sample-registration-journal\/([a-zA-Z0-9-]{1,100})$/u;
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -574,6 +577,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/sample-registration-draft" ||
         url.pathname === "/api/laboratory/sample-registration-locations" ||
         url.pathname === "/api/laboratory/sample-registration-journal" ||
+        laboratorySampleRegistrationRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
@@ -2197,6 +2201,101 @@ async function handleLaboratoryRequest({
       samplingLocations:
         await laboratorySampleRegistrationJournal.listSamplingLocations(),
     });
+    return;
+  }
+
+  const sampleRegistrationRecordMatch =
+    laboratorySampleRegistrationRecordPathPattern.exec(url.pathname);
+  if (sampleRegistrationRecordMatch !== null) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Исправление зарегистрированной пробы недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления зарегистрированной пробы используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (laboratorySampleRegistrationJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала регистрации отбора проб не настроено.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratorySampleRegistrationCorrection(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const recordId = sampleRegistrationRecordMatch[1];
+    const correction = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratorySampleRegistrationJournal.update({
+        id: recordId,
+        record: validation.value,
+        correctedByUserId: access.profile.userId,
+        correctedByAccountId: access.profile.activeAccess.accountId,
+        correctedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (result) => result === undefined
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "laboratory_sample_registration.correct",
+            summary: "Исправлена зарегистрированная проба",
+            details: [
+              {
+                label: "№ пробы",
+                value: `${result.before.sampleNumber} → ${result.record.sampleNumber}`,
+              },
+              {
+                label: "Код лабораторной пробы",
+                value:
+                  `${result.before.laboratorySampleCode} → ${result.record.laboratorySampleCode}`,
+              },
+              {
+                label: "Наименование пробы",
+                value: `${result.before.sampleName} → ${result.record.sampleName}`,
+              },
+            ],
+            targetType: "laboratory_sample_registration",
+            targetId: result.record.id,
+          },
+    });
+    if (correction === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Зарегистрированная проба не найдена.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { record: correction.record });
     return;
   }
 

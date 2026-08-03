@@ -44,6 +44,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const kilnJournalSubmissions = [];
   const kilnJournalRequests = [];
   const sampleRegistrationSubmissions = [];
+  const sampleRegistrationCorrections = [];
   const sampleRegistrationRequests = [];
   let sampleRegistrationDraftRequests = 0;
   let sampleRegistrationLocationRequests = 0;
@@ -232,7 +233,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             sampleName: "Шамот молотый",
             registrationDate: "2026-07-29",
             samplingLocation: "Опытная площадка",
-            waterAbsorption: "4,4",
             al2o3: "31,4",
             fe2o3: "2,1",
             sio2: "58,7",
@@ -246,6 +246,21 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             notes: "Без отклонений.",
             createdAt: "2026-07-30T08:30:00.000Z",
           }],
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/sample-registration-journal/sample-registration-1" &&
+        init.method === "PATCH"
+      ) {
+        const submission = JSON.parse(String(init.body));
+        sampleRegistrationCorrections.push(submission);
+        return jsonResponse({
+          record: {
+            id: "sample-registration-1",
+            ...submission,
+            createdAt: "2026-07-30T08:30:00.000Z",
+          },
         });
       }
       if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
@@ -595,6 +610,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     assert.equal(sampleNumberInput.readOnly, false);
     assert.equal(laboratorySampleCodeInput.readOnly, false);
+    assert.equal(
+      findControlByLabel(sampleRegistrationForm, "Водопоглощение").required,
+      true,
+    );
     await React.act(async () => {
       setNativeInputValue(sampleNumberInput, "25-А");
       sampleNumberInput.dispatchEvent(
@@ -703,6 +722,52 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       )
     );
     assert.equal(sampleRegistrationLocationRequests, 1);
+
+    const sampleCodeEditButton = rootElement.querySelector(
+      ".sample-registration-journal-table .sample-registration-edit-link",
+    );
+    assert.ok(sampleCodeEditButton);
+    await React.act(async () => sampleCodeEditButton.click());
+    assert.equal(sampleNumberInput.value, "17-А");
+    assert.equal(laboratorySampleCodeInput.value, "ЛП-2026-017");
+    assert.equal(
+      findControlByLabel(sampleRegistrationForm, "Наименование пробы").value,
+      "Шамот молотый",
+    );
+    assert.ok(
+      sampleRegistrationForm.textContent.includes("Редактирование пробы"),
+    );
+    assert.equal(
+      findControlByLabel(sampleRegistrationForm, "Водопоглощение").required,
+      false,
+    );
+    await React.act(async () => {
+      const sampleNameInput = findControlByLabel(
+        sampleRegistrationForm,
+        "Наименование пробы",
+      );
+      setNativeInputValue(sampleNameInput, "Шамот исправленный");
+      sampleNameInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      sampleRegistrationForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => sampleRegistrationCorrections.length === 1);
+    assert.deepEqual(sampleRegistrationCorrections[0], {
+      sampleNumber: "17-А",
+      laboratorySampleCode: "ЛП-2026-017",
+      samplingDate: "2026-07-29",
+      samplingLaboratoryAssistant: "Иванова А.А.",
+      sampleName: "Шамот исправленный",
+      registrationDate: "2026-07-29",
+      samplingLocation: "Опытная площадка",
+    });
+    await waitFor(React, () =>
+      sampleRegistrationForm.textContent.includes("Редактирование пробы") ===
+        false && sampleNumberInput.value === "27"
+    );
 
     const chemicalAnalysisTab = Array.from(
       rootElement.querySelectorAll("button"),

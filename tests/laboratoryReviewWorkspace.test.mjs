@@ -243,6 +243,11 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
     ]);
+    assert.equal(
+      container.querySelector(".sample-registration-edit-link"),
+      null,
+      "Management review must keep sample registrations read-only.",
+    );
     assert.match(
       container.querySelector(".laboratory-review-excluded-note")?.textContent
         ?? "",

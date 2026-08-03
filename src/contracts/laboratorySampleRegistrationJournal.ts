@@ -4,6 +4,7 @@ export {
   laboratorySampleRegistrationSamplingLocations,
 } from "../../server/src/contracts/laboratorySampleRegistrationJournal.js";
 export type {
+  LaboratorySampleRegistrationCorrection,
   LaboratorySampleRegistrationDraft,
   LaboratorySampleRegistrationJournalFilters,
   LaboratorySampleRegistrationJournalRecord,

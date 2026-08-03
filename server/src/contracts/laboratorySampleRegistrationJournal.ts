@@ -11,6 +11,12 @@ export type LaboratorySampleRegistrationJournalSubmission = {
   waterAbsorption: string;
 };
 
+export type LaboratorySampleRegistrationCorrection =
+  Omit<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption"> &
+  Partial<
+    Pick<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption">
+  >;
+
 export type LaboratorySampleRegistrationDraft = Pick<
   LaboratorySampleRegistrationJournalSubmission,
   "sampleNumber" | "laboratorySampleCode"

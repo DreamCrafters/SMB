@@ -43,8 +43,10 @@ export const rotaryKiln2LateNumericFields = [
 
 export function LaboratorySampleRegistrationTable({
   records,
+  onEditRecord,
 }: {
   records: LaboratorySampleRegistrationJournalRecord[];
+  onEditRecord?: (record: LaboratorySampleRegistrationJournalRecord) => void;
 }) {
   if (records.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
@@ -68,7 +70,18 @@ export function LaboratorySampleRegistrationTable({
             <tr key={record.id}>
               {laboratorySampleRegistrationFields.map((field) => (
                 <td key={field.id}>
-                  {record[field.id] === undefined
+                  {field.id === "laboratorySampleCode" &&
+                      onEditRecord !== undefined
+                    ? (
+                        <button
+                          className="board-assignment-link sample-registration-edit-link"
+                          type="button"
+                          onClick={() => onEditRecord(record)}
+                        >
+                          {record.laboratorySampleCode}
+                        </button>
+                      )
+                    : record[field.id] === undefined
                     ? "—"
                     : field.kind === "date"
                       ? formatLaboratoryDate(record[field.id])
