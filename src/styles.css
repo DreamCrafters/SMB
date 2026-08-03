@@ -2573,6 +2573,38 @@ p {
   font-size: 18px;
 }
 
+.admin-position-modal-heading,
+.admin-position-admin-toggle {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+}
+
+.admin-position-modal-heading {
+  flex-wrap: wrap;
+}
+
+.admin-position-admin-toggle {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-subtle);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.admin-position-admin-toggle input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+}
+
+.admin-position-admin-toggle input:disabled + span {
+  color: var(--muted);
+}
+
 .admin-account-password-reset-copy,
 .admin-account-password-reset-hint {
   margin: 0;
@@ -2609,8 +2641,8 @@ p {
 
 .admin-account-navigation-fieldset {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--density-2);
   margin: 0;
   padding: 10px;
   border: 1px solid var(--line);
@@ -3253,6 +3285,18 @@ p {
   width: min(100%, 560px);
 }
 
+.dispatcher-incident-login-dialog {
+  width: min(100%, 620px);
+}
+
+.dispatcher-incident-login-actions {
+  gap: var(--density-2);
+}
+
+.dispatcher-incident-login-actions button {
+  flex: 1 1 220px;
+}
+
 .admin-db-clear-copy {
   display: grid;
   gap: var(--density-2);
@@ -3827,6 +3871,7 @@ p {
   .admin-production-snapshot-heading,
   .admin-db-import-heading,
   .admin-db-import-confirm,
+  .dispatcher-incident-login-actions,
   .incident-close-selected {
     display: grid;
   }

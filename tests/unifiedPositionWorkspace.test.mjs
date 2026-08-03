@@ -51,15 +51,11 @@ test("positions can combine the unified workspace with guarded admin tabs", asyn
   assert.match(appSource, /resolveAllowedWorkspaceKind\(/u);
   assert.match(
     appSource,
-    /disabled=\{!canManageAccess \|\| position\.accountType === "admin"\}/u,
+    /position\.accountType === "admin" \|\|\s*positionOrderDraft !== undefined \|\|\s*isSavingPositionOrder/u,
   );
-  assert.match(appSource, /"Сохранить порядок"/u);
+  assert.equal(appSource.includes("Сохранить порядок"), false);
   assert.match(appSource, />\s*Выше\s*</u);
   assert.match(appSource, />\s*Ниже\s*</u);
-  assert.match(
-    appSource,
-    /saveAdminPositionOrder\(\s*positionOrderDraft\.map\(\(position\) => position\.id\)/u,
-  );
 
   assert.deepEqual(
     boardAssignmentAccessOptions.map(({ label }) => label),

@@ -118,16 +118,32 @@ test("delegated account manager preserves disabled admin tabs while editing busi
     const adminToggle = findCheckbox(dialog, "Админ");
     const databaseToggle = findCheckbox(dialog, "БД (");
     const dispatcherToggle = findCheckbox(dialog, "Диспетчерская (");
+    const dialogHeader = dialog.querySelector(".admin-account-modal-header");
+    const navigationFieldsets = Array.from(dialog.querySelectorAll("fieldset"));
+    const businessFieldset = navigationFieldsets.find(
+      (fieldset) => fieldset.querySelector("legend")?.textContent === "Рабочие вкладки",
+    );
+    const adminFieldset = navigationFieldsets.find(
+      (fieldset) =>
+        fieldset.querySelector("legend")?.textContent ===
+        "Административные вкладки",
+    );
 
     assert.ok(adminToggle);
     assert.equal(adminToggle.checked, true);
     assert.equal(adminToggle.disabled, true);
+    assert.ok(dialogHeader?.contains(adminToggle));
     assert.ok(databaseToggle);
     assert.equal(databaseToggle.checked, true);
     assert.equal(databaseToggle.disabled, true);
     assert.ok(dispatcherToggle);
     assert.equal(dispatcherToggle.checked, false);
     assert.equal(dispatcherToggle.disabled, false);
+    assert.ok(businessFieldset);
+    assert.ok(adminFieldset);
+    assert.equal(businessFieldset.contains(dispatcherToggle), true);
+    assert.equal(businessFieldset.contains(databaseToggle), false);
+    assert.equal(adminFieldset.contains(databaseToggle), true);
 
     await React.act(async () => dispatcherToggle.click());
     assert.equal(dispatcherToggle.checked, true);
@@ -147,6 +163,34 @@ test("delegated account manager preserves disabled admin tabs while editing busi
       ],
       boardAssignmentAccess: "none",
     });
+
+    const createPositionButton = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Новая должность");
+    assert.ok(createPositionButton);
+    await React.act(async () => createPositionButton.click());
+
+    const createDialog = rootElement.querySelector('[role="dialog"]');
+    assert.ok(createDialog);
+    assert.equal(
+      createDialog.querySelector("#admin-position-title")?.textContent,
+      "Новая должность",
+    );
+    const createAdminToggle = findCheckbox(createDialog, "Админ");
+    assert.ok(createAdminToggle);
+    assert.equal(createAdminToggle.checked, false);
+    assert.equal(createAdminToggle.disabled, true);
+    assert.ok(
+      createDialog
+        .querySelector(".admin-account-modal-header")
+        ?.contains(createAdminToggle),
+    );
+    assert.deepEqual(
+      Array.from(createDialog.querySelectorAll("fieldset legend"), (legend) =>
+        legend.textContent?.trim(),
+      ),
+      ["Рабочие вкладки"],
+    );
 
     await React.act(async () => root.unmount());
   } finally {

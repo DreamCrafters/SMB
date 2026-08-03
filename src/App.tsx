@@ -319,6 +319,8 @@ type DispatcherFeedLoadState =
     }
   | DispatcherFeedResult;
 
+type DispatcherIncidentLoginPromptState = "idle" | "pending" | "open";
+
 type BusinessOverviewLoadState =
   | {
       status: "loading";
@@ -626,6 +628,10 @@ export default function App() {
   const [adminViewedDispatcherFeedFilters, setAdminViewedDispatcherFeedFilters] =
     useState<DispatcherFeedFilterState>(initialDispatcherFeedFilters);
   const [isWelcomePending, setIsWelcomePending] = useState(false);
+  const [dispatcherIncidentLoginPrompt, setDispatcherIncidentLoginPrompt] =
+    useState<DispatcherIncidentLoginPromptState>("idle");
+  const [requestedDispatcherFormId, setRequestedDispatcherFormId] =
+    useState<DispatcherFormId>();
   const [isMobileNavigation, setIsMobileNavigation] = useState(() =>
     window.matchMedia(mobileNavigationMediaQuery).matches,
   );
@@ -1120,6 +1126,28 @@ export default function App() {
   }, [accessProfile, isWelcomePending]);
 
   useEffect(() => {
+    if (
+      dispatcherIncidentLoginPrompt !== "pending" ||
+      accessProfile.status !== "ready"
+    ) {
+      return;
+    }
+
+    if (
+      !accessProfile.profile.activeAccess.navigationItems.includes(
+        "business.dispatcher_form",
+      )
+    ) {
+      setDispatcherIncidentLoginPrompt("idle");
+      return;
+    }
+
+    if (dispatcherFeed.status === "ready") {
+      setDispatcherIncidentLoginPrompt("open");
+    }
+  }, [accessProfile, dispatcherFeed.status, dispatcherIncidentLoginPrompt]);
+
+  useEffect(() => {
     if (accessProfile.status !== "ready") {
       return;
     }
@@ -1239,6 +1267,8 @@ export default function App() {
 
   async function handleClearSession() {
     setIsWelcomePending(false);
+    setDispatcherIncidentLoginPrompt("idle");
+    setRequestedDispatcherFormId(undefined);
     clearToastStack();
     setSessionRequest({
       status: "loading",
@@ -1254,6 +1284,8 @@ export default function App() {
 
   async function handleAutomaticDispatcherLogout() {
     setIsWelcomePending(false);
+    setDispatcherIncidentLoginPrompt("idle");
+    setRequestedDispatcherFormId(undefined);
     setIsNavigationOpen(false);
     clearToastStack();
     setSessionRequest({
@@ -1278,6 +1310,10 @@ export default function App() {
   ) {
     if (result.status === "ready") {
       setIsWelcomePending(action === "login");
+      setDispatcherIncidentLoginPrompt(
+        action === "login" ? "pending" : "idle",
+      );
+      setRequestedDispatcherFormId(undefined);
       setIsNavigationOpen(action === "login" && !isMobileNavigation);
       setSessionRequest(initialSessionRequestState);
       setRequestVersion((version) => version + 1);
@@ -1343,6 +1379,12 @@ export default function App() {
     setWorkspaceKind("admin");
     setAdminTab(tab);
     setWorkspaceNavigationVersion((version) => version + 1);
+  }
+
+  function handleOpenIncidentClosingFromLoginPrompt() {
+    setDispatcherIncidentLoginPrompt("idle");
+    setRequestedDispatcherFormId("incident_close");
+    handleOwnerTabNavigation("dispatcher_form");
   }
 
   function handleRefractoryReportResolved(reportId: string) {
@@ -1643,6 +1685,15 @@ export default function App() {
 
       <ToastViewport toasts={toasts} />
 
+      {dispatcherIncidentLoginPrompt === "open" &&
+      dispatcherFeed.status === "ready" ? (
+        <DispatcherIncidentLoginPrompt
+          openIncidentCount={dispatcherFeed.openIncidents.length}
+          onContinue={() => setDispatcherIncidentLoginPrompt("idle")}
+          onOpenIncidentClosing={handleOpenIncidentClosingFromLoginPrompt}
+        />
+      ) : null}
+
       {viewedProfile === undefined && sessionRequest.status === "loading" ? (
         <div className="app-session-loading">
           <LoadingIndicator label="Выходим из аккаунта…" variant="inline" />
@@ -1686,6 +1737,12 @@ export default function App() {
           refractoryQueueError={refractoryQueueError}
           refractoryDecisionVersion={refractoryDecisionVersion}
           onRefractoryReportResolved={handleRefractoryReportResolved}
+          requestedDispatcherFormId={
+            viewedProfile === undefined ? requestedDispatcherFormId : undefined
+          }
+          onRequestedDispatcherFormHandled={() =>
+            setRequestedDispatcherFormId(undefined)
+          }
         />
       </section>
     </main>
@@ -1963,6 +2020,60 @@ function AuthScreen({
         </div>
       </section>
     </main>
+  );
+}
+
+function DispatcherIncidentLoginPrompt({
+  openIncidentCount,
+  onContinue,
+  onOpenIncidentClosing,
+}: {
+  openIncidentCount: number;
+  onContinue: () => void;
+  onOpenIncidentClosing: () => void;
+}) {
+  return (
+    <div
+      className="admin-db-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onContinue();
+        }
+      }}
+    >
+      <section
+        aria-labelledby="dispatcher-incident-login-title"
+        aria-modal="true"
+        className="admin-db-editor admin-db-clear-dialog dispatcher-incident-login-dialog"
+        role="dialog"
+      >
+        <div className="admin-db-clear-copy">
+          <span>Инциденты</span>
+          <strong id="dispatcher-incident-login-title">
+            Незакрытых инцидентов: {openIncidentCount}
+          </strong>
+          <p>Вы можете сразу перейти к их закрытию или продолжить работу.</p>
+        </div>
+        <div className="admin-db-actions dispatcher-incident-login-actions">
+          <button
+            autoFocus
+            className="primary-button"
+            type="button"
+            onClick={onOpenIncidentClosing}
+          >
+            Перейти к закрытию инцидентов
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onContinue}
+          >
+            Продолжить работу
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -2356,6 +2467,8 @@ function RoleWorkspace({
   refractoryQueueError,
   refractoryDecisionVersion,
   onRefractoryReportResolved,
+  requestedDispatcherFormId,
+  onRequestedDispatcherFormHandled,
 }: {
   profile: ServerUserProfile;
   isAdminPreviewMode: boolean;
@@ -2380,6 +2493,8 @@ function RoleWorkspace({
   refractoryQueueError: string;
   refractoryDecisionVersion: number;
   onRefractoryReportResolved: (reportId: string) => void;
+  requestedDispatcherFormId?: DispatcherFormId;
+  onRequestedDispatcherFormHandled: () => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
     ownerTab,
@@ -2480,6 +2595,8 @@ function RoleWorkspace({
           isAdminPreviewMode ? "" : refractoryQueueError
         }
         onRefractoryReportResolved={onRefractoryReportResolved}
+        requestedFormId={requestedDispatcherFormId}
+        onRequestedFormHandled={onRequestedDispatcherFormHandled}
       />
     );
   }
@@ -3513,6 +3630,8 @@ export function DataEntryWorkspace({
   pendingRefractoryReports,
   refractoryQueueError,
   onRefractoryReportResolved,
+  requestedFormId,
+  onRequestedFormHandled,
 }: {
   ariaLabel: string;
   status: string;
@@ -3532,6 +3651,8 @@ export function DataEntryWorkspace({
   pendingRefractoryReports: RefractoryReportRevision[];
   refractoryQueueError: string;
   onRefractoryReportResolved: (reportId: string) => void;
+  requestedFormId?: DispatcherFormId;
+  onRequestedFormHandled?: () => void;
 }) {
   const forms = dispatcherForms.status === "ready" ? dispatcherForms.forms : [];
   const [selectedFormId, setSelectedFormId] = useState("");
@@ -3573,6 +3694,23 @@ export function DataEntryWorkspace({
       setSelectedFormId("");
     }
   }, [forms, selectedFormId]);
+
+  useEffect(() => {
+    if (
+      requestedFormId === undefined ||
+      !forms.some((form) => form.id === requestedFormId)
+    ) {
+      return;
+    }
+
+    formLeaveGuardRef.current = undefined;
+    onResetStatus();
+    setIsHistoryOpen(false);
+    setIsRefractoryReviewOpen(false);
+    setSelectedFormId(requestedFormId);
+    void recordAuditScreenView(`dispatcher.form.${requestedFormId}`);
+    onRequestedFormHandled?.();
+  }, [forms, onRequestedFormHandled, onResetStatus, requestedFormId]);
 
   function handleSelectForm(formId: string) {
     const continueSelection = () => {
@@ -9234,6 +9372,8 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   showAdminNavigation: false,
 };
 
+const positionOrderAutosaveDelayMs = 5_000;
+
 function isAdminNavigationItemId(itemId: AccountNavigationItem) {
   return navigationItemsByAccountType.admin.some((item) => item.id === itemId);
 }
@@ -9389,6 +9529,8 @@ function AdminAccountsWorkspace({
   const [positionOrderDraft, setPositionOrderDraft] = useState<
     AdminPositionSummary[]
   >();
+  const [positionOrderAutosaveRetryVersion, setPositionOrderAutosaveRetryVersion] =
+    useState(0);
   const [isSavingPositionOrder, setIsSavingPositionOrder] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [revealedPasswords, setRevealedPasswords] = useState<
@@ -9456,7 +9598,6 @@ function AdminAccountsWorkspace({
     requestAdminPositions({ signal: controller.signal }).then((result) => {
       if (!controller.signal.aborted) {
         setPositionsState(result);
-        setPositionOrderDraft(undefined);
       }
     });
 
@@ -9464,6 +9605,20 @@ function AdminAccountsWorkspace({
       controller.abort();
     };
   }, [canManage, refreshVersion]);
+
+  useEffect(() => {
+    if (positionOrderDraft === undefined) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void savePositionOrder(positionOrderDraft);
+    }, positionOrderAutosaveDelayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [positionOrderDraft, positionOrderAutosaveRetryVersion]);
 
   useEffect(() => {
     if (!isCreateModalOpen) {
@@ -9548,6 +9703,10 @@ function AdminAccountsWorkspace({
   }
 
   function openPositionModal(position?: AdminPositionSummary) {
+    if (positionOrderDraft !== undefined || isSavingPositionOrder) {
+      return;
+    }
+
     setPositionForm(position === undefined
       ? {
           ...emptyAdminPositionForm,
@@ -9602,7 +9761,12 @@ function AdminAccountsWorkspace({
   }
 
   async function handleDeletePosition(position: AdminPositionSummary) {
-    if (!canDeleteAdminPosition(position) || deletingPositionId !== undefined) {
+    if (
+      !canDeleteAdminPosition(position) ||
+      deletingPositionId !== undefined ||
+      positionOrderDraft !== undefined ||
+      isSavingPositionOrder
+    ) {
       return;
     }
     if (!window.confirm(`Удалить должность «${position.displayName}»?`)) {
@@ -9623,7 +9787,12 @@ function AdminAccountsWorkspace({
   }
 
   function handleMovePosition(positionId: string, direction: -1 | 1) {
-    if (positionsState.status !== "ready" || isSavingPositionOrder) {
+    if (
+      positionsState.status !== "ready" ||
+      isSavingPositionOrder ||
+      deletingPositionId !== undefined ||
+      isSubmitting
+    ) {
       return;
     }
 
@@ -9637,27 +9806,27 @@ function AdminAccountsWorkspace({
     setWorkspaceStatus("");
   }
 
-  async function handleSavePositionOrder() {
-    if (
-      positionOrderDraft === undefined ||
-      isSavingPositionOrder
-    ) {
-      return;
-    }
-
+  async function savePositionOrder(positions: AdminPositionSummary[]) {
     setIsSavingPositionOrder(true);
     setWorkspaceStatus("");
     const result = await saveAdminPositionOrder(
-      positionOrderDraft.map((position) => position.id),
+      positions.map((position) => position.id),
     );
     setIsSavingPositionOrder(false);
     if (result.status !== "ready") {
       setWorkspaceStatus(result.message);
+      if (
+        result.code === "network_error" ||
+        (result.statusCode !== undefined && result.statusCode >= 500)
+      ) {
+        setPositionOrderAutosaveRetryVersion((version) => version + 1);
+      }
       return;
     }
 
     setPositionsState(result);
     setPositionOrderDraft(undefined);
+    setPositionOrderAutosaveRetryVersion(0);
     onShowToast(
       "Порядок сохранён",
       "Списки должностей и учётных записей обновлены.",
@@ -9975,7 +10144,11 @@ function AdminAccountsWorkspace({
           <button
             className="secondary-button"
             type="button"
-            disabled={!canManageAccess}
+            disabled={
+              !canManageAccess ||
+              positionOrderDraft !== undefined ||
+              isSavingPositionOrder
+            }
             onClick={() => openPositionModal()}
           >
             Новая должность
@@ -10207,28 +10380,11 @@ function AdminAccountsWorkspace({
           <div>
             <h3 className="admin-positions-title">Должности и доступы</h3>
             <p>
-              Задайте порядок один раз — он применяется в списке аккаунтов,
-              выборе должности и режиме просмотра.
+              Перемещайте должности кнопками — порядок сохраняется автоматически
+              через 5 секунд после последнего изменения.
             </p>
           </div>
           <div className="admin-position-order-actions">
-            <button
-              className="primary-button"
-              type="button"
-              disabled={
-                !canManageAccess ||
-                positionOrderDraft === undefined ||
-                isSavingPositionOrder
-              }
-              onClick={handleSavePositionOrder}
-            >
-              {isSavingPositionOrder ? (
-                <LoadingIndicator
-                  label="Сохраняем…"
-                  variant="button"
-                />
-              ) : "Сохранить порядок"}
-            </button>
             <button
               className="secondary-button"
               type="button"
@@ -10236,7 +10392,10 @@ function AdminAccountsWorkspace({
                 positionOrderDraft === undefined ||
                 isSavingPositionOrder
               }
-              onClick={() => setPositionOrderDraft(undefined)}
+              onClick={() => {
+                setPositionOrderDraft(undefined);
+                setPositionOrderAutosaveRetryVersion(0);
+              }}
             >
               Отменить
             </button>
@@ -10269,7 +10428,9 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageAccess ||
                             index === 0 ||
-                            isSavingPositionOrder
+                            isSavingPositionOrder ||
+                            deletingPositionId !== undefined ||
+                            isSubmitting
                           }
                           onClick={() => handleMovePosition(position.id, -1)}
                         >
@@ -10282,7 +10443,9 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageAccess ||
                             index === displayedPositions.length - 1 ||
-                            isSavingPositionOrder
+                            isSavingPositionOrder ||
+                            deletingPositionId !== undefined ||
+                            isSubmitting
                           }
                           onClick={() => handleMovePosition(position.id, 1)}
                         >
@@ -10300,7 +10463,12 @@ function AdminAccountsWorkspace({
                         <button
                           className="secondary-button"
                           type="button"
-                          disabled={!canManageAccess || position.accountType === "admin"}
+                          disabled={
+                            !canManageAccess ||
+                            position.accountType === "admin" ||
+                            positionOrderDraft !== undefined ||
+                            isSavingPositionOrder
+                          }
                           onClick={() => openPositionModal(position)}
                         >
                           Изменить
@@ -10318,7 +10486,9 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageAccess ||
                             !canDeleteAdminPosition(position) ||
-                            deletingPositionId === position.id
+                            deletingPositionId === position.id ||
+                            positionOrderDraft !== undefined ||
+                            isSavingPositionOrder
                           }
                           onClick={() => handleDeletePosition(position)}
                         >
@@ -10491,20 +10661,16 @@ function AdminAccountsWorkspace({
         }}>
           <section aria-labelledby="admin-position-title" aria-modal="true" className="admin-account-modal" role="dialog" onKeyDown={keepFocusInsideDialog}>
             <div className="admin-account-modal-header">
-              <h3 id="admin-position-title">{positionForm.id === undefined ? "Новая должность" : "Настройка должности"}</h3>
-              <button className="secondary-button" type="button" disabled={isSubmitting} onClick={() => setIsPositionModalOpen(false)}>Закрыть</button>
-            </div>
-            <form className="data-entry-form admin-accounts-form" onSubmit={handlePositionSubmit}>
-              <label>
-                <span>Название должности</span>
-                <input value={positionForm.displayName} onChange={(event) => {
-                  const displayName = event.currentTarget.value;
-                  setPositionForm((current) => ({ ...current, displayName }));
-                }} required />
-              </label>
-              <fieldset className="admin-account-navigation-fieldset">
-                <legend>Доступ к вкладкам слева</legend>
-                <label className="admin-account-navigation-option">
+              <div className="admin-position-modal-heading">
+                <h3 id="admin-position-title">{positionForm.id === undefined ? "Новая должность" : "Настройка должности"}</h3>
+                <label
+                  className="admin-position-admin-toggle"
+                  title={
+                    positionsState.canAssignAdminNavigation
+                      ? undefined
+                      : "Административные вкладки может назначать только аккаунт admin."
+                  }
+                >
                   <input
                     type="checkbox"
                     checked={positionForm.showAdminNavigation}
@@ -10524,11 +10690,25 @@ function AdminAccountsWorkspace({
                   />
                   <span>Админ</span>
                 </label>
-                {!positionsState.canAssignAdminNavigation ? (
-                  <p className="dispatcher-status-line">
-                    Административные вкладки может назначать только аккаунт admin.
-                  </p>
-                ) : null}
+              </div>
+              <button className="secondary-button" type="button" disabled={isSubmitting} onClick={() => setIsPositionModalOpen(false)}>Закрыть</button>
+            </div>
+            {!positionsState.canAssignAdminNavigation &&
+            !positionForm.showAdminNavigation ? (
+              <p className="dispatcher-status-line">
+                Административные вкладки может назначать только аккаунт admin.
+              </p>
+            ) : null}
+            <form className="data-entry-form admin-accounts-form" onSubmit={handlePositionSubmit}>
+              <label>
+                <span>Название должности</span>
+                <input value={positionForm.displayName} onChange={(event) => {
+                  const displayName = event.currentTarget.value;
+                  setPositionForm((current) => ({ ...current, displayName }));
+                }} required />
+              </label>
+              <fieldset className="admin-account-navigation-fieldset">
+                <legend>Рабочие вкладки</legend>
                 <div className="admin-account-navigation-grid">
                   {nonAdminNavigationItems
                     .filter(
@@ -10548,35 +10728,6 @@ function AdminAccountsWorkspace({
                         <span>{formatNavigationItemLabel(item)}</span>
                       </label>
                     ))}
-                  {positionForm.showAdminNavigation
-                    ? navigationItemsByAccountType.admin.map((item) => (
-                        <label
-                          key={item.id}
-                          className="admin-account-navigation-option"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={positionForm.navigationItems.includes(item.id)}
-                            disabled={isSubmitting || !positionsState.canAssignAdminNavigation}
-                            onChange={(event) => {
-                              const isChecked = event.currentTarget.checked;
-                              setPositionForm((current) => ({
-                                ...current,
-                                navigationItems: isChecked
-                                  ? Array.from(new Set([
-                                      ...current.navigationItems,
-                                      item.id,
-                                    ]))
-                                  : current.navigationItems.filter(
-                                      (itemId) => itemId !== item.id,
-                                    ),
-                              }));
-                            }}
-                          />
-                          <span>{formatNavigationItemLabel(item)}</span>
-                        </label>
-                      ))
-                    : null}
                   {boardAssignmentAccessOptions.map((option) => (
                     <label
                       key={option.id}
@@ -10612,6 +10763,45 @@ function AdminAccountsWorkspace({
                   ))}
                 </div>
               </fieldset>
+              {positionForm.showAdminNavigation ? (
+                <fieldset className="admin-account-navigation-fieldset">
+                  <legend>Административные вкладки</legend>
+                  {!positionsState.canAssignAdminNavigation ? (
+                    <p className="dispatcher-status-line">
+                      Административные вкладки может назначать только аккаунт admin.
+                    </p>
+                  ) : null}
+                  <div className="admin-account-navigation-grid">
+                    {navigationItemsByAccountType.admin.map((item) => (
+                      <label
+                        key={item.id}
+                        className="admin-account-navigation-option"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={positionForm.navigationItems.includes(item.id)}
+                          disabled={isSubmitting || !positionsState.canAssignAdminNavigation}
+                          onChange={(event) => {
+                            const isChecked = event.currentTarget.checked;
+                            setPositionForm((current) => ({
+                              ...current,
+                              navigationItems: isChecked
+                                ? Array.from(new Set([
+                                    ...current.navigationItems,
+                                    item.id,
+                                  ]))
+                                : current.navigationItems.filter(
+                                    (itemId) => itemId !== item.id,
+                                  ),
+                            }));
+                          }}
+                        />
+                        <span>{formatNavigationItemLabel(item)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : null}
               <div className="form-actions">
                 <button className="primary-button" type="submit" disabled={isSubmitting}>
                   {isSubmitting ? (
