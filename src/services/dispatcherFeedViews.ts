@@ -2,6 +2,7 @@ import type {
   DispatcherFormId,
   DispatcherSubmission,
   DispatcherSubmissionPayload,
+  OpenIncidentSummary,
   ProductionCategory,
   ProductionBrandCategoryRow,
   ProductionBrandFact,
@@ -58,8 +59,6 @@ export type IncidentSummaryRow = {
   description?: string;
   approvedBy?: string;
 };
-
-export type IncidentSummaryStatusFilter = "all" | "open";
 
 export type OpenIncidentOption = {
   incidentNumber: string;
@@ -129,6 +128,13 @@ type OpenIncidentEntry = {
   incidentNumber: string;
   openedAt: string;
 };
+
+const openIncidentSummaryFieldNames = [
+  "location",
+  "incidentType",
+  "criticality",
+  "description",
+] as const;
 
 export function buildDispatcherFeedDateRange(
   period: DispatcherFeedPeriod,
@@ -746,7 +752,6 @@ function readFirstPayloadNumber(
 export function buildIncidentSummaryRows(
   submissions: DispatcherSubmission[],
   range: DateRange,
-  statusFilter: IncidentSummaryStatusFilter = "all",
 ): IncidentSummaryRow[] {
   const openings = submissions
     .filter((submission) => submission.formId === "incident")
@@ -796,10 +801,6 @@ export function buildIncidentSummaryRows(
     .filter((row) => {
       const openedAt = row.openedAtTime;
       const closedAt = row.closedAtTime;
-
-      if (statusFilter === "open" && row.status !== "open") {
-        return false;
-      }
 
       if (end !== undefined && openedAt !== undefined && openedAt > end) {
         return false;
@@ -893,23 +894,47 @@ export function buildOpenVisitorOptions(
     .sort((left, right) => right.entryAt.localeCompare(left.entryAt));
 }
 
-export function buildOpenIncidentOptions(
+export function buildOpenIncidentSummaries(
   submissions: DispatcherSubmission[],
-): OpenIncidentOption[] {
+): OpenIncidentSummary[] {
   return buildOpenIncidentEntries(submissions)
     .map(({ submission, incidentNumber, openedAt }) => ({
       incidentNumber,
-      label: formatOpenIncidentLabel(submission.payload, incidentNumber, openedAt),
       openedAt,
-      location: submission.payload.location,
-      incidentType: submission.payload.incidentType,
-      criticality: submission.payload.criticality,
+      ...readOpenIncidentFields(submission.payload),
     }))
     .sort(
       (left, right) =>
         (readPayloadDateTime(right.openedAt) ?? 0) -
         (readPayloadDateTime(left.openedAt) ?? 0),
     );
+}
+
+export function buildOpenIncidentOptions(
+  openIncidents: readonly OpenIncidentSummary[],
+): OpenIncidentOption[] {
+  return openIncidents.map((incident) => ({
+    incidentNumber: incident.incidentNumber,
+    label: formatOpenIncidentLabel(incident),
+    openedAt: incident.openedAt,
+    location: incident.location,
+    incidentType: incident.incidentType,
+    criticality: incident.criticality,
+  }));
+}
+
+export function buildOpenIncidentRows(
+  openIncidents: readonly OpenIncidentSummary[],
+): IncidentSummaryRow[] {
+  return openIncidents.map((incident) => ({
+    incidentNumber: incident.incidentNumber,
+    status: "open" as const,
+    openedAt: incident.openedAt,
+    location: incident.location,
+    incidentType: incident.incidentType,
+    criticality: incident.criticality,
+    description: incident.description,
+  }));
 }
 
 export function findOpenIncidentByNumber(
@@ -1042,20 +1067,30 @@ function formatOpenVisitorLabel(payload: DispatcherSubmissionPayload) {
   return parts.join(" · ");
 }
 
-function formatOpenIncidentLabel(
-  payload: DispatcherSubmissionPayload,
-  incidentNumber: string,
-  openedAt: string,
-) {
+function formatOpenIncidentLabel(incident: OpenIncidentSummary) {
   const parts = [
-    incidentNumber,
-    payload.location,
-    payload.incidentType,
-    payload.criticality,
-    `открыт ${openedAt}`,
+    incident.incidentNumber,
+    incident.location,
+    incident.incidentType,
+    incident.criticality,
+    `открыт ${incident.openedAt}`,
   ].filter((value): value is string => value !== undefined && value.length > 0);
 
   return parts.join(" · ");
+}
+
+function readOpenIncidentFields(payload: DispatcherSubmissionPayload) {
+  const fields: Omit<OpenIncidentSummary, "incidentNumber" | "openedAt"> = {};
+
+  for (const fieldName of openIncidentSummaryFieldNames) {
+    const value = payload[fieldName]?.trim();
+
+    if (value !== undefined && value.length > 0) {
+      fields[fieldName] = value;
+    }
+  }
+
+  return fields;
 }
 
 function readIncidentNumber(submission: DispatcherSubmission) {

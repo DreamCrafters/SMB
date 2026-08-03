@@ -4349,13 +4349,13 @@ test("production API lets dispatcher submit in the organization scope", async ()
 });
 
 test("production API lets owner read feed but not submit dispatcher forms", async () => {
-  let listFilters:
-    | Parameters<DispatcherSubmissionsRepository["listLatest"]>[0]
-    | undefined;
+  const listCalls: Parameters<
+    DispatcherSubmissionsRepository["listLatest"]
+  >[0][] = [];
   const repository: DispatcherSubmissionsRepository = {
     ...dispatcherSubmissions,
     async listLatest(filters) {
-      listFilters = filters;
+      listCalls.push(filters);
       return [];
     },
   };
@@ -4384,7 +4384,10 @@ test("production API lets owner read feed but not submit dispatcher forms", asyn
       });
 
       assert.equal(feedResponse.status, 200);
-      assert.deepEqual(listFilters, { limit: 25 });
+      assert.deepEqual(
+        listCalls.find((filters) => filters?.limit === 25),
+        { limit: 25 },
+      );
       assert.equal(submitResponse.status, 403);
     },
     repository,
@@ -5208,16 +5211,16 @@ test("remote API returns dispatcher form definitions", async () => {
 });
 
 test("remote API passes equipment reportDate feed filters to repository", async () => {
-  let listFilters:
-    | Parameters<DispatcherSubmissionsRepository["listLatest"]>[0]
-    | undefined;
+  const listCalls: Parameters<
+    DispatcherSubmissionsRepository["listLatest"]
+  >[0][] = [];
   let summaryFilters:
     | Parameters<DispatcherSubmissionsRepository["readSummary"]>[0]
     | undefined;
   const repository: DispatcherSubmissionsRepository = {
     ...dispatcherSubmissions,
     async listLatest(filters) {
-      listFilters = filters;
+      listCalls.push(filters);
       return [];
     },
     async readSummary(filters) {
@@ -5240,14 +5243,16 @@ test("remote API passes equipment reportDate feed filters to repository", async 
       },
     );
 
+    const feedFilters = listCalls.find((filters) => filters?.offset === 250);
+
     assert.equal(response.status, 200);
-    assert.deepEqual(listFilters, {
+    assert.deepEqual(feedFilters, {
       formId: "equipment",
       reportDate: "2026-07-09",
       limit: 500,
       offset: 250,
     });
-    assert.deepEqual(summaryFilters, listFilters);
+    assert.deepEqual(summaryFilters, feedFilters);
   }, repository);
 });
 
@@ -5342,6 +5347,87 @@ test("remote API returns server-calculated production report tables", async () =
           monthFact: 20,
           deviation: 0,
           receivedAt: "2026-07-02T18:00:01.000Z",
+        },
+      ],
+    );
+  }, repository);
+});
+
+test("remote API returns every unclosed incident with a filtered feed page", async () => {
+  const openedIncident = {
+    id: "incident-old-open",
+    formId: "incident" as const,
+    formTitle: "Открытие инцидента",
+    payload: {
+      incidentNumber: "INC-2026-1",
+      datetime: "28.06.2026 10:00",
+      location: "ЦОШ (Цех обжига шамота)",
+    },
+    summary: "INC-2026-1",
+    status: "received" as const,
+    submittedByAccountId: "dispatcher-access-id",
+    submittedAt: "2026-06-28T07:00:00.000Z",
+    receivedAt: "2026-06-28T07:00:00.000Z",
+  };
+  const closedIncident = {
+    ...openedIncident,
+    id: "incident-closed",
+    payload: {
+      incidentNumber: "INC-2026-2",
+      datetime: "03.07.2026 08:30",
+    },
+    summary: "INC-2026-2",
+    submittedAt: "2026-07-03T05:30:00.000Z",
+    receivedAt: "2026-07-03T05:30:00.000Z",
+  };
+  const incidentClosure = {
+    ...openedIncident,
+    id: "incident-closure",
+    formId: "incident_close" as const,
+    formTitle: "Закрытие инцидента",
+    payload: {
+      incidentNumber: "INC-2026-2",
+      closureDateTime: "04.07.2026 14:00",
+    },
+    summary: "INC-2026-2",
+    submittedAt: "2026-07-04T11:00:00.000Z",
+    receivedAt: "2026-07-04T11:00:00.000Z",
+  };
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      if (filters?.formId === "incident") {
+        return [closedIncident, openedIncident];
+      }
+
+      if (filters?.formId === "incident_close") {
+        return [incidentClosure];
+      }
+
+      return [];
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "business_owner");
+    const response = await fetch(
+      `${baseUrl}/api/dispatcher/submissions?dateFrom=2026-07-20&dateTo=2026-07-23`,
+      {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+        },
+      },
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      isRecord(payload) ? payload.openIncidents : undefined,
+      [
+        {
+          incidentNumber: "INC-2026-1",
+          openedAt: "28.06.2026 10:00",
+          location: "ЦОШ (Цех обжига шамота)",
         },
       ],
     );

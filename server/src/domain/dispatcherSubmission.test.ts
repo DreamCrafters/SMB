@@ -9,6 +9,7 @@ import {
   applyIncidentStateRules,
   buildIncidentOverviewPeriod,
   buildIncidentOverviewSummary,
+  buildOpenIncidentSummaries,
 } from "./dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "./dispatcherVisitorState.js";
 
@@ -687,6 +688,81 @@ test("incident overview summarizes the current month, today, and all open incide
       todayTotal: 1,
       openNow: 3,
     },
+  );
+});
+
+test("open incident list matches the overview counter for the same history", () => {
+  const submissions = [
+    buildDispatcherSubmission(
+      "incident-open-old",
+      "incident",
+      {
+        incidentNumber: "INC-2026-1",
+        datetime: "28.06.2026 10:00",
+        location: "ЦОШ (Цех обжига шамота)",
+        incidentType: "Поломка оборудования по мех. части",
+        criticality: "Высокий",
+        description: "Остановлен пресс",
+      },
+      "2026-06-28T07:00:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-closed",
+      "incident",
+      {
+        incidentNumber: "INC-2026-2",
+        datetime: "03.07.2026 08:30",
+      },
+      "2026-07-03T05:30:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-closure",
+      "incident_close",
+      {
+        incidentNumber: "INC-2026-2",
+        closureDateTime: "04.07.2026 14:00",
+      },
+      "2026-07-04T11:00:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-open-new",
+      "incident",
+      {
+        incidentNumber: "INC-2026-3",
+        datetime: "15.07.2026 09:15",
+      },
+      "2026-07-15T06:15:00.000Z",
+    ),
+    buildDispatcherSubmission(
+      "incident-future",
+      "incident",
+      {
+        incidentNumber: "INC-2026-4",
+        datetime: "30.07.2026 09:15",
+      },
+      "2026-07-23T06:15:00.000Z",
+    ),
+  ];
+  const currentDate = new Date("2026-07-23T12:00:00.000Z");
+  const openIncidents = buildOpenIncidentSummaries(submissions, currentDate);
+
+  assert.deepEqual(openIncidents, [
+    {
+      incidentNumber: "INC-2026-3",
+      openedAt: "15.07.2026 09:15",
+    },
+    {
+      incidentNumber: "INC-2026-1",
+      openedAt: "28.06.2026 10:00",
+      location: "ЦОШ (Цех обжига шамота)",
+      incidentType: "Поломка оборудования по мех. части",
+      criticality: "Высокий",
+      description: "Остановлен пресс",
+    },
+  ]);
+  assert.equal(
+    openIncidents.length,
+    buildIncidentOverviewSummary(submissions, currentDate).openNow,
   );
 });
 

@@ -37,6 +37,7 @@ import {
   applyIncidentStateRules,
   buildIncidentOverviewPeriod,
   buildIncidentOverviewSummary,
+  buildOpenIncidentSummaries,
 } from "../domain/dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
@@ -775,11 +776,16 @@ export function createApiServer({
           );
           const submissions = await dispatcherSubmissions.listLatest(filters.value);
           const summary = await dispatcherSubmissions.readSummary(filters.value);
+          const openIncidents = buildOpenIncidentSummaries(
+            await listAllIncidentSubmissions(dispatcherSubmissions),
+            now(),
+          );
 
           sendJson(res, 200, {
             submissions,
             productionReportTables,
             productionMonthOverview: productionMonthOverview ?? null,
+            openIncidents,
             receivedAt: new Date().toISOString(),
             summary,
           });

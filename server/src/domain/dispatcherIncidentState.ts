@@ -20,6 +20,15 @@ export type IncidentOverviewSummary = {
   openNow: number;
 };
 
+export type OpenIncidentSummary = {
+  incidentNumber: string;
+  openedAt: string;
+  location?: string;
+  incidentType?: string;
+  criticality?: string;
+  description?: string;
+};
+
 export type IncidentOverviewPeriod = {
   monthStart: string;
   today: string;
@@ -32,6 +41,13 @@ type OpenIncidentEntry = {
 
 const incidentOpeningContextFieldNames = [
   "datetime",
+  "location",
+  "incidentType",
+  "criticality",
+  "description",
+] as const;
+
+const openIncidentSummaryFieldNames = [
   "location",
   "incidentType",
   "criticality",
@@ -71,10 +87,42 @@ export function buildIncidentOverviewSummary(
     todayTotal: monthOpenings.filter(({ calendarDate }) =>
       calendarDate === today
     ).length,
-    openNow: buildOpenIncidentEntries(history).filter((entry) =>
-      readIncidentCalendarDate(entry.submission) <= today
-    ).length,
+    openNow: buildOpenIncidentSummaries(history, currentDate).length,
   };
+}
+
+export function buildOpenIncidentSummaries(
+  history: DispatcherSubmission[],
+  currentDate = new Date(),
+): OpenIncidentSummary[] {
+  const { today } = buildIncidentOverviewPeriod(currentDate);
+
+  return buildOpenIncidentEntries(history)
+    .filter((entry) => readIncidentCalendarDate(entry.submission) <= today)
+    .map(({ submission, incidentNumber }) => ({
+      summary: {
+        incidentNumber,
+        openedAt: submission.payload.datetime ?? submission.receivedAt,
+        ...readOptionalIncidentFields(submission),
+      },
+      sortKey: readIncidentOpeningSortKey(submission),
+    }))
+    .sort((left, right) => right.sortKey.localeCompare(left.sortKey))
+    .map(({ summary }) => summary);
+}
+
+function readOptionalIncidentFields(submission: DispatcherSubmission) {
+  const fields: Omit<OpenIncidentSummary, "incidentNumber" | "openedAt"> = {};
+
+  for (const fieldName of openIncidentSummaryFieldNames) {
+    const value = submission.payload[fieldName]?.trim();
+
+    if (value !== undefined && value.length > 0) {
+      fields[fieldName] = value;
+    }
+  }
+
+  return fields;
 }
 
 export function buildIncidentOverviewPeriod(
@@ -191,6 +239,29 @@ function buildOpenIncidentEntries(
 
 function readIncidentNumber(submission: DispatcherSubmission) {
   return submission.payload.incidentNumber?.trim() || submission.id;
+}
+
+function readIncidentOpeningSortKey(submission: DispatcherSubmission) {
+  const value = submission.payload.datetime;
+  const scriptMatch = value === undefined
+    ? null
+    : /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{2}):(\d{2}))?/u.exec(value);
+
+  if (scriptMatch !== null) {
+    const [, day, month, year, hours, minutes] = scriptMatch;
+    return `${year}-${month}-${day}T${hours ?? "00"}:${minutes ?? "00"}`;
+  }
+
+  const isoMatch = value === undefined
+    ? null
+    : /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2}))?/u.exec(value);
+
+  if (isoMatch !== null) {
+    const [, date, hours, minutes] = isoMatch;
+    return `${date}T${hours ?? "00"}:${minutes ?? "00"}`;
+  }
+
+  return submission.receivedAt;
 }
 
 function readIncidentCalendarDate(submission: DispatcherSubmission) {

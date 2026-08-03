@@ -13,6 +13,7 @@ import type {
   DispatcherSubmissionPayload,
   DispatcherSubmissionResponse,
   DispatcherSubmissionStatus,
+  OpenIncidentSummary,
   ProductionMonthOverview,
   ProductionMetricRow,
   ProductionReportTables,
@@ -27,6 +28,7 @@ import {
   validateDispatcherPayloadForSubmit,
 } from "./dispatcherPayloadValidation.js";
 import {
+  buildOpenIncidentSummaries,
   buildProductionMonthOverview,
   buildProductionReportTables,
   findOpenIncidentByNumber,
@@ -94,6 +96,7 @@ export type DispatcherFeedReadyState = {
   submissions: DispatcherSubmission[];
   productionReportTables: ProductionReportTables;
   productionMonthOverview: ProductionMonthOverview | null;
+  openIncidents: OpenIncidentSummary[];
   receivedAt: string;
   summary: DispatcherFeedSummary;
   source?: "remote" | "local_test";
@@ -795,6 +798,7 @@ export async function requestDispatcherFeed({
         submissions: payload.submissions,
         productionReportTables: payload.productionReportTables,
         productionMonthOverview: payload.productionMonthOverview,
+        openIncidents: payload.openIncidents,
         receivedAt: payload.receivedAt,
         summary: payload.summary,
       };
@@ -1132,6 +1136,7 @@ function requestLocalDispatcherFeed({
     productionReportTables,
     productionMonthOverview:
       buildProductionMonthOverview(productionReportTables) ?? null,
+    openIncidents: buildOpenIncidentSummaries(allSubmissions),
     receivedAt: new Date().toISOString(),
     summary: buildLocalDispatcherSummary(matchingSubmissions),
     source: "local_test",
@@ -1684,8 +1689,23 @@ function isDispatcherFeedResponse(value: unknown): value is DispatcherFeedRespon
     isProductionReportTables(value.productionReportTables) &&
     (value.productionMonthOverview === null ||
       isProductionMonthOverview(value.productionMonthOverview)) &&
+    Array.isArray(value.openIncidents) &&
+    value.openIncidents.every(isOpenIncidentSummary) &&
     typeof value.receivedAt === "string" &&
     isDispatcherFeedSummary(value.summary)
+  );
+}
+
+function isOpenIncidentSummary(value: unknown): value is OpenIncidentSummary {
+  return (
+    isRecord(value) &&
+    typeof value.incidentNumber === "string" &&
+    value.incidentNumber.length > 0 &&
+    typeof value.openedAt === "string" &&
+    isOptionalString(value.location) &&
+    isOptionalString(value.incidentType) &&
+    isOptionalString(value.criticality) &&
+    isOptionalString(value.description)
   );
 }
 
@@ -1780,6 +1800,10 @@ function isProductionBaseRow(
 
 function isOptionalNumber(value: unknown) {
   return value === undefined || typeof value === "number";
+}
+
+function isOptionalString(value: unknown) {
+  return value === undefined || typeof value === "string";
 }
 
 function isDispatcherFormDefinition(

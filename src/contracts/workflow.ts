@@ -152,10 +152,20 @@ export type ProductionMonthOverview = {
   totalFact: number;
 };
 
+export type OpenIncidentSummary = {
+  incidentNumber: string;
+  openedAt: string;
+  location?: string;
+  incidentType?: string;
+  criticality?: string;
+  description?: string;
+};
+
 export type DispatcherFeedResponse = {
   submissions: DispatcherSubmission[];
   productionReportTables: ProductionReportTables;
   productionMonthOverview: ProductionMonthOverview | null;
+  openIncidents: OpenIncidentSummary[];
   receivedAt: string;
   summary: DispatcherFeedSummary;
 };

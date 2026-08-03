@@ -100,6 +100,7 @@ test("dispatcher form opens shared history and active navigation resets the work
             granulation: [],
           },
           productionMonthOverview: null,
+          openIncidents: [],
           receivedAt: "2026-07-24T07:00:00.000Z",
           summary: {
             total: 1,

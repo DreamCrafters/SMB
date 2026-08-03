@@ -7,6 +7,8 @@ import {
   buildIncidentSummaryRows,
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
+  buildOpenIncidentRows,
+  buildOpenIncidentSummaries,
   buildOpenVisitorOptions,
   buildProductionMonthOverview,
   buildProductionReportTables,
@@ -487,35 +489,28 @@ test("buildIncidentSummaryRows keeps incidents not closed before range start", (
   assert.equal(rows[0].status, "closed");
 });
 
-test("buildIncidentSummaryRows can show every unclosed incident regardless of age", () => {
-  const rows = buildIncidentSummaryRows(
-    [
-      buildSubmission("inc-old-open", "incident", {
-        incidentNumber: "INC-2025-1",
-        datetime: "10.12.2025 10:00",
-      }),
-      buildSubmission("inc-closed", "incident", {
-        incidentNumber: "INC-2026-1",
-        datetime: "01.07.2026 10:00",
-      }),
-      buildSubmission("close-1", "incident_close", {
-        incidentNumber: "INC-2026-1",
-        closureDateTime: "02.07.2026 10:00",
-      }),
-      buildSubmission("inc-current-open", "incident", {
-        incidentNumber: "INC-2026-2",
-        datetime: "15.07.2026 10:00",
-      }),
-    ],
-    {},
-    "open",
-  );
+test("buildOpenIncidentRows shows every unclosed incident of the server list", () => {
+  const rows = buildOpenIncidentRows([
+    {
+      incidentNumber: "INC-2026-2",
+      openedAt: "15.07.2026 10:00",
+      location: "Цех 1",
+      description: "Описание",
+    },
+    {
+      incidentNumber: "INC-2025-1",
+      openedAt: "10.12.2025 10:00",
+    },
+  ]);
 
   assert.deepEqual(
     rows.map((row) => row.incidentNumber),
     ["INC-2026-2", "INC-2025-1"],
   );
   assert.ok(rows.every((row) => row.status === "open"));
+  assert.equal(rows[0].location, "Цех 1");
+  assert.equal(rows[0].description, "Описание");
+  assert.equal(rows[1].closedAt, undefined);
 });
 
 test("incident helpers list only unclosed incidents by newest opening date", () => {
@@ -560,7 +555,9 @@ test("incident helpers list only unclosed incidents by newest opening date", () 
     ),
   ];
 
-  const options = buildOpenIncidentOptions(submissions);
+  const options = buildOpenIncidentOptions(
+    buildOpenIncidentSummaries(submissions),
+  );
 
   assert.deepEqual(
     options.map((incident) => incident.incidentNumber),

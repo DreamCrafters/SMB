@@ -367,6 +367,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         ],
         productionReportTables: emptyProductionTables(),
         productionMonthOverview: null,
+        openIncidents: [],
         receivedAt: "2026-07-18T18:00:02.000Z",
         summary: {
           total: 1,
@@ -387,6 +388,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         submissions: [],
         productionReportTables: emptyProductionTables(),
         productionMonthOverview: null,
+        openIncidents: [],
         receivedAt: "2026-07-17T00:00:00.000Z",
         summary: { total: 0, byForm: [] },
       });
@@ -399,6 +401,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         submissions: [],
         productionReportTables: emptyProductionTables(),
         productionMonthOverview: null,
+        openIncidents: [],
         receivedAt: "2026-07-19T00:00:00.000Z",
         summary: { total: 0, byForm: [] },
       });

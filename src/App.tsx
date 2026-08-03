@@ -184,6 +184,7 @@ import {
   buildIncidentSummaryRows,
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
+  buildOpenIncidentRows,
   buildOpenVisitorOptions,
   filterProductionReportTables,
   buildVisitorVisitRows,
@@ -4736,9 +4737,9 @@ function DispatcherIncidentCloseFormBody({
     status: "loading",
     message: "Загружаем инциденты.",
   });
-  const submissions =
-    incidentFeed.status === "ready" ? incidentFeed.submissions : [];
-  const openIncidents = buildOpenIncidentOptions(submissions);
+  const openIncidents = buildOpenIncidentOptions(
+    incidentFeed.status === "ready" ? incidentFeed.openIncidents : [],
+  );
   const selectedIncident = selection.selectedIncident;
   const isLocalIncidentFeed =
     incidentFeed.status === "ready" && incidentFeed.source === "local_test";
@@ -4764,7 +4765,7 @@ function DispatcherIncidentCloseFormBody({
       );
 
       requestDispatcherFeed({
-        limit: 2_000,
+        limit: 1,
         localFallback: true,
         signal: currentController.signal,
       }).then((result) => {
@@ -6158,11 +6159,11 @@ export function DispatcherFeedPanel({
       : emptyProductionReportTables,
     selectedDateRange,
   );
-  const incidentRows = buildIncidentSummaryRows(
-    submissions,
-    showAllOpenIncidents ? {} : selectedDateRange,
-    showAllOpenIncidents ? "open" : "all",
-  );
+  const incidentRows = showAllOpenIncidents
+    ? buildOpenIncidentRows(
+        dispatcherFeed.status === "ready" ? dispatcherFeed.openIncidents : [],
+      )
+    : buildIncidentSummaryRows(submissions, selectedDateRange);
   const visitorRows = buildVisitorVisitRows(submissions, selectedDateRange);
   const productionForm =
     dispatcherForms.status === "ready"
