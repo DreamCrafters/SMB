@@ -11,6 +11,7 @@ const record = {
   sampleName: "Шамот молотый",
   registrationDate: "2026-07-29",
   samplingLocation: "Склад сырья",
+  waterAbsorption: "4,6",
 };
 
 const linkedAnalysis = {
@@ -64,6 +65,7 @@ test("sample registration repository stores the complete record and session auth
     "Шамот молотый",
     "2026-07-29",
     "Склад сырья",
+    "4,6",
     "laboratory-user",
     "laboratory-account",
     "2026-07-30T08:30:00.000Z",
@@ -86,6 +88,7 @@ test("sample registration repository filters history by registration date and se
         sample_name: "Шамот молотый",
         registration_date: "2026-07-29",
         sampling_location: "Склад сырья",
+        water_absorption: "4,6",
         al2o3: "31,4",
         fe2o3: "2,1",
         sio2: "58,7",
@@ -155,6 +158,7 @@ test("sample registration repository omits chemistry until an analysis exists", 
         sample_name: "Глина огнеупорная",
         registration_date: "2026-07-30",
         sampling_location: "Склад сырья",
+        water_absorption: null,
         al2o3: null,
         fe2o3: null,
         sio2: null,

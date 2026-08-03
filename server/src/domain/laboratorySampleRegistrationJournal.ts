@@ -51,6 +51,7 @@ export function validateLaboratorySampleRegistrationJournalSubmission(
       sampleName: values.get("sampleName")!,
       registrationDate: values.get("registrationDate")!,
       samplingLocation: values.get("samplingLocation")!,
+      waterAbsorption: values.get("waterAbsorption")!,
     },
   };
 }

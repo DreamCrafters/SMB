@@ -101,6 +101,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
     "036_sample_registration_sampling_location_index",
+    "037_sample_registration_water_absorption",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -159,6 +160,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
     "036_sample_registration_sampling_location_index",
+    "037_sample_registration_water_absorption",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -220,6 +222,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
     "036_sample_registration_sampling_location_index",
+    "037_sample_registration_water_absorption",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -283,6 +286,7 @@ test("chemical analysis optional-values migration keeps only the batch required"
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
     "036_sample_registration_sampling_location_index",
+    "037_sample_registration_water_absorption",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -342,6 +346,7 @@ test("kiln material migration adds the produced material and the journal density
     "033_optional_laboratory_chemical_analysis_values",
     "035_protected_admin_accounts",
     "036_sample_registration_sampling_location_index",
+    "037_sample_registration_water_absorption",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1312,6 +1317,44 @@ test("sample registration location migration indexes the persistent options", as
   assert.match(
     statements[0] ?? "",
     /alter table laboratory_sample_registration_journal add key idx_laboratory_sample_registration_location \( sampling_location, created_at \)/u,
+  );
+});
+
+test("sample registration water absorption migration preserves legacy records", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "037_sample_registration_water_absorption"
+            ? []
+            : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(
+    statements[0] ?? "",
+    /alter table laboratory_sample_registration_journal add column water_absorption varchar\(120\) null after sampling_location/u,
   );
 });
 

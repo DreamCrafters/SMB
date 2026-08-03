@@ -8,6 +8,7 @@ export type LaboratorySampleRegistrationJournalSubmission = {
   sampleName: string;
   registrationDate: string;
   samplingLocation: string;
+  waterAbsorption: string;
 };
 
 export const laboratorySampleRegistrationSamplingLocations = [
@@ -66,6 +67,12 @@ export const laboratorySampleRegistrationFields = [
     section: "registration",
     kind: "text",
   },
+  {
+    id: "waterAbsorption",
+    label: "Водопоглощение",
+    section: "registration",
+    kind: "text",
+  },
 ] as const satisfies readonly {
   id: keyof LaboratorySampleRegistrationJournalSubmission;
   label: string;
@@ -74,7 +81,8 @@ export const laboratorySampleRegistrationFields = [
 }[];
 
 export type LaboratorySampleRegistrationJournalRecord =
-  LaboratorySampleRegistrationJournalSubmission &
+  Omit<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption"> &
+  Partial<Pick<LaboratorySampleRegistrationJournalSubmission, "waterAbsorption">> &
   Partial<LaboratoryChemicalAnalysisValues> & {
     id: string;
     createdAt: string;

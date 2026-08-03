@@ -13,12 +13,18 @@ type RepositoryFilters = LaboratorySampleRegistrationJournalFilters & {
   limit?: number;
 };
 
+type LaboratorySampleRegistrationJournalCreatedRecord =
+  LaboratorySampleRegistrationJournalSubmission & {
+    id: string;
+    createdAt: string;
+  };
+
 export type LaboratorySampleRegistrationJournalRepository = {
   create: (input: {
     record: LaboratorySampleRegistrationJournalSubmission;
     submittedByUserId: string;
     submittedByAccountId: string;
-  }) => Promise<LaboratorySampleRegistrationJournalRecord>;
+  }) => Promise<LaboratorySampleRegistrationJournalCreatedRecord>;
   list: (
     filters?: RepositoryFilters,
   ) => Promise<LaboratorySampleRegistrationJournalRecord[]>;
@@ -41,6 +47,7 @@ type LaboratorySampleRegistrationJournalRow = RowDataPacket & {
   sample_name: string;
   registration_date: Date | string;
   sampling_location: string;
+  water_absorption: string | null;
   al2o3: string | null;
   fe2o3: string | null;
   sio2: string | null;
@@ -99,10 +106,11 @@ export function createLaboratorySampleRegistrationJournalRepository(
           sample_name,
           registration_date,
           sampling_location,
+          water_absorption,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           record.sampleNumber,
@@ -112,6 +120,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           record.sampleName,
           record.registrationDate,
           record.samplingLocation,
+          record.waterAbsorption,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -182,6 +191,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           registration.sample_name,
           registration.registration_date,
           registration.sampling_location,
+          registration.water_absorption,
           case when analysis.id is null
             then registration.al2o3 else analysis.al2o3 end as al2o3,
           case when analysis.id is null
@@ -311,6 +321,9 @@ function mapRecord(
     sampleName: row.sample_name,
     registrationDate: formatDate(row.registration_date),
     samplingLocation: row.sampling_location,
+    ...(row.water_absorption === null
+      ? {}
+      : { waterAbsorption: row.water_absorption }),
     ...(row.al2o3 === null ? {} : { al2o3: row.al2o3 }),
     ...(row.fe2o3 === null ? {} : { fe2o3: row.fe2o3 }),
     ...(row.sio2 === null ? {} : { sio2: row.sio2 }),

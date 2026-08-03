@@ -171,8 +171,11 @@ function isJournalRecord(
   return isRecord(value) &&
     typeof value.id === "string" &&
     laboratorySampleRegistrationFields.every(
-      (field) => typeof value[field.id] === "string",
+      (field) => field.id === "waterAbsorption" ||
+        typeof value[field.id] === "string",
     ) &&
+    (value.waterAbsorption === undefined ||
+      typeof value.waterAbsorption === "string") &&
     laboratoryChemicalAnalysisFields.every(
       (field) => value[field.id] === undefined ||
         typeof value[field.id] === "string",

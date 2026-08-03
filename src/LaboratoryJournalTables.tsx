@@ -68,9 +68,11 @@ export function LaboratorySampleRegistrationTable({
             <tr key={record.id}>
               {laboratorySampleRegistrationFields.map((field) => (
                 <td key={field.id}>
-                  {field.kind === "date"
-                    ? formatLaboratoryDate(record[field.id])
-                    : record[field.id]}
+                  {record[field.id] === undefined
+                    ? "—"
+                    : field.kind === "date"
+                      ? formatLaboratoryDate(record[field.id])
+                      : record[field.id]}
                 </td>
               ))}
               {laboratoryChemicalAnalysisFields.map((field) => {

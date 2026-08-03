@@ -11,6 +11,7 @@ test("sample registration journal accepts and normalizes a complete record", () 
     sampleName: " Шамот молотый ",
     registrationDate: "2026-07-29",
     samplingLocation: " Пункт контроля № 2 ",
+    waterAbsorption: " 4,6 ",
   });
 
   assert.deepEqual(validation, {
@@ -23,6 +24,7 @@ test("sample registration journal accepts and normalizes a complete record", () 
       sampleName: "Шамот молотый",
       registrationDate: "2026-07-29",
       samplingLocation: "Пункт контроля № 2",
+      waterAbsorption: "4,6",
     },
   });
 });
@@ -36,6 +38,7 @@ test("sample registration journal reports invalid and missing fields", () => {
     sampleName: null,
     registrationDate: "29.07.2026",
     samplingLocation: [],
+    waterAbsorption: " ",
   });
 
   assert.equal(validation.ok, false);
@@ -49,5 +52,6 @@ test("sample registration journal reports invalid and missing fields", () => {
     "Проверьте поле «Наименование пробы».",
     "Проверьте поле «Дата регистрации».",
     "Проверьте поле «Место отбора пробы».",
+    "Проверьте поле «Водопоглощение».",
   ]);
 });

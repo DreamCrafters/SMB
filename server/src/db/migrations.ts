@@ -2047,6 +2047,15 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "037_sample_registration_water_absorption",
+    statements: [
+      `
+      alter table laboratory_sample_registration_journal
+        add column water_absorption varchar(120) null after sampling_location;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

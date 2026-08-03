@@ -182,6 +182,9 @@ export function LaboratorySampleRegistrationJournal({
                 placeholder={field.id === "samplingLocation"
                   ? "Выберите или введите новое место"
                   : undefined}
+                inputMode={field.id === "waterAbsorption"
+                  ? "decimal"
+                  : undefined}
                 type={field.kind === "date" ? "date" : "text"}
                 value={form[field.id]}
                 onChange={updateField}
@@ -335,6 +338,7 @@ function createEmptyForm(laboratoryAssistant: string): FormState {
     sampleName: "",
     registrationDate: today,
     samplingLocation: "",
+    waterAbsorption: "",
   };
 }
 
@@ -357,6 +361,7 @@ function buildSubmission(
     sampleName: form.sampleName.trim(),
     registrationDate: form.registrationDate,
     samplingLocation: form.samplingLocation.trim(),
+    waterAbsorption: form.waterAbsorption.trim(),
   };
 }
 

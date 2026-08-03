@@ -1207,6 +1207,7 @@ test("sample registration journal saves and filters registration records", async
     sampleName: "Шамот молотый",
     registrationDate: "2026-07-29",
     samplingLocation: "Склад сырья",
+    waterAbsorption: "4,6",
   };
 
   await withApiServer(
@@ -1262,6 +1263,9 @@ test("sample registration journal saves and filters registration records", async
         "laboratory_sample_registration",
       );
       assert.equal(auditEvents[0]?.targetId, "sample-registration-1");
+      assert.ok(auditEvents[0]?.details?.some(
+        (detail) => detail.label === "Водопоглощение" && detail.value === "4,6",
+      ));
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,

@@ -221,6 +221,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             sampleName: "Шамот молотый",
             registrationDate: "2026-07-29",
             samplingLocation: "Опытная площадка",
+            waterAbsorption: "4,4",
             al2o3: "31,4",
             fe2o3: "2,1",
             sio2: "58,7",
@@ -606,6 +607,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Наименование пробы": "Глина огнеупорная",
       "Дата регистрации": "2026-07-30",
       "Место отбора пробы": "Пункт контроля № 2",
+      "Водопоглощение": "4,6",
     };
     await React.act(async () => {
       for (const [label, value] of Object.entries(sampleRegistrationValues)) {
@@ -628,6 +630,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleName: "Глина огнеупорная",
       registrationDate: "2026-07-30",
       samplingLocation: "Пункт контроля № 2",
+      waterAbsorption: "4,6",
     });
     assert.ok(
       Array.from(samplingLocationList.querySelectorAll("option")).some(
