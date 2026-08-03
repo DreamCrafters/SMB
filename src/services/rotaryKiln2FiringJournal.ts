@@ -1,5 +1,6 @@
 import type {
   RotaryKiln2FiringJournalFilters,
+  RotaryKiln2FiringJournalPersonnelOptions,
   RotaryKiln2FiringJournalRecord,
   RotaryKiln2FiringJournalSelection,
   RotaryKiln2FiringJournalSubmission,
@@ -12,6 +13,8 @@ import {
 } from "./remoteServer.js";
 
 const JOURNAL_PATH = "/api/laboratory/rotary-kiln-2-journal";
+const PERSONNEL_OPTIONS_PATH =
+  "/api/laboratory/rotary-kiln-2-personnel-options";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 type ErrorResult = {
@@ -26,6 +29,37 @@ export type RotaryKiln2FiringJournalListResult =
 export type RotaryKiln2FiringJournalSaveResult =
   | { status: "ready"; record: RotaryKiln2FiringJournalRecord }
   | ErrorResult;
+export type RotaryKiln2PersonnelOptionsResult =
+  | ({ status: "ready" } & RotaryKiln2FiringJournalPersonnelOptions)
+  | ErrorResult;
+
+export async function requestRotaryKiln2PersonnelOptions(
+  options: RequestOptions = {},
+): Promise<RotaryKiln2PersonnelOptionsResult> {
+  const result = await requestJson(
+    PERSONNEL_OPTIONS_PATH,
+    "GET",
+    undefined,
+    options,
+  );
+
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !isStringArray(result.payload.shiftSupervisors) ||
+    !isStringArray(result.payload.burnerOperators)
+  ) {
+    return invalidResponse(
+      "Сервер вернул список сотрудников журнала в неподдерживаемом формате.",
+    );
+  }
+
+  return {
+    status: "ready",
+    shiftSupervisors: result.payload.shiftSupervisors,
+    burnerOperators: result.payload.burnerOperators,
+  };
+}
 
 export async function requestRotaryKiln2FiringJournal(
   filters: RotaryKiln2FiringJournalFilters = {},
@@ -182,4 +216,8 @@ function invalidResponse(message: string): ErrorResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }

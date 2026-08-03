@@ -3,6 +3,7 @@ import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import type {
   RotaryKiln2FiringJournalFilters,
+  RotaryKiln2FiringJournalPersonnelOptions,
   RotaryKiln2FiringJournalRecord,
   RotaryKiln2FiringJournalSelection,
   RotaryKiln2FiringJournalSubmission,
@@ -27,6 +28,9 @@ export type RotaryKiln2FiringJournalRepository = {
   list: (
     filters?: RepositoryFilters,
   ) => Promise<RotaryKiln2FiringJournalSelection>;
+  listPersonnelOptions: () => Promise<
+    RotaryKiln2FiringJournalPersonnelOptions
+  >;
   listMaterialBulkDensities: (
     filters?: RotaryKiln2MaterialBulkDensityFilters,
   ) => Promise<RotaryKiln2MaterialBulkDensity[]>;
@@ -61,6 +65,11 @@ type RotaryKiln2MaterialBulkDensityRow = RowDataPacket & {
   average_bulk_density: number | string;
   sample_count: number | string;
   latest_record_date: Date | string;
+};
+
+type RotaryKiln2PersonnelOptionRow = RowDataPacket & {
+  option_type: "shift_supervisor" | "burner_operator";
+  value: string;
 };
 
 type RepositoryOptions = {
@@ -220,6 +229,37 @@ export function createRotaryKiln2FiringJournalRepository(
         averageBulkDensity: rows[0]?.average_bulk_density == null
           ? null
           : Number(rows[0].average_bulk_density),
+      };
+    },
+
+    async listPersonnelOptions() {
+      const [rows] = await pool.query<RotaryKiln2PersonnelOptionRow[]>(
+        `select option_type, value
+        from (
+          select
+            'shift_supervisor' as option_type,
+            shift_supervisor as value,
+            max(created_at) as last_used_at
+          from rotary_kiln_2_firing_journal
+          group by shift_supervisor
+          union all
+          select
+            'burner_operator' as option_type,
+            burner_operator as value,
+            max(created_at) as last_used_at
+          from rotary_kiln_2_firing_journal
+          group by burner_operator
+        ) as personnel_options
+        order by option_type asc, last_used_at desc, value asc`,
+      );
+
+      return {
+        shiftSupervisors: rows
+          .filter((row) => row.option_type === "shift_supervisor")
+          .map((row) => row.value),
+        burnerOperators: rows
+          .filter((row) => row.option_type === "burner_operator")
+          .map((row) => row.value),
       };
     },
 

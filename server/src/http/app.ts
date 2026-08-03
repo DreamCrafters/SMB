@@ -574,6 +574,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/results" ||
         url.pathname === "/api/laboratory/banks" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
+        url.pathname === "/api/laboratory/rotary-kiln-2-personnel-options" ||
         url.pathname === "/api/laboratory/sample-registration-draft" ||
         url.pathname === "/api/laboratory/sample-registration-locations" ||
         url.pathname === "/api/laboratory/sample-registration-journal" ||
@@ -2018,6 +2019,43 @@ async function handleLaboratoryRequest({
       laboratoryReferenceDataSource,
     );
     if (reference !== undefined) sendJson(res, 200, { reference });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/rotary-kiln-2-personnel-options") {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Список сотрудников доступен только для заполнения журнала.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для списка сотрудников используется GET.",
+        },
+      });
+      return;
+    }
+    if (rotaryKiln2FiringJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала вращающейся печи 2 не настроено.",
+        },
+      });
+      return;
+    }
+
+    sendJson(
+      res,
+      200,
+      await rotaryKiln2FiringJournal.listPersonnelOptions(),
+    );
     return;
   }
 

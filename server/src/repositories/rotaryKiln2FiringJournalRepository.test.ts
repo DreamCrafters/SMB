@@ -185,3 +185,42 @@ test("rotary kiln 2 firing repository can average a single requested material", 
   assert.deepEqual(materials, []);
   assert.deepEqual(queryParameters, ["ШГР-28", 10]);
 });
+
+test("rotary kiln 2 firing repository lists personnel options from the complete history", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[
+        {
+          option_type: "burner_operator",
+          value: "Сидоров С.С.",
+        },
+        {
+          option_type: "burner_operator",
+          value: "Смирнов С.С.",
+        },
+        {
+          option_type: "shift_supervisor",
+          value: "Петров П.П.",
+        },
+        {
+          option_type: "shift_supervisor",
+          value: "Кузнецов К.К.",
+        },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRotaryKiln2FiringJournalRepository(pool);
+
+  const options = await repository.listPersonnelOptions();
+
+  assert.deepEqual(options, {
+    shiftSupervisors: ["Петров П.П.", "Кузнецов К.К."],
+    burnerOperators: ["Сидоров С.С.", "Смирнов С.С."],
+  });
+  assert.match(querySql, /group by shift_supervisor/u);
+  assert.match(querySql, /group by burner_operator/u);
+  assert.match(querySql, /order by option_type asc, last_used_at desc/u);
+  assert.doesNotMatch(querySql, /limit/u);
+});

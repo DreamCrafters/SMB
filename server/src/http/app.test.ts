@@ -627,6 +627,9 @@ test("laboratory API reads the live matrix and saves the session-authored result
     async list() {
       return { records: [], averageBulkDensity: null };
     },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
     async listMaterialBulkDensities(filters) {
       kilnMaterialFilters.push(filters);
       const materials = [{
@@ -848,6 +851,9 @@ test("laboratory review access reads every journal by name but cannot change lab
       kilnJournalFilters.push(filters);
       return { records: [], averageBulkDensity: null };
     },
+    async listPersonnelOptions() {
+      throw new Error("Laboratory review access must not list form options.");
+    },
     async listMaterialBulkDensities() {
       return [];
     },
@@ -930,6 +936,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-07-01`,
         { headers },
       );
+      const kilnPersonnelOptionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-personnel-options`,
+        { headers },
+      );
       const sampleRegistrationResponse = await fetch(
         `${baseUrl}/api/laboratory/sample-registration-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
@@ -965,6 +975,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(createResponse.status, 403);
       assert.equal(banksResponse.status, 403);
       assert.equal(kilnJournalResponse.status, 200);
+      assert.equal(kilnPersonnelOptionsResponse.status, 403);
       assert.equal(sampleRegistrationResponse.status, 200);
       assert.equal(sampleRegistrationCorrectionResponse.status, 403);
       assert.equal(sampleRegistrationLocationsResponse.status, 403);
@@ -1044,6 +1055,12 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
         averageBulkDensity: savedInput?.record.bulkDensity ?? null,
       };
     },
+    async listPersonnelOptions() {
+      return {
+        shiftSupervisors: ["Петров П.П.", "Кузнецов К.К."],
+        burnerOperators: ["Сидоров С.С.", "Смирнов С.С."],
+      };
+    },
     async listMaterialBulkDensities() {
       return savedInput === undefined ? [] : [{
         material: savedInput.record.producedMaterial,
@@ -1101,6 +1118,10 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-07-01&dateTo=2026-07-31&query=Петров`,
         { headers },
       );
+      const personnelOptionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-personnel-options`,
+        { headers },
+      );
       const invalidFilterResponse = await fetch(
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-02-30`,
         { headers },
@@ -1108,6 +1129,11 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
 
       assert.equal(createResponse.status, 201);
       assert.equal(listResponse.status, 200);
+      assert.equal(personnelOptionsResponse.status, 200);
+      assert.deepEqual(await personnelOptionsResponse.json(), {
+        shiftSupervisors: ["Петров П.П.", "Кузнецов К.К."],
+        burnerOperators: ["Сидоров С.С.", "Смирнов С.С."],
+      });
       assert.deepEqual(await listResponse.json(), {
         records: [{
           id: "kiln-record-1",
@@ -3279,6 +3305,9 @@ test("account preview navigation grants reads without business mutations", async
     async list() {
       return { records: [], averageBulkDensity: null };
     },
+    async listPersonnelOptions() {
+      throw new Error("Account preview must not list kiln form options.");
+    },
     async listMaterialBulkDensities() {
       return [];
     },
@@ -3332,6 +3361,10 @@ test("account preview navigation grants reads without business mutations", async
     );
     const sampleRegistrationDraftResponse = await fetch(
       `${baseUrl}/api/laboratory/sample-registration-draft`,
+      { headers },
+    );
+    const kilnPersonnelOptionsResponse = await fetch(
+      `${baseUrl}/api/laboratory/rotary-kiln-2-personnel-options`,
       { headers },
     );
     const submitDispatcherResponse = await fetch(
@@ -3408,6 +3441,7 @@ test("account preview navigation grants reads without business mutations", async
     assert.equal(productionBrandsResponse.status, 200);
     assert.equal(laboratoryBanksResponse.status, 200);
     assert.equal(sampleRegistrationDraftResponse.status, 403);
+    assert.equal(kilnPersonnelOptionsResponse.status, 403);
     assert.equal(submitDispatcherResponse.status, 403);
     assert.equal(createProductionBrandResponse.status, 403);
     assert.equal(assignLaboratoryBankResponse.status, 403);

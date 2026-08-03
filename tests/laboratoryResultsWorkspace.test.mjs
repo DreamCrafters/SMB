@@ -43,6 +43,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const bankAssignments = [];
   const kilnJournalSubmissions = [];
   const kilnJournalRequests = [];
+  let kilnPersonnelOptionsRequests = 0;
   const sampleRegistrationSubmissions = [];
   const sampleRegistrationCorrections = [];
   const sampleRegistrationRequests = [];
@@ -130,6 +131,16 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             sampleCount: 3,
             latestRecordDate: "2026-07-30",
           }],
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/rotary-kiln-2-personnel-options"
+      ) {
+        kilnPersonnelOptionsRequests += 1;
+        return jsonResponse({
+          shiftSupervisors: ["Орлов О.О.", "Петров П.П."],
+          burnerOperators: ["Павлов П.П.", "Сидоров С.С."],
         });
       }
       if (url.pathname === "/api/laboratory/rotary-kiln-2-journal") {
@@ -489,6 +500,25 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     for (const label of expectedJournalLabels) {
       assert.ok(findControlByLabel(journalForm, label));
     }
+    await waitFor(React, () => kilnPersonnelOptionsRequests === 1);
+    const shiftSupervisorInput = findControlByLabel(
+      journalForm,
+      "Мастер смены",
+    );
+    const burnerOperatorInput = findControlByLabel(
+      journalForm,
+      "Обжигальщик",
+    );
+    assert.ok(shiftSupervisorInput.list);
+    assert.ok(burnerOperatorInput.list);
+    assert.deepEqual(
+      Array.from(shiftSupervisorInput.list.options, (option) => option.value),
+      ["Орлов О.О.", "Петров П.П."],
+    );
+    assert.deepEqual(
+      Array.from(burnerOperatorInput.list.options, (option) => option.value),
+      ["Павлов П.П.", "Сидоров С.С."],
+    );
     // Материал автозаполняется предыдущим значением журнала печи 2.
     await waitFor(React, () =>
       findControlByLabel(journalForm, "Производимый материал").value === "ША-22"
@@ -518,8 +548,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Расход газа в час": "321",
       "Разряжение": "14.6",
       "Давление": "1.9",
-      "Мастер смены": "Петров П.П.",
-      "Обжигальщик": "Сидоров С.С.",
+      "Мастер смены": "Ильин И.И.",
+      "Обжигальщик": "Фомин Ф.Ф.",
       "Лаборант": "Иванова А.А.",
       "Проход ч/з сито 0,5": "0.75",
       "Насыпной вес": "1.18",
@@ -552,8 +582,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       gasConsumptionPerHour: 321,
       vacuum: 14.6,
       pressure: 1.9,
-      shiftSupervisor: "Петров П.П.",
-      burnerOperator: "Сидоров С.С.",
+      shiftSupervisor: "Ильин И.И.",
+      burnerOperator: "Фомин Ф.Ф.",
       laboratoryAssistant: "Иванова А.А.",
       sievePass05: 0.75,
       bulkDensity: 1.18,
@@ -568,6 +598,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       findControlByLabel(journalForm, "Производимый материал").value,
       "ША-22",
     );
+    assert.equal(shiftSupervisorInput.list.options[0]?.value, "Ильин И.И.");
+    assert.equal(burnerOperatorInput.list.options[0]?.value, "Фомин Ф.Ф.");
 
     const searchInput = findControlByLabel(filters, "Поиск");
     await React.act(async () => {

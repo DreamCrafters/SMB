@@ -41,6 +41,11 @@ export type RotaryKiln2FiringJournalSelection = {
   averageBulkDensity: number | null;
 };
 
+export type RotaryKiln2FiringJournalPersonnelOptions = {
+  shiftSupervisors: string[];
+  burnerOperators: string[];
+};
+
 /**
  * Насыпной вес материала по последним записям журнала печи 2. Банки берут
  * коэффициент только отсюда, поэтому среднее считает backend.

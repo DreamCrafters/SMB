@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type {
+  RotaryKiln2FiringJournalPersonnelOptions,
   RotaryKiln2FiringJournalRecord,
   RotaryKiln2FiringJournalSubmission,
   ServerUserProfile,
@@ -15,6 +16,7 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   requestRotaryKiln2FiringJournal,
+  requestRotaryKiln2PersonnelOptions,
   submitRotaryKiln2FiringJournalRecord,
 } from "./services/rotaryKiln2FiringJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
@@ -64,9 +66,37 @@ export function LaboratoryRotaryKiln2FiringJournal({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
+  const [personnelOptions, setPersonnelOptions] = useState<
+    RotaryKiln2FiringJournalPersonnelOptions
+  >({ shiftSupervisors: [], burnerOperators: [] });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const { labels: productBrands, loadState: productBrandsLoadState } =
     useProductionBrands({ creationDisabled: true });
+
+  useEffect(() => {
+    if (isAdminPreviewMode) return;
+
+    const controller = new AbortController();
+    requestRotaryKiln2PersonnelOptions({ signal: controller.signal }).then(
+      (result) => {
+        if (controller.signal.aborted) return;
+        if (result.status === "ready") {
+          setPersonnelOptions({
+            shiftSupervisors: result.shiftSupervisors,
+            burnerOperators: result.burnerOperators,
+          });
+          return;
+        }
+        setFormMessage((current) => current === ""
+          ? readShortUserMessage(
+              result.message,
+              "Не удалось загрузить список сотрудников.",
+            )
+          : current);
+      },
+    );
+    return () => controller.abort();
+  }, [isAdminPreviewMode]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -154,6 +184,16 @@ export function LaboratoryRotaryKiln2FiringJournal({
     }
 
     hasEditedProducedMaterialRef.current = false;
+    setPersonnelOptions((current) => ({
+      shiftSupervisors: mergePersonnelOptions(
+        current.shiftSupervisors,
+        result.record.shiftSupervisor,
+      ),
+      burnerOperators: mergePersonnelOptions(
+        current.burnerOperators,
+        result.record.burnerOperator,
+      ),
+    }));
     setForm(createEmptyForm(
       profile.displayName,
       result.record.producedMaterial ?? "",
@@ -215,12 +255,14 @@ export function LaboratoryRotaryKiln2FiringJournal({
           <JournalInput
             field="shiftSupervisor"
             label="Мастер смены"
+            options={personnelOptions.shiftSupervisors}
             value={form.shiftSupervisor}
             onChange={updateField}
           />
           <JournalInput
             field="burnerOperator"
             label="Обжигальщик"
+            options={personnelOptions.burnerOperators}
             value={form.burnerOperator}
             onChange={updateField}
           />
@@ -324,21 +366,26 @@ function JournalInput<Field extends keyof FormState>({
   field,
   label,
   type = "text",
+  options,
   value,
   onChange,
 }: {
   field: Field;
   label: string;
   type?: "date" | "number" | "text" | "time";
+  options?: readonly string[];
   value: string;
   onChange: (field: Field, value: string) => void;
 }) {
+  const listId = `rotary-kiln-2-options-${useId().replaceAll(":", "")}`;
+
   return (
     <label>
       <span>{label}</span>
       <input
         required
         maxLength={type === "text" ? 120 : undefined}
+        list={options === undefined ? undefined : listId}
         step={type === "number" ? "any" : undefined}
         type={type}
         value={value}
@@ -347,8 +394,28 @@ function JournalInput<Field extends keyof FormState>({
           onChange(field, nextValue);
         }}
       />
+      {options === undefined
+        ? null
+        : (
+          <datalist id={listId}>
+            {options.map((option) => <option key={option} value={option} />)}
+          </datalist>
+        )}
     </label>
   );
+}
+
+function mergePersonnelOptions(current: readonly string[], addition: string) {
+  const normalizedAddition = normalizePersonnelOption(addition);
+  const additionKey = normalizedAddition.toLocaleLowerCase("ru-RU");
+  const remaining = current.filter((option) =>
+    normalizePersonnelOption(option).toLocaleLowerCase("ru-RU") !== additionKey
+  );
+  return [normalizedAddition, ...remaining];
+}
+
+function normalizePersonnelOption(value: string) {
+  return value.trim().replace(/\s+/gu, " ");
 }
 
 /**
