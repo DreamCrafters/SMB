@@ -1,5 +1,6 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import {
+  buildLaboratorySampleCodeDraft,
   laboratorySampleRegistrationFields,
   laboratorySampleRegistrationSamplingLocations,
   type LaboratorySampleRegistrationJournalRecord,
@@ -9,6 +10,7 @@ import {
 import { LaboratorySampleRegistrationTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
+  requestLaboratorySampleRegistrationDraft,
   requestLaboratorySampleRegistrationLocations,
   requestLaboratorySampleRegistrationJournal,
   submitLaboratorySampleRegistrationJournalRecord,
@@ -60,6 +62,44 @@ export function LaboratorySampleRegistrationJournal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const isLaboratorySampleCodeAuto = useRef(true);
+
+  useEffect(() => {
+    if (isAdminPreviewMode) return;
+    const controller = new AbortController();
+    requestLaboratorySampleRegistrationDraft({
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.status === "ready") {
+        setForm((current) => {
+          const usesSuggestedNumber = current.sampleNumber.trim() === "";
+          const sampleNumber = usesSuggestedNumber
+            ? result.sampleNumber
+            : current.sampleNumber;
+          return {
+            ...current,
+            sampleNumber,
+            laboratorySampleCode:
+              isLaboratorySampleCodeAuto.current &&
+                current.laboratorySampleCode.trim() === ""
+                ? usesSuggestedNumber
+                  ? result.laboratorySampleCode
+                  : buildLaboratorySampleCodeDraft(sampleNumber)
+                : current.laboratorySampleCode,
+          };
+        });
+        return;
+      }
+      setFormMessage((current) => current === ""
+        ? readShortUserMessage(
+            result.message,
+            "Не удалось загрузить следующий номер пробы.",
+          )
+        : current);
+    });
+    return () => controller.abort();
+  }, [isAdminPreviewMode, refreshVersion]);
 
   useEffect(() => {
     if (isAdminPreviewMode) return;
@@ -115,7 +155,18 @@ export function LaboratorySampleRegistrationJournal({
   }, [dateFrom, dateTo, query, refreshVersion]);
 
   function updateField(field: keyof FormState, value: string) {
-    setForm((current) => ({ ...current, [field]: value }));
+    if (field === "laboratorySampleCode") {
+      isLaboratorySampleCodeAuto.current = false;
+    }
+    setForm((current) => field === "sampleNumber"
+      ? {
+          ...current,
+          sampleNumber: value,
+          ...(isLaboratorySampleCodeAuto.current
+            ? { laboratorySampleCode: buildLaboratorySampleCodeDraft(value) }
+            : {}),
+        }
+      : { ...current, [field]: value });
     setFormMessage("");
   }
 
@@ -144,6 +195,7 @@ export function LaboratorySampleRegistrationJournal({
       return;
     }
 
+    isLaboratorySampleCodeAuto.current = true;
     setForm(createEmptyForm(profile.displayName));
     setSamplingLocationOptions((current) => mergeSamplingLocationOptions(
       current,

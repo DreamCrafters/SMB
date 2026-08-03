@@ -1,5 +1,6 @@
 import {
   laboratorySampleRegistrationFields,
+  type LaboratorySampleRegistrationDraft,
   type LaboratorySampleRegistrationJournalFilters,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
@@ -15,6 +16,7 @@ import {
 } from "./remoteServer.js";
 
 const JOURNAL_PATH = "/api/laboratory/sample-registration-journal";
+const DRAFT_PATH = "/api/laboratory/sample-registration-draft";
 const SAMPLING_LOCATIONS_PATH =
   "/api/laboratory/sample-registration-locations";
 
@@ -36,6 +38,9 @@ export type LaboratorySampleRegistrationLocationsResult =
       status: "ready";
       samplingLocations: string[];
     }
+  | ErrorResult;
+export type LaboratorySampleRegistrationDraftResult =
+  | ({ status: "ready" } & LaboratorySampleRegistrationDraft)
   | ErrorResult;
 export type LaboratorySampleRegistrationJournalSaveResult =
   | {
@@ -101,6 +106,29 @@ export async function requestLaboratorySampleRegistrationLocations(
   return {
     status: "ready",
     samplingLocations: result.payload.samplingLocations,
+  };
+}
+
+export async function requestLaboratorySampleRegistrationDraft(
+  options: RequestOptions = {},
+): Promise<LaboratorySampleRegistrationDraftResult> {
+  const result = await requestJson(DRAFT_PATH, "GET", undefined, options);
+
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    typeof result.payload.sampleNumber !== "string" ||
+    typeof result.payload.laboratorySampleCode !== "string"
+  ) {
+    return invalidResponse(
+      "Сервер вернул заготовку номера пробы в неподдерживаемом формате.",
+    );
+  }
+
+  return {
+    status: "ready",
+    sampleNumber: result.payload.sampleNumber,
+    laboratorySampleCode: result.payload.laboratorySampleCode,
   };
 }
 

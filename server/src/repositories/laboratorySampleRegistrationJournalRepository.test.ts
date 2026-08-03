@@ -211,6 +211,33 @@ test("sample registration repository lists every distinct sampling location", as
   assert.doesNotMatch(querySql, /limit/u);
 });
 
+test("sample registration repository suggests the next numeric sample number", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[{ max_sample_number: "18" }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  assert.equal(await repository.getNextSampleNumber(), "19");
+  assert.match(querySql, /max\(cast\(trim\(sample_number\) as unsigned\)\)/u);
+  assert.match(querySql, /trim\(sample_number\) regexp '\^\[0-9\]\+'/u);
+  assert.doesNotMatch(querySql, /limit/u);
+});
+
+test("sample registration repository starts numbering when numeric history is empty", async () => {
+  const pool = {
+    async query() {
+      return [[{ max_sample_number: null }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  assert.equal(await repository.getNextSampleNumber(), "1");
+});
+
 test("sample registration repository lists and resolves selectable samples", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const optionRow = {

@@ -72,6 +72,9 @@ import {
   validateLaboratorySampleRegistrationJournalSubmission,
 } from "../domain/laboratorySampleRegistrationJournal.js";
 import {
+  buildLaboratorySampleCodeDraft,
+} from "../contracts/laboratorySampleRegistrationJournal.js";
+import {
   validateLaboratoryChemicalAnalysisJournalSubmission,
 } from "../domain/laboratoryChemicalAnalysisJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
@@ -568,6 +571,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/results" ||
         url.pathname === "/api/laboratory/banks" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
+        url.pathname === "/api/laboratory/sample-registration-draft" ||
         url.pathname === "/api/laboratory/sample-registration-locations" ||
         url.pathname === "/api/laboratory/sample-registration-journal" ||
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
@@ -2119,6 +2123,44 @@ async function handleLaboratoryRequest({
     });
 
     sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/sample-registration-draft") {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Заготовка номера доступна только для заполнения журнала.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для заготовки номера используется GET.",
+        },
+      });
+      return;
+    }
+    if (laboratorySampleRegistrationJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала регистрации отбора проб не настроено.",
+        },
+      });
+      return;
+    }
+
+    const sampleNumber =
+      await laboratorySampleRegistrationJournal.getNextSampleNumber();
+    sendJson(res, 200, {
+      sampleNumber,
+      laboratorySampleCode: buildLaboratorySampleCodeDraft(sampleNumber),
+    });
     return;
   }
 

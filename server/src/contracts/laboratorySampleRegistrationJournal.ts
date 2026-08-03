@@ -11,6 +11,16 @@ export type LaboratorySampleRegistrationJournalSubmission = {
   waterAbsorption: string;
 };
 
+export type LaboratorySampleRegistrationDraft = Pick<
+  LaboratorySampleRegistrationJournalSubmission,
+  "sampleNumber" | "laboratorySampleCode"
+>;
+
+export function buildLaboratorySampleCodeDraft(sampleNumber: string) {
+  const numericValue = sampleNumber.match(/\d+/u)?.[0] ?? "";
+  return numericValue === "" ? "" : `.${numericValue}`;
+}
+
 export const laboratorySampleRegistrationSamplingLocations = [
   "склад сырья",
   "материальный склад",

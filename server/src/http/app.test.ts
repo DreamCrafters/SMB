@@ -863,6 +863,9 @@ test("laboratory review access reads every journal by name but cannot change lab
       sampleRegistrationFilters.push(filters);
       return [];
     },
+    async getNextSampleNumber() {
+      throw new Error("Laboratory review access must not load form drafts.");
+    },
     async listSamplingLocations() {
       throw new Error("Laboratory review access must not list form options.");
     },
@@ -932,6 +935,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/sample-registration-locations`,
         { headers },
       );
+      const sampleRegistrationDraftResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-draft`,
+        { headers },
+      );
       const chemicalAnalysisResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
@@ -953,6 +960,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(kilnJournalResponse.status, 200);
       assert.equal(sampleRegistrationResponse.status, 200);
       assert.equal(sampleRegistrationLocationsResponse.status, 403);
+      assert.equal(sampleRegistrationDraftResponse.status, 403);
       assert.equal(chemicalAnalysisResponse.status, 200);
       assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
@@ -1176,6 +1184,9 @@ test("sample registration journal saves and filters registration records", async
             createdAt: "2026-07-30T08:30:00.000Z",
           }];
     },
+    async getNextSampleNumber() {
+      return "19";
+    },
     async listSamplingLocations() {
       return ["Пункт контроля № 2"];
     },
@@ -1228,6 +1239,10 @@ test("sample registration journal saves and filters registration records", async
         `${baseUrl}/api/laboratory/sample-registration-locations`,
         { headers },
       );
+      const draftResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-draft`,
+        { headers },
+      );
       const invalidFilterResponse = await fetch(
         `${baseUrl}/api/laboratory/sample-registration-journal?dateTo=2026-02-30`,
         { headers },
@@ -1245,6 +1260,11 @@ test("sample registration journal saves and filters registration records", async
       assert.equal(locationsResponse.status, 200);
       assert.deepEqual(await locationsResponse.json(), {
         samplingLocations: ["Пункт контроля № 2"],
+      });
+      assert.equal(draftResponse.status, 200);
+      assert.deepEqual(await draftResponse.json(), {
+        sampleNumber: "19",
+        laboratorySampleCode: ".19",
       });
       assert.equal(invalidFilterResponse.status, 400);
       assert.deepEqual(requestedFilters, {
@@ -1320,6 +1340,9 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
     },
     async list() {
       return [];
+    },
+    async getNextSampleNumber() {
+      throw new Error("not used");
     },
     async listSamplingLocations() {
       return [];
@@ -3196,6 +3219,26 @@ test("account preview navigation grants reads without business mutations", async
       return [];
     },
   };
+  const sampleRegistrationJournal: LaboratorySampleRegistrationJournalRepository = {
+    async create() {
+      throw new Error("Account preview must not create samples.");
+    },
+    async list() {
+      return [];
+    },
+    async getNextSampleNumber() {
+      throw new Error("Account preview must not load form drafts.");
+    },
+    async listSamplingLocations() {
+      throw new Error("Account preview must not list form options.");
+    },
+    async listOptions() {
+      return [];
+    },
+    async findOptionById() {
+      return undefined;
+    },
+  };
 
   await withApiServer(async (baseUrl) => {
     const headers = {
@@ -3218,6 +3261,10 @@ test("account preview navigation grants reads without business mutations", async
     );
     const laboratoryBanksResponse = await fetch(
       `${baseUrl}/api/laboratory/banks`,
+      { headers },
+    );
+    const sampleRegistrationDraftResponse = await fetch(
+      `${baseUrl}/api/laboratory/sample-registration-draft`,
       { headers },
     );
     const submitDispatcherResponse = await fetch(
@@ -3293,6 +3340,7 @@ test("account preview navigation grants reads without business mutations", async
     assert.equal(dispatcherFeedResponse.status, 200);
     assert.equal(productionBrandsResponse.status, 200);
     assert.equal(laboratoryBanksResponse.status, 200);
+    assert.equal(sampleRegistrationDraftResponse.status, 403);
     assert.equal(submitDispatcherResponse.status, 403);
     assert.equal(createProductionBrandResponse.status, 403);
     assert.equal(assignLaboratoryBankResponse.status, 403);
@@ -3325,6 +3373,7 @@ test("account preview navigation grants reads without business mutations", async
     undefined,
     undefined,
     rotaryKiln2FiringJournal,
+    sampleRegistrationJournal,
   );
 });
 
