@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   RotaryKiln2FiringJournalRecord,
   RotaryKiln2FiringJournalSubmission,
@@ -53,6 +53,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
   onShowToast: ShowToast;
 }) {
   const [form, setForm] = useState(() => createEmptyForm(profile.displayName));
+  const hasEditedProducedMaterialRef = useRef(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [query, setQuery] = useState("");
@@ -69,20 +70,25 @@ export function LaboratoryRotaryKiln2FiringJournal({
 
   useEffect(() => {
     const controller = new AbortController();
+    const trimmedQuery = query.trim();
+    const filters = {
+      ...(dateFrom === "" ? {} : { dateFrom }),
+      ...(dateTo === "" ? {} : { dateTo }),
+      ...(trimmedQuery === "" ? {} : { query: trimmedQuery }),
+    };
+    // Предыдущий материал берём только из полной выборки: отфильтрованная
+    // история показывает срез журнала, а не последнюю внесённую запись.
+    const isUnfilteredSelection = Object.keys(filters).length === 0;
     setSelection((current) => ({
       status: "loading",
       records: current.records,
       average: current.average,
     }));
-    requestRotaryKiln2FiringJournal(
-      {
-        ...(dateFrom === "" ? {} : { dateFrom }),
-        ...(dateTo === "" ? {} : { dateTo }),
-        ...(query.trim() === "" ? {} : { query: query.trim() }),
-      },
-      { signal: controller.signal },
-    ).then((result) => {
+    requestRotaryKiln2FiringJournal(filters, { signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;
+      if (result.status === "ready" && isUnfilteredSelection) {
+        applyPreviousProducedMaterial(result.records);
+      }
       setSelection((current) => result.status === "ready"
         ? {
             status: "ready",
@@ -101,6 +107,16 @@ export function LaboratoryRotaryKiln2FiringJournal({
     });
     return () => controller.abort();
   }, [dateFrom, dateTo, query, refreshVersion]);
+
+  function applyPreviousProducedMaterial(
+    records: readonly RotaryKiln2FiringJournalRecord[],
+  ) {
+    if (hasEditedProducedMaterialRef.current) return;
+
+    const previousMaterial = readPreviousProducedMaterial(records);
+    if (previousMaterial === "") return;
+    setForm((current) => ({ ...current, producedMaterial: previousMaterial }));
+  }
 
   function updateField(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -137,7 +153,11 @@ export function LaboratoryRotaryKiln2FiringJournal({
       return;
     }
 
-    setForm(createEmptyForm(profile.displayName));
+    hasEditedProducedMaterialRef.current = false;
+    setForm(createEmptyForm(
+      profile.displayName,
+      result.record.producedMaterial ?? "",
+    ));
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
@@ -176,7 +196,10 @@ export function LaboratoryRotaryKiln2FiringJournal({
               labels={productBrands}
               name="producedMaterial"
               value={form.producedMaterial}
-              onChange={(value) => updateField("producedMaterial", value)}
+              onChange={(value) => {
+                hasEditedProducedMaterialRef.current = true;
+                updateField("producedMaterial", value);
+              }}
             />
           </label>
           {rotaryKiln2EarlyNumericFields.map(([field, label]) => (
@@ -328,14 +351,28 @@ function JournalInput<Field extends keyof FormState>({
   );
 }
 
-function createEmptyForm(laboratoryAssistant: string): FormState {
+/**
+ * Пока журнал пуст, материал остаётся пустым. Как только появилась хотя бы одна
+ * запись, форма подставляет её материал; выбор из справочника это заменяет.
+ */
+function readPreviousProducedMaterial(
+  records: readonly RotaryKiln2FiringJournalRecord[],
+) {
+  return records.find((record) => (record.producedMaterial ?? "") !== "")
+    ?.producedMaterial ?? "";
+}
+
+function createEmptyForm(
+  laboratoryAssistant: string,
+  producedMaterial = "",
+): FormState {
   const now = new Date();
   return {
     recordDate: formatLocalCalendarDate(now),
     recordTime: `${String(now.getHours()).padStart(2, "0")}:${String(
       now.getMinutes(),
     ).padStart(2, "0")}`,
-    producedMaterial: "",
+    producedMaterial,
     waterAbsorption: "",
     temperatureBeforeCyclone: "",
     temperatureBeforeFilter: "",

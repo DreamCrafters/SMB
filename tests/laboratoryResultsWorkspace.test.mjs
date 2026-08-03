@@ -451,6 +451,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     for (const label of expectedJournalLabels) {
       assert.ok(findControlByLabel(journalForm, label));
     }
+    // Материал автозаполняется предыдущим значением журнала печи 2.
+    await waitFor(React, () =>
+      findControlByLabel(journalForm, "Производимый материал").value === "ША-22"
+    );
     const average = rootElement.querySelector(".rotary-kiln-journal-average");
     const filters = rootElement.querySelector(".rotary-kiln-journal-filters");
     assert.ok(average);
@@ -518,6 +522,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       kilnLoadBucketsPerHour: 12,
       note: "Работа без отклонений.",
     });
+    // Остальные поля очищаются, а материал сохранённой записи остаётся подставленным.
+    await waitFor(React, () =>
+      findControlByLabel(journalForm, "Насыпной вес").value === ""
+    );
+    assert.equal(
+      findControlByLabel(journalForm, "Производимый материал").value,
+      "ША-22",
+    );
 
     const searchInput = findControlByLabel(filters, "Поиск");
     await React.act(async () => {
