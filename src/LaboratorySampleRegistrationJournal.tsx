@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import {
   laboratorySampleRegistrationFields,
+  laboratorySampleRegistrationSamplingLocations,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
   type ServerUserProfile,
@@ -8,6 +9,7 @@ import {
 import { LaboratorySampleRegistrationTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
+  requestLaboratorySampleRegistrationLocations,
   requestLaboratorySampleRegistrationJournal,
   submitLaboratorySampleRegistrationJournalRecord,
 } from "./services/laboratorySampleRegistrationJournal";
@@ -52,9 +54,36 @@ export function LaboratorySampleRegistrationJournal({
     status: "loading",
     records: [],
   });
+  const [samplingLocationOptions, setSamplingLocationOptions] = useState<
+    string[]
+  >(() => [...laboratorySampleRegistrationSamplingLocations]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+
+  useEffect(() => {
+    if (isAdminPreviewMode) return;
+    const controller = new AbortController();
+    requestLaboratorySampleRegistrationLocations({
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.status === "ready") {
+        setSamplingLocationOptions((current) => mergeSamplingLocationOptions(
+          current,
+          result.samplingLocations,
+        ));
+        return;
+      }
+      setFormMessage((current) => current === ""
+        ? readShortUserMessage(
+            result.message,
+            "Не удалось загрузить список мест отбора проб.",
+          )
+        : current);
+    });
+    return () => controller.abort();
+  }, [isAdminPreviewMode]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -116,6 +145,10 @@ export function LaboratorySampleRegistrationJournal({
     }
 
     setForm(createEmptyForm(profile.displayName));
+    setSamplingLocationOptions((current) => mergeSamplingLocationOptions(
+      current,
+      [result.record.samplingLocation],
+    ));
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
@@ -143,6 +176,12 @@ export function LaboratorySampleRegistrationJournal({
                 field={field.id}
                 key={field.id}
                 label={field.label}
+                options={field.id === "samplingLocation"
+                  ? samplingLocationOptions
+                  : undefined}
+                placeholder={field.id === "samplingLocation"
+                  ? "Выберите или введите новое место"
+                  : undefined}
                 type={field.kind === "date" ? "date" : "text"}
                 value={form[field.id]}
                 onChange={updateField}
@@ -221,6 +260,8 @@ function JournalInput<Field extends keyof FormState>({
   label,
   type = "text",
   inputMode,
+  options,
+  placeholder,
   value,
   onChange,
 }: {
@@ -228,9 +269,13 @@ function JournalInput<Field extends keyof FormState>({
   label: string;
   type?: "date" | "text";
   inputMode?: "decimal";
+  options?: readonly string[];
+  placeholder?: string;
   value: string;
   onChange: (field: Field, value: string) => void;
 }) {
+  const listId = `sample-registration-options-${useId().replaceAll(":", "")}`;
+
   return (
     <label>
       <span>{label}</span>
@@ -238,6 +283,8 @@ function JournalInput<Field extends keyof FormState>({
         required
         inputMode={inputMode}
         maxLength={type === "text" ? 120 : undefined}
+        list={options === undefined ? undefined : listId}
+        placeholder={placeholder}
         type={type}
         value={value}
         onChange={(event) => {
@@ -245,8 +292,37 @@ function JournalInput<Field extends keyof FormState>({
           onChange(field, nextValue);
         }}
       />
+      {options === undefined
+        ? null
+        : (
+          <datalist id={listId}>
+            {options.map((option) => <option key={option} value={option} />)}
+          </datalist>
+        )}
     </label>
   );
+}
+
+function mergeSamplingLocationOptions(
+  current: readonly string[],
+  additions: readonly string[],
+) {
+  const options = [...current];
+  const keys = new Set(options.map(normalizeSamplingLocationKey));
+
+  for (const addition of additions) {
+    const normalized = addition.trim().replace(/\s+/gu, " ");
+    const key = normalizeSamplingLocationKey(normalized);
+    if (normalized === "" || keys.has(key)) continue;
+    keys.add(key);
+    options.push(normalized);
+  }
+
+  return options;
+}
+
+function normalizeSamplingLocationKey(value: string) {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function createEmptyForm(laboratoryAssistant: string): FormState {

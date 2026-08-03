@@ -100,6 +100,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "033_optional_laboratory_chemical_analysis_values",
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
+    "036_sample_registration_sampling_location_index",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -157,6 +158,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "033_optional_laboratory_chemical_analysis_values",
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
+    "036_sample_registration_sampling_location_index",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -217,6 +219,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "033_optional_laboratory_chemical_analysis_values",
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
+    "036_sample_registration_sampling_location_index",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -279,6 +282,7 @@ test("chemical analysis optional-values migration keeps only the batch required"
     "032_laboratory_chemical_analysis_journal",
     "034_rotary_kiln_2_produced_material_bank_density",
     "035_protected_admin_accounts",
+    "036_sample_registration_sampling_location_index",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -337,6 +341,7 @@ test("kiln material migration adds the produced material and the journal density
     "032_laboratory_chemical_analysis_journal",
     "033_optional_laboratory_chemical_analysis_values",
     "035_protected_admin_accounts",
+    "036_sample_registration_sampling_location_index",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1269,6 +1274,44 @@ test("protected admin accounts migration adds the flag and protects original adm
   assert.match(
     statements[1] ?? "",
     /update app_users set is_admin_protected = 1 where lower\(trim\(login\)\) = 'admin'/u,
+  );
+});
+
+test("sample registration location migration indexes the persistent options", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "036_sample_registration_sampling_location_index"
+            ? []
+            : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(
+    statements[0] ?? "",
+    /alter table laboratory_sample_registration_journal add key idx_laboratory_sample_registration_location \( sampling_location, created_at \)/u,
   );
 });
 

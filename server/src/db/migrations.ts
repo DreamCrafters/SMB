@@ -2035,6 +2035,18 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "036_sample_registration_sampling_location_index",
+    statements: [
+      `
+      alter table laboratory_sample_registration_journal
+        add key idx_laboratory_sample_registration_location (
+          sampling_location,
+          created_at
+        );
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

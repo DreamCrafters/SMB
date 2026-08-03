@@ -10,7 +10,7 @@ test("sample registration journal accepts and normalizes a complete record", () 
     samplingLaboratoryAssistant: " Иванова А.А. ",
     sampleName: " Шамот молотый ",
     registrationDate: "2026-07-29",
-    samplingLocation: " Склад сырья ",
+    samplingLocation: " Пункт контроля № 2 ",
   });
 
   assert.deepEqual(validation, {
@@ -22,7 +22,7 @@ test("sample registration journal accepts and normalizes a complete record", () 
       samplingLaboratoryAssistant: "Иванова А.А.",
       sampleName: "Шамот молотый",
       registrationDate: "2026-07-29",
-      samplingLocation: "Склад сырья",
+      samplingLocation: "Пункт контроля № 2",
     },
   });
 });

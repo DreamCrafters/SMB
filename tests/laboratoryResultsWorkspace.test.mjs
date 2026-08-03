@@ -45,6 +45,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const kilnJournalRequests = [];
   const sampleRegistrationSubmissions = [];
   const sampleRegistrationRequests = [];
+  let sampleRegistrationLocationRequests = 0;
   const chemicalAnalysisSubmissions = [];
   const chemicalAnalysisRequests = [];
 
@@ -187,6 +188,16 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           averageBulkDensity: 1.2,
         });
       }
+      if (url.pathname === "/api/laboratory/sample-registration-locations") {
+        sampleRegistrationLocationRequests += 1;
+        return jsonResponse({
+          samplingLocations: [
+            "Опытная площадка",
+            "Архивная площадка",
+            " СКЛАД   СЫРЬЯ ",
+          ],
+        });
+      }
       if (url.pathname === "/api/laboratory/sample-registration-journal") {
         if (init.method === "POST") {
           const submission = JSON.parse(String(init.body));
@@ -209,7 +220,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             samplingLaboratoryAssistant: "Иванова А.А.",
             sampleName: "Шамот молотый",
             registrationDate: "2026-07-29",
-            samplingLocation: "Склад сырья",
+            samplingLocation: "Опытная площадка",
             al2o3: "31,4",
             fe2o3: "2,1",
             sio2: "58,7",
@@ -558,6 +569,35 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ".sample-registration-journal-form",
     );
     assert.ok(sampleRegistrationForm);
+    const samplingLocationInput = findControlByLabel(
+      sampleRegistrationForm,
+      "Место отбора пробы",
+    );
+    const samplingLocationListId = samplingLocationInput.getAttribute("list");
+    assert.ok(samplingLocationListId);
+    const samplingLocationList = rootElement.querySelector(
+      `#${samplingLocationListId}`,
+    );
+    assert.ok(samplingLocationList);
+    assert.deepEqual(
+      Array.from(samplingLocationList.querySelectorAll("option")).map(
+        (option) => option.value,
+      ),
+      [
+        "склад сырья",
+        "материальный склад",
+        "склад готовой продукции",
+        "ОЦ сортировка",
+        "ОЦ формовка",
+        "ОЦ затарка",
+        "ЦОШ",
+        "ЦОШ затарка",
+        "ЦОМ",
+        "ЦПКУ",
+        "Опытная площадка",
+        "Архивная площадка",
+      ],
+    );
     const sampleRegistrationValues = {
       "№ пробы": "18-Б",
       "Код лабораторной пробы": "ЛП-2026-018",
@@ -565,7 +605,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Лаборант (отбор проб)": "Иванова А.А.",
       "Наименование пробы": "Глина огнеупорная",
       "Дата регистрации": "2026-07-30",
-      "Место отбора пробы": "Склад сырья",
+      "Место отбора пробы": "Пункт контроля № 2",
     };
     await React.act(async () => {
       for (const [label, value] of Object.entries(sampleRegistrationValues)) {
@@ -587,8 +627,13 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       samplingLaboratoryAssistant: "Иванова А.А.",
       sampleName: "Глина огнеупорная",
       registrationDate: "2026-07-30",
-      samplingLocation: "Склад сырья",
+      samplingLocation: "Пункт контроля № 2",
     });
+    assert.ok(
+      Array.from(samplingLocationList.querySelectorAll("option")).some(
+        (option) => option.value === "Пункт контроля № 2",
+      ),
+    );
 
     const sampleRegistrationFilters = rootElement.querySelector(
       ".sample-registration-journal-filters",
@@ -609,6 +654,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         (request) => request.query === "ЛП-2026-017",
       )
     );
+    assert.equal(sampleRegistrationLocationRequests, 1);
 
     const chemicalAnalysisTab = Array.from(
       rootElement.querySelectorAll("button"),

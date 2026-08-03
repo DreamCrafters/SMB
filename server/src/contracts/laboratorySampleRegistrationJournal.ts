@@ -10,6 +10,19 @@ export type LaboratorySampleRegistrationJournalSubmission = {
   samplingLocation: string;
 };
 
+export const laboratorySampleRegistrationSamplingLocations = [
+  "склад сырья",
+  "материальный склад",
+  "склад готовой продукции",
+  "ОЦ сортировка",
+  "ОЦ формовка",
+  "ОЦ затарка",
+  "ЦОШ",
+  "ЦОШ затарка",
+  "ЦОМ",
+  "ЦПКУ",
+] as const;
+
 export const laboratorySampleRegistrationFields = [
   {
     id: "sampleNumber",

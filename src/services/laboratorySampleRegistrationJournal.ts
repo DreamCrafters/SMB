@@ -15,6 +15,8 @@ import {
 } from "./remoteServer.js";
 
 const JOURNAL_PATH = "/api/laboratory/sample-registration-journal";
+const SAMPLING_LOCATIONS_PATH =
+  "/api/laboratory/sample-registration-locations";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 type ErrorResult = {
@@ -27,6 +29,12 @@ export type LaboratorySampleRegistrationJournalListResult =
   | {
       status: "ready";
       records: LaboratorySampleRegistrationJournalRecord[];
+    }
+  | ErrorResult;
+export type LaboratorySampleRegistrationLocationsResult =
+  | {
+      status: "ready";
+      samplingLocations: string[];
     }
   | ErrorResult;
 export type LaboratorySampleRegistrationJournalSaveResult =
@@ -65,6 +73,35 @@ export async function requestLaboratorySampleRegistrationJournal(
   }
 
   return { status: "ready", records: result.payload.records };
+}
+
+export async function requestLaboratorySampleRegistrationLocations(
+  options: RequestOptions = {},
+): Promise<LaboratorySampleRegistrationLocationsResult> {
+  const result = await requestJson(
+    SAMPLING_LOCATIONS_PATH,
+    "GET",
+    undefined,
+    options,
+  );
+
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !Array.isArray(result.payload.samplingLocations) ||
+    !result.payload.samplingLocations.every(
+      (location) => typeof location === "string",
+    )
+  ) {
+    return invalidResponse(
+      "Сервер вернул список мест отбора проб в неподдерживаемом формате.",
+    );
+  }
+
+  return {
+    status: "ready",
+    samplingLocations: result.payload.samplingLocations,
+  };
 }
 
 export async function submitLaboratorySampleRegistrationJournalRecord(

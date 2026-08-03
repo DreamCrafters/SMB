@@ -185,6 +185,28 @@ test("sample registration repository omits chemistry until an analysis exists", 
   }]);
 });
 
+test("sample registration repository lists every distinct sampling location", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[
+        { sampling_location: "Пункт контроля № 2" },
+        { sampling_location: "Склад сырья" },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  assert.deepEqual(await repository.listSamplingLocations(), [
+    "Пункт контроля № 2",
+    "Склад сырья",
+  ]);
+  assert.match(querySql, /group by sampling_location/u);
+  assert.match(querySql, /order by max\(created_at\) desc/u);
+  assert.doesNotMatch(querySql, /limit/u);
+});
+
 test("sample registration repository lists and resolves selectable samples", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const optionRow = {

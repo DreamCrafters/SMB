@@ -863,6 +863,9 @@ test("laboratory review access reads every journal by name but cannot change lab
       sampleRegistrationFilters.push(filters);
       return [];
     },
+    async listSamplingLocations() {
+      throw new Error("Laboratory review access must not list form options.");
+    },
     async listOptions() {
       return [];
     },
@@ -925,6 +928,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/sample-registration-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
       );
+      const sampleRegistrationLocationsResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-locations`,
+        { headers },
+      );
       const chemicalAnalysisResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
@@ -945,6 +952,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(banksResponse.status, 403);
       assert.equal(kilnJournalResponse.status, 200);
       assert.equal(sampleRegistrationResponse.status, 200);
+      assert.equal(sampleRegistrationLocationsResponse.status, 403);
       assert.equal(chemicalAnalysisResponse.status, 200);
       assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
@@ -1168,6 +1176,9 @@ test("sample registration journal saves and filters registration records", async
             createdAt: "2026-07-30T08:30:00.000Z",
           }];
     },
+    async listSamplingLocations() {
+      return ["Пункт контроля № 2"];
+    },
     async listOptions() {
       return [];
     },
@@ -1212,6 +1223,10 @@ test("sample registration journal saves and filters registration records", async
         `${baseUrl}/api/laboratory/sample-registration-journal?dateFrom=2026-07-01&dateTo=2026-07-31&query=ЛП-2026-017`,
         { headers },
       );
+      const locationsResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-locations`,
+        { headers },
+      );
       const invalidFilterResponse = await fetch(
         `${baseUrl}/api/laboratory/sample-registration-journal?dateTo=2026-02-30`,
         { headers },
@@ -1225,6 +1240,10 @@ test("sample registration journal saves and filters registration records", async
           ...record,
           createdAt: "2026-07-30T08:30:00.000Z",
         }],
+      });
+      assert.equal(locationsResponse.status, 200);
+      assert.deepEqual(await locationsResponse.json(), {
+        samplingLocations: ["Пункт контроля № 2"],
       });
       assert.equal(invalidFilterResponse.status, 400);
       assert.deepEqual(requestedFilters, {
@@ -1296,6 +1315,9 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       throw new Error("not used");
     },
     async list() {
+      return [];
+    },
+    async listSamplingLocations() {
       return [];
     },
     async listOptions(filters) {

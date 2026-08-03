@@ -1,5 +1,6 @@
 export {
   laboratorySampleRegistrationFields,
+  laboratorySampleRegistrationSamplingLocations,
 } from "../../server/src/contracts/laboratorySampleRegistrationJournal.js";
 export type {
   LaboratorySampleRegistrationJournalFilters,

@@ -22,6 +22,7 @@ export type LaboratorySampleRegistrationJournalRepository = {
   list: (
     filters?: RepositoryFilters,
   ) => Promise<LaboratorySampleRegistrationJournalRecord[]>;
+  listSamplingLocations: () => Promise<string[]>;
   listOptions: (filters?: {
     query?: string;
     limit?: number;
@@ -61,6 +62,10 @@ type LaboratorySampleRegistrationOptionRow = RowDataPacket & {
   sample_name: string;
   sampling_date: Date | string;
   registration_date: Date | string;
+};
+
+type LaboratorySamplingLocationRow = RowDataPacket & {
+  sampling_location: string;
 };
 
 type RepositoryOptions = {
@@ -222,6 +227,17 @@ export function createLaboratorySampleRegistrationJournalRepository(
       );
 
       return rows.map(mapRecord);
+    },
+
+    async listSamplingLocations() {
+      const [rows] = await pool.query<LaboratorySamplingLocationRow[]>(
+        `select sampling_location
+        from laboratory_sample_registration_journal
+        group by sampling_location
+        order by max(created_at) desc, sampling_location asc`,
+      );
+
+      return rows.map((row) => row.sampling_location);
     },
 
     async listOptions(filters = {}) {
