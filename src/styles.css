@@ -2235,6 +2235,17 @@ p {
   gap: var(--density-1);
 }
 
+.production-dashboard-row-count {
+  min-height: 34px;
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .production-dashboard-table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -2281,6 +2292,14 @@ p {
   font-size: 11px;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.production-dashboard-table .production-dashboard-totals-row > * {
+  color: var(--text);
+  background: var(--blue-gray-soft);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: none;
 }
 
 .dispatcher-feed-row-incidents {

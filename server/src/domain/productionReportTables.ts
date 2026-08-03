@@ -60,6 +60,46 @@ export type ProductionReportTables = {
   granulation: ProductionGranulationRow[];
 };
 
+export type ProductionBrandCategoryTotals = {
+  rowCount: number;
+  dayPlan?: number;
+  dayFact?: number;
+  monthPlan?: number;
+  monthFact?: number;
+  deviation?: number;
+};
+
+export type ProductionJarMeasurementTotals = {
+  rowCount: number;
+  start?: number;
+  end?: number;
+  consumption?: number;
+};
+
+export type ProductionGranulationTotals = {
+  rowCount: number;
+  platesInOperation?: number;
+  millHours?: number;
+  fraction1630Day?: number;
+  fraction1630Month?: number;
+  fraction1218Day?: number;
+  fraction1218Month?: number;
+};
+
+export type ProductionReportTableTotals = {
+  forming: ProductionBrandCategoryTotals;
+  sorting: ProductionBrandCategoryTotals;
+  unformed: ProductionBrandCategoryTotals;
+  chamotte: ProductionBrandCategoryTotals;
+  jars: ProductionJarMeasurementTotals;
+  granulation: ProductionGranulationTotals;
+};
+
+export type ProductionReportDateRange = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
 export type ProductionMonthOverview = {
   month: string;
   totalFact: number;
@@ -100,6 +140,133 @@ export function buildProductionReportTables(
     jars: buildJarRows(dailyReports),
     granulation: buildGranulationRows(dailyReports),
   };
+}
+
+export function buildProductionReportTableTotals(
+  tables: ProductionReportTables,
+  range: ProductionReportDateRange = {},
+): ProductionReportTableTotals {
+  return {
+    forming: buildBrandCategoryTotals(
+      filterProductionRowsByDate(tables.forming, range),
+    ),
+    sorting: buildBrandCategoryTotals(
+      filterProductionRowsByDate(tables.sorting, range),
+    ),
+    unformed: buildBrandCategoryTotals(
+      filterProductionRowsByDate(tables.unformed, range),
+    ),
+    chamotte: buildBrandCategoryTotals(
+      filterProductionRowsByDate(tables.chamotte, range),
+    ),
+    jars: buildJarMeasurementTotals(
+      filterProductionRowsByDate(tables.jars, range),
+    ),
+    granulation: buildGranulationTotals(
+      filterProductionRowsByDate(tables.granulation, range),
+    ),
+  };
+}
+
+function buildBrandCategoryTotals(
+  rows: readonly ProductionBrandCategoryRow[],
+): ProductionBrandCategoryTotals {
+  const dayPlan = sumOptionalNumbers(rows.map((row) => row.dayPlan));
+  const dayFact = sumOptionalNumbers(rows.map((row) => row.dayFact));
+  const latestRow = readLatestProductionRow(rows);
+
+  return {
+    rowCount: rows.length,
+    dayPlan,
+    dayFact,
+    monthPlan: latestRow?.monthPlan,
+    monthFact: latestRow?.monthFact,
+    deviation: latestRow?.deviation,
+  };
+}
+
+function buildJarMeasurementTotals(
+  rows: readonly ProductionJarMeasurementRow[],
+): ProductionJarMeasurementTotals {
+  const start = sumOptionalNumbers(rows.map((row) => row.start));
+  const end = sumOptionalNumbers(rows.map((row) => row.end));
+  const consumption = sumOptionalNumbers(rows.map((row) => row.consumption));
+
+  return {
+    rowCount: rows.length,
+    start,
+    end,
+    consumption,
+  };
+}
+
+function buildGranulationTotals(
+  rows: readonly ProductionGranulationRow[],
+): ProductionGranulationTotals {
+  const latestRow = readLatestProductionRow(rows);
+  const platesInOperation = sumOptionalNumbers(
+    rows.map((row) => row.platesInOperation),
+  );
+  const millHours = sumOptionalNumbers(rows.map((row) => row.millHours));
+  const fraction1630Day = sumOptionalNumbers(
+    rows.map((row) => row.fraction1630Day),
+  );
+  const fraction1218Day = sumOptionalNumbers(
+    rows.map((row) => row.fraction1218Day),
+  );
+
+  return {
+    rowCount: rows.length,
+    platesInOperation,
+    millHours,
+    fraction1630Day,
+    fraction1630Month: latestRow?.fraction1630Month,
+    fraction1218Day,
+    fraction1218Month: latestRow?.fraction1218Month,
+  };
+}
+
+function filterProductionRowsByDate<Row extends ProductionReportBaseRow>(
+  rows: readonly Row[],
+  range: ProductionReportDateRange,
+) {
+  return rows.filter(
+    (row) =>
+      (range.dateFrom === undefined || row.reportDate >= range.dateFrom) &&
+      (range.dateTo === undefined || row.reportDate <= range.dateTo),
+  );
+}
+
+function sumOptionalNumbers(values: readonly (number | undefined)[]) {
+  let total = 0;
+  let hasValue = false;
+
+  for (const value of values) {
+    if (value === undefined) {
+      continue;
+    }
+
+    total += value;
+    hasValue = true;
+  }
+
+  return hasValue ? total : undefined;
+}
+
+function readLatestProductionRow<Row extends ProductionReportBaseRow>(
+  rows: readonly Row[],
+) {
+  return rows.reduce<Row | undefined>((latest, row) => {
+    if (
+      latest === undefined ||
+      row.reportDate > latest.reportDate ||
+      (row.reportDate === latest.reportDate && row.receivedAt > latest.receivedAt)
+    ) {
+      return row;
+    }
+
+    return latest;
+  }, undefined);
 }
 
 export function buildProductionMonthOverview(

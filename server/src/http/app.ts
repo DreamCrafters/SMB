@@ -43,7 +43,9 @@ import { applyVisitorStateRules } from "../domain/dispatcherVisitorState.js";
 import {
   buildProductionMonthToDate,
   buildProductionMonthOverview,
+  buildProductionReportTableTotals,
   buildProductionReportTables,
+  type ProductionReportDateRange,
 } from "../domain/productionReportTables.js";
 import {
   buildProductionCategoryPlan,
@@ -750,6 +752,18 @@ export function createApiServer({
             return;
           }
 
+          const productionTotalsRange = readProductionReportTotalsRange(url);
+
+          if (!productionTotalsRange.ok) {
+            sendJson(res, 400, {
+              error: {
+                code: "invalid_response",
+                message: productionTotalsRange.errors.join(" "),
+              },
+            });
+            return;
+          }
+
           const productionSubmissions = await listAllProductionSubmissions(
             dispatcherSubmissions,
           );
@@ -774,6 +788,10 @@ export function createApiServer({
             productionSubmissions,
             productionPlanValues,
           );
+          const productionReportTableTotals = buildProductionReportTableTotals(
+            productionReportTables,
+            productionTotalsRange.value,
+          );
           const productionMonthOverview = buildProductionMonthOverview(
             productionReportTables,
           );
@@ -792,6 +810,7 @@ export function createApiServer({
           sendJson(res, 200, {
             submissions,
             productionReportTables,
+            productionReportTableTotals,
             productionMonthOverview: productionMonthOverview ?? null,
             openIncidents,
             bankContents,
@@ -7267,6 +7286,39 @@ function readDispatcherFeedFilters(url: URL):
     ok: true,
     value: filters,
   };
+}
+
+function readProductionReportTotalsRange(url: URL):
+  | {
+      ok: true;
+      value: ProductionReportDateRange;
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  const errors: string[] = [];
+  const value: ProductionReportDateRange = {};
+  const dateFrom = readOptionalQueryParam(url, "productionDateFrom");
+  const dateTo = readOptionalQueryParam(url, "productionDateTo");
+
+  if (dateFrom !== undefined) {
+    if (isDateQueryValue(dateFrom)) {
+      value.dateFrom = dateFrom;
+    } else {
+      errors.push("productionDateFrom must use YYYY-MM-DD format.");
+    }
+  }
+
+  if (dateTo !== undefined) {
+    if (isDateQueryValue(dateTo)) {
+      value.dateTo = dateTo;
+    } else {
+      errors.push("productionDateTo must use YYYY-MM-DD format.");
+    }
+  }
+
+  return errors.length === 0 ? { ok: true, value } : { ok: false, errors };
 }
 
 async function listAllProductionSubmissions(

@@ -187,6 +187,7 @@ test("production dashboard selects the first section that receives live rows", a
           submissions: [],
           bankContents: [],
           tables: emptyTables,
+          totals: emptyProductionTableTotals(),
         }),
       );
     });
@@ -212,6 +213,10 @@ test("production dashboard selects the first section that receives live rows", a
               },
             ],
           },
+          totals: {
+            ...emptyProductionTableTotals(),
+            unformed: { rowCount: 1, dayFact: 12, monthFact: 12 },
+          },
         }),
       );
     });
@@ -225,6 +230,272 @@ test("production dashboard selects the first section that receives live rows", a
       rootElement.textContent ?? "",
       /Нет данных для выбранной таблицы и периода/u,
     );
+
+    await React.act(async () => root.unmount());
+  } finally {
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+test("production dashboard shows visible row count and column totals below section buttons", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+
+  installDomGlobals(dom.window);
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(ProductionReportSummaryTable, {
+          form: undefined,
+          submissions: [],
+          bankContents: [],
+          tables: {
+            forming: [
+              {
+                reportId: "production-older",
+                reportDate: "2026-07-06",
+                receivedAt: "2026-07-06T18:00:00.000Z",
+                facts: [{ brand: "ШБ-5", value: 93.37, monthValue: 311.73 }],
+                dayPlan: 95,
+                dayFact: 93.37,
+                monthPlan: 380,
+                monthFact: 311.73,
+                deviation: -68.27,
+              },
+              {
+                reportId: "production-latest",
+                reportDate: "2026-07-12",
+                receivedAt: "2026-07-12T18:00:00.000Z",
+                facts: [{ brand: "ШБ-5", value: 0, monthValue: 568.41 }],
+                dayFact: 0,
+                monthPlan: 760,
+                monthFact: 568.41,
+                deviation: -191.59,
+              },
+              {
+                reportId: "production-middle",
+                reportDate: "2026-07-10",
+                receivedAt: "2026-07-10T18:00:00.000Z",
+                facts: [{ brand: "ШБ-5", value: 82.16, monthValue: 568.41 }],
+                dayPlan: 95,
+                dayFact: 82.16,
+                monthPlan: 760,
+                monthFact: 568.41,
+                deviation: -191.59,
+              },
+            ],
+            sorting: [],
+            unformed: [],
+            chamotte: [],
+            jars: [],
+            granulation: [],
+          },
+          totals: {
+            ...emptyProductionTableTotals(),
+            forming: {
+              rowCount: 3,
+              dayPlan: 190,
+              dayFact: 175.53,
+              monthPlan: 760,
+              monthFact: 568.41,
+              deviation: -191.59,
+            },
+          },
+        }),
+      );
+    });
+
+    const sectionTabs = dom.window.document.querySelector(
+      '[aria-label="Таблицы выработки"]',
+    );
+    const rowCount = dom.window.document.querySelector(
+      ".production-dashboard-row-count",
+    );
+    const totalCells = [
+      ...dom.window.document.querySelectorAll(
+        ".production-dashboard-totals-row > *",
+      ),
+    ].map((cell) => cell.textContent);
+
+    assert.equal(rowCount?.textContent, "Строк в таблице: 3");
+    assert.equal(sectionTabs?.nextElementSibling, rowCount);
+    assert.deepEqual(totalCells, [
+      "Итого:",
+      "—",
+      "190",
+      "175,53",
+      "760",
+      "568,41",
+      "-191,59",
+    ]);
+
+    await React.act(async () => root.unmount());
+  } finally {
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+test("production dashboard totals follow the selected jars and granulation table", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+
+  installDomGlobals(dom.window);
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(ProductionReportSummaryTable, {
+          form: undefined,
+          submissions: [],
+          bankContents: [{ bankNumber: 1, materialLabel: "ШКИ" }],
+          tables: {
+            forming: [],
+            sorting: [],
+            unformed: [],
+            chamotte: [],
+            jars: [
+              {
+                reportId: "production-jars",
+                reportDate: "2026-07-18",
+                receivedAt: "2026-07-18T18:00:00.000Z",
+                jarNumber: 1,
+                start: 120,
+                end: 100,
+                consumption: 20,
+              },
+              {
+                reportId: "production-jars",
+                reportDate: "2026-07-18",
+                receivedAt: "2026-07-18T18:00:00.000Z",
+                jarNumber: 2,
+                start: 80,
+                end: 60,
+                consumption: 20,
+              },
+            ],
+            granulation: [
+              {
+                reportId: "production-granulation-older",
+                reportDate: "2026-07-17",
+                receivedAt: "2026-07-17T18:00:00.000Z",
+                platesInOperation: 2,
+                millHours: 3.5,
+                fraction1630Day: 1.2,
+                fraction1630Month: 4.2,
+                fraction1218Day: 0.8,
+                fraction1218Month: 2.8,
+              },
+              {
+                reportId: "production-granulation-latest",
+                reportDate: "2026-07-18",
+                receivedAt: "2026-07-18T18:00:00.000Z",
+                platesInOperation: 3,
+                millHours: 4.5,
+                fraction1630Day: 1.3,
+                fraction1630Month: 5.5,
+                fraction1218Day: 1.2,
+                fraction1218Month: 4,
+              },
+            ],
+          },
+          totals: {
+            ...emptyProductionTableTotals(),
+            jars: {
+              rowCount: 2,
+              start: 200,
+              end: 160,
+              consumption: 40,
+            },
+            granulation: {
+              rowCount: 2,
+              platesInOperation: 5,
+              millHours: 8,
+              fraction1630Day: 2.5,
+              fraction1630Month: 5.5,
+              fraction1218Day: 2,
+              fraction1218Month: 4,
+            },
+          },
+        }),
+      );
+    });
+
+    const readTotals = () => [
+      ...dom.window.document.querySelectorAll(
+        ".production-dashboard-totals-row > *",
+      ),
+    ].map((cell) => cell.textContent);
+
+    assert.equal(
+      dom.window.document.querySelector(".production-dashboard-row-count")
+        ?.textContent,
+      "Строк в таблице: 2",
+    );
+    assert.deepEqual(readTotals(), ["Итого:", "—", "—", "200", "160", "40"]);
+
+    const granulationButton = [...dom.window.document.querySelectorAll(
+      '[aria-label="Таблицы выработки"] button',
+    )].find((button) => button.textContent === "Участок грануляции");
+
+    assert.ok(granulationButton instanceof dom.window.HTMLElement);
+
+    await React.act(async () => {
+      granulationButton.click();
+    });
+
+    assert.equal(
+      dom.window.document.querySelector(".production-dashboard-row-count")
+        ?.textContent,
+      "Строк в таблице: 2",
+    );
+    assert.deepEqual(readTotals(), [
+      "Итого:",
+      "5",
+      "8",
+      "2,5",
+      "5,5",
+      "2",
+      "4",
+    ]);
 
     await React.act(async () => root.unmount());
   } finally {
@@ -291,13 +562,22 @@ test("jar dashboard table shows the current bank content next to the number", as
             ],
             granulation: [],
           },
+          totals: {
+            ...emptyProductionTableTotals(),
+            jars: {
+              rowCount: 2,
+              start: 200,
+              end: 160,
+              consumption: 40,
+            },
+          },
         }),
       );
     });
 
     const headers = [
       ...dom.window.document.querySelectorAll(
-        ".production-dashboard-table thead th",
+        ".production-dashboard-headings-row th",
       ),
     ].map((cell) => cell.textContent);
     const firstRow = [
@@ -466,6 +746,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
           },
         ],
         productionReportTables: emptyProductionTables(),
+        productionReportTableTotals: emptyProductionTableTotals(),
         productionMonthOverview: null,
         openIncidents: [],
         bankContents: [],
@@ -488,6 +769,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       return jsonResponse({
         submissions: [],
         productionReportTables: emptyProductionTables(),
+        productionReportTableTotals: emptyProductionTableTotals(),
         productionMonthOverview: null,
         openIncidents: [],
         bankContents: [],
@@ -502,6 +784,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       return jsonResponse({
         submissions: [],
         productionReportTables: emptyProductionTables(),
+        productionReportTableTotals: emptyProductionTableTotals(),
         productionMonthOverview: null,
         openIncidents: [],
         bankContents: [],
@@ -1019,6 +1302,17 @@ function emptyProductionTables() {
     chamotte: [],
     jars: [],
     granulation: [],
+  };
+}
+
+function emptyProductionTableTotals() {
+  return {
+    forming: { rowCount: 0 },
+    sorting: { rowCount: 0 },
+    unformed: { rowCount: 0 },
+    chamotte: { rowCount: 0 },
+    jars: { rowCount: 0 },
+    granulation: { rowCount: 0 },
   };
 }
 

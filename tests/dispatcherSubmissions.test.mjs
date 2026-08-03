@@ -49,6 +49,15 @@ const emptyProductionReportTables = {
   granulation: [],
 };
 
+const emptyProductionReportTableTotals = {
+  forming: { rowCount: 0 },
+  sorting: { rowCount: 0 },
+  unformed: { rowCount: 0 },
+  chamotte: { rowCount: 0 },
+  jars: { rowCount: 0 },
+  granulation: { rowCount: 0 },
+};
+
 test("getRemoteServerConnection reports missing remote server without URL", () => {
   const result = getRemoteServerConnection({ baseUrl: "" });
 
@@ -725,6 +734,46 @@ test("dispatcher forms use local test storage on network failure when enabled", 
   assert.equal(result.forms[0].id, "equipment");
 });
 
+test("requestDispatcherFeed keeps the production totals range in network fallback", async () => {
+  const storage = createMemoryStorage();
+
+  for (const [reportDate, sortingDay] of [
+    ["2026-07-16", "5"],
+    ["2026-07-17", "7"],
+  ]) {
+    const submitResult = await submitDispatcherSubmission(
+      {
+        formId: "production",
+        payload: {
+          reportDate,
+          sortingDay,
+          sortingProductBrand: "Сорт-1",
+        },
+      },
+      { baseUrl: "", localFallback: true, storage },
+    );
+
+    assert.equal(submitResult.status, "ready");
+  }
+
+  globalThis.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+
+  const result = await requestDispatcherFeed({
+    baseUrl: "http://127.0.0.1:3000",
+    localFallback: true,
+    storage,
+    productionDateFrom: "2026-07-17",
+    productionDateTo: "2026-07-17",
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.source, "local_test");
+  assert.equal(result.productionReportTableTotals.sorting.rowCount, 1);
+  assert.equal(result.productionReportTableTotals.sorting.dayFact, 7);
+});
+
 test("requestDispatcherFeed reads live history from remote server", async () => {
   let request;
 
@@ -735,6 +784,7 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
       JSON.stringify({
         submissions: [submission],
         productionReportTables: emptyProductionReportTables,
+        productionReportTableTotals: emptyProductionReportTableTotals,
         productionMonthOverview: null,
         openIncidents: [],
         bankContents: [],
@@ -762,6 +812,8 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
     formId: "equipment",
     dateFrom: "2026-06-01",
     dateTo: "2026-06-30",
+    productionDateFrom: "2026-06-10",
+    productionDateTo: "2026-06-20",
     reportDate: "2026-06-18",
     limit: 500,
   });
@@ -769,10 +821,14 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
   assert.equal(result.status, "ready");
   assert.equal(result.submissions.length, 1);
   assert.deepEqual(result.productionReportTables, emptyProductionReportTables);
+  assert.deepEqual(
+    result.productionReportTableTotals,
+    emptyProductionReportTableTotals,
+  );
   assert.equal(result.productionMonthOverview, null);
   assert.equal(
     request.endpoint,
-    "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&reportDate=2026-06-18&limit=500",
+    "https://api.example.test/api/dispatcher/submissions?formId=equipment&dateFrom=2026-06-01&dateTo=2026-06-30&productionDateFrom=2026-06-10&productionDateTo=2026-06-20&reportDate=2026-06-18&limit=500",
   );
   assert.equal(request.init.method, "GET");
 });
@@ -795,6 +851,7 @@ test("requestCompleteDispatcherFeed reads every history page", async () => {
       JSON.stringify({
         submissions: pageSubmissions,
         productionReportTables: emptyProductionReportTables,
+        productionReportTableTotals: emptyProductionReportTableTotals,
         productionMonthOverview: null,
         openIncidents: [],
         bankContents: [],

@@ -13,6 +13,15 @@ const emptyProductionReportTables = {
   granulation: [],
 };
 
+const emptyProductionReportTableTotals = {
+  forming: { rowCount: 0 },
+  sorting: { rowCount: 0 },
+  unformed: { rowCount: 0 },
+  chamotte: { rowCount: 0 },
+  jars: { rowCount: 0 },
+  granulation: { rowCount: 0 },
+};
+
 test("dispatcher incidents render every unclosed incident with one active filter", async () => {
   const vite = await createServer({
     appType: "custom",
@@ -41,6 +50,7 @@ test("dispatcher incidents render every unclosed incident with one active filter
             }),
           ],
           productionReportTables: emptyProductionReportTables,
+          productionReportTableTotals: emptyProductionReportTableTotals,
           productionMonthOverview: null,
           openIncidents: [
             {

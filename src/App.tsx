@@ -31,15 +31,19 @@ import {
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
   type ProductionBrandCategoryRow,
+  type ProductionBrandCategoryTotals,
   type ProductionBrandLabel,
   type ProductionCategory,
   type ProductionCategoryPlans,
   type ProductionDailyPlan,
   type ProductionGranulationRow,
+  type ProductionGranulationTotals,
   type ProductionJarMeasurementRow,
+  type ProductionJarMeasurementTotals,
   type ProductionMetricRow,
   type ProductionMonthToDateValue,
   type ProductionReportBaseRow,
+  type ProductionReportTableTotals,
   type ProductionReportTables,
   type ProductionPlanRevision,
   type ProductionPlanPreviewResponse,
@@ -420,6 +424,15 @@ const emptyProductionReportTables: ProductionReportTables = {
   granulation: [],
 };
 
+const emptyProductionReportTableTotals: ProductionReportTableTotals = {
+  forming: { rowCount: 0 },
+  sorting: { rowCount: 0 },
+  unformed: { rowCount: 0 },
+  chamotte: { rowCount: 0 },
+  jars: { rowCount: 0 },
+  granulation: { rowCount: 0 },
+};
+
 const initialDispatcherFormsState: DispatcherFormsLoadState = {
   status: "loading",
   message: "Загружаем формы.",
@@ -739,6 +752,22 @@ export default function App() {
       navigationByBusinessTab,
       visibleDispatcherNavigationItems,
     );
+    const isAdminViewedFeed =
+      accessProfile.status === "ready" &&
+      accessProfile.profile.accountType === "admin" &&
+      adminTab === "account_preview" &&
+      adminViewedAccount !== undefined;
+    const activeDispatcherFeedFilters = isAdminViewedFeed
+      ? adminViewedDispatcherFeedFilters
+      : dispatcherFeedFilters;
+    const productionDateFrom =
+      activeDispatcherFeedFilters.group === "production"
+        ? activeDispatcherFeedFilters.dateFrom || undefined
+        : undefined;
+    const productionDateTo =
+      activeDispatcherFeedFilters.group === "production"
+        ? activeDispatcherFeedFilters.dateTo || undefined
+        : undefined;
 
     if (
       accessProfile.status !== "ready" ||
@@ -785,6 +814,8 @@ export default function App() {
           signal: currentController.signal,
           localFallback: isLocalTestFallbackEnabled,
           limit: dispatcherFeedPageLimit,
+          productionDateFrom,
+          productionDateTo,
         });
 
         if (!isActive) {
@@ -836,8 +867,15 @@ export default function App() {
     };
   }, [
     accessProfile,
+    adminTab,
     adminViewedAccount,
+    adminViewedDispatcherFeedFilters.group,
+    adminViewedDispatcherFeedFilters.dateFrom,
+    adminViewedDispatcherFeedFilters.dateTo,
     adminViewedOwnerTab,
+    dispatcherFeedFilters.group,
+    dispatcherFeedFilters.dateFrom,
+    dispatcherFeedFilters.dateTo,
     ownerTab,
     dispatcherSubmissionVersion,
   ]);
@@ -6160,6 +6198,10 @@ export function DispatcherFeedPanel({
       : emptyProductionReportTables,
     selectedDateRange,
   );
+  const productionTableTotals =
+    dispatcherFeed.status === "ready"
+      ? dispatcherFeed.productionReportTableTotals
+      : emptyProductionReportTableTotals;
   const bankContents =
     dispatcherFeed.status === "ready" ? dispatcherFeed.bankContents : [];
   const incidentRows = showAllOpenIncidents
@@ -6172,16 +6214,14 @@ export function DispatcherFeedPanel({
     dispatcherForms.status === "ready"
       ? dispatcherForms.forms.find((form) => form.id === "production")
       : undefined;
-  const visibleRowCount = {
-    production: new Set(
-      Object.values(productionTables)
-        .flat()
-        .map((row) => row.reportId),
-    ).size,
-    equipment: equipmentRows.length,
-    incidents: incidentRows.length,
-    visitors: visitorRows.length,
-  }[filters.group];
+  const visibleRowCount =
+    filters.group === "equipment"
+      ? equipmentRows.length
+      : filters.group === "incidents"
+        ? incidentRows.length
+        : filters.group === "visitors"
+          ? visitorRows.length
+          : undefined;
 
   function handlePeriodChange(period: DispatcherFeedPeriod) {
     const range = buildDispatcherFeedDateRange(period);
@@ -6291,7 +6331,9 @@ export function DispatcherFeedPanel({
       </div>
       {dispatcherFeed.status === "ready" ? (
         <div className="dispatcher-summary-strip" aria-label="Сводка регистраций">
-          <span>Строк в таблице: {visibleRowCount}</span>
+          {filters.group === "production" ? null : (
+            <span>Строк в таблице: {visibleRowCount}</span>
+          )}
           <span>Обновлено: {formatDateTime(dispatcherFeed.receivedAt)}</span>
         </div>
       ) : null}
@@ -6328,6 +6370,7 @@ export function DispatcherFeedPanel({
         <ProductionReportSummaryTable
           form={productionForm}
           tables={productionTables}
+          totals={productionTableTotals}
           bankContents={bankContents}
           submissions={submissions}
         />
@@ -6496,11 +6539,13 @@ const legacyProductionDetailFields: readonly DispatcherFormField[] = [
 export function ProductionReportSummaryTable({
   form,
   tables,
+  totals,
   bankContents,
   submissions,
 }: {
   form: DispatcherFormDefinition | undefined;
   tables: ProductionReportTables;
+  totals: ProductionReportTableTotals;
   bankContents: readonly DispatcherProductionBankContent[];
   submissions: DispatcherSubmission[];
 }) {
@@ -6513,6 +6558,7 @@ export function ProductionReportSummaryTable({
   const hadAvailableSectionRef = useRef(firstAvailableSection !== undefined);
   const [detailReportId, setDetailReportId] = useState<string>();
   const selectedRows = tables[section] as ProductionReportBaseRow[];
+  const selectedTotals = totals[section];
   const detailRow = selectedRows.find(
     (row) => row.reportId === detailReportId,
   );
@@ -6593,6 +6639,10 @@ export function ProductionReportSummaryTable({
         ))}
       </div>
 
+      <p className="production-dashboard-row-count">
+        Строк в таблице: {selectedTotals.rowCount}
+      </p>
+
       {selectedRows.length === 0 ? (
         <p className="dispatcher-status-line">
           Нет данных для выбранной таблицы и периода.
@@ -6603,12 +6653,14 @@ export function ProductionReportSummaryTable({
         section === "chamotte" ? (
         <ProductionBrandDashboardTable
           rows={tables[section]}
+          totals={totals[section]}
           formAvailable={form !== undefined}
           onOpen={setDetailReportId}
         />
       ) : section === "jars" ? (
         <ProductionJarDashboardTable
           rows={tables.jars}
+          totals={totals.jars}
           bankContents={bankContents}
           formAvailable={form !== undefined}
           onOpen={setDetailReportId}
@@ -6616,6 +6668,7 @@ export function ProductionReportSummaryTable({
       ) : (
         <ProductionGranulationDashboardTable
           rows={tables.granulation}
+          totals={totals.granulation}
           formAvailable={form !== undefined}
           onOpen={setDetailReportId}
         />
@@ -6637,10 +6690,12 @@ export function ProductionReportSummaryTable({
 
 function ProductionBrandDashboardTable({
   rows,
+  totals,
   formAvailable,
   onOpen,
 }: {
   rows: ProductionBrandCategoryRow[];
+  totals: ProductionBrandCategoryTotals;
   formAvailable: boolean;
   onOpen: (reportId: string) => void;
 }) {
@@ -6648,7 +6703,16 @@ function ProductionBrandDashboardTable({
     <div className="production-dashboard-table-wrap">
       <table className="production-dashboard-table production-dashboard-brand-table">
         <thead>
-          <tr>
+          <tr className="production-dashboard-totals-row">
+            <th scope="row">Итого:</th>
+            <td>—</td>
+            <td>{formatOptionalNumber(totals.dayPlan)}</td>
+            <td>{formatOptionalNumber(totals.dayFact)}</td>
+            <td>{formatOptionalNumber(totals.monthPlan)}</td>
+            <td>{formatOptionalNumber(totals.monthFact)}</td>
+            <td>{formatOptionalNumber(totals.deviation)}</td>
+          </tr>
+          <tr className="production-dashboard-headings-row">
             <th scope="col">Дата</th>
             <th scope="col">Марка</th>
             <th scope="col">Сутки, план</th>
@@ -6688,11 +6752,13 @@ function ProductionBrandDashboardTable({
 
 function ProductionJarDashboardTable({
   rows,
+  totals,
   bankContents,
   formAvailable,
   onOpen,
 }: {
   rows: ProductionJarMeasurementRow[];
+  totals: ProductionJarMeasurementTotals;
   bankContents: readonly DispatcherProductionBankContent[];
   formAvailable: boolean;
   onOpen: (reportId: string) => void;
@@ -6700,12 +6766,19 @@ function ProductionJarDashboardTable({
   const materialByBankNumber = new Map<number, string>(
     bankContents.map((content) => [content.bankNumber, content.materialLabel]),
   );
-
   return (
     <div className="production-dashboard-table-wrap">
       <table className="production-dashboard-table">
         <thead>
-          <tr>
+          <tr className="production-dashboard-totals-row">
+            <th scope="row">Итого:</th>
+            <td>—</td>
+            <td>—</td>
+            <td>{formatOptionalNumber(totals.start)}</td>
+            <td>{formatOptionalNumber(totals.end)}</td>
+            <td>{formatOptionalNumber(totals.consumption)}</td>
+          </tr>
+          <tr className="production-dashboard-headings-row">
             <th scope="col">Дата</th>
             <th scope="col">Банка</th>
             <th scope="col">Содержимое</th>
@@ -6741,10 +6814,12 @@ function ProductionJarDashboardTable({
 
 function ProductionGranulationDashboardTable({
   rows,
+  totals,
   formAvailable,
   onOpen,
 }: {
   rows: ProductionGranulationRow[];
+  totals: ProductionGranulationTotals;
   formAvailable: boolean;
   onOpen: (reportId: string) => void;
 }) {
@@ -6752,7 +6827,16 @@ function ProductionGranulationDashboardTable({
     <div className="production-dashboard-table-wrap">
       <table className="production-dashboard-table production-dashboard-granulation-table">
         <thead>
-          <tr>
+          <tr className="production-dashboard-totals-row">
+            <th scope="row">Итого:</th>
+            <td>{formatOptionalNumber(totals.platesInOperation)}</td>
+            <td>{formatOptionalNumber(totals.millHours)}</td>
+            <td>{formatOptionalNumber(totals.fraction1630Day)}</td>
+            <td>{formatOptionalNumber(totals.fraction1630Month)}</td>
+            <td>{formatOptionalNumber(totals.fraction1218Day)}</td>
+            <td>{formatOptionalNumber(totals.fraction1218Month)}</td>
+          </tr>
+          <tr className="production-dashboard-headings-row">
             <th scope="col">Дата</th>
             <th scope="col">Тарелок в работе</th>
             <th scope="col">Мельница, ч</th>

@@ -8,8 +8,10 @@ import type {
   ProductionBrandFact,
   ProductionGranulationRow,
   ProductionJarMeasurementRow,
+  ProductionReportTableTotals,
   ProductionMonthOverview,
   ProductionMetricRow,
+  ProductionReportBaseRow,
   ProductionReportTables,
 } from "../contracts";
 
@@ -405,6 +407,118 @@ export function filterProductionReportTables(
     granulation: tables.granulation.filter((row) =>
       isDateInRange(row.reportDate, range)),
   };
+}
+
+export function buildLocalProductionReportTableTotals(
+  tables: ProductionReportTables,
+  range: DateRange,
+): ProductionReportTableTotals {
+  const filteredTables = filterProductionReportTables(tables, range);
+
+  return {
+    forming: buildLocalBrandCategoryTotals(filteredTables.forming),
+    sorting: buildLocalBrandCategoryTotals(filteredTables.sorting),
+    unformed: buildLocalBrandCategoryTotals(filteredTables.unformed),
+    chamotte: buildLocalBrandCategoryTotals(filteredTables.chamotte),
+    jars: buildLocalJarMeasurementTotals(filteredTables.jars),
+    granulation: buildLocalGranulationTotals(filteredTables.granulation),
+  };
+}
+
+function buildLocalBrandCategoryTotals(
+  rows: readonly ProductionBrandCategoryRow[],
+) {
+  const dayPlan = sumOptionalProductionNumbers(rows.map((row) => row.dayPlan));
+  const dayFact = sumOptionalProductionNumbers(rows.map((row) => row.dayFact));
+  const latestRow = readLatestProductionRow(rows);
+
+  return {
+    rowCount: rows.length,
+    dayPlan,
+    dayFact,
+    monthPlan: latestRow?.monthPlan,
+    monthFact: latestRow?.monthFact,
+    deviation: latestRow?.deviation,
+  };
+}
+
+function buildLocalJarMeasurementTotals(
+  rows: readonly ProductionJarMeasurementRow[],
+) {
+  const start = sumOptionalProductionNumbers(rows.map((row) => row.start));
+  const end = sumOptionalProductionNumbers(rows.map((row) => row.end));
+  const consumption = sumOptionalProductionNumbers(
+    rows.map((row) => row.consumption),
+  );
+
+  return {
+    rowCount: rows.length,
+    start,
+    end,
+    consumption,
+  };
+}
+
+function buildLocalGranulationTotals(
+  rows: readonly ProductionGranulationRow[],
+) {
+  const latestRow = readLatestProductionRow(rows);
+  const platesInOperation = sumOptionalProductionNumbers(
+    rows.map((row) => row.platesInOperation),
+  );
+  const millHours = sumOptionalProductionNumbers(
+    rows.map((row) => row.millHours),
+  );
+  const fraction1630Day = sumOptionalProductionNumbers(
+    rows.map((row) => row.fraction1630Day),
+  );
+  const fraction1218Day = sumOptionalProductionNumbers(
+    rows.map((row) => row.fraction1218Day),
+  );
+
+  return {
+    rowCount: rows.length,
+    platesInOperation,
+    millHours,
+    fraction1630Day,
+    fraction1630Month: latestRow?.fraction1630Month,
+    fraction1218Day,
+    fraction1218Month: latestRow?.fraction1218Month,
+  };
+}
+
+function sumOptionalProductionNumbers(
+  values: readonly (number | undefined)[],
+) {
+  let total = 0;
+  let hasValue = false;
+
+  for (const value of values) {
+    if (value === undefined) {
+      continue;
+    }
+
+    total += value;
+    hasValue = true;
+  }
+
+  return hasValue ? total : undefined;
+}
+
+function readLatestProductionRow<Row extends ProductionReportBaseRow>(
+  rows: readonly Row[],
+) {
+  return rows.reduce<Row | undefined>((latest, row) => {
+    if (
+      latest === undefined ||
+      row.reportDate > latest.reportDate ||
+      (row.reportDate === latest.reportDate && row.receivedAt > latest.receivedAt)
+    ) {
+      return row;
+    }
+
+    return latest;
+  }, undefined);
 }
 
 type DatedProductionReport = {

@@ -5,6 +5,7 @@ import {
   buildEquipmentDetailRows,
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
+  buildLocalProductionReportTableTotals,
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenIncidentRows,
@@ -278,6 +279,64 @@ test("filterProductionReportTables keeps server-calculated monthly totals", () =
   assert.equal(filtered.forming[0].reportDate, "2026-07-02");
   assert.equal(filtered.forming[0].monthPlan, 20);
   assert.equal(filtered.forming[0].monthFact, 19);
+});
+
+test("local production totals mirror the server rules for the visible range", () => {
+  const totals = buildLocalProductionReportTableTotals(
+    {
+      forming: [
+        {
+          reportId: "hidden",
+          reportDate: "2026-07-01",
+          receivedAt: "2026-07-01T18:00:00.000Z",
+          facts: [],
+          dayPlan: 95,
+          dayFact: 93.37,
+          monthPlan: 380,
+          monthFact: 311.73,
+          deviation: -68.27,
+        },
+        {
+          reportId: "visible-without-plan",
+          reportDate: "2026-07-02",
+          receivedAt: "2026-07-02T18:00:00.000Z",
+          facts: [],
+          dayFact: 0,
+          monthPlan: 475,
+          monthFact: 311.73,
+          deviation: -163.27,
+        },
+        {
+          reportId: "visible-latest",
+          reportDate: "2026-07-03",
+          receivedAt: "2026-07-03T18:00:00.000Z",
+          facts: [],
+          dayPlan: 95,
+          dayFact: 82.16,
+          monthPlan: 570,
+          monthFact: 393.89,
+          deviation: -176.11,
+        },
+      ],
+      sorting: [],
+      unformed: [],
+      chamotte: [],
+      jars: [],
+      granulation: [],
+    },
+    { dateFrom: "2026-07-02", dateTo: "2026-07-03" },
+  );
+
+  assert.deepEqual(totals.forming, {
+    rowCount: 2,
+    dayPlan: 95,
+    dayFact: 82.16,
+    monthPlan: 570,
+    monthFact: 393.89,
+    deviation: -176.11,
+  });
+  assert.equal(totals.sorting.rowCount, 0);
+  assert.equal(totals.sorting.dayPlan, undefined);
 });
 
 test("buildProductionMonthOverview mirrors the server total in local test mode", () => {

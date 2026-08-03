@@ -17,6 +17,7 @@ import type {
   OpenIncidentSummary,
   ProductionMonthOverview,
   ProductionMetricRow,
+  ProductionReportTableTotals,
   ProductionReportTables,
 } from "../contracts";
 import {
@@ -30,6 +31,7 @@ import {
 } from "./dispatcherPayloadValidation.js";
 import {
   buildOpenIncidentSummaries,
+  buildLocalProductionReportTableTotals,
   buildProductionMonthOverview,
   buildProductionReportTables,
   findOpenIncidentByNumber,
@@ -96,6 +98,7 @@ export type DispatcherFeedReadyState = {
   status: "ready";
   submissions: DispatcherSubmission[];
   productionReportTables: ProductionReportTables;
+  productionReportTableTotals: ProductionReportTableTotals;
   productionMonthOverview: ProductionMonthOverview | null;
   openIncidents: OpenIncidentSummary[];
   bankContents: DispatcherProductionBankContent[];
@@ -131,6 +134,8 @@ export type DispatcherFeedFilters = {
   formId?: DispatcherFormId;
   dateFrom?: string;
   dateTo?: string;
+  productionDateFrom?: string;
+  productionDateTo?: string;
   reportDate?: string;
   limit?: number;
   offset?: number;
@@ -739,6 +744,8 @@ export async function requestDispatcherFeed({
   formId,
   dateFrom,
   dateTo,
+  productionDateFrom,
+  productionDateTo,
   reportDate,
   limit,
   offset,
@@ -751,6 +758,8 @@ export async function requestDispatcherFeed({
         formId,
         dateFrom,
         dateTo,
+        productionDateFrom,
+        productionDateTo,
         reportDate,
         limit,
         offset,
@@ -769,6 +778,8 @@ export async function requestDispatcherFeed({
     formId,
     dateFrom,
     dateTo,
+    productionDateFrom,
+    productionDateTo,
     reportDate,
     limit,
     offset,
@@ -799,6 +810,7 @@ export async function requestDispatcherFeed({
         status: "ready",
         submissions: payload.submissions,
         productionReportTables: payload.productionReportTables,
+        productionReportTableTotals: payload.productionReportTableTotals,
         productionMonthOverview: payload.productionMonthOverview,
         openIncidents: payload.openIncidents,
         bankContents: payload.bankContents,
@@ -826,6 +838,8 @@ export async function requestDispatcherFeed({
         formId,
         dateFrom,
         dateTo,
+        productionDateFrom,
+        productionDateTo,
         reportDate,
         limit,
         offset,
@@ -1098,6 +1112,8 @@ function requestLocalDispatcherFeed({
   formId,
   dateFrom,
   dateTo,
+  productionDateFrom,
+  productionDateTo,
   reportDate,
   limit,
   offset,
@@ -1132,11 +1148,16 @@ function requestLocalDispatcherFeed({
   );
 
   const productionReportTables = buildProductionReportTables(allSubmissions, {});
+  const productionReportTableTotals = buildLocalProductionReportTableTotals(
+    productionReportTables,
+    { dateFrom: productionDateFrom, dateTo: productionDateTo },
+  );
 
   return {
     status: "ready",
     submissions,
     productionReportTables,
+    productionReportTableTotals,
     productionMonthOverview:
       buildProductionMonthOverview(productionReportTables) ?? null,
     openIncidents: buildOpenIncidentSummaries(allSubmissions),
@@ -1595,6 +1616,14 @@ function buildFeedEndpoint(endpoint: string, filters: DispatcherFeedFilters) {
     url.searchParams.set("dateTo", filters.dateTo);
   }
 
+  if (filters.productionDateFrom !== undefined) {
+    url.searchParams.set("productionDateFrom", filters.productionDateFrom);
+  }
+
+  if (filters.productionDateTo !== undefined) {
+    url.searchParams.set("productionDateTo", filters.productionDateTo);
+  }
+
   if (filters.reportDate !== undefined) {
     url.searchParams.set("reportDate", filters.reportDate);
   }
@@ -1691,6 +1720,7 @@ function isDispatcherFeedResponse(value: unknown): value is DispatcherFeedRespon
     Array.isArray(value.submissions) &&
     value.submissions.every(isDispatcherSubmission) &&
     isProductionReportTables(value.productionReportTables) &&
+    isProductionReportTableTotals(value.productionReportTableTotals) &&
     (value.productionMonthOverview === null ||
       isProductionMonthOverview(value.productionMonthOverview)) &&
     Array.isArray(value.openIncidents) &&
@@ -1769,6 +1799,63 @@ function isProductionReportTables(value: unknown): value is ProductionReportTabl
         isOptionalNumber(row.fraction1218Day) &&
         isOptionalNumber(row.fraction1218Month),
     )
+  );
+}
+
+function isProductionReportTableTotals(
+  value: unknown,
+): value is ProductionReportTableTotals {
+  return (
+    isRecord(value) &&
+    isProductionBrandCategoryTotals(value.forming) &&
+    isProductionBrandCategoryTotals(value.sorting) &&
+    isProductionBrandCategoryTotals(value.unformed) &&
+    isProductionBrandCategoryTotals(value.chamotte) &&
+    isProductionJarMeasurementTotals(value.jars) &&
+    isProductionGranulationTotals(value.granulation)
+  );
+}
+
+function isProductionBrandCategoryTotals(value: unknown) {
+  return (
+    isProductionTotalsBase(value) &&
+    isOptionalNumber(value.dayPlan) &&
+    isOptionalNumber(value.dayFact) &&
+    isOptionalNumber(value.monthPlan) &&
+    isOptionalNumber(value.monthFact) &&
+    isOptionalNumber(value.deviation)
+  );
+}
+
+function isProductionJarMeasurementTotals(value: unknown) {
+  return (
+    isProductionTotalsBase(value) &&
+    isOptionalNumber(value.start) &&
+    isOptionalNumber(value.end) &&
+    isOptionalNumber(value.consumption)
+  );
+}
+
+function isProductionGranulationTotals(value: unknown) {
+  return (
+    isProductionTotalsBase(value) &&
+    isOptionalNumber(value.platesInOperation) &&
+    isOptionalNumber(value.millHours) &&
+    isOptionalNumber(value.fraction1630Day) &&
+    isOptionalNumber(value.fraction1630Month) &&
+    isOptionalNumber(value.fraction1218Day) &&
+    isOptionalNumber(value.fraction1218Month)
+  );
+}
+
+function isProductionTotalsBase(
+  value: unknown,
+): value is Record<string, unknown> & { rowCount: number } {
+  return (
+    isRecord(value) &&
+    typeof value.rowCount === "number" &&
+    Number.isInteger(value.rowCount) &&
+    value.rowCount >= 0
   );
 }
 

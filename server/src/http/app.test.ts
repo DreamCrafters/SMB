@@ -5356,11 +5356,14 @@ test("remote API returns server-calculated production report tables", async () =
 
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "business_owner");
-    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
-      headers: {
-        "X-SMB-Dev-Session": sessionId,
+    const response = await fetch(
+      `${baseUrl}/api/dispatcher/submissions?productionDateFrom=2026-07-02&productionDateTo=2026-07-02`,
+      {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+        },
       },
-    });
+    );
     const payload = await response.json();
 
     assert.equal(response.status, 200);
@@ -5397,6 +5400,19 @@ test("remote API returns server-calculated production report tables", async () =
           receivedAt: "2026-07-02T18:00:01.000Z",
         },
       ],
+    );
+    assert.deepEqual(
+      isRecord(payload) && isRecord(payload.productionReportTableTotals)
+        ? payload.productionReportTableTotals.forming
+        : undefined,
+      {
+        rowCount: 1,
+        dayPlan: 10,
+        dayFact: 12,
+        monthPlan: 20,
+        monthFact: 20,
+        deviation: 0,
+      },
     );
   }, repository);
 });

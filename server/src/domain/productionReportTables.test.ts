@@ -5,6 +5,7 @@ import type { ProductionPlan } from "./productionPlan.js";
 import {
   buildProductionMonthOverview,
   buildProductionMonthToDate,
+  buildProductionReportTableTotals,
   buildProductionReportTables,
 } from "./productionReportTables.js";
 
@@ -195,6 +196,73 @@ test("buildProductionMonthOverview totals the four production categories for the
       totalFact: 46,
     },
   );
+});
+
+test("buildProductionReportTableTotals returns server-owned totals for the visible report-date range", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("day-1", {
+      reportDate: "01.07.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "8",
+      granulationFraction1630Day: "1.5",
+      granulationFraction1218Day: "2",
+    }),
+    buildSubmission("day-2", {
+      reportDate: "02.07.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "11",
+      jarStart1: "100",
+      jarEnd1: "80",
+      granulationPlatesInOperation: "2",
+      granulationMillHours: "7.5",
+      granulationFraction1630Day: "2.5",
+      granulationFraction1218Day: "3",
+    }),
+    buildSubmission(
+      "day-3",
+      {
+        reportDate: "03.07.2026",
+        formingBrand1: "ФЛ-1",
+        formingFact1: "7",
+        jarStart1: "80",
+        jarEnd1: "60",
+        granulationPlatesInOperation: "3",
+        granulationMillHours: "8",
+        granulationFraction1630Day: "1",
+        granulationFraction1218Day: "4",
+      },
+      "2026-07-03T18:00:00.000Z",
+    ),
+  ], [productionPlan]);
+
+  const totals = buildProductionReportTableTotals(tables, {
+    dateFrom: "2026-07-02",
+    dateTo: "2026-07-03",
+  });
+
+  assert.deepEqual(totals.forming, {
+    rowCount: 2,
+    dayPlan: 20,
+    dayFact: 18,
+    monthPlan: 30,
+    monthFact: 26,
+    deviation: -4,
+  });
+  assert.deepEqual(totals.jars, {
+    rowCount: 2,
+    start: 180,
+    end: 140,
+    consumption: 40,
+  });
+  assert.deepEqual(totals.granulation, {
+    rowCount: 2,
+    platesInOperation: 5,
+    millHours: 15.5,
+    fraction1630Day: 3.5,
+    fraction1630Month: 5,
+    fraction1218Day: 7,
+    fraction1218Month: 9,
+  });
 });
 
 const productionPlan: ProductionPlan = {

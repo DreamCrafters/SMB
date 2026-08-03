@@ -149,6 +149,41 @@ export type ProductionReportTables = {
   granulation: ProductionGranulationRow[];
 };
 
+export type ProductionBrandCategoryTotals = {
+  rowCount: number;
+  dayPlan?: number;
+  dayFact?: number;
+  monthPlan?: number;
+  monthFact?: number;
+  deviation?: number;
+};
+
+export type ProductionJarMeasurementTotals = {
+  rowCount: number;
+  start?: number;
+  end?: number;
+  consumption?: number;
+};
+
+export type ProductionGranulationTotals = {
+  rowCount: number;
+  platesInOperation?: number;
+  millHours?: number;
+  fraction1630Day?: number;
+  fraction1630Month?: number;
+  fraction1218Day?: number;
+  fraction1218Month?: number;
+};
+
+export type ProductionReportTableTotals = {
+  forming: ProductionBrandCategoryTotals;
+  sorting: ProductionBrandCategoryTotals;
+  unformed: ProductionBrandCategoryTotals;
+  chamotte: ProductionBrandCategoryTotals;
+  jars: ProductionJarMeasurementTotals;
+  granulation: ProductionGranulationTotals;
+};
+
 export type ProductionMonthOverview = {
   month: string;
   totalFact: number;
@@ -166,6 +201,7 @@ export type OpenIncidentSummary = {
 export type DispatcherFeedResponse = {
   submissions: DispatcherSubmission[];
   productionReportTables: ProductionReportTables;
+  productionReportTableTotals: ProductionReportTableTotals;
   productionMonthOverview: ProductionMonthOverview | null;
   openIncidents: OpenIncidentSummary[];
   /** Текущее содержимое банок, назначенное Лабораторией. */
