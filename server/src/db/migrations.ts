@@ -2021,6 +2021,20 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "035_protected_admin_accounts",
+    statements: [
+      `
+      alter table app_users
+        add column is_admin_protected tinyint(1) not null default 0;
+      `,
+      `
+      update app_users
+      set is_admin_protected = 1
+      where lower(trim(login)) = 'admin';
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

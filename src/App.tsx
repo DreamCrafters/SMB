@@ -174,6 +174,7 @@ import {
   resetAdminAccountPassword,
   saveAdminPositionOrder,
   setAdminAccountLoginEnabled,
+  setAdminAccountProtected,
   setAdminAccountPosition,
   updateAdminPosition,
   type AdminAccountsListResult,
@@ -9471,6 +9472,7 @@ function buildAdminPreviewAccountForPosition(
     login: "Ручная настройка",
     userDisplayName: "Типовой кабинет",
     userStatus: "active",
+    isProtected: false,
     accessDisplayName: `Превью: ${label}`,
     accountType,
     position,
@@ -9496,6 +9498,7 @@ function buildAdminPreviewAccountForDefinition(
     login: "Типовой кабинет",
     userDisplayName: position.displayName,
     userStatus: "active",
+    isProtected: false,
     accessDisplayName: `Превью: ${position.displayName}`,
     accountType: position.accountType,
     position: position.id,
@@ -9554,6 +9557,7 @@ function AdminAccountsWorkspace({
   const [updatingUserId, setUpdatingUserId] = useState<string | undefined>(
     undefined,
   );
+  const [protectingUserId, setProtectingUserId] = useState<string>();
   const [updatingPositionAccessId, setUpdatingPositionAccessId] = useState<
     string | undefined
   >(undefined);
@@ -9564,6 +9568,9 @@ function AdminAccountsWorkspace({
   const canAssignAdminNavigation =
     positionsState.status === "ready" &&
     positionsState.canAssignAdminNavigation;
+  const canManageProtectedAccounts =
+    accountsState.status === "ready" &&
+    accountsState.canManageProtectedAccounts;
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
   const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
@@ -10028,6 +10035,36 @@ function AdminAccountsWorkspace({
     setRefreshVersion((version) => version + 1);
   }
 
+  async function handleSetAccountProtected(
+    account: AdminAccountSummary,
+    isProtected: boolean,
+  ) {
+    if (!canManageProtectedAccounts || protectingUserId !== undefined) {
+      return;
+    }
+
+    setProtectingUserId(account.userId);
+    setWorkspaceStatus("");
+    const result = await setAdminAccountProtected({
+      userId: account.userId,
+      isProtected,
+    });
+    setProtectingUserId(undefined);
+
+    if (result.status !== "ready") {
+      setWorkspaceStatus(result.message);
+      return;
+    }
+
+    onShowToast(
+      "Защита изменена",
+      isProtected
+        ? `Учётная запись «${account.login}» защищена.`
+        : `Защита учётной записи «${account.login}» отключена.`,
+    );
+    setRefreshVersion((version) => version + 1);
+  }
+
   async function handleSetAccountPosition(account: AdminAccountSummary) {
     const position = accountPositionDrafts[account.accessId] ?? account.position;
 
@@ -10175,6 +10212,7 @@ function AdminAccountsWorkspace({
                   <th scope="col">Должность</th>
                   <th scope="col">Имя</th>
                   <th scope="col">Логин</th>
+                  <th scope="col">Защита</th>
                   <th scope="col">Пароль</th>
                   <th scope="col">Вкладки слева</th>
                   <th scope="col">Статус</th>
@@ -10185,6 +10223,10 @@ function AdminAccountsWorkspace({
                   const isLoginEnabled = account.userStatus === "active";
                   const isCurrentAccount = account.userId === profile.userId;
                   const isArchived = account.userStatus === "archived";
+                  const isOriginalAdmin =
+                    account.login.trim().toLocaleLowerCase("en-US") === "admin";
+                  const isProtectedMutationRestricted =
+                    account.isProtected && !canManageProtectedAccounts;
                   const isUpdating = updatingUserId === account.userId;
                   const isUpdatingPosition =
                     updatingPositionAccessId === account.accessId;
@@ -10204,6 +10246,7 @@ function AdminAccountsWorkspace({
                   const isPositionChangeDisabled =
                     !canManageAccess ||
                     isCurrentAccount ||
+                    isProtectedMutationRestricted ||
                     isArchived ||
                     positionsState.status !== "ready" ||
                     updatingPositionAccessId !== undefined ||
@@ -10211,6 +10254,7 @@ function AdminAccountsWorkspace({
                   const isToggleDisabled =
                     !canManageAccess ||
                     isCurrentAccount ||
+                    isProtectedMutationRestricted ||
                     isArchived ||
                     isUpdating ||
                     updatingPositionAccessId !== undefined;
@@ -10218,6 +10262,8 @@ function AdminAccountsWorkspace({
                     ? "Нет права изменять доступ."
                     : isCurrentAccount
                       ? "Нельзя отключить текущую учётную запись."
+                      : isProtectedMutationRestricted
+                        ? "Защищённую учётную запись может отключить только исходный аккаунт admin."
                       : isArchived
                         ? "Архивную учётную запись нельзя включить."
                         : undefined;
@@ -10233,6 +10279,8 @@ function AdminAccountsWorkspace({
                             title={
                               isCurrentAccount
                                 ? "Нельзя менять должность текущей учётной записи."
+                                : isProtectedMutationRestricted
+                                  ? "Должность защищённой учётной записи может менять только исходный аккаунт admin."
                                 : undefined
                             }
                             onChange={(event) => {
@@ -10290,9 +10338,52 @@ function AdminAccountsWorkspace({
                       <td>{account.userDisplayName}</td>
                       <td>{account.login}</td>
                       <td>
+                        <label
+                          className="admin-account-protection-control"
+                          title={
+                            isOriginalAdmin
+                              ? "Защиту исходного аккаунта admin нельзя отключить."
+                              : !canManageProtectedAccounts
+                                ? "Защиту может изменять только исходный аккаунт admin."
+                                : undefined
+                          }
+                        >
+                          <input
+                            aria-label={`Защитить аккаунт ${account.login}`}
+                            type="checkbox"
+                            checked={account.isProtected}
+                            disabled={
+                              !canManageProtectedAccounts ||
+                              isOriginalAdmin ||
+                              protectingUserId !== undefined
+                            }
+                            onChange={(event) => {
+                              const isProtected = event.currentTarget.checked;
+                              void handleSetAccountProtected(
+                                account,
+                                isProtected,
+                              );
+                            }}
+                          />
+                          <span>
+                            {protectingUserId === account.userId
+                              ? "Сохраняем…"
+                              : account.isProtected
+                                ? "Защищён"
+                                : "Обычный"}
+                          </span>
+                        </label>
+                      </td>
+                      <td>
                         <AdminAccountPasswordCell
                           revealedPassword={revealedPasswords[account.login]}
                           isResetting={resettingLogin === account.login}
+                          isResetDisabled={isProtectedMutationRestricted}
+                          resetTitle={
+                            isProtectedMutationRestricted
+                              ? "Пароль защищённой учётной записи может менять только исходный аккаунт admin."
+                              : undefined
+                          }
                           onReset={(trigger) =>
                             openPasswordResetModal(account.login, trigger)
                           }
@@ -10345,10 +10436,17 @@ function AdminAccountsWorkspace({
                           <button
                             className="secondary-button secondary-button-danger"
                             type="button"
-                            title={isCurrentAccount ? "Нельзя удалить текущую учётную запись." : undefined}
+                            title={
+                              isCurrentAccount
+                                ? "Нельзя удалить текущую учётную запись."
+                                : isProtectedMutationRestricted
+                                  ? "Защищённую учётную запись может удалить только исходный аккаунт admin."
+                                  : undefined
+                            }
                             disabled={
                               !canManageAccess ||
                               isCurrentAccount ||
+                              isProtectedMutationRestricted ||
                               updatingPositionAccessId !== undefined ||
                               deletingUserId === account.userId
                             }
@@ -10368,7 +10466,7 @@ function AdminAccountsWorkspace({
                 })}
                 {accounts.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>Учётных записей пока нет.</td>
+                    <td colSpan={7}>Учётных записей пока нет.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -10989,10 +11087,14 @@ function CopyIcon() {
 function AdminAccountPasswordCell({
   revealedPassword,
   isResetting,
+  isResetDisabled,
+  resetTitle,
   onReset,
 }: {
   revealedPassword: string | undefined;
   isResetting: boolean;
+  isResetDisabled: boolean;
+  resetTitle?: string;
   onReset: (trigger: HTMLButtonElement) => void;
 }) {
   const [isVisible, setIsVisible] = useState(true);
@@ -11056,7 +11158,8 @@ function AdminAccountPasswordCell({
         aria-haspopup="dialog"
         className="secondary-button"
         type="button"
-        disabled={isResetting}
+        title={resetTitle}
+        disabled={isResetting || isResetDisabled}
         onClick={(event) => onReset(event.currentTarget)}
       >
         {isResetting ? (

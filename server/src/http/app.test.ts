@@ -2386,6 +2386,7 @@ test("admin database API forwards update and delete mutations for admin sessions
       summary: "updated",
     },
     changedByAccountId: "dev-access-admin",
+    allowProtectedAccounts: false,
   });
   assert.deepEqual(deletePayload, {
     tableName: "dispatcher_submissions",
@@ -2722,6 +2723,78 @@ test("admin database API does not disable the current administrator", async () =
   assert.equal(didUpdate, false);
 });
 
+test("delegated database admin cannot edit a protected account", async () => {
+  let didUpdate = false;
+  const databaseRepository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async updateRow() {
+      didUpdate = true;
+    },
+  };
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.database"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_analytics_database",
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "database-manager",
+    accountType: profile.accountType,
+    position: profile.activeAccess.position,
+    positionDisplayName: profile.activeAccess.positionDisplayName,
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const protectedAccount = {
+    ...adminAccount,
+    accessId: "protected-access-id",
+    userId: "protected-user-id",
+    login: "protected-admin",
+    isProtected: true,
+  };
+  const accountRepository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount, protectedAccount];
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/tables/app_users/rows`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+          body: JSON.stringify({
+            primaryKey: { id: protectedAccount.userId },
+            values: { display_name: "Новое имя" },
+          }),
+        },
+      );
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    databaseRepository,
+    productionConfig,
+    buildAuthService({ profile }),
+    accountRepository,
+  );
+
+  assert.equal(didUpdate, false);
+});
+
 test("admin mutation rolls back when its audit event cannot be persisted", async () => {
   let updatePersisted = false;
   const repository: AdminDatabaseRepository = {
@@ -2852,6 +2925,7 @@ const adminAccount = {
   login: "dispatcher-1",
   userDisplayName: "Диспетчер Один",
   userStatus: "active" as const,
+  isProtected: false,
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher" as AccountType,
   position: "dispatcher" as const,
@@ -2877,6 +2951,9 @@ const accounts: AccountsRepository = {
       userId,
       userStatus: isEnabled ? "active" : "suspended",
     };
+  },
+  async setAccountProtected({ userId, isProtected }) {
+    return { userId, isProtected };
   },
   async deleteAccount() {
     return true;
@@ -4052,6 +4129,378 @@ test("admin accounts API creates accounts and resets passwords for admin session
   );
   assert.match(JSON.stringify(recorded), /dispatcher-1/u);
   assert.doesNotMatch(JSON.stringify(recorded), /supersecret1|newsecret1/u);
+});
+
+test("delegated account manager cannot reset a protected account password", async () => {
+  let didReset = false;
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.accounts"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "accounts-manager",
+    accountType: profile.accountType,
+    position: profile.activeAccess.position,
+    positionDisplayName: profile.activeAccess.positionDisplayName,
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const protectedAccount = {
+    ...adminAccount,
+    accessId: "protected-access-id",
+    userId: "protected-user-id",
+    login: "protected-admin",
+    isProtected: true,
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount, protectedAccount];
+    },
+    async resetPassword() {
+      didReset = true;
+      return true;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/reset-password`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+          body: JSON.stringify({
+            login: protectedAccount.login,
+            password: "newsecret1",
+          }),
+        },
+      );
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didReset, false);
+});
+
+test("delegated account manager cannot disable a protected account", async () => {
+  let didUpdate = false;
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.accounts"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "accounts-manager",
+    accountType: profile.accountType,
+    position: profile.activeAccess.position,
+    positionDisplayName: profile.activeAccess.positionDisplayName,
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const protectedAccount = {
+    ...adminAccount,
+    accessId: "protected-access-id",
+    userId: "protected-user-id",
+    login: "protected-admin",
+    isProtected: true,
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount, protectedAccount];
+    },
+    async setAccountLoginEnabled() {
+      didUpdate = true;
+      return {
+        userId: protectedAccount.userId,
+        userStatus: "suspended",
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/admin/accounts`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+        body: JSON.stringify({
+          userId: protectedAccount.userId,
+          isEnabled: false,
+        }),
+      });
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
+});
+
+test("delegated account manager cannot change a protected account position", async () => {
+  let didUpdate = false;
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.accounts"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "accounts-manager",
+    accountType: profile.accountType,
+    position: profile.activeAccess.position,
+    positionDisplayName: profile.activeAccess.positionDisplayName,
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const protectedAccount = {
+    ...adminAccount,
+    accessId: "protected-access-id",
+    userId: "protected-user-id",
+    login: "protected-admin",
+    isProtected: true,
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount, protectedAccount];
+    },
+    async setAccountPosition() {
+      didUpdate = true;
+      return { previous: protectedAccount, updated: protectedAccount };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/${protectedAccount.accessId}/position`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+          body: JSON.stringify({ position: "business_owner" }),
+        },
+      );
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
+});
+
+test("delegated account manager cannot delete a protected account", async () => {
+  let didDelete = false;
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.accounts"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "accounts-manager",
+    accountType: profile.accountType,
+    position: profile.activeAccess.position,
+    positionDisplayName: profile.activeAccess.positionDisplayName,
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const protectedAccount = {
+    ...adminAccount,
+    accessId: "protected-access-id",
+    userId: "protected-user-id",
+    login: "protected-admin",
+    isProtected: true,
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount, protectedAccount];
+    },
+    async deleteAccount() {
+      didDelete = true;
+      return true;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/${protectedAccount.userId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+        },
+      );
+
+      assert.equal(response.status, 403);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didDelete, false);
+});
+
+test("original admin can protect another account", async () => {
+  let protectionInput:
+    | { userId: string; isProtected: boolean }
+    | undefined;
+  const repository = {
+    ...accounts,
+    async setAccountProtected(input: { userId: string; isProtected: boolean }) {
+      protectionInput = input;
+      return input;
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/${adminAccount.userId}/protection`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({ isProtected: true }),
+        },
+      );
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        userId: adminAccount.userId,
+        isProtected: true,
+      });
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+  );
+
+  assert.deepEqual(protectionInput, {
+    userId: adminAccount.userId,
+    isProtected: true,
+  });
+});
+
+test("original admin account protection cannot be removed", async () => {
+  let didUpdate = false;
+  const profile = buildProductionProfile("admin");
+  const originalAdmin = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "admin",
+    accountType: profile.accountType,
+    position: profile.activeAccess.position,
+    positionDisplayName: profile.activeAccess.positionDisplayName,
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+    isProtected: true,
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [originalAdmin];
+    },
+    async setAccountProtected() {
+      didUpdate = true;
+      return { userId: originalAdmin.userId, isProtected: false };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/${originalAdmin.userId}/protection`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: `${productionConfig.session.cookieName}=prod-session`,
+          },
+          body: JSON.stringify({ isProtected: false }),
+        },
+      );
+
+      assert.equal(response.status, 409);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    repository,
+  );
+
+  assert.equal(didUpdate, false);
 });
 
 test("admin accounts API suspends another user login", async () => {

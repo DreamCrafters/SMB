@@ -12,6 +12,8 @@ import type {
   SaveAdminPositionResponse,
   SetAdminAccountLoginEnabledRequest,
   SetAdminAccountLoginEnabledResponse,
+  SetAdminAccountProtectedRequest,
+  SetAdminAccountProtectedResponse,
   SetAdminAccountPositionRequest,
   SetAdminAccountPositionResponse,
   SetAdminAccountNavigationRequest,
@@ -40,6 +42,7 @@ export type AdminAccountsListResult =
   | {
       status: "ready";
       accounts: AdminAccountSummary[];
+      canManageProtectedAccounts: boolean;
     }
   | AdminAccountsErrorState;
 
@@ -61,6 +64,13 @@ export type SetAdminAccountLoginEnabledResult =
       status: "ready";
       userId: string;
       userStatus: "active" | "suspended";
+    }
+  | AdminAccountsErrorState;
+export type SetAdminAccountProtectedResult =
+  | {
+      status: "ready";
+      userId: string;
+      isProtected: boolean;
     }
   | AdminAccountsErrorState;
 export type SetAdminAccountPositionResult =
@@ -290,6 +300,7 @@ export async function requestAdminAccounts({
       return {
         status: "ready",
         accounts: payload.accounts,
+        canManageProtectedAccounts: payload.canManageProtectedAccounts,
       };
     }
 
@@ -459,6 +470,57 @@ export async function setAdminAccountLoginEnabled(
       message: describeRemoteNetworkFailure("Не удалось изменить доступ.", {
         baseUrl,
       }),
+      code: "network_error",
+    };
+  }
+}
+
+export async function setAdminAccountProtected(
+  value: SetAdminAccountProtectedRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<SetAdminAccountProtectedResult> {
+  const path = `${ADMIN_ACCOUNTS_PATH}/${encodeURIComponent(value.userId)}/protection`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify({ isProtected: value.isProtected }),
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Сервер отклонил изменение защиты учётной записи.",
+      );
+    }
+    if (isSetAdminAccountProtectedResponse(payload)) {
+      return { status: "ready", ...payload };
+    }
+    return {
+      status: "error",
+      message: "Сервер вернул защиту учётной записи в неподдерживаемом формате.",
+      code: "invalid_response",
+      statusCode: response.status,
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return { status: "error", message: "Изменение защиты отменено." };
+    }
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось изменить защиту учётной записи.",
+        { baseUrl },
+      ),
       code: "network_error",
     };
   }
@@ -665,7 +727,8 @@ function isAdminAccountsListResponse(
   return (
     isRecord(value) &&
     Array.isArray(value.accounts) &&
-    value.accounts.every(isAdminAccountSummary)
+    value.accounts.every(isAdminAccountSummary) &&
+    typeof value.canManageProtectedAccounts === "boolean"
   );
 }
 
@@ -716,6 +779,16 @@ function isSetAdminAccountLoginEnabledResponse(
   );
 }
 
+function isSetAdminAccountProtectedResponse(
+  value: unknown,
+): value is SetAdminAccountProtectedResponse {
+  return (
+    isRecord(value) &&
+    typeof value.userId === "string" &&
+    typeof value.isProtected === "boolean"
+  );
+}
+
 function isSetAdminAccountPositionResponse(
   value: unknown,
 ): value is SetAdminAccountPositionResponse {
@@ -736,6 +809,7 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     typeof value.login === "string" &&
     typeof value.userDisplayName === "string" &&
     typeof value.userStatus === "string" &&
+    typeof value.isProtected === "boolean" &&
     typeof value.accessDisplayName === "string" &&
     typeof value.accountType === "string" &&
     typeof value.position === "string" &&

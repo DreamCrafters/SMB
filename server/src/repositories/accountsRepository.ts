@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import { resolveAccountProvisioningScope } from "../domain/accountProvisioning.js";
+import { assertProtectedAccountMutationAllowed } from "../domain/adminAccountProtection.js";
 import {
   defaultPositionByAccountType,
   navigationItemsByAccountType,
@@ -24,6 +25,7 @@ export type AdminAccountSummary = {
   login: string;
   userDisplayName: string;
   userStatus: AdminUserStatus;
+  isProtected: boolean;
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
@@ -82,6 +84,13 @@ export type SetAccountLoginEnabledInput = {
   isEnabled: boolean;
 };
 
+export type SetAccountProtectedInput = {
+  userId: string;
+  isProtected: boolean;
+};
+
+export type AccountProtection = SetAccountProtectedInput;
+
 export type SetAccountNavigationInput = {
   accessId: string;
   navigationItems: AccountNavigationItem[];
@@ -108,16 +117,24 @@ export type DeletePositionResult = "deleted" | "not_found" | "protected" | "in_u
 export type AccountsRepository = {
   listAccounts: () => Promise<AdminAccountSummary[]>;
   createAccount: (input: CreateAccountInput) => Promise<AdminAccountSummary>;
-  resetPassword: (input: ResetPasswordInput) => Promise<boolean>;
+  resetPassword: (
+    input: ResetPasswordInput,
+    allowProtected?: boolean,
+  ) => Promise<boolean>;
   setAccountLoginEnabled: (
     input: SetAccountLoginEnabledInput,
+    allowProtected?: boolean,
   ) => Promise<AccountLoginStatus | undefined>;
-  deleteAccount: (userId: string) => Promise<boolean>;
+  setAccountProtected: (
+    input: SetAccountProtectedInput,
+  ) => Promise<AccountProtection | undefined>;
+  deleteAccount: (userId: string, allowProtected?: boolean) => Promise<boolean>;
   setAccountNavigation: (
     input: SetAccountNavigationInput,
   ) => Promise<AdminAccountSummary | undefined>;
   setAccountPosition: (
     input: SetAccountPositionInput,
+    allowProtected?: boolean,
   ) => Promise<AccountPositionChange | undefined>;
   listPositions: () => Promise<AdminPositionSummary[]>;
   createPosition: (input: CreatePositionInput) => Promise<AdminPositionSummary>;
@@ -150,6 +167,7 @@ type AccountRow = RowDataPacket & {
   login: string;
   user_display_name: string;
   user_status: string;
+  is_protected: number | boolean;
   access_display_name: string;
   account_type: string;
   position_code: string;
@@ -187,6 +205,11 @@ type IdRow = RowDataPacket & {
 
 type UserStatusRow = RowDataPacket & {
   status: string;
+  is_admin_protected: number | boolean;
+};
+
+type UserMutationRow = UserStatusRow & {
+  id: string;
 };
 
 const accountRowSelect = `
@@ -196,6 +219,7 @@ const accountRowSelect = `
     users.login,
     users.display_name as user_display_name,
     users.status as user_status,
+    users.is_admin_protected as is_protected,
     accesses.display_name as access_display_name,
     positions.account_type,
     accesses.position_code,
@@ -487,30 +511,51 @@ export function createAccountsRepository(
     }
   }
 
-  async function resetPassword({ login, password }: ResetPasswordInput) {
-    const userId = await readUserIdByLogin(login);
+  async function resetPassword(
+    { login, password }: ResetPasswordInput,
+    allowProtected = false,
+  ) {
+    const connection = await pool.getConnection();
 
-    if (userId === undefined) {
-      return false;
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.query<UserMutationRow[]>(
+        `select id, status, is_admin_protected
+         from app_users where login = ? limit 1 for update`,
+        [login],
+      );
+      const user = rows[0];
+
+      if (user === undefined || user.status === "archived") {
+        await connection.rollback();
+        return false;
+      }
+      assertProtectedAccountMutationAllowed({
+        isProtected:
+          user.is_admin_protected === true || user.is_admin_protected === 1,
+        allowProtected,
+      });
+
+      await connection.query(
+        `insert into auth_password_credentials (user_id, password_hash)
+         values (?, ?)
+         on duplicate key update password_hash = values(password_hash)`,
+        [user.id, await hashPassword(password)],
+      );
+      await connection.commit();
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
-
-    await pool.query(
-      `
-        insert into auth_password_credentials (user_id, password_hash)
-        values (?, ?)
-        on duplicate key update
-          password_hash = values(password_hash)
-      `,
-      [userId, await hashPassword(password)],
-    );
-
-    return true;
   }
 
   async function setAccountLoginEnabled({
     userId,
     isEnabled,
-  }: SetAccountLoginEnabledInput) {
+  }: SetAccountLoginEnabledInput, allowProtected = false) {
     const connection = await pool.getConnection();
 
     try {
@@ -518,7 +563,7 @@ export function createAccountsRepository(
 
       const [rows] = await connection.query<UserStatusRow[]>(
         `
-          select status
+          select status, is_admin_protected
           from app_users
           where id = ?
           limit 1
@@ -540,6 +585,12 @@ export function createAccountsRepository(
       if (currentStatus !== "active" && currentStatus !== "suspended") {
         throw new Error("Stored user status is not supported.");
       }
+      assertProtectedAccountMutationAllowed({
+        isProtected:
+          rows[0]?.is_admin_protected === true ||
+          rows[0]?.is_admin_protected === 1,
+        allowProtected,
+      });
 
       const userStatus = isEnabled ? "active" : "suspended";
 
@@ -569,8 +620,12 @@ export function createAccountsRepository(
     }
   }
 
-  async function deleteAccount(userId: string) {
+  async function setAccountProtected({
+    userId,
+    isProtected,
+  }: SetAccountProtectedInput) {
     const connection = await pool.getConnection();
+
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<UserStatusRow[]>(
@@ -578,10 +633,46 @@ export function createAccountsRepository(
         [userId],
       );
       const currentStatus = rows[0]?.status;
+
+      if (currentStatus === undefined || currentStatus === "archived") {
+        await connection.rollback();
+        return undefined;
+      }
+
+      await connection.query(
+        "update app_users set is_admin_protected = ? where id = ?",
+        [isProtected ? 1 : 0, userId],
+      );
+      await connection.commit();
+      return { userId, isProtected };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async function deleteAccount(userId: string, allowProtected = false) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.query<UserStatusRow[]>(
+        `select status, is_admin_protected
+         from app_users where id = ? limit 1 for update`,
+        [userId],
+      );
+      const currentStatus = rows[0]?.status;
       if (currentStatus === undefined || currentStatus === "archived") {
         await connection.rollback();
         return false;
       }
+      assertProtectedAccountMutationAllowed({
+        isProtected:
+          rows[0]?.is_admin_protected === true ||
+          rows[0]?.is_admin_protected === 1,
+        allowProtected,
+      });
 
       await connection.query("update app_users set status = 'archived' where id = ?", [userId]);
       await connection.query("update account_accesses set is_active = 0 where user_id = ?", [userId]);
@@ -640,7 +731,7 @@ export function createAccountsRepository(
   async function setAccountPosition({
     accessId,
     position,
-  }: SetAccountPositionInput) {
+  }: SetAccountPositionInput, allowProtected = false) {
     const connection = await pool.getConnection();
 
     try {
@@ -661,6 +752,22 @@ export function createAccountsRepository(
         await connection.rollback();
         return undefined;
       }
+
+      const [userRows] = await connection.query<UserStatusRow[]>(
+        `select status, is_admin_protected
+         from app_users where id = ? limit 1 for update`,
+        [existing.user_id],
+      );
+      if (userRows[0] === undefined || userRows[0].status === "archived") {
+        await connection.rollback();
+        return undefined;
+      }
+      assertProtectedAccountMutationAllowed({
+        isProtected:
+          userRows[0].is_admin_protected === true ||
+          userRows[0].is_admin_protected === 1,
+        allowProtected,
+      });
 
       const previous = await readAccountByAccessId(connection, accessId);
 
@@ -730,15 +837,6 @@ export function createAccountsRepository(
     }
   }
 
-  async function readUserIdByLogin(login: string) {
-    const [rows] = await pool.query<IdRow[]>(
-      "select id from app_users where login = ? limit 1",
-      [login],
-    );
-
-    return rows[0]?.id;
-  }
-
   async function readAccountByAccessId(
     connection: PoolConnection,
     accessId: string,
@@ -761,6 +859,7 @@ export function createAccountsRepository(
     createAccount,
     resetPassword,
     setAccountLoginEnabled,
+    setAccountProtected,
     deleteAccount,
     setAccountNavigation,
     setAccountPosition,
@@ -791,6 +890,7 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     login: row.login,
     userDisplayName: row.user_display_name,
     userStatus: readAdminUserStatus(row.user_status),
+    isProtected: row.is_protected === true || row.is_protected === 1,
     accessDisplayName: row.access_display_name,
     accountType: row.account_type as AccountType,
     position: readPosition(row.position_code, row.account_type as AccountType),

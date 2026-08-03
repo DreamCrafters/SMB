@@ -13,6 +13,7 @@ import {
   saveAdminPositionOrder,
   setAdminAccountPosition,
   setAdminAccountLoginEnabled,
+  setAdminAccountProtected,
   setAdminAccountNavigation,
   updateAdminPosition,
 } from "../.test-build/src/services/adminAccounts.js";
@@ -29,6 +30,7 @@ const account = {
   login: "dispatcher-1",
   userDisplayName: "Диспетчер Один",
   userStatus: "active",
+  isProtected: false,
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher",
   position: "dispatcher",
@@ -45,13 +47,17 @@ test("admin accounts service reads accounts from remote API", async () => {
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
 
-    return jsonResponse({ accounts: [account] });
+    return jsonResponse({
+      accounts: [account],
+      canManageProtectedAccounts: true,
+    });
   };
 
   const result = await requestAdminAccounts({ baseUrl: "http://api.test" });
 
   assert.equal(result.status, "ready");
   assert.equal(result.accounts[0].login, "dispatcher-1");
+  assert.equal(result.canManageProtectedAccounts, true);
   assert.equal(calls[0].url, "http://api.test/api/admin/accounts");
   assert.equal(calls[0].init.method, "GET");
 });
@@ -354,6 +360,31 @@ test("admin accounts service enables and disables account login", async () => {
     userId: "user-id",
     isEnabled: false,
   });
+});
+
+test("admin accounts service protects an account", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({ userId: "user-id", isProtected: true });
+  };
+
+  const result = await setAdminAccountProtected(
+    { userId: "user-id", isProtected: true },
+    { baseUrl: "http://api.test" },
+  );
+
+  assert.deepEqual(result, {
+    status: "ready",
+    userId: "user-id",
+    isProtected: true,
+  });
+  assert.equal(
+    calls[0].url,
+    "http://api.test/api/admin/accounts/user-id/protection",
+  );
+  assert.equal(calls[0].init.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { isProtected: true });
 });
 
 test("admin accounts service assigns a new position to an existing access", async () => {

@@ -13,6 +13,7 @@ export type AdminAccountSummary = {
   login: string;
   userDisplayName: string;
   userStatus: string;
+  isProtected: boolean;
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
@@ -25,6 +26,7 @@ export type AdminAccountSummary = {
 
 export type AdminAccountsListResponse = {
   accounts: AdminAccountSummary[];
+  canManageProtectedAccounts: boolean;
 };
 
 export type CreateAdminAccountRequest = {
@@ -85,6 +87,13 @@ export type SetAdminAccountLoginEnabledResponse = {
   userId: string;
   userStatus: "active" | "suspended";
 };
+
+export type SetAdminAccountProtectedRequest = {
+  userId: string;
+  isProtected: boolean;
+};
+
+export type SetAdminAccountProtectedResponse = SetAdminAccountProtectedRequest;
 
 export type SetAdminAccountPositionRequest = {
   accessId: string;

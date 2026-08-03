@@ -115,6 +115,10 @@ import {
   getPublicDispatcherForms,
   isDispatcherFormId,
 } from "../domain/dispatcherForms.js";
+import {
+  isCanonicalAdminLogin,
+  ProtectedAccountMutationError,
+} from "../domain/adminAccountProtection.js";
 import type {
   DispatcherFeedFilters,
   DispatcherSubmissionsRepository,
@@ -414,6 +418,7 @@ export function createApiServer({
           devSessions,
           authService,
           adminDatabase,
+          accounts,
           dispatcherSpreadsheetImport,
           productionBrands,
           audit,
@@ -4450,6 +4455,7 @@ async function handleAdminDatabaseRequest({
   devSessions,
   authService,
   adminDatabase,
+  accounts,
   dispatcherSpreadsheetImport,
   productionBrands,
   audit,
@@ -4463,6 +4469,7 @@ async function handleAdminDatabaseRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   adminDatabase: AdminDatabaseRepository | undefined;
+  accounts: AccountsRepository | undefined;
   dispatcherSpreadsheetImport: DispatcherSpreadsheetImportService | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
@@ -4702,6 +4709,28 @@ async function handleAdminDatabaseRequest({
         return;
       }
 
+      if (
+        route.tableName === "app_users" &&
+        accounts !== undefined &&
+        typeof validation.value.primaryKey.id === "string"
+      ) {
+        const accountList = await accounts.listAccounts();
+        const targetAccount = accountList.find(
+          (account) => account.userId === validation.value.primaryKey.id,
+        );
+        if (
+          targetAccount?.isProtected === true &&
+          !(await readCanAssignAdminNavigation({
+            profile: access.profile,
+            accounts,
+            devAccessEnabled: config.devAccessEnabled,
+          }))
+        ) {
+          sendProtectedAccountMutationDenied(res);
+          return;
+        }
+      }
+
       const missingCapability = readMissingAdminDatabaseMutationCapability(
         route.tableName,
         validation.value.values,
@@ -4740,11 +4769,18 @@ async function handleAdminDatabaseRequest({
       await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
-        mutate: () => adminDatabase.updateRow({
+        mutate: async () => adminDatabase.updateRow({
           tableName: route.tableName,
           primaryKey: validation.value.primaryKey,
           values: validation.value.values,
           changedByAccountId: access.profile.activeAccess.accountId,
+          allowProtectedAccounts:
+            accounts !== undefined &&
+            await readCanAssignAdminNavigation({
+              profile: access.profile,
+              accounts,
+              devAccessEnabled: config.devAccessEnabled,
+            }),
         }),
         buildEvent: () => ({
           actor: buildAuditActor(access.profile),
@@ -4990,17 +5026,26 @@ async function handleAdminAccountsRequest({
     accountPositionPathMatch === null
       ? undefined
       : decodeURIComponent(accountPositionPathMatch[1] ?? "");
+  const accountProtectionPathMatch =
+    /^\/api\/admin\/accounts\/([^/]+)\/protection$/u.exec(url.pathname);
+  const accountProtectionUserId =
+    accountProtectionPathMatch === null
+      ? undefined
+      : decodeURIComponent(accountProtectionPathMatch[1] ?? "");
   const isLoginStatusUpdate =
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
   const isAccountPositionUpdate =
     accountPositionAccessId !== undefined && req.method === "PATCH";
+  const isAccountProtectionUpdate =
+    accountProtectionUserId !== undefined && req.method === "PATCH";
   const isPositionRequest = url.pathname.startsWith("/api/admin/positions");
   const isAccountDelete =
     url.pathname.startsWith("/api/admin/accounts/") &&
     url.pathname !== "/api/admin/accounts/reset-password" &&
     req.method === "DELETE";
   const requiresManageAccess =
-    isLoginStatusUpdate || isAccountPositionUpdate || isPositionRequest || isAccountDelete ||
+    isLoginStatusUpdate || isAccountPositionUpdate || isAccountProtectionUpdate ||
+    isPositionRequest || isAccountDelete ||
     (url.pathname === "/api/admin/accounts" && req.method === "POST");
   const readOnlyNavigationItem =
     req.method === "GET" &&
@@ -5045,6 +5090,84 @@ async function handleAdminAccountsRequest({
     return canAssignAdminNavigationPromise;
   };
 
+  if (accountProtectionUserId !== undefined) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Метод не поддерживается." },
+      });
+      return;
+    }
+    if (!(await canAssignAdminNavigation())) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message:
+            "Защиту учётных записей может изменять только исходный аккаунт admin.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateSetAccountProtectionRequest(
+      await readJsonBody(req),
+      accountProtectionUserId,
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const targetAccount = (await accounts.listAccounts()).find(
+      (account) => account.userId === accountProtectionUserId,
+    );
+    if (
+      targetAccount !== undefined &&
+      isCanonicalAdminLogin(targetAccount.login) &&
+      !validation.value.isProtected
+    ) {
+      sendJson(res, 409, {
+        error: {
+          code: "invalid_response",
+          message: "Защиту исходного аккаунта admin нельзя отключить.",
+        },
+      });
+      return;
+    }
+    const protection = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => accounts.setAccountProtected(validation.value),
+      buildEvent: (updatedProtection) =>
+        updatedProtection === undefined ||
+          targetAccount?.isProtected === updatedProtection.isProtected
+          ? undefined
+          : {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: updatedProtection.isProtected
+                ? "admin.account_protection_enable"
+                : "admin.account_protection_disable",
+              summary: `${updatedProtection.isProtected ? "Включена" : "Отключена"} защита учётной записи «${targetAccount?.userDisplayName ?? "Пользователь"}»`,
+              details: buildAccountAuditDetails(targetAccount),
+              targetType: "user_account",
+              targetId: accountProtectionUserId,
+            },
+    });
+    if (protection === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    sendJson(res, 200, protection);
+    return;
+  }
+
   if (accountPositionAccessId !== undefined) {
     if (req.method !== "PATCH") {
       sendJson(res, 405, {
@@ -5084,6 +5207,14 @@ async function handleAdminAccountsRequest({
       return;
     }
 
+    if (
+      targetAccount.isProtected &&
+      !(await canAssignAdminNavigation())
+    ) {
+      sendProtectedAccountMutationDenied(res);
+      return;
+    }
+
     const validation = validateSetAccountPositionRequest(await readJsonBody(req));
 
     if (!validation.ok) {
@@ -5114,30 +5245,41 @@ async function handleAdminAccountsRequest({
       return;
     }
 
-    const positionChange = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => accounts.setAccountPosition({
-        accessId: accountPositionAccessId,
-        position: targetPosition.id,
-      }),
-      buildEvent: (change) =>
-        change === undefined ||
-        change.previous.position === change.updated.position
-        ? undefined
-        : {
-            actor: buildAuditActor(access.profile),
-            category: "administration",
-            action: "admin.account_position_update",
-            summary: `Изменена должность учётной записи «${change.updated.userDisplayName}»`,
-            details: buildAccountPositionChangeAuditDetails(
-              change.previous,
-              change.updated,
-            ),
-            targetType: "user_account",
-            targetId: change.updated.userId,
-          },
-    });
+    let positionChange:
+      | Awaited<ReturnType<AccountsRepository["setAccountPosition"]>>
+      | undefined;
+    try {
+      positionChange = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: async () => accounts.setAccountPosition({
+          accessId: accountPositionAccessId,
+          position: targetPosition.id,
+        }, await canAssignAdminNavigation()),
+        buildEvent: (change) =>
+          change === undefined ||
+          change.previous.position === change.updated.position
+          ? undefined
+          : {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: "admin.account_position_update",
+              summary: `Изменена должность учётной записи «${change.updated.userDisplayName}»`,
+              details: buildAccountPositionChangeAuditDetails(
+                change.previous,
+                change.updated,
+              ),
+              targetType: "user_account",
+              targetId: change.updated.userId,
+            },
+      });
+    } catch (error) {
+      if (error instanceof ProtectedAccountMutationError) {
+        sendProtectedAccountMutationDenied(res);
+        return;
+      }
+      throw error;
+    }
 
     if (positionChange === undefined) {
       sendJson(res, 404, {
@@ -5166,22 +5308,41 @@ async function handleAdminAccountsRequest({
     const targetAccount = (await accounts.listAccounts()).find(
       (account) => account.userId === userId,
     );
-    const wasDeleted = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => accounts.deleteAccount(userId),
-      buildEvent: (deleted) => deleted
-        ? {
-            actor: buildAuditActor(access.profile),
-            category: "administration",
-            action: "admin.account_archive",
-            summary: `Архивирована учётная запись «${targetAccount?.userDisplayName ?? "Пользователь"}»`,
-            details: buildAccountAuditDetails(targetAccount),
-            targetType: "user_account",
-            targetId: userId,
-          }
-        : undefined,
-    });
+    if (
+      targetAccount?.isProtected === true &&
+      !(await canAssignAdminNavigation())
+    ) {
+      sendProtectedAccountMutationDenied(res);
+      return;
+    }
+    let wasDeleted = false;
+    try {
+      wasDeleted = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: async () => accounts.deleteAccount(
+          userId,
+          await canAssignAdminNavigation(),
+        ),
+        buildEvent: (deleted) => deleted
+          ? {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: "admin.account_archive",
+              summary: `Архивирована учётная запись «${targetAccount?.userDisplayName ?? "Пользователь"}»`,
+              details: buildAccountAuditDetails(targetAccount),
+              targetType: "user_account",
+              targetId: userId,
+            }
+          : undefined,
+      });
+    } catch (error) {
+      if (error instanceof ProtectedAccountMutationError) {
+        sendProtectedAccountMutationDenied(res);
+        return;
+      }
+      throw error;
+    }
     if (!wasDeleted) {
       sendJson(res, 404, { error: { code: "not_found", message: "Учётная запись не найдена." } });
       return;
@@ -5392,6 +5553,7 @@ async function handleAdminAccountsRequest({
     if (req.method === "GET") {
       sendJson(res, 200, {
         accounts: await accounts.listAccounts(),
+        canManageProtectedAccounts: await canAssignAdminNavigation(),
       });
       return;
     }
@@ -5477,10 +5639,20 @@ async function handleAdminAccountsRequest({
         const targetAccount = (await accounts.listAccounts()).find(
           (account) => account.userId === validation.value.userId,
         );
+        if (
+          targetAccount?.isProtected === true &&
+          !(await canAssignAdminNavigation())
+        ) {
+          sendProtectedAccountMutationDenied(res);
+          return;
+        }
         const loginStatus = await runAuditedMutation({
           transaction: databaseTransaction,
           audit,
-          mutate: () => accounts.setAccountLoginEnabled(validation.value),
+          mutate: async () => accounts.setAccountLoginEnabled(
+            validation.value,
+            await canAssignAdminNavigation(),
+          ),
           buildEvent: (status) => status === undefined
             ? undefined
             : {
@@ -5546,11 +5718,27 @@ async function handleAdminAccountsRequest({
     return;
   }
 
+  const passwordTarget = (await accounts.listAccounts()).find(
+    (account) =>
+      account.login.trim().toLocaleLowerCase("en-US") ===
+      validation.value.login.toLocaleLowerCase("en-US"),
+  );
+  if (
+    passwordTarget?.isProtected === true &&
+    !(await canAssignAdminNavigation())
+  ) {
+    sendProtectedAccountMutationDenied(res);
+    return;
+  }
+
   try {
     const wasReset = await runAuditedMutation({
       transaction: databaseTransaction,
       audit,
-      mutate: () => accounts.resetPassword(validation.value),
+      mutate: async () => accounts.resetPassword(
+        validation.value,
+        await canAssignAdminNavigation(),
+      ),
       buildEvent: (reset) => reset
         ? {
             actor: buildAuditActor(access.profile),
@@ -5745,7 +5933,7 @@ async function readCanAssignAdminNavigation({
   return actorAccounts.some(
     (account) =>
       account.userId === profile.userId &&
-      account.login.trim().toLocaleLowerCase("en-US") === "admin",
+      isCanonicalAdminLogin(account.login),
   );
 }
 
@@ -5754,6 +5942,16 @@ function sendAdminNavigationAssignmentDenied(res: ServerResponse) {
     error: {
       code: "access_denied",
       message: "Административные вкладки может назначать только аккаунт admin.",
+    },
+  });
+}
+
+function sendProtectedAccountMutationDenied(res: ServerResponse) {
+  sendJson(res, 403, {
+    error: {
+      code: "access_denied",
+      message:
+        "Защищённую учётную запись может изменить только исходный аккаунт admin.",
     },
   });
 }
@@ -5897,6 +6095,24 @@ function validateSetAccountLoginEnabledRequest(input: unknown):
   };
 }
 
+function validateSetAccountProtectionRequest(
+  input: unknown,
+  userId: string,
+):
+  | { ok: true; value: { userId: string; isProtected: boolean } }
+  | { ok: false; errors: string[] } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return { ok: false, errors: ["Payload must be a JSON object."] };
+  }
+  if (typeof input.isProtected !== "boolean") {
+    return { ok: false, errors: ["isProtected must be a boolean."] };
+  }
+  return {
+    ok: true,
+    value: { userId, isProtected: input.isProtected },
+  };
+}
+
 function validateSetAccountPositionRequest(input: unknown):
   | {
       ok: true;
@@ -5927,6 +6143,11 @@ function validateSetAccountPositionRequest(input: unknown):
 }
 
 function sendAdminAccountsError(res: ServerResponse, error: unknown) {
+  if (error instanceof ProtectedAccountMutationError) {
+    sendProtectedAccountMutationDenied(res);
+    return;
+  }
+
   if (error instanceof AccountLoginAlreadyExistsError) {
     sendJson(res, 409, {
       error: {
@@ -6300,9 +6521,11 @@ function readAdminDatabaseValueMap(
 }
 
 function sendAdminDatabaseError(res: ServerResponse, error: unknown) {
-  sendJson(res, 400, {
+  sendJson(res, error instanceof ProtectedAccountMutationError ? 403 : 400, {
     error: {
-      code: "invalid_response",
+      code: error instanceof ProtectedAccountMutationError
+        ? "access_denied"
+        : "invalid_response",
       message: error instanceof Error ? error.message : "Admin database request failed.",
     },
   });

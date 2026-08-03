@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
+import { ProtectedAccountMutationError } from "../domain/adminAccountProtection.js";
 import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
@@ -218,6 +219,10 @@ test("setAccountPosition applies position access and revokes user sessions", asy
         }], []];
       }
 
+      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+        return [[{ status: "active", is_admin_protected: 0 }], []];
+      }
+
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
           id: "business_owner",
@@ -310,6 +315,10 @@ test("setAccountPosition treats the locked current position as a no-op", async (
         }], []];
       }
 
+      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+        return [[{ status: "active", is_admin_protected: 0 }], []];
+      }
+
       if (normalized.startsWith("select accesses.id as access_id")) {
         return [[{
           access_id: "access-owner",
@@ -369,6 +378,10 @@ test("setAccountPosition creates organization scope when an administrator become
           access_id: "access-admin",
           user_id: "user-admin",
         }], []];
+      }
+
+      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+        return [[{ status: "active", is_admin_protected: 0 }], []];
       }
 
       if (normalized.startsWith("select positions.id, positions.display_name")) {
@@ -580,6 +593,7 @@ test("createAccount generates worker ids and commits all rows together", async (
       login: "worker-1",
       user_display_name: "Работник Один",
       user_status: "active",
+      is_protected: 0,
       access_display_name: "Работник Один access",
       account_type: "worker",
       scope_kind: "organization",
@@ -732,6 +746,50 @@ test("setAccountLoginEnabled suspends login and deletes existing sessions", asyn
   );
 });
 
+test("setAccountLoginEnabled rejects a protected account without original admin authority", async () => {
+  const database = buildFakeDatabase({
+    userStatus: "active",
+    isProtected: true,
+  });
+  const repository = createAccountsRepository(database.pool);
+
+  await assert.rejects(
+    repository.setAccountLoginEnabled({
+      userId: "protected-user-id",
+      isEnabled: false,
+    }),
+    ProtectedAccountMutationError,
+  );
+
+  assert.equal(database.didCommit, false);
+  assert.equal(database.didRollback, true);
+  assert.equal(
+    database.queries.some((query) =>
+      query.sql.startsWith("update app_users set status"),
+    ),
+    false,
+  );
+});
+
+test("setAccountLoginEnabled lets original admin change a protected account", async () => {
+  const database = buildFakeDatabase({
+    userStatus: "active",
+    isProtected: true,
+  });
+  const repository = createAccountsRepository(database.pool);
+
+  const result = await repository.setAccountLoginEnabled(
+    { userId: "protected-user-id", isEnabled: false },
+    true,
+  );
+
+  assert.deepEqual(result, {
+    userId: "protected-user-id",
+    userStatus: "suspended",
+  });
+  assert.equal(database.didCommit, true);
+});
+
 test("deleteAccount archives identity, disables accesses, and revokes sessions", async () => {
   const database = buildFakeDatabase({ userStatus: "active" });
   const repository = createAccountsRepository(database.pool);
@@ -851,6 +909,7 @@ type FakeAccountRow = {
   login: string;
   user_display_name: string;
   user_status: string;
+  is_protected: number | boolean;
   access_display_name: string;
   account_type: string;
   scope_kind: string;
@@ -862,11 +921,13 @@ function buildFakeDatabase({
   existingUserId,
   accountRow,
   failOn,
+  isProtected = false,
   userStatus,
 }: {
   existingUserId?: string;
   accountRow?: FakeAccountRow;
   failOn?: string;
+  isProtected?: boolean;
   userStatus?: string;
 } = {}) {
   const state = {
@@ -902,8 +963,13 @@ function buildFakeDatabase({
         return [existingUserId === undefined ? [] : [{ id: existingUserId }], []];
       }
 
-      if (normalized.startsWith("select status from app_users")) {
-        return [userStatus === undefined ? [] : [{ status: userStatus }], []];
+      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+        return [
+          userStatus === undefined
+            ? []
+            : [{ status: userStatus, is_admin_protected: isProtected ? 1 : 0 }],
+          [],
+        ];
       }
 
       if (

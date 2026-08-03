@@ -68,7 +68,10 @@ test("position order batches moves, survives refreshes, retries, and can be canc
       }
       if (url.pathname === "/api/admin/accounts" && method === "GET") {
         accountRefreshCount += 1;
-        return jsonResponse({ accounts: [account] });
+        return jsonResponse({
+          accounts: [account],
+          canManageProtectedAccounts: true,
+        });
       }
       if (url.pathname === "/api/admin/accounts" && method === "PATCH") {
         account = { ...account, userStatus: "suspended" };
@@ -294,6 +297,7 @@ function buildAccount() {
     login: "dispatcher-1",
     userDisplayName: "Диспетчер Один",
     userStatus: "active",
+    isProtected: false,
     accessDisplayName: "Диспетчер Один access",
     accountType: "dispatcher",
     position: "first",

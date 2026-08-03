@@ -58,7 +58,10 @@ test("delegated account manager preserves disabled admin tabs while editing busi
         return jsonResponse({ profile: buildDelegatedProfile() });
       }
       if (url.pathname === "/api/admin/accounts" && method === "GET") {
-        return jsonResponse({ accounts: [] });
+        return jsonResponse({
+          accounts: [],
+          canManageProtectedAccounts: false,
+        });
       }
       if (url.pathname === "/api/admin/positions" && method === "GET") {
         return jsonResponse({

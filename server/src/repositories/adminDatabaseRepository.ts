@@ -1,5 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
+import { assertProtectedAccountMutationAllowed } from "../domain/adminAccountProtection.js";
 import {
   getDispatcherFormDefinition,
   isDispatcherFormId,
@@ -95,6 +96,7 @@ export type AdminDatabaseUpdate = {
   primaryKey: Record<string, AdminDatabaseCellValue>;
   values: Record<string, AdminDatabaseCellValue>;
   changedByAccountId?: string;
+  allowProtectedAccounts?: boolean;
 };
 
 export type AdminDatabaseDelete = {
@@ -339,7 +341,11 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
     }
 
     if (view.name === "app_users") {
-      await assertUserIsEditable(pool, value.primaryKey.id);
+      await assertUserIsEditable(
+        pool,
+        value.primaryKey.id,
+        value.allowProtectedAccounts === true,
+      );
     }
 
     const columnByName = new Map(view.columns.map((column) => [column.name, column]));
@@ -431,13 +437,18 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
 async function assertUserIsEditable(
   pool: DatabasePool,
   id: AdminDatabaseCellValue | undefined,
+  allowProtected: boolean,
 ) {
   if (typeof id !== "string" || id.length === 0) {
     throw new Error("Primary key value is missing.");
   }
 
-  const [rows] = await pool.query<Array<RowDataPacket & { status: string }>>(
-    "select status from app_users where id = ? limit 1 for update",
+  const [rows] = await pool.query<Array<RowDataPacket & {
+    status: string;
+    is_admin_protected: number | boolean;
+  }>>(
+    `select status, is_admin_protected
+     from app_users where id = ? limit 1 for update`,
     [id],
   );
   const status = rows[0]?.status;
@@ -449,6 +460,13 @@ async function assertUserIsEditable(
   if (status === "archived") {
     throw new Error("Archived user cannot be changed from the database editor.");
   }
+
+  assertProtectedAccountMutationAllowed({
+    isProtected:
+      rows[0]?.is_admin_protected === true ||
+      rows[0]?.is_admin_protected === 1,
+    allowProtected,
+  });
 }
 
 async function updateDispatcherSubmission(

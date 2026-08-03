@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
+import { ProtectedAccountMutationError } from "../domain/adminAccountProtection.js";
 import { createAdminDatabaseRepository } from "./adminDatabaseRepository.js";
 
 test("admin database catalog contains only safe editable user-facing sections", async () => {
@@ -363,8 +364,8 @@ test("user editor exposes no archive option and revokes active sessions", async 
     async query(sql: string, values?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, values });
-      if (normalized.startsWith("select status from app_users")) {
-        return [[{ status: "active" }], []];
+      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+        return [[{ status: "active", is_admin_protected: 0 }], []];
       }
       return [{ affectedRows: 1 }, []];
     },
@@ -394,8 +395,8 @@ test("archived user cannot be changed through a forged database mutation", async
   const pool = {
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select status from app_users")) {
-        return [[{ status: "archived" }], []];
+      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+        return [[{ status: "archived", is_admin_protected: 0 }], []];
       }
       if (normalized.startsWith("update app_users")) didUpdate = true;
       return [{ affectedRows: 1 }, []];
@@ -409,6 +410,30 @@ test("archived user cannot be changed through a forged database mutation", async
       values: { display_name: "Новое имя" },
     }),
     /cannot be changed/u,
+  );
+  assert.equal(didUpdate, false);
+});
+
+test("protected user cannot be changed through a forged database mutation", async () => {
+  let didUpdate = false;
+  const pool = {
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+        return [[{ status: "active", is_admin_protected: 1 }], []];
+      }
+      if (normalized.startsWith("update app_users")) didUpdate = true;
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAdminDatabaseRepository(pool).updateRow({
+      tableName: "app_users",
+      primaryKey: { id: "protected-user" },
+      values: { display_name: "Новое имя" },
+    }),
+    ProtectedAccountMutationError,
   );
   assert.equal(didUpdate, false);
 });

@@ -2639,6 +2639,21 @@ p {
   align-items: center;
 }
 
+.admin-account-protection-control {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-account-protection-control input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
 .admin-account-navigation-fieldset {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
