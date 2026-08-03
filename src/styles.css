@@ -3071,6 +3071,25 @@ p {
   min-width: 0;
 }
 
+.admin-db-search {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-db-search > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-db-search > input {
+  width: 100%;
+  min-width: 0;
+}
+
 .admin-db-table-scroll {
   overflow-x: auto;
   border: 1px solid var(--line);

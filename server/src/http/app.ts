@@ -4614,13 +4614,13 @@ async function handleAdminDatabaseRequest({
     }
 
     if (req.method === "GET") {
-      const pagination = readAdminDatabasePagination(url);
+      const query = readAdminDatabaseRowsQuery(url);
 
-      if (!pagination.ok) {
+      if (!query.ok) {
         sendJson(res, 400, {
           error: {
             code: "invalid_response",
-            message: pagination.errors.join(" "),
+            message: query.errors.join(" "),
           },
         });
         return;
@@ -4628,7 +4628,7 @@ async function handleAdminDatabaseRequest({
 
       const rows = await adminDatabase.listRows(
         route.tableName,
-        pagination.value,
+        query.value,
       );
       sendJson(
         res,
@@ -5915,6 +5915,40 @@ function readAdminDispatcherImportPayload(
       spreadsheetUrl,
       previewToken,
     },
+  };
+}
+
+function readAdminDatabaseRowsQuery(url: URL):
+  | {
+      ok: true;
+      value: {
+        limit?: number;
+        offset?: number;
+        search?: string;
+      };
+    }
+  | {
+      ok: false;
+      errors: string[];
+    } {
+  const pagination = readAdminDatabasePagination(url);
+  const errors = pagination.ok ? [] : [...pagination.errors];
+  const search = readOptionalQueryParam(url, "search")?.trim();
+
+  if (search !== undefined && search.length > 120) {
+    errors.push("search must contain at most 120 characters.");
+  }
+
+  if (errors.length > 0 || !pagination.ok) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value:
+      search === undefined || search.length === 0
+        ? pagination.value
+        : { ...pagination.value, search },
   };
 }
 

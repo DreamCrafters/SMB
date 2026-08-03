@@ -7709,6 +7709,8 @@ function AdminDatabaseWorkspace({
   });
   const [selectedTableName, setSelectedTableName] = useState("");
   const [rowsOffset, setRowsOffset] = useState(0);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [editor, setEditor] = useState<
     | {
@@ -7784,7 +7786,23 @@ function AdminDatabaseWorkspace({
 
   useEffect(() => {
     setRowsOffset(0);
+    setSearchInput("");
+    setSearchTerm("");
   }, [selectedTableName]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [searchInput]);
+
+  useEffect(() => {
+    setRowsOffset(0);
+  }, [searchTerm]);
 
   useEffect(() => {
     if (!canManageDatabase || selectedTableName.length === 0) {
@@ -7815,6 +7833,7 @@ function AdminDatabaseWorkspace({
     requestAdminDatabaseRows(selectedTableName, {
       limit: 100,
       offset: rowsOffset,
+      search: searchTerm,
       signal: controller.signal,
     }).then((result) => {
       if (!controller.signal.aborted) {
@@ -7825,7 +7844,13 @@ function AdminDatabaseWorkspace({
     return () => {
       controller.abort();
     };
-  }, [canManageDatabase, selectedTableName, rowsOffset, refreshVersion]);
+  }, [
+    canManageDatabase,
+    selectedTableName,
+    rowsOffset,
+    searchTerm,
+    refreshVersion,
+  ]);
 
   const tables = tablesState.status === "ready" ? tablesState.tables : [];
   const selectedTable =
@@ -8049,8 +8074,19 @@ function AdminDatabaseWorkspace({
         </div>
 
         <div className="admin-db-main">
+          <label className="admin-db-search">
+            <span>Поиск по всем столбцам</span>
+            <input
+              maxLength={120}
+              placeholder="Например: INC-2026-51, Открытие инцидента, Соколова"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.currentTarget.value)}
+            />
+          </label>
+
           <AdminDatabaseRowsTable
             rowsState={rowsState}
+            search={searchTerm}
             onEdit={handleStartEdit}
             onMerge={handleStartMerge}
             onDelete={handleStartDelete}
@@ -8544,6 +8580,7 @@ function AdminDispatcherImportPanel({
 
 function AdminDatabaseRowsTable({
   rowsState,
+  search,
   onEdit,
   onMerge,
   onDelete,
@@ -8552,6 +8589,7 @@ function AdminDatabaseRowsTable({
   onPreviousPage,
 }: {
   rowsState: AdminDatabaseRowsLoadState;
+  search: string;
   onEdit: (row: AdminDatabaseRow) => void;
   onMerge: (row: AdminDatabaseRow) => void;
   onDelete: (row: AdminDatabaseRow) => void;
@@ -8571,7 +8609,13 @@ function AdminDatabaseRowsTable({
     return (
       <div className="admin-db-meta">
         <span>{rowsState.table.label}</span>
-        <strong>{rowsState.offset === 0 ? "Строк нет" : "Страницы дальше нет"}</strong>
+        <strong>
+          {rowsState.offset > 0
+            ? "Страницы дальше нет"
+            : search.length > 0
+            ? "Ничего не найдено"
+            : "Строк нет"}
+        </strong>
         {rowsState.offset > 0 ? (
           <div className="admin-db-pager">
             <button

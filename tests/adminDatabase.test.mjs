@@ -103,6 +103,30 @@ test("admin database service builds relative rows endpoint without browser windo
   );
 });
 
+test("admin database service passes the search term to the rows endpoint", async () => {
+  const requestedUrls = [];
+
+  globalThis.fetch = async (url) => {
+    requestedUrls.push(String(url));
+
+    return jsonResponse({ table, rows: [], mergeTargets: [], limit: 100, offset: 0 });
+  };
+
+  await requestAdminDatabaseRows("dispatcher_submissions", {
+    search: "  INC-2026-51  ",
+  });
+  await requestAdminDatabaseRows("dispatcher_submissions", { search: "   " });
+
+  assert.equal(
+    requestedUrls[0],
+    "/api/admin/database/tables/dispatcher_submissions/rows?limit=100&offset=0&search=INC-2026-51",
+  );
+  assert.equal(
+    requestedUrls[1],
+    "/api/admin/database/tables/dispatcher_submissions/rows?limit=100&offset=0",
+  );
+});
+
 test("admin database service sends update and delete mutations", async () => {
   const calls = [];
 

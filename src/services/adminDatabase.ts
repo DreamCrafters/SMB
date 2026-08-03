@@ -124,12 +124,14 @@ export async function requestAdminDatabaseRows(
     signal,
     limit = 100,
     offset = 0,
+    search,
   }: AdminDatabaseRequestOptions & {
     limit?: number;
     offset?: number;
+    search?: string;
   } = {},
 ): Promise<AdminDatabaseRowsResult> {
-  const endpoint = buildRowsEndpoint(tableName, { baseUrl, limit, offset });
+  const endpoint = buildRowsEndpoint(tableName, { baseUrl, limit, offset, search });
 
   try {
     const response = await fetch(endpoint, {
@@ -479,10 +481,12 @@ function buildRowsEndpoint(
     baseUrl,
     limit,
     offset,
+    search,
   }: {
     baseUrl?: string;
     limit?: number;
     offset?: number;
+    search?: string;
   },
 ) {
   const endpoint = resolveApiEndpoint(
@@ -501,6 +505,10 @@ function buildRowsEndpoint(
 
   if (offset !== undefined) {
     url.searchParams.set("offset", String(offset));
+  }
+
+  if (search !== undefined && search.trim().length > 0) {
+    url.searchParams.set("search", search.trim());
   }
 
   return isAbsoluteEndpoint ? url.toString() : `${url.pathname}${url.search}`;

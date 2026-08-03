@@ -2399,6 +2399,54 @@ test("admin database API forwards update and delete mutations for admin sessions
   );
 });
 
+test("admin database rows endpoint forwards a bounded search term", async () => {
+  const listed: Array<{ limit?: number; offset?: number; search?: string }> = [];
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async listRows(_tableName, options) {
+      listed.push({ ...options });
+      return {
+        table: adminDatabaseTable,
+        rows: [],
+        mergeTargets: [],
+        limit: 100,
+        offset: 0,
+      };
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = {
+        "X-SMB-Dev-Session": await createDevSession(baseUrl, "admin"),
+      };
+      const rowsEndpoint =
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`;
+      const searchResponse = await fetch(
+        `${rowsEndpoint}?search=${encodeURIComponent("  INC-2026-51  ")}`,
+        { headers },
+      );
+      const blankResponse = await fetch(`${rowsEndpoint}?search=%20%20`, { headers });
+      const longResponse = await fetch(
+        `${rowsEndpoint}?search=${"и".repeat(121)}`,
+        { headers },
+      );
+
+      assert.equal(searchResponse.status, 200);
+      assert.equal(blankResponse.status, 200);
+      assert.equal(longResponse.status, 400);
+      assert.equal(listed[0]?.search, "INC-2026-51");
+      assert.equal(listed[1]?.search, undefined);
+      assert.equal(listed.length, 2);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+  );
+});
+
 test("admin dispatcher editor uses and enforces the shared production brands", async () => {
   let updatedValues: Record<string, string | null> | undefined;
   const repository: AdminDatabaseRepository = {

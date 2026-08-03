@@ -144,6 +144,72 @@ test("dispatcher row update validates form values and preserves server fields", 
   );
 });
 
+test("dispatcher rows can be searched across every displayed column", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, values });
+
+      if (normalized.startsWith("select count(*)")) {
+        return [[{ row_count: 1 }], []];
+      }
+
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  const result = await createAdminDatabaseRepository(pool).listRows(
+    "dispatcher_submissions",
+    { limit: 100, offset: 0, search: "INC-2026-51" },
+  );
+
+  const [count, page] = queries;
+  const patternCount = count?.values?.length ?? 0;
+
+  assert.equal(result.table.rowCount, 1);
+  assert.deepEqual(count?.values, page?.values?.slice(0, patternCount));
+  assert.deepEqual(page?.values?.slice(-2), [100, 0]);
+  assert.ok(
+    (count?.values ?? []).every((value) => value === "%INC-2026-51%"),
+    "every column is compared with the same pattern",
+  );
+  // Every displayed column takes part, and dates are matched by printed day too.
+  assert.ok(patternCount > result.table.columns.length);
+  assert.ok(count?.sql.includes("'$.incidentNumber')) like ?"));
+  assert.ok(count?.sql.includes("when 'accepted' then 'Принято'"));
+  assert.ok(count?.sql.includes("date_format(submissions.received_at, '%d.%m.%Y') like ?"));
+});
+
+test("database search escapes like wildcards and keeps view filters", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, values });
+
+      if (normalized.startsWith("select count(*)")) {
+        return [[{ row_count: 0 }], []];
+      }
+
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  await createAdminDatabaseRepository(pool).listRows("app_users", {
+    search: "100%_наладка",
+  });
+
+  assert.ok(
+    queries.every((query) => query.sql.includes("status <> 'archived' and (")),
+    "the archived filter stays combined with the search",
+  );
+  assert.ok(
+    (queries[0]?.values ?? []).every((value) => value === "%100\\%\\_наладка%"),
+  );
+  assert.ok(queries[0]?.sql.includes("when 'active' then 'Активен'"));
+});
+
 test("incident text corrections reach the stored closure of the same incident", async () => {
   const queries: Array<{ sql: string; values?: unknown[] }> = [];
   const pool = {

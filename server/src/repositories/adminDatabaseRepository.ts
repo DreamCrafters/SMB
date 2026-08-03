@@ -119,7 +119,7 @@ export type AdminDatabaseRepository = {
   listTables: () => Promise<AdminDatabaseTable[]>;
   listRows: (
     tableName: string,
-    options?: { limit?: number; offset?: number },
+    options?: { limit?: number; offset?: number; search?: string },
   ) => Promise<AdminDatabaseTableRows>;
   updateRow: (value: AdminDatabaseUpdate) => Promise<void>;
   mergeRows: (value: AdminDatabaseMerge) => Promise<AdminDatabaseMergeResult>;
@@ -167,6 +167,11 @@ type DispatcherEditorRow = RowDataPacket & {
   summary: string;
   status: string;
   period: string;
+};
+
+type AdminDatabaseSearchFilter = {
+  clause: string;
+  values: string[];
 };
 
 type IncidentClosureRow = RowDataPacket & {
@@ -236,6 +241,12 @@ const databaseViews: AdminDatabaseView[] = [
     orderBy: "submissions.received_at desc, submissions.id desc",
     columns: [
       viewColumn("form", "Раздел", dispatcherFormLabelExpression("submissions.form_id")),
+      viewColumn(
+        "incident_number",
+        "№ инцидента",
+        "json_unquote(json_extract(submissions.payload, '$.incidentNumber'))",
+        { nullable: true },
+      ),
       viewColumn("event_date", "Дата события", dispatcherEventDateExpression(), { format: "date" }),
       viewColumn("summary", "Краткое описание", "submissions.summary", { multiline: true }),
       viewColumn("status", "Статус", "submissions.status", {
@@ -275,10 +286,15 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
 
   async function listRows(
     tableName: string,
-    { limit = 100, offset = 0 }: { limit?: number; offset?: number } = {},
+    { limit = 100, offset = 0, search }: {
+      limit?: number;
+      offset?: number;
+      search?: string;
+    } = {},
   ) {
     const view = readView(tableName);
-    const table = await readPublicTable(view);
+    const filter = buildSearchFilter(view, search ?? "");
+    const table = await readPublicTable(view, filter);
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const safeOffset = Math.max(offset, 0);
     const selectColumns = [
@@ -296,12 +312,12 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
       `
         select ${selectColumns.join(",\n          ")}
         from ${view.fromClause}
-        ${view.whereClause === undefined ? "" : `where ${view.whereClause}`}
+        ${buildWhereClause(view, filter)}
         order by ${view.orderBy}
         limit ?
         offset ?
       `,
-      [safeLimit, safeOffset],
+      [...(filter?.values ?? []), safeLimit, safeOffset],
     );
 
     return {
@@ -396,10 +412,14 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
     return result.affectedRows;
   }
 
-  async function readPublicTable(view: AdminDatabaseView) {
+  async function readPublicTable(
+    view: AdminDatabaseView,
+    filter?: AdminDatabaseSearchFilter,
+  ) {
     const [rows] = await pool.query<Array<RowDataPacket & { row_count: number | string }>>(
       `select count(*) as row_count from ${view.fromClause}
-       ${view.whereClause === undefined ? "" : `where ${view.whereClause}`}`,
+       ${buildWhereClause(view, filter)}`,
+      filter?.values ?? [],
     );
 
     return buildPublicTable(view, Number(rows[0]?.row_count ?? 0));
@@ -787,6 +807,74 @@ function viewColumn(
     maxLength: optionsValue.maxLength,
     writeValue: optionsValue.writeValue,
   };
+}
+
+// Search matches the values the administrator actually sees in the table, so a
+// status is compared by its Russian label and a timestamp also by its printed
+// day. Every column of the shown projection takes part, and nothing hidden does.
+function buildSearchFilter(
+  view: AdminDatabaseView,
+  search: string,
+): AdminDatabaseSearchFilter | undefined {
+  const term = search.trim();
+
+  if (term.length === 0) {
+    return undefined;
+  }
+
+  const expressions = view.columns.flatMap(buildSearchableExpressions);
+
+  if (expressions.length === 0) {
+    return undefined;
+  }
+
+  const pattern = `%${escapeLikePattern(term)}%`;
+
+  return {
+    clause: `(${expressions
+      .map((expression) => `${expression} like ? escape '\\\\'`)
+      .join(" or ")})`,
+    values: expressions.map(() => pattern),
+  };
+}
+
+function buildSearchableExpressions(column: AdminDatabaseViewColumn) {
+  if (column.format === "status" && column.options.length > 0) {
+    const branches = column.options
+      .map((option) => `when ${quoteSqlString(option.value)} then ${quoteSqlString(option.label)}`)
+      .join(" ");
+
+    return [`case ${column.selectExpression} ${branches} else ${column.selectExpression} end`];
+  }
+
+  if (column.format === "date_time" || column.format === "date") {
+    return [
+      column.selectExpression,
+      `date_format(${column.selectExpression}, '%d.%m.%Y')`,
+    ];
+  }
+
+  return [column.selectExpression];
+}
+
+function buildWhereClause(
+  view: AdminDatabaseView,
+  filter: AdminDatabaseSearchFilter | undefined,
+) {
+  const clauses = [view.whereClause, filter?.clause].filter(
+    (clause): clause is string => clause !== undefined,
+  );
+
+  return clauses.length === 0 ? "" : `where ${clauses.join(" and ")}`;
+}
+
+function escapeLikePattern(value: string) {
+  return value.replace(/[\\%_]/gu, (character) => `\\${character}`);
+}
+
+function quoteSqlString(value: string) {
+  if (/['\\]/u.test(value)) throw new Error("Unsafe database literal.");
+  return `'${value}'`;
 }
 
 function readView(tableName: string) {
