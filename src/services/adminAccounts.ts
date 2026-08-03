@@ -75,7 +75,11 @@ export type SetAdminAccountNavigationResult =
   | AdminAccountsErrorState;
 
 export type AdminPositionsResult =
-  | { status: "ready"; positions: AdminPositionSummary[] }
+  | {
+      status: "ready";
+      positions: AdminPositionSummary[];
+      canAssignAdminNavigation: boolean;
+    }
   | AdminAccountsErrorState;
 export type SaveAdminPositionResult =
   | { status: "ready"; position: AdminPositionSummary }
@@ -138,7 +142,11 @@ export async function saveAdminPositionOrder(
       );
     }
     if (isAdminPositionsListResponse(payload)) {
-      return { status: "ready", positions: payload.positions };
+      return {
+        status: "ready",
+        positions: payload.positions,
+        canAssignAdminNavigation: payload.canAssignAdminNavigation,
+      };
     }
     return {
       status: "error",
@@ -200,7 +208,13 @@ async function requestPositions(
     const response = await fetch(endpoint, { method, headers: buildDevAccessHeaders({ Accept: "application/json" }), credentials: "include", signal });
     const payload = await readJson(response);
     if (!response.ok) return readRemoteError(payload, response.status, "Не удалось загрузить должности.");
-    if (isAdminPositionsListResponse(payload)) return { status: "ready", positions: payload.positions };
+    if (isAdminPositionsListResponse(payload)) {
+      return {
+        status: "ready",
+        positions: payload.positions,
+        canAssignAdminNavigation: payload.canAssignAdminNavigation,
+      };
+    }
     return { status: "error", message: "Сервер вернул должности в неподдерживаемом формате.", code: "invalid_response" };
   } catch (error) {
     if (isAbortError(error)) return { status: "error", message: "Запрос должностей отменён." };
@@ -656,7 +670,12 @@ function isAdminAccountsListResponse(
 }
 
 function isAdminPositionsListResponse(value: unknown): value is AdminPositionsListResponse {
-  return isRecord(value) && Array.isArray(value.positions) && value.positions.every(isAdminPositionSummary);
+  return (
+    isRecord(value) &&
+    Array.isArray(value.positions) &&
+    value.positions.every(isAdminPositionSummary) &&
+    typeof value.canAssignAdminNavigation === "boolean"
+  );
 }
 
 function isSaveAdminPositionResponse(value: unknown): value is SaveAdminPositionResponse {

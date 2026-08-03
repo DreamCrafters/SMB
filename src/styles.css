@@ -2687,6 +2687,11 @@ p {
   padding: 0;
 }
 
+.data-entry-form .admin-account-navigation-option input:disabled + span {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
 .admin-account-navigation-cell {
   display: grid;
   min-width: 180px;

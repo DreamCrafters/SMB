@@ -5,6 +5,7 @@ import {
   canRequestDispatcherForms,
   canSubmitDispatcherForms,
   resolveAllowedNavigationTab,
+  resolveAllowedWorkspaceKind,
 } from "../.test-build/src/services/accessGuards.js";
 
 function buildProfile(accountType, capabilities) {
@@ -90,5 +91,26 @@ test("workspace falls back to the first allowed tab", () => {
       ["business.dispatcher"],
     ),
     "dispatcher",
+  );
+});
+
+test("hybrid workspace switches between business and admin navigation", () => {
+  const hybridNavigation = ["business.overview", "admin.database"];
+
+  assert.equal(
+    resolveAllowedWorkspaceKind("business", hybridNavigation),
+    "business",
+  );
+  assert.equal(
+    resolveAllowedWorkspaceKind("admin", hybridNavigation),
+    "admin",
+  );
+  assert.equal(
+    resolveAllowedWorkspaceKind("business", ["admin.database"]),
+    "admin",
+  );
+  assert.equal(
+    resolveAllowedWorkspaceKind("admin", ["business.overview"]),
+    "business",
   );
 });

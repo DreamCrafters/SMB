@@ -8,7 +8,7 @@ import {
 
 const projectRoot = new URL("../", import.meta.url);
 
-test("every non-admin position uses the complete unified workspace catalog", async () => {
+test("positions can combine the unified workspace with guarded admin tabs", async () => {
   assert.deepEqual(
     nonAdminNavigationItems.map(({ id }) => id),
     [
@@ -29,6 +29,7 @@ test("every non-admin position uses the complete unified workspace catalog", asy
   const positionFormSource = /type AdminPositionFormState = \{([\s\S]*?)\n\};/u.exec(appSource)?.[1];
 
   assert.equal(positionFormSource?.includes("accountType"), false);
+  assert.equal(positionFormSource?.includes("showAdminNavigation"), true);
   assert.equal(appSource.includes("<span>Базовый кабинет</span>"), false);
   assert.match(
     appSource,
@@ -38,6 +39,16 @@ test("every non-admin position uses the complete unified workspace catalog", asy
     appSource,
     /\{boardAssignmentAccessOptions\.map\(\(option\) => \(/u,
   );
+  assert.match(appSource, />\s*Админ\s*</u);
+  assert.match(
+    appSource,
+    /navigationItemsByAccountType\.admin\.map\(\(item\) => \(/u,
+  );
+  assert.match(
+    appSource,
+    /disabled=\{isSubmitting \|\| !positionsState\.canAssignAdminNavigation\}/u,
+  );
+  assert.match(appSource, /resolveAllowedWorkspaceKind\(/u);
   assert.match(
     appSource,
     /disabled=\{!canManageAccess \|\| position\.accountType === "admin"\}/u,

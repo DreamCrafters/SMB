@@ -69,20 +69,7 @@ const capabilitiesByNavigationItem: Record<
   AccountNavigationItem,
   AccountCapability[]
 > = {
-  "admin.account_preview": [
-    "business.view_all_statistics",
-    "business.view_notifications",
-    "business.submit_forms",
-    "business.submit_dispatcher_forms",
-    "business.view_dispatcher_feed",
-    "business.view_own_submissions",
-    "business.manage_production_plan",
-    "business.submit_refractory_reports",
-    "business.review_refractory_reports",
-    "business.manage_laboratory_results",
-    "business.view_laboratory_results",
-    "business.view_board_assignments",
-  ],
+  "admin.account_preview": [],
   "admin.accounts": ["platform.manage_users", "platform.manage_access"],
   "admin.database": ["platform.manage_analytics_database"],
   "admin.user_actions": ["platform.view_audit"],
@@ -188,23 +175,36 @@ function getDefaultBoardAssignmentAccess(
   return "view";
 }
 
-export function validateNavigationItemsForAccountType(
-  accountType: AccountType,
-  navigationItems: AccountNavigationItem[],
-) {
-  if (accountType !== "admin") {
-    return validateNonAdminNavigationItems(navigationItems);
-  }
-
-  const allowed = new Set(navigationItemsByAccountType.admin);
-
-  return navigationItems.length > 0 && navigationItems.every((item) => allowed.has(item));
+export function isAdminNavigationItem(item: AccountNavigationItem) {
+  return navigationItemsByAccountType.admin.includes(item);
 }
 
-export function validateNonAdminNavigationItems(
+export function hasAdminNavigationItems(
   navigationItems: AccountNavigationItem[],
 ) {
-  const allowed = new Set(nonAdminNavigationItems);
+  return navigationItems.some(isAdminNavigationItem);
+}
+
+export function hasSameAdminNavigationItems(
+  left: AccountNavigationItem[],
+  right: AccountNavigationItem[],
+) {
+  const leftItems = new Set(left.filter(isAdminNavigationItem));
+  const rightItems = new Set(right.filter(isAdminNavigationItem));
+
+  return (
+    leftItems.size === rightItems.size &&
+    Array.from(leftItems).every((item) => rightItems.has(item))
+  );
+}
+
+export function validatePositionNavigationItems(
+  navigationItems: AccountNavigationItem[],
+) {
+  const allowed = new Set([
+    ...nonAdminNavigationItems,
+    ...navigationItemsByAccountType.admin,
+  ]);
 
   return navigationItems.length > 0 && navigationItems.every((item) => allowed.has(item));
 }

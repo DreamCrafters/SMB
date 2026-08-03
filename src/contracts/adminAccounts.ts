@@ -46,7 +46,10 @@ export type AdminPositionSummary = {
   createdAt: string;
 };
 
-export type AdminPositionsListResponse = { positions: AdminPositionSummary[] };
+export type AdminPositionsListResponse = {
+  positions: AdminPositionSummary[];
+  canAssignAdminNavigation: boolean;
+};
 export type SaveAdminPositionOrderRequest = { positionIds: AccountPosition[] };
 export type SaveAdminPositionRequest = {
   displayName: string;

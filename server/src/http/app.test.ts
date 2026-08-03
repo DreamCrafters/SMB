@@ -9,6 +9,7 @@ import type {
   ServerUserProfile,
 } from "../domain/auth.js";
 import { defaultCapabilitiesByAccountType } from "../domain/auth.js";
+import { resolveCapabilitiesForPosition } from "../domain/accountAccessConfiguration.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
 import {
@@ -647,9 +648,8 @@ test("laboratory API reads the live matrix and saves the session-authored result
       ] };
     },
   };
-  await withApiServer(
-    async (baseUrl) => {
-      const headers = {
+  await withApiServer(async (baseUrl) => {
+    const headers = {
         "Content-Type": "application/json",
         Cookie: "smb_session=prod-session",
       };
@@ -3049,6 +3049,182 @@ test("admin accounts API lists accounts for admin dev sessions", async () => {
   );
 });
 
+test("account preview navigation grants reads without business mutations", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.account_preview"];
+  profile.activeAccess.capabilities = resolveCapabilitiesForPosition(
+    "preview-only",
+    profile.activeAccess.navigationItems,
+    "none",
+  );
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [{
+        ...adminAccount,
+        accessId: profile.activeAccess.accountId,
+        userId: profile.userId,
+        login: "account-preview-user",
+        capabilities: [],
+        navigationItems: ["admin.account_preview"],
+      }];
+    },
+  };
+  const authService = buildAuthService({ profile });
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() {
+      throw new Error("Account preview must not assign laboratory banks.");
+    },
+    async listCurrent() {
+      return [];
+    },
+    async listHistory() {
+      return [];
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() {
+      throw new Error("Account preview must not create kiln records.");
+    },
+    async list() {
+      return { records: [], averageBulkDensity: null };
+    },
+    async listMaterialBulkDensities() {
+      return [];
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const accountsResponse = await fetch(`${baseUrl}/api/admin/accounts`, {
+      headers,
+    });
+    const positionsResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      headers,
+    });
+    const dispatcherFeedResponse = await fetch(
+      `${baseUrl}/api/dispatcher/submissions`,
+      { headers },
+    );
+    const productionBrandsResponse = await fetch(
+      `${baseUrl}/api/production-brands`,
+      { headers },
+    );
+    const laboratoryBanksResponse = await fetch(
+      `${baseUrl}/api/laboratory/banks`,
+      { headers },
+    );
+    const submitDispatcherResponse = await fetch(
+      `${baseUrl}/api/dispatcher/submissions`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      },
+    );
+    const createProductionBrandResponse = await fetch(
+      `${baseUrl}/api/production-brands`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ label: "Недопустимая марка" }),
+      },
+    );
+    const assignLaboratoryBankResponse = await fetch(
+      `${baseUrl}/api/laboratory/banks`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ bankNumber: 1, material: "ШКИ-66" }),
+      },
+    );
+    const additionalBusinessMutationResponses = await Promise.all(
+      [
+        "/api/dispatcher/equipment-report",
+        "/api/production-plans",
+        "/api/production-plans/preview",
+        "/api/refractory-reports",
+        "/api/refractory-reports/report-1/decision",
+        "/api/laboratory/results",
+        "/api/laboratory/rotary-kiln-2-journal",
+        "/api/laboratory/sample-registration-journal",
+        "/api/laboratory/chemical-analysis-journal",
+        "/api/board-assignments",
+      ].map((pathname) =>
+        fetch(`${baseUrl}${pathname}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({}),
+        })
+      ),
+    );
+    const createAccountResponse = await fetch(`${baseUrl}/api/admin/accounts`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+    });
+    const updateAccountResponse = await fetch(`${baseUrl}/api/admin/accounts`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({}),
+    });
+    const createPositionResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({}),
+    });
+    const updatePositionResponse = await fetch(
+      `${baseUrl}/api/admin/positions/dispatcher`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({}),
+      },
+    );
+
+    assert.equal(accountsResponse.status, 200);
+    assert.equal(positionsResponse.status, 200);
+    assert.equal(dispatcherFeedResponse.status, 200);
+    assert.equal(productionBrandsResponse.status, 200);
+    assert.equal(laboratoryBanksResponse.status, 200);
+    assert.equal(submitDispatcherResponse.status, 403);
+    assert.equal(createProductionBrandResponse.status, 403);
+    assert.equal(assignLaboratoryBankResponse.status, 403);
+    assert.deepEqual(
+      additionalBusinessMutationResponses.map((response) => response.status),
+      Array(additionalBusinessMutationResponses.length).fill(403),
+    );
+    assert.equal(createAccountResponse.status, 403);
+    assert.equal(updateAccountResponse.status, 403);
+    assert.equal(createPositionResponse.status, 403);
+    assert.equal(updatePositionResponse.status, 403);
+  },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    authService,
+    repository,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    emptyRefractoryReports,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+    undefined,
+    undefined,
+    rotaryKiln2FiringJournal,
+  );
+});
+
 test("admin access levels API is removed", async () => {
   await withApiServer(
     async (baseUrl) => {
@@ -3255,10 +3431,12 @@ test("admin positions API requires a tab and rejects the removed base cabinet fi
   assert.equal(created.length, 0);
 });
 
-test("admin positions API accepts every business tab but rejects admin tabs", async () => {
+test("primary admin can add admin tabs to a unified position", async () => {
+  const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
+      created.push(input);
       return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
@@ -3286,14 +3464,295 @@ test("admin positions API accepts every business tab but rejects admin tabs", as
       method: "POST",
       headers,
       body: JSON.stringify({
-        displayName: "Недопустимая должность",
-        navigationItems: ["admin.database"],
+        displayName: "Руководитель с админской БД",
+        navigationItems: ["business.overview", "admin.database"],
       }),
     });
 
     assert.equal(businessResponse.status, 201);
-    assert.equal(adminResponse.status, 400);
+    assert.equal(adminResponse.status, 201);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.deepEqual(created[1], {
+    displayName: "Руководитель с админской БД",
+    navigationItems: ["business.overview", "admin.database"],
+    capabilities: [
+      "business.view_all_statistics",
+      "business.view_notifications",
+      "business.view_dispatcher_feed",
+      "platform.manage_analytics_database",
+    ],
+  });
+});
+
+test("production account with canonical admin login can assign admin tabs", async () => {
+  const profile = buildProductionProfile("admin");
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "admin",
+    accountType: profile.accountType,
+    position: profile.activeAccess.position,
+    positionDisplayName: profile.activeAccess.positionDisplayName,
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount];
+    },
+    async createPosition(input) {
+      created.push(input);
+      return {
+        id: "position-production-hybrid",
+        accountType: "business_owner",
+        ...input,
+        boardAssignmentAccess: "none",
+        isProtected: false,
+        usageCount: 0,
+        createdAt: "2026-07-12T00:00:00.000Z",
+      };
+    },
+  };
+  const authService = buildAuthService({ profile });
+
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const positionsResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      headers,
+    });
+    const positionsPayload = await positionsResponse.json();
+    const createResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "Руководитель с админской БД",
+        navigationItems: ["business.overview", "admin.database"],
+      }),
+    });
+
+    assert.equal(positionsResponse.status, 200);
+    assert.equal(
+      isRecord(positionsPayload)
+        ? positionsPayload.canAssignAdminNavigation
+        : undefined,
+      true,
+    );
+    assert.equal(createResponse.status, 201);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, authService, repository);
+
+  assert.deepEqual(created[0]?.navigationItems, [
+    "business.overview",
+    "admin.database",
+  ]);
+});
+
+test("delegated account manager cannot change admin tabs on a position", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.accounts"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "accounts-manager",
+    accountType: profile.accountType,
+    position: "position-accounts-manager",
+    positionDisplayName: "Менеджер учётных записей",
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const existingPosition = {
+    id: "position-hybrid",
+    displayName: "Руководитель с БД",
+    accountType: "business_owner" as const,
+    navigationItems: [
+      "business.overview" as const,
+      "admin.database" as const,
+    ],
+    capabilities: [
+      "business.view_all_statistics" as const,
+      "business.view_notifications" as const,
+      "business.view_dispatcher_feed" as const,
+      "platform.manage_analytics_database" as const,
+    ],
+    boardAssignmentAccess: "none" as const,
+    isProtected: false,
+    usageCount: 1,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  };
+  const updates: Parameters<AccountsRepository["updatePosition"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount];
+    },
+    async listPositions() {
+      return [existingPosition];
+    },
+    async updatePosition(input) {
+      updates.push(input);
+      return { ...existingPosition, ...input };
+    },
+  };
+  const authService = buildAuthService({ profile });
+
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const listResponse = await fetch(`${baseUrl}/api/admin/positions`, {
+      headers,
+    });
+    const listPayload = await listResponse.json();
+    const unchangedAdminResponse = await fetch(
+      `${baseUrl}/api/admin/positions/${existingPosition.id}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          displayName: "Руководитель с БД и диспетчерской",
+          navigationItems: [
+            "business.overview",
+            "business.dispatcher",
+            "admin.database",
+          ],
+        }),
+      },
+    );
+    const removedAdminResponse = await fetch(
+      `${baseUrl}/api/admin/positions/${existingPosition.id}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          displayName: existingPosition.displayName,
+          navigationItems: ["business.overview"],
+        }),
+      },
+    );
+
+    assert.equal(listResponse.status, 200);
+    assert.equal(
+      isRecord(listPayload) ? listPayload.canAssignAdminNavigation : undefined,
+      false,
+    );
+    assert.equal(unchangedAdminResponse.status, 200);
+    assert.equal(removedAdminResponse.status, 403);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, authService, repository);
+
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0]?.navigationItems, [
+    "business.overview",
+    "business.dispatcher",
+    "admin.database",
+  ]);
+});
+
+test("delegated account manager cannot assign a position with admin tabs", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.accounts"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "accounts-manager",
+    accountType: profile.accountType,
+    position: "position-accounts-manager",
+    positionDisplayName: "Менеджер учётных записей",
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const targetAccount = {
+    ...adminAccount,
+    accessId: "target-access",
+    userId: "target-user",
+    login: "target-user",
+  };
+  const privilegedPosition = {
+    id: "position-hybrid",
+    displayName: "Руководитель с БД",
+    accountType: "business_owner" as const,
+    navigationItems: [
+      "business.overview" as const,
+      "admin.database" as const,
+    ],
+    capabilities: [
+      "business.view_all_statistics" as const,
+      "business.view_notifications" as const,
+      "business.view_dispatcher_feed" as const,
+      "platform.manage_analytics_database" as const,
+    ],
+    boardAssignmentAccess: "none" as const,
+    isProtected: false,
+    usageCount: 0,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  };
+  let createCount = 0;
+  let positionChangeCount = 0;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount, targetAccount];
+    },
+    async listPositions() {
+      return [privilegedPosition];
+    },
+    async createAccount() {
+      createCount += 1;
+      return targetAccount;
+    },
+    async setAccountPosition() {
+      positionChangeCount += 1;
+      return { previous: targetAccount, updated: targetAccount };
+    },
+  };
+  const authService = buildAuthService({ profile });
+
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const createResponse = await fetch(`${baseUrl}/api/admin/accounts`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        login: "new-user",
+        password: "supersecret1",
+        displayName: "Новый пользователь",
+        position: privilegedPosition.id,
+      }),
+    });
+    const positionResponse = await fetch(
+      `${baseUrl}/api/admin/accounts/${targetAccount.accessId}/position`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ position: privilegedPosition.id }),
+      },
+    );
+
+    assert.equal(createResponse.status, 403);
+    assert.equal(positionResponse.status, 403);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, authService, repository);
+
+  assert.equal(createCount, 0);
+  assert.equal(positionChangeCount, 0);
 });
 
 test("admin positions API updates a protected non-admin position without changing its technical type", async () => {

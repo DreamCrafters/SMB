@@ -13,9 +13,11 @@ import {
 } from "../domain/auth.js";
 import {
   accountTypeByPosition,
+  hasAdminNavigationItems,
+  hasSameAdminNavigationItems,
   isBoardAssignmentAccess,
   resolveCapabilitiesForPosition,
-  validateNonAdminNavigationItems,
+  validatePositionNavigationItems,
 } from "../domain/accountAccessConfiguration.js";
 import {
   buildDefaultDevAccessOptions,
@@ -734,6 +736,7 @@ export function createApiServer({
             devSessions,
             authService,
             capability: "business.view_dispatcher_feed",
+            alternativeNavigationItem: "admin.account_preview",
           });
 
           if (access === undefined) {
@@ -1037,6 +1040,7 @@ async function handleBusinessOverviewRequest({
     devSessions,
     authService,
     capability: "business.view_all_statistics",
+    alternativeNavigationItem: "admin.account_preview",
   });
   if (access === undefined) return;
 
@@ -1098,6 +1102,8 @@ async function handleBoardAssignmentsRequest({
     devSessions,
     authService,
     capability: "business.view_board_assignments",
+    alternativeNavigationItem:
+      req.method === "GET" ? "admin.account_preview" : undefined,
   });
   if (access === undefined) return;
 
@@ -1965,10 +1971,12 @@ async function handleLaboratoryRequest({
     url.pathname === "/api/laboratory/chemical-analysis-journal" ||
     laboratoryProtocolPathPattern.test(url.pathname)
   );
-  const canReadLaboratory = canManageLaboratory || (
-    isLaboratoryReadRequest &&
-    hasProfileCapability(access.profile, "business.view_laboratory_results")
-  );
+  const canReadLaboratory = canManageLaboratory ||
+    (
+      isLaboratoryReadRequest &&
+      hasProfileCapability(access.profile, "business.view_laboratory_results")
+    ) ||
+    hasAccountPreviewReadAccess(req, access.profile);
 
   if (!canReadLaboratory) {
     sendJson(res, 403, {
@@ -3432,7 +3440,7 @@ async function handleProductionBrandsRequest({
     return;
   }
 
-  const canRead = ([
+  const canRead = hasAccountPreviewReadAccess(req, access.profile) || ([
     "business.submit_dispatcher_forms",
     "business.submit_refractory_reports",
     "business.view_dispatcher_feed",
@@ -3569,6 +3577,8 @@ async function handleDispatcherProductionBankContentsRequest({
     authService,
     capability: "business.submit_dispatcher_forms",
     message: "Содержимое банок доступно диспетчеру.",
+    alternativeNavigationItem:
+      req.method === "GET" ? "admin.account_preview" : undefined,
   });
 
   if (access === undefined) {
@@ -3936,7 +3946,7 @@ async function handleProductionPlansRequest({
       return;
     }
 
-    const canReadDailyPlan = ([
+    const canReadDailyPlan = hasAccountPreviewReadAccess(req, access.profile) || ([
       "business.manage_production_plan",
       "business.submit_dispatcher_forms",
       "business.view_dispatcher_feed",
@@ -4992,6 +5002,12 @@ async function handleAdminAccountsRequest({
   const requiresManageAccess =
     isLoginStatusUpdate || isAccountPositionUpdate || isPositionRequest || isAccountDelete ||
     (url.pathname === "/api/admin/accounts" && req.method === "POST");
+  const readOnlyNavigationItem =
+    req.method === "GET" &&
+    (url.pathname === "/api/admin/accounts" ||
+      url.pathname === "/api/admin/positions")
+      ? "admin.account_preview"
+      : undefined;
   const access = await requireCapability(req, res, {
     config,
     devSessions,
@@ -5002,6 +5018,7 @@ async function handleAdminAccountsRequest({
     message: isLoginStatusUpdate || isAccountPositionUpdate
       ? "Управление доступом к учётным записям недоступно."
       : "Управление учётными записями недоступно.",
+    alternativeNavigationItem: readOnlyNavigationItem,
   });
 
   if (access === undefined) {
@@ -5017,6 +5034,16 @@ async function handleAdminAccountsRequest({
     });
     return;
   }
+
+  let canAssignAdminNavigationPromise: Promise<boolean> | undefined;
+  const canAssignAdminNavigation = () => {
+    canAssignAdminNavigationPromise ??= readCanAssignAdminNavigation({
+      profile: access.profile,
+      accounts,
+      devAccessEnabled: config.devAccessEnabled,
+    });
+    return canAssignAdminNavigationPromise;
+  };
 
   if (accountPositionAccessId !== undefined) {
     if (req.method !== "PATCH") {
@@ -5077,6 +5104,13 @@ async function handleAdminAccountsRequest({
       sendJson(res, 400, {
         error: { code: "invalid_response", message: "Должность не найдена." },
       });
+      return;
+    }
+    if (
+      hasAdminNavigationItems(targetPosition.navigationItems) &&
+      !(await canAssignAdminNavigation())
+    ) {
+      sendAdminNavigationAssignmentDenied(res);
       return;
     }
 
@@ -5158,7 +5192,10 @@ async function handleAdminAccountsRequest({
 
   if (url.pathname === "/api/admin/positions") {
     if (req.method === "GET") {
-      sendJson(res, 200, { positions: await accounts.listPositions() });
+      sendJson(res, 200, {
+        positions: await accounts.listPositions(),
+        canAssignAdminNavigation: await canAssignAdminNavigation(),
+      });
       return;
     }
 
@@ -5166,6 +5203,13 @@ async function handleAdminAccountsRequest({
       const validation = validateCreatePositionRequest(await readJsonBody(req));
       if (!validation.ok) {
         sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
+        return;
+      }
+      if (
+        hasAdminNavigationItems(validation.value.navigationItems) &&
+        !(await canAssignAdminNavigation())
+      ) {
+        sendAdminNavigationAssignmentDenied(res);
         return;
       }
       const position = await runAuditedMutation({
@@ -5244,7 +5288,10 @@ async function handleAdminAccountsRequest({
       });
       return;
     }
-    sendJson(res, 200, { positions: await accounts.listPositions() });
+    sendJson(res, 200, {
+      positions: await accounts.listPositions(),
+      canAssignAdminNavigation: await canAssignAdminNavigation(),
+    });
     return;
   }
 
@@ -5300,6 +5347,16 @@ async function handleAdminAccountsRequest({
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
     }
+    if (
+      !(await canAssignAdminNavigation()) &&
+      !hasSameAdminNavigationItems(
+        existing.navigationItems,
+        validation.value.navigationItems,
+      )
+    ) {
+      sendAdminNavigationAssignmentDenied(res);
+      return;
+    }
     const position = await runAuditedMutation({
       transaction: databaseTransaction,
       audit,
@@ -5344,6 +5401,14 @@ async function handleAdminAccountsRequest({
       const requestedPosition = isRecord(payload) && typeof payload.position === "string"
         ? (await accounts.listPositions()).find((position) => position.id === payload.position)
         : undefined;
+      if (
+        requestedPosition !== undefined &&
+        hasAdminNavigationItems(requestedPosition.navigationItems) &&
+        !(await canAssignAdminNavigation())
+      ) {
+        sendAdminNavigationAssignmentDenied(res);
+        return;
+      }
       const validation = validateCreateAccountRequest(payload, requestedPosition);
 
       if (!validation.ok) {
@@ -5622,7 +5687,7 @@ function validateCreatePositionRequest(input: unknown):
   if (
     navigationItems.length === 0 ||
     !navigationItems.every(isAccountNavigationItem) ||
-    !validateNonAdminNavigationItems(navigationItems)
+    !validatePositionNavigationItems(navigationItems)
   ) {
     errors.push("Выберите хотя бы одну доступную вкладку.");
   }
@@ -5657,6 +5722,40 @@ function validateCreatePositionRequest(input: unknown):
       ),
     },
   };
+}
+
+async function readCanAssignAdminNavigation({
+  profile,
+  accounts,
+  devAccessEnabled,
+}: {
+  profile: ServerUserProfile;
+  accounts: AccountsRepository;
+  devAccessEnabled: boolean;
+}) {
+  if (
+    devAccessEnabled &&
+    profile.userId === "dev-user-admin" &&
+    profile.activeAccess.accountId === "dev-access-admin"
+  ) {
+    return true;
+  }
+
+  const actorAccounts = await accounts.listAccounts();
+  return actorAccounts.some(
+    (account) =>
+      account.userId === profile.userId &&
+      account.login.trim().toLocaleLowerCase("en-US") === "admin",
+  );
+}
+
+function sendAdminNavigationAssignmentDenied(res: ServerResponse) {
+  sendJson(res, 403, {
+    error: {
+      code: "access_denied",
+      message: "Административные вкладки может назначать только аккаунт admin.",
+    },
+  });
 }
 
 function validateUpdatePositionRequest(input: unknown):
@@ -6883,12 +6982,14 @@ async function requireCapability(
     authService,
     capability,
     message = "Required access is missing.",
+    alternativeNavigationItem,
   }: {
     config: ServerConfig;
     devSessions: Map<string, DevAccessSession>;
     authService: AuthSessionService | undefined;
     capability: AccountCapability;
     message?: string;
+    alternativeNavigationItem?: AccountNavigationItem;
   },
 ) {
   const access = await readRequestAccess(req, {
@@ -6907,7 +7008,15 @@ async function requireCapability(
     return undefined;
   }
 
-  if (!hasProfileCapability(access.profile, capability)) {
+  const hasAlternativeNavigationItem =
+    alternativeNavigationItem !== undefined &&
+    access.profile.activeAccess.navigationItems.includes(
+      alternativeNavigationItem,
+    );
+  if (
+    !hasProfileCapability(access.profile, capability) &&
+    !hasAlternativeNavigationItem
+  ) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
@@ -6918,6 +7027,16 @@ async function requireCapability(
   }
 
   return access;
+}
+
+function hasAccountPreviewReadAccess(
+  req: IncomingMessage,
+  profile: ServerUserProfile,
+) {
+  return (
+    req.method === "GET" &&
+    profile.activeAccess.navigationItems.includes("admin.account_preview")
+  );
 }
 
 async function requireAuthentication(

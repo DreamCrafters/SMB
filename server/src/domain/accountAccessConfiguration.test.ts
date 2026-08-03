@@ -6,7 +6,7 @@ import {
   readBoardAssignmentAccess,
   resolveCapabilitiesForPosition,
   resolveCapabilitiesForNavigation,
-  validateNavigationItemsForAccountType,
+  validatePositionNavigationItems,
 } from "./accountAccessConfiguration.js";
 
 test("executive positions use the business owner workspace", () => {
@@ -18,33 +18,33 @@ test("executive positions use the business owner workspace", () => {
   assert.equal(accountTypeByPosition.economist, "business_owner");
 });
 
-test("all non-admin account types share one navigation catalog", () => {
+test("positions share one business and admin navigation catalog", () => {
   assert.equal(
     navigationItemsByAccountType.business_owner.includes("business.user_actions"),
     false,
   );
   assert.equal(
-    validateNavigationItemsForAccountType("business_owner", [
+    validatePositionNavigationItems([
       "business.overview",
     ]),
     true,
   );
   assert.equal(
-    validateNavigationItemsForAccountType("business_owner", [
+    validatePositionNavigationItems([
       "admin.database",
     ]),
-    false,
+    true,
   );
-  assert.equal(validateNavigationItemsForAccountType("worker", []), false);
+  assert.equal(validatePositionNavigationItems([]), false);
   assert.equal(
-    validateNavigationItemsForAccountType("worker", [
+    validatePositionNavigationItems([
       "business.overview",
       "business.dispatcher_form",
     ]),
     true,
   );
   assert.equal(
-    validateNavigationItemsForAccountType("business_owner", [
+    validatePositionNavigationItems([
       "business.overview",
       "business.dispatcher",
       "business.work",
@@ -53,19 +53,13 @@ test("all non-admin account types share one navigation catalog", () => {
     true,
   );
   assert.equal(
-    validateNavigationItemsForAccountType("business_owner", [
+    validatePositionNavigationItems([
       "business.dispatcher_form",
     ]),
     true,
   );
   assert.equal(
-    validateNavigationItemsForAccountType("dispatcher", [
-      "business.dispatcher_form",
-    ]),
-    true,
-  );
-  assert.equal(
-    validateNavigationItemsForAccountType("dispatcher", [
+    validatePositionNavigationItems([
       "business.overview",
       "business.production_plan",
       "business.refractory_shop",
@@ -73,16 +67,13 @@ test("all non-admin account types share one navigation catalog", () => {
     true,
   );
   assert.equal(
-    validateNavigationItemsForAccountType("dispatcher", ["admin.database"]),
-    false,
-  );
-  assert.equal(
-    validateNavigationItemsForAccountType("admin", ["business.overview"]),
-    false,
+    validatePositionNavigationItems(["business.overview", "admin.database"]),
+    true,
   );
 });
 
 test("navigation selection expands only to its server capabilities", () => {
+  assert.deepEqual(resolveCapabilitiesForNavigation(["admin.account_preview"]), []);
   assert.deepEqual(resolveCapabilitiesForNavigation(["admin.accounts"]), [
     "platform.manage_users",
     "platform.manage_access",

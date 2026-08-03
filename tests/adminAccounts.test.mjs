@@ -117,7 +117,12 @@ test("admin positions service lists and creates positions without a base cabinet
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
-    return calls.length === 1 ? jsonResponse({ positions: [position] }) : jsonResponse({ position }, 201);
+    return calls.length === 1
+      ? jsonResponse({
+          positions: [position],
+          canAssignAdminNavigation: true,
+        })
+      : jsonResponse({ position }, 201);
   };
 
   const list = await requestAdminPositions({ baseUrl: "http://api.test" });
@@ -128,6 +133,7 @@ test("admin positions service lists and creates positions without a base cabinet
   }, { baseUrl: "http://api.test" });
 
   assert.equal(list.status, "ready");
+  assert.equal(list.canAssignAdminNavigation, true);
   assert.equal(created.status, "ready");
   assert.equal(calls[1].init.method, "POST");
   assert.deepEqual(JSON.parse(calls[1].init.body), {
@@ -212,7 +218,10 @@ test("admin positions service saves the complete position order", async () => {
   ];
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
-    return jsonResponse({ positions });
+    return jsonResponse({
+      positions,
+      canAssignAdminNavigation: true,
+    });
   };
 
   const result = await saveAdminPositionOrder(
@@ -221,6 +230,7 @@ test("admin positions service saves the complete position order", async () => {
   );
 
   assert.equal(result.status, "ready");
+  assert.equal(result.canAssignAdminNavigation, true);
   assert.deepEqual(result.positions.map(({ id }) => id), [
     "general_director",
     "administrator",

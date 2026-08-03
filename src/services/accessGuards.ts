@@ -30,6 +30,33 @@ export function canManageUsers(profile: ServerUserProfile) {
   return hasCapability(profile, "platform.manage_users");
 }
 
+export type WorkspaceKind = "business" | "admin";
+
+export function resolveAllowedWorkspaceKind(
+  requestedKind: WorkspaceKind,
+  allowedNavigationItems: readonly AccountNavigationItem[],
+): WorkspaceKind | undefined {
+  const hasBusinessNavigation = allowedNavigationItems.some((item) =>
+    item.startsWith("business."),
+  );
+  const hasAdminNavigation = allowedNavigationItems.some((item) =>
+    item.startsWith("admin."),
+  );
+
+  if (
+    (requestedKind === "business" && hasBusinessNavigation) ||
+    (requestedKind === "admin" && hasAdminNavigation)
+  ) {
+    return requestedKind;
+  }
+
+  if (hasBusinessNavigation) {
+    return "business";
+  }
+
+  return hasAdminNavigation ? "admin" : undefined;
+}
+
 export function resolveAllowedNavigationTab<Tab extends string>(
   requestedTab: Tab,
   navigationByTab: Readonly<Record<Tab, AccountNavigationItem>>,
