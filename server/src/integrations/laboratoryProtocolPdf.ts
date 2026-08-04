@@ -5,6 +5,7 @@ import {
   laboratoryChemicalAnalysisFields,
   type LaboratoryChemicalAnalysisJournalFilters,
   type LaboratoryChemicalAnalysisJournalRecord,
+  type LaboratoryChemicalAnalysisValues,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 
 type PdfOutput = { getBuffer: () => Promise<Buffer> };
@@ -24,6 +25,30 @@ const robotoFontPaths = {
   bolditalics: require.resolve("pdfmake/fonts/Roboto/Roboto-MediumItalic.ttf"),
 };
 const allowedFontPaths = new Set(Object.values(robotoFontPaths));
+const chemicalAnalysisProtocolMassShareFieldIds = ["al2o3", "fe2o3"] as const;
+const chemicalAnalysisProtocolMassChangeFieldId = "lossOnIgnition" as const;
+const chemicalAnalysisProtocolDirectResultFieldIds = new Set<
+  keyof LaboratoryChemicalAnalysisValues
+>([
+  ...chemicalAnalysisProtocolMassShareFieldIds,
+  chemicalAnalysisProtocolMassChangeFieldId,
+]);
+const chemicalAnalysisProtocolOtherResultFields =
+  laboratoryChemicalAnalysisFields.filter((field) =>
+    (field.kind === "indicator" || field.kind === "notes") &&
+    !chemicalAnalysisProtocolDirectResultFieldIds.has(field.id)
+  );
+const chemicalAnalysisProtocolLabelOverrides: Partial<Record<
+  keyof LaboratoryChemicalAnalysisValues,
+  string
+>> = {
+  al2o3: "Al₂O₃",
+  fe2o3: "Fe₂O₃",
+  sio2: "SiO₂",
+  cao2: "CaO₂",
+  p2o5: "P₂O₅",
+  notes: "Примечание",
+};
 
 pdfMake.addFonts({ Roboto: robotoFontPaths });
 pdfMake.setUrlAccessPolicy(() => false);
@@ -200,85 +225,112 @@ export function buildLaboratoryChemicalAnalysisProtocolDocument({
   >;
   generatedAt: Date;
 }) {
-  const filterRows = [
-    metadataRow("Период анализа", formatProtocolPeriod(filters)),
-    ...(filters.query === undefined
-      ? []
-      : [metadataRow("Поиск", filters.query)]),
-    metadataRow("Количество позиций", String(records.length)),
-  ];
-  const recordRows = records.map((record) => [
-    record.laboratorySampleCode,
-    record.sampleNumber,
-    record.sampleName,
-    ...laboratoryChemicalAnalysisFields.map((field) => {
-      const value = record[field.id];
-      return value === undefined
-        ? "—"
-        : field.kind === "date"
-          ? formatCalendarDate(value)
-          : value;
-    }),
-  ]);
+  const sampleDescription = joinProtocolValues(records.map((record) =>
+    `${record.sampleNumber} (${record.sampleName})`
+  ));
+  const batchNumbers = joinProtocolValues(records.map((record) =>
+    record.batchNumber
+  ));
+  const analysisDates = joinProtocolValues(records.map((record) =>
+    record.chemicalAnalysisDate === undefined
+      ? undefined
+      : formatCalendarDate(record.chemicalAnalysisDate)
+  )) || formatInstantDate(generatedAt);
+  const laboratoryRepresentatives = joinProtocolValues(records.map((record) =>
+    record.chemicalAnalysisLaboratoryAssistant
+  ));
+  const recordRows = records.map(buildChemicalAnalysisResultRow);
+  const blankRows = Array.from(
+    { length: Math.max(10 - recordRows.length, 0) },
+    buildBlankChemicalAnalysisResultRow,
+  );
 
   return {
     info: {
       title: `Протокол отбора проб от ${formatInstantDate(generatedAt)}`,
       author: laboratoryProtocolTemplate.organizationName,
-      subject: "Отфильтрованные записи журнала химических анализов",
+      subject: [
+        `Отфильтрованные записи журнала химических анализов: ${formatProtocolPeriod(filters)}`,
+        ...(filters.query === undefined ? [] : [`поиск ${filters.query}`]),
+      ].join(", "),
       keywords: "лаборатория, отбор проб, химические анализы",
     },
     pageSize: "A4",
-    pageOrientation: "landscape",
-    pageMargins: [24, 24, 24, 34],
-    defaultStyle: { font: "Roboto", fontSize: 6.5, lineHeight: 1.08 },
+    pageOrientation: "portrait",
+    pageMargins: [28, 28, 28, 32],
+    defaultStyle: { font: "Roboto", fontSize: 8.5, lineHeight: 1.08 },
     footer: (currentPage: number, pageCount: number) => ({
       text: `${currentPage} / ${pageCount}`,
       alignment: "center",
-      fontSize: 7,
+      fontSize: 6.5,
       color: "#555555",
-      margin: [0, 9, 0, 0],
+      margin: [0, 8, 0, 0],
     }),
     content: [
       {
-        stack: [
-          { text: laboratoryProtocolTemplate.organizationName, bold: true, fontSize: 10 },
-          { text: laboratoryProtocolTemplate.organizationShortName, bold: true },
-          { text: laboratoryProtocolTemplate.address },
-          { text: laboratoryProtocolTemplate.laboratoryName, bold: true },
-          { text: laboratoryProtocolTemplate.accreditation },
-        ],
-        alignment: "center",
-      },
-      {
-        text: `ПРОТОКОЛ ОТБОРА ПРОБ ОТ ${formatInstantDate(generatedAt)}`,
+        text: "ПРОТОКОЛ ОТБОРА ПРОБ",
         bold: true,
-        fontSize: 11,
+        fontSize: 13,
         alignment: "center",
-        margin: [0, 11, 0, 7],
-      },
-      {
-        table: { widths: [92, "*"], body: filterRows },
-        layout: "noBorders",
-        margin: [0, 0, 0, 7],
+        margin: [0, 0, 0, 12],
       },
       {
         table: {
-          headerRows: 1,
-          dontBreakRows: true,
-          widths: [52, 38, 82, 46, 44, 58, 46, 28, 28, 28, 28, 28, 28, 32, "*"],
+          widths: ["auto", "*"],
+          body: [
+            [
+              formCell("Направляем Вам для испытаний пробы"),
+              formLineCell(sampleDescription),
+            ],
+            [
+              formCell(""),
+              formCaptionCell("(указать номера проб)"),
+            ],
+          ],
+        },
+        margin: [0, 0, 0, 8],
+      },
+      {
+        table: {
+          widths: ["auto", 135, "*", 92],
           body: [[
-            tableHeader("Код лабораторной пробы"),
-            tableHeader("№ пробы"),
-            tableHeader("Наименование пробы"),
-            ...laboratoryChemicalAnalysisFields.map((field) =>
-              tableHeader(field.label)
-            ),
-          ], ...recordRows],
+            formCell("отобранные от партии №"),
+            formLineCell(batchNumbers),
+            formCell(""),
+            formLineCell(`${analysisDates} г.`, "center"),
+          ]],
+        },
+        margin: [0, 0, 0, 10],
+      },
+      buildProtocolSignatureBlock("Контролер ОТК", ""),
+      {
+        table: {
+          widths: ["auto", "*"],
+          body: [[
+            formCell("Лабораторная проба и протокол получены"),
+            formLineCell(""),
+          ]],
+        },
+        margin: [0, 14, 0, 9],
+      },
+      buildProtocolSignatureBlock(
+        "Представитель лаборатории",
+        laboratoryRepresentatives,
+      ),
+      {
+        table: {
+          headerRows: 3,
+          dontBreakRows: true,
+          widths: [78, 50, 52, 52, 96, 65, "*"],
+          body: [
+            ...chemicalAnalysisProtocolHeaderRows(),
+            ...recordRows,
+            ...blankRows,
+          ],
         },
         layout: {
-          hLineWidth: () => 0.6,
-          vLineWidth: () => 0.6,
+          hLineWidth: () => 0.7,
+          vLineWidth: () => 0.7,
           hLineColor: () => "#000000",
           vLineColor: () => "#000000",
           paddingLeft: () => 2,
@@ -286,19 +338,201 @@ export function buildLaboratoryChemicalAnalysisProtocolDocument({
           paddingTop: () => 2,
           paddingBottom: () => 2,
         },
+        margin: [0, 12, 0, 18],
       },
-      {
-        text: laboratoryProtocolTemplate.disclaimer,
-        italics: true,
-        fontSize: 7,
-        margin: [0, 8, 0, 12],
-      },
-      {
-        text: `${laboratoryProtocolTemplate.laboratoryManagerRole}  ${laboratoryProtocolTemplate.laboratoryManagerName}`,
-        bold: true,
-      },
+      buildProtocolSignatureBlock(
+        "Представитель лаборатории",
+        laboratoryRepresentatives,
+        true,
+      ),
+      buildProtocolSignatureBlock("Результаты получил контролер ОТК", "", true),
     ],
   };
+}
+
+function chemicalAnalysisProtocolHeaderRows() {
+  return [
+    [
+      protocolHeaderCell("Код лабораторной пробы", { rowSpan: 3 }),
+      protocolHeaderCell("№ анализа", { rowSpan: 3 }),
+      protocolHeaderCell("Результаты испытаний", { colSpan: 5 }),
+      {},
+      {},
+      {},
+      {},
+    ],
+    [
+      {},
+      {},
+      protocolHeaderCell("Массовая доля в прокаленном веществе, %", {
+        colSpan: 2,
+      }),
+      {},
+      protocolHeaderCell(
+        "Массовая доля изменения массы при прокаливании, %",
+        { rowSpan: 2 },
+      ),
+      protocolHeaderCell("Огнеупорность, °C", { rowSpan: 2 }),
+      protocolHeaderCell("Прочие показатели", { rowSpan: 2 }),
+    ],
+    [
+      {},
+      {},
+      ...chemicalAnalysisProtocolMassShareFieldIds.map((fieldId) =>
+        protocolHeaderCell(readChemicalAnalysisProtocolFieldLabel(fieldId))
+      ),
+      {},
+      {},
+      {},
+    ],
+  ];
+}
+
+function buildChemicalAnalysisResultRow(
+  record: LaboratoryChemicalAnalysisJournalRecord,
+) {
+  return [
+    protocolResultCell(record.laboratorySampleCode),
+    protocolResultCell(record.laboratoryAnalysisNumber),
+    ...chemicalAnalysisProtocolMassShareFieldIds.map((fieldId) =>
+      protocolResultCell(record[fieldId])
+    ),
+    protocolResultCell(record[chemicalAnalysisProtocolMassChangeFieldId]),
+    protocolResultCell(undefined),
+    protocolResultCell(formatOtherChemicalIndicators(record), "left"),
+  ];
+}
+
+function buildBlankChemicalAnalysisResultRow() {
+  return Array.from({ length: 7 }, () => protocolResultCell(" ", "center", 5));
+}
+
+function formatOtherChemicalIndicators(
+  record: LaboratoryChemicalAnalysisJournalRecord,
+) {
+  return chemicalAnalysisProtocolOtherResultFields
+    .flatMap((field) => {
+      const value = record[field.id];
+      return value === undefined
+        ? []
+        : [`${readChemicalAnalysisProtocolFieldLabel(field.id)}: ${value}`];
+    })
+    .join("; ");
+}
+
+function readChemicalAnalysisProtocolFieldLabel(
+  fieldId: keyof LaboratoryChemicalAnalysisValues,
+) {
+  const field = laboratoryChemicalAnalysisFields.find(({ id }) => id === fieldId);
+  return chemicalAnalysisProtocolLabelOverrides[fieldId] ?? field?.label ?? fieldId;
+}
+
+function protocolHeaderCell(
+  text: string,
+  spans: { rowSpan?: number; colSpan?: number } = {},
+) {
+  return {
+    text,
+    ...spans,
+    bold: true,
+    alignment: "center",
+    fontSize: 7.5,
+    margin: [0, 2, 0, 2],
+  };
+}
+
+function protocolResultCell(
+  value: string | undefined,
+  alignment: "left" | "center" = "center",
+  verticalMargin = 2,
+) {
+  return {
+    text: value ?? "",
+    alignment,
+    fontSize: 7.5,
+    margin: [0, verticalMargin, 0, verticalMargin],
+  };
+}
+
+function buildProtocolSignatureBlock(
+  label: string,
+  signatoryName: string,
+  includeDate = false,
+) {
+  return {
+    table: {
+      widths: includeDate
+        ? [150, 88, "*", 84]
+        : ["*", 88, 150],
+      body: [
+        includeDate
+          ? [
+              formCell(label),
+              formLineCell(""),
+              formLineCell(signatoryName),
+              formLineCell(""),
+            ]
+          : [
+              formCell(label, "right"),
+              formLineCell(""),
+              formLineCell(signatoryName),
+            ],
+        includeDate
+          ? [
+              formCell(""),
+              formCaptionCell("(подпись)"),
+              formCaptionCell("(расшифровка подписи)"),
+              formCaptionCell("(дата)"),
+            ]
+          : [
+              formCell(""),
+              formCaptionCell("(подпись)"),
+              formCaptionCell("(расшифровка подписи)"),
+            ],
+      ],
+    },
+    margin: includeDate ? [0, 5, 0, 14] : [0, 0, 0, 0],
+  };
+}
+
+function formCell(text: string, alignment: "left" | "right" = "left") {
+  return {
+    text,
+    alignment,
+    border: [false, false, false, false],
+    margin: [0, 1, 4, 1],
+  };
+}
+
+function formLineCell(
+  text: string,
+  alignment: "left" | "center" = "left",
+) {
+  return {
+    text: text || " ",
+    alignment,
+    border: [false, false, false, true],
+    borderColor: ["#000000", "#000000", "#000000", "#000000"],
+    margin: [3, 1, 3, 1],
+  };
+}
+
+function formCaptionCell(text: string) {
+  return {
+    text,
+    alignment: "center",
+    italics: true,
+    fontSize: 6.5,
+    border: [false, false, false, false],
+    margin: [0, 1, 0, 0],
+  };
+}
+
+function joinProtocolValues(values: Array<string | undefined>) {
+  return [...new Set(values
+    .map((value) => value?.trim())
+    .filter((value): value is string => value !== undefined && value !== ""))]
+    .join(", ");
 }
 
 function metadataRow(label: string, value: string) {
@@ -324,7 +558,7 @@ function formatProtocolPeriod(
   >,
 ) {
   if (filters.dateFrom !== undefined && filters.dateTo !== undefined) {
-    return `${formatCalendarDate(filters.dateFrom)} — ${formatCalendarDate(filters.dateTo)}`;
+    return `${formatCalendarDate(filters.dateFrom)} - ${formatCalendarDate(filters.dateTo)}`;
   }
   if (filters.dateFrom !== undefined) {
     return `с ${formatCalendarDate(filters.dateFrom)}`;

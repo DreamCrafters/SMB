@@ -78,72 +78,129 @@ test("chemical analysis protocol renderer creates a printable PDF for filtered r
     generatedAt: new Date("2026-08-04T08:30:00.000Z"),
   };
   const definition = buildLaboratoryChemicalAnalysisProtocolDocument(input);
-  const heading = definition.content[0] as {
-    stack: Array<{ text: string }>;
-  };
-  const title = definition.content[1] as { text: string };
-  const metadata = definition.content[2] as {
+  const title = definition.content[0] as { text: string };
+  const samples = definition.content[1] as {
     table: { body: Array<Array<{ text: string }>> };
   };
-  const recordsTable = definition.content[3] as {
+  const batchAndDate = definition.content[2] as {
+    table: { body: Array<Array<{ text: string }>> };
+  };
+  const laboratoryRepresentative = definition.content[5] as {
+    table: { body: Array<Array<{ text: string }>> };
+  };
+  const recordsTable = definition.content[6] as {
     table: {
-      body: Array<Array<string | { text: string }>>;
+      headerRows: number;
+      body: Array<Array<{ text?: string; colSpan?: number; rowSpan?: number }>>;
     };
   };
 
-  assert.equal(heading.stack[0]?.text, "АО «Новомосковскогнеупор»");
-  assert.equal(title.text, "ПРОТОКОЛ ОТБОРА ПРОБ ОТ 04.08.2026");
-  assert.deepEqual(
-    metadata.table.body.map((row) => row.map((cell) => cell.text)),
-    [
-      ["Период анализа:", "01.07.2026 — 31.07.2026"],
-      ["Поиск:", "П-42"],
-      ["Количество позиций:", "1"],
-    ],
+  assert.equal(definition.pageOrientation, "portrait");
+  assert.equal(title.text, "ПРОТОКОЛ ОТБОРА ПРОБ");
+  assert.deepEqual(samples.table.body[0]?.map((cell) => cell.text), [
+    "Направляем Вам для испытаний пробы",
+    "17-А (Шамот молотый)",
+  ]);
+  assert.deepEqual(batchAndDate.table.body[0]?.map((cell) => cell.text), [
+    "отобранные от партии №",
+    "П-42",
+    "",
+    "30.07.2026 г.",
+  ]);
+  assert.equal(
+    laboratoryRepresentative.table.body[0]?.[2]?.text,
+    "Петрова П.П.",
   );
+  assert.equal(recordsTable.table.headerRows, 3);
   assert.deepEqual(
-    recordsTable.table.body[0]?.map((cell) =>
-      typeof cell === "string" ? cell : cell.text
-    ),
+    recordsTable.table.body[0]?.map((cell) => cell.text ?? ""),
     [
       "Код лабораторной пробы",
-      "№ пробы",
-      "Наименование пробы",
-      "Номер лабораторного анализа",
-      "Дата хим. анализа",
-      "Лаборант",
-      "Номер партии",
-      "Al2O3",
-      "Fe2O3",
-      "SiO2",
-      "CaO2",
-      "P2O5",
-      "ппп",
-      "Влажность",
-      "Примечания",
+      "№ анализа",
+      "Результаты испытаний",
+      "",
+      "",
+      "",
+      "",
     ],
   );
-  assert.deepEqual(recordsTable.table.body[1], [
+  assert.deepEqual(
+    recordsTable.table.body[1]?.map((cell) => cell.text ?? ""),
+    [
+      "",
+      "",
+      "Массовая доля в прокаленном веществе, %",
+      "",
+      "Массовая доля изменения массы при прокаливании, %",
+      "Огнеупорность, °C",
+      "Прочие показатели",
+    ],
+  );
+  assert.deepEqual(
+    recordsTable.table.body[2]?.map((cell) => cell.text ?? ""),
+    ["", "", "Al₂O₃", "Fe₂O₃", "", "", ""],
+  );
+  assert.deepEqual(recordsTable.table.body[3]?.map((cell) => cell.text), [
     "ЛП-2026-017",
-    "17-А",
-    "Шамот молотый",
     "43",
-    "30.07.2026",
-    "Петрова П.П.",
-    "П-42",
     "31,4",
     "2,1",
-    "58,7",
-    "< 0,1",
-    "0,03",
     "4,2",
-    "0,8",
-    "Без отклонений.",
+    "",
+    "SiO₂: 58,7; CaO₂: < 0,1; P₂O₅: 0,03; Влажность: 0,8; Примечание: Без отклонений.",
   ]);
+  assert.equal(recordsTable.table.body.length, 13);
 
   const pdf = await renderLaboratoryChemicalAnalysisProtocolPdf(input);
 
   assert.equal(pdf.subarray(0, 5).toString("ascii"), "%PDF-");
   assert.ok(pdf.length > 15_000);
   assert.match(pdf.toString("latin1"), /\/FontFile2/u);
+});
+
+test("chemical analysis protocol keeps optional blanks and long filtered selections stable", () => {
+  const records = Array.from({ length: 11 }, (_, index) => ({
+    id: `chemical-analysis-${index + 1}`,
+    sampleRegistrationId: `sample-registration-${index % 2}`,
+    laboratorySampleCode: `ЛП-2026-${String(index + 1).padStart(3, "0")}`,
+    sampleNumber: index % 2 === 0 ? "17-А" : "18-Б",
+    sampleName: index % 2 === 0 ? "Шамот молотый" : "Глина ГИМ-2",
+    createdAt: "2026-07-30T08:30:00.000Z",
+  }));
+
+  const definition = buildLaboratoryChemicalAnalysisProtocolDocument({
+    records,
+    filters: {},
+    generatedAt: new Date("2026-08-04T08:30:00.000Z"),
+  });
+  const samples = definition.content[1] as {
+    table: { body: Array<Array<{ text: string }>> };
+  };
+  const batchAndDate = definition.content[2] as {
+    table: { body: Array<Array<{ text: string }>> };
+  };
+  const laboratoryRepresentative = definition.content[5] as {
+    table: { body: Array<Array<{ text: string }>> };
+  };
+  const recordsTable = definition.content[6] as {
+    table: { body: Array<Array<{ text?: string }>> };
+  };
+
+  assert.equal(
+    samples.table.body[0]?.[1]?.text,
+    "17-А (Шамот молотый), 18-Б (Глина ГИМ-2)",
+  );
+  assert.equal(batchAndDate.table.body[0]?.[1]?.text, " ");
+  assert.equal(batchAndDate.table.body[0]?.[3]?.text, "04.08.2026 г.");
+  assert.equal(laboratoryRepresentative.table.body[0]?.[2]?.text, " ");
+  assert.equal(recordsTable.table.body.length, 14);
+  assert.deepEqual(recordsTable.table.body[3]?.map((cell) => cell.text), [
+    "ЛП-2026-001",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ]);
 });
