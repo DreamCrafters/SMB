@@ -10,6 +10,9 @@ import {
   assignLaboratoryBank,
   requestLaboratoryBanks,
 } from "../.test-build/src/services/laboratoryBanks.js";
+import {
+  requestLaboratoryChemicalAnalysisProtocolPdf,
+} from "../.test-build/src/services/laboratoryChemicalAnalysisJournal.js";
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -138,6 +141,45 @@ test("laboratory service downloads the selected result protocol as PDF", async (
     assert.equal(
       request.url,
       "http://api.test/api/laboratory/results/laboratory-result-1/protocol.pdf",
+    );
+    assert.equal(new Headers(request.init.headers).get("Accept"), "application/pdf");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("chemical analysis service downloads a protocol for the active history filters", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (input, init = {}) => {
+    request = { url: input.toString(), init };
+    return new Response(new Uint8Array([37, 80, 68, 70, 45]), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition":
+          "inline; filename=\"protocol.pdf\"; filename*=UTF-8''%D0%9F%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB%20%D0%BE%D1%82%D0%B1%D0%BE%D1%80%D0%B0%20%D0%BF%D1%80%D0%BE%D0%B1.pdf",
+      },
+    });
+  };
+
+  try {
+    const result = await requestLaboratoryChemicalAnalysisProtocolPdf(
+      {
+        dateFrom: "2026-07-01",
+        dateTo: "2026-07-31",
+        query: "П-42",
+      },
+      { baseUrl: "http://api.test" },
+    );
+
+    assert.equal(result.status, "ready");
+    assert.equal(
+      result.status === "ready" ? result.filename : undefined,
+      "Протокол отбора проб.pdf",
+    );
+    assert.equal(
+      request.url,
+      "http://api.test/api/laboratory/chemical-analysis-journal/protocol.pdf?dateFrom=2026-07-01&dateTo=2026-07-31&query=%D0%9F-42",
     );
     assert.equal(new Headers(request.init.headers).get("Accept"), "application/pdf");
   } finally {

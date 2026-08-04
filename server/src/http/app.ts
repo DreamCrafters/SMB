@@ -75,6 +75,9 @@ import {
 import {
   buildLaboratorySampleCodeDraft,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
+import type {
+  LaboratoryChemicalAnalysisJournalFilters,
+} from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import {
   validateLaboratoryChemicalAnalysisJournalSubmission,
 } from "../domain/laboratoryChemicalAnalysisJournal.js";
@@ -161,7 +164,10 @@ import {
   createMaxNotificationService,
   type MaxNotificationService,
 } from "../integrations/maxNotifications.js";
-import { renderLaboratoryProtocolPdf } from "../integrations/laboratoryProtocolPdf.js";
+import {
+  renderLaboratoryChemicalAnalysisProtocolPdf,
+  renderLaboratoryProtocolPdf,
+} from "../integrations/laboratoryProtocolPdf.js";
 import {
   createBoardAssignmentMaterialsSource,
   type BoardAssignmentMaterialsSource,
@@ -258,6 +264,8 @@ const rotaryKiln2FiringRecordPathPattern =
   /^\/api\/laboratory\/rotary-kiln-2-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryChemicalAnalysisRecordPathPattern =
   /^\/api\/laboratory\/chemical-analysis-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const laboratoryChemicalAnalysisProtocolPath =
+  "/api/laboratory/chemical-analysis-journal/protocol.pdf";
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -586,6 +594,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/sample-registration-journal" ||
         laboratorySampleRegistrationRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
+        url.pathname === laboratoryChemicalAnalysisProtocolPath ||
         laboratoryChemicalAnalysisRecordPathPattern.test(url.pathname) ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
@@ -605,6 +614,7 @@ export function createApiServer({
           productionBrands,
           audit,
           databaseTransaction,
+          now,
         });
         return;
       }
@@ -1952,6 +1962,7 @@ async function handleLaboratoryRequest({
   productionBrands,
   audit,
   databaseTransaction,
+  now,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -1972,6 +1983,7 @@ async function handleLaboratoryRequest({
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
+  now: () => Date;
 }) {
   const access = await requireAuthentication(req, res, {
     config,
@@ -1991,6 +2003,7 @@ async function handleLaboratoryRequest({
     url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
     url.pathname === "/api/laboratory/sample-registration-journal" ||
     url.pathname === "/api/laboratory/chemical-analysis-journal" ||
+    url.pathname === laboratoryChemicalAnalysisProtocolPath ||
     laboratoryProtocolPathPattern.test(url.pathname)
   );
   const canReadLaboratory = canManageLaboratory ||
@@ -2711,6 +2724,57 @@ async function handleLaboratoryRequest({
     return;
   }
 
+  if (url.pathname === laboratoryChemicalAnalysisProtocolPath) {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для протокола отбора проб используется GET.",
+        },
+      });
+      return;
+    }
+    if (laboratoryChemicalAnalysisJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала химических анализов не настроено.",
+        },
+      });
+      return;
+    }
+
+    const filters = readLaboratoryChemicalAnalysisFilters(url);
+    if (!filters.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Проверьте фильтры журнала химических анализов.",
+        },
+      });
+      return;
+    }
+
+    const records = await laboratoryChemicalAnalysisJournal.list(filters.value);
+    if (records.length === 0) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "По выбранным фильтрам нет химических анализов для протокола.",
+        },
+      });
+      return;
+    }
+
+    const pdf = await renderLaboratoryChemicalAnalysisProtocolPdf({
+      records,
+      filters: filters.value,
+      generatedAt: now(),
+    });
+    sendPdf(res, pdf, "Протокол отбора проб.pdf");
+    return;
+  }
+
   if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
     if (
       laboratoryChemicalAnalysisJournal === undefined ||
@@ -2726,17 +2790,12 @@ async function handleLaboratoryRequest({
     }
 
     if (req.method === "GET") {
-      const dateFrom = readOptionalQueryParam(url, "dateFrom");
-      const dateTo = readOptionalQueryParam(url, "dateTo");
-      const query = readOptionalQueryParam(url, "query");
+      const filters = readLaboratoryChemicalAnalysisFilters(url);
       const sampleQuery = readOptionalQueryParam(url, "sampleQuery");
       const nameQuery = readOptionalQueryParam(url, "name");
 
       if (
-        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
-        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
-        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
-        (query !== undefined && query.length > 120) ||
+        !filters.ok ||
         (sampleQuery !== undefined && sampleQuery.length > 120) ||
         (nameQuery !== undefined && nameQuery.length > 120)
       ) {
@@ -2751,9 +2810,7 @@ async function handleLaboratoryRequest({
 
       const [records, sampleOptions] = await Promise.all([
         laboratoryChemicalAnalysisJournal.list({
-          ...(dateFrom === undefined ? {} : { dateFrom }),
-          ...(dateTo === undefined ? {} : { dateTo }),
-          ...(query === undefined ? {} : { query }),
+          ...filters.value,
           ...(nameQuery === undefined ? {} : { nameQuery }),
         }),
         laboratorySampleRegistrationJournal.listOptions({
@@ -8230,6 +8287,38 @@ function readOptionalQueryParam(url: URL, name: string) {
   const value = url.searchParams.get(name)?.trim();
 
   return value === undefined || value.length === 0 ? undefined : value;
+}
+
+function readLaboratoryChemicalAnalysisFilters(url: URL):
+  | {
+      ok: true;
+      value: Pick<
+        LaboratoryChemicalAnalysisJournalFilters,
+        "dateFrom" | "dateTo" | "query"
+      >;
+    }
+  | { ok: false } {
+  const dateFrom = readOptionalQueryParam(url, "dateFrom");
+  const dateTo = readOptionalQueryParam(url, "dateTo");
+  const query = readOptionalQueryParam(url, "query");
+
+  if (
+    (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+    (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+    (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+    (query !== undefined && query.length > 120)
+  ) {
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    value: {
+      ...(dateFrom === undefined ? {} : { dateFrom }),
+      ...(dateTo === undefined ? {} : { dateTo }),
+      ...(query === undefined ? {} : { query }),
+    },
+  };
 }
 
 function isDateQueryValue(value: string) {

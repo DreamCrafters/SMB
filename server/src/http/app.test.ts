@@ -909,7 +909,17 @@ test("laboratory review access reads every journal by name but cannot change lab
     },
     async list(filters) {
       chemicalAnalysisFilters.push(filters);
-      return [];
+      return [{
+        id: "chemical-analysis-review-1",
+        sampleRegistrationId: "sample-registration-review-1",
+        laboratorySampleCode: "ЛП-2026-017",
+        sampleNumber: "17-А",
+        sampleName: "Шамот молотый",
+        chemicalAnalysisDate: "2026-07-30",
+        batchNumber: "П-42",
+        al2o3: "31,4",
+        createdAt: "2026-07-30T08:30:00.000Z",
+      }];
     },
   };
 
@@ -983,6 +993,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/chemical-analysis-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
       );
+      const chemicalAnalysisProtocolResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal/protocol.pdf?dateFrom=2026-07-01&query=%D0%9F-42`,
+        { headers },
+      );
       const chemicalAnalysisCorrectionResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal/chemical-analysis-1`,
         { method: "PATCH", headers, body: JSON.stringify({}) },
@@ -1010,6 +1024,11 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(sampleRegistrationLocationsResponse.status, 403);
       assert.equal(sampleRegistrationDraftResponse.status, 403);
       assert.equal(chemicalAnalysisResponse.status, 200);
+      assert.equal(chemicalAnalysisProtocolResponse.status, 200);
+      assert.equal(
+        chemicalAnalysisProtocolResponse.headers.get("content-type"),
+        "application/pdf",
+      );
       assert.equal(chemicalAnalysisCorrectionResponse.status, 403);
       assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
@@ -1018,7 +1037,10 @@ test("laboratory review access reads every journal by name but cannot change lab
       }]);
       assert.deepEqual(kilnJournalFilters, [{ dateFrom: "2026-07-01" }]);
       assert.deepEqual(sampleRegistrationFilters, [{ nameQuery: "ШКИ" }]);
-      assert.deepEqual(chemicalAnalysisFilters, [{ nameQuery: "ШКИ" }]);
+      assert.deepEqual(chemicalAnalysisFilters, [
+        { nameQuery: "ШКИ" },
+        { dateFrom: "2026-07-01", query: "П-42" },
+      ]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -1628,6 +1650,14 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
 
   await withApiServer(
     async (baseUrl) => {
+      const invalidProtocolResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal/protocol.pdf?dateFrom=2026-02-30`,
+        { headers },
+      );
+      const emptyProtocolResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal/protocol.pdf?query=missing`,
+        { headers },
+      );
       const createResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal`,
         {
@@ -1638,6 +1668,10 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       );
       const listResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal?dateFrom=2026-07-01&dateTo=2026-07-31&query=ЛП-2026-017&sampleQuery=Шамот`,
+        { headers },
+      );
+      const protocolResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal/protocol.pdf?dateFrom=2026-07-01&dateTo=2026-07-31&query=ЛП-2026-017`,
         { headers },
       );
       const unknownSampleResponse = await fetch(
@@ -1666,8 +1700,29 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         },
       );
 
+      assert.equal(invalidProtocolResponse.status, 400);
+      assert.equal(emptyProtocolResponse.status, 404);
+      assert.deepEqual(await emptyProtocolResponse.json(), {
+        error: {
+          code: "not_found",
+          message: "По выбранным фильтрам нет химических анализов для протокола.",
+        },
+      });
       assert.equal(createResponse.status, 201);
       assert.equal(listResponse.status, 200);
+      assert.equal(protocolResponse.status, 200);
+      assert.equal(
+        protocolResponse.headers.get("content-type"),
+        "application/pdf",
+      );
+      assert.match(
+        protocolResponse.headers.get("content-disposition") ?? "",
+        /filename\*=UTF-8''%D0%9F%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB%20%D0%BE%D1%82%D0%B1%D0%BE%D1%80%D0%B0%20%D0%BF%D1%80%D0%BE%D0%B1\.pdf/u,
+      );
+      assert.equal(
+        Buffer.from(await protocolResponse.arrayBuffer()).subarray(0, 5).toString("ascii"),
+        "%PDF-",
+      );
       assert.deepEqual(await listResponse.json(), {
         records: [{
           id: "chemical-analysis-1",
@@ -1766,15 +1821,21 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
   );
 });
 
-test("laboratory PDF protocol requires an authenticated laboratory access", async () => {
+test("laboratory PDF protocols require an authenticated laboratory access", async () => {
   await withApiServer(
     async (baseUrl) => {
-      const response = await fetch(
-        `${baseUrl}/api/laboratory/results/laboratory-result-1/protocol.pdf`,
-      );
+      const responses = await Promise.all([
+        fetch(`${baseUrl}/api/laboratory/results/laboratory-result-1/protocol.pdf`),
+        fetch(`${baseUrl}/api/laboratory/chemical-analysis-journal/protocol.pdf`),
+      ]);
 
-      assert.equal(response.status, 401);
-      assert.match(response.headers.get("content-type") ?? "", /application\/json/u);
+      for (const response of responses) {
+        assert.equal(response.status, 401);
+        assert.match(
+          response.headers.get("content-type") ?? "",
+          /application\/json/u,
+        );
+      }
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,

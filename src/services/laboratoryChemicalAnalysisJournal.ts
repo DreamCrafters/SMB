@@ -12,6 +12,10 @@ import {
   resolveApiEndpoint,
   type RemoteServerErrorCode,
 } from "./remoteServer.js";
+import {
+  requestProtectedPdf,
+  type ProtectedPdfResult,
+} from "./protectedPdf.js";
 
 const JOURNAL_PATH = "/api/laboratory/chemical-analysis-journal";
 
@@ -31,6 +35,7 @@ export type LaboratoryChemicalAnalysisJournalSaveResult =
       record: LaboratoryChemicalAnalysisJournalRecord;
     }
   | ErrorResult;
+export type LaboratoryChemicalAnalysisProtocolPdfResult = ProtectedPdfResult;
 
 export async function requestLaboratoryChemicalAnalysisJournal(
   filters: LaboratoryChemicalAnalysisJournalFilters = {},
@@ -100,6 +105,29 @@ export async function correctLaboratoryChemicalAnalysisJournalRecord(
     result,
     "Сервер не вернул исправленную запись журнала химических анализов.",
   );
+}
+
+export async function requestLaboratoryChemicalAnalysisProtocolPdf(
+  filters: Pick<
+    LaboratoryChemicalAnalysisJournalFilters,
+    "dateFrom" | "dateTo" | "query"
+  > = {},
+  { baseUrl, signal }: RequestOptions = {},
+): Promise<LaboratoryChemicalAnalysisProtocolPdfResult> {
+  const params = new URLSearchParams();
+  if (filters.dateFrom !== undefined) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo !== undefined) params.set("dateTo", filters.dateTo);
+  if (filters.query !== undefined) params.set("query", filters.query);
+  const suffix = params.size === 0 ? "" : `?${params.toString()}`;
+  const path = `${JOURNAL_PATH}/protocol.pdf${suffix}`;
+  return requestProtectedPdf({
+    path,
+    fallbackFilename: "Протокол химических анализов.pdf",
+    failureMessage: "Не удалось сформировать протокол химических анализов.",
+    cancellationMessage: "Формирование протокола отменено.",
+    baseUrl,
+    signal,
+  });
 }
 
 function readJournalSaveResult(

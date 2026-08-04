@@ -11,6 +11,7 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import {
   correctLaboratoryChemicalAnalysisJournalRecord,
   requestLaboratoryChemicalAnalysisJournal,
+  requestLaboratoryChemicalAnalysisProtocolPdf,
   submitLaboratoryChemicalAnalysisJournalRecord,
 } from "./services/laboratoryChemicalAnalysisJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
@@ -58,6 +59,7 @@ export function LaboratoryChemicalAnalysisJournal({
     sampleOptions: [],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isOpeningProtocol, setIsOpeningProtocol] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [editingRecordCode, setEditingRecordCode] = useState("");
@@ -191,6 +193,58 @@ export function LaboratoryChemicalAnalysisJournal({
     setForm(createEmptyForm(profile.displayName));
   }
 
+  async function openProtocol() {
+    if (
+      isAdminPreviewMode ||
+      isOpeningProtocol ||
+      history.status !== "ready" ||
+      history.records.length === 0
+    ) {
+      return;
+    }
+
+    const previewWindow = window.open("", "_blank");
+    if (previewWindow !== null) {
+      previewWindow.opener = null;
+      previewWindow.document.title = "Формируем протокол…";
+    }
+    setIsOpeningProtocol(true);
+    const response = await requestLaboratoryChemicalAnalysisProtocolPdf({
+      ...(dateFrom === "" ? {} : { dateFrom }),
+      ...(dateTo === "" ? {} : { dateTo }),
+      ...(query.trim() === "" ? {} : { query: query.trim() }),
+    });
+    setIsOpeningProtocol(false);
+
+    if (response.status === "error") {
+      previewWindow?.close();
+      onShowToast(
+        "Протокол не сформирован",
+        readShortUserMessage(
+          response.message,
+          "Не удалось сформировать протокол химических анализов.",
+        ),
+      );
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(response.blob);
+    if (previewWindow !== null) {
+      previewWindow.location.href = objectUrl;
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.target = "_blank";
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+
   return (
     <div className="chemical-analysis-journal">
       <form
@@ -320,9 +374,24 @@ export function LaboratoryChemicalAnalysisJournal({
 
       <section className="laboratory-history chemical-analysis-journal-history">
         <div className="laboratory-history-heading">
-          <div>
-            <span className="eyebrow">История</span>
-            <h2>Выполненные химические анализы</h2>
+          <div className="chemical-analysis-history-title">
+            <div>
+              <span className="eyebrow">История</span>
+              <h2>Выполненные химические анализы</h2>
+            </div>
+            <button
+              className="secondary-button"
+              disabled={
+                isAdminPreviewMode ||
+                isOpeningProtocol ||
+                history.status !== "ready" ||
+                history.records.length === 0
+              }
+              type="button"
+              onClick={() => void openProtocol()}
+            >
+              {isOpeningProtocol ? "Формируем…" : "Распечатать Протокол"}
+            </button>
           </div>
           <div className="laboratory-filters chemical-analysis-journal-filters">
             <label>

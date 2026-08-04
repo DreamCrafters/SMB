@@ -12,6 +12,10 @@ import {
   resolveApiEndpoint,
   type RemoteServerErrorCode,
 } from "./remoteServer.js";
+import {
+  requestProtectedPdf,
+  type ProtectedPdfResult,
+} from "./protectedPdf.js";
 
 const REFERENCE_PATH = "/api/laboratory/reference";
 const RESULTS_PATH = "/api/laboratory/results";
@@ -32,9 +36,7 @@ export type LaboratoryResultsResult =
 export type LaboratoryResultSaveResult =
   | { status: "ready"; result: LaboratoryResult }
   | ErrorResult;
-export type LaboratoryProtocolPdfResult =
-  | { status: "ready"; blob: Blob; filename: string }
-  | ErrorResult;
+export type LaboratoryProtocolPdfResult = ProtectedPdfResult;
 
 export async function requestLaboratoryReference(
   options: RequestOptions = {},
@@ -99,43 +101,14 @@ export async function requestLaboratoryProtocolPdf(
   { baseUrl, signal }: RequestOptions = {},
 ): Promise<LaboratoryProtocolPdfResult> {
   const path = `${RESULTS_PATH}/${encodeURIComponent(resultId)}/protocol.pdf`;
-  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: buildDevAccessHeaders({ Accept: "application/pdf" }),
-      credentials: "include",
-      signal,
-    });
-    if (!response.ok) {
-      return readRemoteError(
-        await readJson(response),
-        "Не удалось сформировать протокол испытаний.",
-      );
-    }
-    if (!(response.headers.get("content-type") ?? "").startsWith("application/pdf")) {
-      return invalidResponse("Сервер вернул протокол в неподдерживаемом формате.");
-    }
-    return {
-      status: "ready",
-      blob: await response.blob(),
-      filename: readDownloadFilename(response.headers.get("content-disposition")) ??
-        `laboratory-protocol-${resultId}.pdf`,
-    };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return { status: "error", message: "Формирование протокола отменено." };
-    }
-    return {
-      status: "error",
-      code: "network_error",
-      message: describeRemoteNetworkFailure(
-        "Не удалось сформировать протокол испытаний.",
-        { baseUrl },
-      ),
-    };
-  }
+  return requestProtectedPdf({
+    path,
+    fallbackFilename: `laboratory-protocol-${resultId}.pdf`,
+    failureMessage: "Не удалось сформировать протокол испытаний.",
+    cancellationMessage: "Формирование протокола отменено.",
+    baseUrl,
+    signal,
+  });
 }
 
 async function requestJson(
@@ -264,19 +237,6 @@ function readRemoteError(payload: unknown, fallback: string): ErrorResult {
 
 function invalidResponse(message: string): ErrorResult {
   return { status: "error", code: "invalid_response", message };
-}
-
-function readDownloadFilename(contentDisposition: string | null) {
-  if (contentDisposition === null) return undefined;
-  const encoded = /filename\*=UTF-8''([^;]+)/iu.exec(contentDisposition)?.[1];
-  if (encoded !== undefined) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return undefined;
-    }
-  }
-  return /filename="([^"]+)"/iu.exec(contentDisposition)?.[1];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

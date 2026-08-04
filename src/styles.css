@@ -5443,6 +5443,17 @@ p {
   gap: var(--density-4);
 }
 
+.chemical-analysis-history-title {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--density-3);
+}
+
+.chemical-analysis-history-title .secondary-button {
+  min-height: 38px;
+}
+
 .laboratory-filters {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }

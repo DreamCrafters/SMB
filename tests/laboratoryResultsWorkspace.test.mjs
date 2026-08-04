@@ -79,6 +79,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const chemicalAnalysisSubmissions = [];
   const chemicalAnalysisCorrections = [];
   const chemicalAnalysisRequests = [];
+  const chemicalAnalysisProtocolRequests = [];
+  const protocolPreview = {
+    opener: {},
+    document: { title: "" },
+    location: { href: "" },
+    close() {},
+  };
+  dom.window.open = () => protocolPreview;
 
   try {
     const { LaboratoryResultsWorkspace } = await vite.ssrLoadModule(
@@ -332,6 +340,21 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             id: "sample-registration-1",
             ...submission,
             createdAt: "2026-07-30T08:30:00.000Z",
+          },
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/chemical-analysis-journal/protocol.pdf"
+      ) {
+        chemicalAnalysisProtocolRequests.push(
+          Object.fromEntries(url.searchParams),
+        );
+        return new Response(new Uint8Array([37, 80, 68, 70, 45]), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition":
+              "inline; filename=\"protocol.pdf\"; filename*=UTF-8''%D0%9F%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB.pdf",
           },
         });
       }
@@ -1220,6 +1243,19 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       chemicalAnalysisRequests.some((request) => request.query === "П-42")
     );
+    const printProtocolButton = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find((button) => button.textContent.includes("Распечатать Протокол"));
+    assert.ok(printProtocolButton);
+    await waitFor(React, () => !printProtocolButton.disabled);
+    await React.act(async () => {
+      printProtocolButton.dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => chemicalAnalysisProtocolRequests.length === 1);
+    assert.deepEqual(chemicalAnalysisProtocolRequests[0], { query: "П-42" });
+    assert.match(protocolPreview.location.href, /^blob:/u);
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
