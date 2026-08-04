@@ -63,7 +63,7 @@ export function LaboratoryResultsTable({
   }
 
   return (
-    <div className="table-scroll laboratory-table-scroll">
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table">
         <thead>
           <tr>

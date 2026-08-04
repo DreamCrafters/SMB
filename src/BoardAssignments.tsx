@@ -796,7 +796,7 @@ export function BoardAssignmentsWorkspace({
           className="board-assignment-register"
           aria-label="История выполненных поручений"
         >
-          <div className="board-assignment-table-wrap">
+          <div className="board-assignment-table-wrap history-table-scroll">
             <table className="board-assignment-table board-assignment-history-table">
               <thead>
                 <tr>

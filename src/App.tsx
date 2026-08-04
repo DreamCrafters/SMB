@@ -6879,7 +6879,7 @@ function ProductionBrandDashboardTable({
   onOpen: (reportId: string) => void;
 }) {
   return (
-    <div className="production-dashboard-table-wrap">
+    <div className="production-dashboard-table-wrap history-table-scroll">
       <table className="production-dashboard-table production-dashboard-brand-table">
         <thead>
           <tr className="production-dashboard-totals-row">
@@ -6946,7 +6946,7 @@ function ProductionJarDashboardTable({
     bankContents.map((content) => [content.bankNumber, content.materialLabel]),
   );
   return (
-    <div className="production-dashboard-table-wrap">
+    <div className="production-dashboard-table-wrap history-table-scroll">
       <table className="production-dashboard-table">
         <thead>
           <tr className="production-dashboard-totals-row">
@@ -7003,7 +7003,7 @@ function ProductionGranulationDashboardTable({
   onOpen: (reportId: string) => void;
 }) {
   return (
-    <div className="production-dashboard-table-wrap">
+    <div className="production-dashboard-table-wrap history-table-scroll">
       <table className="production-dashboard-table production-dashboard-granulation-table">
         <thead>
           <tr className="production-dashboard-totals-row">
@@ -7223,8 +7223,8 @@ function EquipmentSummaryTable({
 
   return (
     <>
-      <div className="dispatcher-feed-table" role="table">
-        <div className="dispatcher-feed-row dispatcher-feed-row-equipment dispatcher-feed-head" role="row">
+      <div className="dispatcher-feed-table history-table-scroll" role="table">
+        <div className="dispatcher-feed-row dispatcher-feed-row-equipment dispatcher-feed-head history-table-head" role="row">
           <span role="columnheader">Оборудование</span>
           <span role="columnheader">Выработка</span>
           <span role="columnheader">Простой</span>
@@ -7322,8 +7322,8 @@ function EquipmentDetailModal({
             Нет дневных строк для выбранного оборудования.
           </p>
         ) : (
-          <div className="equipment-detail-table" role="table">
-            <div className="equipment-detail-row equipment-detail-head" role="row">
+          <div className="equipment-detail-table history-table-scroll" role="table">
+            <div className="equipment-detail-row equipment-detail-head history-table-head" role="row">
               <span role="columnheader">Дата отчета</span>
               <span role="columnheader">Выработка</span>
               <span role="columnheader">Простой</span>
@@ -7403,8 +7403,8 @@ function IncidentSummaryTable({
   }
 
   return (
-    <div className="dispatcher-feed-table" role="table">
-      <div className="dispatcher-feed-row dispatcher-feed-row-incidents dispatcher-feed-head" role="row">
+    <div className="dispatcher-feed-table history-table-scroll" role="table">
+      <div className="dispatcher-feed-row dispatcher-feed-row-incidents dispatcher-feed-head history-table-head" role="row">
         <span role="columnheader">№</span>
         <span role="columnheader">Статус</span>
         <span role="columnheader">Открыт</span>
@@ -7440,8 +7440,8 @@ function VisitorSummaryTable({ rows }: { rows: ReturnType<typeof buildVisitorVis
   }
 
   return (
-    <div className="dispatcher-feed-table" role="table">
-      <div className="dispatcher-feed-row dispatcher-feed-row-visitors dispatcher-feed-head" role="row">
+    <div className="dispatcher-feed-table history-table-scroll" role="table">
+      <div className="dispatcher-feed-row dispatcher-feed-row-visitors dispatcher-feed-head history-table-head" role="row">
         <span role="columnheader">Посетитель</span>
         <span role="columnheader">Организация</span>
         <span role="columnheader">Кого посещает</span>
@@ -7710,8 +7710,12 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
         </div>
       ) : null}
       {report !== undefined && report.events.length > 0 ? (
-        <div className="admin-audit-list" role="table" aria-label="Журнал действий">
-          <div className="admin-audit-row admin-audit-row-head" role="row">
+        <div
+          className="admin-audit-list history-table-scroll"
+          role="table"
+          aria-label="Журнал действий"
+        >
+          <div className="admin-audit-row admin-audit-row-head history-table-head" role="row">
             <span role="columnheader">Когда</span>
             <span role="columnheader">Кто</span>
             <span role="columnheader">Что сделал</span>

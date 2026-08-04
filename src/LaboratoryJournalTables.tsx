@@ -53,7 +53,7 @@ export function LaboratorySampleRegistrationTable({
   }
 
   return (
-    <div className="table-scroll laboratory-table-scroll">
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table sample-registration-journal-table">
         <thead>
           <tr>
@@ -120,7 +120,7 @@ export function LaboratoryChemicalAnalysisTable({
   }
 
   return (
-    <div className="table-scroll laboratory-table-scroll">
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table chemical-analysis-journal-table">
         <thead>
           <tr>
@@ -182,7 +182,7 @@ export function RotaryKiln2FiringTable({
   }
 
   return (
-    <div className="table-scroll laboratory-table-scroll">
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table rotary-kiln-journal-table">
         <thead>
           <tr>

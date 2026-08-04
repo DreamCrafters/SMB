@@ -4504,6 +4504,21 @@ p {
   justify-self: start;
 }
 
+.history-table-scroll {
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.history-table-scroll table thead,
+.history-table-scroll > .history-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--line-strong);
+}
+
 .board-assignment-table-wrap {
   overflow-x: auto;
 }
@@ -5615,7 +5630,6 @@ p {
 }
 
 .admin-audit-list {
-  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-raised);
