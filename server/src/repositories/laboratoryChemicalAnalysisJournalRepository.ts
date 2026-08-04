@@ -45,7 +45,7 @@ type LaboratoryChemicalAnalysisJournalRow = RowDataPacket & {
   sample_name: string;
   chemical_analysis_date: Date | string | null;
   chemical_analysis_laboratory_assistant: string | null;
-  batch_number: string;
+  batch_number: string | null;
   al2o3: string | null;
   fe2o3: string | null;
   sio2: string | null;
@@ -108,7 +108,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           analysis.sampleRegistrationId,
           analysis.chemicalAnalysisDate ?? null,
           analysis.chemicalAnalysisLaboratoryAssistant ?? null,
-          analysis.batchNumber,
+          analysis.batchNumber ?? null,
           analysis.al2o3 ?? null,
           analysis.fe2o3 ?? null,
           analysis.sio2 ?? null,
@@ -211,7 +211,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           input.analysis.sampleRegistrationId,
           input.analysis.chemicalAnalysisDate ?? null,
           input.analysis.chemicalAnalysisLaboratoryAssistant ?? null,
-          input.analysis.batchNumber,
+          input.analysis.batchNumber ?? null,
           input.analysis.al2o3 ?? null,
           input.analysis.fe2o3 ?? null,
           input.analysis.sio2 ?? null,
@@ -334,7 +334,7 @@ function mapRecord(
     laboratorySampleCode: row.laboratory_sample_code,
     sampleNumber: row.sample_number,
     sampleName: row.sample_name,
-    batchNumber: row.batch_number,
+    ...(row.batch_number === null ? {} : { batchNumber: row.batch_number }),
     ...(row.chemical_analysis_date === null
       ? {}
       : { chemicalAnalysisDate: formatDate(row.chemical_analysis_date) }),

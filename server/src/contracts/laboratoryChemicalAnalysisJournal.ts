@@ -1,5 +1,5 @@
 export type LaboratoryChemicalAnalysisValues = {
-  batchNumber: string;
+  batchNumber?: string;
   chemicalAnalysisDate?: string;
   chemicalAnalysisLaboratoryAssistant?: string;
   al2o3?: string;
@@ -29,7 +29,7 @@ export const laboratoryChemicalAnalysisFields = [
     id: "batchNumber",
     label: "Номер партии",
     kind: "text",
-    required: true,
+    required: false,
   },
   {
     id: "al2o3",

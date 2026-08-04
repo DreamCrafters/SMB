@@ -2690,7 +2690,7 @@ async function handleLaboratoryRequest({
               {
                 label: "Номер партии",
                 value:
-                  `${result.before.batchNumber} → ${result.record.batchNumber}`,
+                  `${result.before.batchNumber ?? "—"} → ${result.record.batchNumber ?? "—"}`,
               },
             ],
             targetType: "laboratory_chemical_analysis",
@@ -2831,7 +2831,9 @@ async function handleLaboratoryRequest({
                 label: "Лаборант",
                 value: record.chemicalAnalysisLaboratoryAssistant,
               }]),
-          { label: "Номер партии", value: record.batchNumber },
+          ...(record.batchNumber === undefined
+            ? []
+            : [{ label: "Номер партии", value: record.batchNumber }]),
         ],
         targetType: "laboratory_chemical_analysis",
         targetId: record.id,

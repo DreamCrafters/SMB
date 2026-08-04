@@ -1624,7 +1624,6 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
   };
   const analysis = {
     sampleRegistrationId: "sample-registration-1",
-    batchNumber: "П-42",
   };
 
   await withApiServer(
@@ -1721,13 +1720,26 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
           label: "Код лабораторной пробы",
           value: "ЛП-2026-017",
         },
-        { label: "Номер партии", value: "П-42" },
       ]);
       assert.equal(
         auditEvents[1]?.action,
         "laboratory_chemical_analysis.correct",
       );
       assert.equal(auditEvents[1]?.targetId, "chemical-analysis-1");
+      assert.deepEqual(auditEvents[1]?.details, [
+        {
+          label: "Код лабораторной пробы",
+          value: "ЛП-2026-017 → ЛП-2026-017",
+        },
+        {
+          label: "Дата хим. анализа",
+          value: "— → 2026-08-04",
+        },
+        {
+          label: "Номер партии",
+          value: "— → П-44",
+        },
+      ]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,

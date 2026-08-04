@@ -2126,6 +2126,15 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "040_optional_chemical_analysis_batch_number",
+    statements: [
+      `
+      alter table laboratory_chemical_analysis_journal
+        modify batch_number varchar(120) null;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

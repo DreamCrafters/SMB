@@ -20,7 +20,6 @@ const analysis = {
 
 const minimalAnalysis = {
   sampleRegistrationId: "sample-registration-1",
-  batchNumber: "П-42",
 };
 
 const sample = {
@@ -67,7 +66,7 @@ test("chemical analysis repository stores linked append-only record", async () =
     "sample-registration-1",
     null,
     null,
-    "П-42",
+    null,
     null,
     null,
     null,
@@ -154,7 +153,7 @@ test("chemical analysis repository omits optional values when they are absent", 
         sample_name: "Шамот молотый",
         chemical_analysis_date: null,
         chemical_analysis_laboratory_assistant: null,
-        batch_number: "П-42",
+        batch_number: null,
         al2o3: null,
         fe2o3: null,
         sio2: null,
@@ -175,7 +174,6 @@ test("chemical analysis repository omits optional values when they are absent", 
     laboratorySampleCode: "ЛП-2026-017",
     sampleNumber: "17-А",
     sampleName: "Шамот молотый",
-    batchNumber: "П-42",
     createdAt: "2026-07-30T09:30:00.000Z",
   }]);
 });
@@ -223,7 +221,6 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
   });
   const correctedAnalysis = {
     sampleRegistrationId: "sample-registration-2",
-    batchNumber: "П-44",
     chemicalAnalysisDate: "2026-08-04",
     al2o3: "31,8",
     notes: "Исправлено по журналу.",
@@ -272,7 +269,7 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
     "sample-registration-2",
     "2026-08-04",
     null,
-    "П-44",
+    null,
     "31,8",
     null,
     null,

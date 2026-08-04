@@ -37,10 +37,10 @@ test("chemical analysis journal accepts and normalizes a complete record", () =>
   });
 });
 
-test("chemical analysis journal accepts only a registered sample and batch number", () => {
+test("chemical analysis journal accepts only a registered sample", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
     sampleRegistrationId: " sample-registration-17 ",
-    batchNumber: " П-42 ",
+    batchNumber: " ",
     chemicalAnalysisDate: "",
     chemicalAnalysisLaboratoryAssistant: " ",
     al2o3: null,
@@ -50,7 +50,6 @@ test("chemical analysis journal accepts only a registered sample and batch numbe
     ok: true,
     value: {
       sampleRegistrationId: "sample-registration-17",
-      batchNumber: "П-42",
     },
   });
 });
@@ -60,7 +59,7 @@ test("chemical analysis journal rejects invalid provided optional values", () =>
     sampleRegistrationId: "",
     chemicalAnalysisDate: "2026-02-30",
     chemicalAnalysisLaboratoryAssistant: 42,
-    batchNumber: "",
+    batchNumber: 42,
     al2o3: null,
     fe2o3: {},
     sio2: [],

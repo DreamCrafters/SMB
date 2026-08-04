@@ -123,7 +123,7 @@ export function LaboratoryChemicalAnalysisJournal({
           submission: buildSubmission(form),
         };
     if (saveRequest.submission === undefined) {
-      setFormMessage("Выберите пробу и заполните все обязательные поля.");
+      setFormMessage("Выберите зарегистрированную пробу.");
       return;
     }
 
@@ -153,7 +153,9 @@ export function LaboratoryChemicalAnalysisJournal({
     setRefreshVersion((value) => value + 1);
     onShowToast(
       wasEditing ? "Химический анализ исправлен" : "Химический анализ сохранён",
-      `${result.record.laboratorySampleCode} · ${result.record.batchNumber}.`,
+      result.record.batchNumber === undefined
+        ? `${result.record.laboratorySampleCode}.`
+        : `${result.record.laboratorySampleCode} · ${result.record.batchNumber}.`,
     );
   }
 
@@ -169,7 +171,7 @@ export function LaboratoryChemicalAnalysisJournal({
       chemicalAnalysisDate: record.chemicalAnalysisDate ?? "",
       chemicalAnalysisLaboratoryAssistant:
         record.chemicalAnalysisLaboratoryAssistant ?? "",
-      batchNumber: record.batchNumber,
+      batchNumber: record.batchNumber ?? "",
       al2o3: record.al2o3 ?? "",
       fe2o3: record.fe2o3 ?? "",
       sio2: record.sio2 ?? "",
@@ -396,7 +398,9 @@ function buildSubmission(
 
   return {
     sampleRegistrationId: form.sampleRegistrationId,
-    batchNumber: form.batchNumber.trim(),
+    ...(form.batchNumber.trim() === ""
+      ? {}
+      : { batchNumber: form.batchNumber.trim() }),
     ...(form.chemicalAnalysisDate === ""
       ? {}
       : { chemicalAnalysisDate: form.chemicalAnalysisDate }),

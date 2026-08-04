@@ -1036,7 +1036,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.ok(chemicalAnalysisForm);
     assert.equal(
       findControlByLabel(chemicalAnalysisForm, "Номер партии").required,
-      true,
+      false,
     );
     for (const optionalLabel of [
       "Дата хим. анализа",
@@ -1113,7 +1113,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       for (const [label, value] of Object.entries({
         "Дата хим. анализа": "",
         "Лаборант": "",
-        "Номер партии": "П-43",
+        "Номер партии": "",
       })) {
         const input = findControlByLabel(chemicalAnalysisForm, label);
         setNativeInputValue(input, value);
@@ -1128,7 +1128,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () => chemicalAnalysisSubmissions.length === 1);
     assert.deepEqual(chemicalAnalysisSubmissions[0], {
       sampleRegistrationId: "sample-registration-1",
-      batchNumber: "П-43",
     });
 
     const chemicalAnalysisEditButton = rootElement.querySelector(
@@ -1171,7 +1170,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         chemicalAnalysisForm,
         "Номер партии",
       );
-      setNativeInputValue(batchNumberInput, "П-44");
+      setNativeInputValue(batchNumberInput, "");
       batchNumberInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
@@ -1190,7 +1189,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleRegistrationId: "sample-registration-1",
       chemicalAnalysisDate: "2026-07-30",
       chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
-      batchNumber: "П-44",
       al2o3: "31,4",
       fe2o3: "2,1",
       sio2: "58,7",
