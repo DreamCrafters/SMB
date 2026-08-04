@@ -16,6 +16,7 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   requestRotaryKiln2FiringJournal,
+  requestRotaryKiln2FiringJournalDraft,
   requestRotaryKiln2PersonnelOptions,
   submitRotaryKiln2FiringJournalRecord,
 } from "./services/rotaryKiln2FiringJournal";
@@ -37,6 +38,26 @@ type SelectionState =
       average: number | null;
     };
 
+type PreviousRecordAutofillDescriptor = readonly [
+  field: keyof FormState,
+  readValue: (record: RotaryKiln2FiringJournalRecord) => string,
+];
+
+const previousRecordAutofillDescriptors = [
+  ["recordDate", (record) => record.recordDate],
+  ["shiftSupervisor", (record) => record.shiftSupervisor],
+  ["burnerOperator", (record) => record.burnerOperator],
+  ["laboratoryAssistant", (record) => record.laboratoryAssistant],
+  ["sievePass05", (record) => String(record.sievePass05)],
+  ["bulkDensity", (record) => String(record.bulkDensity)],
+  ["kilnLoadBucketsPerHour", (record) =>
+    String(record.kilnLoadBucketsPerHour)],
+] satisfies readonly PreviousRecordAutofillDescriptor[];
+
+const previousRecordAutofillFields = new Set<keyof FormState>(
+  previousRecordAutofillDescriptors.map(([field]) => field),
+);
+
 const journalTitle =
   "Журнал контроля параметров обжига вращающейся печи 2";
 
@@ -56,6 +77,8 @@ export function LaboratoryRotaryKiln2FiringJournal({
 }) {
   const [form, setForm] = useState(() => createEmptyForm(profile.displayName));
   const hasEditedProducedMaterialRef = useRef(false);
+  const hasSavedRecordRef = useRef(false);
+  const editedPreviousRecordFieldsRef = useRef(new Set<keyof FormState>());
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [query, setQuery] = useState("");
@@ -91,6 +114,33 @@ export function LaboratoryRotaryKiln2FiringJournal({
           ? readShortUserMessage(
               result.message,
               "Не удалось загрузить список сотрудников.",
+            )
+          : current);
+      },
+    );
+    return () => controller.abort();
+  }, [isAdminPreviewMode]);
+
+  useEffect(() => {
+    if (isAdminPreviewMode) return;
+
+    const controller = new AbortController();
+    requestRotaryKiln2FiringJournalDraft({ signal: controller.signal }).then(
+      (result) => {
+        if (controller.signal.aborted) return;
+        if (result.status === "ready") {
+          if (
+            !hasSavedRecordRef.current &&
+            result.previousRecord !== null
+          ) {
+            applyPreviousRecordAutofill(result.previousRecord);
+          }
+          return;
+        }
+        setFormMessage((current) => current === ""
+          ? readShortUserMessage(
+              result.message,
+              "Не удалось загрузить предыдущую запись журнала.",
             )
           : current);
       },
@@ -148,7 +198,24 @@ export function LaboratoryRotaryKiln2FiringJournal({
     setForm((current) => ({ ...current, producedMaterial: previousMaterial }));
   }
 
+  function applyPreviousRecordAutofill(
+    previousRecord: RotaryKiln2FiringJournalRecord,
+  ) {
+    const previousValues = readPreviousRecordAutofillValues(previousRecord);
+    setForm((current) => Object.fromEntries(
+      Object.entries(current).map(([field, value]) => [
+        field,
+        editedPreviousRecordFieldsRef.current.has(field as keyof FormState)
+          ? value
+          : previousValues[field as keyof FormState] ?? value,
+      ]),
+    ) as FormState);
+  }
+
   function updateField(field: keyof FormState, value: string) {
+    if (previousRecordAutofillFields.has(field)) {
+      editedPreviousRecordFieldsRef.current.add(field);
+    }
     setForm((current) => ({ ...current, [field]: value }));
     setFormMessage("");
   }
@@ -184,6 +251,8 @@ export function LaboratoryRotaryKiln2FiringJournal({
     }
 
     hasEditedProducedMaterialRef.current = false;
+    hasSavedRecordRef.current = true;
+    editedPreviousRecordFieldsRef.current.clear();
     setPersonnelOptions((current) => ({
       shiftSupervisors: mergePersonnelOptions(
         current.shiftSupervisors,
@@ -194,10 +263,13 @@ export function LaboratoryRotaryKiln2FiringJournal({
         result.record.burnerOperator,
       ),
     }));
-    setForm(createEmptyForm(
-      profile.displayName,
-      result.record.producedMaterial ?? "",
-    ));
+    setForm({
+      ...createEmptyForm(
+        result.record.laboratoryAssistant,
+        result.record.producedMaterial ?? "",
+      ),
+      ...readPreviousRecordAutofillValues(result.record),
+    });
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
@@ -427,6 +499,17 @@ function readPreviousProducedMaterial(
 ) {
   return records.find((record) => (record.producedMaterial ?? "") !== "")
     ?.producedMaterial ?? "";
+}
+
+function readPreviousRecordAutofillValues(
+  record: RotaryKiln2FiringJournalRecord,
+): Partial<FormState> {
+  return Object.fromEntries(
+    previousRecordAutofillDescriptors.map(([field, readValue]) => [
+      field,
+      readValue(record),
+    ]),
+  );
 }
 
 function createEmptyForm(

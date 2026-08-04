@@ -28,6 +28,9 @@ export type RotaryKiln2FiringJournalRepository = {
   list: (
     filters?: RepositoryFilters,
   ) => Promise<RotaryKiln2FiringJournalSelection>;
+  findLatestCreated: () => Promise<
+    RotaryKiln2FiringJournalRecord | undefined
+  >;
   listPersonnelOptions: () => Promise<
     RotaryKiln2FiringJournalPersonnelOptions
   >;
@@ -230,6 +233,37 @@ export function createRotaryKiln2FiringJournalRepository(
           ? null
           : Number(rows[0].average_bulk_density),
       };
+    },
+
+    async findLatestCreated() {
+      const [rows] = await pool.query<RotaryKiln2FiringJournalRow[]>(
+        `select
+          id,
+          record_date,
+          record_time,
+          produced_material,
+          water_absorption,
+          temperature_before_cyclone,
+          temperature_before_filter,
+          temperature_in_field_chamber,
+          temperature_at_rollback,
+          gas_consumption_per_hour,
+          vacuum_value,
+          pressure_value,
+          shift_supervisor,
+          burner_operator,
+          laboratory_assistant,
+          sieve_pass_05,
+          bulk_density,
+          kiln_load_buckets_per_hour,
+          note,
+          created_at
+        from rotary_kiln_2_firing_journal
+        order by created_at desc, id desc
+        limit 1`,
+      );
+
+      return rows[0] === undefined ? undefined : mapRecord(rows[0]);
     },
 
     async listPersonnelOptions() {

@@ -46,6 +46,10 @@ export type RotaryKiln2FiringJournalPersonnelOptions = {
   burnerOperators: string[];
 };
 
+export type RotaryKiln2FiringJournalDraft = {
+  previousRecord: RotaryKiln2FiringJournalRecord | null;
+};
+
 /**
  * Насыпной вес материала по последним записям журнала печи 2. Банки берут
  * коэффициент только отсюда, поэтому среднее считает backend.

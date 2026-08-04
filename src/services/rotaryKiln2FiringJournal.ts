@@ -1,4 +1,5 @@
 import type {
+  RotaryKiln2FiringJournalDraft,
   RotaryKiln2FiringJournalFilters,
   RotaryKiln2FiringJournalPersonnelOptions,
   RotaryKiln2FiringJournalRecord,
@@ -13,6 +14,7 @@ import {
 } from "./remoteServer.js";
 
 const JOURNAL_PATH = "/api/laboratory/rotary-kiln-2-journal";
+const DRAFT_PATH = "/api/laboratory/rotary-kiln-2-draft";
 const PERSONNEL_OPTIONS_PATH =
   "/api/laboratory/rotary-kiln-2-personnel-options";
 
@@ -29,9 +31,36 @@ export type RotaryKiln2FiringJournalListResult =
 export type RotaryKiln2FiringJournalSaveResult =
   | { status: "ready"; record: RotaryKiln2FiringJournalRecord }
   | ErrorResult;
+export type RotaryKiln2FiringJournalDraftResult =
+  | ({ status: "ready" } & RotaryKiln2FiringJournalDraft)
+  | ErrorResult;
 export type RotaryKiln2PersonnelOptionsResult =
   | ({ status: "ready" } & RotaryKiln2FiringJournalPersonnelOptions)
   | ErrorResult;
+
+export async function requestRotaryKiln2FiringJournalDraft(
+  options: RequestOptions = {},
+): Promise<RotaryKiln2FiringJournalDraftResult> {
+  const result = await requestJson(DRAFT_PATH, "GET", undefined, options);
+
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !(
+      result.payload.previousRecord === null ||
+      isJournalRecord(result.payload.previousRecord)
+    )
+  ) {
+    return invalidResponse(
+      "Сервер вернул заготовку журнала вращающейся печи 2 в неподдерживаемом формате.",
+    );
+  }
+
+  return {
+    status: "ready",
+    previousRecord: result.payload.previousRecord,
+  };
+}
 
 export async function requestRotaryKiln2PersonnelOptions(
   options: RequestOptions = {},

@@ -574,6 +574,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/results" ||
         url.pathname === "/api/laboratory/banks" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
+        url.pathname === "/api/laboratory/rotary-kiln-2-draft" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-personnel-options" ||
         url.pathname === "/api/laboratory/sample-registration-draft" ||
         url.pathname === "/api/laboratory/sample-registration-locations" ||
@@ -2019,6 +2020,42 @@ async function handleLaboratoryRequest({
       laboratoryReferenceDataSource,
     );
     if (reference !== undefined) sendJson(res, 200, { reference });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/rotary-kiln-2-draft") {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Заготовка доступна только для заполнения журнала.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для заготовки журнала используется GET.",
+        },
+      });
+      return;
+    }
+    if (rotaryKiln2FiringJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала вращающейся печи 2 не настроено.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      previousRecord:
+        await rotaryKiln2FiringJournal.findLatestCreated() ?? null,
+    });
     return;
   }
 

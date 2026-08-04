@@ -1,5 +1,6 @@
 export type {
   RotaryKiln2FiringJournalFilters,
+  RotaryKiln2FiringJournalDraft,
   RotaryKiln2FiringJournalPersonnelOptions,
   RotaryKiln2FiringJournalRecord,
   RotaryKiln2FiringJournalSelection,

@@ -224,3 +224,62 @@ test("rotary kiln 2 firing repository lists personnel options from the complete 
   assert.match(querySql, /order by option_type asc, last_used_at desc/u);
   assert.doesNotMatch(querySql, /limit/u);
 });
+
+test("rotary kiln 2 firing repository reads the last created record for the next draft", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[{
+        id: "kiln-record-backdated",
+        record_date: "2026-07-27",
+        record_time: "06:00",
+        produced_material: "ША-22",
+        water_absorption: "4.3000",
+        temperature_before_cyclone: "852.0000",
+        temperature_before_filter: "212.0000",
+        temperature_in_field_chamber: "119.0000",
+        temperature_at_rollback: "97.0000",
+        gas_consumption_per_hour: "321.0000",
+        vacuum_value: "14.6000",
+        pressure_value: "1.9000",
+        shift_supervisor: "Ильин И.И.",
+        burner_operator: "Фомин Ф.Ф.",
+        laboratory_assistant: "Иванова А.А.",
+        sieve_pass_05: "0.7500",
+        bulk_density: "1.1800",
+        kiln_load_buckets_per_hour: "12.0000",
+        note: null,
+        created_at: "2026-07-30T12:30:00.000Z",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRotaryKiln2FiringJournalRepository(pool);
+
+  const latestRecord = await repository.findLatestCreated();
+
+  assert.deepEqual(latestRecord, {
+    id: "kiln-record-backdated",
+    recordDate: "2026-07-27",
+    recordTime: "06:00",
+    producedMaterial: "ША-22",
+    waterAbsorption: 4.3,
+    temperatureBeforeCyclone: 852,
+    temperatureBeforeFilter: 212,
+    temperatureInFieldChamber: 119,
+    temperatureAtRollback: 97,
+    gasConsumptionPerHour: 321,
+    vacuum: 14.6,
+    pressure: 1.9,
+    shiftSupervisor: "Ильин И.И.",
+    burnerOperator: "Фомин Ф.Ф.",
+    laboratoryAssistant: "Иванова А.А.",
+    sievePass05: 0.75,
+    bulkDensity: 1.18,
+    kilnLoadBucketsPerHour: 12,
+    createdAt: "2026-07-30T12:30:00.000Z",
+  });
+  assert.match(querySql, /order by created_at desc, id desc/u);
+  assert.match(querySql, /limit 1/u);
+  assert.doesNotMatch(querySql, /record_date desc/u);
+});

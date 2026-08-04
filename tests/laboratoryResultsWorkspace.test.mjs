@@ -44,6 +44,11 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const kilnJournalSubmissions = [];
   const kilnJournalRequests = [];
   let kilnPersonnelOptionsRequests = 0;
+  let kilnDraftRequests = 0;
+  let resolveKilnDraft;
+  const kilnDraftReady = new Promise((resolve) => {
+    resolveKilnDraft = resolve;
+  });
   const sampleRegistrationSubmissions = [];
   const sampleRegistrationCorrections = [];
   const sampleRegistrationRequests = [];
@@ -141,6 +146,33 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         return jsonResponse({
           shiftSupervisors: ["Орлов О.О.", "Петров П.П."],
           burnerOperators: ["Павлов П.П.", "Сидоров С.С."],
+        });
+      }
+      if (url.pathname === "/api/laboratory/rotary-kiln-2-draft") {
+        kilnDraftRequests += 1;
+        await kilnDraftReady;
+        return jsonResponse({
+          previousRecord: {
+            id: "kiln-record-last-created",
+            recordDate: "2026-07-27",
+            recordTime: "06:00",
+            producedMaterial: "ШКИ-66",
+            waterAbsorption: 4.1,
+            temperatureBeforeCyclone: 848,
+            temperatureBeforeFilter: 209,
+            temperatureInFieldChamber: 117,
+            temperatureAtRollback: 94,
+            gasConsumptionPerHour: 319,
+            vacuum: 14.2,
+            pressure: 1.75,
+            shiftSupervisor: "Задний З.З.",
+            burnerOperator: "Поздний П.П.",
+            laboratoryAssistant: "Последний Л.Л.",
+            sievePass05: 0.65,
+            bulkDensity: 1.22,
+            kilnLoadBucketsPerHour: 13,
+            createdAt: "2026-07-30T12:30:00.000Z",
+          },
         });
       }
       if (url.pathname === "/api/laboratory/rotary-kiln-2-journal") {
@@ -519,9 +551,41 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       Array.from(burnerOperatorInput.list.options, (option) => option.value),
       ["Павлов П.П.", "Сидоров С.С."],
     );
-    // Материал автозаполняется предыдущим значением журнала печи 2.
+    await waitFor(React, () => kilnDraftRequests === 1);
+    const dateInput = findControlByLabel(journalForm, "Дата");
+    await React.act(async () => {
+      setNativeInputValue(dateInput, "2026-08-01");
+      dateInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      resolveKilnDraft();
+    });
+    await waitFor(React, () =>
+      findControlByLabel(journalForm, "Мастер смены").value === "Задний З.З."
+    );
+    // Материал берётся из истории, а поля задачи 40 — из последней созданной записи.
     await waitFor(React, () =>
       findControlByLabel(journalForm, "Производимый материал").value === "ША-22"
+    );
+    assert.deepEqual(
+      Object.fromEntries(
+        [
+          "Дата",
+          "Мастер смены",
+          "Обжигальщик",
+          "Лаборант",
+          "Проход ч/з сито 0,5",
+          "Насыпной вес",
+          "Загрузка печи в ковшах в час",
+        ].map((label) => [label, findControlByLabel(journalForm, label).value]),
+      ),
+      {
+        "Дата": "2026-08-01",
+        "Мастер смены": "Задний З.З.",
+        "Обжигальщик": "Поздний П.П.",
+        "Лаборант": "Последний Л.Л.",
+        "Проход ч/з сито 0,5": "0.65",
+        "Насыпной вес": "1.22",
+        "Загрузка печи в ковшах в час": "13",
+      },
     );
     const average = rootElement.querySelector(".rotary-kiln-journal-average");
     const filters = rootElement.querySelector(".rotary-kiln-journal-filters");
@@ -590,13 +654,34 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       kilnLoadBucketsPerHour: 12,
       note: "Работа без отклонений.",
     });
-    // Остальные поля очищаются, а материал сохранённой записи остаётся подставленным.
+    // После сохранения поля задачи 40 остаются подставленными из новой записи.
     await waitFor(React, () =>
-      findControlByLabel(journalForm, "Насыпной вес").value === ""
+      findControlByLabel(journalForm, "Водопоглощение").value === "" &&
+      findControlByLabel(journalForm, "Насыпной вес").value === "1.18"
     );
-    assert.equal(
-      findControlByLabel(journalForm, "Производимый материал").value,
-      "ША-22",
+    assert.deepEqual(
+      Object.fromEntries(
+        [
+          "Дата",
+          "Производимый материал",
+          "Мастер смены",
+          "Обжигальщик",
+          "Лаборант",
+          "Проход ч/з сито 0,5",
+          "Насыпной вес",
+          "Загрузка печи в ковшах в час",
+        ].map((label) => [label, findControlByLabel(journalForm, label).value]),
+      ),
+      {
+        "Дата": "2026-07-29",
+        "Производимый материал": "ША-22",
+        "Мастер смены": "Ильин И.И.",
+        "Обжигальщик": "Фомин Ф.Ф.",
+        "Лаборант": "Иванова А.А.",
+        "Проход ч/з сито 0,5": "0.75",
+        "Насыпной вес": "1.18",
+        "Загрузка печи в ковшах в час": "12",
+      },
     );
     assert.equal(shiftSupervisorInput.list.options[0]?.value, "Ильин И.И.");
     assert.equal(burnerOperatorInput.list.options[0]?.value, "Фомин Ф.Ф.");
