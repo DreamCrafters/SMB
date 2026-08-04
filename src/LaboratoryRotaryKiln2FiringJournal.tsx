@@ -46,6 +46,7 @@ type PreviousRecordAutofillDescriptor = readonly [
 
 const previousRecordAutofillDescriptors = [
   ["recordDate", (record) => record.recordDate],
+  ["recordTime", (record) => addOneHour(record.recordTime)],
   ["shiftSupervisor", (record) => record.shiftSupervisor],
   ["burnerOperator", (record) => record.burnerOperator],
   ["laboratoryAssistant", (record) => record.laboratoryAssistant],
@@ -600,6 +601,16 @@ function readPreviousRecordAutofillValues(
       readValue(record),
     ]),
   );
+}
+
+function addOneHour(value: string) {
+  const match = /^(?:([01]\d|2[0-3])):([0-5]\d)$/u.exec(value);
+  if (match === null) return value;
+
+  const [, hours, minutes] = match;
+  const parsedHours = Number(hours);
+
+  return `${String((parsedHours + 1) % 24).padStart(2, "0")}:${minutes}`;
 }
 
 function createEmptyForm(

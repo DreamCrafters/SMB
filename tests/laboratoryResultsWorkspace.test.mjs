@@ -53,7 +53,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   let latestKilnRecord = {
     id: "kiln-record-last-created",
     recordDate: "2026-07-27",
-    recordTime: "06:00",
+    recordTime: "23:30",
     producedMaterial: "ШКИ-66",
     waterAbsorption: 4.1,
     temperatureBeforeCyclone: 848,
@@ -616,6 +616,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       Object.fromEntries(
         [
           "Дата",
+          "Время",
           "Мастер смены",
           "Обжигальщик",
           "Лаборант",
@@ -626,6 +627,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ),
       {
         "Дата": "2026-08-01",
+        "Время": "00:30",
         "Мастер смены": "Задний З.З.",
         "Обжигальщик": "Поздний П.П.",
         "Лаборант": "Последний Л.Л.",
@@ -722,7 +724,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       journalForm.textContent.includes("Редактирование записи") === false &&
       findControlByLabel(journalForm, "Лаборант").value ===
-        "Исправленная И.И."
+        "Исправленная И.И." &&
+      findControlByLabel(journalForm, "Время").value === "00:30"
     );
     assert.equal(findControlByLabel(journalForm, "Дата").value, "2026-07-27");
 
@@ -780,15 +783,17 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       kilnLoadBucketsPerHour: 12,
       note: "Работа без отклонений.",
     });
-    // После сохранения поля задачи 40 остаются подставленными из новой записи.
+    // После сохранения поля задач 40 и 41 подставляются из новой записи.
     await waitFor(React, () =>
       findControlByLabel(journalForm, "Водопоглощение").value === "" &&
-      findControlByLabel(journalForm, "Насыпной вес").value === "1.18"
+      findControlByLabel(journalForm, "Насыпной вес").value === "1.18" &&
+      findControlByLabel(journalForm, "Время").value === "13:15"
     );
     assert.deepEqual(
       Object.fromEntries(
         [
           "Дата",
+          "Время",
           "Производимый материал",
           "Мастер смены",
           "Обжигальщик",
@@ -800,6 +805,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ),
       {
         "Дата": "2026-07-29",
+        "Время": "13:15",
         "Производимый материал": "ША-22",
         "Мастер смены": "Ильин И.И.",
         "Обжигальщик": "Фомин Ф.Ф.",
