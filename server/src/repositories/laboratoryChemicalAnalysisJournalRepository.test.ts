@@ -179,3 +179,122 @@ test("chemical analysis repository omits optional values when they are absent", 
     createdAt: "2026-07-30T09:30:00.000Z",
   }]);
 });
+
+test("chemical analysis repository corrects a stable analysis and stores a revision", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/select[\s\S]+for update/u.test(sql)) {
+        if (/from laboratory_sample_registration_journal/u.test(sql)) {
+          return [[{
+            laboratory_sample_code: "ЛП-2026-019",
+            sample_number: "19-Б",
+            sample_name: "Шамот кусковой",
+          }], []];
+        }
+        return [[{
+          id: "chemical-analysis-1",
+          sample_registration_id: "sample-registration-1",
+          laboratory_sample_code: "ЛП-2026-017",
+          sample_number: "17-А",
+          sample_name: "Шамот молотый",
+          chemical_analysis_date: analysis.chemicalAnalysisDate,
+          chemical_analysis_laboratory_assistant:
+            analysis.chemicalAnalysisLaboratoryAssistant,
+          batch_number: analysis.batchNumber,
+          al2o3: analysis.al2o3,
+          fe2o3: analysis.fe2o3,
+          sio2: analysis.sio2,
+          cao2: analysis.cao2,
+          p2o5: analysis.p2o5,
+          loss_on_ignition: analysis.lossOnIgnition,
+          moisture: analysis.moisture,
+          notes: analysis.notes,
+          created_at: "2026-07-30T08:30:00.000Z",
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool, {
+    createId: () => "chemical-revision-1",
+    now: () => new Date("2026-08-04T10:30:00.000Z"),
+  });
+  const correctedAnalysis = {
+    sampleRegistrationId: "sample-registration-2",
+    batchNumber: "П-44",
+    chemicalAnalysisDate: "2026-08-04",
+    al2o3: "31,8",
+    notes: "Исправлено по журналу.",
+  };
+  const result = await repository.update({
+    id: "chemical-analysis-1",
+    analysis: correctedAnalysis,
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  });
+
+  const before = {
+    id: "chemical-analysis-1",
+    ...analysis,
+    laboratorySampleCode: "ЛП-2026-017",
+    sampleNumber: "17-А",
+    sampleName: "Шамот молотый",
+    createdAt: "2026-07-30T08:30:00.000Z",
+  };
+  const record = {
+    id: "chemical-analysis-1",
+    ...correctedAnalysis,
+    laboratorySampleCode: "ЛП-2026-019",
+    sampleNumber: "19-Б",
+    sampleName: "Шамот кусковой",
+    createdAt: "2026-07-30T08:30:00.000Z",
+  };
+  assert.deepEqual(result, { before, record });
+  assert.match(
+    queries[0]?.sql ?? "",
+    /where analysis\.id = \?[\s\S]+for update/u,
+  );
+  assert.deepEqual(queries[0]?.parameters, ["chemical-analysis-1"]);
+  assert.match(
+    queries[1]?.sql ?? "",
+    /from laboratory_sample_registration_journal/u,
+  );
+  assert.match(queries[1]?.sql ?? "", /for update/u);
+  assert.deepEqual(queries[1]?.parameters, ["sample-registration-2"]);
+  assert.match(
+    queries[2]?.sql ?? "",
+    /update laboratory_chemical_analysis_journal/u,
+  );
+  assert.deepEqual(queries[2]?.parameters, [
+    "sample-registration-2",
+    "2026-08-04",
+    null,
+    "П-44",
+    "31,8",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    "Исправлено по журналу.",
+    "chemical-analysis-1",
+  ]);
+  assert.match(
+    queries[3]?.sql ?? "",
+    /insert into laboratory_chemical_analysis_revisions/u,
+  );
+  assert.equal(queries[3]?.parameters?.[0], "chemical-revision-1");
+  assert.equal(queries[3]?.parameters?.[1], "chemical-analysis-1");
+  assert.deepEqual(JSON.parse(String(queries[3]?.parameters?.[2])), before);
+  assert.deepEqual(JSON.parse(String(queries[3]?.parameters?.[3])), record);
+  assert.deepEqual(queries[3]?.parameters?.slice(4), [
+    "laboratory-user",
+    "laboratory-account",
+    "Иванова Анна",
+    "2026-08-04T10:30:00.000Z",
+  ]);
+});

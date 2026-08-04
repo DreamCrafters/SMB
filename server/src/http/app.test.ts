@@ -624,6 +624,9 @@ test("laboratory API reads the live matrix and saves the session-authored result
     async create() {
       throw new Error("The bank flow must not create kiln records.");
     },
+    async update() {
+      throw new Error("The bank flow must not correct kiln records.");
+    },
     async list() {
       return { records: [], averageBulkDensity: null };
     },
@@ -850,6 +853,9 @@ test("laboratory review access reads every journal by name but cannot change lab
     async create() {
       throw new Error("Laboratory review access must not create kiln records.");
     },
+    async update() {
+      throw new Error("Laboratory review access must not correct kiln records.");
+    },
     async list(filters) {
       kilnJournalFilters.push(filters);
       return { records: [], averageBulkDensity: null };
@@ -898,6 +904,9 @@ test("laboratory review access reads every journal by name but cannot change lab
     async create() {
       throw new Error("Laboratory review access must not create analyses.");
     },
+    async update() {
+      throw new Error("Laboratory review access must not correct analyses.");
+    },
     async list(filters) {
       chemicalAnalysisFilters.push(filters);
       return [];
@@ -942,6 +951,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-07-01`,
         { headers },
       );
+      const kilnJournalCorrectionResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal/kiln-record-1`,
+        { method: "PATCH", headers, body: JSON.stringify({}) },
+      );
       const kilnPersonnelOptionsResponse = await fetch(
         `${baseUrl}/api/laboratory/rotary-kiln-2-personnel-options`,
         { headers },
@@ -970,6 +983,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/chemical-analysis-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
       );
+      const chemicalAnalysisCorrectionResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal/chemical-analysis-1`,
+        { method: "PATCH", headers, body: JSON.stringify({}) },
+      );
       const kilnJournalCreateResponse = await fetch(
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
         { method: "POST", headers, body: JSON.stringify({}) },
@@ -985,6 +1002,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(createResponse.status, 403);
       assert.equal(banksResponse.status, 403);
       assert.equal(kilnJournalResponse.status, 200);
+      assert.equal(kilnJournalCorrectionResponse.status, 403);
       assert.equal(kilnPersonnelOptionsResponse.status, 403);
       assert.equal(kilnDraftResponse.status, 403);
       assert.equal(sampleRegistrationResponse.status, 200);
@@ -992,6 +1010,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(sampleRegistrationLocationsResponse.status, 403);
       assert.equal(sampleRegistrationDraftResponse.status, 403);
       assert.equal(chemicalAnalysisResponse.status, 200);
+      assert.equal(chemicalAnalysisCorrectionResponse.status, 403);
       assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
         dateFrom: "2026-07-01",
@@ -1041,6 +1060,9 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
   let savedInput:
     | Parameters<RotaryKiln2FiringJournalRepository["create"]>[0]
     | undefined;
+  let correctedInput:
+    | Parameters<RotaryKiln2FiringJournalRepository["update"]>[0]
+    | undefined;
   let requestedFilters:
     | Parameters<RotaryKiln2FiringJournalRepository["list"]>[0]
     | undefined;
@@ -1052,6 +1074,23 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
         ...input.record,
         createdAt: "2026-07-29T08:30:00.000Z",
       };
+    },
+    async update(input) {
+      correctedInput = input;
+      return savedInput === undefined
+        ? undefined
+        : {
+            before: {
+              id: "kiln-record-1",
+              ...savedInput.record,
+              createdAt: "2026-07-29T08:30:00.000Z",
+            },
+            record: {
+              id: "kiln-record-1",
+              ...input.record,
+              createdAt: "2026-07-29T08:30:00.000Z",
+            },
+          };
     },
     async list(filters) {
       requestedFilters = filters;
@@ -1123,6 +1162,13 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
     kilnLoadBucketsPerHour: 12,
     note: "Краткая остановка для осмотра.",
   };
+  const correction = {
+    ...record,
+    recordTime: "09:15",
+    producedMaterial: "ША-22",
+    bulkDensity: 1.2,
+    note: "Исправлено по журналу.",
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -1132,6 +1178,14 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
           method: "POST",
           headers,
           body: JSON.stringify(record),
+        },
+      );
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/laboratory/rotary-kiln-2-journal/kiln-record-1`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(correction),
         },
       );
       const listResponse = await fetch(
@@ -1152,6 +1206,14 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
       );
 
       assert.equal(createResponse.status, 201);
+      assert.equal(correctionResponse.status, 200);
+      assert.deepEqual(await correctionResponse.json(), {
+        record: {
+          id: "kiln-record-1",
+          ...correction,
+          createdAt: "2026-07-29T08:30:00.000Z",
+        },
+      });
       assert.equal(listResponse.status, 200);
       assert.equal(personnelOptionsResponse.status, 200);
       assert.equal(draftResponse.status, 200);
@@ -1186,6 +1248,18 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
       assert.equal(auditEvents[0]?.targetType, "rotary_kiln_2_firing_record");
       assert.equal(auditEvents[0]?.targetId, "kiln-record-1");
       assert.equal(savedInput?.record.producedMaterial, "ШКИ-66");
+      assert.equal(correctedInput?.id, "kiln-record-1");
+      assert.equal(correctedInput?.correctedByUserId, profile.userId);
+      assert.equal(
+        correctedInput?.correctedByAccountId,
+        profile.activeAccess.accountId,
+      );
+      assert.equal(correctedInput?.correctedByDisplayName, profile.displayName);
+      assert.deepEqual(correctedInput?.record, correction);
+      assert.equal(
+        auditEvents[1]?.action,
+        "rotary_kiln_2_firing_record.correct",
+      );
       assert.ok(auditEvents[0]?.details?.some((detail) =>
         detail.label === "Производимый материал" && detail.value === "ШКИ-66"
       ));
@@ -1483,6 +1557,9 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
   let requestedFilters:
     | Parameters<LaboratoryChemicalAnalysisJournalRepository["list"]>[0]
     | undefined;
+  let correctedInput:
+    | Parameters<LaboratoryChemicalAnalysisJournalRepository["update"]>[0]
+    | undefined;
   const chemicalJournal: LaboratoryChemicalAnalysisJournalRepository = {
     async create(input) {
       savedInput = input;
@@ -1493,6 +1570,29 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         sampleNumber: input.sample.sampleNumber,
         sampleName: input.sample.sampleName,
         createdAt: "2026-07-30T08:30:00.000Z",
+      };
+    },
+    async update(input) {
+      correctedInput = input;
+      const beforeAnalysis = savedInput?.analysis ?? analysis;
+      const beforeSample = savedInput?.sample ?? sampleOption;
+      return {
+        before: {
+          id: input.id,
+          ...beforeAnalysis,
+          laboratorySampleCode: beforeSample.laboratorySampleCode,
+          sampleNumber: beforeSample.sampleNumber,
+          sampleName: beforeSample.sampleName,
+          createdAt: "2026-07-30T08:30:00.000Z",
+        },
+        record: {
+          id: input.id,
+          ...input.analysis,
+          laboratorySampleCode: sampleOption.laboratorySampleCode,
+          sampleNumber: sampleOption.sampleNumber,
+          sampleName: sampleOption.sampleName,
+          createdAt: "2026-07-30T08:30:00.000Z",
+        },
       };
     },
     async list(filters) {
@@ -1552,6 +1652,20 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
           }),
         },
       );
+      const correction = {
+        sampleRegistrationId: "sample-registration-1",
+        batchNumber: "П-44",
+        chemicalAnalysisDate: "2026-08-04",
+        al2o3: "31,8",
+      };
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal/chemical-analysis-1`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(correction),
+        },
+      );
 
       assert.equal(createResponse.status, 201);
       assert.equal(listResponse.status, 200);
@@ -1567,6 +1681,17 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         sampleOptions: [sampleOption],
       });
       assert.equal(unknownSampleResponse.status, 400);
+      assert.equal(correctionResponse.status, 200);
+      assert.deepEqual(await correctionResponse.json(), {
+        record: {
+          id: "chemical-analysis-1",
+          ...correction,
+          laboratorySampleCode: "ЛП-2026-017",
+          sampleNumber: "17-А",
+          sampleName: "Шамот молотый",
+          createdAt: "2026-07-30T08:30:00.000Z",
+        },
+      });
       assert.deepEqual(requestedFilters, {
         dateFrom: "2026-07-01",
         dateTo: "2026-07-31",
@@ -1575,6 +1700,13 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       assert.deepEqual(requestedSampleFilters, { query: "Шамот" });
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+      assert.deepEqual(correctedInput, {
+        id: "chemical-analysis-1",
+        analysis: correction,
+        correctedByUserId: profile.userId,
+        correctedByAccountId: profile.activeAccess.accountId,
+        correctedByDisplayName: profile.displayName,
+      });
       assert.equal(
         auditEvents[0]?.action,
         "laboratory_chemical_analysis.submit",
@@ -1591,6 +1723,11 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         },
         { label: "Номер партии", value: "П-42" },
       ]);
+      assert.equal(
+        auditEvents[1]?.action,
+        "laboratory_chemical_analysis.correct",
+      );
+      assert.equal(auditEvents[1]?.targetId, "chemical-analysis-1");
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -3334,6 +3471,9 @@ test("account preview navigation grants reads without business mutations", async
     async create() {
       throw new Error("Account preview must not create kiln records.");
     },
+    async update() {
+      throw new Error("Account preview must not correct kiln records.");
+    },
     async list() {
       return { records: [], averageBulkDensity: null };
     },
@@ -3450,6 +3590,19 @@ test("account preview navigation grants reads without business mutations", async
         })
       ),
     );
+    const laboratoryCorrectionResponses = await Promise.all(
+      [
+        "/api/laboratory/rotary-kiln-2-journal/kiln-record-1",
+        "/api/laboratory/sample-registration-journal/sample-registration-1",
+        "/api/laboratory/chemical-analysis-journal/chemical-analysis-1",
+      ].map((pathname) =>
+        fetch(`${baseUrl}${pathname}`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({}),
+        })
+      ),
+    );
     const createAccountResponse = await fetch(`${baseUrl}/api/admin/accounts`, {
       method: "POST",
       headers,
@@ -3488,6 +3641,10 @@ test("account preview navigation grants reads without business mutations", async
     assert.deepEqual(
       additionalBusinessMutationResponses.map((response) => response.status),
       Array(additionalBusinessMutationResponses.length).fill(403),
+    );
+    assert.deepEqual(
+      laboratoryCorrectionResponses.map((response) => response.status),
+      Array(laboratoryCorrectionResponses.length).fill(403),
     );
     assert.equal(createAccountResponse.status, 403);
     assert.equal(updateAccountResponse.status, 403);

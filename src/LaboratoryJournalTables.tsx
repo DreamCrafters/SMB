@@ -110,8 +110,10 @@ export function LaboratorySampleRegistrationTable({
 
 export function LaboratoryChemicalAnalysisTable({
   records,
+  onEditRecord,
 }: {
   records: LaboratoryChemicalAnalysisJournalRecord[];
+  onEditRecord?: (record: LaboratoryChemicalAnalysisJournalRecord) => void;
 }) {
   if (records.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
@@ -133,7 +135,19 @@ export function LaboratoryChemicalAnalysisTable({
         <tbody>
           {records.map((record) => (
             <tr key={record.id}>
-              <td>{record.laboratorySampleCode}</td>
+              <td>
+                {onEditRecord === undefined
+                  ? record.laboratorySampleCode
+                  : (
+                      <button
+                        className="board-assignment-link chemical-analysis-edit-link"
+                        type="button"
+                        onClick={() => onEditRecord(record)}
+                      >
+                        {record.laboratorySampleCode}
+                      </button>
+                    )}
+              </td>
               <td>{record.sampleNumber}</td>
               <td>{record.sampleName}</td>
               {laboratoryChemicalAnalysisFields.map((field) => {
@@ -158,8 +172,10 @@ export function LaboratoryChemicalAnalysisTable({
 
 export function RotaryKiln2FiringTable({
   records,
+  onEditRecord,
 }: {
   records: RotaryKiln2FiringJournalRecord[];
+  onEditRecord?: (record: RotaryKiln2FiringJournalRecord) => void;
 }) {
   if (records.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
@@ -190,7 +206,19 @@ export function RotaryKiln2FiringTable({
             <tr key={record.id}>
               <td>{formatLaboratoryDate(record.recordDate)}</td>
               <td>{record.recordTime}</td>
-              <td>{record.producedMaterial ?? "—"}</td>
+              <td>
+                {onEditRecord === undefined
+                  ? record.producedMaterial ?? "—"
+                  : (
+                      <button
+                        className="board-assignment-link rotary-kiln-edit-link"
+                        type="button"
+                        onClick={() => onEditRecord(record)}
+                      >
+                        {record.producedMaterial ?? "—"}
+                      </button>
+                    )}
+              </td>
               {rotaryKiln2EarlyNumericFields.map(([field]) => (
                 <td key={field}>{formatLaboratoryNumber(record[field])}</td>
               ))}

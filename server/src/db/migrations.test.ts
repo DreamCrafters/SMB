@@ -103,6 +103,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "036_sample_registration_sampling_location_index",
     "037_sample_registration_water_absorption",
     "038_laboratory_sample_registration_revisions",
+    "039_laboratory_journal_corrections",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -163,6 +164,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "036_sample_registration_sampling_location_index",
     "037_sample_registration_water_absorption",
     "038_laboratory_sample_registration_revisions",
+    "039_laboratory_journal_corrections",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -226,6 +228,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "036_sample_registration_sampling_location_index",
     "037_sample_registration_water_absorption",
     "038_laboratory_sample_registration_revisions",
+    "039_laboratory_journal_corrections",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -291,6 +294,7 @@ test("chemical analysis optional-values migration keeps only the batch required"
     "036_sample_registration_sampling_location_index",
     "037_sample_registration_water_absorption",
     "038_laboratory_sample_registration_revisions",
+    "039_laboratory_journal_corrections",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -352,6 +356,7 @@ test("kiln material migration adds the produced material and the journal density
     "036_sample_registration_sampling_location_index",
     "037_sample_registration_water_absorption",
     "038_laboratory_sample_registration_revisions",
+    "039_laboratory_journal_corrections",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1404,6 +1409,56 @@ test("sample registration correction migration stores immutable before and after
   assert.match(
     statements[0] ?? "",
     /foreign key \(sample_registration_id\)[\s\S]+on delete restrict/u,
+  );
+});
+
+test("laboratory journal correction migration stores kiln and chemical snapshots", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "039_laboratory_journal_corrections" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(
+    statements[0] ?? "",
+    /create table if not exists rotary_kiln_2_firing_revisions/u,
+  );
+  assert.match(statements[0] ?? "", /before_snapshot json not null/u);
+  assert.match(statements[0] ?? "", /after_snapshot json not null/u);
+  assert.match(
+    statements[0] ?? "",
+    /foreign key \(firing_record_id\)[\s\S]+on delete restrict/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /create table if not exists laboratory_chemical_analysis_revisions/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /foreign key \(chemical_analysis_id\)[\s\S]+on delete restrict/u,
   );
 });
 

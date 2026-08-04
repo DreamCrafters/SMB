@@ -42,6 +42,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const submissions = [];
   const bankAssignments = [];
   const kilnJournalSubmissions = [];
+  const kilnJournalCorrections = [];
   const kilnJournalRequests = [];
   let kilnPersonnelOptionsRequests = 0;
   let kilnDraftRequests = 0;
@@ -49,12 +50,34 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const kilnDraftReady = new Promise((resolve) => {
     resolveKilnDraft = resolve;
   });
+  let latestKilnRecord = {
+    id: "kiln-record-last-created",
+    recordDate: "2026-07-27",
+    recordTime: "06:00",
+    producedMaterial: "ШКИ-66",
+    waterAbsorption: 4.1,
+    temperatureBeforeCyclone: 848,
+    temperatureBeforeFilter: 209,
+    temperatureInFieldChamber: 117,
+    temperatureAtRollback: 94,
+    gasConsumptionPerHour: 319,
+    vacuum: 14.2,
+    pressure: 1.75,
+    shiftSupervisor: "Задний З.З.",
+    burnerOperator: "Поздний П.П.",
+    laboratoryAssistant: "Последний Л.Л.",
+    sievePass05: 0.65,
+    bulkDensity: 1.22,
+    kilnLoadBucketsPerHour: 13,
+    createdAt: "2026-07-30T12:30:00.000Z",
+  };
   const sampleRegistrationSubmissions = [];
   const sampleRegistrationCorrections = [];
   const sampleRegistrationRequests = [];
   let sampleRegistrationDraftRequests = 0;
   let sampleRegistrationLocationRequests = 0;
   const chemicalAnalysisSubmissions = [];
+  const chemicalAnalysisCorrections = [];
   const chemicalAnalysisRequests = [];
 
   try {
@@ -79,7 +102,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         });
       }
       if (url.pathname === "/api/production-brands") {
-        return jsonResponse({ labels: ["ША-22"] });
+        return jsonResponse({ labels: ["ША-22", "ШКИ-66"] });
       }
       if (url.pathname === "/api/laboratory/banks") {
         if (init.method === "POST") {
@@ -152,27 +175,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         kilnDraftRequests += 1;
         await kilnDraftReady;
         return jsonResponse({
-          previousRecord: {
-            id: "kiln-record-last-created",
-            recordDate: "2026-07-27",
-            recordTime: "06:00",
-            producedMaterial: "ШКИ-66",
-            waterAbsorption: 4.1,
-            temperatureBeforeCyclone: 848,
-            temperatureBeforeFilter: 209,
-            temperatureInFieldChamber: 117,
-            temperatureAtRollback: 94,
-            gasConsumptionPerHour: 319,
-            vacuum: 14.2,
-            pressure: 1.75,
-            shiftSupervisor: "Задний З.З.",
-            burnerOperator: "Поздний П.П.",
-            laboratoryAssistant: "Последний Л.Л.",
-            sievePass05: 0.65,
-            bulkDensity: 1.22,
-            kilnLoadBucketsPerHour: 13,
-            createdAt: "2026-07-30T12:30:00.000Z",
-          },
+          previousRecord: latestKilnRecord,
         });
       }
       if (url.pathname === "/api/laboratory/rotary-kiln-2-journal") {
@@ -229,8 +232,34 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             bulkDensity: 1.24,
             kilnLoadBucketsPerHour: 11,
             createdAt: "2026-07-28T20:30:00.000Z",
-          }],
+          }, latestKilnRecord],
           averageBulkDensity: 1.2,
+        });
+      }
+      if (
+        url.pathname.startsWith(
+          "/api/laboratory/rotary-kiln-2-journal/",
+        ) &&
+        init.method === "PATCH"
+      ) {
+        const submission = JSON.parse(String(init.body));
+        kilnJournalCorrections.push(submission);
+        const recordId = url.pathname.split("/").at(-1);
+        if (recordId === latestKilnRecord.id) {
+          latestKilnRecord = {
+            id: recordId,
+            ...submission,
+            createdAt: latestKilnRecord.createdAt,
+          };
+        }
+        return jsonResponse({
+          record: {
+            id: recordId,
+            ...submission,
+            createdAt: recordId === latestKilnRecord.id
+              ? latestKilnRecord.createdAt
+              : "2026-07-29T08:30:00.000Z",
+          },
         });
       }
       if (url.pathname === "/api/laboratory/sample-registration-locations") {
@@ -367,6 +396,24 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             createdAt: "2026-07-30T08:30:00.000Z",
           }],
           sampleOptions,
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/chemical-analysis-journal/chemical-analysis-1" &&
+        init.method === "PATCH"
+      ) {
+        const submission = JSON.parse(String(init.body));
+        chemicalAnalysisCorrections.push(submission);
+        return jsonResponse({
+          record: {
+            id: "chemical-analysis-1",
+            ...submission,
+            laboratorySampleCode: "ЛП-2026-017",
+            sampleNumber: "17-А",
+            sampleName: "Шамот молотый",
+            createdAt: "2026-07-30T08:30:00.000Z",
+          },
         });
       }
       if (url.pathname === "/api/laboratory/results" && init.method === "POST") {
@@ -599,6 +646,85 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ),
       true,
     );
+
+    const kilnMaterialEditLink = rootElement.querySelector(
+      ".rotary-kiln-journal-table .rotary-kiln-edit-link",
+    );
+    assert.ok(kilnMaterialEditLink);
+    assert.equal(kilnMaterialEditLink.textContent?.trim(), "ША-22");
+    await React.act(async () => kilnMaterialEditLink.click());
+    assert.match(journalForm.textContent, /Редактирование записи/u);
+    assert.equal(findControlByLabel(journalForm, "Дата").value, "2026-07-29");
+    assert.equal(
+      findControlByLabel(journalForm, "Производимый материал").value,
+      "ША-22",
+    );
+    const correctedBulkDensity = findControlByLabel(
+      journalForm,
+      "Насыпной вес",
+    );
+    await React.act(async () => {
+      setNativeInputValue(correctedBulkDensity, "1.19");
+      correctedBulkDensity.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      journalForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => kilnJournalCorrections.length === 1);
+    assert.deepEqual(kilnJournalCorrections[0], {
+      recordDate: "2026-07-29",
+      recordTime: "08:05",
+      producedMaterial: "ША-22",
+      waterAbsorption: 4.2,
+      temperatureBeforeCyclone: 850,
+      temperatureBeforeFilter: 210.5,
+      temperatureInFieldChamber: 118,
+      temperatureAtRollback: 96,
+      gasConsumptionPerHour: 320.4,
+      vacuum: 14.5,
+      pressure: 1.8,
+      shiftSupervisor: "Петров П.П.",
+      burnerOperator: "Сидоров С.С.",
+      laboratoryAssistant: "Иванова А.А.",
+      sievePass05: 0.7,
+      bulkDensity: 1.19,
+      kilnLoadBucketsPerHour: 12,
+      note: "Краткая остановка для осмотра.",
+    });
+    await waitFor(React, () =>
+      journalForm.textContent.includes("Редактирование записи") === false
+    );
+    await waitFor(React, () => kilnDraftRequests === 2);
+
+    const latestKilnEditLink = Array.from(
+      rootElement.querySelectorAll(
+        ".rotary-kiln-journal-table .rotary-kiln-edit-link",
+      ),
+    ).find((button) => button.textContent?.trim() === "ШКИ-66");
+    assert.ok(latestKilnEditLink);
+    await React.act(async () => latestKilnEditLink.click());
+    const correctedLaboratoryAssistant = findControlByLabel(
+      journalForm,
+      "Лаборант",
+    );
+    await React.act(async () => {
+      setNativeInputValue(correctedLaboratoryAssistant, "Исправленная И.И.");
+      correctedLaboratoryAssistant.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      journalForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => kilnJournalCorrections.length === 2);
+    await waitFor(React, () =>
+      journalForm.textContent.includes("Редактирование записи") === false &&
+      findControlByLabel(journalForm, "Лаборант").value ===
+        "Исправленная И.И."
+    );
+    assert.equal(findControlByLabel(journalForm, "Дата").value, "2026-07-27");
 
     const journalValues = {
       "Дата": "2026-07-29",
@@ -998,6 +1124,80 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleRegistrationId: "sample-registration-1",
       batchNumber: "П-43",
     });
+
+    const chemicalAnalysisEditButton = rootElement.querySelector(
+      ".chemical-analysis-journal-table .chemical-analysis-edit-link",
+    );
+    assert.ok(chemicalAnalysisEditButton);
+    await React.act(async () => chemicalAnalysisEditButton.click());
+    await waitFor(React, () =>
+      findControlByLabel(
+        chemicalAnalysisForm,
+        "Код лабораторной пробы",
+        "select",
+      ).value === "sample-registration-1"
+    );
+    assert.ok(
+      chemicalAnalysisForm.textContent.includes("Редактирование анализа"),
+    );
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Дата хим. анализа").value,
+      "2026-07-30",
+    );
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Лаборант").value,
+      "Петрова П.П.",
+    );
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Номер партии").value,
+      "П-42",
+    );
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Al2O3").value,
+      "31,4",
+    );
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Примечания").value,
+      "Без отклонений.",
+    );
+    await React.act(async () => {
+      const batchNumberInput = findControlByLabel(
+        chemicalAnalysisForm,
+        "Номер партии",
+      );
+      setNativeInputValue(batchNumberInput, "П-44");
+      batchNumberInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      const notesInput = findControlByLabel(
+        chemicalAnalysisForm,
+        "Примечания",
+      );
+      setNativeInputValue(notesInput, "Исправлено по журналу.");
+      notesInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      chemicalAnalysisForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => chemicalAnalysisCorrections.length === 1);
+    assert.deepEqual(chemicalAnalysisCorrections[0], {
+      sampleRegistrationId: "sample-registration-1",
+      chemicalAnalysisDate: "2026-07-30",
+      chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
+      batchNumber: "П-44",
+      al2o3: "31,4",
+      fe2o3: "2,1",
+      sio2: "58,7",
+      cao2: "< 0,1",
+      p2o5: "0,03",
+      lossOnIgnition: "4,2",
+      moisture: "0,8",
+      notes: "Исправлено по журналу.",
+    });
+    await waitFor(React, () =>
+      chemicalAnalysisForm.textContent.includes("Редактирование анализа") ===
+        false
+    );
 
     const chemicalAnalysisFilters = rootElement.querySelector(
       ".chemical-analysis-journal-filters",

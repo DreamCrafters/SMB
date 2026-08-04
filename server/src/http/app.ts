@@ -254,6 +254,10 @@ const laboratoryProtocolPathPattern =
   /^\/api\/laboratory\/results\/([a-zA-Z0-9-]{1,100})\/protocol\.pdf$/u;
 const laboratorySampleRegistrationRecordPathPattern =
   /^\/api\/laboratory\/sample-registration-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const rotaryKiln2FiringRecordPathPattern =
+  /^\/api\/laboratory\/rotary-kiln-2-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const laboratoryChemicalAnalysisRecordPathPattern =
+  /^\/api\/laboratory\/chemical-analysis-journal\/([a-zA-Z0-9-]{1,100})$/u;
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -574,6 +578,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/results" ||
         url.pathname === "/api/laboratory/banks" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
+        rotaryKiln2FiringRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/rotary-kiln-2-draft" ||
         url.pathname === "/api/laboratory/rotary-kiln-2-personnel-options" ||
         url.pathname === "/api/laboratory/sample-registration-draft" ||
@@ -581,6 +586,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/sample-registration-journal" ||
         laboratorySampleRegistrationRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
+        laboratoryChemicalAnalysisRecordPathPattern.test(url.pathname) ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
         await handleLaboratoryRequest({
@@ -2096,6 +2102,116 @@ async function handleLaboratoryRequest({
     return;
   }
 
+  const rotaryKiln2FiringRecordMatch =
+    rotaryKiln2FiringRecordPathPattern.exec(url.pathname);
+  if (rotaryKiln2FiringRecordMatch !== null) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Исправление записи журнала вращающейся печи 2 недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления записи журнала используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (rotaryKiln2FiringJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала вращающейся печи 2 не настроено.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateRotaryKiln2FiringJournalSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const materialReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "producedMaterial",
+        label: validation.value.producedMaterial,
+      }],
+      logEvent: "rotary_kiln_2_correction_brands.google_sheets_fetch_failed",
+    });
+    if (materialReferences === undefined) return;
+    validation.value.producedMaterial = materialReferences[0]?.label ??
+      validation.value.producedMaterial;
+
+    const recordId = rotaryKiln2FiringRecordMatch[1];
+    const correction = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => rotaryKiln2FiringJournal.update({
+        id: recordId,
+        record: validation.value,
+        correctedByUserId: access.profile.userId,
+        correctedByAccountId: access.profile.activeAccess.accountId,
+        correctedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (result) => result === undefined
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "rotary_kiln_2_firing_record.correct",
+            summary: "Исправлена запись журнала вращающейся печи 2",
+            details: [
+              {
+                label: "Дата и время",
+                value:
+                  `${result.before.recordDate} ${result.before.recordTime} → ${result.record.recordDate} ${result.record.recordTime}`,
+              },
+              {
+                label: "Производимый материал",
+                value:
+                  `${result.before.producedMaterial ?? "—"} → ${result.record.producedMaterial ?? "—"}`,
+              },
+              {
+                label: "Насыпной вес",
+                value:
+                  `${result.before.bulkDensity} → ${result.record.bulkDensity}`,
+              },
+            ],
+            targetType: "rotary_kiln_2_firing_record",
+            targetId: result.record.id,
+          },
+    });
+    if (correction === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Запись журнала вращающейся печи 2 не найдена.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { record: correction.record });
+    return;
+  }
+
   if (url.pathname === "/api/laboratory/rotary-kiln-2-journal") {
     if (rotaryKiln2FiringJournal === undefined) {
       sendJson(res, 503, {
@@ -2479,6 +2595,119 @@ async function handleLaboratoryRequest({
     });
 
     sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  const chemicalAnalysisRecordMatch =
+    laboratoryChemicalAnalysisRecordPathPattern.exec(url.pathname);
+  if (chemicalAnalysisRecordMatch !== null) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Исправление химического анализа недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления химического анализа используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (
+      laboratoryChemicalAnalysisJournal === undefined ||
+      laboratorySampleRegistrationJournal === undefined
+    ) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала химических анализов не настроено.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryChemicalAnalysisJournalSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const sample = await laboratorySampleRegistrationJournal.findOptionById(
+      validation.value.sampleRegistrationId,
+    );
+    if (sample === undefined) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Выберите код лабораторной пробы из журнала регистрации.",
+        },
+      });
+      return;
+    }
+
+    const analysisId = chemicalAnalysisRecordMatch[1];
+    const correction = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratoryChemicalAnalysisJournal.update({
+        id: analysisId,
+        analysis: validation.value,
+        correctedByUserId: access.profile.userId,
+        correctedByAccountId: access.profile.activeAccess.accountId,
+        correctedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (result) => result === undefined
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "laboratory_chemical_analysis.correct",
+            summary: "Исправлена запись журнала химических анализов",
+            details: [
+              {
+                label: "Код лабораторной пробы",
+                value:
+                  `${result.before.laboratorySampleCode} → ${result.record.laboratorySampleCode}`,
+              },
+              {
+                label: "Дата хим. анализа",
+                value:
+                  `${result.before.chemicalAnalysisDate ?? "—"} → ${result.record.chemicalAnalysisDate ?? "—"}`,
+              },
+              {
+                label: "Номер партии",
+                value:
+                  `${result.before.batchNumber} → ${result.record.batchNumber}`,
+              },
+            ],
+            targetType: "laboratory_chemical_analysis",
+            targetId: result.record.id,
+          },
+    });
+    if (correction === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Химический анализ не найден.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { record: correction.record });
     return;
   }
 

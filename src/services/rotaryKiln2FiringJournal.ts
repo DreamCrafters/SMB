@@ -128,19 +128,44 @@ export async function submitRotaryKiln2FiringJournalRecord(
   options: RequestOptions = {},
 ): Promise<RotaryKiln2FiringJournalSaveResult> {
   const result = await requestJson(JOURNAL_PATH, "POST", submission, options);
+  return readJournalSaveResult(
+    result,
+    "Сервер не вернул сохранённую запись журнала вращающейся печи 2.",
+  );
+}
 
+export async function correctRotaryKiln2FiringJournalRecord(
+  id: string,
+  submission: RotaryKiln2FiringJournalSubmission,
+  options: RequestOptions = {},
+): Promise<RotaryKiln2FiringJournalSaveResult> {
+  const result = await requestJson(
+    `${JOURNAL_PATH}/${encodeURIComponent(id)}`,
+    "PATCH",
+    submission,
+    options,
+  );
+
+  return readJournalSaveResult(
+    result,
+    "Сервер не вернул исправленную запись журнала вращающейся печи 2.",
+  );
+}
+
+function readJournalSaveResult(
+  result: { status: "ready"; payload: unknown } | ErrorResult,
+  invalidMessage: string,
+): RotaryKiln2FiringJournalSaveResult {
   if (result.status === "error") return result;
   if (!isRecord(result.payload) || !isJournalRecord(result.payload.record)) {
-    return invalidResponse(
-      "Сервер не вернул сохранённую запись журнала вращающейся печи 2.",
-    );
+    return invalidResponse(invalidMessage);
   }
   return { status: "ready", record: result.payload.record };
 }
 
 async function requestJson(
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH",
   body: RotaryKiln2FiringJournalSubmission | undefined,
   { baseUrl, signal }: RequestOptions,
 ): Promise<{ status: "ready"; payload: unknown } | ErrorResult> {

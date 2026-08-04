@@ -2081,6 +2081,51 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "039_laboratory_journal_corrections",
+    statements: [
+      `
+      create table if not exists rotary_kiln_2_firing_revisions (
+        id char(36) not null primary key,
+        firing_record_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_rotary_kiln_2_firing_revisions_record (
+          firing_record_id,
+          created_at
+        ),
+        constraint fk_rotary_kiln_2_firing_revision_record
+          foreign key (firing_record_id)
+          references rotary_kiln_2_firing_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_chemical_analysis_revisions (
+        id char(36) not null primary key,
+        chemical_analysis_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_chemical_analysis_revisions_analysis (
+          chemical_analysis_id,
+          created_at
+        ),
+        constraint fk_laboratory_chemical_analysis_revision_analysis
+          foreign key (chemical_analysis_id)
+          references laboratory_chemical_analysis_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

@@ -15,6 +15,7 @@ import {
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
+  correctRotaryKiln2FiringJournalRecord,
   requestRotaryKiln2FiringJournal,
   requestRotaryKiln2FiringJournalDraft,
   requestRotaryKiln2PersonnelOptions,
@@ -78,7 +79,13 @@ export function LaboratoryRotaryKiln2FiringJournal({
   const [form, setForm] = useState(() => createEmptyForm(profile.displayName));
   const hasEditedProducedMaterialRef = useRef(false);
   const hasSavedRecordRef = useRef(false);
+  const isEditingRecordRef = useRef(false);
+  const previousProducedMaterialRef = useRef("");
+  const previousRecordRef =
+    useRef<RotaryKiln2FiringJournalRecord | undefined>(undefined);
+  const draftRequestVersionRef = useRef(0);
   const editedPreviousRecordFieldsRef = useRef(new Set<keyof FormState>());
+  const [editingRecordId, setEditingRecordId] = useState<string>();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [query, setQuery] = useState("");
@@ -125,12 +132,18 @@ export function LaboratoryRotaryKiln2FiringJournal({
     if (isAdminPreviewMode) return;
 
     const controller = new AbortController();
+    const requestVersion = draftRequestVersionRef.current;
     requestRotaryKiln2FiringJournalDraft({ signal: controller.signal }).then(
       (result) => {
-        if (controller.signal.aborted) return;
+        if (
+          controller.signal.aborted ||
+          requestVersion !== draftRequestVersionRef.current
+        ) return;
         if (result.status === "ready") {
+          previousRecordRef.current = result.previousRecord ?? undefined;
           if (
             !hasSavedRecordRef.current &&
+            !isEditingRecordRef.current &&
             result.previousRecord !== null
           ) {
             applyPreviousRecordAutofill(result.previousRecord);
@@ -146,7 +159,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
       },
     );
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, [isAdminPreviewMode, refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -191,10 +204,10 @@ export function LaboratoryRotaryKiln2FiringJournal({
   function applyPreviousProducedMaterial(
     records: readonly RotaryKiln2FiringJournalRecord[],
   ) {
-    if (hasEditedProducedMaterialRef.current) return;
-
     const previousMaterial = readPreviousProducedMaterial(records);
     if (previousMaterial === "") return;
+    previousProducedMaterialRef.current = previousMaterial;
+    if (hasEditedProducedMaterialRef.current) return;
     setForm((current) => ({ ...current, producedMaterial: previousMaterial }));
   }
 
@@ -239,7 +252,15 @@ export function LaboratoryRotaryKiln2FiringJournal({
 
     setIsSubmitting(true);
     setFormMessage("Сохраняем запись…");
-    const result = await submitRotaryKiln2FiringJournalRecord(submission);
+    const saveRequest = editingRecordId === undefined
+      ? { kind: "create" as const }
+      : { kind: "correct" as const, id: editingRecordId };
+    const result = saveRequest.kind === "create"
+      ? await submitRotaryKiln2FiringJournalRecord(submission)
+      : await correctRotaryKiln2FiringJournalRecord(
+          saveRequest.id,
+          submission,
+        );
     setIsSubmitting(false);
 
     if (result.status === "error") {
@@ -250,9 +271,16 @@ export function LaboratoryRotaryKiln2FiringJournal({
       return;
     }
 
-    hasEditedProducedMaterialRef.current = false;
-    hasSavedRecordRef.current = true;
-    editedPreviousRecordFieldsRef.current.clear();
+    const wasEditing = saveRequest.kind === "correct";
+    draftRequestVersionRef.current += 1;
+    if (!wasEditing) {
+      hasSavedRecordRef.current = true;
+      previousRecordRef.current = result.record;
+      previousProducedMaterialRef.current = result.record.producedMaterial ?? "";
+    } else if (previousRecordRef.current?.id === result.record.id) {
+      previousRecordRef.current = result.record;
+      previousProducedMaterialRef.current = result.record.producedMaterial ?? "";
+    }
     setPersonnelOptions((current) => ({
       shiftSupervisors: mergePersonnelOptions(
         current.shiftSupervisors,
@@ -263,19 +291,57 @@ export function LaboratoryRotaryKiln2FiringJournal({
         result.record.burnerOperator,
       ),
     }));
-    setForm({
-      ...createEmptyForm(
-        result.record.laboratoryAssistant,
-        result.record.producedMaterial ?? "",
-      ),
-      ...readPreviousRecordAutofillValues(result.record),
-    });
+    resetForm();
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
-      "Запись сохранена",
+      wasEditing ? "Запись исправлена" : "Запись сохранена",
       `${formatDate(result.record.recordDate)} · ${result.record.recordTime}.`,
     );
+  }
+
+  function editRecord(record: RotaryKiln2FiringJournalRecord) {
+    isEditingRecordRef.current = true;
+    hasEditedProducedMaterialRef.current = true;
+    setEditingRecordId(record.id);
+    setForm({
+      recordDate: record.recordDate,
+      recordTime: record.recordTime,
+      producedMaterial: record.producedMaterial ?? "",
+      waterAbsorption: String(record.waterAbsorption),
+      temperatureBeforeCyclone: String(record.temperatureBeforeCyclone),
+      temperatureBeforeFilter: String(record.temperatureBeforeFilter),
+      temperatureInFieldChamber: String(record.temperatureInFieldChamber),
+      temperatureAtRollback: String(record.temperatureAtRollback),
+      gasConsumptionPerHour: String(record.gasConsumptionPerHour),
+      vacuum: String(record.vacuum),
+      pressure: String(record.pressure),
+      shiftSupervisor: record.shiftSupervisor,
+      burnerOperator: record.burnerOperator,
+      laboratoryAssistant: record.laboratoryAssistant,
+      sievePass05: String(record.sievePass05),
+      bulkDensity: String(record.bulkDensity),
+      kilnLoadBucketsPerHour: String(record.kilnLoadBucketsPerHour),
+      note: record.note ?? "",
+    });
+    setFormMessage("");
+  }
+
+  function resetForm() {
+    isEditingRecordRef.current = false;
+    hasEditedProducedMaterialRef.current = false;
+    editedPreviousRecordFieldsRef.current.clear();
+    setEditingRecordId(undefined);
+    const previousRecord = previousRecordRef.current;
+    setForm({
+      ...createEmptyForm(
+        profile.displayName,
+        previousProducedMaterialRef.current,
+      ),
+      ...(previousRecord === undefined
+        ? {}
+        : readPreviousRecordAutofillValues(previousRecord)),
+    });
   }
 
   return (
@@ -284,6 +350,9 @@ export function LaboratoryRotaryKiln2FiringJournal({
         <div className="rotary-kiln-journal-heading">
           <span className="eyebrow">Лаборатория</span>
           <h2>{journalTitle}</h2>
+          {editingRecordId === undefined
+            ? null
+            : <p>Редактирование записи {form.producedMaterial || "без материала"}</p>}
         </div>
         <div className="laboratory-form-grid">
           <JournalInput
@@ -374,8 +443,26 @@ export function LaboratoryRotaryKiln2FiringJournal({
           >
             {isSubmitting
               ? <LoadingIndicator label="Сохраняем…" variant="button" />
-              : "Внести данные"}
+              : editingRecordId === undefined
+                ? "Внести данные"
+                : "Сохранить изменения"}
           </button>
+          {editingRecordId === undefined
+            ? null
+            : (
+                <button
+                  className="secondary-button"
+                  disabled={isSubmitting}
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setFormMessage("");
+                    setRefreshVersion((value) => value + 1);
+                  }}
+                >
+                  Отменить
+                </button>
+              )}
           {isAdminPreviewMode
             ? <small>В режиме просмотра сохранение отключено.</small>
             : null}
@@ -428,7 +515,10 @@ export function LaboratoryRotaryKiln2FiringJournal({
           : selection.status === "error"
             ? <p className="form-message is-error" role="alert">{selection.message}</p>
             : null}
-        <RotaryKiln2FiringTable records={selection.records} />
+        <RotaryKiln2FiringTable
+          records={selection.records}
+          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+        />
       </section>
     </div>
   );

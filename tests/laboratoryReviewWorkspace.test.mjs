@@ -248,6 +248,11 @@ test("laboratory review filters every journal by date and nomenclature", async (
       null,
       "Management review must keep sample registrations read-only.",
     );
+    assert.equal(
+      container.querySelector(".chemical-analysis-edit-link"),
+      null,
+      "Management review must keep chemical analyses read-only.",
+    );
     assert.match(
       container.querySelector(".laboratory-review-excluded-note")?.textContent
         ?? "",
@@ -301,6 +306,11 @@ test("laboratory review filters every journal by date and nomenclature", async (
       ),
     );
     assert.match(container.textContent, /ША-22/u);
+    assert.equal(
+      container.querySelector(".rotary-kiln-edit-link"),
+      null,
+      "Management review must keep kiln records read-only.",
+    );
 
     assert.equal(
       container.querySelector("form"),

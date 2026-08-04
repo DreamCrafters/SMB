@@ -283,3 +283,95 @@ test("rotary kiln 2 firing repository reads the last created record for the next
   assert.match(querySql, /limit 1/u);
   assert.doesNotMatch(querySql, /record_date desc/u);
 });
+
+test("rotary kiln 2 firing repository corrects a stable record and stores a revision", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/select[\s\S]+for update/u.test(sql)) {
+        return [[{
+          id: "kiln-record-1",
+          record_date: record.recordDate,
+          record_time: record.recordTime,
+          produced_material: record.producedMaterial,
+          water_absorption: String(record.waterAbsorption),
+          temperature_before_cyclone: String(record.temperatureBeforeCyclone),
+          temperature_before_filter: String(record.temperatureBeforeFilter),
+          temperature_in_field_chamber: String(record.temperatureInFieldChamber),
+          temperature_at_rollback: String(record.temperatureAtRollback),
+          gas_consumption_per_hour: String(record.gasConsumptionPerHour),
+          vacuum_value: String(record.vacuum),
+          pressure_value: String(record.pressure),
+          shift_supervisor: record.shiftSupervisor,
+          burner_operator: record.burnerOperator,
+          laboratory_assistant: record.laboratoryAssistant,
+          sieve_pass_05: String(record.sievePass05),
+          bulk_density: String(record.bulkDensity),
+          kiln_load_buckets_per_hour: String(record.kilnLoadBucketsPerHour),
+          note: record.note,
+          created_at: "2026-07-29T08:30:00.000Z",
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRotaryKiln2FiringJournalRepository(pool, {
+    createId: () => "kiln-revision-1",
+    now: () => new Date("2026-08-04T10:15:00.000Z"),
+  });
+  const correctedRecord = {
+    ...record,
+    recordTime: "09:15",
+    producedMaterial: "ША-22",
+    bulkDensity: 1.2,
+    note: "Исправлено по журналу.",
+  };
+
+  const result = await repository.update({
+    id: "kiln-record-1",
+    record: correctedRecord,
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  });
+
+  assert.deepEqual(result, {
+    before: {
+      id: "kiln-record-1",
+      ...record,
+      createdAt: "2026-07-29T08:30:00.000Z",
+    },
+    record: {
+      id: "kiln-record-1",
+      ...correctedRecord,
+      createdAt: "2026-07-29T08:30:00.000Z",
+    },
+  });
+  assert.match(queries[0]?.sql ?? "", /where id = \?[\s\S]+for update/u);
+  assert.deepEqual(queries[0]?.parameters, ["kiln-record-1"]);
+  assert.match(queries[1]?.sql ?? "", /update rotary_kiln_2_firing_journal/u);
+  assert.equal(queries[1]?.parameters?.at(-1), "kiln-record-1");
+  assert.match(
+    queries[2]?.sql ?? "",
+    /insert into rotary_kiln_2_firing_revisions/u,
+  );
+  assert.equal(queries[2]?.parameters?.[0], "kiln-revision-1");
+  assert.equal(queries[2]?.parameters?.[1], "kiln-record-1");
+  assert.deepEqual(JSON.parse(String(queries[2]?.parameters?.[2])), {
+    id: "kiln-record-1",
+    ...record,
+    createdAt: "2026-07-29T08:30:00.000Z",
+  });
+  assert.deepEqual(JSON.parse(String(queries[2]?.parameters?.[3])), {
+    id: "kiln-record-1",
+    ...correctedRecord,
+    createdAt: "2026-07-29T08:30:00.000Z",
+  });
+  assert.deepEqual(queries[2]?.parameters?.slice(4), [
+    "laboratory-user",
+    "laboratory-account",
+    "Иванова Анна",
+    "2026-08-04T10:15:00.000Z",
+  ]);
+});

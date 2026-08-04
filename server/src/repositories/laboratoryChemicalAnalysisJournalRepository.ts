@@ -13,6 +13,11 @@ type RepositoryFilters = LaboratoryChemicalAnalysisJournalFilters & {
   limit?: number;
 };
 
+export type LaboratoryChemicalAnalysisJournalCorrectionResult = {
+  before: LaboratoryChemicalAnalysisJournalRecord;
+  record: LaboratoryChemicalAnalysisJournalRecord;
+};
+
 export type LaboratoryChemicalAnalysisJournalRepository = {
   create: (input: {
     analysis: LaboratoryChemicalAnalysisJournalSubmission;
@@ -20,6 +25,13 @@ export type LaboratoryChemicalAnalysisJournalRepository = {
     submittedByUserId: string;
     submittedByAccountId: string;
   }) => Promise<LaboratoryChemicalAnalysisJournalRecord>;
+  update: (input: {
+    id: string;
+    analysis: LaboratoryChemicalAnalysisJournalSubmission;
+    correctedByUserId: string;
+    correctedByAccountId: string;
+    correctedByDisplayName: string;
+  }) => Promise<LaboratoryChemicalAnalysisJournalCorrectionResult | undefined>;
   list: (
     filters?: RepositoryFilters,
   ) => Promise<LaboratoryChemicalAnalysisJournalRecord[]>;
@@ -43,6 +55,12 @@ type LaboratoryChemicalAnalysisJournalRow = RowDataPacket & {
   moisture: string | null;
   notes: string | null;
   created_at: Date | string;
+};
+
+type LaboratorySampleRegistrationSnapshotRow = RowDataPacket & {
+  laboratory_sample_code: string;
+  sample_number: string;
+  sample_name: string;
 };
 
 type RepositoryOptions = {
@@ -113,6 +131,122 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
         sampleName: input.sample.sampleName,
         createdAt,
       };
+    },
+
+    async update(input) {
+      const [rows] = await pool.query<LaboratoryChemicalAnalysisJournalRow[]>(
+        `select
+          analysis.id,
+          analysis.sample_registration_id,
+          registration.laboratory_sample_code,
+          registration.sample_number,
+          registration.sample_name,
+          analysis.chemical_analysis_date,
+          analysis.chemical_analysis_laboratory_assistant,
+          analysis.batch_number,
+          analysis.al2o3,
+          analysis.fe2o3,
+          analysis.sio2,
+          analysis.cao2,
+          analysis.p2o5,
+          analysis.loss_on_ignition,
+          analysis.moisture,
+          analysis.notes,
+          analysis.created_at
+        from laboratory_chemical_analysis_journal analysis
+        join laboratory_sample_registration_journal registration
+          on registration.id = analysis.sample_registration_id
+        where analysis.id = ?
+        limit 1
+        for update`,
+        [input.id],
+      );
+      const current = rows[0];
+      if (current === undefined) return undefined;
+
+      const [sampleRows] = await pool.query<
+        LaboratorySampleRegistrationSnapshotRow[]
+      >(
+        `select
+          laboratory_sample_code,
+          sample_number,
+          sample_name
+        from laboratory_sample_registration_journal
+        where id = ?
+        limit 1
+        for update`,
+        [input.analysis.sampleRegistrationId],
+      );
+      const selectedSample = sampleRows[0];
+      if (selectedSample === undefined) return undefined;
+
+      const before = mapRecord(current);
+      const correctedAt = now().toISOString();
+      const corrected = {
+        id: input.id,
+        ...input.analysis,
+        laboratorySampleCode: selectedSample.laboratory_sample_code,
+        sampleNumber: selectedSample.sample_number,
+        sampleName: selectedSample.sample_name,
+        createdAt: before.createdAt,
+      };
+
+      await pool.query(
+        `update laboratory_chemical_analysis_journal
+        set
+          sample_registration_id = ?,
+          chemical_analysis_date = ?,
+          chemical_analysis_laboratory_assistant = ?,
+          batch_number = ?,
+          al2o3 = ?,
+          fe2o3 = ?,
+          sio2 = ?,
+          cao2 = ?,
+          p2o5 = ?,
+          loss_on_ignition = ?,
+          moisture = ?,
+          notes = ?
+        where id = ?`,
+        [
+          input.analysis.sampleRegistrationId,
+          input.analysis.chemicalAnalysisDate ?? null,
+          input.analysis.chemicalAnalysisLaboratoryAssistant ?? null,
+          input.analysis.batchNumber,
+          input.analysis.al2o3 ?? null,
+          input.analysis.fe2o3 ?? null,
+          input.analysis.sio2 ?? null,
+          input.analysis.cao2 ?? null,
+          input.analysis.p2o5 ?? null,
+          input.analysis.lossOnIgnition ?? null,
+          input.analysis.moisture ?? null,
+          input.analysis.notes ?? null,
+          input.id,
+        ],
+      );
+      await pool.query(
+        `insert into laboratory_chemical_analysis_revisions (
+          id,
+          chemical_analysis_id,
+          before_snapshot,
+          after_snapshot,
+          corrected_by_user_id,
+          corrected_by_account_id,
+          corrected_by_display_name,
+          created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          createId(),
+          input.id,
+          JSON.stringify(before),
+          JSON.stringify(corrected),
+          input.correctedByUserId,
+          input.correctedByAccountId,
+          input.correctedByDisplayName,
+          correctedAt,
+        ],
+      );
+
+      return { before, record: corrected };
     },
 
     async list(filters = {}) {

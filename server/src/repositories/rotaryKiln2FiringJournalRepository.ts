@@ -19,12 +19,24 @@ export type RotaryKiln2MaterialBulkDensityFilters = {
   sampleSize?: number;
 };
 
+export type RotaryKiln2FiringJournalCorrectionResult = {
+  before: RotaryKiln2FiringJournalRecord;
+  record: RotaryKiln2FiringJournalRecord;
+};
+
 export type RotaryKiln2FiringJournalRepository = {
   create: (input: {
     record: RotaryKiln2FiringJournalSubmission;
     submittedByUserId: string;
     submittedByAccountId: string;
   }) => Promise<RotaryKiln2FiringJournalRecord>;
+  update: (input: {
+    id: string;
+    record: RotaryKiln2FiringJournalSubmission;
+    correctedByUserId: string;
+    correctedByAccountId: string;
+    correctedByDisplayName: string;
+  }) => Promise<RotaryKiln2FiringJournalCorrectionResult | undefined>;
   list: (
     filters?: RepositoryFilters,
   ) => Promise<RotaryKiln2FiringJournalSelection>;
@@ -155,6 +167,116 @@ export function createRotaryKiln2FiringJournalRepository(
       );
 
       return { id, ...record, createdAt };
+    },
+
+    async update(input) {
+      const [rows] = await pool.query<RotaryKiln2FiringJournalRow[]>(
+        `select
+          id,
+          record_date,
+          record_time,
+          produced_material,
+          water_absorption,
+          temperature_before_cyclone,
+          temperature_before_filter,
+          temperature_in_field_chamber,
+          temperature_at_rollback,
+          gas_consumption_per_hour,
+          vacuum_value,
+          pressure_value,
+          shift_supervisor,
+          burner_operator,
+          laboratory_assistant,
+          sieve_pass_05,
+          bulk_density,
+          kiln_load_buckets_per_hour,
+          note,
+          created_at
+        from rotary_kiln_2_firing_journal
+        where id = ?
+        limit 1
+        for update`,
+        [input.id],
+      );
+      const current = rows[0];
+      if (current === undefined) return undefined;
+
+      const before = mapRecord(current);
+      const correctedAt = now().toISOString();
+      const corrected = {
+        id: input.id,
+        ...input.record,
+        createdAt: before.createdAt,
+      };
+
+      await pool.query(
+        `update rotary_kiln_2_firing_journal
+        set
+          record_date = ?,
+          record_time = ?,
+          produced_material = ?,
+          water_absorption = ?,
+          temperature_before_cyclone = ?,
+          temperature_before_filter = ?,
+          temperature_in_field_chamber = ?,
+          temperature_at_rollback = ?,
+          gas_consumption_per_hour = ?,
+          vacuum_value = ?,
+          pressure_value = ?,
+          shift_supervisor = ?,
+          burner_operator = ?,
+          laboratory_assistant = ?,
+          sieve_pass_05 = ?,
+          bulk_density = ?,
+          kiln_load_buckets_per_hour = ?,
+          note = ?
+        where id = ?`,
+        [
+          input.record.recordDate,
+          input.record.recordTime,
+          input.record.producedMaterial,
+          input.record.waterAbsorption,
+          input.record.temperatureBeforeCyclone,
+          input.record.temperatureBeforeFilter,
+          input.record.temperatureInFieldChamber,
+          input.record.temperatureAtRollback,
+          input.record.gasConsumptionPerHour,
+          input.record.vacuum,
+          input.record.pressure,
+          input.record.shiftSupervisor,
+          input.record.burnerOperator,
+          input.record.laboratoryAssistant,
+          input.record.sievePass05,
+          input.record.bulkDensity,
+          input.record.kilnLoadBucketsPerHour,
+          input.record.note ?? null,
+          input.id,
+        ],
+      );
+      await pool.query(
+        `insert into rotary_kiln_2_firing_revisions (
+          id,
+          firing_record_id,
+          before_snapshot,
+          after_snapshot,
+          corrected_by_user_id,
+          corrected_by_account_id,
+          corrected_by_display_name,
+          created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          createId(),
+          input.id,
+          JSON.stringify(before),
+          JSON.stringify(corrected),
+          input.correctedByUserId,
+          input.correctedByAccountId,
+          input.correctedByDisplayName,
+          correctedAt,
+        ],
+      );
+
+      return { before, record: corrected };
     },
 
     async list(filters = {}) {

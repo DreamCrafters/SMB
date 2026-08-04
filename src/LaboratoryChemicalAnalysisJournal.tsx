@@ -9,6 +9,7 @@ import {
 import { LaboratoryChemicalAnalysisTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
+  correctLaboratoryChemicalAnalysisJournalRecord,
   requestLaboratoryChemicalAnalysisJournal,
   submitLaboratoryChemicalAnalysisJournalRecord,
 } from "./services/laboratoryChemicalAnalysisJournal";
@@ -58,6 +59,8 @@ export function LaboratoryChemicalAnalysisJournal({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
+  const [editingRecordId, setEditingRecordId] = useState<string>();
+  const [editingRecordCode, setEditingRecordCode] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const selectedSampleRef =
     useRef<LaboratorySampleRegistrationOption | undefined>(undefined);
@@ -112,17 +115,28 @@ export function LaboratoryChemicalAnalysisJournal({
     event.preventDefault();
     if (isAdminPreviewMode) return;
 
-    const submission = buildSubmission(form);
-    if (submission === undefined) {
+    const saveRequest = editingRecordId === undefined
+      ? { kind: "create" as const, submission: buildSubmission(form) }
+      : {
+          kind: "correct" as const,
+          id: editingRecordId,
+          submission: buildSubmission(form),
+        };
+    if (saveRequest.submission === undefined) {
       setFormMessage("Выберите пробу и заполните все обязательные поля.");
       return;
     }
 
     setIsSubmitting(true);
     setFormMessage("Сохраняем запись…");
-    const result = await submitLaboratoryChemicalAnalysisJournalRecord(
-      submission,
-    );
+    const result = saveRequest.kind === "create"
+      ? await submitLaboratoryChemicalAnalysisJournalRecord(
+          saveRequest.submission,
+        )
+      : await correctLaboratoryChemicalAnalysisJournalRecord(
+          saveRequest.id,
+          saveRequest.submission,
+        );
     setIsSubmitting(false);
 
     if (result.status === "error") {
@@ -133,14 +147,46 @@ export function LaboratoryChemicalAnalysisJournal({
       return;
     }
 
-    setForm(createEmptyForm(profile.displayName));
-    selectedSampleRef.current = undefined;
+    const wasEditing = editingRecordId !== undefined;
+    resetForm();
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
-      "Химический анализ сохранён",
+      wasEditing ? "Химический анализ исправлен" : "Химический анализ сохранён",
       `${result.record.laboratorySampleCode} · ${result.record.batchNumber}.`,
     );
+  }
+
+  function editRecord(record: LaboratoryChemicalAnalysisJournalRecord) {
+    selectedSampleRef.current = history.sampleOptions.find(
+      (sample) => sample.id === record.sampleRegistrationId,
+    );
+    setEditingRecordId(record.id);
+    setEditingRecordCode(record.laboratorySampleCode);
+    setSampleQuery(record.laboratorySampleCode);
+    setForm({
+      sampleRegistrationId: record.sampleRegistrationId,
+      chemicalAnalysisDate: record.chemicalAnalysisDate ?? "",
+      chemicalAnalysisLaboratoryAssistant:
+        record.chemicalAnalysisLaboratoryAssistant ?? "",
+      batchNumber: record.batchNumber,
+      al2o3: record.al2o3 ?? "",
+      fe2o3: record.fe2o3 ?? "",
+      sio2: record.sio2 ?? "",
+      cao2: record.cao2 ?? "",
+      p2o5: record.p2o5 ?? "",
+      lossOnIgnition: record.lossOnIgnition ?? "",
+      moisture: record.moisture ?? "",
+      notes: record.notes ?? "",
+    });
+    setFormMessage("");
+  }
+
+  function resetForm() {
+    setEditingRecordId(undefined);
+    setEditingRecordCode("");
+    selectedSampleRef.current = undefined;
+    setForm(createEmptyForm(profile.displayName));
   }
 
   return (
@@ -152,6 +198,9 @@ export function LaboratoryChemicalAnalysisJournal({
         <div className="chemical-analysis-journal-heading">
           <span className="eyebrow">Лаборатория</span>
           <h2>Журнал химических анализов</h2>
+          {editingRecordId === undefined
+            ? null
+            : <p>Редактирование анализа {editingRecordCode}</p>}
         </div>
 
         <div className="laboratory-form-grid">
@@ -239,8 +288,25 @@ export function LaboratoryChemicalAnalysisJournal({
           >
             {isSubmitting
               ? <LoadingIndicator label="Сохраняем…" variant="button" />
-              : "Внести данные"}
+              : editingRecordId === undefined
+                ? "Внести данные"
+                : "Сохранить изменения"}
           </button>
+          {editingRecordId === undefined
+            ? null
+            : (
+                <button
+                  className="secondary-button"
+                  disabled={isSubmitting}
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setFormMessage("");
+                  }}
+                >
+                  Отменить
+                </button>
+              )}
           {isAdminPreviewMode
             ? <small>В режиме просмотра сохранение отключено.</small>
             : null}
@@ -290,7 +356,10 @@ export function LaboratoryChemicalAnalysisJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
-        <LaboratoryChemicalAnalysisTable records={history.records} />
+        <LaboratoryChemicalAnalysisTable
+          records={history.records}
+          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+        />
       </section>
     </div>
   );

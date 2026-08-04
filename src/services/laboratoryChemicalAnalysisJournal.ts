@@ -78,11 +78,37 @@ export async function submitLaboratoryChemicalAnalysisJournalRecord(
 ): Promise<LaboratoryChemicalAnalysisJournalSaveResult> {
   const result = await requestJson(JOURNAL_PATH, "POST", submission, options);
 
+  return readJournalSaveResult(
+    result,
+    "Сервер не вернул сохранённую запись журнала химических анализов.",
+  );
+}
+
+export async function correctLaboratoryChemicalAnalysisJournalRecord(
+  id: string,
+  submission: LaboratoryChemicalAnalysisJournalSubmission,
+  options: RequestOptions = {},
+): Promise<LaboratoryChemicalAnalysisJournalSaveResult> {
+  const result = await requestJson(
+    `${JOURNAL_PATH}/${encodeURIComponent(id)}`,
+    "PATCH",
+    submission,
+    options,
+  );
+
+  return readJournalSaveResult(
+    result,
+    "Сервер не вернул исправленную запись журнала химических анализов.",
+  );
+}
+
+function readJournalSaveResult(
+  result: { status: "ready"; payload: unknown } | ErrorResult,
+  invalidMessage: string,
+): LaboratoryChemicalAnalysisJournalSaveResult {
   if (result.status === "error") return result;
   if (!isRecord(result.payload) || !isJournalRecord(result.payload.record)) {
-    return invalidResponse(
-      "Сервер не вернул сохранённую запись журнала химических анализов.",
-    );
+    return invalidResponse(invalidMessage);
   }
 
   return { status: "ready", record: result.payload.record };
@@ -90,7 +116,7 @@ export async function submitLaboratoryChemicalAnalysisJournalRecord(
 
 async function requestJson(
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH",
   body: LaboratoryChemicalAnalysisJournalSubmission | undefined,
   { baseUrl, signal }: RequestOptions,
 ): Promise<{ status: "ready"; payload: unknown } | ErrorResult> {
