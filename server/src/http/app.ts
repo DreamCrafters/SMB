@@ -593,6 +593,7 @@ export function createApiServer({
         url.pathname === "/api/laboratory/sample-registration-locations" ||
         url.pathname === "/api/laboratory/sample-registration-journal" ||
         laboratorySampleRegistrationRecordPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/chemical-analysis-draft" ||
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
         url.pathname === laboratoryChemicalAnalysisProtocolPath ||
         laboratoryChemicalAnalysisRecordPathPattern.test(url.pathname) ||
@@ -2611,6 +2612,44 @@ async function handleLaboratoryRequest({
     return;
   }
 
+  if (url.pathname === "/api/laboratory/chemical-analysis-draft") {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message:
+            "Заготовка номера доступна только для заполнения журнала.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для заготовки номера используется GET.",
+        },
+      });
+      return;
+    }
+    if (laboratoryChemicalAnalysisJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала химических анализов не настроено.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      laboratoryAnalysisNumber:
+        await laboratoryChemicalAnalysisJournal
+          .getNextLaboratoryAnalysisNumber(),
+    });
+    return;
+  }
+
   const chemicalAnalysisRecordMatch =
     laboratoryChemicalAnalysisRecordPathPattern.exec(url.pathname);
   if (chemicalAnalysisRecordMatch !== null) {
@@ -2694,6 +2733,11 @@ async function handleLaboratoryRequest({
                 label: "Код лабораторной пробы",
                 value:
                   `${result.before.laboratorySampleCode} → ${result.record.laboratorySampleCode}`,
+              },
+              {
+                label: "Номер лабораторного анализа",
+                value:
+                  `${result.before.laboratoryAnalysisNumber ?? "—"} → ${result.record.laboratoryAnalysisNumber ?? "—"}`,
               },
               {
                 label: "Дата хим. анализа",
@@ -2876,6 +2920,12 @@ async function handleLaboratoryRequest({
             label: "Код лабораторной пробы",
             value: record.laboratorySampleCode,
           },
+          ...(record.laboratoryAnalysisNumber === undefined
+            ? []
+            : [{
+                label: "Номер лабораторного анализа",
+                value: record.laboratoryAnalysisNumber,
+              }]),
           ...(record.chemicalAnalysisDate === undefined
             ? []
             : [{

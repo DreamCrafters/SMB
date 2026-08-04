@@ -5,6 +5,7 @@ import { createLaboratoryChemicalAnalysisJournalRepository } from "./laboratoryC
 
 const analysis = {
   sampleRegistrationId: "sample-registration-1",
+  laboratoryAnalysisNumber: "43",
   chemicalAnalysisDate: "2026-07-30",
   chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
   batchNumber: "П-42",
@@ -75,6 +76,7 @@ test("chemical analysis repository stores linked append-only record", async () =
     null,
     null,
     null,
+    null,
     "laboratory-user",
     "laboratory-account",
     "2026-07-30T08:30:00.000Z",
@@ -94,6 +96,7 @@ test("chemical analysis repository lists linked samples with filters", async () 
         laboratory_sample_code: "ЛП-2026-017",
         sample_number: "17-А",
         sample_name: "Шамот молотый",
+        laboratory_analysis_number: "43",
         chemical_analysis_date: "2026-07-30",
         chemical_analysis_laboratory_assistant: "Петрова П.П.",
         batch_number: "П-42",
@@ -151,6 +154,7 @@ test("chemical analysis repository omits optional values when they are absent", 
         laboratory_sample_code: "ЛП-2026-017",
         sample_number: "17-А",
         sample_name: "Шамот молотый",
+        laboratory_analysis_number: null,
         chemical_analysis_date: null,
         chemical_analysis_laboratory_assistant: null,
         batch_number: null,
@@ -197,6 +201,7 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
           laboratory_sample_code: "ЛП-2026-017",
           sample_number: "17-А",
           sample_name: "Шамот молотый",
+          laboratory_analysis_number: analysis.laboratoryAnalysisNumber,
           chemical_analysis_date: analysis.chemicalAnalysisDate,
           chemical_analysis_laboratory_assistant:
             analysis.chemicalAnalysisLaboratoryAssistant,
@@ -221,6 +226,7 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
   });
   const correctedAnalysis = {
     sampleRegistrationId: "sample-registration-2",
+    laboratoryAnalysisNumber: "44",
     chemicalAnalysisDate: "2026-08-04",
     al2o3: "31,8",
     notes: "Исправлено по журналу.",
@@ -267,6 +273,7 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
   );
   assert.deepEqual(queries[2]?.parameters, [
     "sample-registration-2",
+    "44",
     "2026-08-04",
     null,
     null,
@@ -294,4 +301,62 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
     "Иванова Анна",
     "2026-08-04T10:30:00.000Z",
   ]);
+});
+
+test("chemical analysis repository suggests the next numeric analysis number", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[{ analysis_number: "184467440737095516160" }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  assert.equal(
+    await repository.getNextLaboratoryAnalysisNumber(),
+    "184467440737095516161",
+  );
+  assert.match(
+    querySql,
+    /trim\(leading '0' from trim\(laboratory_analysis_number\)\)/u,
+  );
+  assert.match(
+    querySql,
+    /trim\(laboratory_analysis_number\) regexp '\^\[0-9\]\+\$'/u,
+  );
+  assert.match(
+    querySql,
+    /char_length\(analysis_number\) desc,[\s\S]+analysis_number desc[\s\S]+limit 1/u,
+  );
+});
+
+test("chemical analysis repository starts numbering when numeric history is empty", async () => {
+  const pool = {
+    async query() {
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  assert.equal(await repository.getNextLaboratoryAnalysisNumber(), "1");
+});
+
+test("chemical analysis repository orders numeric values without leading-zero inflation", async () => {
+  const pool = {
+    async query(sql: string) {
+      assert.match(
+        sql,
+        /coalesce\([\s\S]+trim\(leading '0' from trim\(laboratory_analysis_number\)\)[\s\S]+,\s*'0'[\s\S]+\) as analysis_number/u,
+      );
+      assert.match(
+        sql,
+        /order by\s+char_length\(analysis_number\) desc,\s+analysis_number desc/u,
+      );
+      return [[{ analysis_number: "99" }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  assert.equal(await repository.getNextLaboratoryAnalysisNumber(), "100");
 });

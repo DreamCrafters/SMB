@@ -62,6 +62,7 @@ type LaboratorySampleRegistrationJournalRow = RowDataPacket & {
   registration_date: Date | string;
   sampling_location: string;
   water_absorption: string | null;
+  laboratory_analysis_number: string | null;
   al2o3: string | null;
   fe2o3: string | null;
   sio2: string | null;
@@ -270,6 +271,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
             registration.sampling_laboratory_assistant,
             registration.sample_name,
             registration.sampling_location,
+            coalesce(analysis.laboratory_analysis_number, ''),
             case
               when analysis.id is null
                 then coalesce(registration.chemical_analysis_laboratory_assistant, '')
@@ -311,6 +313,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           registration.registration_date,
           registration.sampling_location,
           registration.water_absorption,
+          analysis.laboratory_analysis_number,
           case when analysis.id is null
             then registration.al2o3 else analysis.al2o3 end as al2o3,
           case when analysis.id is null
@@ -478,6 +481,9 @@ function mapRecord(
     ...(row.water_absorption === null
       ? {}
       : { waterAbsorption: row.water_absorption }),
+    ...(row.laboratory_analysis_number === null
+      ? {}
+      : { laboratoryAnalysisNumber: row.laboratory_analysis_number }),
     ...(row.al2o3 === null ? {} : { al2o3: row.al2o3 }),
     ...(row.fe2o3 === null ? {} : { fe2o3: row.fe2o3 }),
     ...(row.sio2 === null ? {} : { sio2: row.sio2 }),

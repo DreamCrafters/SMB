@@ -266,7 +266,7 @@ export function buildLaboratoryChemicalAnalysisProtocolDocument({
         table: {
           headerRows: 1,
           dontBreakRows: true,
-          widths: [52, 38, 90, 44, 60, 50, 30, 30, 30, 30, 30, 30, 34, "*"],
+          widths: [52, 38, 82, 46, 44, 58, 46, 28, 28, 28, 28, 28, 28, 32, "*"],
           body: [[
             tableHeader("Код лабораторной пробы"),
             tableHeader("№ пробы"),

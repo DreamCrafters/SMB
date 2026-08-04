@@ -105,6 +105,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "038_laboratory_sample_registration_revisions",
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
+    "041_laboratory_chemical_analysis_number",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -167,6 +168,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "038_laboratory_sample_registration_revisions",
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
+    "041_laboratory_chemical_analysis_number",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -232,6 +234,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "038_laboratory_sample_registration_revisions",
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
+    "041_laboratory_chemical_analysis_number",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -299,6 +302,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "038_laboratory_sample_registration_revisions",
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
+    "041_laboratory_chemical_analysis_number",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -362,6 +366,7 @@ test("kiln material migration adds the produced material and the journal density
     "038_laboratory_sample_registration_revisions",
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
+    "041_laboratory_chemical_analysis_number",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1505,6 +1510,47 @@ test("chemical analysis batch-number migration makes the field optional", async 
   assert.match(
     statements[0] ?? "",
     /modify batch_number varchar\(120\) null/u,
+  );
+  assert.equal(
+    statements[1],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("chemical analysis number migration adds an optional editable value", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "041_laboratory_chemical_analysis_number" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(
+    statements[0] ?? "",
+    /add column laboratory_analysis_number varchar\(120\) null after sample_registration_id/u,
   );
   assert.equal(
     statements[1],

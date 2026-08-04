@@ -35,6 +35,7 @@ export type LaboratoryChemicalAnalysisJournalRepository = {
   list: (
     filters?: RepositoryFilters,
   ) => Promise<LaboratoryChemicalAnalysisJournalRecord[]>;
+  getNextLaboratoryAnalysisNumber: () => Promise<string>;
 };
 
 type LaboratoryChemicalAnalysisJournalRow = RowDataPacket & {
@@ -43,6 +44,7 @@ type LaboratoryChemicalAnalysisJournalRow = RowDataPacket & {
   laboratory_sample_code: string;
   sample_number: string;
   sample_name: string;
+  laboratory_analysis_number: string | null;
   chemical_analysis_date: Date | string | null;
   chemical_analysis_laboratory_assistant: string | null;
   batch_number: string | null;
@@ -68,6 +70,10 @@ type RepositoryOptions = {
   now?: () => Date;
 };
 
+type LaboratoryNextAnalysisNumberRow = RowDataPacket & {
+  analysis_number: string;
+};
+
 const defaultListLimit = 200;
 const maxListLimit = 500;
 
@@ -88,6 +94,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
         `insert into laboratory_chemical_analysis_journal (
           id,
           sample_registration_id,
+          laboratory_analysis_number,
           chemical_analysis_date,
           chemical_analysis_laboratory_assistant,
           batch_number,
@@ -102,10 +109,11 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           analysis.sampleRegistrationId,
+          analysis.laboratoryAnalysisNumber ?? null,
           analysis.chemicalAnalysisDate ?? null,
           analysis.chemicalAnalysisLaboratoryAssistant ?? null,
           analysis.batchNumber ?? null,
@@ -141,6 +149,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           registration.laboratory_sample_code,
           registration.sample_number,
           registration.sample_name,
+          analysis.laboratory_analysis_number,
           analysis.chemical_analysis_date,
           analysis.chemical_analysis_laboratory_assistant,
           analysis.batch_number,
@@ -195,6 +204,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
         `update laboratory_chemical_analysis_journal
         set
           sample_registration_id = ?,
+          laboratory_analysis_number = ?,
           chemical_analysis_date = ?,
           chemical_analysis_laboratory_assistant = ?,
           batch_number = ?,
@@ -209,6 +219,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
         where id = ?`,
         [
           input.analysis.sampleRegistrationId,
+          input.analysis.laboratoryAnalysisNumber ?? null,
           input.analysis.chemicalAnalysisDate ?? null,
           input.analysis.chemicalAnalysisLaboratoryAssistant ?? null,
           input.analysis.batchNumber ?? null,
@@ -268,6 +279,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
             registration.laboratory_sample_code,
             registration.sample_number,
             registration.sample_name,
+            analysis.laboratory_analysis_number,
             analysis.chemical_analysis_laboratory_assistant,
             analysis.batch_number,
             coalesce(analysis.notes, '')
@@ -293,6 +305,7 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           registration.laboratory_sample_code,
           registration.sample_number,
           registration.sample_name,
+          analysis.laboratory_analysis_number,
           analysis.chemical_analysis_date,
           analysis.chemical_analysis_laboratory_assistant,
           analysis.batch_number,
@@ -322,6 +335,26 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
 
       return rows.map(mapRecord);
     },
+
+    async getNextLaboratoryAnalysisNumber() {
+      const [rows] = await pool.query<LaboratoryNextAnalysisNumberRow[]>(
+        `select coalesce(
+          nullif(
+            trim(leading '0' from trim(laboratory_analysis_number)),
+            ''
+          ),
+          '0'
+        ) as analysis_number
+        from laboratory_chemical_analysis_journal
+        where trim(laboratory_analysis_number) regexp '^[0-9]+$'
+        order by
+          char_length(analysis_number) desc,
+          analysis_number desc
+        limit 1`,
+      );
+
+      return (BigInt(rows[0]?.analysis_number ?? "0") + 1n).toString();
+    },
   };
 }
 
@@ -334,6 +367,9 @@ function mapRecord(
     laboratorySampleCode: row.laboratory_sample_code,
     sampleNumber: row.sample_number,
     sampleName: row.sample_name,
+    ...(row.laboratory_analysis_number === null
+      ? {}
+      : { laboratoryAnalysisNumber: row.laboratory_analysis_number }),
     ...(row.batch_number === null ? {} : { batchNumber: row.batch_number }),
     ...(row.chemical_analysis_date === null
       ? {}

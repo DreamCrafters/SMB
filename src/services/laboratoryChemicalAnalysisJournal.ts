@@ -1,5 +1,6 @@
 import {
   laboratoryChemicalAnalysisFields,
+  type LaboratoryChemicalAnalysisDraft,
   type LaboratoryChemicalAnalysisJournalFilters,
   type LaboratoryChemicalAnalysisJournalRecord,
   type LaboratoryChemicalAnalysisJournalSelection,
@@ -18,6 +19,7 @@ import {
 } from "./protectedPdf.js";
 
 const JOURNAL_PATH = "/api/laboratory/chemical-analysis-journal";
+const DRAFT_PATH = "/api/laboratory/chemical-analysis-draft";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 type ErrorResult = {
@@ -35,7 +37,31 @@ export type LaboratoryChemicalAnalysisJournalSaveResult =
       record: LaboratoryChemicalAnalysisJournalRecord;
     }
   | ErrorResult;
+export type LaboratoryChemicalAnalysisDraftResult =
+  | ({ status: "ready" } & LaboratoryChemicalAnalysisDraft)
+  | ErrorResult;
 export type LaboratoryChemicalAnalysisProtocolPdfResult = ProtectedPdfResult;
+
+export async function requestLaboratoryChemicalAnalysisDraft(
+  options: RequestOptions = {},
+): Promise<LaboratoryChemicalAnalysisDraftResult> {
+  const result = await requestJson(DRAFT_PATH, "GET", undefined, options);
+
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    typeof result.payload.laboratoryAnalysisNumber !== "string"
+  ) {
+    return invalidResponse(
+      "Сервер вернул заготовку номера лабораторного анализа в неподдерживаемом формате.",
+    );
+  }
+
+  return {
+    status: "ready",
+    laboratoryAnalysisNumber: result.payload.laboratoryAnalysisNumber,
+  };
+}
 
 export async function requestLaboratoryChemicalAnalysisJournal(
   filters: LaboratoryChemicalAnalysisJournalFilters = {},

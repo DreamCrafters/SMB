@@ -11,6 +11,7 @@ import {
   requestLaboratoryBanks,
 } from "../.test-build/src/services/laboratoryBanks.js";
 import {
+  requestLaboratoryChemicalAnalysisDraft,
   requestLaboratoryChemicalAnalysisProtocolPdf,
 } from "../.test-build/src/services/laboratoryChemicalAnalysisJournal.js";
 
@@ -143,6 +144,33 @@ test("laboratory service downloads the selected result protocol as PDF", async (
       "http://api.test/api/laboratory/results/laboratory-result-1/protocol.pdf",
     );
     assert.equal(new Headers(request.init.headers).get("Accept"), "application/pdf");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("chemical analysis service reads the next editable analysis number", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (input, init = {}) => {
+    request = { url: input.toString(), init };
+    return jsonResponse({ laboratoryAnalysisNumber: "44" });
+  };
+
+  try {
+    const result = await requestLaboratoryChemicalAnalysisDraft({
+      baseUrl: "http://api.test",
+    });
+
+    assert.deepEqual(result, {
+      status: "ready",
+      laboratoryAnalysisNumber: "44",
+    });
+    assert.equal(
+      request.url,
+      "http://api.test/api/laboratory/chemical-analysis-draft",
+    );
+    assert.equal(request.init.method, "GET");
   } finally {
     globalThis.fetch = originalFetch;
   }

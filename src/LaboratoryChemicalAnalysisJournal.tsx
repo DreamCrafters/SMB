@@ -10,6 +10,7 @@ import { LaboratoryChemicalAnalysisTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
   correctLaboratoryChemicalAnalysisJournalRecord,
+  requestLaboratoryChemicalAnalysisDraft,
   requestLaboratoryChemicalAnalysisJournal,
   requestLaboratoryChemicalAnalysisProtocolPdf,
   submitLaboratoryChemicalAnalysisJournalRecord,
@@ -66,6 +67,36 @@ export function LaboratoryChemicalAnalysisJournal({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const selectedSampleRef =
     useRef<LaboratorySampleRegistrationOption | undefined>(undefined);
+  const nextLaboratoryAnalysisNumberRef = useRef("");
+  const isLaboratoryAnalysisNumberAuto = useRef(true);
+
+  useEffect(() => {
+    if (isAdminPreviewMode) return;
+    const controller = new AbortController();
+    requestLaboratoryChemicalAnalysisDraft({
+      signal: controller.signal,
+    }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.status === "ready") {
+        nextLaboratoryAnalysisNumberRef.current =
+          result.laboratoryAnalysisNumber;
+        if (isLaboratoryAnalysisNumberAuto.current) {
+          setForm((current) => ({
+            ...current,
+            laboratoryAnalysisNumber: result.laboratoryAnalysisNumber,
+          }));
+        }
+        return;
+      }
+      setFormMessage((current) => current === ""
+        ? readShortUserMessage(
+            result.message,
+            "Не удалось загрузить следующий номер лабораторного анализа.",
+          )
+        : current);
+    });
+    return () => controller.abort();
+  }, [isAdminPreviewMode, refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -109,6 +140,9 @@ export function LaboratoryChemicalAnalysisJournal({
   }, [dateFrom, dateTo, query, refreshVersion, sampleQuery]);
 
   function updateField(field: keyof FormState, value: string) {
+    if (field === "laboratoryAnalysisNumber") {
+      isLaboratoryAnalysisNumberAuto.current = false;
+    }
     setForm((current) => ({ ...current, [field]: value }));
     setFormMessage("");
   }
@@ -162,6 +196,7 @@ export function LaboratoryChemicalAnalysisJournal({
   }
 
   function editRecord(record: LaboratoryChemicalAnalysisJournalRecord) {
+    isLaboratoryAnalysisNumberAuto.current = false;
     selectedSampleRef.current = history.sampleOptions.find(
       (sample) => sample.id === record.sampleRegistrationId,
     );
@@ -170,6 +205,7 @@ export function LaboratoryChemicalAnalysisJournal({
     setSampleQuery(record.laboratorySampleCode);
     setForm({
       sampleRegistrationId: record.sampleRegistrationId,
+      laboratoryAnalysisNumber: record.laboratoryAnalysisNumber ?? "",
       chemicalAnalysisDate: record.chemicalAnalysisDate ?? "",
       chemicalAnalysisLaboratoryAssistant:
         record.chemicalAnalysisLaboratoryAssistant ?? "",
@@ -187,10 +223,14 @@ export function LaboratoryChemicalAnalysisJournal({
   }
 
   function resetForm() {
+    isLaboratoryAnalysisNumberAuto.current = true;
     setEditingRecordId(undefined);
     setEditingRecordCode("");
     selectedSampleRef.current = undefined;
-    setForm(createEmptyForm(profile.displayName));
+    setForm(createEmptyForm(
+      profile.displayName,
+      nextLaboratoryAnalysisNumberRef.current,
+    ));
   }
 
   async function openProtocol() {
@@ -311,7 +351,11 @@ export function LaboratoryChemicalAnalysisJournal({
                 <span>{field.label}</span>
                 <input
                   required={field.required}
-                  inputMode={field.kind === "indicator" ? "decimal" : undefined}
+                  inputMode={field.kind === "indicator"
+                    ? "decimal"
+                    : field.id === "laboratoryAnalysisNumber"
+                      ? "numeric"
+                      : undefined}
                   maxLength={field.kind === "date" ? undefined : 120}
                   type={field.kind === "date" ? "date" : "text"}
                   value={form[field.id]}
@@ -412,7 +456,7 @@ export function LaboratoryChemicalAnalysisJournal({
               <span>Поиск</span>
               <input
                 maxLength={120}
-                placeholder="Код, проба, партия или лаборант"
+                placeholder="Номер анализа, код, проба, партия или лаборант"
                 value={query}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
@@ -436,9 +480,13 @@ export function LaboratoryChemicalAnalysisJournal({
   );
 }
 
-function createEmptyForm(laboratoryAssistant: string): FormState {
+function createEmptyForm(
+  laboratoryAssistant: string,
+  laboratoryAnalysisNumber = "",
+): FormState {
   return {
     sampleRegistrationId: "",
+    laboratoryAnalysisNumber,
     chemicalAnalysisDate: formatLocalCalendarDate(new Date()),
     chemicalAnalysisLaboratoryAssistant: laboratoryAssistant,
     batchNumber: "",
@@ -467,6 +515,9 @@ function buildSubmission(
 
   return {
     sampleRegistrationId: form.sampleRegistrationId,
+    ...(form.laboratoryAnalysisNumber.trim() === ""
+      ? {}
+      : { laboratoryAnalysisNumber: form.laboratoryAnalysisNumber.trim() }),
     ...(form.batchNumber.trim() === ""
       ? {}
       : { batchNumber: form.batchNumber.trim() }),

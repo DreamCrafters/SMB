@@ -2135,6 +2135,16 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "041_laboratory_chemical_analysis_number",
+    statements: [
+      `
+      alter table laboratory_chemical_analysis_journal
+        add column laboratory_analysis_number varchar(120) null
+          after sample_registration_id;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

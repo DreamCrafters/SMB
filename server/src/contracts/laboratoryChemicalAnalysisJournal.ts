@@ -1,4 +1,5 @@
 export type LaboratoryChemicalAnalysisValues = {
+  laboratoryAnalysisNumber?: string;
   batchNumber?: string;
   chemicalAnalysisDate?: string;
   chemicalAnalysisLaboratoryAssistant?: string;
@@ -13,6 +14,12 @@ export type LaboratoryChemicalAnalysisValues = {
 };
 
 export const laboratoryChemicalAnalysisFields = [
+  {
+    id: "laboratoryAnalysisNumber",
+    label: "Номер лабораторного анализа",
+    kind: "text",
+    required: false,
+  },
   {
     id: "chemicalAnalysisDate",
     label: "Дата хим. анализа",
@@ -89,6 +96,11 @@ export const laboratoryChemicalAnalysisFields = [
 export type LaboratoryChemicalAnalysisJournalSubmission = {
   sampleRegistrationId: string;
 } & LaboratoryChemicalAnalysisValues;
+
+export type LaboratoryChemicalAnalysisDraft = Required<Pick<
+  LaboratoryChemicalAnalysisValues,
+  "laboratoryAnalysisNumber"
+>>;
 
 export type LaboratoryChemicalAnalysisJournalRecord =
   LaboratoryChemicalAnalysisJournalSubmission & {

@@ -79,6 +79,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const chemicalAnalysisSubmissions = [];
   const chemicalAnalysisCorrections = [];
   const chemicalAnalysisRequests = [];
+  let chemicalAnalysisDraftRequests = 0;
   const chemicalAnalysisProtocolRequests = [];
   const protocolPreview = {
     opener: {},
@@ -313,6 +314,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             sampleName: "Шамот молотый",
             registrationDate: "2026-07-29",
             samplingLocation: "Опытная площадка",
+            laboratoryAnalysisNumber: "42",
             al2o3: "31,4",
             fe2o3: "2,1",
             sio2: "58,7",
@@ -356,6 +358,13 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             "Content-Disposition":
               "inline; filename=\"protocol.pdf\"; filename*=UTF-8''%D0%9F%D1%80%D0%BE%D1%82%D0%BE%D0%BA%D0%BE%D0%BB.pdf",
           },
+        });
+      }
+      if (url.pathname === "/api/laboratory/chemical-analysis-draft") {
+        chemicalAnalysisDraftRequests += 1;
+        return jsonResponse({
+          laboratoryAnalysisNumber:
+            chemicalAnalysisDraftRequests === 1 ? "43" : "44",
         });
       }
       if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
@@ -405,6 +414,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             laboratorySampleCode: "ЛП-2026-017",
             sampleNumber: "17-А",
             sampleName: "Шамот молотый",
+            laboratoryAnalysisNumber: "42",
             chemicalAnalysisDate: "2026-07-30",
             chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
             batchNumber: "П-42",
@@ -1061,6 +1071,12 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       findControlByLabel(chemicalAnalysisForm, "Номер партии").required,
       false,
     );
+    const laboratoryAnalysisNumberInput = findControlByLabel(
+      chemicalAnalysisForm,
+      "Номер лабораторного анализа",
+    );
+    await waitFor(React, () => laboratoryAnalysisNumberInput.value === "43");
+    assert.equal(laboratoryAnalysisNumberInput.required, false);
     for (const optionalLabel of [
       "Дата хим. анализа",
       "Лаборант",
@@ -1133,6 +1149,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       true,
     );
     await React.act(async () => {
+      setNativeInputValue(laboratoryAnalysisNumberInput, "47");
+      laboratoryAnalysisNumberInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
       for (const [label, value] of Object.entries({
         "Дата хим. анализа": "",
         "Лаборант": "",
@@ -1151,7 +1171,9 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () => chemicalAnalysisSubmissions.length === 1);
     assert.deepEqual(chemicalAnalysisSubmissions[0], {
       sampleRegistrationId: "sample-registration-1",
+      laboratoryAnalysisNumber: "47",
     });
+    await waitFor(React, () => laboratoryAnalysisNumberInput.value === "44");
 
     const chemicalAnalysisEditButton = rootElement.querySelector(
       ".chemical-analysis-journal-table .chemical-analysis-edit-link",
@@ -1167,6 +1189,13 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     assert.ok(
       chemicalAnalysisForm.textContent.includes("Редактирование анализа"),
+    );
+    assert.equal(
+      findControlByLabel(
+        chemicalAnalysisForm,
+        "Номер лабораторного анализа",
+      ).value,
+      "42",
     );
     assert.equal(
       findControlByLabel(chemicalAnalysisForm, "Дата хим. анализа").value,
@@ -1189,6 +1218,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Без отклонений.",
     );
     await React.act(async () => {
+      const analysisNumberInput = findControlByLabel(
+        chemicalAnalysisForm,
+        "Номер лабораторного анализа",
+      );
+      setNativeInputValue(analysisNumberInput, "41");
+      analysisNumberInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
       const batchNumberInput = findControlByLabel(
         chemicalAnalysisForm,
         "Номер партии",
@@ -1210,6 +1247,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () => chemicalAnalysisCorrections.length === 1);
     assert.deepEqual(chemicalAnalysisCorrections[0], {
       sampleRegistrationId: "sample-registration-1",
+      laboratoryAnalysisNumber: "41",
       chemicalAnalysisDate: "2026-07-30",
       chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
       al2o3: "31,4",

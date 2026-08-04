@@ -15,6 +15,7 @@ const record = {
 };
 
 const linkedAnalysis = {
+  laboratoryAnalysisNumber: "43",
   al2o3: "31,4",
   fe2o3: "2,1",
   sio2: "58,7",
@@ -117,6 +118,7 @@ test("sample registration repository filters history by registration date and se
         registration_date: "2026-07-29",
         sampling_location: "Склад сырья",
         water_absorption: "4,6",
+        laboratory_analysis_number: "43",
         al2o3: "31,4",
         fe2o3: "2,1",
         sio2: "58,7",
@@ -321,6 +323,7 @@ test("sample registration repository omits chemistry until an analysis exists", 
         registration_date: "2026-07-30",
         sampling_location: "Склад сырья",
         water_absorption: null,
+        laboratory_analysis_number: null,
         al2o3: null,
         fe2o3: null,
         sio2: null,

@@ -5,6 +5,7 @@ import { validateLaboratoryChemicalAnalysisJournalSubmission } from "./laborator
 test("chemical analysis journal accepts and normalizes a complete record", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
     sampleRegistrationId: " sample-registration-17 ",
+    laboratoryAnalysisNumber: " 43 ",
     chemicalAnalysisDate: "2026-07-31",
     chemicalAnalysisLaboratoryAssistant: " Петрова П.П. ",
     batchNumber: " П-42 ",
@@ -22,6 +23,7 @@ test("chemical analysis journal accepts and normalizes a complete record", () =>
     ok: true,
     value: {
       sampleRegistrationId: "sample-registration-17",
+      laboratoryAnalysisNumber: "43",
       chemicalAnalysisDate: "2026-07-31",
       chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
       batchNumber: "П-42",
@@ -40,6 +42,7 @@ test("chemical analysis journal accepts and normalizes a complete record", () =>
 test("chemical analysis journal accepts only a registered sample", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
     sampleRegistrationId: " sample-registration-17 ",
+    laboratoryAnalysisNumber: " ",
     batchNumber: " ",
     chemicalAnalysisDate: "",
     chemicalAnalysisLaboratoryAssistant: " ",
@@ -57,6 +60,7 @@ test("chemical analysis journal accepts only a registered sample", () => {
 test("chemical analysis journal rejects invalid provided optional values", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
     sampleRegistrationId: "",
+    laboratoryAnalysisNumber: 43,
     chemicalAnalysisDate: "2026-02-30",
     chemicalAnalysisLaboratoryAssistant: 42,
     batchNumber: 42,
@@ -75,6 +79,7 @@ test("chemical analysis journal rejects invalid provided optional values", () =>
 
   assert.deepEqual(validation.errors, [
     "Выберите код лабораторной пробы.",
+    "Проверьте поле «Номер лабораторного анализа».",
     "Проверьте поле «Дата хим. анализа».",
     "Проверьте поле «Лаборант».",
     "Проверьте поле «Номер партии».",

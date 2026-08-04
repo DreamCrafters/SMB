@@ -66,6 +66,12 @@ export function validateLaboratoryChemicalAnalysisJournalSubmission(
     ok: true,
     value: {
       sampleRegistrationId,
+      ...(values.has("laboratoryAnalysisNumber")
+        ? {
+            laboratoryAnalysisNumber:
+              values.get("laboratoryAnalysisNumber")!,
+          }
+        : {}),
       ...(values.has("batchNumber")
         ? { batchNumber: values.get("batchNumber")! }
         : {}),

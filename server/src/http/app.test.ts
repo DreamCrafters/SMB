@@ -921,6 +921,9 @@ test("laboratory review access reads every journal by name but cannot change lab
         createdAt: "2026-07-30T08:30:00.000Z",
       }];
     },
+    async getNextLaboratoryAnalysisNumber() {
+      throw new Error("Laboratory review access must not load form drafts.");
+    },
   };
 
   await withApiServer(
@@ -993,6 +996,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/chemical-analysis-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
       );
+      const chemicalAnalysisDraftResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-draft`,
+        { headers },
+      );
       const chemicalAnalysisProtocolResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal/protocol.pdf?dateFrom=2026-07-01&query=%D0%9F-42`,
         { headers },
@@ -1024,6 +1031,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(sampleRegistrationLocationsResponse.status, 403);
       assert.equal(sampleRegistrationDraftResponse.status, 403);
       assert.equal(chemicalAnalysisResponse.status, 200);
+      assert.equal(chemicalAnalysisDraftResponse.status, 403);
       assert.equal(chemicalAnalysisProtocolResponse.status, 200);
       assert.equal(
         chemicalAnalysisProtocolResponse.headers.get("content-type"),
@@ -1630,6 +1638,9 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
             createdAt: "2026-07-30T08:30:00.000Z",
           }];
     },
+    async getNextLaboratoryAnalysisNumber() {
+      return "44";
+    },
   };
   const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
   const audit: AuditRepository = {
@@ -1650,6 +1661,10 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
 
   await withApiServer(
     async (baseUrl) => {
+      const draftResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-draft`,
+        { headers },
+      );
       const invalidProtocolResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal/protocol.pdf?dateFrom=2026-02-30`,
         { headers },
@@ -1687,6 +1702,7 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       );
       const correction = {
         sampleRegistrationId: "sample-registration-1",
+        laboratoryAnalysisNumber: "45",
         batchNumber: "П-44",
         chemicalAnalysisDate: "2026-08-04",
         al2o3: "31,8",
@@ -1700,6 +1716,10 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         },
       );
 
+      assert.equal(draftResponse.status, 200);
+      assert.deepEqual(await draftResponse.json(), {
+        laboratoryAnalysisNumber: "44",
+      });
       assert.equal(invalidProtocolResponse.status, 400);
       assert.equal(emptyProtocolResponse.status, 404);
       assert.deepEqual(await emptyProtocolResponse.json(), {
@@ -1785,6 +1805,10 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         {
           label: "Код лабораторной пробы",
           value: "ЛП-2026-017 → ЛП-2026-017",
+        },
+        {
+          label: "Номер лабораторного анализа",
+          value: "— → 45",
         },
         {
           label: "Дата хим. анализа",
