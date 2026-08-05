@@ -85,6 +85,42 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const unshapedProductSampleCorrections = [];
   const unshapedProductSampleRequests = [];
   let unshapedProductSampleDraftRequests = 0;
+  const rawMaterialQualitySubmissions = [];
+  const rawMaterialQualityCorrections = [];
+  const rawMaterialQualityRequests = [];
+  let rawMaterialQualityDraftRequests = 0;
+  let rawMaterialQualityOptionsRequests = 0;
+  const rawMaterialQualityRecord = {
+    id: "raw-quality-1",
+    recordDate: "2026-08-04",
+    laboratoryAssistant: "Иванова А.А.",
+    shiftSupervisor: "Петров П.П.",
+    shift: "day",
+    clayBrand: "Глина ДН-2",
+    clayMoisture: "8,4",
+    clayGrainComposition: "0–2 мм",
+    disintegratorNumber: "1",
+    temperMoisture: "1,2",
+    temperGrainComposition: "0–3 мм",
+    temperSieveResidue1: "0,1",
+    temperSieveResidue2: "0,3",
+    temperSieveResidue3: "0,5",
+    temperSievePass05: "12,6",
+    temperBrand: "Шамот ШКИ-44",
+    temperBulkDensity: "1,18",
+    slipMixerNumber: "3",
+    slipTemperature: "28",
+    slipDensity: "1,64",
+    runnerNumber: "2",
+    chargeChamottePercentage: "70",
+    chargeClayPercentage: "30",
+    chargeResidue0063: "4,1",
+    chargeMoisture: "6,8",
+    elutriationCoefficient: "0,83",
+    recommendationRecipient: "batch_operator",
+    recommendationText: "Снизить подачу глины.",
+    createdAt: "2026-08-04T08:30:00.000Z",
+  };
   const protocolPreview = {
     opener: {},
     document: { title: "" },
@@ -568,6 +604,52 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             createdAt: "2026-07-21T08:30:00.000Z",
           }],
         });
+      }
+      if (url.pathname === "/api/laboratory/raw-material-quality-draft") {
+        rawMaterialQualityDraftRequests += 1;
+        return jsonResponse({ recordDate: "2026-08-05" });
+      }
+      if (url.pathname === "/api/laboratory/raw-material-quality-options") {
+        rawMaterialQualityOptionsRequests += 1;
+        return jsonResponse({
+          options: {
+            laboratoryAssistants: ["Иванова А.А."],
+            shiftSupervisors: ["Петров П.П."],
+            clayBrands: ["Глина ДН-2"],
+            temperBrands: ["Шамот ШКИ-44"],
+            slipMixerNumbers: ["3"],
+            runnerNumbers: ["2"],
+          },
+        });
+      }
+      if (
+        url.pathname.startsWith("/api/laboratory/raw-material-quality-journal/") &&
+        init.method === "PATCH"
+      ) {
+        const submission = JSON.parse(String(init.body));
+        rawMaterialQualityCorrections.push(submission);
+        return jsonResponse({
+          record: {
+            id: url.pathname.split("/").at(-1),
+            ...submission,
+            createdAt: rawMaterialQualityRecord.createdAt,
+          },
+        });
+      }
+      if (url.pathname === "/api/laboratory/raw-material-quality-journal") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          rawMaterialQualitySubmissions.push(submission);
+          return jsonResponse({
+            record: {
+              id: "raw-quality-created",
+              ...submission,
+              createdAt: "2026-08-05T08:30:00.000Z",
+            },
+          }, 201);
+        }
+        rawMaterialQualityRequests.push(Object.fromEntries(url.searchParams));
+        return jsonResponse({ records: [rawMaterialQualityRecord] });
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
     };
@@ -1559,6 +1641,136 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       false,
     );
     assert.ok(unshapedProductSampleRequests.length > 0);
+
+    const refractoryShopTab = findTabByText("ОЦ (Огнеупорный цех)");
+    assert.ok(refractoryShopTab);
+    await React.act(async () => refractoryShopTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".raw-material-quality-form") !== null
+    );
+    await waitFor(React, () =>
+      rawMaterialQualityDraftRequests === 1 &&
+        rawMaterialQualityOptionsRequests === 1 &&
+        rawMaterialQualityRequests.length > 0
+    );
+    assert.ok(findTabByText(
+      "Качество сырья и соблюдения технологии и качество сырцовой продукции",
+    ));
+    const rawQualityForm = rootElement.querySelector(
+      ".raw-material-quality-form",
+    );
+    assert.ok(rawQualityForm);
+    const runnersSection = Array.from(
+      rawQualityForm.querySelectorAll(".sample-registration-journal-section"),
+    ).find((section) => section.querySelector(":scope > h3")?.textContent === "Бегуны");
+    assert.equal(
+      runnersSection?.querySelector(".raw-material-quality-subsection h4")
+        ?.textContent,
+      "Состав шихты",
+    );
+    const rawQualityHeadings = Array.from(
+      rootElement.querySelectorAll(".raw-material-quality-table th"),
+    );
+    assert.equal(
+      rawQualityHeadings.find((heading) => heading.textContent === "Бегуны")
+        ?.colSpan,
+      8,
+    );
+    assert.equal(
+      rawQualityHeadings.find(
+        (heading) => heading.textContent === "Состав шихты",
+      )?.colSpan,
+      7,
+    );
+    assert.equal(
+      findControlByLabel(rawQualityForm, "Дата").value,
+      "2026-08-05",
+    );
+    const laboratoryAssistantInput = findControlByLabel(
+      rawQualityForm,
+      "Лаборант",
+    );
+    assert.deepEqual(
+      Array.from(laboratoryAssistantInput.list.options, (option) => option.value),
+      ["Иванова А.А."],
+    );
+
+    await React.act(async () => {
+      for (const [label, value] of Object.entries({
+        "Лаборант": "Новая Н.Н.",
+        "Мастер смены": "Петров П.П.",
+        "Марка глины": "Глина ДН-2",
+        "Влажность глины": "8,4",
+        "Зерновой состав глины": "0–2 мм",
+        "Влажность отощителя": "1,2",
+        "Зерновой состав отощителя": "0–3 мм",
+        "Остаток на сите № 1": "0,1",
+        "Остаток на сите № 2": "0,3",
+        "Остаток на сите № 3": "0,5",
+        "Проход ч/з 0,5": "12,6",
+        "Марка отощителя": "Шамот ШКИ-44",
+        "Насыпной вес": "1,18",
+        "№ мешалки": "3",
+        "Температура шликера": "28",
+        "Плотность, гр/см³": "1,64",
+        "№ бегунов": "2",
+        "% шамота": "70",
+        "% глины": "30",
+        "Остаток 0,063": "4,1",
+        "Влажность шихты": "6,8",
+        "Коэффициент отмучивания": "0,83",
+        "Текст рекомендации": "Снизить подачу глины.",
+      })) {
+        const input = findControlByLabel(rawQualityForm, label);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+      for (const [label, value] of [
+        ["Смена", "day"],
+        ["Дезинтегратор №", "1"],
+        ["Адрес рекомендации", "batch_operator"],
+      ]) {
+        const select = findControlByLabel(rawQualityForm, label, "select");
+        setNativeInputValue(select, value);
+        select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      }
+      rawQualityForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => rawMaterialQualitySubmissions.length === 1);
+    assert.equal(rawMaterialQualitySubmissions[0].recordDate, "2026-08-05");
+    assert.equal(rawMaterialQualitySubmissions[0].laboratoryAssistant, "Новая Н.Н.");
+    assert.equal(rawMaterialQualitySubmissions[0].recommendationRecipient, "batch_operator");
+    assert.equal(rawMaterialQualitySubmissions[0].recommendationText, "Снизить подачу глины.");
+
+    const rawQualityEditButton = rootElement.querySelector(
+      ".raw-material-quality-edit-link",
+    );
+    assert.ok(rawQualityEditButton);
+    await React.act(async () => rawQualityEditButton.click());
+    assert.equal(
+      findControlByLabel(rawQualityForm, "Марка глины").value,
+      "Глина ДН-2",
+    );
+    await React.act(async () => {
+      const recommendation = findControlByLabel(
+        rawQualityForm,
+        "Текст рекомендации",
+      );
+      setNativeInputValue(recommendation, "Увеличить время перемешивания.");
+      recommendation.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      rawQualityForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => rawMaterialQualityCorrections.length === 1);
+    assert.equal(
+      rawMaterialQualityCorrections[0].recommendationText,
+      "Увеличить время перемешивания.",
+    );
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;

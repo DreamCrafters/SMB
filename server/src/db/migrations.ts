@@ -2293,6 +2293,82 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "044_laboratory_raw_material_quality_journal",
+    statements: [
+      `
+      create table if not exists laboratory_raw_material_quality_journal (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        record_date date not null,
+        laboratory_assistant varchar(120) not null,
+        shift_supervisor varchar(120) not null,
+        shift_code varchar(20) not null,
+        clay_brand varchar(120) not null,
+        clay_moisture varchar(120) not null,
+        clay_grain_composition varchar(120) not null,
+        disintegrator_number varchar(20) not null,
+        temper_moisture varchar(120) not null,
+        temper_grain_composition varchar(120) not null,
+        temper_sieve_residue_1 varchar(120) not null,
+        temper_sieve_residue_2 varchar(120) not null,
+        temper_sieve_residue_3 varchar(120) not null,
+        temper_sieve_pass_05 varchar(120) not null,
+        temper_brand varchar(120) not null,
+        temper_bulk_density varchar(120) not null,
+        slip_mixer_number varchar(120) not null,
+        slip_temperature varchar(120) not null,
+        slip_density varchar(120) not null,
+        runner_number varchar(120) not null,
+        charge_chamotte_percentage varchar(120) not null,
+        charge_clay_percentage varchar(120) not null,
+        charge_residue_0063 varchar(120) not null,
+        charge_moisture varchar(120) not null,
+        elutriation_coefficient varchar(120) not null,
+        recommendation_recipient varchar(40) not null,
+        recommendation_text text not null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_laboratory_raw_material_quality_id (id),
+        key idx_laboratory_raw_material_quality_date (record_date, sequence_id),
+        key idx_laboratory_raw_material_quality_clay_brand (clay_brand),
+        key idx_laboratory_raw_material_quality_temper_brand (temper_brand),
+        constraint chk_laboratory_raw_material_quality_shift
+          check (shift_code in ('day', 'night')),
+        constraint chk_laboratory_raw_material_quality_disintegrator
+          check (disintegrator_number in ('1', '2')),
+        constraint chk_laboratory_raw_material_quality_recipient
+          check (recommendation_recipient in (
+            'dryer_operator',
+            'runner_operator',
+            'slurry_operator',
+            'batch_operator'
+          ))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_raw_material_quality_revisions (
+        id char(36) not null primary key,
+        raw_material_quality_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_raw_material_quality_revisions_record (
+          raw_material_quality_id,
+          created_at
+        ),
+        constraint fk_laboratory_raw_material_quality_revision_record
+          foreign key (raw_material_quality_id)
+          references laboratory_raw_material_quality_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

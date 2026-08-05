@@ -12,6 +12,7 @@ export const laboratoryReviewJournalIds = [
   "chemical_analysis",
   "unshaped_product_samples",
   "rotary_kiln_2",
+  "raw_material_quality",
 ] as const;
 
 export type LaboratoryReviewJournalId =
@@ -35,16 +36,19 @@ export type LaboratoryReviewJournal = {
 };
 
 /**
- * Search scopes, split into two rows like the laboratory assistant tab: the root
- * row holds `Все испытания` and the `ЦЗЛ` group button, and the central
- * laboratory journals open inside that group.
+ * Search scopes follow the laboratory assistant tab: the root row holds
+ * `Все испытания` plus the `ЦЗЛ` and `ОЦ` group buttons, and each group's
+ * journals open in their own nested row.
  */
 export type LaboratoryReviewViewId =
   | "all"
   | LaboratorySection
   | LaboratoryReviewJournalId;
 
-export type LaboratoryReviewViewGroup = "root" | "central-lab";
+export type LaboratoryReviewViewGroup =
+  | "root"
+  | "central-lab"
+  | "refractory-shop";
 
 export type LaboratoryReviewView = {
   id: LaboratoryReviewViewId;
@@ -100,6 +104,12 @@ const allLaboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
     title: "Журнал контроля параметров обжига вращающейся печи 2",
     dateFilterLabel: "дата записи",
     supportsNameQuery: false,
+  },
+  {
+    id: "raw_material_quality",
+    title: "Журнал контроля качества сырья и соблюдения технологии",
+    dateFilterLabel: "дата записи",
+    supportsNameQuery: true,
   },
 ];
 
@@ -158,6 +168,13 @@ const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
     section: "all",
     group: "central-lab",
   },
+  {
+    id: "raw_material_quality",
+    label: "Качество сырья и соблюдения технологии и качество сырцовой продукции",
+    journal: "raw_material_quality",
+    section: "all",
+    group: "refractory-shop",
+  },
 ];
 
 export const laboratoryReviewViews = allLaboratoryReviewViews.filter(
@@ -174,6 +191,11 @@ export const laboratoryReviewRootViews = laboratoryReviewViews.filter(
 /** Buttons of the nested row, opened from the `ЦЗЛ` button. */
 export const laboratoryReviewCentralLabViews = laboratoryReviewViews.filter(
   (view) => view.group === "central-lab",
+);
+
+/** Buttons of the nested row, opened from the refractory shop group. */
+export const laboratoryReviewRefractoryShopViews = laboratoryReviewViews.filter(
+  (view) => view.group === "refractory-shop",
 );
 
 const nameExclusionReason = "не содержит наименования (номенклатуры)";

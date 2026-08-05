@@ -5065,6 +5065,12 @@ p {
   margin-left: var(--density-4);
 }
 
+.laboratory-refractory-shop-tabs {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 720px;
+  margin-left: var(--density-4);
+}
+
 .laboratory-form,
 .laboratory-history {
   padding: var(--density-4);
@@ -5112,21 +5118,24 @@ p {
 
 .sample-registration-journal,
 .chemical-analysis-journal,
-.unshaped-product-sample-journal {
+.unshaped-product-sample-journal,
+.raw-material-quality-journal {
   display: grid;
   gap: var(--density-5);
 }
 
 .sample-registration-journal-form,
 .chemical-analysis-journal-form,
-.unshaped-product-sample-form {
+.unshaped-product-sample-form,
+.raw-material-quality-form {
   display: grid;
   gap: var(--density-4);
 }
 
 .sample-registration-journal-heading h2,
 .chemical-analysis-journal-heading h2,
-.unshaped-product-sample-form .sample-registration-journal-heading h2 {
+.unshaped-product-sample-form .sample-registration-journal-heading h2,
+.raw-material-quality-form .sample-registration-journal-heading h2 {
   margin: var(--density-1) 0 0;
   font-size: clamp(20px, 2vw, 28px);
 }
@@ -5143,6 +5152,17 @@ p {
   font-size: 16px;
 }
 
+.raw-material-quality-subsection {
+  display: grid;
+  gap: var(--density-3);
+}
+
+.raw-material-quality-subsection h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .sample-registration-journal-table {
   min-width: 2800px;
 }
@@ -5153,6 +5173,15 @@ p {
 
 .unshaped-product-sample-table {
   min-width: 2200px;
+}
+
+.raw-material-quality-table {
+  min-width: 4300px;
+}
+
+.raw-material-quality-table thead th {
+  text-align: center;
+  vertical-align: middle;
 }
 
 .unshaped-product-sample-suitability-no > td {
@@ -5174,6 +5203,12 @@ p {
 .unshaped-product-sample-table th:last-child,
 .unshaped-product-sample-table td:last-child {
   min-width: 260px;
+  white-space: normal;
+}
+
+.raw-material-quality-table th:last-child,
+.raw-material-quality-table td:last-child {
+  min-width: 300px;
   white-space: normal;
 }
 
@@ -5549,7 +5584,8 @@ p {
     grid-template-columns: 1fr;
   }
 
-  .laboratory-central-lab-tabs {
+  .laboratory-central-lab-tabs,
+  .laboratory-refractory-shop-tabs {
     margin-left: 0;
   }
 

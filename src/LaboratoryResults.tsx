@@ -14,7 +14,11 @@ import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2Firin
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
 import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
 import { LaboratoryUnshapedProductSampleJournal } from "./LaboratoryUnshapedProductSampleJournal";
-import { centralLabTabLabel } from "./LaboratoryJournalTables";
+import { LaboratoryRawMaterialQualityJournal } from "./LaboratoryRawMaterialQualityJournal";
+import {
+  centralLabTabLabel,
+  refractoryShopTabLabel,
+} from "./LaboratoryJournalTables";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   laboratorySectionLabels,
@@ -33,7 +37,11 @@ import {
 } from "./useProductionBrands";
 
 type ShowToast = (title: string, message: string) => void;
-type LaboratoryWorkspacePanel = "results" | "banks" | "central-lab";
+type LaboratoryWorkspacePanel =
+  | "results"
+  | "banks"
+  | "central-lab"
+  | "refractory-shop";
 type CentralLabJournalId =
   | "kiln-journal"
   | "sample-registration"
@@ -428,6 +436,18 @@ export function LaboratoryResultsWorkspace({
         >
           {centralLabTabLabel}
         </button>
+        <button
+          aria-selected={activePanel === "refractory-shop"}
+          className={activePanel === "refractory-shop" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("refractory-shop");
+            setFormMessage("");
+          }}
+        >
+          {refractoryShopTabLabel}
+        </button>
       </div>
 
       {activePanel === "central-lab" ? (
@@ -448,6 +468,23 @@ export function LaboratoryResultsWorkspace({
               {journal.label}
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {activePanel === "refractory-shop" ? (
+        <div
+          className="laboratory-section-tabs laboratory-refractory-shop-tabs"
+          role="tablist"
+          aria-label="Журналы огнеупорного цеха"
+        >
+          <button
+            aria-selected="true"
+            className="is-active"
+            role="tab"
+            type="button"
+          >
+            Качество сырья и соблюдения технологии и качество сырцовой продукции
+          </button>
         </div>
       ) : null}
 
@@ -482,6 +519,11 @@ export function LaboratoryResultsWorkspace({
             onShowToast={onShowToast}
           />
         )
+      ) : activePanel === "refractory-shop" ? (
+        <LaboratoryRawMaterialQualityJournal
+          isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
+        />
       ) : (
         <>
       {referenceState.status === "loading" ? (

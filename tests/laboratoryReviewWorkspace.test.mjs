@@ -45,6 +45,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
   const chemicalAnalysisRequests = [];
   const unshapedProductSampleRequests = [];
   const kilnJournalRequests = [];
+  const rawMaterialQualityRequests = [];
 
   try {
     const { LaboratoryReviewWorkspace } = await vite.ssrLoadModule(
@@ -182,6 +183,42 @@ test("laboratory review filters every journal by date and nomenclature", async (
           }],
         });
       }
+      if (url.pathname === "/api/laboratory/raw-material-quality-journal") {
+        rawMaterialQualityRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "raw-quality-1",
+            recordDate: "2026-07-24",
+            laboratoryAssistant: "Иванова А.А.",
+            shiftSupervisor: "Петров П.П.",
+            shift: "day",
+            clayBrand: "Глина ДН-2",
+            clayMoisture: "8,4",
+            clayGrainComposition: "0–2 мм",
+            disintegratorNumber: "1",
+            temperMoisture: "1,2",
+            temperGrainComposition: "0–3 мм",
+            temperSieveResidue1: "0,1",
+            temperSieveResidue2: "0,3",
+            temperSieveResidue3: "0,5",
+            temperSievePass05: "12,6",
+            temperBrand: "Шамот ШКИ-44",
+            temperBulkDensity: "1,18",
+            slipMixerNumber: "3",
+            slipTemperature: "28",
+            slipDensity: "1,64",
+            runnerNumber: "2",
+            chargeChamottePercentage: "70",
+            chargeClayPercentage: "30",
+            chargeResidue0063: "4,1",
+            chargeMoisture: "6,8",
+            elutriationCoefficient: "0,83",
+            recommendationRecipient: "batch_operator",
+            recommendationText: "Снизить подачу глины.",
+            createdAt: "2026-07-24T08:30:00.000Z",
+          }],
+        });
+      }
       throw new Error(`Unexpected request: ${url.pathname}`);
     };
 
@@ -205,6 +242,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readViewTabs(), [
       "Все испытания",
       "ЦЗЛ (Центральная заводская лаборатория)",
+      "ОЦ (Огнеупорный цех)",
     ]);
     assert.equal(
       container.querySelectorAll("[role=\"tablist\"]").length,
@@ -218,6 +256,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "Журнал химических анализов",
       "Пробы неформованной продукции",
       "Журнал контроля параметров обжига вращающейся печи 2",
+      "Журнал контроля качества сырья и соблюдения технологии",
     ]);
 
     // Входящий и выходящий контроль убраны у всех, кто просматривает анализы.
@@ -248,6 +287,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.equal(sampleRegistrationRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(chemicalAnalysisRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(unshapedProductSampleRequests.at(-1)?.dateFrom, "2026-07-21");
+    assert.equal(rawMaterialQualityRequests.at(-1)?.dateFrom, "2026-07-21");
 
     // Only journals with a nomenclature can answer the name filter.
     await React.act(async () => {
@@ -268,10 +308,16 @@ test("laboratory review filters every journal by date and nomenclature", async (
       dateTo: null,
       name: "ШКИ",
     });
+    assert.deepEqual(rawMaterialQualityRequests.at(-1), {
+      dateFrom: "2026-07-21",
+      dateTo: null,
+      name: "ШКИ",
+    });
     assert.deepEqual(readJournalTitles(container), [
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
       "Пробы неформованной продукции",
+      "Журнал контроля качества сырья и соблюдения технологии",
     ]);
     assert.equal(
       container.querySelector(".sample-registration-edit-link"),
@@ -287,6 +333,11 @@ test("laboratory review filters every journal by date and nomenclature", async (
       container.querySelector(".unshaped-product-sample-edit-link"),
       null,
       "Management review must keep unshaped samples read-only.",
+    );
+    assert.equal(
+      container.querySelector(".raw-material-quality-edit-link"),
+      null,
+      "Management review must keep quality records read-only.",
     );
     assert.match(
       container.querySelector(".laboratory-review-excluded-note")?.textContent
@@ -317,6 +368,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readViewTabs(), [
       "Все испытания",
       "ЦЗЛ (Центральная заводская лаборатория)",
+      "ОЦ (Огнеупорный цех)",
       "Регистрация проб",
       "Химические анализы",
       "Пробы неформованной продукции",
@@ -353,6 +405,17 @@ test("laboratory review filters every journal by date and nomenclature", async (
       null,
       "Review tab must not expose any data entry form.",
     );
+    await React.act(async () => {
+      findButtonByText(container, "ОЦ (Огнеупорный цех)").dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => readJournalTitles(container).length === 1);
+    assert.deepEqual(readJournalTitles(container), [
+      "Журнал контроля качества сырья и соблюдения технологии",
+    ]);
+    assert.match(container.textContent, /Шамот ШКИ-44/u);
+    assert.equal(container.querySelector("form"), null);
     assert.deepEqual(
       resultRequests,
       [],

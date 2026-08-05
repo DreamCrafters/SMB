@@ -3,7 +3,11 @@ import {
   laboratorySampleRegistrationFields,
   laboratoryUnshapedProductSampleFields,
   laboratoryUnshapedProductSampleSuitabilityLabels,
+  laboratoryRawMaterialQualityFields,
+  laboratoryRawMaterialQualityRecommendationRecipientLabels,
+  laboratoryRawMaterialQualityShiftLabels,
   type LaboratoryChemicalAnalysisJournalRecord,
+  type LaboratoryRawMaterialQualityRecord,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratoryUnshapedProductSampleRecord,
   type RotaryKiln2FiringJournalRecord,
@@ -21,6 +25,7 @@ import { formatLaboratoryDate } from "./LaboratoryResultsTable";
  * sections.
  */
 export const centralLabTabLabel = "ЦЗЛ (Центральная заводская лаборатория)";
+export const refractoryShopTabLabel = "ОЦ (Огнеупорный цех)";
 
 /**
  * Материал стоит сразу после времени: по нему считается насыпной вес банок.
@@ -226,6 +231,87 @@ export function LaboratoryUnshapedProductSampleTable({
                           ? "—"
                           : field.kind === "date"
                             ? formatLaboratoryDate(value)
+                            : value}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function LaboratoryRawMaterialQualityTable({
+  records,
+  onEditRecord,
+}: {
+  records: LaboratoryRawMaterialQualityRecord[];
+  onEditRecord?: (record: LaboratoryRawMaterialQualityRecord) => void;
+}) {
+  if (records.length === 0) {
+    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
+  }
+
+  return (
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
+      <table className="data-table laboratory-results-table raw-material-quality-table">
+        <thead>
+          <tr>
+            <th rowSpan={3}>Дата</th>
+            <th rowSpan={3}>Лаборант</th>
+            <th rowSpan={3}>Мастер смены</th>
+            <th rowSpan={3}>Смена</th>
+            <th colSpan={4}>Контроль качества глины</th>
+            <th colSpan={8}>Отощитель</th>
+            <th colSpan={3}>Шликер</th>
+            <th colSpan={8}>Бегуны</th>
+          </tr>
+          <tr>
+            {laboratoryRawMaterialQualityFields
+              .filter((field) => field.group === "clay")
+              .map((field) => <th key={field.id} rowSpan={2}>{field.label}</th>)}
+            {laboratoryRawMaterialQualityFields
+              .filter((field) => field.group === "temper")
+              .map((field) => <th key={field.id} rowSpan={2}>{field.label}</th>)}
+            {laboratoryRawMaterialQualityFields
+              .filter((field) => field.group === "slip")
+              .map((field) => <th key={field.id} rowSpan={2}>{field.label}</th>)}
+            <th rowSpan={2}>№ бегунов</th>
+            <th colSpan={7}>Состав шихты</th>
+          </tr>
+          <tr>
+            {laboratoryRawMaterialQualityFields
+              .filter((field) => field.group === "charge")
+              .map((field) => <th key={field.id}>{field.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record) => (
+            <tr key={record.id}>
+              {laboratoryRawMaterialQualityFields.map((field) => {
+                const value = record[field.id];
+                return (
+                  <td key={field.id}>
+                    {field.id === "recordDate" && onEditRecord !== undefined
+                      ? (
+                          <button
+                            className="board-assignment-link raw-material-quality-edit-link"
+                            type="button"
+                            onClick={() => onEditRecord(record)}
+                          >
+                            {formatLaboratoryDate(record.recordDate)}
+                          </button>
+                        )
+                      : field.id === "recordDate"
+                        ? formatLaboratoryDate(record.recordDate)
+                        : field.id === "shift"
+                          ? laboratoryRawMaterialQualityShiftLabels[record.shift]
+                          : field.id === "recommendationRecipient"
+                            ? laboratoryRawMaterialQualityRecommendationRecipientLabels[
+                                record.recommendationRecipient
+                              ]
                             : value}
                   </td>
                 );

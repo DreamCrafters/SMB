@@ -3,6 +3,7 @@ import type {
   LaboratoryChemicalAnalysisJournalRecord,
   LaboratoryIndicatorReference,
   LaboratoryResult,
+  LaboratoryRawMaterialQualityRecord,
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySection,
   LaboratoryUnshapedProductSampleRecord,
@@ -10,9 +11,11 @@ import type {
 } from "./contracts";
 import {
   centralLabTabLabel,
+  refractoryShopTabLabel,
   LaboratoryChemicalAnalysisTable,
   LaboratorySampleRegistrationTable,
   LaboratoryUnshapedProductSampleTable,
+  LaboratoryRawMaterialQualityTable,
   RotaryKiln2FiringTable,
 } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
@@ -30,6 +33,7 @@ import {
   laboratoryReviewCentralLabViews,
   laboratoryReviewJournals,
   laboratoryReviewRootViews,
+  laboratoryReviewRefractoryShopViews,
   laboratoryReviewViews,
   selectLaboratoryReviewJournals,
   type LaboratoryReviewView,
@@ -37,6 +41,7 @@ import {
 import { requestLaboratorySampleRegistrationJournal } from "./services/laboratorySampleRegistrationJournal";
 import { requestRotaryKiln2FiringJournal } from "./services/rotaryKiln2FiringJournal";
 import { requestLaboratoryUnshapedProductSampleJournal } from "./services/laboratoryUnshapedProductSampleJournal";
+import { requestLaboratoryRawMaterialQualityJournal } from "./services/laboratoryRawMaterialQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 
 type ShowToast = (title: string, message: string) => void;
@@ -89,6 +94,7 @@ export function LaboratoryReviewWorkspace({
   };
   const section: LaboratoryTableSection = view.section;
   const isCentralLabGroupOpen = view.group === "central-lab";
+  const isRefractoryShopGroupOpen = view.group === "refractory-shop";
   const { visible, excluded } = useMemo(
     () => selectLaboratoryReviewJournals(view, { isNameFilterEnabled }),
     [isNameFilterEnabled, view],
@@ -156,6 +162,15 @@ export function LaboratoryReviewWorkspace({
         >
           {centralLabTabLabel}
         </button>
+        <button
+          aria-selected={isRefractoryShopGroupOpen}
+          className={isRefractoryShopGroupOpen ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => setView(laboratoryReviewRefractoryShopViews[0])}
+        >
+          {refractoryShopTabLabel}
+        </button>
       </div>
 
       {isCentralLabGroupOpen ? (
@@ -165,6 +180,27 @@ export function LaboratoryReviewWorkspace({
           aria-label="Журналы ЦЗЛ"
         >
           {laboratoryReviewCentralLabViews.map((item) => (
+            <button
+              aria-selected={view.id === item.id}
+              className={view.id === item.id ? "is-active" : ""}
+              key={item.id}
+              role="tab"
+              type="button"
+              onClick={() => setView(item)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {isRefractoryShopGroupOpen ? (
+        <div
+          className="laboratory-section-tabs laboratory-refractory-shop-tabs"
+          role="tablist"
+          aria-label="Журналы огнеупорного цеха"
+        >
+          {laboratoryReviewRefractoryShopViews.map((item) => (
             <button
               aria-selected={view.id === item.id}
               className={view.id === item.id ? "is-active" : ""}
@@ -284,6 +320,8 @@ export function LaboratoryReviewWorkspace({
             <ChemicalAnalysisHistory query={query} />
           ) : journal.id === "unshaped_product_samples" ? (
             <UnshapedProductSampleHistory query={query} />
+          ) : journal.id === "raw_material_quality" ? (
+            <RawMaterialQualityHistory query={query} />
           ) : (
             <RotaryKiln2FiringHistory query={query} />
           )}
@@ -502,6 +540,44 @@ function UnshapedProductSampleHistory({ query }: { query: ReviewQuery }) {
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
       <LaboratoryUnshapedProductSampleTable records={state.records} />
+    </>
+  );
+}
+
+function RawMaterialQualityHistory({ query }: { query: ReviewQuery }) {
+  const [state, setState] = useState<
+    RecordsState<LaboratoryRawMaterialQualityRecord>
+  >({ status: "loading", records: [] });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState((current) => ({ status: "loading", records: current.records }));
+    requestLaboratoryRawMaterialQualityJournal(
+      {
+        ...buildJournalDateFilters(query),
+        ...(query.nameQuery === "" ? {} : { nameQuery: query.nameQuery }),
+      },
+      { signal: controller.signal },
+    ).then((result) => {
+      if (controller.signal.aborted) return;
+      setState((current) => result.status === "ready"
+        ? { status: "ready", records: result.records }
+        : {
+            status: "error",
+            message: readShortUserMessage(
+              result.message,
+              "Не удалось загрузить журнал качества сырья.",
+            ),
+            records: current.records,
+          });
+    });
+    return () => controller.abort();
+  }, [query.dateFrom, query.dateTo, query.nameQuery]);
+
+  return (
+    <>
+      <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
+      <LaboratoryRawMaterialQualityTable records={state.records} />
     </>
   );
 }

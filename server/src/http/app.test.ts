@@ -55,6 +55,7 @@ import {
 } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
 import type { LaboratoryChemicalAnalysisSampleOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
+import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import type {
   BoardAssignment,
   BoardAssignmentCompletion,
@@ -960,6 +961,24 @@ test("laboratory review access reads every journal by name but cannot change lab
       throw new Error("Laboratory review access must not load unshaped sample drafts.");
     },
   };
+  const rawMaterialQualityFilters: Parameters<
+    LaboratoryRawMaterialQualityJournalRepository["list"]
+  >[0][] = [];
+  const rawMaterialQualityJournal: LaboratoryRawMaterialQualityJournalRepository = {
+    async create() {
+      throw new Error("Laboratory review access must not create quality records.");
+    },
+    async update() {
+      throw new Error("Laboratory review access must not correct quality records.");
+    },
+    async list(filters) {
+      rawMaterialQualityFilters.push(filters);
+      return [];
+    },
+    async listOptions() {
+      throw new Error("Laboratory review access must not list form options.");
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -1059,6 +1078,26 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/unshaped-product-sample-journal`,
         { method: "POST", headers, body: JSON.stringify({}) },
       );
+      const rawMaterialQualityResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-journal?name=%D0%A8%D0%B0%D0%BC%D0%BE%D1%82`,
+        { headers },
+      );
+      const rawMaterialQualityDraftResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-draft`,
+        { headers },
+      );
+      const rawMaterialQualityOptionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-options`,
+        { headers },
+      );
+      const rawMaterialQualityCorrectionResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-journal/raw-quality-1`,
+        { method: "PATCH", headers, body: JSON.stringify({}) },
+      );
+      const rawMaterialQualityCreateResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-journal`,
+        { method: "POST", headers, body: JSON.stringify({}) },
+      );
       const kilnJournalCreateResponse = await fetch(
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
         { method: "POST", headers, body: JSON.stringify({}) },
@@ -1093,6 +1132,11 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(unshapedProductSampleDraftResponse.status, 403);
       assert.equal(unshapedProductSampleCorrectionResponse.status, 403);
       assert.equal(unshapedProductSampleCreateResponse.status, 403);
+      assert.equal(rawMaterialQualityResponse.status, 200);
+      assert.equal(rawMaterialQualityDraftResponse.status, 403);
+      assert.equal(rawMaterialQualityOptionsResponse.status, 403);
+      assert.equal(rawMaterialQualityCorrectionResponse.status, 403);
+      assert.equal(rawMaterialQualityCreateResponse.status, 403);
       assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
         dateFrom: "2026-07-01",
@@ -1105,6 +1149,7 @@ test("laboratory review access reads every journal by name but cannot change lab
         { dateFrom: "2026-07-01", query: "П-42" },
       ]);
       assert.deepEqual(unshapedProductSampleFilters, [{ nameQuery: "ШКИ" }]);
+      assert.deepEqual(rawMaterialQualityFilters, [{ nameQuery: "Шамот" }]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -1129,6 +1174,7 @@ test("laboratory review access reads every journal by name but cannot change lab
     sampleRegistrationJournal,
     chemicalAnalysisJournal,
     unshapedProductSampleJournal,
+    rawMaterialQualityJournal,
   );
 });
 
@@ -1835,6 +1881,204 @@ test("unshaped product sample journal drafts, saves, corrects, and filters recor
     undefined,
     undefined,
     () => new Date("2026-08-04T22:30:00.000Z"),
+    undefined,
+    undefined,
+    undefined,
+    journal,
+  );
+});
+
+test("raw material quality journal drafts, lists options, saves, corrects, and filters records", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  type Submission = Parameters<
+    LaboratoryRawMaterialQualityJournalRepository["create"]
+  >[0]["record"];
+  const record: Submission = {
+    recordDate: "2026-08-05",
+    laboratoryAssistant: "Иванова А.А.",
+    shiftSupervisor: "Петров П.П.",
+    shift: "day",
+    clayBrand: "Глина ДН-2",
+    clayMoisture: "8,4",
+    clayGrainComposition: "0–2 мм",
+    disintegratorNumber: "1",
+    temperMoisture: "1,2",
+    temperGrainComposition: "0–3 мм",
+    temperSieveResidue1: "0,1",
+    temperSieveResidue2: "0,3",
+    temperSieveResidue3: "0,5",
+    temperSievePass05: "12,6",
+    temperBrand: "Шамот ШКИ-44",
+    temperBulkDensity: "1,18",
+    slipMixerNumber: "3",
+    slipTemperature: "28",
+    slipDensity: "1,64",
+    runnerNumber: "2",
+    chargeChamottePercentage: "70",
+    chargeClayPercentage: "30",
+    chargeResidue0063: "4,1",
+    chargeMoisture: "6,8",
+    elutriationCoefficient: "0,83",
+    recommendationRecipient: "batch_operator",
+    recommendationText: "Снизить подачу глины.",
+  };
+  let savedInput:
+    | Parameters<LaboratoryRawMaterialQualityJournalRepository["create"]>[0]
+    | undefined;
+  let correctedInput:
+    | Parameters<LaboratoryRawMaterialQualityJournalRepository["update"]>[0]
+    | undefined;
+  let requestedFilters:
+    | Parameters<LaboratoryRawMaterialQualityJournalRepository["list"]>[0]
+    | undefined;
+  const journal: LaboratoryRawMaterialQualityJournalRepository = {
+    async create(input) {
+      savedInput = input;
+      return {
+        id: "raw-quality-1",
+        ...input.record,
+        createdAt: "2026-08-05T08:30:00.000Z",
+      };
+    },
+    async update(input) {
+      correctedInput = input;
+      return {
+        before: record,
+        record: {
+          id: input.id,
+          ...input.record,
+          createdAt: "2026-08-05T08:30:00.000Z",
+        },
+      };
+    },
+    async list(filters) {
+      requestedFilters = filters;
+      return [{
+        id: "raw-quality-1",
+        ...record,
+        createdAt: "2026-08-05T08:30:00.000Z",
+      }];
+    },
+    async listOptions() {
+      return {
+        laboratoryAssistants: ["Иванова А.А."],
+        shiftSupervisors: ["Петров П.П."],
+        clayBrands: ["Глина ДН-2"],
+        temperBrands: ["Шамот ШКИ-44"],
+        slipMixerNumbers: ["3"],
+        runnerNumbers: ["2"],
+      };
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const draftResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-draft`,
+        { headers },
+      );
+      const optionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-options`,
+        { headers },
+      );
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-journal`,
+        { method: "POST", headers, body: JSON.stringify(record) },
+      );
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-journal/raw-quality-1`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            ...record,
+            recommendationText: "Увеличить время перемешивания.",
+          }),
+        },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-journal?dateFrom=2026-08-01&dateTo=2026-08-31&query=Петров&name=Шамот`,
+        { headers },
+      );
+      const invalidFilterResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-quality-journal?dateTo=2026-02-30`,
+        { headers },
+      );
+
+      assert.equal(draftResponse.status, 200);
+      assert.deepEqual(await draftResponse.json(), {
+        recordDate: "2026-08-05",
+      });
+      assert.equal(optionsResponse.status, 200);
+      assert.deepEqual(await optionsResponse.json(), {
+        options: await journal.listOptions(),
+      });
+      assert.equal(createResponse.status, 201);
+      assert.equal(correctionResponse.status, 200);
+      assert.equal(listResponse.status, 200);
+      assert.equal(invalidFilterResponse.status, 400);
+      assert.deepEqual(requestedFilters, {
+        dateFrom: "2026-08-01",
+        dateTo: "2026-08-31",
+        query: "Петров",
+        nameQuery: "Шамот",
+      });
+      assert.equal(savedInput?.submittedByUserId, profile.userId);
+      assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+      assert.equal(correctedInput?.id, "raw-quality-1");
+      assert.equal(correctedInput?.correctedByDisplayName, profile.displayName);
+      assert.equal(auditEvents[0]?.action, "laboratory_raw_material_quality.submit");
+      assert.equal(auditEvents[1]?.action, "laboratory_raw_material_quality.correct");
+      assert.equal(
+        auditEvents[0]?.details?.find(
+          (detail) => detail.label === "Адрес рекомендации",
+        )?.value,
+        "Шихтовщик",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => new Date("2026-08-04T22:30:00.000Z"),
+    undefined,
     undefined,
     undefined,
     undefined,
@@ -9222,6 +9466,8 @@ async function withApiServer(
     LaboratoryChemicalAnalysisJournalRepository,
   laboratoryUnshapedProductSampleJournal?:
     LaboratoryUnshapedProductSampleJournalRepository,
+  laboratoryRawMaterialQualityJournal?:
+    LaboratoryRawMaterialQualityJournalRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -9253,6 +9499,7 @@ async function withApiServer(
     laboratorySampleRegistrationJournal,
     laboratoryChemicalAnalysisJournal,
     laboratoryUnshapedProductSampleJournal,
+    laboratoryRawMaterialQualityJournal,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,
