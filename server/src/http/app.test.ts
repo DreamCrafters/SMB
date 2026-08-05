@@ -56,6 +56,10 @@ import {
 import type { LaboratoryChemicalAnalysisSampleOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
+import {
+  LaboratoryGreenProductQualityWagonUnavailableError,
+  type LaboratoryGreenProductQualityJournalRepository,
+} from "../repositories/laboratoryGreenProductQualityJournalRepository.js";
 import type {
   BoardAssignment,
   BoardAssignmentCompletion,
@@ -979,6 +983,24 @@ test("laboratory review access reads every journal by name but cannot change lab
       throw new Error("Laboratory review access must not list form options.");
     },
   };
+  const greenProductQualityFilters: Parameters<
+    LaboratoryGreenProductQualityJournalRepository["list"]
+  >[0][] = [];
+  const greenProductQualityJournal: LaboratoryGreenProductQualityJournalRepository = {
+    async create() {
+      throw new Error("Laboratory review access must not create green quality records.");
+    },
+    async update() {
+      throw new Error("Laboratory review access must not correct green quality records.");
+    },
+    async list(filters) {
+      greenProductQualityFilters.push(filters);
+      return [];
+    },
+    async listOptions() {
+      throw new Error("Laboratory review access must not list green quality options.");
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -1098,6 +1120,26 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/raw-material-quality-journal`,
         { method: "POST", headers, body: JSON.stringify({}) },
       );
+      const greenProductQualityResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal?name=%D0%A8%D0%9A%D0%A3`,
+        { headers },
+      );
+      const greenProductQualityDraftResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-draft`,
+        { headers },
+      );
+      const greenProductQualityOptionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-options`,
+        { headers },
+      );
+      const greenProductQualityCorrectionResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal/green-quality-1`,
+        { method: "PATCH", headers, body: JSON.stringify({}) },
+      );
+      const greenProductQualityCreateResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal`,
+        { method: "POST", headers, body: JSON.stringify({}) },
+      );
       const kilnJournalCreateResponse = await fetch(
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
         { method: "POST", headers, body: JSON.stringify({}) },
@@ -1137,6 +1179,11 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(rawMaterialQualityOptionsResponse.status, 403);
       assert.equal(rawMaterialQualityCorrectionResponse.status, 403);
       assert.equal(rawMaterialQualityCreateResponse.status, 403);
+      assert.equal(greenProductQualityResponse.status, 200);
+      assert.equal(greenProductQualityDraftResponse.status, 403);
+      assert.equal(greenProductQualityOptionsResponse.status, 403);
+      assert.equal(greenProductQualityCorrectionResponse.status, 403);
+      assert.equal(greenProductQualityCreateResponse.status, 403);
       assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
         dateFrom: "2026-07-01",
@@ -1150,6 +1197,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       ]);
       assert.deepEqual(unshapedProductSampleFilters, [{ nameQuery: "ШКИ" }]);
       assert.deepEqual(rawMaterialQualityFilters, [{ nameQuery: "Шамот" }]);
+      assert.deepEqual(greenProductQualityFilters, [{ nameQuery: "ШКУ" }]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -1175,6 +1223,7 @@ test("laboratory review access reads every journal by name but cannot change lab
     chemicalAnalysisJournal,
     unshapedProductSampleJournal,
     rawMaterialQualityJournal,
+    greenProductQualityJournal,
   );
 });
 
@@ -2078,6 +2127,239 @@ test("raw material quality journal drafts, lists options, saves, corrects, and f
     undefined,
     undefined,
     () => new Date("2026-08-04T22:30:00.000Z"),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    journal,
+  );
+});
+
+test("green product quality journal canonicalizes brands, saves wagon links, corrects, and filters records", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  type Submission = Parameters<
+    LaboratoryGreenProductQualityJournalRepository["create"]
+  >[0]["record"];
+  const record: Submission = {
+    recordDate: "2026-08-05",
+    pressNumber: "3",
+    productBrand: "ШКУ-32",
+    setter: "Иванов И.И.",
+    pressOperator: "Петров П.П.",
+    wagonIds: ["wagon-2", "wagon-1"],
+    lengthFirst: "230,5",
+    lengthSecond: "231",
+    widthFirst: "114",
+    widthSecond: "114",
+    heightFirst: "64",
+    heightSecond: "63,8",
+    weight: "3,4",
+    mechanicalStrength: "42.5",
+    density: "2,11",
+    pressOperatorRecommendations: "Проверить давление прессования.",
+  };
+  const wagons = [
+    { id: "wagon-2", number: "В-02" },
+    { id: "wagon-1", number: "В-01" },
+  ];
+  let savedInput:
+    | Parameters<LaboratoryGreenProductQualityJournalRepository["create"]>[0]
+    | undefined;
+  let correctedInput:
+    | Parameters<LaboratoryGreenProductQualityJournalRepository["update"]>[0]
+    | undefined;
+  let requestedFilters:
+    | Parameters<LaboratoryGreenProductQualityJournalRepository["list"]>[0]
+    | undefined;
+  const journal: LaboratoryGreenProductQualityJournalRepository = {
+    async create(input) {
+      if (input.record.wagonIds.includes("missing-wagon")) {
+        throw new LaboratoryGreenProductQualityWagonUnavailableError();
+      }
+      savedInput = input;
+      return {
+        id: "green-quality-1",
+        ...input.record,
+        wagons,
+        createdAt: "2026-08-05T08:30:00.000Z",
+      };
+    },
+    async update(input) {
+      correctedInput = input;
+      return {
+        before: { ...record, wagons },
+        record: {
+          id: input.id,
+          ...input.record,
+          wagons,
+          createdAt: "2026-08-05T08:30:00.000Z",
+        },
+      };
+    },
+    async list(filters) {
+      requestedFilters = filters;
+      return [{
+        id: "green-quality-1",
+        ...record,
+        wagons,
+        createdAt: "2026-08-05T08:30:00.000Z",
+      }];
+    },
+    async listOptions() {
+      return {
+        setters: ["Иванов И.И."],
+        pressOperators: ["Петров П.П."],
+        wagons,
+      };
+    },
+  };
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["ШКУ-32"];
+    },
+    async create(label, commitCreated) {
+      await commitCreated(label);
+      return { label, created: true };
+    },
+    async resolveReferences(references) {
+      return {
+        ok: true,
+        references: references.map((reference) => ({
+          ...reference,
+          label: "ШКУ-32",
+        })),
+      };
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const draftResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-draft`,
+        { headers },
+      );
+      const optionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-options`,
+        { headers },
+      );
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ ...record, productBrand: " шку-32 " }),
+        },
+      );
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal/green-quality-1`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            ...record,
+            productBrand: "шку-32",
+            lengthSecond: "232",
+          }),
+        },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal?dateFrom=2026-08-01&dateTo=2026-08-31&query=Петров&name=ШКУ`,
+        { headers },
+      );
+      const invalidResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ ...record, pressNumber: "9" }),
+        },
+      );
+      const missingWagonResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ ...record, wagonIds: ["missing-wagon"] }),
+        },
+      );
+
+      assert.equal(draftResponse.status, 200);
+      assert.deepEqual(await draftResponse.json(), { recordDate: "2026-08-05" });
+      assert.equal(optionsResponse.status, 200);
+      assert.deepEqual(await optionsResponse.json(), {
+        options: await journal.listOptions(),
+      });
+      assert.equal(createResponse.status, 201);
+      assert.equal(correctionResponse.status, 200);
+      assert.equal(listResponse.status, 200);
+      assert.equal(invalidResponse.status, 400);
+      assert.equal(missingWagonResponse.status, 400);
+      assert.deepEqual(await missingWagonResponse.json(), {
+        error: {
+          code: "invalid_response",
+          message: "Один или несколько выбранных вагонов отсутствуют в журнале вагонов.",
+        },
+      });
+      assert.equal(savedInput?.record.productBrand, "ШКУ-32");
+      assert.equal(correctedInput?.record.productBrand, "ШКУ-32");
+      assert.equal(correctedInput?.correctedByDisplayName, profile.displayName);
+      assert.deepEqual(requestedFilters, {
+        dateFrom: "2026-08-01",
+        dateTo: "2026-08-31",
+        query: "Петров",
+        nameQuery: "ШКУ",
+      });
+      assert.equal(auditEvents[0]?.action, "laboratory_green_product_quality.submit");
+      assert.equal(auditEvents[1]?.action, "laboratory_green_product_quality.correct");
+      assert.equal(auditEvents.length, 2);
+      assert.equal(
+        auditEvents[0]?.details?.find((detail) => detail.label === "№№ вагонов")?.value,
+        "В-02; В-01",
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    undefined,
+    productionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => new Date("2026-08-04T22:30:00.000Z"),
+    undefined,
     undefined,
     undefined,
     undefined,
@@ -9468,6 +9750,8 @@ async function withApiServer(
     LaboratoryUnshapedProductSampleJournalRepository,
   laboratoryRawMaterialQualityJournal?:
     LaboratoryRawMaterialQualityJournalRepository,
+  laboratoryGreenProductQualityJournal?:
+    LaboratoryGreenProductQualityJournalRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -9500,6 +9784,7 @@ async function withApiServer(
     laboratoryChemicalAnalysisJournal,
     laboratoryUnshapedProductSampleJournal,
     laboratoryRawMaterialQualityJournal,
+    laboratoryGreenProductQualityJournal,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,

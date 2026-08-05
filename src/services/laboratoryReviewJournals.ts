@@ -13,6 +13,7 @@ export const laboratoryReviewJournalIds = [
   "unshaped_product_samples",
   "rotary_kiln_2",
   "raw_material_quality",
+  "green_product_quality",
 ] as const;
 
 export type LaboratoryReviewJournalId =
@@ -111,6 +112,12 @@ const allLaboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
     dateFilterLabel: "дата записи",
     supportsNameQuery: true,
   },
+  {
+    id: "green_product_quality",
+    title: "Журнал контроля качества сырцовой продукции",
+    dateFilterLabel: "дата контроля сырца",
+    supportsNameQuery: true,
+  },
 ];
 
 export const laboratoryReviewJournals = allLaboratoryReviewJournals.filter(
@@ -172,6 +179,13 @@ const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
     id: "raw_material_quality",
     label: "Качество сырья и соблюдения технологии и качество сырцовой продукции",
     journal: "raw_material_quality",
+    section: "all",
+    group: "refractory-shop",
+  },
+  {
+    id: "green_product_quality",
+    label: "Качество сырцовой продукции",
+    journal: "green_product_quality",
     section: "all",
     group: "refractory-shop",
   },

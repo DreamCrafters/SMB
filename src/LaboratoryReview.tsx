@@ -4,6 +4,7 @@ import type {
   LaboratoryIndicatorReference,
   LaboratoryResult,
   LaboratoryRawMaterialQualityRecord,
+  LaboratoryGreenProductQualityRecord,
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySection,
   LaboratoryUnshapedProductSampleRecord,
@@ -16,6 +17,7 @@ import {
   LaboratorySampleRegistrationTable,
   LaboratoryUnshapedProductSampleTable,
   LaboratoryRawMaterialQualityTable,
+  LaboratoryGreenProductQualityTable,
   RotaryKiln2FiringTable,
 } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
@@ -42,6 +44,7 @@ import { requestLaboratorySampleRegistrationJournal } from "./services/laborator
 import { requestRotaryKiln2FiringJournal } from "./services/rotaryKiln2FiringJournal";
 import { requestLaboratoryUnshapedProductSampleJournal } from "./services/laboratoryUnshapedProductSampleJournal";
 import { requestLaboratoryRawMaterialQualityJournal } from "./services/laboratoryRawMaterialQualityJournal";
+import { requestLaboratoryGreenProductQualityJournal } from "./services/laboratoryGreenProductQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 
 type ShowToast = (title: string, message: string) => void;
@@ -322,6 +325,8 @@ export function LaboratoryReviewWorkspace({
             <UnshapedProductSampleHistory query={query} />
           ) : journal.id === "raw_material_quality" ? (
             <RawMaterialQualityHistory query={query} />
+          ) : journal.id === "green_product_quality" ? (
+            <GreenProductQualityHistory query={query} />
           ) : (
             <RotaryKiln2FiringHistory query={query} />
           )}
@@ -578,6 +583,44 @@ function RawMaterialQualityHistory({ query }: { query: ReviewQuery }) {
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
       <LaboratoryRawMaterialQualityTable records={state.records} />
+    </>
+  );
+}
+
+function GreenProductQualityHistory({ query }: { query: ReviewQuery }) {
+  const [state, setState] = useState<
+    RecordsState<LaboratoryGreenProductQualityRecord>
+  >({ status: "loading", records: [] });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState((current) => ({ status: "loading", records: current.records }));
+    requestLaboratoryGreenProductQualityJournal(
+      {
+        ...buildJournalDateFilters(query),
+        ...(query.nameQuery === "" ? {} : { nameQuery: query.nameQuery }),
+      },
+      { signal: controller.signal },
+    ).then((result) => {
+      if (controller.signal.aborted) return;
+      setState((current) => result.status === "ready"
+        ? { status: "ready", records: result.records }
+        : {
+            status: "error",
+            message: readShortUserMessage(
+              result.message,
+              "Не удалось загрузить журнал качества сырцовой продукции.",
+            ),
+            records: current.records,
+          });
+    });
+    return () => controller.abort();
+  }, [query.dateFrom, query.dateTo, query.nameQuery]);
+
+  return (
+    <>
+      <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
+      <LaboratoryGreenProductQualityTable records={state.records} />
     </>
   );
 }

@@ -15,6 +15,7 @@ import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrat
 import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
 import { LaboratoryUnshapedProductSampleJournal } from "./LaboratoryUnshapedProductSampleJournal";
 import { LaboratoryRawMaterialQualityJournal } from "./LaboratoryRawMaterialQualityJournal";
+import { LaboratoryGreenProductQualityJournal } from "./LaboratoryGreenProductQualityJournal";
 import {
   centralLabTabLabel,
   refractoryShopTabLabel,
@@ -47,6 +48,9 @@ type CentralLabJournalId =
   | "sample-registration"
   | "chemical-analysis"
   | "unshaped-product-samples";
+type RefractoryShopJournalId =
+  | "raw-material-quality"
+  | "green-product-quality";
 
 type ReferenceState =
   | { status: "loading" }
@@ -104,6 +108,20 @@ const centralLabJournals: readonly {
   { id: "unshaped-product-samples", label: "Пробы неформованной продукции" },
 ];
 
+const refractoryShopJournals: readonly {
+  id: RefractoryShopJournalId;
+  label: string;
+}[] = [
+  {
+    id: "raw-material-quality",
+    label: "Качество сырья и соблюдение технологии",
+  },
+  {
+    id: "green-product-quality",
+    label: "Качество сырцовой продукции",
+  },
+];
+
 const incomingPurpose = "Определение химического состава и свойств";
 const maxIncomingSamples = 100;
 let nextSampleKey = 1;
@@ -126,6 +144,8 @@ export function LaboratoryResultsWorkspace({
   const [centralLabJournal, setCentralLabJournal] = useState<CentralLabJournalId>(
     centralLabJournals[0].id,
   );
+  const [refractoryShopJournal, setRefractoryShopJournal] =
+    useState<RefractoryShopJournalId>(refractoryShopJournals[0].id);
   const [referenceState, setReferenceState] = useState<ReferenceState>({
     status: "loading",
   });
@@ -472,20 +492,40 @@ export function LaboratoryResultsWorkspace({
       ) : null}
 
       {activePanel === "refractory-shop" ? (
-        <div
-          className="laboratory-section-tabs laboratory-refractory-shop-tabs"
-          role="tablist"
-          aria-label="Журналы огнеупорного цеха"
-        >
-          <button
-            aria-selected="true"
-            className="is-active"
-            role="tab"
-            type="button"
+        <>
+          <div
+            className="laboratory-section-tabs laboratory-refractory-shop-tabs"
+            role="tablist"
+            aria-label="Разделы огнеупорного цеха"
           >
-            Качество сырья и соблюдения технологии и качество сырцовой продукции
-          </button>
-        </div>
+            <button
+              aria-selected="true"
+              className="is-active"
+              role="tab"
+              type="button"
+            >
+              Качество сырья и соблюдения технологии и качество сырцовой продукции
+            </button>
+          </div>
+          <div
+            className="laboratory-section-tabs laboratory-refractory-journal-tabs"
+            role="tablist"
+            aria-label="Журналы контроля качества огнеупорного цеха"
+          >
+            {refractoryShopJournals.map((journal) => (
+              <button
+                aria-selected={refractoryShopJournal === journal.id}
+                className={refractoryShopJournal === journal.id ? "is-active" : ""}
+                key={journal.id}
+                role="tab"
+                type="button"
+                onClick={() => setRefractoryShopJournal(journal.id)}
+              >
+                {journal.label}
+              </button>
+            ))}
+          </div>
+        </>
       ) : null}
 
       {activePanel === "banks" ? (
@@ -520,10 +560,17 @@ export function LaboratoryResultsWorkspace({
           />
         )
       ) : activePanel === "refractory-shop" ? (
-        <LaboratoryRawMaterialQualityJournal
-          isAdminPreviewMode={isAdminPreviewMode}
-          onShowToast={onShowToast}
-        />
+        refractoryShopJournal === "raw-material-quality" ? (
+          <LaboratoryRawMaterialQualityJournal
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        ) : (
+          <LaboratoryGreenProductQualityJournal
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        )
       ) : (
         <>
       {referenceState.status === "loading" ? (

@@ -46,6 +46,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
   const unshapedProductSampleRequests = [];
   const kilnJournalRequests = [];
   const rawMaterialQualityRequests = [];
+  const greenProductQualityRequests = [];
 
   try {
     const { LaboratoryReviewWorkspace } = await vite.ssrLoadModule(
@@ -219,6 +220,35 @@ test("laboratory review filters every journal by date and nomenclature", async (
           }],
         });
       }
+      if (url.pathname === "/api/laboratory/green-product-quality-journal") {
+        greenProductQualityRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "green-quality-1",
+            recordDate: "2026-07-25",
+            pressNumber: "3",
+            productBrand: "ШКИ-66",
+            setter: "Иванов И.И.",
+            pressOperator: "Петров П.П.",
+            wagonIds: ["wagon-1", "wagon-2"],
+            wagons: [
+              { id: "wagon-1", number: "В-01" },
+              { id: "wagon-2", number: "В-02" },
+            ],
+            lengthFirst: "230",
+            lengthSecond: "231",
+            widthFirst: "114",
+            widthSecond: "114",
+            heightFirst: "64",
+            heightSecond: "64",
+            weight: "3,4",
+            mechanicalStrength: "42,5",
+            density: "2,11",
+            pressOperatorRecommendations: "Проверить давление.",
+            createdAt: "2026-07-25T08:30:00.000Z",
+          }],
+        });
+      }
       throw new Error(`Unexpected request: ${url.pathname}`);
     };
 
@@ -257,6 +287,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "Пробы неформованной продукции",
       "Журнал контроля параметров обжига вращающейся печи 2",
       "Журнал контроля качества сырья и соблюдения технологии",
+      "Журнал контроля качества сырцовой продукции",
     ]);
 
     // Входящий и выходящий контроль убраны у всех, кто просматривает анализы.
@@ -288,6 +319,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.equal(chemicalAnalysisRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(unshapedProductSampleRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(rawMaterialQualityRequests.at(-1)?.dateFrom, "2026-07-21");
+    assert.equal(greenProductQualityRequests.at(-1)?.dateFrom, "2026-07-21");
 
     // Only journals with a nomenclature can answer the name filter.
     await React.act(async () => {
@@ -313,11 +345,17 @@ test("laboratory review filters every journal by date and nomenclature", async (
       dateTo: null,
       name: "ШКИ",
     });
+    assert.deepEqual(greenProductQualityRequests.at(-1), {
+      dateFrom: "2026-07-21",
+      dateTo: null,
+      name: "ШКИ",
+    });
     assert.deepEqual(readJournalTitles(container), [
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
       "Пробы неформованной продукции",
       "Журнал контроля качества сырья и соблюдения технологии",
+      "Журнал контроля качества сырцовой продукции",
     ]);
     assert.equal(
       container.querySelector(".sample-registration-edit-link"),
@@ -338,6 +376,11 @@ test("laboratory review filters every journal by date and nomenclature", async (
       container.querySelector(".raw-material-quality-edit-link"),
       null,
       "Management review must keep quality records read-only.",
+    );
+    assert.equal(
+      container.querySelector(".green-product-quality-edit-link"),
+      null,
+      "Management review must keep green product quality records read-only.",
     );
     assert.match(
       container.querySelector(".laboratory-review-excluded-note")?.textContent
@@ -415,6 +458,17 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "Журнал контроля качества сырья и соблюдения технологии",
     ]);
     assert.match(container.textContent, /Шамот ШКИ-44/u);
+    assert.equal(container.querySelector("form"), null);
+    assert.ok(findButtonByText(container, "Качество сырцовой продукции"));
+    await React.act(async () => {
+      findButtonByText(container, "Качество сырцовой продукции").dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => readJournalTitles(container)[0] ===
+      "Журнал контроля качества сырцовой продукции");
+    assert.match(container.textContent, /В-01; В-02/u);
+    assert.equal(container.querySelector(".green-product-quality-edit-link"), null);
     assert.equal(container.querySelector("form"), null);
     assert.deepEqual(
       resultRequests,

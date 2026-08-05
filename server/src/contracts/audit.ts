@@ -33,6 +33,8 @@ export const auditEventActions = [
   "laboratory_unshaped_product_sample.correct",
   "laboratory_raw_material_quality.submit",
   "laboratory_raw_material_quality.correct",
+  "laboratory_green_product_quality.submit",
+  "laboratory_green_product_quality.correct",
   "laboratory_chemical_analysis.submit",
   "laboratory_chemical_analysis.correct",
   "board_assignment.create",
@@ -77,6 +79,7 @@ export const auditTargetTypes = [
   "laboratory_sample_registration",
   "laboratory_unshaped_product_sample",
   "laboratory_raw_material_quality",
+  "laboratory_green_product_quality",
   "laboratory_chemical_analysis",
   "board_assignment",
 ] as const;

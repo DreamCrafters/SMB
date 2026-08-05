@@ -5071,6 +5071,12 @@ p {
   margin-left: var(--density-4);
 }
 
+.laboratory-refractory-journal-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 900px;
+  margin-left: calc(var(--density-4) * 2);
+}
+
 .laboratory-form,
 .laboratory-history {
   padding: var(--density-4);
@@ -5119,7 +5125,8 @@ p {
 .sample-registration-journal,
 .chemical-analysis-journal,
 .unshaped-product-sample-journal,
-.raw-material-quality-journal {
+.raw-material-quality-journal,
+.green-product-quality-journal {
   display: grid;
   gap: var(--density-5);
 }
@@ -5127,7 +5134,8 @@ p {
 .sample-registration-journal-form,
 .chemical-analysis-journal-form,
 .unshaped-product-sample-form,
-.raw-material-quality-form {
+.raw-material-quality-form,
+.green-product-quality-form {
   display: grid;
   gap: var(--density-4);
 }
@@ -5135,7 +5143,8 @@ p {
 .sample-registration-journal-heading h2,
 .chemical-analysis-journal-heading h2,
 .unshaped-product-sample-form .sample-registration-journal-heading h2,
-.raw-material-quality-form .sample-registration-journal-heading h2 {
+.raw-material-quality-form .sample-registration-journal-heading h2,
+.green-product-quality-form .sample-registration-journal-heading h2 {
   margin: var(--density-1) 0 0;
   font-size: clamp(20px, 2vw, 28px);
 }
@@ -5179,7 +5188,12 @@ p {
   min-width: 4300px;
 }
 
-.raw-material-quality-table thead th {
+.green-product-quality-table {
+  min-width: 2500px;
+}
+
+.raw-material-quality-table thead th,
+.green-product-quality-table thead th {
   text-align: center;
   vertical-align: middle;
 }
@@ -5207,9 +5221,77 @@ p {
 }
 
 .raw-material-quality-table th:last-child,
-.raw-material-quality-table td:last-child {
+.raw-material-quality-table td:last-child,
+.green-product-quality-table th:last-child,
+.green-product-quality-table td:last-child {
   min-width: 300px;
   white-space: normal;
+}
+
+.green-product-quality-wagons {
+  min-width: 0;
+  margin: 0;
+  padding: var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.green-product-quality-wagons legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.green-product-quality-wagon-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.green-product-quality-wagon-options label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+.green-product-quality-wagon-options input {
+  width: auto;
+  min-height: auto;
+  margin: 0;
+}
+
+.green-product-quality-wagon-summary {
+  margin: var(--density-2) 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.green-product-quality-dimensions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--density-3);
+}
+
+.green-product-quality-dimension-pair {
+  display: grid;
+  gap: var(--density-2);
+  min-width: 0;
+  padding: var(--density-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+.green-product-quality-dimension-pair h4 {
+  margin: 0;
+  font-size: 14px;
 }
 
 .laboratory-banks {
@@ -5585,8 +5667,14 @@ p {
   }
 
   .laboratory-central-lab-tabs,
-  .laboratory-refractory-shop-tabs {
+  .laboratory-refractory-shop-tabs,
+  .laboratory-refractory-journal-tabs {
     margin-left: 0;
+  }
+
+  .laboratory-refractory-journal-tabs,
+  .green-product-quality-dimensions {
+    grid-template-columns: 1fr;
   }
 
   .laboratory-field-wide {

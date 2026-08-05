@@ -109,6 +109,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "042_unshaped_product_sample_journal",
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
+    "045_laboratory_green_product_quality_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -175,6 +176,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "042_unshaped_product_sample_journal",
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
+    "045_laboratory_green_product_quality_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -244,6 +246,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "042_unshaped_product_sample_journal",
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
+    "045_laboratory_green_product_quality_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -315,6 +318,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "042_unshaped_product_sample_journal",
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
+    "045_laboratory_green_product_quality_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -382,6 +386,7 @@ test("kiln material migration adds the produced material and the journal density
     "042_unshaped_product_sample_journal",
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
+    "045_laboratory_green_product_quality_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1757,6 +1762,64 @@ test("raw material quality migration creates the editable refractory journal", a
   );
   assert.equal(
     statements[2],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("green product quality migration creates the wagon-linked editable journal", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "045_laboratory_green_product_quality_journal" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 5);
+  assert.match(statements[0] ?? "", /create table if not exists refractory_wagons/u);
+  assert.match(statements[0] ?? "", /unique key uq_refractory_wagons_number/u);
+  assert.match(
+    statements[1] ?? "",
+    /create table if not exists laboratory_green_product_quality_journal/u,
+  );
+  assert.match(statements[1] ?? "", /check \(press_number in \('1', '2', '3', '4', '5', '6', '7', '8'\)\)/u);
+  assert.match(
+    statements[2] ?? "",
+    /create table if not exists laboratory_green_product_quality_wagons/u,
+  );
+  assert.match(
+    statements[2] ?? "",
+    /foreign key \(wagon_id\)[\s\S]+references refractory_wagons \(id\)/u,
+  );
+  assert.match(
+    statements[3] ?? "",
+    /create table if not exists laboratory_green_product_quality_revisions/u,
+  );
+  assert.match(statements[3] ?? "", /before_snapshot json not null/u);
+  assert.match(statements[3] ?? "", /after_snapshot json not null/u);
+  assert.equal(
+    statements[4],
     "insert into schema_migrations (id) values (?)",
   );
 });

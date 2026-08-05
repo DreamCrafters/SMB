@@ -121,6 +121,36 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     recommendationText: "Снизить подачу глины.",
     createdAt: "2026-08-04T08:30:00.000Z",
   };
+  const greenProductQualitySubmissions = [];
+  const greenProductQualityCorrections = [];
+  const greenProductQualityRequests = [];
+  let greenProductQualityDraftRequests = 0;
+  let greenProductQualityOptionsRequests = 0;
+  const greenProductQualityWagons = [
+    { id: "wagon-1", number: "В-01" },
+    { id: "wagon-2", number: "В-02" },
+  ];
+  const greenProductQualityRecord = {
+    id: "green-quality-1",
+    recordDate: "2026-08-04",
+    pressNumber: "3",
+    productBrand: "ШКИ-66",
+    setter: "Иванов И.И.",
+    pressOperator: "Петров П.П.",
+    wagonIds: ["wagon-1", "wagon-2"],
+    wagons: greenProductQualityWagons,
+    lengthFirst: "230",
+    lengthSecond: "231",
+    widthFirst: "114",
+    widthSecond: "114",
+    heightFirst: "64",
+    heightSecond: "64",
+    weight: "3,4",
+    mechanicalStrength: "42,5",
+    density: "2,11",
+    pressOperatorRecommendations: "Проверить давление прессования.",
+    createdAt: "2026-08-04T09:30:00.000Z",
+  };
   const protocolPreview = {
     opener: {},
     document: { title: "" },
@@ -650,6 +680,55 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         }
         rawMaterialQualityRequests.push(Object.fromEntries(url.searchParams));
         return jsonResponse({ records: [rawMaterialQualityRecord] });
+      }
+      if (url.pathname === "/api/laboratory/green-product-quality-draft") {
+        greenProductQualityDraftRequests += 1;
+        return jsonResponse({ recordDate: "2026-08-05" });
+      }
+      if (url.pathname === "/api/laboratory/green-product-quality-options") {
+        greenProductQualityOptionsRequests += 1;
+        return jsonResponse({
+          options: {
+            setters: ["Иванов И.И."],
+            pressOperators: ["Петров П.П."],
+            wagons: greenProductQualityWagons,
+          },
+        });
+      }
+      if (
+        url.pathname.startsWith("/api/laboratory/green-product-quality-journal/") &&
+        init.method === "PATCH"
+      ) {
+        const submission = JSON.parse(String(init.body));
+        greenProductQualityCorrections.push(submission);
+        return jsonResponse({
+          record: {
+            id: url.pathname.split("/").at(-1),
+            ...submission,
+            wagons: greenProductQualityWagons.filter((wagon) =>
+              submission.wagonIds.includes(wagon.id)
+            ),
+            createdAt: greenProductQualityRecord.createdAt,
+          },
+        });
+      }
+      if (url.pathname === "/api/laboratory/green-product-quality-journal") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          greenProductQualitySubmissions.push(submission);
+          return jsonResponse({
+            record: {
+              id: "green-quality-created",
+              ...submission,
+              wagons: greenProductQualityWagons.filter((wagon) =>
+                submission.wagonIds.includes(wagon.id)
+              ),
+              createdAt: "2026-08-05T09:30:00.000Z",
+            },
+          }, 201);
+        }
+        greenProductQualityRequests.push(Object.fromEntries(url.searchParams));
+        return jsonResponse({ records: [greenProductQualityRecord] });
       }
       throw new Error(`Unexpected request: ${url.pathname}`);
     };
@@ -1770,6 +1849,126 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.equal(
       rawMaterialQualityCorrections[0].recommendationText,
       "Увеличить время перемешивания.",
+    );
+
+    const greenQualityTab = findTabByText("Качество сырцовой продукции");
+    assert.ok(greenQualityTab);
+    await React.act(async () => greenQualityTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".green-product-quality-form") !== null
+    );
+    await waitFor(React, () =>
+      greenProductQualityDraftRequests === 1 &&
+        greenProductQualityOptionsRequests === 1 &&
+        greenProductQualityRequests.length > 0
+    );
+    const greenQualityForm = rootElement.querySelector(
+      ".green-product-quality-form",
+    );
+    assert.equal(
+      findControlByLabel(greenQualityForm, "Дата").value,
+      "2026-08-05",
+    );
+    assert.deepEqual(
+      Array.from(
+        findControlByLabel(greenQualityForm, "№ пресса", "select").options,
+        (option) => option.value,
+      ),
+      ["", "1", "2", "3", "4", "5", "6", "7", "8"],
+    );
+
+    await React.act(async () => {
+      for (const [label, value] of Object.entries({
+        "Марка изделия": "ШКИ-66",
+        "Садчик": "Новый Н.Н.",
+        "Прессовщик": "Петров П.П.",
+        "Длина 1": "230",
+        "Ширина 1": "114",
+        "Высота 1": "64",
+        "Вес": "3,4",
+        "Механическая прочность": "42,5",
+        "Плотность": "2,11",
+        "Рекомендации прессовщику": "Проверить давление прессования.",
+      })) {
+        const input = findControlByLabel(greenQualityForm, label);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+      const press = findControlByLabel(greenQualityForm, "№ пресса", "select");
+      setNativeInputValue(press, "3");
+      press.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      for (const wagonId of ["wagon-1", "wagon-2"]) {
+        const checkbox = greenQualityForm.querySelector(
+          `.green-product-quality-wagons input[value="${wagonId}"]`,
+        );
+        checkbox.click();
+      }
+    });
+    assert.equal(findControlByLabel(greenQualityForm, "Длина 2").value, "230");
+    await React.act(async () => {
+      const secondLength = findControlByLabel(greenQualityForm, "Длина 2");
+      setNativeInputValue(secondLength, "231");
+      secondLength.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      const firstLength = findControlByLabel(greenQualityForm, "Длина 1");
+      setNativeInputValue(firstLength, "232");
+      firstLength.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    assert.equal(findControlByLabel(greenQualityForm, "Длина 2").value, "231");
+    await React.act(async () => {
+      greenQualityForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => greenProductQualitySubmissions.length === 1);
+    assert.deepEqual(greenProductQualitySubmissions[0].wagonIds, [
+      "wagon-1",
+      "wagon-2",
+    ]);
+    assert.equal(greenProductQualitySubmissions[0].lengthFirst, "232");
+    assert.equal(greenProductQualitySubmissions[0].lengthSecond, "231");
+    const greenQualityHeadings = Array.from(
+      rootElement.querySelectorAll(".green-product-quality-table th"),
+    );
+    assert.equal(
+      greenQualityHeadings.find(
+        (heading) => heading.textContent === "Линейные размеры",
+      )?.colSpan,
+      6,
+    );
+    assert.match(
+      rootElement.querySelector(".green-product-quality-table").textContent,
+      /В-01; В-02/u,
+    );
+    const greenQualityEditButton = rootElement.querySelector(
+      ".green-product-quality-edit-link",
+    );
+    assert.ok(greenQualityEditButton);
+    await React.act(async () => greenQualityEditButton.click());
+    assert.equal(
+      findControlByLabel(greenQualityForm, "Марка изделия").value,
+      "ШКИ-66",
+    );
+    await React.act(async () => {
+      const recommendation = findControlByLabel(
+        greenQualityForm,
+        "Рекомендации прессовщику",
+      );
+      setNativeInputValue(recommendation, "Уменьшить давление.");
+      recommendation.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      greenQualityForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => greenProductQualityCorrections.length === 1);
+    assert.equal(
+      greenProductQualityCorrections[0].pressOperatorRecommendations,
+      "Уменьшить давление.",
     );
     await React.act(async () => root.unmount());
   } finally {

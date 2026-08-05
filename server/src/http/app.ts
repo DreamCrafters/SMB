@@ -90,12 +90,18 @@ import {
   validateLaboratoryUnshapedProductSampleSubmission,
 } from "../domain/laboratoryUnshapedProductSampleJournal.js";
 import { validateLaboratoryRawMaterialQualitySubmission } from "../domain/laboratoryRawMaterialQualityJournal.js";
+import { validateLaboratoryGreenProductQualitySubmission } from "../domain/laboratoryGreenProductQualityJournal.js";
 import {
   laboratoryRawMaterialQualityFields,
   laboratoryRawMaterialQualityRecommendationRecipientLabels,
   laboratoryRawMaterialQualityShiftLabels,
   type LaboratoryRawMaterialQualitySubmission,
 } from "../contracts/laboratoryRawMaterialQualityJournal.js";
+import {
+  laboratoryGreenProductQualityFields,
+  type LaboratoryGreenProductQualityRecord,
+  type LaboratoryGreenProductQualitySubmission,
+} from "../contracts/laboratoryGreenProductQualityJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
   resolveLaboratoryBankAssignment,
@@ -234,6 +240,11 @@ import {
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import {
+  LaboratoryGreenProductQualityWagonUnavailableError,
+  type LaboratoryGreenProductQualitySnapshot,
+  type LaboratoryGreenProductQualityJournalRepository,
+} from "../repositories/laboratoryGreenProductQualityJournalRepository.js";
+import {
   BoardAssignmentChangedError,
   type BoardAssignmentFilters,
   type BoardAssignmentsRepository,
@@ -264,6 +275,8 @@ type AppDependencies = {
     LaboratoryUnshapedProductSampleJournalRepository;
   laboratoryRawMaterialQualityJournal?:
     LaboratoryRawMaterialQualityJournalRepository;
+  laboratoryGreenProductQualityJournal?:
+    LaboratoryGreenProductQualityJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
   boardAssignmentMaterials?: BoardAssignmentMaterialsSource;
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
@@ -292,6 +305,8 @@ const laboratoryUnshapedProductSampleRecordPathPattern =
   /^\/api\/laboratory\/unshaped-product-sample-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryRawMaterialQualityRecordPathPattern =
   /^\/api\/laboratory\/raw-material-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const laboratoryGreenProductQualityRecordPathPattern =
+  /^\/api\/laboratory\/green-product-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryChemicalAnalysisProtocolPath =
   "/api/laboratory/chemical-analysis-journal/protocol.pdf";
 
@@ -337,6 +352,7 @@ export function createApiServer({
   laboratoryChemicalAnalysisJournal,
   laboratoryUnshapedProductSampleJournal,
   laboratoryRawMaterialQualityJournal,
+  laboratoryGreenProductQualityJournal,
   boardAssignments,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
   bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
@@ -634,6 +650,10 @@ export function createApiServer({
         url.pathname === "/api/laboratory/raw-material-quality-options" ||
         url.pathname === "/api/laboratory/raw-material-quality-journal" ||
         laboratoryRawMaterialQualityRecordPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/green-product-quality-draft" ||
+        url.pathname === "/api/laboratory/green-product-quality-options" ||
+        url.pathname === "/api/laboratory/green-product-quality-journal" ||
+        laboratoryGreenProductQualityRecordPathPattern.test(url.pathname) ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
         await handleLaboratoryRequest({
@@ -651,6 +671,7 @@ export function createApiServer({
           laboratoryChemicalAnalysisJournal,
           laboratoryUnshapedProductSampleJournal,
           laboratoryRawMaterialQualityJournal,
+          laboratoryGreenProductQualityJournal,
           productionBrands,
           audit,
           databaseTransaction,
@@ -2001,6 +2022,7 @@ async function handleLaboratoryRequest({
   laboratoryChemicalAnalysisJournal,
   laboratoryUnshapedProductSampleJournal,
   laboratoryRawMaterialQualityJournal,
+  laboratoryGreenProductQualityJournal,
   productionBrands,
   audit,
   databaseTransaction,
@@ -2028,6 +2050,9 @@ async function handleLaboratoryRequest({
   laboratoryRawMaterialQualityJournal:
     | LaboratoryRawMaterialQualityJournalRepository
     | undefined;
+  laboratoryGreenProductQualityJournal:
+    | LaboratoryGreenProductQualityJournalRepository
+    | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -2053,6 +2078,7 @@ async function handleLaboratoryRequest({
     url.pathname === "/api/laboratory/chemical-analysis-journal" ||
     url.pathname === "/api/laboratory/unshaped-product-sample-journal" ||
     url.pathname === "/api/laboratory/raw-material-quality-journal" ||
+    url.pathname === "/api/laboratory/green-product-quality-journal" ||
     url.pathname === laboratoryChemicalAnalysisProtocolPath ||
     laboratoryProtocolPathPattern.test(url.pathname)
   );
@@ -2904,6 +2930,273 @@ async function handleLaboratoryRequest({
     });
 
     sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/green-product-quality-draft") {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Заготовка доступна только для заполнения журнала.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для заготовки журнала используется GET.",
+        },
+      });
+      return;
+    }
+    if (laboratoryGreenProductQualityJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала качества сырцовой продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { recordDate: formatMoscowCalendarDate(now()) });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/green-product-quality-options") {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Списки доступны только для заполнения журнала.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для списков журнала используется GET.",
+        },
+      });
+      return;
+    }
+    if (laboratoryGreenProductQualityJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала качества сырцовой продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      options: await laboratoryGreenProductQualityJournal.listOptions(),
+    });
+    return;
+  }
+
+  const greenProductQualityRecordMatch =
+    laboratoryGreenProductQualityRecordPathPattern.exec(url.pathname);
+  if (greenProductQualityRecordMatch !== null) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Исправление записи журнала качества сырцовой продукции недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления записи используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (laboratoryGreenProductQualityJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала качества сырцовой продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryGreenProductQualitySubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+    const canonicalRecord = await resolveLaboratoryGreenProductQualityBrand({
+      res,
+      productionBrands,
+      record: validation.value,
+    });
+    if (canonicalRecord === undefined) return;
+
+    try {
+      const recordId = greenProductQualityRecordMatch[1];
+      const correction = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryGreenProductQualityJournal.update({
+          id: recordId,
+          record: canonicalRecord,
+          correctedByUserId: access.profile.userId,
+          correctedByAccountId: access.profile.activeAccess.accountId,
+          correctedByDisplayName: access.profile.displayName,
+        }),
+        buildEvent: (result) => result === undefined
+          ? undefined
+          : {
+              actor: buildAuditActor(access.profile),
+              category: "data_change",
+              action: "laboratory_green_product_quality.correct",
+              summary: "Исправлена запись журнала качества сырцовой продукции",
+              details: laboratoryGreenProductQualityFields.map((field) => ({
+                label: field.label,
+                value:
+                  `${formatLaboratoryGreenProductQualityAuditValue(result.before, field.id)} → ${formatLaboratoryGreenProductQualityAuditValue(result.record, field.id)}`,
+              })),
+              targetType: "laboratory_green_product_quality",
+              targetId: result.record.id,
+            },
+      });
+      if (correction === undefined) {
+        sendJson(res, 404, {
+          error: {
+            code: "not_found",
+            message: "Запись журнала качества сырцовой продукции не найдена.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, { record: correction.record });
+    } catch (error) {
+      if (sendLaboratoryGreenProductQualityWagonError(res, error)) return;
+      throw error;
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/green-product-quality-journal") {
+    if (laboratoryGreenProductQualityJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала качества сырцовой продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const dateFrom = readOptionalQueryParam(url, "dateFrom");
+      const dateTo = readOptionalQueryParam(url, "dateTo");
+      const query = readOptionalQueryParam(url, "query");
+      const nameQuery = readOptionalQueryParam(url, "name");
+      if (
+        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+        (query !== undefined && query.length > 120) ||
+        (nameQuery !== undefined && nameQuery.length > 120)
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Проверьте фильтры журнала качества сырцовой продукции.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        records: await laboratoryGreenProductQualityJournal.list({
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+          ...(nameQuery === undefined ? {} : { nameQuery }),
+        }),
+      });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryGreenProductQualitySubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+    const canonicalRecord = await resolveLaboratoryGreenProductQualityBrand({
+      res,
+      productionBrands,
+      record: validation.value,
+    });
+    if (canonicalRecord === undefined) return;
+
+    try {
+      const saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryGreenProductQualityJournal.create({
+          record: canonicalRecord,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_green_product_quality.submit",
+          summary: "Добавлена запись журнала качества сырцовой продукции",
+          details: laboratoryGreenProductQualityFields.map((field) => ({
+            label: field.label,
+            value: formatLaboratoryGreenProductQualityAuditValue(record, field.id),
+          })),
+          targetType: "laboratory_green_product_quality",
+          targetId: record.id,
+        }),
+      });
+
+      sendJson(res, 201, { record: saved });
+    } catch (error) {
+      if (sendLaboratoryGreenProductQualityWagonError(res, error)) return;
+      throw error;
+    }
     return;
   }
 
@@ -8981,6 +9274,56 @@ function formatLaboratoryRawMaterialQualityAuditValue(
     ];
   }
   return record[field];
+}
+
+async function resolveLaboratoryGreenProductQualityBrand({
+  res,
+  productionBrands,
+  record,
+}: {
+  res: ServerResponse;
+  productionBrands: ProductionBrandsDataSource;
+  record: LaboratoryGreenProductQualitySubmission;
+}): Promise<LaboratoryGreenProductQualitySubmission | undefined> {
+  const references = await resolveProductionBrandReferencesForRequest({
+    res,
+    productionBrands,
+    references: [{ fieldName: "productBrand", label: record.productBrand }],
+    logEvent: "laboratory_green_product_quality_brand_lookup_failed",
+  });
+  if (references === undefined) return undefined;
+  return {
+    ...record,
+    productBrand: references[0]?.label ?? record.productBrand,
+  };
+}
+
+function formatLaboratoryGreenProductQualityAuditValue(
+  record:
+    | LaboratoryGreenProductQualityRecord
+    | LaboratoryGreenProductQualitySnapshot,
+  field: keyof LaboratoryGreenProductQualitySubmission,
+) {
+  if (field === "wagonIds") {
+    return record.wagons.map((wagon) => wagon.number).join("; ");
+  }
+  return record[field];
+}
+
+function sendLaboratoryGreenProductQualityWagonError(
+  res: ServerResponse,
+  error: unknown,
+) {
+  if (!(error instanceof LaboratoryGreenProductQualityWagonUnavailableError)) {
+    return false;
+  }
+  sendJson(res, 400, {
+    error: {
+      code: "invalid_response",
+      message: "Один или несколько выбранных вагонов отсутствуют в журнале вагонов.",
+    },
+  });
+  return true;
 }
 
 function isCalendarDateQueryValue(value: string) {

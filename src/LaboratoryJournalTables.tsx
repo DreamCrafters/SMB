@@ -6,8 +6,10 @@ import {
   laboratoryRawMaterialQualityFields,
   laboratoryRawMaterialQualityRecommendationRecipientLabels,
   laboratoryRawMaterialQualityShiftLabels,
+  laboratoryGreenProductQualityFields,
   type LaboratoryChemicalAnalysisJournalRecord,
   type LaboratoryRawMaterialQualityRecord,
+  type LaboratoryGreenProductQualityRecord,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratoryUnshapedProductSampleRecord,
   type RotaryKiln2FiringJournalRecord,
@@ -313,6 +315,79 @@ export function LaboratoryRawMaterialQualityTable({
                                 record.recommendationRecipient
                               ]
                             : value}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function LaboratoryGreenProductQualityTable({
+  records,
+  onEditRecord,
+}: {
+  records: LaboratoryGreenProductQualityRecord[];
+  onEditRecord?: (record: LaboratoryGreenProductQualityRecord) => void;
+}) {
+  if (records.length === 0) {
+    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
+  }
+
+  const generalFields = laboratoryGreenProductQualityFields.filter(
+    (field) => field.group === "general",
+  );
+  const dimensionFields = laboratoryGreenProductQualityFields.filter(
+    (field) => field.group === "dimensions",
+  );
+  const measurementFields = laboratoryGreenProductQualityFields.filter(
+    (field) => field.group === "measurements",
+  );
+
+  return (
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
+      <table className="data-table laboratory-results-table green-product-quality-table">
+        <thead>
+          <tr>
+            {generalFields.map((field) => (
+              <th key={field.id} rowSpan={2}>{field.label}</th>
+            ))}
+            <th colSpan={dimensionFields.length}>Линейные размеры</th>
+            {measurementFields.map((field) => (
+              <th key={field.id} rowSpan={2}>{field.label}</th>
+            ))}
+          </tr>
+          <tr>
+            {dimensionFields.map((field) => (
+              <th key={field.id}>{field.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record) => (
+            <tr key={record.id}>
+              {laboratoryGreenProductQualityFields.map((field) => {
+                const value = field.id === "wagonIds"
+                  ? record.wagons.map((wagon) => wagon.number).join("; ")
+                  : record[field.id];
+                return (
+                  <td key={field.id}>
+                    {field.id === "recordDate" && onEditRecord !== undefined
+                      ? (
+                          <button
+                            className="board-assignment-link green-product-quality-edit-link"
+                            type="button"
+                            onClick={() => onEditRecord(record)}
+                          >
+                            {formatLaboratoryDate(record.recordDate)}
+                          </button>
+                        )
+                      : field.id === "recordDate"
+                        ? formatLaboratoryDate(record.recordDate)
+                        : value}
                   </td>
                 );
               })}

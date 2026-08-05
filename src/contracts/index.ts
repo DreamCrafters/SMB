@@ -15,4 +15,5 @@ export * from "./laboratorySampleRegistrationJournal";
 export * from "./laboratoryChemicalAnalysisJournal";
 export * from "./laboratoryUnshapedProductSampleJournal";
 export * from "./laboratoryRawMaterialQualityJournal";
+export * from "./laboratoryGreenProductQualityJournal";
 export * from "./workflow";

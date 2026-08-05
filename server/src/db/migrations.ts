@@ -2369,6 +2369,90 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "045_laboratory_green_product_quality_journal",
+    statements: [
+      `
+      create table if not exists refractory_wagons (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        wagon_number varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_refractory_wagons_id (id),
+        unique key uq_refractory_wagons_number (wagon_number)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_green_product_quality_journal (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        record_date date not null,
+        press_number varchar(20) not null,
+        product_brand varchar(160) not null,
+        setter_name varchar(120) not null,
+        press_operator varchar(120) not null,
+        length_first varchar(40) not null,
+        length_second varchar(40) not null,
+        width_first varchar(40) not null,
+        width_second varchar(40) not null,
+        height_first varchar(40) not null,
+        height_second varchar(40) not null,
+        weight_value varchar(40) not null,
+        mechanical_strength varchar(40) not null,
+        density_value varchar(40) not null,
+        press_operator_recommendations text not null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_laboratory_green_product_quality_id (id),
+        key idx_laboratory_green_product_quality_date (record_date, sequence_id),
+        key idx_laboratory_green_product_quality_brand (product_brand),
+        constraint chk_laboratory_green_product_quality_press
+          check (press_number in ('1', '2', '3', '4', '5', '6', '7', '8'))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_green_product_quality_wagons (
+        green_product_quality_id char(36) not null,
+        wagon_id char(36) not null,
+        position smallint unsigned not null,
+        primary key (green_product_quality_id, wagon_id),
+        unique key uq_laboratory_green_product_quality_wagon_position (
+          green_product_quality_id,
+          position
+        ),
+        constraint fk_laboratory_green_product_quality_wagon_record
+          foreign key (green_product_quality_id)
+          references laboratory_green_product_quality_journal (id)
+          on delete restrict,
+        constraint fk_laboratory_green_product_quality_wagon
+          foreign key (wagon_id)
+          references refractory_wagons (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_green_product_quality_revisions (
+        id char(36) not null primary key,
+        green_product_quality_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_green_product_quality_revisions_record (
+          green_product_quality_id,
+          created_at
+        ),
+        constraint fk_laboratory_green_product_quality_revision_record
+          foreign key (green_product_quality_id)
+          references laboratory_green_product_quality_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

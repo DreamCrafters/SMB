@@ -30,6 +30,7 @@ test("the root row keeps every test scope and the CZL group holds the journals",
       ["unshaped_product_samples", "unshaped_product_samples", "all", "central-lab"],
       ["rotary_kiln_2", "rotary_kiln_2", "all", "central-lab"],
       ["raw_material_quality", "raw_material_quality", "all", "refractory-shop"],
+      ["green_product_quality", "green_product_quality", "all", "refractory-shop"],
     ],
   );
   assert.deepEqual(
@@ -47,7 +48,7 @@ test("the root row keeps every test scope and the CZL group holds the journals",
   );
   assert.deepEqual(
     laboratoryReviewRefractoryShopViews.map((view) => view.id),
-    ["raw_material_quality"],
+    ["raw_material_quality", "green_product_quality"],
   );
 });
 
@@ -64,6 +65,7 @@ test("the control sections and their results journal are gone from the review", 
       "unshaped_product_samples",
       "rotary_kiln_2",
       "raw_material_quality",
+      "green_product_quality",
     ],
   );
 
@@ -99,6 +101,7 @@ test("nomenclature filter drops the journal without a nomenclature column", () =
     "chemical_analysis",
     "unshaped_product_samples",
     "raw_material_quality",
+    "green_product_quality",
   ]);
   assert.deepEqual(excluded.map(({ journal, reason }) => [journal.id, reason]), [
     ["rotary_kiln_2", "не содержит наименования (номенклатуры)"],
