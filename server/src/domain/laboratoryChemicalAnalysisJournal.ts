@@ -1,6 +1,8 @@
 import {
   laboratoryChemicalAnalysisFields,
+  laboratoryChemicalAnalysisSampleSources,
   type LaboratoryChemicalAnalysisJournalSubmission,
+  type LaboratoryChemicalAnalysisSampleSource,
   type LaboratoryChemicalAnalysisValues,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 
@@ -22,13 +24,11 @@ export function validateLaboratoryChemicalAnalysisJournalSubmission(
   }
 
   const errors: string[] = [];
-  const sampleRegistrationId = readText(
-    input.sampleRegistrationId,
-    maxShortTextLength,
-  );
+  const sampleSource = readSampleSource(input.sampleSource);
+  const sampleId = readText(input.sampleId, maxShortTextLength);
   const values = new Map<keyof LaboratoryChemicalAnalysisValues, string>();
 
-  if (sampleRegistrationId === undefined) {
+  if (sampleSource === undefined || sampleId === undefined) {
     errors.push("Выберите код лабораторной пробы.");
   }
 
@@ -58,14 +58,19 @@ export function validateLaboratoryChemicalAnalysisJournalSubmission(
     }
   }
 
-  if (errors.length > 0 || sampleRegistrationId === undefined) {
+  if (
+    errors.length > 0 ||
+    sampleSource === undefined ||
+    sampleId === undefined
+  ) {
     return { ok: false, errors };
   }
 
   return {
     ok: true,
     value: {
-      sampleRegistrationId,
+      sampleSource,
+      sampleId,
       ...(values.has("laboratoryAnalysisNumber")
         ? {
             laboratoryAnalysisNumber:
@@ -98,6 +103,15 @@ export function validateLaboratoryChemicalAnalysisJournalSubmission(
       ...(values.has("notes") ? { notes: values.get("notes")! } : {}),
     },
   };
+}
+
+function readSampleSource(
+  value: unknown,
+): LaboratoryChemicalAnalysisSampleSource | undefined {
+  return typeof value === "string" &&
+      laboratoryChemicalAnalysisSampleSources.some((source) => source === value)
+    ? value as LaboratoryChemicalAnalysisSampleSource
+    : undefined;
 }
 
 function isProvidedValue(value: unknown) {

@@ -107,6 +107,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
     "042_unshaped_product_sample_journal",
+    "043_chemical_analysis_sample_sources",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -171,6 +172,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
     "042_unshaped_product_sample_journal",
+    "043_chemical_analysis_sample_sources",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -238,6 +240,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
     "042_unshaped_product_sample_journal",
+    "043_chemical_analysis_sample_sources",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -307,6 +310,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
     "042_unshaped_product_sample_journal",
+    "043_chemical_analysis_sample_sources",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -372,6 +376,7 @@ test("kiln material migration adds the produced material and the journal density
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
     "042_unshaped_product_sample_journal",
+    "043_chemical_analysis_sample_sources",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1612,6 +1617,80 @@ test("unshaped product sample migration creates editable journal history", async
   );
   assert.equal(
     statements[2],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("chemical analysis sample-link migration supports both source journals", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "043_chemical_analysis_sample_sources" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 4);
+  assert.match(
+    statements[0] ?? "",
+    /modify sample_registration_id char\(36\) null/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /add column unshaped_product_sample_id char\(36\) null/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /foreign key \(unshaped_product_sample_id\)[\s\S]+laboratory_unshaped_product_sample_journal/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /check \(\s*\(sample_registration_id is null\) <>\s*\(unshaped_product_sample_id is null\)\s*\)/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /create table if not exists laboratory_chemical_analysis_sample_claims/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /primary key \(sample_source, sample_id\)/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /unique key uq_laboratory_chemical_analysis_claim_analysis \( chemical_analysis_id \)/u,
+  );
+  assert.match(
+    statements[2] ?? "",
+    /max\(sequence_id\) as sequence_id[\s\S]+group by sample_registration_id/u,
+  );
+  assert.match(statements[2] ?? "", /union all/u);
+  assert.match(
+    statements[2] ?? "",
+    /on duplicate key update chemical_analysis_id = values\(chemical_analysis_id\)/u,
+  );
+  assert.equal(
+    statements[3],
     "insert into schema_migrations (id) values (?)",
   );
 });

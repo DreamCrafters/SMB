@@ -52,10 +52,13 @@ test("chemical analysis protocol renderer creates a printable PDF for filtered r
   const input = {
     records: [{
       id: "chemical-analysis-1",
-      sampleRegistrationId: "sample-registration-1",
+      sampleSource: "sample_registration" as const,
+      sampleId: "sample-registration-1",
       laboratorySampleCode: "ЛП-2026-017",
       sampleNumber: "17-А",
       sampleName: "Шамот молотый",
+      sampleDate: "2026-07-29",
+      registrationDate: "2026-07-30",
       laboratoryAnalysisNumber: "43",
       chemicalAnalysisDate: "2026-07-30",
       chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
@@ -161,10 +164,13 @@ test("chemical analysis protocol renderer creates a printable PDF for filtered r
 test("chemical analysis protocol keeps optional blanks and long filtered selections stable", () => {
   const records = Array.from({ length: 11 }, (_, index) => ({
     id: `chemical-analysis-${index + 1}`,
-    sampleRegistrationId: `sample-registration-${index % 2}`,
+    sampleSource: "sample_registration" as const,
+    sampleId: `sample-registration-${index % 2}`,
     laboratorySampleCode: `ЛП-2026-${String(index + 1).padStart(3, "0")}`,
     sampleNumber: index % 2 === 0 ? "17-А" : "18-Б",
     sampleName: index % 2 === 0 ? "Шамот молотый" : "Глина ГИМ-2",
+    sampleDate: "2026-07-29",
+    registrationDate: "2026-07-30",
     createdAt: "2026-07-30T08:30:00.000Z",
   }));
 

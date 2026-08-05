@@ -4,7 +4,8 @@ import { validateLaboratoryChemicalAnalysisJournalSubmission } from "./laborator
 
 test("chemical analysis journal accepts and normalizes a complete record", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
-    sampleRegistrationId: " sample-registration-17 ",
+    sampleSource: "sample_registration",
+    sampleId: " sample-registration-17 ",
     laboratoryAnalysisNumber: " 43 ",
     chemicalAnalysisDate: "2026-07-31",
     chemicalAnalysisLaboratoryAssistant: " Петрова П.П. ",
@@ -22,7 +23,8 @@ test("chemical analysis journal accepts and normalizes a complete record", () =>
   assert.deepEqual(validation, {
     ok: true,
     value: {
-      sampleRegistrationId: "sample-registration-17",
+      sampleSource: "sample_registration",
+      sampleId: "sample-registration-17",
       laboratoryAnalysisNumber: "43",
       chemicalAnalysisDate: "2026-07-31",
       chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
@@ -41,7 +43,8 @@ test("chemical analysis journal accepts and normalizes a complete record", () =>
 
 test("chemical analysis journal accepts only a registered sample", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
-    sampleRegistrationId: " sample-registration-17 ",
+    sampleSource: "sample_registration",
+    sampleId: " sample-registration-17 ",
     laboratoryAnalysisNumber: " ",
     batchNumber: " ",
     chemicalAnalysisDate: "",
@@ -52,14 +55,33 @@ test("chemical analysis journal accepts only a registered sample", () => {
   assert.deepEqual(validation, {
     ok: true,
     value: {
-      sampleRegistrationId: "sample-registration-17",
+      sampleSource: "sample_registration",
+      sampleId: "sample-registration-17",
+    },
+  });
+});
+
+test("chemical analysis journal accepts an unshaped product sample", () => {
+  const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleSource: "unshaped_product",
+    sampleId: " unshaped-product-sample-17 ",
+    laboratoryAnalysisNumber: " 44 ",
+  });
+
+  assert.deepEqual(validation, {
+    ok: true,
+    value: {
+      sampleSource: "unshaped_product",
+      sampleId: "unshaped-product-sample-17",
+      laboratoryAnalysisNumber: "44",
     },
   });
 });
 
 test("chemical analysis journal rejects invalid provided optional values", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
-    sampleRegistrationId: "",
+    sampleSource: "unknown",
+    sampleId: "",
     laboratoryAnalysisNumber: 43,
     chemicalAnalysisDate: "2026-02-30",
     chemicalAnalysisLaboratoryAssistant: 42,

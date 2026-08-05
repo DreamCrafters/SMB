@@ -118,10 +118,13 @@ test("laboratory review filters every journal by date and nomenclature", async (
         return jsonResponse({
           records: [{
             id: "chemical-analysis-1",
-            sampleRegistrationId: "sample-registration-1",
+            sampleSource: "sample_registration",
+            sampleId: "sample-registration-1",
             laboratorySampleCode: "ЛП-2026-017",
             sampleNumber: "17-А",
             sampleName: "Глина марки ГИМ-2",
+            sampleDate: "2026-07-20",
+            registrationDate: "2026-07-20",
             batchNumber: "П-42",
             chemicalAnalysisDate: "2026-07-21",
             createdAt: "2026-07-21T08:30:00.000Z",

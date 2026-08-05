@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
-import { createLaboratoryChemicalAnalysisJournalRepository } from "./laboratoryChemicalAnalysisJournalRepository.js";
+import {
+  createLaboratoryChemicalAnalysisJournalRepository,
+  LaboratoryChemicalAnalysisSampleUnavailableError,
+} from "./laboratoryChemicalAnalysisJournalRepository.js";
 
 const analysis = {
-  sampleRegistrationId: "sample-registration-1",
+  sampleSource: "sample_registration" as const,
+  sampleId: "sample-registration-1",
   laboratoryAnalysisNumber: "43",
   chemicalAnalysisDate: "2026-07-30",
   chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
@@ -20,23 +24,84 @@ const analysis = {
 };
 
 const minimalAnalysis = {
-  sampleRegistrationId: "sample-registration-1",
+  sampleSource: "sample_registration" as const,
+  sampleId: "sample-registration-1",
 };
 
 const sample = {
-  id: "sample-registration-1",
+  sampleSource: "sample_registration" as const,
+  sampleId: "sample-registration-1",
   laboratorySampleCode: "ЛП-2026-017",
   sampleNumber: "17-А",
   sampleName: "Шамот молотый",
-  samplingDate: "2026-07-29",
+  sampleDate: "2026-07-29",
   registrationDate: "2026-07-30",
 };
+
+test("chemical analysis repository lists only unanalyzed samples from both journals", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[
+        {
+          sample_source: "sample_registration",
+          sample_id: "sample-registration-1",
+          laboratory_sample_code: "ЛП-2026-017",
+          sample_number: "17-А",
+          sample_name: "Шамот молотый",
+          sample_date: "2026-07-29",
+          registration_date: "2026-07-30",
+        },
+        {
+          sample_source: "unshaped_product",
+          sample_id: "unshaped-product-sample-18",
+          laboratory_sample_code: ".18",
+          sample_number: "18",
+          sample_name: "Мертель МШ-28",
+          sample_date: "2026-08-04",
+          registration_date: null,
+        },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  assert.deepEqual(await repository.listAvailableSampleOptions({
+    query: ".1",
+  }), [
+    sample,
+    {
+      sampleSource: "unshaped_product",
+      sampleId: "unshaped-product-sample-18",
+      laboratorySampleCode: ".18",
+      sampleNumber: "18",
+      sampleName: "Мертель МШ-28",
+      sampleDate: "2026-08-04",
+    },
+  ]);
+  assert.match(querySql, /from laboratory_sample_registration_journal/u);
+  assert.match(querySql, /union all/u);
+  assert.match(querySql, /from laboratory_unshaped_product_sample_journal/u);
+  assert.match(querySql, /claim\.sample_id is null/u);
+});
 
 test("chemical analysis repository stores linked append-only record", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const pool = {
     async query(sql: string, parameters?: unknown[]) {
       queries.push({ sql, parameters });
+      if (/from laboratory_sample_registration_journal registration/u.test(sql)) {
+        return [[{
+          sample_source: "sample_registration",
+          sample_id: sample.sampleId,
+          laboratory_sample_code: sample.laboratorySampleCode,
+          sample_number: sample.sampleNumber,
+          sample_name: sample.sampleName,
+          sample_date: sample.sampleDate,
+          registration_date: sample.registrationDate,
+        }], []];
+      }
       return [[], []];
     },
   } as unknown as DatabasePool;
@@ -47,7 +112,6 @@ test("chemical analysis repository stores linked append-only record", async () =
 
   assert.deepEqual(await repository.create({
     analysis: minimalAnalysis,
-    sample,
     submittedByUserId: "laboratory-user",
     submittedByAccountId: "laboratory-account",
   }), {
@@ -56,15 +120,21 @@ test("chemical analysis repository stores linked append-only record", async () =
     laboratorySampleCode: "ЛП-2026-017",
     sampleNumber: "17-А",
     sampleName: "Шамот молотый",
+    sampleDate: "2026-07-29",
+    registrationDate: "2026-07-30",
     createdAt: "2026-07-30T08:30:00.000Z",
   });
+  const insert = queries.find((query) =>
+    /insert into laboratory_chemical_analysis_journal/u.test(query.sql)
+  );
   assert.match(
-    queries[0]?.sql ?? "",
+    insert?.sql ?? "",
     /insert into laboratory_chemical_analysis_journal/u,
   );
-  assert.deepEqual(queries[0]?.parameters, [
+  assert.deepEqual(insert?.parameters, [
     "chemical-analysis-1",
     "sample-registration-1",
+    null,
     null,
     null,
     null,
@@ -81,6 +151,132 @@ test("chemical analysis repository stores linked append-only record", async () =
     "laboratory-account",
     "2026-07-30T08:30:00.000Z",
   ]);
+  const claim = queries.find((query) =>
+    /insert into laboratory_chemical_analysis_sample_claims/u.test(query.sql)
+  );
+  assert.deepEqual(claim?.parameters, [
+    "sample_registration",
+    "sample-registration-1",
+    "chemical-analysis-1",
+  ]);
+});
+
+test("chemical analysis repository rejects a sample claimed before the locked write", async () => {
+  const queries: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      queries.push(sql);
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  await assert.rejects(
+    repository.create({
+      analysis: minimalAnalysis,
+      submittedByUserId: "laboratory-user",
+      submittedByAccountId: "laboratory-account",
+    }),
+    LaboratoryChemicalAnalysisSampleUnavailableError,
+  );
+  assert.equal(queries.length, 1);
+  assert.match(queries[0] ?? "", /not exists/u);
+  assert.match(queries[0] ?? "", /for update/u);
+});
+
+test("chemical analysis repository maps an atomic sample-claim collision", async () => {
+  const pool = {
+    async query(sql: string) {
+      if (/from laboratory_sample_registration_journal registration/u.test(sql)) {
+        return [[{
+          sample_source: "sample_registration",
+          sample_id: sample.sampleId,
+          laboratory_sample_code: sample.laboratorySampleCode,
+          sample_number: sample.sampleNumber,
+          sample_name: sample.sampleName,
+          sample_date: sample.sampleDate,
+          registration_date: sample.registrationDate,
+        }], []];
+      }
+      if (/insert into laboratory_chemical_analysis_sample_claims/u.test(sql)) {
+        throw Object.assign(new Error("Duplicate claim"), {
+          code: "ER_DUP_ENTRY",
+        });
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  await assert.rejects(
+    repository.create({
+      analysis: minimalAnalysis,
+      submittedByUserId: "laboratory-user",
+      submittedByAccountId: "laboratory-account",
+    }),
+    LaboratoryChemicalAnalysisSampleUnavailableError,
+  );
+});
+
+test("chemical analysis repository links an unshaped sample and publishes its analysis number", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/from laboratory_unshaped_product_sample_journal unshaped/u.test(sql)) {
+        return [[{
+          sample_source: "unshaped_product",
+          sample_id: "unshaped-product-sample-18",
+          laboratory_sample_code: ".18",
+          sample_number: "18",
+          sample_name: "Мертель МШ-28",
+          sample_date: "2026-08-04",
+          registration_date: null,
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool, {
+    createId: () => "chemical-analysis-2",
+    now: () => new Date("2026-08-04T09:30:00.000Z"),
+  });
+
+  const created = await repository.create({
+    analysis: {
+      sampleSource: "unshaped_product",
+      sampleId: "unshaped-product-sample-18",
+      laboratoryAnalysisNumber: "47",
+    },
+    submittedByUserId: "laboratory-user",
+    submittedByAccountId: "laboratory-account",
+  });
+
+  assert.equal(created.laboratorySampleCode, ".18");
+  const insert = queries.find((query) =>
+    /insert into laboratory_chemical_analysis_journal/u.test(query.sql)
+  );
+  assert.deepEqual(insert?.parameters?.slice(0, 4), [
+    "chemical-analysis-2",
+    null,
+    "unshaped-product-sample-18",
+    "47",
+  ]);
+  const sampleUpdate = queries.find((query) =>
+    /update laboratory_unshaped_product_sample_journal/u.test(query.sql)
+  );
+  assert.deepEqual(sampleUpdate?.parameters, [
+    "47",
+    "unshaped-product-sample-18",
+  ]);
+  const claim = queries.find((query) =>
+    /insert into laboratory_chemical_analysis_sample_claims/u.test(query.sql)
+  );
+  assert.deepEqual(claim?.parameters, [
+    "unshaped_product",
+    "unshaped-product-sample-18",
+    "chemical-analysis-2",
+  ]);
 });
 
 test("chemical analysis repository lists linked samples with filters", async () => {
@@ -93,9 +289,14 @@ test("chemical analysis repository lists linked samples with filters", async () 
       return [[{
         id: "chemical-analysis-1",
         sample_registration_id: "sample-registration-1",
+        unshaped_product_sample_id: null,
+        sample_source: "sample_registration",
+        sample_id: "sample-registration-1",
         laboratory_sample_code: "ЛП-2026-017",
         sample_number: "17-А",
         sample_name: "Шамот молотый",
+        sample_date: "2026-07-29",
+        registration_date: "2026-07-30",
         laboratory_analysis_number: "43",
         chemical_analysis_date: "2026-07-30",
         chemical_analysis_laboratory_assistant: "Петрова П.П.",
@@ -126,16 +327,21 @@ test("chemical analysis repository lists linked samples with filters", async () 
     laboratorySampleCode: "ЛП-2026-017",
     sampleNumber: "17-А",
     sampleName: "Шамот молотый",
+    sampleDate: "2026-07-29",
+    registrationDate: "2026-07-30",
     createdAt: "2026-07-30T08:30:00.000Z",
   }]);
   assert.match(
     querySql,
-    /join laboratory_sample_registration_journal registration/u,
+    /left join laboratory_sample_registration_journal registration/u,
   );
   assert.match(querySql, /analysis\.chemical_analysis_date >= \?/u);
   assert.match(querySql, /analysis\.chemical_analysis_date <= \?/u);
   assert.match(querySql, /instr\(/u);
-  assert.match(querySql, /registration\.sample_name like \?/u);
+  assert.match(
+    querySql,
+    /coalesce\(registration\.sample_name, unshaped\.product_name\) like \?/u,
+  );
   assert.deepEqual(queryParameters, [
     "2026-07-01",
     "2026-07-31",
@@ -151,9 +357,14 @@ test("chemical analysis repository omits optional values when they are absent", 
       return [[{
         id: "chemical-analysis-2",
         sample_registration_id: "sample-registration-1",
+        unshaped_product_sample_id: null,
+        sample_source: "sample_registration",
+        sample_id: "sample-registration-1",
         laboratory_sample_code: "ЛП-2026-017",
         sample_number: "17-А",
         sample_name: "Шамот молотый",
+        sample_date: "2026-07-29",
+        registration_date: "2026-07-30",
         laboratory_analysis_number: null,
         chemical_analysis_date: null,
         chemical_analysis_laboratory_assistant: null,
@@ -174,10 +385,13 @@ test("chemical analysis repository omits optional values when they are absent", 
 
   assert.deepEqual(await repository.list(), [{
     id: "chemical-analysis-2",
-    sampleRegistrationId: "sample-registration-1",
+    sampleSource: "sample_registration",
+    sampleId: "sample-registration-1",
     laboratorySampleCode: "ЛП-2026-017",
     sampleNumber: "17-А",
     sampleName: "Шамот молотый",
+    sampleDate: "2026-07-29",
+    registrationDate: "2026-07-30",
     createdAt: "2026-07-30T09:30:00.000Z",
   }]);
 });
@@ -188,19 +402,28 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
     async query(sql: string, parameters?: unknown[]) {
       queries.push({ sql, parameters });
       if (/select[\s\S]+for update/u.test(sql)) {
-        if (/from laboratory_sample_registration_journal/u.test(sql)) {
+        if (/from laboratory_unshaped_product_sample_journal unshaped/u.test(sql)) {
           return [[{
-            laboratory_sample_code: "ЛП-2026-019",
-            sample_number: "19-Б",
-            sample_name: "Шамот кусковой",
+            sample_source: "unshaped_product",
+            sample_id: "unshaped-product-sample-19",
+            laboratory_sample_code: ".19",
+            sample_number: "19",
+            sample_name: "Мертель МШ-28",
+            sample_date: "2026-08-04",
+            registration_date: null,
           }], []];
         }
         return [[{
           id: "chemical-analysis-1",
           sample_registration_id: "sample-registration-1",
+          unshaped_product_sample_id: null,
+          sample_source: "sample_registration",
+          sample_id: "sample-registration-1",
           laboratory_sample_code: "ЛП-2026-017",
           sample_number: "17-А",
           sample_name: "Шамот молотый",
+          sample_date: "2026-07-29",
+          registration_date: "2026-07-30",
           laboratory_analysis_number: analysis.laboratoryAnalysisNumber,
           chemical_analysis_date: analysis.chemicalAnalysisDate,
           chemical_analysis_laboratory_assistant:
@@ -225,7 +448,8 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
     now: () => new Date("2026-08-04T10:30:00.000Z"),
   });
   const correctedAnalysis = {
-    sampleRegistrationId: "sample-registration-2",
+    sampleSource: "unshaped_product" as const,
+    sampleId: "unshaped-product-sample-19",
     laboratoryAnalysisNumber: "44",
     chemicalAnalysisDate: "2026-08-04",
     al2o3: "31,8",
@@ -245,14 +469,17 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
     laboratorySampleCode: "ЛП-2026-017",
     sampleNumber: "17-А",
     sampleName: "Шамот молотый",
+    sampleDate: "2026-07-29",
+    registrationDate: "2026-07-30",
     createdAt: "2026-07-30T08:30:00.000Z",
   };
   const record = {
     id: "chemical-analysis-1",
     ...correctedAnalysis,
-    laboratorySampleCode: "ЛП-2026-019",
-    sampleNumber: "19-Б",
-    sampleName: "Шамот кусковой",
+    laboratorySampleCode: ".19",
+    sampleNumber: "19",
+    sampleName: "Мертель МШ-28",
+    sampleDate: "2026-08-04",
     createdAt: "2026-07-30T08:30:00.000Z",
   };
   assert.deepEqual(result, { before, record });
@@ -263,16 +490,20 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
   assert.deepEqual(queries[0]?.parameters, ["chemical-analysis-1"]);
   assert.match(
     queries[1]?.sql ?? "",
-    /from laboratory_sample_registration_journal/u,
+    /from laboratory_unshaped_product_sample_journal/u,
   );
   assert.match(queries[1]?.sql ?? "", /for update/u);
-  assert.deepEqual(queries[1]?.parameters, ["sample-registration-2"]);
+  assert.deepEqual(queries[1]?.parameters, [
+    "unshaped-product-sample-19",
+    "chemical-analysis-1",
+  ]);
   assert.match(
     queries[2]?.sql ?? "",
     /update laboratory_chemical_analysis_journal/u,
   );
   assert.deepEqual(queries[2]?.parameters, [
-    "sample-registration-2",
+    null,
+    "unshaped-product-sample-19",
     "44",
     "2026-08-04",
     null,
@@ -287,19 +518,212 @@ test("chemical analysis repository corrects a stable analysis and stores a revis
     "Исправлено по журналу.",
     "chemical-analysis-1",
   ]);
-  assert.match(
-    queries[3]?.sql ?? "",
-    /insert into laboratory_chemical_analysis_revisions/u,
+  const removedClaim = queries.find((query) =>
+    /delete from laboratory_chemical_analysis_sample_claims/u.test(query.sql)
   );
-  assert.equal(queries[3]?.parameters?.[0], "chemical-revision-1");
-  assert.equal(queries[3]?.parameters?.[1], "chemical-analysis-1");
-  assert.deepEqual(JSON.parse(String(queries[3]?.parameters?.[2])), before);
-  assert.deepEqual(JSON.parse(String(queries[3]?.parameters?.[3])), record);
-  assert.deepEqual(queries[3]?.parameters?.slice(4), [
+  assert.deepEqual(removedClaim?.parameters, ["chemical-analysis-1"]);
+  const replacementClaim = queries.find((query) =>
+    /insert into laboratory_chemical_analysis_sample_claims/u.test(query.sql) &&
+    /values \(\?, \?, \?\)/u.test(query.sql)
+  );
+  assert.deepEqual(replacementClaim?.parameters, [
+    "unshaped_product",
+    "unshaped-product-sample-19",
+    "chemical-analysis-1",
+  ]);
+  const restoredClaim = queries.find((query) =>
+    /insert into laboratory_chemical_analysis_sample_claims/u.test(query.sql) &&
+    /select \?, \?, analysis\.id/u.test(query.sql)
+  );
+  assert.deepEqual(restoredClaim?.parameters, [
+    "sample_registration",
+    "sample-registration-1",
+    "sample-registration-1",
+  ]);
+  const sampleUpdate = queries.find((query) =>
+    /update laboratory_unshaped_product_sample_journal/u.test(query.sql)
+  );
+  assert.deepEqual(sampleUpdate?.parameters, [
+    "44",
+    "unshaped-product-sample-19",
+  ]);
+  const revision = queries.find((query) =>
+    /insert into laboratory_chemical_analysis_revisions/u.test(query.sql)
+  );
+  assert.equal(revision?.parameters?.[0], "chemical-revision-1");
+  assert.equal(revision?.parameters?.[1], "chemical-analysis-1");
+  assert.deepEqual(JSON.parse(String(revision?.parameters?.[2])), before);
+  assert.deepEqual(JSON.parse(String(revision?.parameters?.[3])), record);
+  assert.deepEqual(revision?.parameters?.slice(4), [
     "laboratory-user",
     "laboratory-account",
     "Иванова Анна",
     "2026-08-04T10:30:00.000Z",
+  ]);
+});
+
+test("chemical analysis repository corrects a legacy duplicate without changing its claimed sample", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/where analysis\.id = \?[\s\S]+for update/u.test(sql)) {
+        return [[{
+          id: "chemical-analysis-legacy",
+          sample_registration_id: sample.sampleId,
+          unshaped_product_sample_id: null,
+          sample_source: "sample_registration",
+          sample_id: sample.sampleId,
+          laboratory_sample_code: sample.laboratorySampleCode,
+          sample_number: sample.sampleNumber,
+          sample_name: sample.sampleName,
+          sample_date: sample.sampleDate,
+          registration_date: sample.registrationDate,
+          laboratory_analysis_number: "41",
+          chemical_analysis_date: "2026-07-29",
+          chemical_analysis_laboratory_assistant: null,
+          batch_number: "П-41",
+          al2o3: null,
+          fe2o3: null,
+          sio2: null,
+          cao2: null,
+          p2o5: null,
+          loss_on_ignition: null,
+          moisture: null,
+          notes: null,
+          created_at: "2026-07-29T08:30:00.000Z",
+        }], []];
+      }
+      if (/from laboratory_sample_registration_journal registration/u.test(sql)) {
+        if (/not exists/u.test(sql)) return [[], []];
+        return [[{
+          sample_source: "sample_registration",
+          sample_id: sample.sampleId,
+          laboratory_sample_code: sample.laboratorySampleCode,
+          sample_number: sample.sampleNumber,
+          sample_name: sample.sampleName,
+          sample_date: sample.sampleDate,
+          registration_date: sample.registrationDate,
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool, {
+    createId: () => "chemical-revision-legacy",
+    now: () => new Date("2026-08-05T10:30:00.000Z"),
+  });
+
+  const result = await repository.update({
+    id: "chemical-analysis-legacy",
+    analysis: {
+      sampleSource: "sample_registration",
+      sampleId: sample.sampleId,
+      laboratoryAnalysisNumber: "41",
+      chemicalAnalysisDate: "2026-07-29",
+      batchNumber: "П-41 исправлено",
+    },
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  });
+
+  assert.equal(result?.record.batchNumber, "П-41 исправлено");
+  const sampleRead = queries.find((query) =>
+    /from laboratory_sample_registration_journal registration/u.test(query.sql)
+  );
+  assert.doesNotMatch(sampleRead?.sql ?? "", /not exists/u);
+  assert.equal(
+    queries.some((query) =>
+      /delete from laboratory_chemical_analysis_sample_claims/u.test(query.sql)
+    ),
+    false,
+  );
+  assert.equal(
+    queries.some((query) =>
+      /insert into laboratory_chemical_analysis_sample_claims/u.test(query.sql)
+    ),
+    false,
+  );
+});
+
+test("chemical analysis repository clears the mirrored number when moving away from an unshaped sample", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/where analysis\.id = \?[\s\S]+for update/u.test(sql)) {
+        return [[{
+          id: "chemical-analysis-1",
+          sample_registration_id: null,
+          unshaped_product_sample_id: "unshaped-product-sample-18",
+          sample_source: "unshaped_product",
+          sample_id: "unshaped-product-sample-18",
+          laboratory_sample_code: ".18",
+          sample_number: "18",
+          sample_name: "Мертель МШ-28",
+          sample_date: "2026-08-04",
+          registration_date: null,
+          laboratory_analysis_number: "47",
+          chemical_analysis_date: null,
+          chemical_analysis_laboratory_assistant: null,
+          batch_number: null,
+          al2o3: null,
+          fe2o3: null,
+          sio2: null,
+          cao2: null,
+          p2o5: null,
+          loss_on_ignition: null,
+          moisture: null,
+          notes: null,
+          created_at: "2026-08-04T09:30:00.000Z",
+        }], []];
+      }
+      if (/from laboratory_sample_registration_journal registration/u.test(sql)) {
+        return [[{
+          sample_source: "sample_registration",
+          sample_id: sample.sampleId,
+          laboratory_sample_code: sample.laboratorySampleCode,
+          sample_number: sample.sampleNumber,
+          sample_name: sample.sampleName,
+          sample_date: sample.sampleDate,
+          registration_date: sample.registrationDate,
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool, {
+    createId: () => "chemical-revision-2",
+    now: () => new Date("2026-08-05T08:30:00.000Z"),
+  });
+
+  await repository.update({
+    id: "chemical-analysis-1",
+    analysis: {
+      sampleSource: "sample_registration",
+      sampleId: sample.sampleId,
+      laboratoryAnalysisNumber: "48",
+    },
+    correctedByUserId: "laboratory-user",
+    correctedByAccountId: "laboratory-account",
+    correctedByDisplayName: "Иванова Анна",
+  });
+
+  const analysisUpdate = queries.find((query) =>
+    /update laboratory_chemical_analysis_journal/u.test(query.sql)
+  );
+  assert.deepEqual(analysisUpdate?.parameters?.slice(0, 3), [
+    sample.sampleId,
+    null,
+    "48",
+  ]);
+  const clearedSample = queries.find((query) =>
+    /update laboratory_unshaped_product_sample_journal/u.test(query.sql)
+  );
+  assert.deepEqual(clearedSample?.parameters, [
+    null,
+    "unshaped-product-sample-18",
   ]);
 });
 

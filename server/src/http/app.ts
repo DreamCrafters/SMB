@@ -220,7 +220,10 @@ import type {
 } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
-import type { LaboratoryChemicalAnalysisJournalRepository } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
+import {
+  LaboratoryChemicalAnalysisSampleUnavailableError,
+  type LaboratoryChemicalAnalysisJournalRepository,
+} from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import {
   BoardAssignmentChangedError,
@@ -2968,10 +2971,7 @@ async function handleLaboratoryRequest({
       });
       return;
     }
-    if (
-      laboratoryChemicalAnalysisJournal === undefined ||
-      laboratorySampleRegistrationJournal === undefined
-    ) {
+    if (laboratoryChemicalAnalysisJournal === undefined) {
       sendJson(res, 503, {
         error: {
           code: "server_error",
@@ -2994,33 +2994,22 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const sample = await laboratorySampleRegistrationJournal.findOptionById(
-      validation.value.sampleRegistrationId,
-    );
-    if (sample === undefined) {
-      sendJson(res, 400, {
-        error: {
-          code: "invalid_response",
-          message: "Выберите код лабораторной пробы из журнала регистрации.",
-        },
-      });
-      return;
-    }
-
     const analysisId = chemicalAnalysisRecordMatch[1];
-    const correction = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => laboratoryChemicalAnalysisJournal.update({
-        id: analysisId,
-        analysis: validation.value,
-        correctedByUserId: access.profile.userId,
-        correctedByAccountId: access.profile.activeAccess.accountId,
-        correctedByDisplayName: access.profile.displayName,
-      }),
-      buildEvent: (result) => result === undefined
-        ? undefined
-        : {
+    let correction;
+    try {
+      correction = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryChemicalAnalysisJournal.update({
+          id: analysisId,
+          analysis: validation.value,
+          correctedByUserId: access.profile.userId,
+          correctedByAccountId: access.profile.activeAccess.accountId,
+          correctedByDisplayName: access.profile.displayName,
+        }),
+        buildEvent: (result) => result === undefined
+          ? undefined
+          : {
             actor: buildAuditActor(access.profile),
             category: "data_change",
             action: "laboratory_chemical_analysis.correct",
@@ -3050,7 +3039,19 @@ async function handleLaboratoryRequest({
             targetType: "laboratory_chemical_analysis",
             targetId: result.record.id,
           },
-    });
+      });
+    } catch (error) {
+      if (error instanceof LaboratoryChemicalAnalysisSampleUnavailableError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Для выбранной пробы уже сохранён химический анализ.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
     if (correction === undefined) {
       sendJson(res, 404, {
         error: {
@@ -3117,10 +3118,7 @@ async function handleLaboratoryRequest({
   }
 
   if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
-    if (
-      laboratoryChemicalAnalysisJournal === undefined ||
-      laboratorySampleRegistrationJournal === undefined
-    ) {
+    if (laboratoryChemicalAnalysisJournal === undefined) {
       sendJson(res, 503, {
         error: {
           code: "server_error",
@@ -3154,9 +3152,11 @@ async function handleLaboratoryRequest({
           ...filters.value,
           ...(nameQuery === undefined ? {} : { nameQuery }),
         }),
-        laboratorySampleRegistrationJournal.listOptions({
-          ...(sampleQuery === undefined ? {} : { query: sampleQuery }),
-        }),
+        canManageLaboratory
+          ? laboratoryChemicalAnalysisJournal.listAvailableSampleOptions({
+              ...(sampleQuery === undefined ? {} : { query: sampleQuery }),
+            })
+          : Promise.resolve([]),
       ]);
       sendJson(res, 200, { records, sampleOptions });
       return;
@@ -3185,64 +3185,79 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const sample = await laboratorySampleRegistrationJournal.findOptionById(
-      validation.value.sampleRegistrationId,
+    const sample = await laboratoryChemicalAnalysisJournal.findSampleOption(
+      validation.value,
+      { availableOnly: true },
     );
     if (sample === undefined) {
       sendJson(res, 400, {
         error: {
           code: "invalid_response",
-          message: "Выберите код лабораторной пробы из журнала регистрации.",
+          message:
+            "Выберите пробу без химического анализа из доступных журналов.",
         },
       });
       return;
     }
 
-    const saved = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => laboratoryChemicalAnalysisJournal.create({
-        analysis: validation.value,
-        sample,
-        submittedByUserId: access.profile.userId,
-        submittedByAccountId: access.profile.activeAccess.accountId,
-      }),
-      buildEvent: (record) => ({
-        actor: buildAuditActor(access.profile),
-        category: "form_submission",
-        action: "laboratory_chemical_analysis.submit",
-        summary: "Добавлена запись журнала химических анализов",
-        details: [
-          {
-            label: "Код лабораторной пробы",
-            value: record.laboratorySampleCode,
+    let saved;
+    try {
+      saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryChemicalAnalysisJournal.create({
+          analysis: validation.value,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_chemical_analysis.submit",
+          summary: "Добавлена запись журнала химических анализов",
+          details: [
+            {
+              label: "Код лабораторной пробы",
+              value: record.laboratorySampleCode,
+            },
+            ...(record.laboratoryAnalysisNumber === undefined
+              ? []
+              : [{
+                  label: "Номер лабораторного анализа",
+                  value: record.laboratoryAnalysisNumber,
+                }]),
+            ...(record.chemicalAnalysisDate === undefined
+              ? []
+              : [{
+                  label: "Дата хим. анализа",
+                  value: record.chemicalAnalysisDate,
+                }]),
+            ...(record.chemicalAnalysisLaboratoryAssistant === undefined
+              ? []
+              : [{
+                  label: "Лаборант",
+                  value: record.chemicalAnalysisLaboratoryAssistant,
+                }]),
+            ...(record.batchNumber === undefined
+              ? []
+              : [{ label: "Номер партии", value: record.batchNumber }]),
+          ],
+          targetType: "laboratory_chemical_analysis",
+          targetId: record.id,
+        }),
+      });
+    } catch (error) {
+      if (error instanceof LaboratoryChemicalAnalysisSampleUnavailableError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Для выбранной пробы уже сохранён химический анализ.",
           },
-          ...(record.laboratoryAnalysisNumber === undefined
-            ? []
-            : [{
-                label: "Номер лабораторного анализа",
-                value: record.laboratoryAnalysisNumber,
-              }]),
-          ...(record.chemicalAnalysisDate === undefined
-            ? []
-            : [{
-                label: "Дата хим. анализа",
-                value: record.chemicalAnalysisDate,
-              }]),
-          ...(record.chemicalAnalysisLaboratoryAssistant === undefined
-            ? []
-            : [{
-                label: "Лаборант",
-                value: record.chemicalAnalysisLaboratoryAssistant,
-              }]),
-          ...(record.batchNumber === undefined
-            ? []
-            : [{ label: "Номер партии", value: record.batchNumber }]),
-        ],
-        targetType: "laboratory_chemical_analysis",
-        targetId: record.id,
-      }),
-    });
+        });
+        return;
+      }
+      throw error;
+    }
 
     sendJson(res, 201, { record: saved });
     return;

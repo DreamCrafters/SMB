@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   laboratoryChemicalAnalysisFields,
   type LaboratoryChemicalAnalysisJournalRecord,
+  type LaboratoryChemicalAnalysisSampleOption,
   type LaboratoryChemicalAnalysisJournalSubmission,
-  type LaboratorySampleRegistrationOption,
+  type LaboratoryChemicalAnalysisValues,
   type ServerUserProfile,
 } from "./contracts";
 import { LaboratoryChemicalAnalysisTable } from "./LaboratoryJournalTables";
@@ -18,26 +19,25 @@ import {
 import { readShortUserMessage } from "./services/userFacingMessages";
 
 type ShowToast = (title: string, body: string) => void;
-type FormState = Record<
-  keyof LaboratoryChemicalAnalysisJournalSubmission,
-  string
->;
+type FormState = Record<keyof LaboratoryChemicalAnalysisValues, string> & {
+  sampleKey: string;
+};
 type HistoryState =
   | {
       status: "loading";
       records: LaboratoryChemicalAnalysisJournalRecord[];
-      sampleOptions: LaboratorySampleRegistrationOption[];
+      sampleOptions: LaboratoryChemicalAnalysisSampleOption[];
     }
   | {
       status: "ready";
       records: LaboratoryChemicalAnalysisJournalRecord[];
-      sampleOptions: LaboratorySampleRegistrationOption[];
+      sampleOptions: LaboratoryChemicalAnalysisSampleOption[];
     }
   | {
       status: "error";
       message: string;
       records: LaboratoryChemicalAnalysisJournalRecord[];
-      sampleOptions: LaboratorySampleRegistrationOption[];
+      sampleOptions: LaboratoryChemicalAnalysisSampleOption[];
     };
 
 export function LaboratoryChemicalAnalysisJournal({
@@ -66,7 +66,7 @@ export function LaboratoryChemicalAnalysisJournal({
   const [editingRecordCode, setEditingRecordCode] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const selectedSampleRef =
-    useRef<LaboratorySampleRegistrationOption | undefined>(undefined);
+    useRef<LaboratoryChemicalAnalysisSampleOption | undefined>(undefined);
   const nextLaboratoryAnalysisNumberRef = useRef("");
   const isLaboratoryAnalysisNumberAuto = useRef(true);
 
@@ -152,14 +152,17 @@ export function LaboratoryChemicalAnalysisJournal({
     if (isAdminPreviewMode) return;
 
     const saveRequest = editingRecordId === undefined
-      ? { kind: "create" as const, submission: buildSubmission(form) }
+      ? {
+          kind: "create" as const,
+          submission: buildSubmission(form, selectedSampleRef.current),
+        }
       : {
           kind: "correct" as const,
           id: editingRecordId,
-          submission: buildSubmission(form),
+          submission: buildSubmission(form, selectedSampleRef.current),
         };
     if (saveRequest.submission === undefined) {
-      setFormMessage("Выберите зарегистрированную пробу.");
+      setFormMessage("Выберите пробу без химического анализа.");
       return;
     }
 
@@ -184,6 +187,13 @@ export function LaboratoryChemicalAnalysisJournal({
     }
 
     const wasEditing = editingRecordId !== undefined;
+    const savedSampleKey = buildSampleKey(result.record);
+    setHistory((current) => ({
+      ...current,
+      sampleOptions: current.sampleOptions.filter(
+        (sample) => buildSampleKey(sample) !== savedSampleKey,
+      ),
+    }));
     resetForm();
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
@@ -197,14 +207,20 @@ export function LaboratoryChemicalAnalysisJournal({
 
   function editRecord(record: LaboratoryChemicalAnalysisJournalRecord) {
     isLaboratoryAnalysisNumberAuto.current = false;
-    selectedSampleRef.current = history.sampleOptions.find(
-      (sample) => sample.id === record.sampleRegistrationId,
-    );
+    const selectedSample = sampleOptionFromRecord(record);
+    selectedSampleRef.current = selectedSample;
+    setHistory((current) => ({
+      ...current,
+      sampleOptions: keepSelectedSample(
+        current.sampleOptions,
+        selectedSample,
+      ),
+    }));
     setEditingRecordId(record.id);
     setEditingRecordCode(record.laboratorySampleCode);
     setSampleQuery(record.laboratorySampleCode);
     setForm({
-      sampleRegistrationId: record.sampleRegistrationId,
+      sampleKey: buildSampleKey(selectedSample),
       laboratoryAnalysisNumber: record.laboratoryAnalysisNumber ?? "",
       chemicalAnalysisDate: record.chemicalAnalysisDate ?? "",
       chemicalAnalysisLaboratoryAssistant:
@@ -301,10 +317,10 @@ export function LaboratoryChemicalAnalysisJournal({
 
         <div className="laboratory-form-grid">
           <label className="laboratory-field-wide">
-            <span>Поиск зарегистрированной пробы</span>
+            <span>Поиск пробы без химического анализа</span>
             <input
               maxLength={120}
-              placeholder="Код, номер, наименование, лаборант или место"
+              placeholder="Код, номер или наименование пробы"
               value={sampleQuery}
               onChange={(event) => {
                 const value = event.currentTarget.value;
@@ -316,18 +332,21 @@ export function LaboratoryChemicalAnalysisJournal({
             <span>Код лабораторной пробы</span>
             <select
               required
-              value={form.sampleRegistrationId}
+              value={form.sampleKey}
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 selectedSampleRef.current = history.sampleOptions.find(
-                  (sample) => sample.id === value,
+                  (sample) => buildSampleKey(sample) === value,
                 );
-                updateField("sampleRegistrationId", value);
+                updateField("sampleKey", value);
               }}
             >
-              <option value="">Выберите зарегистрированную пробу</option>
+              <option value="">Выберите пробу без химического анализа</option>
               {history.sampleOptions.map((sample) => (
-                <option key={sample.id} value={sample.id}>
+                <option
+                  key={buildSampleKey(sample)}
+                  value={buildSampleKey(sample)}
+                >
                   {formatSampleOption(sample)}
                 </option>
               ))}
@@ -372,7 +391,7 @@ export function LaboratoryChemicalAnalysisJournal({
         {history.status !== "loading" && history.sampleOptions.length === 0
           ? (
               <p className="form-message">
-                Сначала добавьте пробу в журнал регистрации отбора проб.
+                Нет проб без химического анализа в доступных журналах.
               </p>
             )
           : null}
@@ -485,7 +504,7 @@ function createEmptyForm(
   laboratoryAnalysisNumber = "",
 ): FormState {
   return {
-    sampleRegistrationId: "",
+    sampleKey: "",
     laboratoryAnalysisNumber,
     chemicalAnalysisDate: formatLocalCalendarDate(new Date()),
     chemicalAnalysisLaboratoryAssistant: laboratoryAssistant,
@@ -503,9 +522,11 @@ function createEmptyForm(
 
 function buildSubmission(
   form: FormState,
+  selectedSample: LaboratoryChemicalAnalysisSampleOption | undefined,
 ): LaboratoryChemicalAnalysisJournalSubmission | undefined {
   if (
-    form.sampleRegistrationId === "" ||
+    form.sampleKey === "" ||
+    selectedSample === undefined ||
     laboratoryChemicalAnalysisFields.some(
       (field) => field.required && form[field.id].trim() === "",
     )
@@ -514,7 +535,8 @@ function buildSubmission(
   }
 
   return {
-    sampleRegistrationId: form.sampleRegistrationId,
+    sampleSource: selectedSample.sampleSource,
+    sampleId: selectedSample.sampleId,
     ...(form.laboratoryAnalysisNumber.trim() === ""
       ? {}
       : { laboratoryAnalysisNumber: form.laboratoryAnalysisNumber.trim() }),
@@ -545,17 +567,45 @@ function buildSubmission(
   };
 }
 
-function formatSampleOption(sample: LaboratorySampleRegistrationOption) {
-  return `${sample.laboratorySampleCode} · № ${sample.sampleNumber} · ${sample.sampleName} · отбор ${formatDate(sample.samplingDate)} · регистрация ${formatDate(sample.registrationDate)}`;
+function formatSampleOption(sample: LaboratoryChemicalAnalysisSampleOption) {
+  const source = sample.sampleSource === "sample_registration"
+    ? "Журнал отбора проб"
+    : "Неформованная продукция";
+  const registration = sample.registrationDate === undefined
+    ? ""
+    : ` · регистрация ${formatDate(sample.registrationDate)}`;
+  return `${source} · ${sample.laboratorySampleCode} · № ${sample.sampleNumber} · ${sample.sampleName} · дата пробы ${formatDate(sample.sampleDate)}${registration}`;
 }
 
 function keepSelectedSample(
-  options: LaboratorySampleRegistrationOption[],
-  selected: LaboratorySampleRegistrationOption | undefined,
+  options: LaboratoryChemicalAnalysisSampleOption[],
+  selected: LaboratoryChemicalAnalysisSampleOption | undefined,
 ) {
-  return selected === undefined || options.some((option) => option.id === selected.id)
+  return selected === undefined || options.some(
+      (option) => buildSampleKey(option) === buildSampleKey(selected),
+    )
     ? options
     : [...options, selected];
+}
+
+function buildSampleKey(sample: LaboratoryChemicalAnalysisSampleOption) {
+  return `${sample.sampleSource}:${sample.sampleId}`;
+}
+
+function sampleOptionFromRecord(
+  record: LaboratoryChemicalAnalysisJournalRecord,
+): LaboratoryChemicalAnalysisSampleOption {
+  return {
+    sampleSource: record.sampleSource,
+    sampleId: record.sampleId,
+    laboratorySampleCode: record.laboratorySampleCode,
+    sampleNumber: record.sampleNumber,
+    sampleName: record.sampleName,
+    sampleDate: record.sampleDate,
+    ...(record.registrationDate === undefined
+      ? {}
+      : { registrationDate: record.registrationDate }),
+  };
 }
 
 function formatDate(value: string) {

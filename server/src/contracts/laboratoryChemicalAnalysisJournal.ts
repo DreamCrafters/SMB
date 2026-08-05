@@ -93,24 +93,37 @@ export const laboratoryChemicalAnalysisFields = [
   required: boolean;
 }[];
 
-export type LaboratoryChemicalAnalysisJournalSubmission = {
-  sampleRegistrationId: string;
-} & LaboratoryChemicalAnalysisValues;
+export const laboratoryChemicalAnalysisSampleSources = [
+  "sample_registration",
+  "unshaped_product",
+] as const;
+
+export type LaboratoryChemicalAnalysisSampleSource =
+  typeof laboratoryChemicalAnalysisSampleSources[number];
+
+export type LaboratoryChemicalAnalysisSampleReference = {
+  sampleSource: LaboratoryChemicalAnalysisSampleSource;
+  sampleId: string;
+};
+
+export type LaboratoryChemicalAnalysisJournalSubmission =
+  LaboratoryChemicalAnalysisSampleReference & LaboratoryChemicalAnalysisValues;
 
 export type LaboratoryChemicalAnalysisDraft = Required<Pick<
   LaboratoryChemicalAnalysisValues,
   "laboratoryAnalysisNumber"
 >>;
 
-export type LaboratoryChemicalAnalysisJournalRecord =
-  LaboratoryChemicalAnalysisJournalSubmission & {
-    id: string;
+export type LaboratoryChemicalAnalysisSampleOption =
+  LaboratoryChemicalAnalysisSampleReference & {
     laboratorySampleCode: string;
     sampleNumber: string;
     sampleName: string;
-    createdAt: string;
+    sampleDate: string;
+    registrationDate?: string;
   };
 
+/** Registration-journal option retained for its standalone repository API. */
 export type LaboratorySampleRegistrationOption = {
   id: string;
   laboratorySampleCode: string;
@@ -119,6 +132,13 @@ export type LaboratorySampleRegistrationOption = {
   samplingDate: string;
   registrationDate: string;
 };
+
+export type LaboratoryChemicalAnalysisJournalRecord =
+  LaboratoryChemicalAnalysisJournalSubmission &
+  Omit<LaboratoryChemicalAnalysisSampleOption, "sampleSource" | "sampleId"> & {
+    id: string;
+    createdAt: string;
+  };
 
 export type LaboratoryChemicalAnalysisJournalFilters = {
   dateFrom?: string;
@@ -131,5 +151,5 @@ export type LaboratoryChemicalAnalysisJournalFilters = {
 
 export type LaboratoryChemicalAnalysisJournalSelection = {
   records: LaboratoryChemicalAnalysisJournalRecord[];
-  sampleOptions: LaboratorySampleRegistrationOption[];
+  sampleOptions: LaboratoryChemicalAnalysisSampleOption[];
 };

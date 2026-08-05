@@ -49,7 +49,11 @@ import type { LaboratoryResultsRepository } from "../repositories/laboratoryResu
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
-import type { LaboratoryChemicalAnalysisJournalRepository } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
+import {
+  LaboratoryChemicalAnalysisSampleUnavailableError,
+  type LaboratoryChemicalAnalysisJournalRepository,
+} from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
+import type { LaboratoryChemicalAnalysisSampleOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type {
   BoardAssignment,
@@ -912,15 +916,24 @@ test("laboratory review access reads every journal by name but cannot change lab
       chemicalAnalysisFilters.push(filters);
       return [{
         id: "chemical-analysis-review-1",
-        sampleRegistrationId: "sample-registration-review-1",
+        sampleSource: "sample_registration",
+        sampleId: "sample-registration-review-1",
         laboratorySampleCode: "ЛП-2026-017",
         sampleNumber: "17-А",
         sampleName: "Шамот молотый",
+        sampleDate: "2026-07-29",
+        registrationDate: "2026-07-30",
         chemicalAnalysisDate: "2026-07-30",
         batchNumber: "П-42",
         al2o3: "31,4",
         createdAt: "2026-07-30T08:30:00.000Z",
       }];
+    },
+    async listAvailableSampleOptions() {
+      throw new Error("Laboratory review access must not load form options.");
+    },
+    async findSampleOption() {
+      throw new Error("Laboratory review access must not resolve form options.");
     },
     async getNextLaboratoryAnalysisNumber() {
       throw new Error("Laboratory review access must not load form drafts.");
@@ -1829,7 +1842,7 @@ test("unshaped product sample journal drafts, saves, corrects, and filters recor
   );
 });
 
-test("chemical analysis journal saves an analysis for a registered sample", async () => {
+test("chemical analysis journal links available samples from both source journals", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
     displayName: "Иванова Анна",
@@ -1841,17 +1854,29 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       capabilities: ["business.manage_laboratory_results"],
     },
   };
-  const sampleOption = {
-    id: "sample-registration-1",
+  const registeredSampleOption: LaboratoryChemicalAnalysisSampleOption = {
+    sampleSource: "sample_registration" as const,
+    sampleId: "sample-registration-1",
     laboratorySampleCode: "ЛП-2026-017",
     sampleNumber: "17-А",
     sampleName: "Шамот молотый",
-    samplingDate: "2026-07-29",
+    sampleDate: "2026-07-29",
     registrationDate: "2026-07-30",
   };
-  let requestedSampleFilters:
-    | Parameters<LaboratorySampleRegistrationJournalRepository["listOptions"]>[0]
-    | undefined;
+  const unshapedSampleOption: LaboratoryChemicalAnalysisSampleOption = {
+    sampleSource: "unshaped_product" as const,
+    sampleId: "unshaped-product-sample-18",
+    laboratorySampleCode: ".18",
+    sampleNumber: "18",
+    sampleName: "Мертель МШ-28",
+    sampleDate: "2026-08-04",
+  };
+  const contestedSampleOption: LaboratoryChemicalAnalysisSampleOption = {
+    ...registeredSampleOption,
+    sampleId: "sample-registration-contested",
+    laboratorySampleCode: "ЛП-2026-018",
+    sampleNumber: "18-А",
+  };
   const sampleJournal: LaboratorySampleRegistrationJournalRepository = {
     async create() {
       throw new Error("not used");
@@ -1869,11 +1894,10 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       return [];
     },
     async listOptions(filters) {
-      requestedSampleFilters = filters;
-      return [sampleOption];
+      return [];
     },
-    async findOptionById(id) {
-      return id === sampleOption.id ? sampleOption : undefined;
+    async findOptionById() {
+      return undefined;
     },
   };
   let savedInput:
@@ -1885,22 +1909,42 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
   let correctedInput:
     | Parameters<LaboratoryChemicalAnalysisJournalRepository["update"]>[0]
     | undefined;
+  let requestedSampleFilters:
+    | Parameters<
+      LaboratoryChemicalAnalysisJournalRepository["listAvailableSampleOptions"]
+    >[0]
+    | undefined;
   const chemicalJournal: LaboratoryChemicalAnalysisJournalRepository = {
     async create(input) {
+      if (input.analysis.sampleId === contestedSampleOption.sampleId) {
+        throw new LaboratoryChemicalAnalysisSampleUnavailableError();
+      }
       savedInput = input;
+      const selectedSample = input.analysis.sampleSource === "unshaped_product"
+        ? unshapedSampleOption
+        : registeredSampleOption;
       return {
         id: "chemical-analysis-1",
         ...input.analysis,
-        laboratorySampleCode: input.sample.laboratorySampleCode,
-        sampleNumber: input.sample.sampleNumber,
-        sampleName: input.sample.sampleName,
+        laboratorySampleCode: selectedSample.laboratorySampleCode,
+        sampleNumber: selectedSample.sampleNumber,
+        sampleName: selectedSample.sampleName,
+        sampleDate: selectedSample.sampleDate,
+        ...(selectedSample.registrationDate === undefined
+          ? {}
+          : { registrationDate: selectedSample.registrationDate }),
         createdAt: "2026-07-30T08:30:00.000Z",
       };
     },
     async update(input) {
       correctedInput = input;
       const beforeAnalysis = savedInput?.analysis ?? analysis;
-      const beforeSample = savedInput?.sample ?? sampleOption;
+      const beforeSample = beforeAnalysis.sampleSource === "unshaped_product"
+        ? unshapedSampleOption
+        : registeredSampleOption;
+      const selectedSample = input.analysis.sampleSource === "unshaped_product"
+        ? unshapedSampleOption
+        : registeredSampleOption;
       return {
         before: {
           id: input.id,
@@ -1908,14 +1952,22 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
           laboratorySampleCode: beforeSample.laboratorySampleCode,
           sampleNumber: beforeSample.sampleNumber,
           sampleName: beforeSample.sampleName,
+          sampleDate: beforeSample.sampleDate,
+          ...(beforeSample.registrationDate === undefined
+            ? {}
+            : { registrationDate: beforeSample.registrationDate }),
           createdAt: "2026-07-30T08:30:00.000Z",
         },
         record: {
           id: input.id,
           ...input.analysis,
-          laboratorySampleCode: sampleOption.laboratorySampleCode,
-          sampleNumber: sampleOption.sampleNumber,
-          sampleName: sampleOption.sampleName,
+          laboratorySampleCode: selectedSample.laboratorySampleCode,
+          sampleNumber: selectedSample.sampleNumber,
+          sampleName: selectedSample.sampleName,
+          sampleDate: selectedSample.sampleDate,
+          ...(selectedSample.registrationDate === undefined
+            ? {}
+            : { registrationDate: selectedSample.registrationDate }),
           createdAt: "2026-07-30T08:30:00.000Z",
         },
       };
@@ -1927,11 +1979,28 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         : [{
             id: "chemical-analysis-1",
             ...savedInput.analysis,
-            laboratorySampleCode: savedInput.sample.laboratorySampleCode,
-            sampleNumber: savedInput.sample.sampleNumber,
-            sampleName: savedInput.sample.sampleName,
+            laboratorySampleCode: unshapedSampleOption.laboratorySampleCode,
+            sampleNumber: unshapedSampleOption.sampleNumber,
+            sampleName: unshapedSampleOption.sampleName,
+            sampleDate: unshapedSampleOption.sampleDate,
             createdAt: "2026-07-30T08:30:00.000Z",
           }];
+    },
+    async listAvailableSampleOptions(filters) {
+      requestedSampleFilters = filters;
+      return [registeredSampleOption, unshapedSampleOption];
+    },
+    async findSampleOption(reference, options) {
+      if (options?.excludeAnalysisId !== undefined) return undefined;
+      return [
+        registeredSampleOption,
+        unshapedSampleOption,
+        contestedSampleOption,
+      ].find(
+        (sample) =>
+          sample.sampleSource === reference.sampleSource &&
+          sample.sampleId === reference.sampleId,
+      );
     },
     async getNextLaboratoryAnalysisNumber() {
       return "44";
@@ -1951,7 +2020,8 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
     Cookie: "smb_session=prod-session",
   };
   const analysis = {
-    sampleRegistrationId: "sample-registration-1",
+    sampleSource: "unshaped_product" as const,
+    sampleId: "unshaped-product-sample-18",
   };
 
   await withApiServer(
@@ -1991,12 +2061,24 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
           headers,
           body: JSON.stringify({
             ...analysis,
-            sampleRegistrationId: "missing-registration",
+            sampleId: "missing-sample",
+          }),
+        },
+      );
+      const contestedSampleResponse = await fetch(
+        `${baseUrl}/api/laboratory/chemical-analysis-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            sampleSource: contestedSampleOption.sampleSource,
+            sampleId: contestedSampleOption.sampleId,
           }),
         },
       );
       const correction = {
-        sampleRegistrationId: "sample-registration-1",
+        sampleSource: "sample_registration" as const,
+        sampleId: "sample-registration-1",
         laboratoryAnalysisNumber: "45",
         batchNumber: "П-44",
         chemicalAnalysisDate: "2026-08-04",
@@ -2042,14 +2124,22 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
         records: [{
           id: "chemical-analysis-1",
           ...analysis,
-          laboratorySampleCode: "ЛП-2026-017",
-          sampleNumber: "17-А",
-          sampleName: "Шамот молотый",
+          laboratorySampleCode: ".18",
+          sampleNumber: "18",
+          sampleName: "Мертель МШ-28",
+          sampleDate: "2026-08-04",
           createdAt: "2026-07-30T08:30:00.000Z",
         }],
-        sampleOptions: [sampleOption],
+        sampleOptions: [registeredSampleOption, unshapedSampleOption],
       });
       assert.equal(unknownSampleResponse.status, 400);
+      assert.equal(contestedSampleResponse.status, 409);
+      assert.deepEqual(await contestedSampleResponse.json(), {
+        error: {
+          code: "invalid_response",
+          message: "Для выбранной пробы уже сохранён химический анализ.",
+        },
+      });
       assert.equal(correctionResponse.status, 200);
       assert.deepEqual(await correctionResponse.json(), {
         record: {
@@ -2058,6 +2148,8 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
           laboratorySampleCode: "ЛП-2026-017",
           sampleNumber: "17-А",
           sampleName: "Шамот молотый",
+          sampleDate: "2026-07-29",
+          registrationDate: "2026-07-30",
           createdAt: "2026-07-30T08:30:00.000Z",
         },
       });
@@ -2088,7 +2180,7 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       assert.deepEqual(auditEvents[0]?.details, [
         {
           label: "Код лабораторной пробы",
-          value: "ЛП-2026-017",
+          value: ".18",
         },
       ]);
       assert.equal(
@@ -2099,7 +2191,7 @@ test("chemical analysis journal saves an analysis for a registered sample", asyn
       assert.deepEqual(auditEvents[1]?.details, [
         {
           label: "Код лабораторной пробы",
-          value: "ЛП-2026-017 → ЛП-2026-017",
+          value: ".18 → ЛП-2026-017",
         },
         {
           label: "Номер лабораторного анализа",

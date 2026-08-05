@@ -2197,6 +2197,102 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "043_chemical_analysis_sample_sources",
+    statements: [
+      `
+      alter table laboratory_chemical_analysis_journal
+        drop foreign key fk_laboratory_chemical_analysis_sample,
+        modify sample_registration_id char(36) null,
+        add column unshaped_product_sample_id char(36) null
+          after sample_registration_id,
+        add key idx_laboratory_chemical_analysis_unshaped_sample (
+          unshaped_product_sample_id,
+          sequence_id
+        ),
+        add constraint fk_laboratory_chemical_analysis_registered_sample
+          foreign key (sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete restrict,
+        add constraint fk_laboratory_chemical_analysis_unshaped_sample
+          foreign key (unshaped_product_sample_id)
+          references laboratory_unshaped_product_sample_journal (id)
+          on delete restrict,
+        add constraint chk_laboratory_chemical_analysis_single_sample
+          check (
+            (sample_registration_id is null) <>
+            (unshaped_product_sample_id is null)
+          );
+      `,
+      `
+      create table if not exists laboratory_chemical_analysis_sample_claims (
+        sample_source varchar(40) not null,
+        sample_id char(36) not null,
+        chemical_analysis_id char(36) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        primary key (sample_source, sample_id),
+        unique key uq_laboratory_chemical_analysis_claim_analysis (
+          chemical_analysis_id
+        ),
+        constraint fk_laboratory_chemical_analysis_claim_analysis
+          foreign key (chemical_analysis_id)
+          references laboratory_chemical_analysis_journal (id)
+          on delete restrict,
+        constraint chk_laboratory_chemical_analysis_claim_source
+          check (sample_source in ('sample_registration', 'unshaped_product'))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into laboratory_chemical_analysis_sample_claims (
+        sample_source,
+        sample_id,
+        chemical_analysis_id
+      )
+      select
+        latest_claim.sample_source,
+        latest_claim.sample_id,
+        latest_claim.chemical_analysis_id
+      from (
+        select
+          'sample_registration' as sample_source,
+          analysis.sample_registration_id as sample_id,
+          analysis.id as chemical_analysis_id
+        from laboratory_chemical_analysis_journal analysis
+        join (
+          select
+            sample_registration_id,
+            max(sequence_id) as sequence_id
+          from laboratory_chemical_analysis_journal
+          where sample_registration_id is not null
+          group by sample_registration_id
+        ) latest
+          on latest.sample_registration_id = analysis.sample_registration_id
+          and latest.sequence_id = analysis.sequence_id
+
+        union all
+
+        select
+          'unshaped_product' as sample_source,
+          analysis.unshaped_product_sample_id as sample_id,
+          analysis.id as chemical_analysis_id
+        from laboratory_chemical_analysis_journal analysis
+        join (
+          select
+            unshaped_product_sample_id,
+            max(sequence_id) as sequence_id
+          from laboratory_chemical_analysis_journal
+          where unshaped_product_sample_id is not null
+          group by unshaped_product_sample_id
+        ) latest
+          on latest.unshaped_product_sample_id =
+            analysis.unshaped_product_sample_id
+          and latest.sequence_id = analysis.sequence_id
+      ) latest_claim
+      on duplicate key update
+        chemical_analysis_id = values(chemical_analysis_id);
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

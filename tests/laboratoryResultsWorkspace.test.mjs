@@ -382,42 +382,62 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
               laboratorySampleCode: "ЛП-2026-017",
               sampleNumber: "17-А",
               sampleName: "Шамот молотый",
+              sampleDate: "2026-07-29",
+              registrationDate: "2026-07-30",
               createdAt: "2026-07-31T08:30:00.000Z",
             },
           }, 201);
         }
         chemicalAnalysisRequests.push(Object.fromEntries(url.searchParams));
-        const sampleOptions = url.searchParams.get("sampleQuery") === "другая"
+        if (
+          url.searchParams.get("sampleQuery") === ".18" &&
+          chemicalAnalysisCorrections.length === 0
+        ) {
+          return jsonResponse({
+            error: {
+              code: "server_error",
+              message: "Временная ошибка загрузки проб.",
+            },
+          }, 503);
+        }
+        const sampleOptions = (url.searchParams.get("sampleQuery") === "другая"
           ? [{
-              id: "sample-registration-legacy",
-              laboratorySampleCode: "ЛП-2026-017",
-              sampleNumber: "17-А",
-              sampleName: "Шамот молотый",
-              samplingDate: "2026-06-20",
-              registrationDate: "2026-06-21",
+              sampleSource: "unshaped_product",
+              sampleId: "unshaped-sample-19",
+              laboratorySampleCode: ".19",
+              sampleNumber: "19",
+              sampleName: "ШКИ-66",
+              sampleDate: "2026-06-20",
             }]
           : [{
-              id: "sample-registration-1",
+              sampleSource: "sample_registration",
+              sampleId: "sample-registration-1",
               laboratorySampleCode: "ЛП-2026-017",
               sampleNumber: "17-А",
               sampleName: "Шамот молотый",
-              samplingDate: "2026-07-29",
+              sampleDate: "2026-07-29",
               registrationDate: "2026-07-30",
             }, {
-              id: "sample-registration-legacy",
-              laboratorySampleCode: "ЛП-2026-017",
-              sampleNumber: "17-А",
-              sampleName: "Шамот молотый",
-              samplingDate: "2026-06-20",
-              registrationDate: "2026-06-21",
-            }];
+              sampleSource: "unshaped_product",
+              sampleId: "unshaped-sample-19",
+              laboratorySampleCode: ".19",
+              sampleNumber: "19",
+              sampleName: "ШКИ-66",
+              sampleDate: "2026-06-20",
+            }]).filter((sample) =>
+              chemicalAnalysisSubmissions.length === 0 ||
+              sample.sampleSource !== "sample_registration" ||
+              sample.sampleId !== "sample-registration-1"
+            );
         return jsonResponse({
           records: [{
             id: "chemical-analysis-1",
-            sampleRegistrationId: "sample-registration-1",
-            laboratorySampleCode: "ЛП-2026-017",
-            sampleNumber: "17-А",
-            sampleName: "Шамот молотый",
+            sampleSource: "unshaped_product",
+            sampleId: "unshaped-sample-18",
+            laboratorySampleCode: ".18",
+            sampleNumber: "18",
+            sampleName: "Мертель МШ-28",
+            sampleDate: "2026-07-29",
             laboratoryAnalysisNumber: "42",
             chemicalAnalysisDate: "2026-07-30",
             chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
@@ -446,9 +466,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           record: {
             id: "chemical-analysis-1",
             ...submission,
-            laboratorySampleCode: "ЛП-2026-017",
-            sampleNumber: "17-А",
-            sampleName: "Шамот молотый",
+            laboratorySampleCode: ".18",
+            sampleNumber: "18",
+            sampleName: "Мертель МШ-28",
+            sampleDate: "2026-07-29",
             createdAt: "2026-07-30T08:30:00.000Z",
           },
         });
@@ -941,6 +962,13 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       rootElement.textContent.includes("ЛП-2026-017")
     );
+    assert.ok(
+      Array.from(
+        rootElement.querySelectorAll(
+          ".sample-registration-journal-table thead th",
+        ),
+      ).some((heading) => heading.textContent?.trim() === "№ Хим анализа"),
+    );
 
     const sampleRegistrationForm = rootElement.querySelector(
       ".sample-registration-journal-form",
@@ -1164,7 +1192,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     }
     const registeredSampleSearch = findControlByLabel(
       chemicalAnalysisForm,
-      "Поиск зарегистрированной пробы",
+      "Поиск пробы без химического анализа",
     );
     await React.act(async () => {
       setNativeInputValue(registeredSampleSearch, "ЛП-2026-017");
@@ -1187,10 +1215,15 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       .map((option) => option.textContent);
     assert.equal(sampleOptionLabels.length, 2);
     assert.notEqual(sampleOptionLabels[0], sampleOptionLabels[1]);
-    assert.match(sampleOptionLabels[0], /отбор 29\.07\.2026/u);
-    assert.match(sampleOptionLabels[1], /регистрация 21\.06\.2026/u);
+    assert.match(sampleOptionLabels[0], /Журнал отбора проб/u);
+    assert.match(sampleOptionLabels[0], /дата пробы 29\.07\.2026/u);
+    assert.match(sampleOptionLabels[1], /Неформованная продукция/u);
+    assert.match(sampleOptionLabels[1], /\.19/u);
     await React.act(async () => {
-      setNativeInputValue(sampleSelect, "sample-registration-1");
+      setNativeInputValue(
+        sampleSelect,
+        "sample_registration:sample-registration-1",
+      );
       sampleSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
     await React.act(async () => {
@@ -1209,10 +1242,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Код лабораторной пробы",
       "select",
     );
-    assert.equal(preservedSampleSelect.value, "sample-registration-1");
+    assert.equal(
+      preservedSampleSelect.value,
+      "sample_registration:sample-registration-1",
+    );
     assert.equal(
       Array.from(preservedSampleSelect.options).some(
-        (option) => option.value === "sample-registration-1",
+        (option) =>
+          option.value === "sample_registration:sample-registration-1",
       ),
       true,
     );
@@ -1238,10 +1275,17 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     });
     await waitFor(React, () => chemicalAnalysisSubmissions.length === 1);
     assert.deepEqual(chemicalAnalysisSubmissions[0], {
-      sampleRegistrationId: "sample-registration-1",
+      sampleSource: "sample_registration",
+      sampleId: "sample-registration-1",
       laboratoryAnalysisNumber: "47",
     });
     await waitFor(React, () => laboratoryAnalysisNumberInput.value === "44");
+    await waitFor(React, () =>
+      Array.from(sampleSelect.options).every(
+        (option) =>
+          option.value !== "sample_registration:sample-registration-1",
+      )
+    );
 
     const chemicalAnalysisEditButton = rootElement.querySelector(
       ".chemical-analysis-journal-table .chemical-analysis-edit-link",
@@ -1253,7 +1297,23 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         chemicalAnalysisForm,
         "Код лабораторной пробы",
         "select",
-      ).value === "sample-registration-1"
+      ).value === "unshaped_product:unshaped-sample-18"
+    );
+    await waitFor(React, () =>
+      chemicalAnalysisRequests.some(
+        (request) => request.sampleQuery === ".18",
+      )
+    );
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Временная ошибка загрузки проб.")
+    );
+    assert.equal(
+      findControlByLabel(
+        chemicalAnalysisForm,
+        "Код лабораторной пробы",
+        "select",
+      ).value,
+      "unshaped_product:unshaped-sample-18",
     );
     assert.ok(
       chemicalAnalysisForm.textContent.includes("Редактирование анализа"),
@@ -1314,7 +1374,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     });
     await waitFor(React, () => chemicalAnalysisCorrections.length === 1);
     assert.deepEqual(chemicalAnalysisCorrections[0], {
-      sampleRegistrationId: "sample-registration-1",
+      sampleSource: "unshaped_product",
+      sampleId: "unshaped-sample-18",
       laboratoryAnalysisNumber: "41",
       chemicalAnalysisDate: "2026-07-30",
       chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",

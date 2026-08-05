@@ -64,7 +64,11 @@ export function LaboratorySampleRegistrationTable({
               <th key={field.id}>{field.label}</th>
             ))}
             {laboratoryChemicalAnalysisFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <th key={field.id}>
+                {field.id === "laboratoryAnalysisNumber"
+                  ? "№ Хим анализа"
+                  : field.label}
+              </th>
             ))}
           </tr>
         </thead>

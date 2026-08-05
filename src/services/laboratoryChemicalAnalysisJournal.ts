@@ -1,11 +1,12 @@
 import {
   laboratoryChemicalAnalysisFields,
+  laboratoryChemicalAnalysisSampleSources,
   type LaboratoryChemicalAnalysisDraft,
   type LaboratoryChemicalAnalysisJournalFilters,
   type LaboratoryChemicalAnalysisJournalRecord,
+  type LaboratoryChemicalAnalysisSampleOption,
   type LaboratoryChemicalAnalysisJournalSelection,
   type LaboratoryChemicalAnalysisJournalSubmission,
-  type LaboratorySampleRegistrationOption,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -218,10 +219,14 @@ function isJournalRecord(
 ): value is LaboratoryChemicalAnalysisJournalRecord {
   return isRecord(value) &&
     typeof value.id === "string" &&
-    typeof value.sampleRegistrationId === "string" &&
+    isSampleSource(value.sampleSource) &&
+    typeof value.sampleId === "string" &&
     typeof value.laboratorySampleCode === "string" &&
     typeof value.sampleNumber === "string" &&
     typeof value.sampleName === "string" &&
+    typeof value.sampleDate === "string" &&
+    (value.registrationDate === undefined ||
+      typeof value.registrationDate === "string") &&
     laboratoryChemicalAnalysisFields.every(
       (field) => field.required
         ? typeof value[field.id] === "string"
@@ -232,14 +237,24 @@ function isJournalRecord(
 
 function isSampleOption(
   value: unknown,
-): value is LaboratorySampleRegistrationOption {
+): value is LaboratoryChemicalAnalysisSampleOption {
   return isRecord(value) &&
-    typeof value.id === "string" &&
+    isSampleSource(value.sampleSource) &&
+    typeof value.sampleId === "string" &&
     typeof value.laboratorySampleCode === "string" &&
     typeof value.sampleNumber === "string" &&
     typeof value.sampleName === "string" &&
-    typeof value.samplingDate === "string" &&
-    typeof value.registrationDate === "string";
+    typeof value.sampleDate === "string" &&
+    (value.registrationDate === undefined ||
+      typeof value.registrationDate === "string");
+}
+
+function isSampleSource(
+  value: unknown,
+): value is LaboratoryChemicalAnalysisSampleOption["sampleSource"] {
+  return laboratoryChemicalAnalysisSampleSources.some(
+    (sampleSource) => sampleSource === value,
+  );
 }
 
 function readRemoteError(payload: unknown, fallback: string): ErrorResult {
