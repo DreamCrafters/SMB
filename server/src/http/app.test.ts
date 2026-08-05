@@ -50,6 +50,7 @@ import type { LaboratoryBankAssignmentsRepository } from "../repositories/labora
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
 import type { LaboratoryChemicalAnalysisJournalRepository } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
+import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type {
   BoardAssignment,
   BoardAssignmentCompletion,
@@ -925,6 +926,27 @@ test("laboratory review access reads every journal by name but cannot change lab
       throw new Error("Laboratory review access must not load form drafts.");
     },
   };
+  const unshapedProductSampleFilters: Parameters<
+    LaboratoryUnshapedProductSampleJournalRepository["list"]
+  >[0][] = [];
+  const unshapedProductSampleJournal: LaboratoryUnshapedProductSampleJournalRepository = {
+    async create() {
+      throw new Error("Laboratory review access must not create unshaped samples.");
+    },
+    async update() {
+      throw new Error("Laboratory review access must not correct unshaped samples.");
+    },
+    async list(filters) {
+      unshapedProductSampleFilters.push(filters);
+      return [];
+    },
+    async getNextSampleNumber() {
+      throw new Error("Laboratory review access must not load unshaped sample drafts.");
+    },
+    async getLastSampledBy() {
+      throw new Error("Laboratory review access must not load unshaped sample drafts.");
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -1008,6 +1030,22 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/chemical-analysis-journal/chemical-analysis-1`,
         { method: "PATCH", headers, body: JSON.stringify({}) },
       );
+      const unshapedProductSampleResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal?name=%D0%A8%D0%9A%D0%98`,
+        { headers },
+      );
+      const unshapedProductSampleDraftResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-draft`,
+        { headers },
+      );
+      const unshapedProductSampleCorrectionResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal/unshaped-sample-1`,
+        { method: "PATCH", headers, body: JSON.stringify({}) },
+      );
+      const unshapedProductSampleCreateResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal`,
+        { method: "POST", headers, body: JSON.stringify({}) },
+      );
       const kilnJournalCreateResponse = await fetch(
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
         { method: "POST", headers, body: JSON.stringify({}) },
@@ -1038,6 +1076,10 @@ test("laboratory review access reads every journal by name but cannot change lab
         "application/pdf",
       );
       assert.equal(chemicalAnalysisCorrectionResponse.status, 403);
+      assert.equal(unshapedProductSampleResponse.status, 200);
+      assert.equal(unshapedProductSampleDraftResponse.status, 403);
+      assert.equal(unshapedProductSampleCorrectionResponse.status, 403);
+      assert.equal(unshapedProductSampleCreateResponse.status, 403);
       assert.equal(kilnJournalCreateResponse.status, 403);
       assert.deepEqual(laboratoryResultFilters, [{
         dateFrom: "2026-07-01",
@@ -1049,6 +1091,7 @@ test("laboratory review access reads every journal by name but cannot change lab
         { nameQuery: "ШКИ" },
         { dateFrom: "2026-07-01", query: "П-42" },
       ]);
+      assert.deepEqual(unshapedProductSampleFilters, [{ nameQuery: "ШКИ" }]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -1072,6 +1115,7 @@ test("laboratory review access reads every journal by name but cannot change lab
     kilnJournal,
     sampleRegistrationJournal,
     chemicalAnalysisJournal,
+    unshapedProductSampleJournal,
   );
 });
 
@@ -1527,6 +1571,257 @@ test("sample registration journal saves and filters registration records", async
     undefined,
     undefined,
     undefined,
+    undefined,
+    undefined,
+    undefined,
+    journal,
+  );
+});
+
+test("unshaped product sample journal drafts, saves, corrects, and filters records", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
+    },
+  };
+  let savedInput:
+    | Parameters<LaboratoryUnshapedProductSampleJournalRepository["create"]>[0]
+    | undefined;
+  let correctedInput:
+    | Parameters<LaboratoryUnshapedProductSampleJournalRepository["update"]>[0]
+    | undefined;
+  let requestedFilters:
+    | Parameters<LaboratoryUnshapedProductSampleJournalRepository["list"]>[0]
+    | undefined;
+  let createCalls = 0;
+  let updateCalls = 0;
+  let insideTransaction = false;
+  const journal: LaboratoryUnshapedProductSampleJournalRepository = {
+    async create(input) {
+      createCalls += 1;
+      savedInput = input;
+      return {
+        id: "unshaped-sample-1",
+        ...input.record,
+        createdAt: "2026-08-05T08:30:00.000Z",
+      };
+    },
+    async update(input) {
+      updateCalls += 1;
+      correctedInput = input;
+      return {
+        before: savedInput?.record ?? input.record,
+        record: {
+          id: input.id,
+          ...input.record,
+          createdAt: "2026-08-05T08:30:00.000Z",
+        },
+      };
+    },
+    async list(filters) {
+      requestedFilters = filters;
+      return savedInput === undefined
+        ? []
+        : [{
+            id: "unshaped-sample-1",
+            ...savedInput.record,
+            createdAt: "2026-08-05T08:30:00.000Z",
+          }];
+    },
+    async getNextSampleNumber() {
+      return "18";
+    },
+    async getLastSampledBy() {
+      return "Иванова А.А.";
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const transaction: DatabaseTransactionRunner = {
+    async run(operation) {
+      insideTransaction = true;
+
+      try {
+        return await operation();
+      } finally {
+        insideTransaction = false;
+      }
+    },
+  };
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["Шамот молотый"];
+    },
+    async create() {
+      throw new Error("not used");
+    },
+    async resolveReferences(references) {
+      assert.equal(insideTransaction, false);
+      const reference = references[0];
+      assert.ok(reference);
+
+      if (reference.label === "Неизвестная продукция") {
+        return { ok: false, missing: reference };
+      }
+      if (reference.label === "Источник недоступен") {
+        throw new Error("Google Sheets is unavailable");
+      }
+
+      return {
+        ok: true,
+        references: [{
+          fieldName: reference.fieldName,
+          label: "Шамот молотый",
+        }],
+      };
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+  const record = {
+    sampleNumber: "17",
+    sampleDate: "2026-08-05",
+    sampledBy: "Иванова А.А.",
+    batchNumber: "55",
+    sampleCode: ".17",
+    productName: " шамот МОЛОТЫЙ ",
+    batchMass: "20 т",
+    moisture: "0,8",
+    grainComposition: "0–3 мм",
+    fireResistance: "1710 °C",
+    suitability: "yes",
+    notes: "Без замечаний",
+  };
+  const correctedRecord = {
+    ...record,
+    productName: "ШАМОТ МОЛОТЫЙ",
+    suitability: "maybe",
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const draftResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-draft`,
+        { headers },
+      );
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal`,
+        { method: "POST", headers, body: JSON.stringify(record) },
+      );
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal/unshaped-sample-1`,
+        { method: "PATCH", headers, body: JSON.stringify(correctedRecord) },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal?dateFrom=2026-08-01&dateTo=2026-08-31&query=.17&name=Шамот`,
+        { headers },
+      );
+      const invalidFilterResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal?dateTo=2026-02-30`,
+        { headers },
+      );
+      const unknownProductResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            ...record,
+            productName: "Неизвестная продукция",
+          }),
+        },
+      );
+      const unavailableProductSourceResponse = await fetch(
+        `${baseUrl}/api/laboratory/unshaped-product-sample-journal/unshaped-sample-1`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            ...correctedRecord,
+            productName: "Источник недоступен",
+          }),
+        },
+      );
+
+      assert.equal(draftResponse.status, 200);
+      assert.deepEqual(await draftResponse.json(), {
+        sampleNumber: "18",
+        sampleCode: ".18",
+        sampleDate: "2026-08-05",
+        sampledBy: "Иванова А.А.",
+      });
+      assert.equal(createResponse.status, 201);
+      assert.equal(correctionResponse.status, 200);
+      assert.equal(listResponse.status, 200);
+      assert.equal(invalidFilterResponse.status, 400);
+      assert.equal(unknownProductResponse.status, 400);
+      assert.equal(unavailableProductSourceResponse.status, 502);
+      assert.deepEqual(requestedFilters, {
+        dateFrom: "2026-08-01",
+        dateTo: "2026-08-31",
+        query: ".17",
+        nameQuery: "Шамот",
+      });
+      assert.equal(savedInput?.submittedByUserId, profile.userId);
+      assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+      assert.equal(savedInput?.record.productName, "Шамот молотый");
+      assert.equal(correctedInput?.correctedByDisplayName, profile.displayName);
+      assert.deepEqual(correctedInput?.record, {
+        ...correctedRecord,
+        productName: "Шамот молотый",
+      });
+      assert.equal(createCalls, 1);
+      assert.equal(updateCalls, 1);
+      assert.equal(
+        auditEvents[0]?.action,
+        "laboratory_unshaped_product_sample.submit",
+      );
+      assert.equal(
+        auditEvents[1]?.action,
+        "laboratory_unshaped_product_sample.correct",
+      );
+      assert.ok(auditEvents[0]?.details?.some(
+        (detail) => detail.label === "Пригодность" && detail.value === "Да",
+      ));
+      assert.ok(auditEvents[1]?.details?.some(
+        (detail) =>
+          detail.label === "Пригодность" && detail.value === "Да → м.б.",
+      ));
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    transaction,
+    productionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => new Date("2026-08-04T22:30:00.000Z"),
     undefined,
     undefined,
     undefined,
@@ -3608,6 +3903,24 @@ test("account preview navigation grants reads without business mutations", async
     },
   };
 
+  const unshapedProductSampleJournal: LaboratoryUnshapedProductSampleJournalRepository = {
+    async create() {
+      throw new Error("Account preview must not create unshaped samples.");
+    },
+    async update() {
+      throw new Error("Account preview must not correct unshaped samples.");
+    },
+    async list() {
+      return [];
+    },
+    async getNextSampleNumber() {
+      throw new Error("Account preview must not load unshaped sample drafts.");
+    },
+    async getLastSampledBy() {
+      throw new Error("Account preview must not load unshaped sample drafts.");
+    },
+  };
+
   await withApiServer(async (baseUrl) => {
     const headers = {
       "Content-Type": "application/json",
@@ -3633,6 +3946,10 @@ test("account preview navigation grants reads without business mutations", async
     );
     const sampleRegistrationDraftResponse = await fetch(
       `${baseUrl}/api/laboratory/sample-registration-draft`,
+      { headers },
+    );
+    const unshapedProductSampleDraftResponse = await fetch(
+      `${baseUrl}/api/laboratory/unshaped-product-sample-draft`,
       { headers },
     );
     const kilnPersonnelOptionsResponse = await fetch(
@@ -3678,6 +3995,7 @@ test("account preview navigation grants reads without business mutations", async
         "/api/laboratory/rotary-kiln-2-journal",
         "/api/laboratory/sample-registration-journal",
         "/api/laboratory/chemical-analysis-journal",
+        "/api/laboratory/unshaped-product-sample-journal",
         "/api/board-assignments",
       ].map((pathname) =>
         fetch(`${baseUrl}${pathname}`, {
@@ -3692,6 +4010,7 @@ test("account preview navigation grants reads without business mutations", async
         "/api/laboratory/rotary-kiln-2-journal/kiln-record-1",
         "/api/laboratory/sample-registration-journal/sample-registration-1",
         "/api/laboratory/chemical-analysis-journal/chemical-analysis-1",
+        "/api/laboratory/unshaped-product-sample-journal/unshaped-sample-1",
       ].map((pathname) =>
         fetch(`${baseUrl}${pathname}`, {
           method: "PATCH",
@@ -3730,6 +4049,7 @@ test("account preview navigation grants reads without business mutations", async
     assert.equal(productionBrandsResponse.status, 200);
     assert.equal(laboratoryBanksResponse.status, 200);
     assert.equal(sampleRegistrationDraftResponse.status, 403);
+    assert.equal(unshapedProductSampleDraftResponse.status, 403);
     assert.equal(kilnPersonnelOptionsResponse.status, 403);
     assert.equal(kilnDraftResponse.status, 403);
     assert.equal(submitDispatcherResponse.status, 403);
@@ -3769,6 +4089,8 @@ test("account preview navigation grants reads without business mutations", async
     undefined,
     rotaryKiln2FiringJournal,
     sampleRegistrationJournal,
+    undefined,
+    unshapedProductSampleJournal,
   );
 });
 
@@ -8806,6 +9128,8 @@ async function withApiServer(
     LaboratorySampleRegistrationJournalRepository,
   laboratoryChemicalAnalysisJournal?:
     LaboratoryChemicalAnalysisJournalRepository,
+  laboratoryUnshapedProductSampleJournal?:
+    LaboratoryUnshapedProductSampleJournalRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -8836,6 +9160,7 @@ async function withApiServer(
     rotaryKiln2FiringJournal,
     laboratorySampleRegistrationJournal,
     laboratoryChemicalAnalysisJournal,
+    laboratoryUnshapedProductSampleJournal,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,

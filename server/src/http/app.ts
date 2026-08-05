@@ -75,12 +75,20 @@ import {
 import {
   buildLaboratorySampleCodeDraft,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
+import {
+  buildLaboratoryUnshapedProductSampleCodeDraft,
+  laboratoryUnshapedProductSampleSuitabilityLabels,
+} from "../contracts/laboratoryUnshapedProductSampleJournal.js";
 import type {
   LaboratoryChemicalAnalysisJournalFilters,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import {
   validateLaboratoryChemicalAnalysisJournalSubmission,
 } from "../domain/laboratoryChemicalAnalysisJournal.js";
+import {
+  validateLaboratoryUnshapedProductSampleCorrection,
+  validateLaboratoryUnshapedProductSampleSubmission,
+} from "../domain/laboratoryUnshapedProductSampleJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
   resolveLaboratoryBankAssignment,
@@ -213,6 +221,7 @@ import type {
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
 import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
 import type { LaboratoryChemicalAnalysisJournalRepository } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
+import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import {
   BoardAssignmentChangedError,
   type BoardAssignmentFilters,
@@ -240,6 +249,8 @@ type AppDependencies = {
     LaboratorySampleRegistrationJournalRepository;
   laboratoryChemicalAnalysisJournal?:
     LaboratoryChemicalAnalysisJournalRepository;
+  laboratoryUnshapedProductSampleJournal?:
+    LaboratoryUnshapedProductSampleJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
   boardAssignmentMaterials?: BoardAssignmentMaterialsSource;
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
@@ -264,6 +275,8 @@ const rotaryKiln2FiringRecordPathPattern =
   /^\/api\/laboratory\/rotary-kiln-2-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryChemicalAnalysisRecordPathPattern =
   /^\/api\/laboratory\/chemical-analysis-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const laboratoryUnshapedProductSampleRecordPathPattern =
+  /^\/api\/laboratory\/unshaped-product-sample-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryChemicalAnalysisProtocolPath =
   "/api/laboratory/chemical-analysis-journal/protocol.pdf";
 
@@ -307,6 +320,7 @@ export function createApiServer({
   rotaryKiln2FiringJournal,
   laboratorySampleRegistrationJournal,
   laboratoryChemicalAnalysisJournal,
+  laboratoryUnshapedProductSampleJournal,
   boardAssignments,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
   bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
@@ -597,6 +611,9 @@ export function createApiServer({
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
         url.pathname === laboratoryChemicalAnalysisProtocolPath ||
         laboratoryChemicalAnalysisRecordPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/unshaped-product-sample-draft" ||
+        url.pathname === "/api/laboratory/unshaped-product-sample-journal" ||
+        laboratoryUnshapedProductSampleRecordPathPattern.test(url.pathname) ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
         await handleLaboratoryRequest({
@@ -612,6 +629,7 @@ export function createApiServer({
           rotaryKiln2FiringJournal,
           laboratorySampleRegistrationJournal,
           laboratoryChemicalAnalysisJournal,
+          laboratoryUnshapedProductSampleJournal,
           productionBrands,
           audit,
           databaseTransaction,
@@ -1960,6 +1978,7 @@ async function handleLaboratoryRequest({
   rotaryKiln2FiringJournal,
   laboratorySampleRegistrationJournal,
   laboratoryChemicalAnalysisJournal,
+  laboratoryUnshapedProductSampleJournal,
   productionBrands,
   audit,
   databaseTransaction,
@@ -1980,6 +1999,9 @@ async function handleLaboratoryRequest({
     | undefined;
   laboratoryChemicalAnalysisJournal:
     | LaboratoryChemicalAnalysisJournalRepository
+    | undefined;
+  laboratoryUnshapedProductSampleJournal:
+    | LaboratoryUnshapedProductSampleJournalRepository
     | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
@@ -2004,6 +2026,7 @@ async function handleLaboratoryRequest({
     url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
     url.pathname === "/api/laboratory/sample-registration-journal" ||
     url.pathname === "/api/laboratory/chemical-analysis-journal" ||
+    url.pathname === "/api/laboratory/unshaped-product-sample-journal" ||
     url.pathname === laboratoryChemicalAnalysisProtocolPath ||
     laboratoryProtocolPathPattern.test(url.pathname)
   );
@@ -2604,6 +2627,280 @@ async function handleLaboratoryRequest({
           },
         ],
         targetType: "laboratory_sample_registration",
+        targetId: record.id,
+      }),
+    });
+
+    sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/unshaped-product-sample-draft") {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Заготовка доступна только для заполнения журнала.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для заготовки журнала используется GET.",
+        },
+      });
+      return;
+    }
+    if (laboratoryUnshapedProductSampleJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала проб неформованной продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    const [sampleNumber, sampledBy] = await Promise.all([
+      laboratoryUnshapedProductSampleJournal.getNextSampleNumber(),
+      laboratoryUnshapedProductSampleJournal.getLastSampledBy(),
+    ]);
+    sendJson(res, 200, {
+      sampleNumber,
+      sampleCode: buildLaboratoryUnshapedProductSampleCodeDraft(sampleNumber),
+      sampleDate: formatMoscowCalendarDate(now()),
+      sampledBy,
+    });
+    return;
+  }
+
+  const unshapedProductSampleRecordMatch =
+    laboratoryUnshapedProductSampleRecordPathPattern.exec(url.pathname);
+  if (unshapedProductSampleRecordMatch !== null) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Исправление пробы неформованной продукции недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления пробы используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (laboratoryUnshapedProductSampleJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала проб неформованной продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryUnshapedProductSampleCorrection(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const productReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "productName",
+        label: validation.value.productName,
+      }],
+      logEvent: "unshaped_product_sample_correction_brands.google_sheets_fetch_failed",
+    });
+    if (productReferences === undefined) return;
+    validation.value.productName = productReferences[0]?.label ??
+      validation.value.productName;
+
+    const recordId = unshapedProductSampleRecordMatch[1];
+    const correction = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratoryUnshapedProductSampleJournal.update({
+        id: recordId,
+        record: validation.value,
+        correctedByUserId: access.profile.userId,
+        correctedByAccountId: access.profile.activeAccess.accountId,
+        correctedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (result) => result === undefined
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "laboratory_unshaped_product_sample.correct",
+            summary: "Исправлена проба неформованной продукции",
+            details: [
+              {
+                label: "Номер пробы",
+                value: `${result.before.sampleNumber} → ${result.record.sampleNumber}`,
+              },
+              {
+                label: "Код пробы",
+                value: `${result.before.sampleCode} → ${result.record.sampleCode}`,
+              },
+              {
+                label: "Наименование продукции",
+                value: `${result.before.productName} → ${result.record.productName}`,
+              },
+              {
+                label: "Пригодность",
+                value:
+                  `${laboratoryUnshapedProductSampleSuitabilityLabels[result.before.suitability]} → ${laboratoryUnshapedProductSampleSuitabilityLabels[result.record.suitability]}`,
+              },
+            ],
+            targetType: "laboratory_unshaped_product_sample",
+            targetId: result.record.id,
+          },
+    });
+    if (correction === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Проба неформованной продукции не найдена.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { record: correction.record });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/unshaped-product-sample-journal") {
+    if (laboratoryUnshapedProductSampleJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала проб неформованной продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const dateFrom = readOptionalQueryParam(url, "dateFrom");
+      const dateTo = readOptionalQueryParam(url, "dateTo");
+      const query = readOptionalQueryParam(url, "query");
+      const nameQuery = readOptionalQueryParam(url, "name");
+
+      if (
+        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+        (query !== undefined && query.length > 120) ||
+        (nameQuery !== undefined && nameQuery.length > 120)
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Проверьте фильтры журнала проб неформованной продукции.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        records: await laboratoryUnshapedProductSampleJournal.list({
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+          ...(nameQuery === undefined ? {} : { nameQuery }),
+        }),
+      });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryUnshapedProductSampleSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const productReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "productName",
+        label: validation.value.productName,
+      }],
+      logEvent: "unshaped_product_sample_brands.google_sheets_fetch_failed",
+    });
+    if (productReferences === undefined) return;
+    validation.value.productName = productReferences[0]?.label ??
+      validation.value.productName;
+
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratoryUnshapedProductSampleJournal.create({
+        record: validation.value,
+        submittedByUserId: access.profile.userId,
+        submittedByAccountId: access.profile.activeAccess.accountId,
+      }),
+      buildEvent: (record) => ({
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "laboratory_unshaped_product_sample.submit",
+        summary: "Добавлена проба неформованной продукции",
+        details: [
+          { label: "Номер пробы", value: record.sampleNumber },
+          { label: "Дата", value: record.sampleDate },
+          { label: "Кто брал пробы", value: record.sampledBy },
+          { label: "№ партии", value: record.batchNumber },
+          { label: "Код пробы", value: record.sampleCode },
+          { label: "Наименование продукции", value: record.productName },
+          { label: "Масса партии", value: record.batchMass },
+          { label: "Влажность", value: record.moisture },
+          { label: "Зерновой состав", value: record.grainComposition },
+          { label: "Огнеупорность", value: record.fireResistance },
+          {
+            label: "Пригодность",
+            value:
+              laboratoryUnshapedProductSampleSuitabilityLabels[record.suitability],
+          },
+          { label: "Примечание", value: record.notes ?? "—" },
+        ],
+        targetType: "laboratory_unshaped_product_sample",
         targetId: record.id,
       }),
     });
@@ -8373,6 +8670,18 @@ function readLaboratoryChemicalAnalysisFilters(url: URL):
 
 function isDateQueryValue(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function formatMoscowCalendarDate(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const partByType = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${partByType.get("year")}-${partByType.get("month")}-${partByType.get("day")}`;
 }
 
 function isCalendarDateQueryValue(value: string) {

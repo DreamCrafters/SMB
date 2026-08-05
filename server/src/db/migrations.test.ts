@@ -106,6 +106,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
+    "042_unshaped_product_sample_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -169,6 +170,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
+    "042_unshaped_product_sample_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -235,6 +237,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
+    "042_unshaped_product_sample_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -303,6 +306,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
+    "042_unshaped_product_sample_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -367,6 +371,7 @@ test("kiln material migration adds the produced material and the journal density
     "039_laboratory_journal_corrections",
     "040_optional_chemical_analysis_batch_number",
     "041_laboratory_chemical_analysis_number",
+    "042_unshaped_product_sample_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1554,6 +1559,59 @@ test("chemical analysis number migration adds an optional editable value", async
   );
   assert.equal(
     statements[1],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("unshaped product sample migration creates editable journal history", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "042_unshaped_product_sample_journal" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 3);
+  assert.match(
+    statements[0] ?? "",
+    /create table if not exists laboratory_unshaped_product_sample_journal/u,
+  );
+  assert.match(statements[0] ?? "", /chemical_analysis_number varchar\(120\) null/u);
+  assert.match(statements[0] ?? "", /suitability varchar\(20\) not null/u);
+  assert.match(
+    statements[1] ?? "",
+    /create table if not exists laboratory_unshaped_product_sample_revisions/u,
+  );
+  assert.match(statements[1] ?? "", /before_snapshot json not null/u);
+  assert.match(statements[1] ?? "", /after_snapshot json not null/u);
+  assert.match(
+    statements[1] ?? "",
+    /foreign key \(unshaped_product_sample_id\)[\s\S]+on delete restrict/u,
+  );
+  assert.equal(
+    statements[2],
     "insert into schema_migrations (id) values (?)",
   );
 });

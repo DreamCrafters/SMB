@@ -2145,6 +2145,58 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "042_unshaped_product_sample_journal",
+    statements: [
+      `
+      create table if not exists laboratory_unshaped_product_sample_journal (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        sample_number varchar(120) not null,
+        sample_date date not null,
+        sampled_by varchar(120) not null,
+        batch_number varchar(120) not null,
+        sample_code varchar(120) not null,
+        product_name varchar(120) not null,
+        batch_mass varchar(120) not null,
+        chemical_analysis_number varchar(120) null,
+        moisture varchar(120) not null,
+        grain_composition varchar(120) not null,
+        fire_resistance varchar(120) not null,
+        suitability varchar(20) not null,
+        notes text null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_laboratory_unshaped_product_sample_id (id),
+        key idx_laboratory_unshaped_product_sample_date (sample_date, sequence_id),
+        key idx_laboratory_unshaped_product_sample_number (sample_number),
+        key idx_laboratory_unshaped_product_sample_code (sample_code),
+        key idx_laboratory_unshaped_product_sample_product (product_name)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_unshaped_product_sample_revisions (
+        id char(36) not null primary key,
+        unshaped_product_sample_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_unshaped_product_sample_revisions_sample (
+          unshaped_product_sample_id,
+          created_at
+        ),
+        constraint fk_laboratory_unshaped_product_sample_revision_sample
+          foreign key (unshaped_product_sample_id)
+          references laboratory_unshaped_product_sample_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

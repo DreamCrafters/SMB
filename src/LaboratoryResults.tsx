@@ -13,6 +13,7 @@ import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
 import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
 import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
+import { LaboratoryUnshapedProductSampleJournal } from "./LaboratoryUnshapedProductSampleJournal";
 import { centralLabTabLabel } from "./LaboratoryJournalTables";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
@@ -36,7 +37,8 @@ type LaboratoryWorkspacePanel = "results" | "banks" | "central-lab";
 type CentralLabJournalId =
   | "kiln-journal"
   | "sample-registration"
-  | "chemical-analysis";
+  | "chemical-analysis"
+  | "unshaped-product-samples";
 
 type ReferenceState =
   | { status: "loading" }
@@ -91,6 +93,7 @@ const centralLabJournals: readonly {
   { id: "kiln-journal", label: "Журнал печи 2" },
   { id: "sample-registration", label: "Регистрация проб" },
   { id: "chemical-analysis", label: "Химические анализы" },
+  { id: "unshaped-product-samples", label: "Пробы неформованной продукции" },
 ];
 
 const incomingPurpose = "Определение химического состава и свойств";
@@ -466,8 +469,14 @@ export function LaboratoryResultsWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
-        ) : (
+        ) : centralLabJournal === "chemical-analysis" ? (
           <LaboratoryChemicalAnalysisJournal
+            profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        ) : (
+          <LaboratoryUnshapedProductSampleJournal
             profile={profile}
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}

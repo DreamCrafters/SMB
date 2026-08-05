@@ -1,8 +1,11 @@
 import {
   laboratoryChemicalAnalysisFields,
   laboratorySampleRegistrationFields,
+  laboratoryUnshapedProductSampleFields,
+  laboratoryUnshapedProductSampleSuitabilityLabels,
   type LaboratoryChemicalAnalysisJournalRecord,
   type LaboratorySampleRegistrationJournalRecord,
+  type LaboratoryUnshapedProductSampleRecord,
   type RotaryKiln2FiringJournalRecord,
 } from "./contracts";
 import { formatLaboratoryDate } from "./LaboratoryResultsTable";
@@ -13,7 +16,7 @@ import { formatLaboratoryDate } from "./LaboratoryResultsTable";
  */
 
 /**
- * These three journals belong to the central plant laboratory, so both tabs hide
+ * These four journals belong to the central plant laboratory, so both tabs hide
  * them behind one group button instead of listing them next to the control
  * sections.
  */
@@ -159,6 +162,67 @@ export function LaboratoryChemicalAnalysisTable({
                       : field.kind === "date"
                         ? formatLaboratoryDate(value)
                         : value}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function LaboratoryUnshapedProductSampleTable({
+  records,
+  onEditRecord,
+}: {
+  records: LaboratoryUnshapedProductSampleRecord[];
+  onEditRecord?: (record: LaboratoryUnshapedProductSampleRecord) => void;
+}) {
+  if (records.length === 0) {
+    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
+  }
+
+  return (
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
+      <table className="data-table laboratory-results-table unshaped-product-sample-table">
+        <thead>
+          <tr>
+            {laboratoryUnshapedProductSampleFields.map((field) => (
+              <th key={field.id}>{field.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record) => (
+            <tr
+              className={`unshaped-product-sample-suitability-${record.suitability}`}
+              key={record.id}
+            >
+              {laboratoryUnshapedProductSampleFields.map((field) => {
+                const value = record[field.id];
+                return (
+                  <td key={field.id}>
+                    {field.id === "sampleCode" && onEditRecord !== undefined
+                      ? (
+                          <button
+                            className="board-assignment-link unshaped-product-sample-edit-link"
+                            type="button"
+                            onClick={() => onEditRecord(record)}
+                          >
+                            {record.sampleCode}
+                          </button>
+                        )
+                      : field.id === "suitability"
+                        ? laboratoryUnshapedProductSampleSuitabilityLabels[
+                            record.suitability
+                          ]
+                        : value === undefined
+                          ? "—"
+                          : field.kind === "date"
+                            ? formatLaboratoryDate(value)
+                            : value}
                   </td>
                 );
               })}

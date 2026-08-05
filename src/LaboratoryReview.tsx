@@ -5,12 +5,14 @@ import type {
   LaboratoryResult,
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySection,
+  LaboratoryUnshapedProductSampleRecord,
   RotaryKiln2FiringJournalRecord,
 } from "./contracts";
 import {
   centralLabTabLabel,
   LaboratoryChemicalAnalysisTable,
   LaboratorySampleRegistrationTable,
+  LaboratoryUnshapedProductSampleTable,
   RotaryKiln2FiringTable,
 } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
@@ -34,6 +36,7 @@ import {
 } from "./services/laboratoryReviewJournals";
 import { requestLaboratorySampleRegistrationJournal } from "./services/laboratorySampleRegistrationJournal";
 import { requestRotaryKiln2FiringJournal } from "./services/rotaryKiln2FiringJournal";
+import { requestLaboratoryUnshapedProductSampleJournal } from "./services/laboratoryUnshapedProductSampleJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 
 type ShowToast = (title: string, message: string) => void;
@@ -279,6 +282,8 @@ export function LaboratoryReviewWorkspace({
             <SampleRegistrationHistory query={query} />
           ) : journal.id === "chemical_analysis" ? (
             <ChemicalAnalysisHistory query={query} />
+          ) : journal.id === "unshaped_product_samples" ? (
+            <UnshapedProductSampleHistory query={query} />
           ) : (
             <RotaryKiln2FiringHistory query={query} />
           )}
@@ -459,6 +464,44 @@ function RotaryKiln2FiringHistory({ query }: { query: ReviewQuery }) {
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
       <RotaryKiln2FiringTable records={state.records} />
+    </>
+  );
+}
+
+function UnshapedProductSampleHistory({ query }: { query: ReviewQuery }) {
+  const [state, setState] = useState<
+    RecordsState<LaboratoryUnshapedProductSampleRecord>
+  >({ status: "loading", records: [] });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState((current) => ({ status: "loading", records: current.records }));
+    requestLaboratoryUnshapedProductSampleJournal(
+      {
+        ...buildJournalDateFilters(query),
+        ...(query.nameQuery === "" ? {} : { nameQuery: query.nameQuery }),
+      },
+      { signal: controller.signal },
+    ).then((result) => {
+      if (controller.signal.aborted) return;
+      setState((current) => result.status === "ready"
+        ? { status: "ready", records: result.records }
+        : {
+            status: "error",
+            message: readShortUserMessage(
+              result.message,
+              "Не удалось загрузить журнал проб неформованной продукции.",
+            ),
+            records: current.records,
+          });
+    });
+    return () => controller.abort();
+  }, [query.dateFrom, query.dateTo, query.nameQuery]);
+
+  return (
+    <>
+      <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
+      <LaboratoryUnshapedProductSampleTable records={state.records} />
     </>
   );
 }

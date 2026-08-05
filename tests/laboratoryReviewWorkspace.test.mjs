@@ -43,6 +43,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
   const resultRequests = [];
   const sampleRegistrationRequests = [];
   const chemicalAnalysisRequests = [];
+  const unshapedProductSampleRequests = [];
   const kilnJournalRequests = [];
 
   try {
@@ -155,6 +156,29 @@ test("laboratory review filters every journal by date and nomenclature", async (
           averageBulkDensity: 1.16,
         });
       }
+      if (
+        url.pathname ===
+          "/api/laboratory/unshaped-product-sample-journal"
+      ) {
+        unshapedProductSampleRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "unshaped-sample-1",
+            sampleNumber: "18",
+            sampleDate: "2026-07-23",
+            sampledBy: "Иванова А.А.",
+            batchNumber: "55",
+            sampleCode: ".18",
+            productName: "ШКИ-66",
+            batchMass: "20 т",
+            moisture: "0,8",
+            grainComposition: "0–3 мм",
+            fireResistance: "1710 °C",
+            suitability: "yes",
+            createdAt: "2026-07-23T08:30:00.000Z",
+          }],
+        });
+      }
       throw new Error(`Unexpected request: ${url.pathname}`);
     };
 
@@ -189,6 +213,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readJournalTitles(container), [
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
+      "Пробы неформованной продукции",
       "Журнал контроля параметров обжига вращающейся печи 2",
     ]);
 
@@ -219,6 +244,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     );
     assert.equal(sampleRegistrationRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(chemicalAnalysisRequests.at(-1)?.dateFrom, "2026-07-21");
+    assert.equal(unshapedProductSampleRequests.at(-1)?.dateFrom, "2026-07-21");
 
     // Only journals with a nomenclature can answer the name filter.
     await React.act(async () => {
@@ -242,6 +268,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readJournalTitles(container), [
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
+      "Пробы неформованной продукции",
     ]);
     assert.equal(
       container.querySelector(".sample-registration-edit-link"),
@@ -252,6 +279,11 @@ test("laboratory review filters every journal by date and nomenclature", async (
       container.querySelector(".chemical-analysis-edit-link"),
       null,
       "Management review must keep chemical analyses read-only.",
+    );
+    assert.equal(
+      container.querySelector(".unshaped-product-sample-edit-link"),
+      null,
+      "Management review must keep unshaped samples read-only.",
     );
     assert.match(
       container.querySelector(".laboratory-review-excluded-note")?.textContent
@@ -284,6 +316,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "ЦЗЛ (Центральная заводская лаборатория)",
       "Регистрация проб",
       "Химические анализы",
+      "Пробы неформованной продукции",
       "Журнал печи 2",
     ]);
     await React.act(async () => {

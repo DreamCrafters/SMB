@@ -10,6 +10,7 @@ export const laboratoryReviewJournalIds = [
   "results",
   "sample_registration",
   "chemical_analysis",
+  "unshaped_product_samples",
   "rotary_kiln_2",
 ] as const;
 
@@ -89,6 +90,12 @@ const allLaboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
     supportsNameQuery: true,
   },
   {
+    id: "unshaped_product_samples",
+    title: "Пробы неформованной продукции",
+    dateFilterLabel: "дата пробы",
+    supportsNameQuery: true,
+  },
+  {
     id: "rotary_kiln_2",
     title: "Журнал контроля параметров обжига вращающейся печи 2",
     dateFilterLabel: "дата записи",
@@ -134,6 +141,13 @@ const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
     id: "chemical_analysis",
     label: "Химические анализы",
     journal: "chemical_analysis",
+    section: "all",
+    group: "central-lab",
+  },
+  {
+    id: "unshaped_product_samples",
+    label: "Пробы неформованной продукции",
+    journal: "unshaped_product_samples",
     section: "all",
     group: "central-lab",
   },

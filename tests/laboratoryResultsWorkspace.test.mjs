@@ -81,6 +81,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const chemicalAnalysisRequests = [];
   let chemicalAnalysisDraftRequests = 0;
   const chemicalAnalysisProtocolRequests = [];
+  const unshapedProductSampleSubmissions = [];
+  const unshapedProductSampleCorrections = [];
+  const unshapedProductSampleRequests = [];
+  let unshapedProductSampleDraftRequests = 0;
   const protocolPreview = {
     opener: {},
     document: { title: "" },
@@ -446,6 +450,70 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             sampleNumber: "17-А",
             sampleName: "Шамот молотый",
             createdAt: "2026-07-30T08:30:00.000Z",
+          },
+        });
+      }
+      if (url.pathname === "/api/laboratory/unshaped-product-sample-draft") {
+        unshapedProductSampleDraftRequests += 1;
+        const sampleNumber = unshapedProductSampleDraftRequests === 1
+          ? "19"
+          : "20";
+        return jsonResponse({
+          sampleNumber,
+          sampleCode: `.${sampleNumber}`,
+          sampleDate: "2026-08-05",
+          sampledBy: "Иванова А.А.",
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/unshaped-product-sample-journal"
+      ) {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          unshapedProductSampleSubmissions.push(submission);
+          return jsonResponse({
+            record: {
+              id: "unshaped-sample-created",
+              ...submission,
+              createdAt: "2026-08-05T08:30:00.000Z",
+            },
+          }, 201);
+        }
+        unshapedProductSampleRequests.push(Object.fromEntries(url.searchParams));
+        return jsonResponse({
+          records: [{
+            id: "unshaped-sample-1",
+            sampleNumber: "18",
+            sampleDate: "2026-08-04",
+            sampledBy: "Иванова А.А.",
+            batchNumber: "55",
+            sampleCode: ".18",
+            productName: "ШКИ-66",
+            batchMass: "20 т",
+            chemicalAnalysisNumber: "43",
+            moisture: "0,8",
+            grainComposition: "0–3 мм",
+            fireResistance: "1710 °C",
+            suitability: "no",
+            notes: "Повторить отбор",
+            createdAt: "2026-08-04T08:30:00.000Z",
+          }],
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/unshaped-product-sample-journal/unshaped-sample-1" &&
+        init.method === "PATCH"
+      ) {
+        const submission = JSON.parse(String(init.body));
+        unshapedProductSampleCorrections.push(submission);
+        return jsonResponse({
+          record: {
+            id: "unshaped-sample-1",
+            ...submission,
+            chemicalAnalysisNumber: "43",
+            createdAt: "2026-08-04T08:30:00.000Z",
           },
         });
       }
@@ -1294,6 +1362,142 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () => chemicalAnalysisProtocolRequests.length === 1);
     assert.deepEqual(chemicalAnalysisProtocolRequests[0], { query: "П-42" });
     assert.match(protocolPreview.location.href, /^blob:/u);
+
+    const unshapedSamplesTab = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find(
+      (button) =>
+        button.textContent?.trim() === "Пробы неформованной продукции",
+    );
+    assert.ok(unshapedSamplesTab);
+    await React.act(async () => unshapedSamplesTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".unshaped-product-sample-form") !== null
+    );
+
+    const unshapedSampleForm = rootElement.querySelector(
+      ".unshaped-product-sample-form",
+    );
+    assert.ok(unshapedSampleForm);
+    const unshapedSampleNumber = findControlByLabel(
+      unshapedSampleForm,
+      "Номер пробы",
+    );
+    const unshapedSampleCode = findControlByLabel(
+      unshapedSampleForm,
+      "Код пробы",
+    );
+    await waitFor(React, () =>
+      unshapedSampleNumber.value === "19" &&
+        unshapedSampleCode.value === ".19"
+    );
+    assert.equal(
+      findControlByLabel(unshapedSampleForm, "Дата").value,
+      "2026-08-05",
+    );
+    assert.equal(
+      findControlByLabel(unshapedSampleForm, "Кто брал пробы").value,
+      "Иванова А.А.",
+    );
+    const chemicalNumber = findControlByLabel(
+      unshapedSampleForm,
+      "№ хим. анализа",
+    );
+    assert.equal(chemicalNumber.disabled, true);
+    assert.match(chemicalNumber.placeholder, /после химанализа/u);
+    const productName = findControlByLabel(
+      unshapedSampleForm,
+      "Наименование продукции",
+    );
+    assert.ok(productName.getAttribute("list"));
+    assert.ok(Array.from(
+      rootElement.querySelectorAll(`#${productName.getAttribute("list")} option`),
+    ).some((option) => option.value === "ШКИ-66"));
+
+    await React.act(async () => {
+      for (const [label, value] of Object.entries({
+        "№ партии": "56",
+        "Наименование продукции": "ШКИ-66",
+        "Масса партии": "20 т",
+        "Влажность": "0,8",
+        "Зерновой состав": "0–3 мм",
+        "Огнеупорность": "1710 °C",
+      })) {
+        const input = findControlByLabel(unshapedSampleForm, label);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+      const suitability = findControlByLabel(
+        unshapedSampleForm,
+        "Пригодность",
+        "select",
+      );
+      setNativeInputValue(suitability, "yes");
+      suitability.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
+    await React.act(async () => {
+      unshapedSampleForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => unshapedProductSampleSubmissions.length === 1);
+    assert.deepEqual(unshapedProductSampleSubmissions[0], {
+      sampleNumber: "19",
+      sampleDate: "2026-08-05",
+      sampledBy: "Иванова А.А.",
+      batchNumber: "56",
+      sampleCode: ".19",
+      productName: "ШКИ-66",
+      batchMass: "20 т",
+      moisture: "0,8",
+      grainComposition: "0–3 мм",
+      fireResistance: "1710 °C",
+      suitability: "yes",
+    });
+    await waitFor(React, () => unshapedSampleNumber.value === "20");
+
+    const rejectedRow = rootElement.querySelector(
+      ".unshaped-product-sample-suitability-no",
+    );
+    assert.ok(rejectedRow);
+    assert.match(
+      styleElement.textContent,
+      /\.unshaped-product-sample-suitability-no > td\s*\{[^}]*background:\s*var\(--brick-soft\)/u,
+    );
+    const unshapedEditButton = rootElement.querySelector(
+      ".unshaped-product-sample-edit-link",
+    );
+    assert.ok(unshapedEditButton);
+    await React.act(async () => unshapedEditButton.click());
+    assert.equal(unshapedSampleNumber.value, "18");
+    assert.equal(chemicalNumber.value, "43");
+    assert.equal(chemicalNumber.disabled, true);
+    await React.act(async () => {
+      const suitability = findControlByLabel(
+        unshapedSampleForm,
+        "Пригодность",
+        "select",
+      );
+      setNativeInputValue(suitability, "maybe");
+      suitability.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+      unshapedSampleForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => unshapedProductSampleCorrections.length === 1);
+    assert.equal(unshapedProductSampleCorrections[0].suitability, "maybe");
+    assert.equal(
+      Object.hasOwn(
+        unshapedProductSampleCorrections[0],
+        "chemicalAnalysisNumber",
+      ),
+      false,
+    );
+    assert.ok(unshapedProductSampleRequests.length > 0);
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
