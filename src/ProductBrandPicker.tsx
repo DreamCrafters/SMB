@@ -79,6 +79,21 @@ export function ProductBrandPicker({
   );
 }
 
+export function ProductionBrandSourceNote({
+  className = "",
+}: {
+  className?: string;
+}) {
+  return (
+    <p
+      className={`production-brand-source-note${className === "" ? "" : ` ${className}`}`}
+    >
+      Актуальный список марок хранится в Google Sheets: вкладка
+      {" «Номенклатура», столбец «Наименование»."}
+    </p>
+  );
+}
+
 export function ProductBrandCreateControl({
   disabled = false,
   onCreateBrand,
@@ -115,12 +130,15 @@ export function ProductBrandCreateControl({
 
     setNewLabel("");
     setHasError(false);
-    setStatus(`Марка «${result.label}» добавлена.`);
+    setStatus(
+      `Марка «${result.label}» добавлена в актуальный список: «Номенклатура» → «Наименование».`,
+    );
     setIsAdding(false);
   }
 
   return (
     <div className="production-brand-create-control">
+      <ProductionBrandSourceNote />
       <button
         aria-label="Добавить новую марку"
         className="secondary-button production-brand-create-open"

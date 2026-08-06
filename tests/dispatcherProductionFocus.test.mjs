@@ -1047,6 +1047,11 @@ test(`production form loads all saved data by date in ${label}`, async () => {
           rootElement.querySelector(".production-report-table-wrap"),
         ) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
       );
+      assert.equal(
+        rootElement.querySelector(".production-brand-source-note")?.textContent
+          ?.trim(),
+        "Актуальный список марок хранится в Google Sheets: вкладка «Номенклатура», столбец «Наименование».",
+      );
     }
 
     await React.act(async () => {

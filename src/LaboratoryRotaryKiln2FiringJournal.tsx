@@ -13,7 +13,10 @@ import {
   rotaryKiln2ProducedMaterialLabel,
 } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
-import { ProductBrandPicker } from "./ProductBrandPicker";
+import {
+  ProductBrandPicker,
+  ProductionBrandSourceNote,
+} from "./ProductBrandPicker";
 import {
   correctRotaryKiln2FiringJournalRecord,
   requestRotaryKiln2FiringJournal,
@@ -384,6 +387,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
               }}
             />
           </label>
+          <ProductionBrandSourceNote className="laboratory-form-wide" />
           {rotaryKiln2EarlyNumericFields.map(([field, label]) => (
             <JournalInput
               field={field}

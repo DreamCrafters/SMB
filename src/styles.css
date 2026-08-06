@@ -1522,6 +1522,14 @@ p {
   margin-bottom: 10px;
 }
 
+.production-brand-source-note {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .production-brand-create {
   display: grid;
   width: min(100%, 560px);

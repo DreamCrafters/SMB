@@ -335,6 +335,11 @@ test("refractory workspace opens one of three independent table buttons", async 
     const addBrandButton = addBrandButtons[0];
     assert.ok(addBrandButton);
     assert.equal(
+      rootElement.querySelector(".production-brand-source-note")?.textContent
+        ?.trim(),
+      "Актуальный список марок хранится в Google Sheets: вкладка «Номенклатура», столбец «Наименование».",
+    );
+    assert.equal(
       formedBrand
         .closest(".production-brand-picker")
         ?.querySelector('button[aria-label="Добавить новую марку"]'),
@@ -363,6 +368,10 @@ test("refractory workspace opens one of three independent table buttons", async 
     await React.act(async () => saveBrandButton.click());
     await waitFor(React, () =>
       readBrandOptions(formedBrand, rootElement).includes("Новая марка"),
+    );
+    assert.match(
+      rootElement.querySelector(".production-brand-create-status")?.textContent ?? "",
+      /добавлена в актуальный список: «Номенклатура» → «Наименование»/u,
     );
     assert.equal(formedBrand.value, "Старая марка");
     assert.equal(rootElement.querySelectorAll("form").length, 1);

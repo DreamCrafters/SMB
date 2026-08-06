@@ -859,6 +859,11 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     ];
     const journalForm = rootElement.querySelector(".rotary-kiln-journal-form");
     assert.ok(journalForm);
+    assert.equal(
+      journalForm.querySelector(".production-brand-source-note")?.textContent
+        ?.trim(),
+      "Актуальный список марок хранится в Google Sheets: вкладка «Номенклатура», столбец «Наименование».",
+    );
     for (const label of expectedJournalLabels) {
       assert.ok(findControlByLabel(journalForm, label));
     }
