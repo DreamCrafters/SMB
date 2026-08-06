@@ -174,15 +174,25 @@ export function LaboratorySampleRegistrationJournal({
     if (field === "laboratorySampleCode") {
       isLaboratorySampleCodeAuto.current = false;
     }
-    setForm((current) => field === "sampleNumber"
-      ? {
+    setForm((current) => {
+      if (field === "sampleNumber") {
+        return {
           ...current,
           sampleNumber: value,
           ...(isLaboratorySampleCodeAuto.current
             ? { laboratorySampleCode: buildLaboratorySampleCodeDraft(value) }
             : {}),
-        }
-      : { ...current, [field]: value });
+        };
+      }
+      if (field === "samplingDate") {
+        return {
+          ...current,
+          samplingDate: value,
+          registrationDate: value,
+        };
+      }
+      return { ...current, [field]: value };
+    });
     setFormMessage("");
   }
 

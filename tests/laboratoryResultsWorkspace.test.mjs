@@ -1166,6 +1166,35 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       findControlByLabel(sampleRegistrationForm, "Водопоглощение").required,
       false,
     );
+    const samplingDateInput = findControlByLabel(
+      sampleRegistrationForm,
+      "Дата отбора",
+    );
+    const registrationDateInput = findControlByLabel(
+      sampleRegistrationForm,
+      "Дата регистрации",
+    );
+    await React.act(async () => {
+      setNativeInputValue(samplingDateInput, "2026-08-01");
+      samplingDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    assert.equal(registrationDateInput.value, "2026-08-01");
+    await React.act(async () => {
+      setNativeInputValue(registrationDateInput, "2026-08-02");
+      registrationDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    assert.equal(samplingDateInput.value, "2026-08-01");
+    await React.act(async () => {
+      setNativeInputValue(samplingDateInput, "2026-08-03");
+      samplingDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    assert.equal(registrationDateInput.value, "2026-08-03");
     await React.act(async () => {
       setNativeInputValue(sampleNumberInput, "25-А");
       sampleNumberInput.dispatchEvent(
