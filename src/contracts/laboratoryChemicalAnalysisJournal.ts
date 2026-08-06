@@ -1,6 +1,9 @@
 export {
   laboratoryChemicalAnalysisFields,
   laboratoryChemicalAnalysisSampleSources,
+  laboratoryChemicalAnalysisTotalFieldIds,
+  laboratoryChemicalAnalysisTotalLimit,
+  laboratoryChemicalAnalysisTotalRuleMessage,
 } from "../../server/src/contracts/laboratoryChemicalAnalysisJournal.js";
 export type {
   LaboratoryChemicalAnalysisDraft,

@@ -93,6 +93,25 @@ export const laboratoryChemicalAnalysisFields = [
   required: boolean;
 }[];
 
+export const laboratoryChemicalAnalysisTotalFieldIds = [
+  "al2o3",
+  "fe2o3",
+  "sio2",
+  "cao2",
+  "p2o5",
+  "lossOnIgnition",
+] as const satisfies readonly (keyof LaboratoryChemicalAnalysisValues)[];
+
+export const laboratoryChemicalAnalysisTotalLimit = 100;
+
+const laboratoryChemicalAnalysisTotalFieldLabels =
+  laboratoryChemicalAnalysisTotalFieldIds.map((fieldId) =>
+    laboratoryChemicalAnalysisFields.find((field) => field.id === fieldId)!.label
+  );
+
+export const laboratoryChemicalAnalysisTotalRuleMessage =
+  `Сумма полей «${laboratoryChemicalAnalysisTotalFieldLabels.slice(0, -1).join("», «")}» и «${laboratoryChemicalAnalysisTotalFieldLabels.at(-1)}» не может быть больше ${laboratoryChemicalAnalysisTotalLimit}.`;
+
 export const laboratoryChemicalAnalysisSampleSources = [
   "sample_registration",
   "unshaped_product",

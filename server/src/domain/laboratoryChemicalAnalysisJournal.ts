@@ -1,6 +1,9 @@
 import {
   laboratoryChemicalAnalysisFields,
   laboratoryChemicalAnalysisSampleSources,
+  laboratoryChemicalAnalysisTotalFieldIds,
+  laboratoryChemicalAnalysisTotalLimit,
+  laboratoryChemicalAnalysisTotalRuleMessage,
   type LaboratoryChemicalAnalysisJournalSubmission,
   type LaboratoryChemicalAnalysisSampleSource,
   type LaboratoryChemicalAnalysisValues,
@@ -56,6 +59,32 @@ export function validateLaboratoryChemicalAnalysisJournalSubmission(
     } else if (value !== undefined) {
       values.set(field.id, value);
     }
+  }
+
+  const totalIndicators: ChemicalAnalysisPercentage[] = [];
+  let hasInvalidTotalIndicator = false;
+  for (const fieldId of laboratoryChemicalAnalysisTotalFieldIds) {
+    const value = values.get(fieldId);
+    if (value === undefined) continue;
+    const percentage = readChemicalAnalysisPercentage(value);
+    if (percentage === undefined) {
+      const field = laboratoryChemicalAnalysisFields.find(
+        (item) => item.id === fieldId,
+      );
+      errors.push(`Проверьте поле «${field?.label ?? fieldId}».`);
+      hasInvalidTotalIndicator = true;
+      continue;
+    }
+    totalIndicators.push(percentage);
+  }
+  if (
+    !hasInvalidTotalIndicator &&
+    isChemicalAnalysisTotalAboveLimit(
+      totalIndicators,
+      laboratoryChemicalAnalysisTotalLimit,
+    )
+  ) {
+    errors.push(laboratoryChemicalAnalysisTotalRuleMessage);
   }
 
   if (
@@ -138,6 +167,40 @@ function readCalendarDate(value: unknown) {
 function readOptionalText(value: unknown, maxLength: number) {
   if (value === undefined || value === null || value === "") return undefined;
   return readText(value, maxLength);
+}
+
+type ChemicalAnalysisPercentage = {
+  coefficient: bigint;
+  scale: number;
+};
+
+function readChemicalAnalysisPercentage(
+  value: string,
+): ChemicalAnalysisPercentage | undefined {
+  const match = /^(?:(?:<=?|≤)\s*)?(\d+(?:[.,]\d+)?)\s*%?$/u.exec(value);
+  if (match === null) return undefined;
+  const [integerPart, fractionalPart = ""] = match[1].split(/[.,]/u);
+  return {
+    coefficient: BigInt(`${integerPart}${fractionalPart}`),
+    scale: fractionalPart.length,
+  };
+}
+
+function isChemicalAnalysisTotalAboveLimit(
+  values: ChemicalAnalysisPercentage[],
+  limit: number,
+) {
+  const commonScale = values.reduce(
+    (maximum, value) => Math.max(maximum, value.scale),
+    0,
+  );
+  const total = values.reduce(
+    (sum, value) =>
+      sum + value.coefficient * 10n ** BigInt(commonScale - value.scale),
+    0n,
+  );
+  const scaledLimit = BigInt(limit) * 10n ** BigInt(commonScale);
+  return total > scaledLimit;
 }
 
 function readText(value: unknown, maxLength: number) {

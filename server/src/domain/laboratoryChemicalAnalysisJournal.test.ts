@@ -78,6 +78,92 @@ test("chemical analysis journal accepts an unshaped product sample", () => {
   });
 });
 
+test("chemical analysis journal rejects indicator totals above 100", () => {
+  const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleSource: "sample_registration",
+    sampleId: "sample-registration-17",
+    al2o3: "40,01",
+    fe2o3: "10",
+    sio2: "30",
+    cao2: "5",
+    p2o5: "5",
+    lossOnIgnition: "10",
+  });
+
+  assert.deepEqual(validation, {
+    ok: false,
+    errors: [
+      "Сумма полей «Al2O3», «Fe2O3», «SiO2», «CaO2», «P2O5» и «ппп» не может быть больше 100.",
+    ],
+  });
+});
+
+test("chemical analysis journal rejects non-numeric total indicators", () => {
+  const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleSource: "sample_registration",
+    sampleId: "sample-registration-17",
+    al2o3: "60",
+    sio2: "больше 40",
+  });
+
+  assert.deepEqual(validation, {
+    ok: false,
+    errors: ["Проверьте поле «SiO2»."],
+  });
+});
+
+test("chemical analysis journal accepts an indicator total of exactly 100", () => {
+  const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleSource: "sample_registration",
+    sampleId: "sample-registration-17",
+    al2o3: "40",
+    fe2o3: "10",
+    sio2: "39,9",
+    cao2: "< 0,1",
+    p2o5: "0",
+    lossOnIgnition: "10",
+  });
+
+  assert.equal(validation.ok, true);
+});
+
+test("chemical analysis journal compares decimal totals exactly", () => {
+  const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleSource: "sample_registration",
+    sampleId: "sample-registration-17",
+    al2o3: "0,01",
+    fe2o3: "65,68",
+    sio2: "34,31",
+  });
+  const aboveLimit = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleSource: "sample_registration",
+    sampleId: "sample-registration-18",
+    al2o3: "100,00000000000000001",
+  });
+
+  assert.equal(validation.ok, true);
+  assert.deepEqual(aboveLimit, {
+    ok: false,
+    errors: [
+      "Сумма полей «Al2O3», «Fe2O3», «SiO2», «CaO2», «P2O5» и «ппп» не может быть больше 100.",
+    ],
+  });
+});
+
+test("chemical analysis journal rejects lower-bound qualifiers", () => {
+  const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
+    sampleSource: "sample_registration",
+    sampleId: "sample-registration-17",
+    al2o3: "> 60",
+    sio2: "40",
+  });
+
+  assert.deepEqual(validation, {
+    ok: false,
+    errors: ["Проверьте поле «Al2O3»."],
+  });
+});
+
 test("chemical analysis journal rejects invalid provided optional values", () => {
   const validation = validateLaboratoryChemicalAnalysisJournalSubmission({
     sampleSource: "unknown",

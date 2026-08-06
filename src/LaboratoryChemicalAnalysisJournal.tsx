@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   laboratoryChemicalAnalysisFields,
+  laboratoryChemicalAnalysisTotalRuleMessage,
   type LaboratoryChemicalAnalysisJournalRecord,
   type LaboratoryChemicalAnalysisSampleOption,
   type LaboratoryChemicalAnalysisJournalSubmission,
@@ -387,6 +388,10 @@ export function LaboratoryChemicalAnalysisJournal({
             )
           ))}
         </div>
+
+        <p className="chemical-analysis-total-note">
+          {laboratoryChemicalAnalysisTotalRuleMessage}
+        </p>
 
         {history.status !== "loading" && history.sampleOptions.length === 0
           ? (
