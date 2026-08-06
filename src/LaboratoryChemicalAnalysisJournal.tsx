@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   laboratoryChemicalAnalysisFields,
   laboratoryChemicalAnalysisTotalRuleMessage,
@@ -63,6 +70,8 @@ export function LaboratoryChemicalAnalysisJournal({
   const [dateTo, setDateTo] = useState("");
   const [query, setQuery] = useState("");
   const [sampleQuery, setSampleQuery] = useState("");
+  const [isSampleOptionsOpen, setIsSampleOptionsOpen] = useState(false);
+  const [activeSampleOptionIndex, setActiveSampleOptionIndex] = useState(-1);
   const [history, setHistory] = useState<HistoryState>({
     status: "loading",
     records: [],
@@ -79,11 +88,14 @@ export function LaboratoryChemicalAnalysisJournal({
   >([]);
   const selectedSampleRef =
     useRef<LaboratoryChemicalAnalysisSampleOption | undefined>(undefined);
+  const sampleInputRef = useRef<HTMLInputElement>(null);
   const nextLaboratoryAnalysisNumberRef = useRef("");
   const isLaboratoryAnalysisNumberAuto = useRef(true);
   const sessionLaboratoryAssistant = useRef(initialLaboratoryAssistant);
   const laboratoryAssistantListId =
     `chemical-analysis-laboratory-assistants-${useId().replaceAll(":", "")}`;
+  const sampleOptionsListId =
+    `chemical-analysis-sample-options-${useId().replaceAll(":", "")}`;
 
   useEffect(() => {
     if (isAdminPreviewMode) return;
@@ -164,6 +176,63 @@ export function LaboratoryChemicalAnalysisJournal({
     }
     setForm((current) => ({ ...current, [field]: value }));
     setFormMessage("");
+  }
+
+  function updateSampleQuery(value: string) {
+    setSampleQuery(value);
+    setIsSampleOptionsOpen(value.trim() !== "");
+    setActiveSampleOptionIndex(-1);
+    selectedSampleRef.current = undefined;
+    updateField("sampleKey", "");
+  }
+
+  function selectSample(sample: LaboratoryChemicalAnalysisSampleOption) {
+    selectedSampleRef.current = sample;
+    setSampleQuery(sample.laboratorySampleCode);
+    setIsSampleOptionsOpen(false);
+    setActiveSampleOptionIndex(-1);
+    updateField("sampleKey", buildSampleKey(sample));
+    sampleInputRef.current?.focus();
+  }
+
+  function closeSampleOptions() {
+    setIsSampleOptionsOpen(false);
+    setActiveSampleOptionIndex(-1);
+  }
+
+  function handleSampleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    const sampleOptions = history.status === "ready"
+      ? history.sampleOptions
+      : [];
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setIsSampleOptionsOpen(true);
+      if (sampleOptions.length === 0) {
+        setActiveSampleOptionIndex(-1);
+        return;
+      }
+      setActiveSampleOptionIndex((current) => event.key === "ArrowDown"
+        ? (current + 1) % sampleOptions.length
+        : current <= 0
+          ? sampleOptions.length - 1
+          : current - 1);
+      return;
+    }
+
+    if (event.key === "Enter" && isSampleOptionsOpen) {
+      const activeSample = sampleOptions[activeSampleOptionIndex];
+      if (activeSample !== undefined) {
+        event.preventDefault();
+        selectSample(activeSample);
+      }
+      return;
+    }
+
+    if (event.key === "Escape" && isSampleOptionsOpen) {
+      event.preventDefault();
+      closeSampleOptions();
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -251,6 +320,7 @@ export function LaboratoryChemicalAnalysisJournal({
     setEditingRecordId(record.id);
     setEditingRecordCode(record.laboratorySampleCode);
     setSampleQuery(record.laboratorySampleCode);
+    setIsSampleOptionsOpen(false);
     setForm({
       sampleKey: buildSampleKey(selectedSample),
       laboratoryAnalysisNumber: record.laboratoryAnalysisNumber ?? "",
@@ -275,6 +345,9 @@ export function LaboratoryChemicalAnalysisJournal({
     setEditingRecordId(undefined);
     setEditingRecordCode("");
     selectedSampleRef.current = undefined;
+    setSampleQuery("");
+    setIsSampleOptionsOpen(false);
+    setActiveSampleOptionIndex(-1);
     setForm(createEmptyForm(
       sessionLaboratoryAssistant.current,
       nextLaboratoryAnalysisNumberRef.current,
@@ -333,6 +406,21 @@ export function LaboratoryChemicalAnalysisJournal({
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   }
 
+  const isSampleListboxVisible =
+    isSampleOptionsOpen && history.status === "ready";
+  const activeSampleOptionId =
+    isSampleListboxVisible &&
+      history.sampleOptions[activeSampleOptionIndex] !== undefined
+      ? `${sampleOptionsListId}-option-${activeSampleOptionIndex}`
+      : undefined;
+
+  useEffect(() => {
+    if (activeSampleOptionId === undefined) return;
+    document.getElementById(activeSampleOptionId)?.scrollIntoView?.({
+      block: "nearest",
+    });
+  }, [activeSampleOptionId]);
+
   return (
     <div className="chemical-analysis-journal">
       <form
@@ -348,42 +436,74 @@ export function LaboratoryChemicalAnalysisJournal({
         </div>
 
         <div className="laboratory-form-grid">
-          <label className="laboratory-field-wide">
-            <span>Поиск пробы без химического анализа</span>
-            <input
-              maxLength={120}
-              placeholder="Код, номер или наименование пробы"
-              value={sampleQuery}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setSampleQuery(value);
-              }}
-            />
-          </label>
-          <label className="laboratory-field-wide">
-            <span>Код лабораторной пробы</span>
-            <select
-              required
-              value={form.sampleKey}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                selectedSampleRef.current = history.sampleOptions.find(
-                  (sample) => buildSampleKey(sample) === value,
-                );
-                updateField("sampleKey", value);
-              }}
-            >
-              <option value="">Выберите пробу без химического анализа</option>
-              {history.sampleOptions.map((sample) => (
-                <option
-                  key={buildSampleKey(sample)}
-                  value={buildSampleKey(sample)}
-                >
-                  {formatSampleOption(sample)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div
+            className="laboratory-field-wide chemical-analysis-sample-picker"
+            onBlur={(event) => {
+              const nextTarget = event.relatedTarget;
+              if (
+                nextTarget !== null &&
+                event.currentTarget.contains(nextTarget as Node)
+              ) {
+                return;
+              }
+              closeSampleOptions();
+            }}
+          >
+            <label>
+              <span>Код лабораторной пробы</span>
+              <input
+                aria-activedescendant={activeSampleOptionId}
+                aria-autocomplete="list"
+                aria-controls={sampleOptionsListId}
+                aria-expanded={isSampleListboxVisible}
+                autoComplete="off"
+                maxLength={120}
+                placeholder="Начните вводить код, номер или наименование пробы"
+                ref={sampleInputRef}
+                role="combobox"
+                value={sampleQuery}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  updateSampleQuery(value);
+                }}
+                onFocus={() => {
+                  if (sampleQuery.trim() !== "") setIsSampleOptionsOpen(true);
+                }}
+                onKeyDown={handleSampleKeyDown}
+              />
+            </label>
+            {isSampleListboxVisible
+              ? (
+                  <div
+                    className="chemical-analysis-sample-options"
+                    id={sampleOptionsListId}
+                    role="listbox"
+                  >
+                    {history.sampleOptions.length === 0
+                      ? (
+                          <p className="chemical-analysis-sample-empty">
+                            Подходящие пробы без химического анализа не найдены.
+                          </p>
+                        )
+                      : history.sampleOptions.map((sample, index) => (
+                          <button
+                            aria-selected={activeSampleOptionIndex === index}
+                            className="chemical-analysis-sample-option"
+                            id={`${sampleOptionsListId}-option-${index}`}
+                            key={buildSampleKey(sample)}
+                            onClick={() => selectSample(sample)}
+                            onMouseDown={(event) => event.preventDefault()}
+                            role="option"
+                            tabIndex={-1}
+                            type="button"
+                          >
+                            {formatSampleOption(sample)}
+                          </button>
+                        ))}
+                  </div>
+                )
+              : null}
+          </div>
           {laboratoryChemicalAnalysisFields.map((field) => (
             field.kind === "notes" ? (
               <label className="laboratory-field-wide" key={field.id}>
@@ -437,7 +557,9 @@ export function LaboratoryChemicalAnalysisJournal({
           {laboratoryChemicalAnalysisTotalRuleMessage}
         </p>
 
-        {history.status !== "loading" && history.sampleOptions.length === 0
+        {history.status !== "loading" &&
+            sampleQuery.trim() === "" &&
+            history.sampleOptions.length === 0
           ? (
               <p className="form-message">
                 Нет проб без химического анализа в доступных журналах.
@@ -450,7 +572,7 @@ export function LaboratoryChemicalAnalysisJournal({
             disabled={
               isAdminPreviewMode ||
               isSubmitting ||
-              history.sampleOptions.length === 0
+              form.sampleKey === ""
             }
             type="submit"
           >

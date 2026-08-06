@@ -504,7 +504,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             },
           }, 503);
         }
-        const sampleOptions = (url.searchParams.get("sampleQuery") === "другая"
+        const sampleQuery = url.searchParams.get("sampleQuery");
+        const sampleOptions = (sampleQuery === "другая"
           ? [{
               sampleSource: "unshaped_product",
               sampleId: "unshaped-sample-19",
@@ -513,6 +514,16 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
               sampleName: "ШКИ-66",
               sampleDate: "2026-06-20",
             }]
+          : sampleQuery === "много"
+            ? Array.from({ length: 12 }, (_, index) => ({
+                sampleSource: "sample_registration",
+                sampleId: `overflow-sample-${index + 1}`,
+                laboratorySampleCode: `ЛП-ПЕРЕПОЛНЕНИЕ-${index + 1}`,
+                sampleNumber: String(index + 1),
+                sampleName: `Проба для прокрутки ${index + 1}`,
+                sampleDate: "2026-07-29",
+                registrationDate: "2026-07-30",
+              }))
           : [{
               sampleSource: "sample_registration",
               sampleId: "sample-registration-1",
@@ -1421,9 +1432,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       rootElement.textContent.includes("Журнал химических анализов")
     );
-    await waitFor(React, () =>
-      rootElement.textContent.includes("ЛП-2026-017")
-    );
+    await waitFor(React, () => chemicalAnalysisRequests.length > 0);
 
     let chemicalAnalysisForm = rootElement.querySelector(
       ".chemical-analysis-journal-form",
@@ -1474,13 +1483,72 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         false,
       );
     }
-    const registeredSampleSearch = findControlByLabel(
-      chemicalAnalysisForm,
-      "Поиск пробы без химического анализа",
+    assert.equal(
+      chemicalAnalysisForm.textContent.includes(
+        "Поиск пробы без химического анализа",
+      ),
+      false,
     );
+    const sampleCodeInput = findControlByLabel(
+      chemicalAnalysisForm,
+      "Код лабораторной пробы",
+      "input",
+    );
+    assert.equal(sampleCodeInput.getAttribute("role"), "combobox");
     await React.act(async () => {
-      setNativeInputValue(registeredSampleSearch, "ЛП-2026-017");
-      registeredSampleSearch.dispatchEvent(
+      setNativeInputValue(sampleCodeInput, "много");
+      sampleCodeInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () =>
+      chemicalAnalysisRequests.some(
+        (request) => request.sampleQuery === "много",
+      ) && chemicalAnalysisForm.querySelectorAll(
+        ".chemical-analysis-sample-option",
+      ).length === 12
+    );
+    const overflowSampleOptions = Array.from(
+      chemicalAnalysisForm.querySelectorAll(
+        ".chemical-analysis-sample-option",
+      ),
+    );
+    const scrolledSampleOptions = [];
+    for (const option of overflowSampleOptions) {
+      option.scrollIntoView = (settings) => {
+        scrolledSampleOptions.push({ id: option.id, settings });
+      };
+    }
+    for (let index = 0; index < 10; index += 1) {
+      await React.act(async () => {
+        sampleCodeInput.focus();
+        sampleCodeInput.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", {
+            bubbles: true,
+            key: "ArrowDown",
+          }),
+        );
+      });
+    }
+    assert.equal(
+      sampleCodeInput.getAttribute("aria-activedescendant"),
+      overflowSampleOptions[9].id,
+    );
+    assert.deepEqual(scrolledSampleOptions.at(-1), {
+      id: overflowSampleOptions[9].id,
+      settings: { block: "nearest" },
+    });
+    await React.act(async () => {
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "Escape",
+        }),
+      );
+    });
+    await React.act(async () => {
+      setNativeInputValue(sampleCodeInput, "ЛП-2026-017");
+      sampleCodeInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
     });
@@ -1489,14 +1557,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         (request) => request.sampleQuery === "ЛП-2026-017",
       )
     );
-    const sampleSelect = findControlByLabel(
-      chemicalAnalysisForm,
-      "Код лабораторной пробы",
-      "select",
+    const sampleOptionButtons = Array.from(
+      chemicalAnalysisForm.querySelectorAll(
+        ".chemical-analysis-sample-option",
+      ),
     );
-    const sampleOptionLabels = Array.from(sampleSelect.querySelectorAll("option"))
-      .slice(1)
-      .map((option) => option.textContent);
+    const sampleOptionLabels = sampleOptionButtons.map(
+      (option) => option.textContent,
+    );
     assert.equal(sampleOptionLabels.length, 2);
     assert.notEqual(sampleOptionLabels[0], sampleOptionLabels[1]);
     assert.match(sampleOptionLabels[0], /Журнал отбора проб/u);
@@ -1504,39 +1572,55 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.match(sampleOptionLabels[1], /Неформованная продукция/u);
     assert.match(sampleOptionLabels[1], /\.19/u);
     await React.act(async () => {
-      setNativeInputValue(
-        sampleSelect,
-        "sample_registration:sample-registration-1",
+      sampleCodeInput.focus();
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "ArrowDown",
+        }),
       );
-      sampleSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
+    assert.equal(
+      sampleCodeInput.getAttribute("aria-activedescendant"),
+      sampleOptionButtons[0].id,
+    );
+    assert.equal(sampleOptionButtons[0].getAttribute("aria-selected"), "true");
     await React.act(async () => {
-      setNativeInputValue(registeredSampleSearch, "другая");
-      registeredSampleSearch.dispatchEvent(
-        new dom.window.Event("input", { bubbles: true }),
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "ArrowDown",
+        }),
       );
     });
-    await waitFor(React, () =>
-      chemicalAnalysisRequests.some(
-        (request) => request.sampleQuery === "другая",
-      )
-    );
-    const preservedSampleSelect = findControlByLabel(
-      chemicalAnalysisForm,
-      "Код лабораторной пробы",
-      "select",
-    );
     assert.equal(
-      preservedSampleSelect.value,
-      "sample_registration:sample-registration-1",
+      sampleCodeInput.getAttribute("aria-activedescendant"),
+      sampleOptionButtons[1].id,
     );
+    await React.act(async () => {
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "ArrowUp",
+        }),
+      );
+    });
     assert.equal(
-      Array.from(preservedSampleSelect.options).some(
-        (option) =>
-          option.value === "sample_registration:sample-registration-1",
-      ),
-      true,
+      sampleCodeInput.getAttribute("aria-activedescendant"),
+      sampleOptionButtons[0].id,
     );
+    await React.act(async () => {
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "Enter",
+        }),
+      );
+    });
+    assert.equal(sampleCodeInput.value, "ЛП-2026-017");
+    assert.equal(sampleCodeInput.getAttribute("aria-expanded"), "false");
+    assert.equal(sampleCodeInput.getAttribute("aria-activedescendant"), null);
+    assert.equal(dom.window.document.activeElement, sampleCodeInput);
     await React.act(async () => {
       setNativeInputValue(laboratoryAnalysisNumberInput, "47");
       laboratoryAnalysisNumberInput.dispatchEvent(
@@ -1568,18 +1652,56 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       chemicalAnalysisLaboratoryAssistantInput.value,
       "Иванова Анна",
     );
-    await waitFor(React, () =>
-      Array.from(sampleSelect.options).every(
-        (option) =>
-          option.value !== "sample_registration:sample-registration-1",
-      )
-    );
+    await waitFor(React, () => sampleCodeInput.value === "");
 
     await React.act(async () => {
-      setNativeInputValue(sampleSelect, "unshaped_product:unshaped-sample-19");
-      sampleSelect.dispatchEvent(
-        new dom.window.Event("change", { bubbles: true }),
+      setNativeInputValue(sampleCodeInput, "другая");
+      sampleCodeInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
       );
+    });
+    await waitFor(React, () =>
+      chemicalAnalysisRequests.some(
+        (request) => request.sampleQuery === "другая",
+      )
+    );
+    const unshapedSampleOption = Array.from(
+      chemicalAnalysisForm.querySelectorAll(
+        ".chemical-analysis-sample-option",
+      ),
+    ).find((option) => option.textContent?.includes(".19"));
+    assert.ok(unshapedSampleOption);
+    await React.act(async () => {
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "Escape",
+        }),
+      );
+    });
+    assert.equal(sampleCodeInput.getAttribute("aria-expanded"), "false");
+    await React.act(async () => {
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "ArrowDown",
+        }),
+      );
+    });
+    assert.equal(
+      sampleCodeInput.getAttribute("aria-activedescendant"),
+      unshapedSampleOption.id,
+    );
+    await React.act(async () => {
+      sampleCodeInput.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          key: "Enter",
+        }),
+      );
+    });
+    assert.equal(sampleCodeInput.value, ".19");
+    await React.act(async () => {
       const chemicalAnalysisDateInput = findControlByLabel(
         chemicalAnalysisForm,
         "Дата хим. анализа",
@@ -1625,13 +1747,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     assert.ok(chemicalAnalysisEditButton);
     await React.act(async () => chemicalAnalysisEditButton.click());
-    await waitFor(React, () =>
-      findControlByLabel(
-        chemicalAnalysisForm,
-        "Код лабораторной пробы",
-        "select",
-      ).value === "unshaped_product:unshaped-sample-18"
-    );
+    await waitFor(React, () => sampleCodeInput.value === ".18");
     await waitFor(React, () =>
       chemicalAnalysisRequests.some(
         (request) => request.sampleQuery === ".18",
@@ -1640,14 +1756,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       rootElement.textContent.includes("Временная ошибка загрузки проб.")
     );
-    assert.equal(
-      findControlByLabel(
-        chemicalAnalysisForm,
-        "Код лабораторной пробы",
-        "select",
-      ).value,
-      "unshaped_product:unshaped-sample-18",
-    );
+    assert.equal(sampleCodeInput.value, ".18");
     assert.ok(
       chemicalAnalysisForm.textContent.includes("Редактирование анализа"),
     );

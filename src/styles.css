@@ -5181,6 +5181,60 @@ p {
   font-size: 13px;
 }
 
+.chemical-analysis-sample-picker {
+  position: relative;
+  display: grid;
+  gap: var(--density-1);
+}
+
+.chemical-analysis-sample-options {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  display: grid;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.chemical-analysis-sample-option {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chemical-analysis-sample-option:last-child {
+  border-bottom: 0;
+}
+
+.chemical-analysis-sample-option:hover,
+.chemical-analysis-sample-option:focus-visible,
+.chemical-analysis-sample-option[aria-selected="true"] {
+  background: var(--surface-subtle);
+  outline: none;
+}
+
+.chemical-analysis-sample-empty {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .raw-material-quality-subsection {
   display: grid;
   gap: var(--density-3);
