@@ -112,6 +112,9 @@ function isWagonRecord(value: unknown): value is RefractoryWagonRecord {
     isOptionalString(value.loadingDate) &&
     isOptionalString(value.productBrand) &&
     isOptionalString(value.rawControlDate) &&
+    Array.isArray(value.firingDates) &&
+    value.firingDates.every((date) => typeof date === "string") &&
+    isOptionalString(value.sortingDate) &&
     typeof value.createdAt === "string";
 }
 

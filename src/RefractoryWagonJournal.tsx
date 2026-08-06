@@ -67,7 +67,6 @@ export function RefractoryWagonJournal({
       setMessage("Заполните номер вагона, дату садки и марку.");
       return;
     }
-
     setIsSubmitting(true);
     setHasError(false);
     setMessage("Сохраняем вагон.");
@@ -198,6 +197,8 @@ export function RefractoryWagonJournal({
                 <th>Дата садки</th>
                 <th>Марка</th>
                 <th>Дата контроля сырца</th>
+                <th>Даты обжига</th>
+                <th>Дата сортировки</th>
               </tr>
             </thead>
             <tbody>
@@ -215,6 +216,8 @@ export function RefractoryWagonJournal({
                   <td>{formatDate(wagon.loadingDate)}</td>
                   <td>{wagon.productBrand ?? "—"}</td>
                   <td>{formatDate(wagon.rawControlDate)}</td>
+                  <td>{formatDates(wagon.firingDates)}</td>
+                  <td>{formatDate(wagon.sortingDate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -229,4 +232,10 @@ function formatDate(value: string | null) {
   if (value === null) return "—";
   const [year, month, day] = value.split("-");
   return `${day}.${month}.${year}`;
+}
+
+function formatDates(values: string[]) {
+  return values.length === 0
+    ? "—"
+    : values.map((value) => formatDate(value)).join("; ");
 }

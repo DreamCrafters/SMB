@@ -138,6 +138,8 @@ export type RefractoryCoshTotals = {
 
 export type RefractoryFiringRow = {
   productBrand: string;
+  firingWagons?: RefractoryFiringWagonReference[];
+  sortingWagons?: RefractoryFiringWagonReference[];
   quantityPieces?: number;
   palletCount?: number;
   goodTonsAverageWeight?: number;
@@ -148,6 +150,11 @@ export type RefractoryFiringRow = {
   rejectChipsPieces?: number;
   note?: string;
   rejectTotalPieces: number;
+};
+
+export type RefractoryFiringWagonReference = {
+  id: string;
+  number?: string;
 };
 
 export type RefractoryFiringPayload = {
@@ -1055,6 +1062,8 @@ function validateFiringPayload(
     const value = readFiringRow(row, index, errors);
     return value === undefined ? [] : [value];
   });
+  validateUniqueFiringWagons(rows, "firingWagons", "обжига", errors);
+  validateUniqueFiringWagons(rows, "sortingWagons", "сортировки", errors);
   const payload: Partial<RefractoryFiringPayload> & {
     rows: RefractoryFiringRow[];
   } = { rows };
@@ -1115,7 +1124,13 @@ function readFiringRow(
   ] as const;
 
   if (
-    unexpectedKeys(input, ["productBrand", "note", ...numberFields]).length > 0
+    unexpectedKeys(input, [
+      "productBrand",
+      "firingWagons",
+      "sortingWagons",
+      "note",
+      ...numberFields,
+    ]).length > 0
   ) {
     addValidationIssue(
       errors,
@@ -1131,6 +1146,22 @@ function readFiringRow(
   readOptionalText(input, row, "note", 2_000, index, errors, {
     fieldPath: `firing.${index}.note`,
   });
+  const firingWagons = readFiringWagonReferences(
+    input.firingWagons,
+    index,
+    "firingWagons",
+    "обжига",
+    errors,
+  );
+  if (firingWagons !== undefined) row.firingWagons = firingWagons;
+  const sortingWagons = readFiringWagonReferences(
+    input.sortingWagons,
+    index,
+    "sortingWagons",
+    "сортировки",
+    errors,
+  );
+  if (sortingWagons !== undefined) row.sortingWagons = sortingWagons;
 
   for (const field of numberFields) {
     readOptionalNumber(input, row, field, index, errors, {
@@ -1165,6 +1196,75 @@ function readFiringRow(
   } as RefractoryFiringRow;
 }
 
+function readFiringWagonReferences(
+  input: unknown,
+  rowIndex: number,
+  field: "firingWagons" | "sortingWagons",
+  eventLabel: string,
+  errors: RefractoryValidationIssue[],
+) {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input) || input.length > 50) {
+    addValidationIssue(
+      errors,
+      `Строка печного отделения ${rowIndex + 1}: проверьте вагоны для ${eventLabel}.`,
+      `firing.${rowIndex}.${field}`,
+    );
+    return undefined;
+  }
+
+  const references: RefractoryFiringWagonReference[] = [];
+  for (const value of input) {
+    if (
+      !isRecord(value) ||
+      unexpectedKeys(value, ["id", "number"]).length > 0
+    ) {
+      addValidationIssue(
+        errors,
+        `Строка печного отделения ${rowIndex + 1}: проверьте вагоны для ${eventLabel}.`,
+        `firing.${rowIndex}.${field}`,
+      );
+      return undefined;
+    }
+    const id = readTextValue(value.id, 120);
+    const number = value.number === undefined
+      ? undefined
+      : readTextValue(value.number, 120);
+    if (id === undefined || (value.number !== undefined && number === undefined)) {
+      addValidationIssue(
+        errors,
+        `Строка печного отделения ${rowIndex + 1}: проверьте вагоны для ${eventLabel}.`,
+        `firing.${rowIndex}.${field}`,
+      );
+      return undefined;
+    }
+    references.push({ id, ...(number === undefined ? {} : { number }) });
+  }
+  return references;
+}
+
+function validateUniqueFiringWagons(
+  rows: RefractoryFiringRow[],
+  field: "firingWagons" | "sortingWagons",
+  eventLabel: string,
+  errors: RefractoryValidationIssue[],
+) {
+  const seen = new Set<string>();
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    for (const wagon of rows[rowIndex]?.[field] ?? []) {
+      if (seen.has(wagon.id)) {
+        addValidationIssue(
+          errors,
+          `Вагон для ${eventLabel} выбран в таблице повторно.`,
+          `firing.${rowIndex}.${field}`,
+        );
+        return;
+      }
+      seen.add(wagon.id);
+    }
+  }
+}
+
 function buildFiringTotals(
   payload: RefractoryFiringPayload,
 ): RefractoryFiringTotals {
@@ -1188,6 +1288,14 @@ function sum<Row extends object>(rows: Row[], field: keyof Row) {
       return total + (typeof value === "number" ? value : 0);
     }, 0),
   );
+}
+
+function readTextValue(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 && normalized.length <= maxLength
+    ? normalized
+    : undefined;
 }
 
 function readOptionalText<Row extends object>(

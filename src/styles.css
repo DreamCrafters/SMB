@@ -6928,7 +6928,7 @@ p {
 }
 
 .refractory-wagon-table {
-  min-width: 720px;
+  min-width: 980px;
 }
 
 .refractory-report-form > fieldset:disabled {
@@ -7199,6 +7199,10 @@ p {
   color: var(--ink);
   background: var(--surface);
   font: inherit;
+}
+
+.refractory-input-table .refractory-wagon-multi-select {
+  min-width: 190px;
 }
 
 .refractory-input-table-equipment input,

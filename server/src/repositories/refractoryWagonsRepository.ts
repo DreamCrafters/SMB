@@ -13,6 +13,25 @@ export class RefractoryWagonNumberAlreadyExistsError extends Error {
   }
 }
 
+export class RefractoryWagonNotFoundError extends Error {
+  constructor() {
+    super("A refractory wagon was not found.");
+    this.name = "RefractoryWagonNotFoundError";
+  }
+}
+
+export class RefractoryWagonBrandMismatchError extends Error {
+  constructor() {
+    super("A refractory wagon brand does not match the report row.");
+    this.name = "RefractoryWagonBrandMismatchError";
+  }
+}
+
+export type RefractoryWagonReference = Pick<
+  RefractoryWagonRecord,
+  "id" | "number" | "productBrand"
+>;
+
 export type RefractoryWagonsRepository = {
   create: (input: {
     wagon: RefractoryWagonSubmission;
@@ -20,6 +39,15 @@ export type RefractoryWagonsRepository = {
     submittedByAccountId: string;
   }) => Promise<RefractoryWagonRecord>;
   list: () => Promise<RefractoryWagonRecord[]>;
+  findByIds: (ids: string[]) => Promise<RefractoryWagonReference[]>;
+  replaceReportLifecycle: (input: {
+    sourceReportId: string;
+    reportDate: string;
+    shiftNumber: 1 | 2;
+    firingWagonIds: string[];
+    sortingWagonIds: string[];
+    wagonProductBrands: Record<string, string>;
+  }) => Promise<void>;
   update: (input: {
     id: string;
     wagon: RefractoryWagonSubmission;
@@ -41,6 +69,12 @@ type WagonRow = RowDataPacket & {
   product_brand: string | null;
   raw_control_date: Date | string | null;
   created_at: Date | string;
+};
+
+type LifecycleEventRow = RowDataPacket & {
+  wagon_id: string;
+  event_type: "firing" | "sorting";
+  event_date: Date | string;
 };
 
 type RepositoryOptions = {
@@ -91,6 +125,8 @@ export function createRefractoryWagonsRepository(
         id,
         ...input.wagon,
         rawControlDate: null,
+        firingDates: [],
+        sortingDate: null,
         createdAt,
       };
     },
@@ -107,7 +143,97 @@ export function createRefractoryWagonsRepository(
         from refractory_wagons
         order by sequence_id desc`,
       );
-      return rows.map(mapWagonRow);
+      const lifecycle = await loadLifecycle(pool, rows.map((row) => row.id));
+      return rows.map((row) => mapWagonRow(row, lifecycle.get(row.id)));
+    },
+
+    async findByIds(ids) {
+      const uniqueIds = [...new Set(ids)];
+      if (uniqueIds.length === 0) return [];
+      const placeholders = uniqueIds.map(() => "?").join(", ");
+      const [rows] = await pool.query<WagonRow[]>(
+        `select id, wagon_number, product_brand
+        from refractory_wagons
+        where id in (${placeholders})`,
+        uniqueIds,
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        number: row.wagon_number,
+        productBrand: row.product_brand,
+      }));
+    },
+
+    async replaceReportLifecycle(input) {
+      const wagonIds = [...new Set([
+        ...input.firingWagonIds,
+        ...input.sortingWagonIds,
+      ])];
+      if (wagonIds.length > 0) {
+        const placeholders = wagonIds.map(() => "?").join(", ");
+        const [rows] = await pool.query<Array<
+          RowDataPacket & { id: string; product_brand: string | null }
+        >>(
+          `select id, product_brand
+          from refractory_wagons
+          where id in (${placeholders})
+          for update`,
+          wagonIds,
+        );
+        if (rows.length !== wagonIds.length) {
+          throw new RefractoryWagonNotFoundError();
+        }
+        if (rows.some((row) =>
+          row.product_brand !== input.wagonProductBrands[row.id])) {
+          throw new RefractoryWagonBrandMismatchError();
+        }
+      }
+
+      await pool.query(
+        `delete from refractory_wagon_lifecycle_events
+        where source_report_type = ?
+          and source_report_date = ?
+          and source_shift_number = ?`,
+        ["firing", input.reportDate, input.shiftNumber],
+      );
+      const events = [
+        ...input.firingWagonIds.map((wagonId, position) => ({
+          eventType: "firing" as const,
+          position,
+          wagonId,
+        })),
+        ...input.sortingWagonIds.map((wagonId, position) => ({
+          eventType: "sorting" as const,
+          position,
+          wagonId,
+        })),
+      ];
+      if (events.length === 0) return;
+
+      const placeholders = events.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)")
+        .join(", ");
+      await pool.query(
+        `insert into refractory_wagon_lifecycle_events (
+          source_report_type,
+          source_report_date,
+          source_shift_number,
+          event_type,
+          position,
+          wagon_id,
+          event_date,
+          source_report_id
+        ) values ${placeholders}`,
+        events.flatMap((event) => [
+          "firing",
+          input.reportDate,
+          input.shiftNumber,
+          event.eventType,
+          event.position,
+          event.wagonId,
+          input.reportDate,
+          input.sourceReportId,
+        ]),
+      );
     },
 
     async update(input) {
@@ -128,7 +254,8 @@ export function createRefractoryWagonsRepository(
       const row = rows[0];
       if (row === undefined) return undefined;
 
-      const before = mapWagonRow(row);
+      const lifecycle = await loadLifecycle(pool, [input.id]);
+      const before = mapWagonRow(row, lifecycle.get(input.id));
       try {
         await pool.query(
           `update refractory_wagons
@@ -180,17 +307,54 @@ export function createRefractoryWagonsRepository(
   };
 }
 
-function mapWagonRow(row: WagonRow): RefractoryWagonRecord {
+function mapWagonRow(
+  row: WagonRow,
+  lifecycle?: { firingDates: string[]; sortingDate: string | null },
+): RefractoryWagonRecord {
   return {
     id: row.id,
     number: row.wagon_number,
     loadingDate: formatOptionalCalendarDate(row.loading_date),
     productBrand: row.product_brand,
     rawControlDate: formatOptionalCalendarDate(row.raw_control_date),
+    firingDates: lifecycle?.firingDates ?? [],
+    sortingDate: lifecycle?.sortingDate ?? null,
     createdAt: row.created_at instanceof Date
       ? row.created_at.toISOString()
       : String(row.created_at),
   };
+}
+
+async function loadLifecycle(pool: DatabasePool, wagonIds: string[]) {
+  const lifecycle = new Map<
+    string,
+    { firingDates: string[]; sortingDate: string | null }
+  >();
+  if (wagonIds.length === 0) return lifecycle;
+
+  const placeholders = wagonIds.map(() => "?").join(", ");
+  const [rows] = await pool.query<LifecycleEventRow[]>(
+    `select wagon_id, event_type, event_date
+    from refractory_wagon_lifecycle_events
+    where wagon_id in (${placeholders})
+    order by wagon_id, event_date, source_report_date,
+      source_shift_number, event_type, position`,
+    wagonIds,
+  );
+  for (const row of rows) {
+    const current = lifecycle.get(row.wagon_id) ?? {
+      firingDates: [],
+      sortingDate: null,
+    };
+    const eventDate = formatOptionalCalendarDate(row.event_date)!;
+    if (row.event_type === "firing") {
+      current.firingDates.push(eventDate);
+    } else {
+      current.sortingDate = eventDate;
+    }
+    lifecycle.set(row.wagon_id, current);
+  }
+  return lifecycle;
 }
 
 function formatOptionalCalendarDate(value: Date | string | null) {

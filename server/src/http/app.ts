@@ -247,6 +247,8 @@ import {
   type LaboratoryGreenProductQualityJournalRepository,
 } from "../repositories/laboratoryGreenProductQualityJournalRepository.js";
 import {
+  RefractoryWagonBrandMismatchError,
+  RefractoryWagonNotFoundError,
   RefractoryWagonNumberAlreadyExistsError,
   type RefractoryWagonsRepository,
 } from "../repositories/refractoryWagonsRepository.js";
@@ -642,6 +644,7 @@ export function createApiServer({
           devSessions,
           authService,
           refractoryReports,
+          refractoryWagons,
           laboratoryBankAssignments,
           bankVolumeReferenceDataSource,
           productionBrands,
@@ -4377,6 +4380,7 @@ async function handleRefractoryReportsRequest({
   devSessions,
   authService,
   refractoryReports,
+  refractoryWagons,
   laboratoryBankAssignments,
   bankVolumeReferenceDataSource,
   productionBrands,
@@ -4393,6 +4397,7 @@ async function handleRefractoryReportsRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   refractoryReports: RefractoryReportsRepository | undefined;
+  refractoryWagons: RefractoryWagonsRepository | undefined;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
   bankVolumeReferenceDataSource: BankVolumeReferenceDataSource;
   productionBrands: ProductionBrandsDataSource;
@@ -4544,13 +4549,37 @@ async function handleRefractoryReportsRequest({
       const report = await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
-        mutate: () => refractoryReports.review({
-          reportId,
-          decision: validation.value,
-          reviewerUserId: access.profile.userId,
-          reviewerAccountId: access.profile.activeAccess.accountId,
-          reviewerDisplayName: access.profile.displayName,
-        }),
+        mutate: async () => {
+          const saved = await refractoryReports.review({
+            reportId,
+            decision: validation.value,
+            reviewerUserId: access.profile.userId,
+            reviewerAccountId: access.profile.activeAccess.accountId,
+            reviewerDisplayName: access.profile.displayName,
+          });
+          if (
+            validation.value.decision === "approve" &&
+            saved.reportType === "firing"
+          ) {
+            const lifecycle = readRefractoryReportLifecycleWagonIds(saved);
+            if (refractoryWagons === undefined) {
+              if (
+                lifecycle.firingWagonIds.length > 0 ||
+                lifecycle.sortingWagonIds.length > 0
+              ) {
+                throw new Error("Refractory wagon storage is not configured.");
+              }
+            } else {
+              await refractoryWagons.replaceReportLifecycle({
+                sourceReportId: saved.id,
+                reportDate: saved.reportDate,
+                shiftNumber: saved.shiftNumber,
+                ...lifecycle,
+              });
+            }
+          }
+          return saved;
+        },
         buildEvent: (saved) => ({
           actor: buildAuditActor(access.profile),
           category: "data_change",
@@ -4605,6 +4634,24 @@ async function handleRefractoryReportsRequest({
           error: {
             code: "access_denied",
             message: "Нельзя подтвердить собственную таблицу.",
+          },
+        });
+        return;
+      }
+      if (error instanceof RefractoryWagonNotFoundError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Один из выбранных вагонов больше не существует.",
+          },
+        });
+        return;
+      }
+      if (error instanceof RefractoryWagonBrandMismatchError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Марка выбранного вагона изменилась. Исправьте отчёт.",
           },
         });
         return;
@@ -4675,6 +4722,34 @@ async function handleRefractoryReportsRequest({
 
     if (references === undefined) return;
     applyRefractoryReportBrandResolution(validation.value, references);
+  }
+
+  if (validation.value.reportType === "firing") {
+    const lifecycle = readRefractoryReportLifecycleWagonIds(validation.value);
+    if (
+      lifecycle.firingWagonIds.length > 0 ||
+      lifecycle.sortingWagonIds.length > 0
+    ) {
+      if (refractoryWagons === undefined) {
+        sendJson(res, 503, {
+          error: {
+            code: "server_error",
+            message: "Хранилище журнала вагонов не настроено.",
+          },
+        });
+        return;
+      }
+      const wagonError = await canonicalizeRefractoryReportWagons(
+        validation.value,
+        refractoryWagons,
+      );
+      if (wagonError !== undefined) {
+        sendJson(res, 400, {
+          error: { code: "invalid_response", message: wagonError },
+        });
+        return;
+      }
+    }
   }
 
   if (validation.value.reportType === "cosh") {
@@ -4847,6 +4922,66 @@ function applyRefractoryReportBrandResolution(
       ) ?? row.productBrand;
     }
   }
+}
+
+function readRefractoryReportLifecycleWagonIds(
+  report: ValidatedRefractoryReportSubmission | RefractoryReportRevision,
+) {
+  if (report.reportType !== "firing") {
+    return {
+      firingWagonIds: [],
+      sortingWagonIds: [],
+      wagonProductBrands: {},
+    };
+  }
+  const payload = report.payload as RefractoryFiringPayload;
+  const wagonProductBrands = Object.fromEntries(
+    payload.rows.flatMap((row) => [
+      ...(row.firingWagons ?? []),
+      ...(row.sortingWagons ?? []),
+    ].map((wagon) => [wagon.id, row.productBrand])),
+  );
+  return {
+    firingWagonIds: payload.rows.flatMap((row) =>
+      (row.firingWagons ?? []).map((wagon) => wagon.id)),
+    sortingWagonIds: payload.rows.flatMap((row) =>
+      (row.sortingWagons ?? []).map((wagon) => wagon.id)),
+    wagonProductBrands,
+  };
+}
+
+async function canonicalizeRefractoryReportWagons(
+  report: Extract<ValidatedRefractoryReportSubmission, { reportType: "firing" }>,
+  refractoryWagons: RefractoryWagonsRepository,
+) {
+  const lifecycle = readRefractoryReportLifecycleWagonIds(report);
+  const wagonIds = [...new Set([
+    ...lifecycle.firingWagonIds,
+    ...lifecycle.sortingWagonIds,
+  ])];
+  const records = await refractoryWagons.findByIds(wagonIds);
+  const recordById = new Map(records.map((record) => [record.id, record]));
+  if (records.length !== wagonIds.length) {
+    return "Один из выбранных вагонов не найден в журнале.";
+  }
+
+  for (const row of report.payload.rows) {
+    const references = [
+      ...(row.firingWagons ?? []),
+      ...(row.sortingWagons ?? []),
+    ];
+    for (const reference of references) {
+      const record = recordById.get(reference.id);
+      if (record === undefined) {
+        return "Один из выбранных вагонов не найден в журнале.";
+      }
+      if (record.productBrand !== row.productBrand) {
+        return `Марка вагона ${record.number} не совпадает с маркой строки «${row.productBrand}».`;
+      }
+      reference.number = record.number;
+    }
+  }
+  return undefined;
 }
 
 type ProductionBrandReferenceErrorDetail = {

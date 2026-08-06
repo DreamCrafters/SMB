@@ -106,6 +106,8 @@ export type RefractoryEquipmentPayload = {
 export type RefractoryFiringPayload = {
   rows: Array<{
     productBrand: string;
+    firingWagons?: RefractoryFiringWagonReference[];
+    sortingWagons?: RefractoryFiringWagonReference[];
     quantityPieces?: number;
     palletCount?: number;
     goodTonsAverageWeight?: number;
@@ -120,6 +122,11 @@ export type RefractoryFiringPayload = {
   calcinationHours?: number;
   sorterCount?: number;
   planFailureReason?: string;
+};
+
+export type RefractoryFiringWagonReference = {
+  id: string;
+  number?: string;
 };
 
 export type RefractoryReportSubmission =

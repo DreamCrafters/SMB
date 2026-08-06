@@ -64,11 +64,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         loadingDate: "2026-08-05",
         productBrand: "ШКУ-32",
         rawControlDate: null,
+        firingDates: ["2026-08-06", "2026-08-06"],
+        sortingDate: "2026-08-08",
         createdAt: "2026-08-05T08:00:00.000Z",
       },
     ];
     let submittedWagon;
     let correctedWagon;
+    let submittedReport;
     globalThis.fetch = async (input, init) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
       if (url.pathname.endsWith("/production-brands")) {
@@ -124,6 +127,8 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
             id: "wagon-17",
             ...submittedWagon,
             rawControlDate: null,
+            firingDates: [],
+            sortingDate: null,
             createdAt: "2026-08-06T08:30:00.000Z",
           };
           refractoryWagons.unshift(wagon);
@@ -134,6 +139,24 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         }
         return new Response(JSON.stringify({ wagons: refractoryWagons }), {
           status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (
+        url.pathname.endsWith("/refractory-reports") &&
+        init?.method === "POST"
+      ) {
+        submittedReport = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ report: {
+          id: "firing-report-1",
+          ...submittedReport,
+          revisionNumber: 1,
+          status: "pending",
+          totals: {},
+          masterDisplayName: "Иванов Иван Иванович",
+          submittedAt: "2026-08-06T08:30:00.000Z",
+        } }), {
+          status: 201,
           headers: { "Content-Type": "application/json" },
         });
       }
@@ -440,6 +463,8 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       ),
       [
         "Марка изделия",
+        "Вагоны для обжига",
+        "Рассортированные вагоны",
         "Кол-во, шт.",
         "Кол-во, поддонов",
         "Годная, т по среднему весу",
@@ -511,6 +536,46 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       ),
       ["Гранулы 0-5", "Новая марка", "Смесь МК", "ША-22"],
     );
+    const firingWagonsSelect = rootElement.querySelector(
+      'select[aria-label="Вагоны для обжига, строка 1"]',
+    );
+    const sortingWagonsSelect = rootElement.querySelector(
+      'select[aria-label="Рассортированные вагоны, строка 1"]',
+    );
+    await waitFor(
+      React,
+      () => firingWagonsSelect?.querySelector('option[value="wagon-16"]') !== null,
+    );
+    assert.ok(firingWagonsSelect);
+    assert.ok(sortingWagonsSelect);
+    const firingBrandInput = rootElement.querySelector(
+      'input[aria-label="Марка изделия, строка 1"]',
+    );
+    await React.act(async () => {
+      setNativeInputValue(firingBrandInput, "ШКУ-32");
+      firingBrandInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      firingWagonsSelect.querySelector('option[value="wagon-16"]').selected = true;
+      firingWagonsSelect.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+      sortingWagonsSelect.querySelector('option[value="wagon-16"]').selected = true;
+      sortingWagonsSelect.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
+    const submitFiringButton = Array.from(
+      rootElement.querySelectorAll(".refractory-report-form button"),
+    ).find((button) => button.textContent === "Отправить диспетчеру");
+    assert.ok(submitFiringButton);
+    await React.act(async () => submitFiringButton.click());
+    assert.deepEqual(submittedReport.payload.rows[0].firingWagons, [
+      { id: "wagon-16" },
+    ]);
+    assert.deepEqual(submittedReport.payload.rows[0].sortingWagons, [
+      { id: "wagon-16" },
+    ]);
 
     const reportDateInput = rootElement.querySelector('input[type="date"]');
     assert.ok(reportDateInput);
@@ -540,6 +605,23 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       () => rootElement.querySelector(".refractory-wagon-journal") !== null,
     );
     assert.match(rootElement.textContent, /В-16/u);
+    const wagonTable = rootElement.querySelector(".refractory-wagon-table");
+    assert.ok(wagonTable);
+    assert.deepEqual(
+      Array.from(wagonTable.querySelectorAll("thead th"), (cell) =>
+        cell.textContent.trim().replace(/\s+/gu, " "),
+      ),
+      [
+        "№ вагона",
+        "Дата садки",
+        "Марка",
+        "Дата контроля сырца",
+        "Даты обжига",
+        "Дата сортировки",
+      ],
+    );
+    assert.match(wagonTable.textContent, /06\.08\.2026; 06\.08\.2026/u);
+    assert.match(wagonTable.textContent, /08\.08\.2026/u);
     const wagonNumberInput = rootElement.querySelector(
       'input[name="wagonNumber"]',
     );

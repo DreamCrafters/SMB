@@ -10,6 +10,7 @@ import {
   type RefractoryReportSubmission,
   type RefractoryReportType,
   type RefractoryShiftNumber,
+  type RefractoryWagonRecord,
   type ServerUserProfile,
 } from "./contracts";
 import {
@@ -19,6 +20,7 @@ import {
   requestRefractoryBanks,
   submitRefractoryReport,
 } from "./services/refractoryReports";
+import { requestRefractoryWagons } from "./services/refractoryWagons";
 import {
   bankNumbers,
   calculateBankMeasurement,
@@ -420,6 +422,7 @@ export function RefractoryShopWorkspace({
             ) : (
               <FiringForm
                 brandLabels={brandLabels}
+                loadWagons={!isAdminPreviewMode}
                 payload={
                   activeReport?.reportType === "firing"
                     ? activeReport.payload
@@ -1425,11 +1428,52 @@ function emptyFiringSummary(): FiringTableSummary {
   };
 }
 
+function FiringWagonMultiSelect({
+  ariaLabel,
+  name,
+  options,
+  saved = [],
+}: {
+  ariaLabel: string;
+  name: string;
+  options: RefractoryWagonRecord[];
+  saved?: NonNullable<
+    RefractoryFiringPayload["rows"][number]["firingWagons"]
+  >;
+}) {
+  const labels = new Map(
+    options.map((wagon) => [
+      wagon.id,
+      `${wagon.number}${wagon.productBrand === null ? "" : ` · ${wagon.productBrand}`}`,
+    ]),
+  );
+  for (const wagon of saved) {
+    if (!labels.has(wagon.id)) labels.set(wagon.id, wagon.number ?? wagon.id);
+  }
+
+  return (
+    <select
+      aria-label={ariaLabel}
+      className="refractory-wagon-multi-select"
+      defaultValue={saved.map((wagon) => wagon.id)}
+      multiple
+      name={name}
+      size={3}
+    >
+      {Array.from(labels, ([id, label]) => (
+        <option key={id} value={id}>{label}</option>
+      ))}
+    </select>
+  );
+}
+
 function FiringForm({
   brandLabels = [],
+  loadWagons = false,
   payload,
 }: {
   brandLabels?: string[];
+  loadWagons?: boolean;
   payload?: RefractoryFiringPayload;
 }) {
   const [rowCount, setRowCount] = useState(
@@ -1438,6 +1482,27 @@ function FiringForm({
   const [summary, setSummary] = useState(() =>
     summarizeFiringRows(payload?.rows ?? []),
   );
+  const [wagonOptions, setWagonOptions] = useState<RefractoryWagonRecord[]>([]);
+  const [wagonLoadState, setWagonLoadState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >(loadWagons ? "loading" : "idle");
+
+  useEffect(() => {
+    if (!loadWagons) return;
+    const controller = new AbortController();
+    setWagonLoadState("loading");
+    requestRefractoryWagons({ signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.status === "ready") {
+        setWagonOptions(result.wagons);
+        setWagonLoadState("ready");
+      } else {
+        setWagonLoadState("error");
+      }
+    });
+    return () => controller.abort();
+  }, [loadWagons]);
+
   return (
     <div className="refractory-form-sections">
       <ReportSection title="Выпуск обожжённых огнеупоров">
@@ -1446,6 +1511,8 @@ function FiringForm({
             <thead>
               <tr>
                 <th>Марка изделия</th>
+                <th>Вагоны для обжига</th>
+                <th>Рассортированные вагоны</th>
                 {firingColumns.map(([, label]) => (
                   <th key={label}>{label}</th>
                 ))}
@@ -1471,6 +1538,22 @@ function FiringForm({
                         defaultValue={row?.productBrand ?? ""}
                         labels={brandLabels}
                         onInputChange={clearRefractoryFieldError}
+                      />
+                    </td>
+                    <td>
+                      <FiringWagonMultiSelect
+                        ariaLabel={`Вагоны для обжига, строка ${index + 1}`}
+                        name={`firing.${index}.firingWagons`}
+                        options={wagonOptions}
+                        saved={row?.firingWagons}
+                      />
+                    </td>
+                    <td>
+                      <FiringWagonMultiSelect
+                        ariaLabel={`Рассортированные вагоны, строка ${index + 1}`}
+                        name={`firing.${index}.sortingWagons`}
+                        options={wagonOptions}
+                        saved={row?.sortingWagons}
                       />
                     </td>
                     {firingColumns.map(([field, label, kind]) => (
@@ -1512,6 +1595,8 @@ function FiringForm({
             <tfoot>
               <tr>
                 <th>ИТОГО:</th>
+                <td />
+                <td />
                 {firingColumns.map(([field, label]) => (
                   <td className="refractory-calculated" key={field}>
                     <output aria-label={`Итого: ${label}`}>
@@ -1524,6 +1609,13 @@ function FiringForm({
             </tfoot>
           </table>
         </div>
+        {wagonLoadState === "loading" ? (
+          <p className="form-status">Загружаем вагоны для отчёта.</p>
+        ) : wagonLoadState === "error" ? (
+          <p className="form-status form-status-error">
+            Не удалось загрузить журнал вагонов. Обновите страницу перед выбором.
+          </p>
+        ) : null}
         <button
           className="secondary-button"
           type="button"
@@ -2108,6 +2200,14 @@ function buildFiringPayload(data: FormData): RefractoryFiringPayload {
   const rows = Array.from({ length: 50 }, (_, index) =>
     compact({
       productBrand: optionalText(data, `firing.${index}.productBrand`),
+      firingWagons: optionalWagonReferences(
+        data,
+        `firing.${index}.firingWagons`,
+      ),
+      sortingWagons: optionalWagonReferences(
+        data,
+        `firing.${index}.sortingWagons`,
+      ),
       quantityPieces: first(
         optionalNumber(data, `firing.${index}.quantityPieces`),
       ),
@@ -2145,6 +2245,14 @@ function buildFiringPayload(data: FormData): RefractoryFiringPayload {
     sorterCount: first(optionalNumber(data, "sorterCount")),
     planFailureReason: optionalText(data, "planFailureReason"),
   }) as RefractoryFiringPayload;
+}
+
+function optionalWagonReferences(data: FormData, fieldName: string) {
+  const references = data.getAll(fieldName).flatMap((value) => {
+    if (typeof value !== "string" || value.trim().length === 0) return [];
+    return [{ id: value.trim() }];
+  });
+  return references.length === 0 ? undefined : references;
 }
 
 function buildNamedRows(

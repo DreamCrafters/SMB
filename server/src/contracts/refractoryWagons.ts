@@ -10,5 +10,7 @@ export type RefractoryWagonRecord = {
   loadingDate: string | null;
   productBrand: string | null;
   rawControlDate: string | null;
+  firingDates: string[];
+  sortingDate: string | null;
   createdAt: string;
 };

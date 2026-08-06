@@ -45,6 +45,7 @@ import type {
   RefractoryReportRevision,
   RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
+import type { RefractoryFiringPayload } from "../domain/refractoryReport.js";
 import {
   RefractoryWagonNumberAlreadyExistsError,
   type RefractoryWagonsRepository,
@@ -2382,6 +2383,8 @@ test("refractory wagon journal creates real wagon options for green product qual
     loadingDate: "2026-08-05",
     productBrand: "ШКУ-32",
     rawControlDate: null,
+    firingDates: ["2026-08-06"],
+    sortingDate: null,
     createdAt: "2026-08-05T08:00:00.000Z",
   };
   let savedInput: Parameters<RefractoryWagonsRepository["create"]>[0] | undefined;
@@ -2390,6 +2393,12 @@ test("refractory wagon journal creates real wagon options for green product qual
     async list() {
       return [initialRecord];
     },
+    async findByIds(ids) {
+      return [initialRecord]
+        .filter((wagon) => ids.includes(wagon.id))
+        .map(({ id, number, productBrand }) => ({ id, number, productBrand }));
+    },
+    async replaceReportLifecycle() {},
     async create(input) {
       if (input.wagon.number === "В-16") {
         throw new RefractoryWagonNumberAlreadyExistsError();
@@ -2399,6 +2408,8 @@ test("refractory wagon journal creates real wagon options for green product qual
         id: "wagon-17",
         ...input.wagon,
         rawControlDate: null,
+        firingDates: [],
+        sortingDate: null,
         createdAt: "2026-08-06T08:30:00.000Z",
       };
     },
@@ -8767,6 +8778,42 @@ test("refractory reports are submitted and reviewed independently through protec
   let refractoryReviewEmailAttemptCount = 0;
   let refractoryReviewMaxAttemptCount = 0;
   let refractoryMutationCommitted = false;
+  let savedLifecycle: Parameters<
+    RefractoryWagonsRepository["replaceReportLifecycle"]
+  >[0] | undefined;
+  const lifecycleWagonRecord = {
+    id: "wagon-17",
+    number: "В-17",
+    loadingDate: "2026-07-19",
+    productBrand: "ША",
+    rawControlDate: "2026-07-19",
+    firingDates: [],
+    sortingDate: null,
+    createdAt: "2026-07-19T08:00:00.000Z",
+  };
+  const lifecycleWagons: RefractoryWagonsRepository = {
+    async create() {
+      throw new Error("not used");
+    },
+    async list() {
+      return [lifecycleWagonRecord];
+    },
+    async findByIds(ids) {
+      return ids.includes(lifecycleWagonRecord.id)
+        ? [{
+            id: lifecycleWagonRecord.id,
+            number: lifecycleWagonRecord.number,
+            productBrand: lifecycleWagonRecord.productBrand,
+          }]
+        : [];
+    },
+    async replaceReportLifecycle(input) {
+      savedLifecycle = input;
+    },
+    async update() {
+      return undefined;
+    },
+  };
   const repository: RefractoryReportsRepository = {
     async submit(input) {
       stored = {
@@ -8888,23 +8935,28 @@ test("refractory reports are submitted and reviewed independently through protec
   ];
   const productionBrands: ProductionBrandsDataSource = {
     async list() {
-      return ["ША"];
+      return ["ША", "ША-22"];
     },
     async create(label, commitCreated) {
       await commitCreated(label);
       return { label, created: true };
     },
     async resolveReferences(references) {
-      const missing = references.find(
-        (reference) => reference.label.trim().toLocaleLowerCase("ru-RU") !== "ша",
-      );
+      const canonical = new Map([
+        ["ша", "ША"],
+        ["ша-22", "ША-22"],
+      ]);
+      const missing = references.find((reference) =>
+        !canonical.has(reference.label.trim().toLocaleLowerCase("ru-RU")));
 
       return missing === undefined
         ? {
             ok: true,
             references: references.map((reference) => ({
               fieldName: reference.fieldName,
-              label: "ША",
+              label: canonical.get(
+                reference.label.trim().toLocaleLowerCase("ru-RU"),
+              )!,
             })),
           }
         : { ok: false, missing };
@@ -8948,6 +9000,34 @@ test("refractory reports are submitted and reviewed independently through protec
         }],
       );
 
+      const mismatchedWagonResponse = await fetch(
+        `${baseUrl}/api/refractory-reports`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: "smb_session=prod-session",
+          },
+          body: JSON.stringify({
+            reportType: "firing",
+            reportDate: "2026-07-19",
+            shiftNumber: 1,
+            payload: {
+              rows: [{
+                productBrand: "ША-22",
+                firingWagons: [{ id: "wagon-17" }],
+                quantityPieces: 10,
+              }],
+            },
+          }),
+        },
+      );
+      assert.equal(mismatchedWagonResponse.status, 400);
+      assert.match(
+        JSON.stringify(await mismatchedWagonResponse.json()),
+        /Марка вагона В-17 не совпадает/u,
+      );
+
       const response = await fetch(`${baseUrl}/api/refractory-reports`, {
         method: "POST",
         headers: {
@@ -8961,6 +9041,8 @@ test("refractory reports are submitted and reviewed independently through protec
           payload: {
             rows: [{
               productBrand: " ша ",
+              firingWagons: [{ id: "wagon-17", number: "подмена" }],
+              sortingWagons: [{ id: "wagon-17" }],
               quantityPieces: 100,
               rejectCracksPieces: 2,
             }],
@@ -8975,6 +9057,11 @@ test("refractory reports are submitted and reviewed independently through protec
         (stored?.payload as { rows?: Array<{ productBrand?: string }> } | undefined)
           ?.rows?.[0]?.productBrand,
         "ША",
+      );
+      assert.deepEqual(
+        (stored?.payload as RefractoryFiringPayload | undefined)
+          ?.rows[0]?.firingWagons,
+        [{ id: "wagon-17", number: "В-17" }],
       );
       assert.equal(
         (stored?.totals as { rejectTotalPieces?: number } | undefined)
@@ -9016,6 +9103,18 @@ test("refractory reports are submitted and reviewed independently through protec
     productionBrands,
     undefined,
     repository,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    lifecycleWagons,
   );
 
   assert.equal(refractoryReviewEmailAttemptCount, 1);
@@ -9049,6 +9148,14 @@ test("refractory reports are submitted and reviewed independently through protec
       assert.equal(invalidRejectResponse.status, 400);
       assert.equal(approvalResponse.status, 200);
       assert.equal(stored?.status, "approved");
+      assert.deepEqual(savedLifecycle, {
+        sourceReportId: "refractory-1",
+        reportDate: "2026-07-20",
+        shiftNumber: 2,
+        firingWagonIds: ["wagon-17"],
+        sortingWagonIds: ["wagon-17"],
+        wagonProductBrands: { "wagon-17": "ША" },
+      });
       assert.equal(refractoryEmailAttemptCount, 1);
       assert.equal(emailedRefractoryReportId, "refractory-1");
       assert.deepEqual(emailedRefractoryRecipients, ["oc@example.com"]);
@@ -9099,6 +9206,18 @@ test("refractory reports are submitted and reviewed independently through protec
     undefined,
     undefined,
     repository,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    lifecycleWagons,
   );
 });
 

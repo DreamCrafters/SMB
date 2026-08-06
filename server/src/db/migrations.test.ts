@@ -111,6 +111,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
+    "047_refractory_wagon_lifecycle_dates",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -179,6 +180,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
+    "047_refractory_wagon_lifecycle_dates",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -250,6 +252,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
+    "047_refractory_wagon_lifecycle_dates",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -323,6 +326,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
+    "047_refractory_wagon_lifecycle_dates",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -392,6 +396,7 @@ test("kiln material migration adds the produced material and the journal density
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
+    "047_refractory_wagon_lifecycle_dates",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1877,6 +1882,59 @@ test("refractory wagon journal migration adds production fields to the shared re
   );
   assert.equal(
     statements[2],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("refractory wagon lifecycle migration derives firing and sorting from reports", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "047_refractory_wagon_lifecycle_dates" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(
+    statements[0] ?? "",
+    /create table if not exists refractory_wagon_lifecycle_events/u,
+  );
+  assert.match(statements[0] ?? "", /event_type varchar\(16\) not null/u);
+  assert.match(statements[0] ?? "", /position int unsigned not null/u);
+  assert.match(statements[0] ?? "", /event_date date not null/u);
+  assert.match(statements[0] ?? "", /check \(event_type in \('firing', 'sorting'\)\)/u);
+  assert.match(
+    statements[0] ?? "",
+    /foreign key \(wagon_id\)[\s\S]+references refractory_wagons \(id\)/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /foreign key \(source_report_id\)[\s\S]+references refractory_report_revisions \(id\)/u,
+  );
+  assert.equal(
+    statements[1],
     "insert into schema_migrations (id) values (?)",
   );
 });

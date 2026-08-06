@@ -2485,6 +2485,50 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "047_refractory_wagon_lifecycle_dates",
+    statements: [
+      `
+      create table if not exists refractory_wagon_lifecycle_events (
+        source_report_type varchar(32) not null,
+        source_report_date date not null,
+        source_shift_number tinyint unsigned not null,
+        event_type varchar(16) not null,
+        position int unsigned not null,
+        wagon_id char(36) not null,
+        event_date date not null,
+        source_report_id char(36) not null,
+        primary key (
+          source_report_type,
+          source_report_date,
+          source_shift_number,
+          event_type,
+          position
+        ),
+        key idx_refractory_wagon_lifecycle_wagon (
+          wagon_id,
+          event_type,
+          event_date
+        ),
+        key idx_refractory_wagon_lifecycle_report (source_report_id),
+        constraint chk_refractory_wagon_lifecycle_report_type
+          check (source_report_type in ('firing')),
+        constraint chk_refractory_wagon_lifecycle_shift
+          check (source_shift_number in (1, 2)),
+        constraint chk_refractory_wagon_lifecycle_event_type
+          check (event_type in ('firing', 'sorting')),
+        constraint fk_refractory_wagon_lifecycle_wagon
+          foreign key (wagon_id)
+          references refractory_wagons (id)
+          on delete restrict,
+        constraint fk_refractory_wagon_lifecycle_report
+          foreign key (source_report_id)
+          references refractory_report_revisions (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

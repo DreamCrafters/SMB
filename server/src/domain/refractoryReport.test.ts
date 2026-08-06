@@ -71,6 +71,8 @@ test("firing report calculates reject totals from defect kinds", () => {
       rows: [
         {
           productBrand: "ШАБ 5",
+          firingWagons: [{ id: "wagon-17" }],
+          sortingWagons: [{ id: "wagon-17" }],
           quantityPieces: 14400,
           palletCount: 40,
           goodTonsAverageWeight: 34.42,
@@ -100,6 +102,9 @@ test("firing report calculates reject totals from defect kinds", () => {
   if (result.value.reportType !== "firing") return;
 
   assert.equal(result.value.payload.rows[0]?.rejectTotalPieces, 260);
+  assert.deepEqual(result.value.payload.rows[0]?.firingWagons, [
+    { id: "wagon-17" },
+  ]);
   assert.deepEqual(result.value.totals, {
     quantityPieces: 14500,
     palletCount: 41,
@@ -111,6 +116,34 @@ test("firing report calculates reject totals from defect kinds", () => {
     rejectFusionPieces: 60,
     rejectChipsPieces: 163,
   });
+});
+
+test("firing report rejects the same wagon twice within one event type", () => {
+  const result = validateRefractoryReportSubmission({
+    reportType: "firing",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {
+      rows: [
+        {
+          productBrand: "ШАБ 5",
+          firingWagons: [{ id: "wagon-17" }],
+          quantityPieces: 10,
+        },
+        {
+          productBrand: "ШАБ 5",
+          firingWagons: [{ id: "wagon-17" }],
+          quantityPieces: 12,
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.deepEqual(result.errors, [
+    "Вагон для обжига выбран в таблице повторно.",
+  ]);
 });
 
 test("COSH report accepts the shift summary and calculates section totals", () => {
