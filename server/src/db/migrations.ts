@@ -2539,6 +2539,17 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "049_optional_rotary_kiln_2_measurements",
+    statements: [
+      `
+      alter table rotary_kiln_2_firing_journal
+        modify temperature_in_field_chamber decimal(14,4) null,
+        modify sieve_pass_05 decimal(14,4) null,
+        modify kiln_load_buckets_per_hour decimal(14,4) null;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

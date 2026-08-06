@@ -49,6 +49,45 @@ test("rotary kiln 2 firing journal accepts and normalizes a complete record", ()
   });
 });
 
+test("rotary kiln 2 firing journal accepts omitted task 58 measurements", () => {
+  const validation = validateRotaryKiln2FiringJournalSubmission({
+    recordDate: "2026-08-07",
+    recordTime: "09:15",
+    producedMaterial: "ШГР-К",
+    waterAbsorption: 4.2,
+    temperatureBeforeCyclone: 850,
+    temperatureBeforeFilter: 210.5,
+    temperatureAtRollback: 96,
+    gasConsumptionPerHour: 320.4,
+    vacuum: 14.5,
+    pressure: 1.8,
+    shiftSupervisor: "Петров П.П.",
+    burnerOperator: "Сидоров С.С.",
+    laboratoryAssistant: "Иванова А.А.",
+    bulkDensity: 1.16,
+  });
+
+  assert.deepEqual(validation, {
+    ok: true,
+    value: {
+      recordDate: "2026-08-07",
+      recordTime: "09:15",
+      producedMaterial: "ШГР-К",
+      waterAbsorption: 4.2,
+      temperatureBeforeCyclone: 850,
+      temperatureBeforeFilter: 210.5,
+      temperatureAtRollback: 96,
+      gasConsumptionPerHour: 320.4,
+      vacuum: 14.5,
+      pressure: 1.8,
+      shiftSupervisor: "Петров П.П.",
+      burnerOperator: "Сидоров С.С.",
+      laboratoryAssistant: "Иванова А.А.",
+      bulkDensity: 1.16,
+    },
+  });
+});
+
 test("rotary kiln 2 firing journal reports every invalid field", () => {
   const validation = validateRotaryKiln2FiringJournalSubmission({
     recordDate: "2026-02-30",
@@ -57,7 +96,7 @@ test("rotary kiln 2 firing journal reports every invalid field", () => {
     waterAbsorption: "4,2",
     temperatureBeforeCyclone: Number.POSITIVE_INFINITY,
     temperatureBeforeFilter: 1_000_000_000,
-    temperatureInFieldChamber: null,
+    temperatureInFieldChamber: "118",
     temperatureAtRollback: undefined,
     gasConsumptionPerHour: {},
     vacuum: [],

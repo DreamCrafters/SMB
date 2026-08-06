@@ -113,6 +113,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
+    "049_optional_rotary_kiln_2_measurements",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -183,6 +184,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
+    "049_optional_rotary_kiln_2_measurements",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -256,6 +258,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
+    "049_optional_rotary_kiln_2_measurements",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -331,6 +334,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
+    "049_optional_rotary_kiln_2_measurements",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -402,6 +406,7 @@ test("kiln material migration adds the produced material and the journal density
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
+    "049_optional_rotary_kiln_2_measurements",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1978,6 +1983,59 @@ test("refractory wagon production crew migration preserves legacy rows", async (
   assert.match(statements[0] ?? "", /alter table refractory_wagons/u);
   assert.match(statements[0] ?? "", /setter_name varchar\(120\) null/u);
   assert.match(statements[0] ?? "", /press_operator varchar\(120\) null/u);
+  assert.equal(
+    statements[1],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("task 58 migration makes selected kiln measurements nullable", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "049_optional_rotary_kiln_2_measurements" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(
+    statements[0] ?? "",
+    /alter table rotary_kiln_2_firing_journal/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /modify temperature_in_field_chamber decimal\(14,4\) null/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /modify sieve_pass_05 decimal\(14,4\) null/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /modify kiln_load_buckets_per_hour decimal\(14,4\) null/u,
+  );
   assert.equal(
     statements[1],
     "insert into schema_migrations (id) values (?)",

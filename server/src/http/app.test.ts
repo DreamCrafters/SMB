@@ -1342,7 +1342,6 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
     waterAbsorption: 4.2,
     temperatureBeforeCyclone: 850,
     temperatureBeforeFilter: 210.5,
-    temperatureInFieldChamber: 118,
     temperatureAtRollback: 96,
     gasConsumptionPerHour: 320.4,
     vacuum: 14.5,
@@ -1350,9 +1349,7 @@ test("rotary kiln 2 firing journal saves, filters, and averages records", async 
     shiftSupervisor: "Петров П.П.",
     burnerOperator: "Сидоров С.С.",
     laboratoryAssistant: "Иванова А.А.",
-    sievePass05: 0.7,
     bulkDensity: 1.16,
-    kilnLoadBucketsPerHour: 12,
     note: "Краткая остановка для осмотра.",
   };
   const correction = {

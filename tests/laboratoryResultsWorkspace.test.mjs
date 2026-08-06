@@ -319,7 +319,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             waterAbsorption: 4.4,
             temperatureBeforeCyclone: 845,
             temperatureBeforeFilter: 208,
-            temperatureInFieldChamber: 116,
             temperatureAtRollback: 95,
             gasConsumptionPerHour: 318,
             vacuum: 14,
@@ -327,9 +326,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             shiftSupervisor: "Кузнецов К.К.",
             burnerOperator: "Смирнов С.С.",
             laboratoryAssistant: "Иванова А.А.",
-            sievePass05: 0.8,
             bulkDensity: 1.24,
-            kilnLoadBucketsPerHour: 11,
             createdAt: "2026-07-28T20:30:00.000Z",
           }, latestKilnRecord],
           averageBulkDensity: 1.2,
@@ -920,6 +917,24 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     for (const label of expectedJournalLabels) {
       assert.ok(findControlByLabel(journalForm, label));
     }
+    for (const optionalLabel of [
+      "t в полевой камере",
+      "Проход ч/з сито 0,5",
+      "Загрузка печи в ковшах в час",
+    ]) {
+      assert.equal(
+        findControlByLabel(journalForm, optionalLabel).required,
+        false,
+      );
+    }
+    const incompleteKilnRow = Array.from(
+      rootElement.querySelectorAll(".rotary-kiln-journal-table tbody tr"),
+    ).find((row) => row.textContent?.includes("28.07.2026"));
+    assert.ok(incompleteKilnRow);
+    const incompleteKilnCells = incompleteKilnRow.querySelectorAll("td");
+    assert.equal(incompleteKilnCells[6]?.textContent?.trim(), "—");
+    assert.equal(incompleteKilnCells[14]?.textContent?.trim(), "—");
+    assert.equal(incompleteKilnCells[16]?.textContent?.trim(), "—");
     await waitFor(React, () => kilnPersonnelOptionsRequests === 1);
     const shiftSupervisorInput = findControlByLabel(
       journalForm,
@@ -1011,6 +1026,15 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       correctedBulkDensity.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
+      for (const optionalLabel of [
+        "t в полевой камере",
+        "Проход ч/з сито 0,5",
+        "Загрузка печи в ковшах в час",
+      ]) {
+        const input = findControlByLabel(journalForm, optionalLabel);
+        setNativeInputValue(input, "");
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
       journalForm.dispatchEvent(
         new dom.window.Event("submit", { bubbles: true, cancelable: true }),
       );
@@ -1023,7 +1047,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       waterAbsorption: 4.2,
       temperatureBeforeCyclone: 850,
       temperatureBeforeFilter: 210.5,
-      temperatureInFieldChamber: 118,
       temperatureAtRollback: 96,
       gasConsumptionPerHour: 320.4,
       vacuum: 14.5,
@@ -1031,9 +1054,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       shiftSupervisor: "Петров П.П.",
       burnerOperator: "Сидоров С.С.",
       laboratoryAssistant: "Иванова А.А.",
-      sievePass05: 0.7,
       bulkDensity: 1.19,
-      kilnLoadBucketsPerHour: 12,
       note: "Краткая остановка для осмотра.",
     });
     await waitFor(React, () =>
@@ -1077,7 +1098,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Водопоглощение": "4.3",
       "t перед циклоном": "852",
       "t перед фильтром": "212",
-      "t в полевой камере": "119",
+      "t в полевой камере": "",
       "t на откатной": "97",
       "Расход газа в час": "321",
       "Разряжение": "14.6",
@@ -1085,9 +1106,9 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Мастер смены": "Ильин И.И.",
       "Обжигальщик": "Фомин Ф.Ф.",
       "Лаборант": "Иванова А.А.",
-      "Проход ч/з сито 0,5": "0.75",
+      "Проход ч/з сито 0,5": "",
       "Насыпной вес": "1.18",
-      "Загрузка печи в ковшах в час": "12",
+      "Загрузка печи в ковшах в час": "",
       "Примечание (в т.ч. причины простоя, инциденты и пр.)":
         "Работа без отклонений.",
     };
@@ -1111,7 +1132,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       waterAbsorption: 4.3,
       temperatureBeforeCyclone: 852,
       temperatureBeforeFilter: 212,
-      temperatureInFieldChamber: 119,
       temperatureAtRollback: 97,
       gasConsumptionPerHour: 321,
       vacuum: 14.6,
@@ -1119,9 +1139,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       shiftSupervisor: "Ильин И.И.",
       burnerOperator: "Фомин Ф.Ф.",
       laboratoryAssistant: "Иванова А.А.",
-      sievePass05: 0.75,
       bulkDensity: 1.18,
-      kilnLoadBucketsPerHour: 12,
       note: "Работа без отклонений.",
     });
     // После сохранения поля задач 40 и 41 подставляются из новой записи.
@@ -1151,9 +1169,9 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         "Мастер смены": "Ильин И.И.",
         "Обжигальщик": "Фомин Ф.Ф.",
         "Лаборант": "Иванова А.А.",
-        "Проход ч/з сито 0,5": "0.75",
+        "Проход ч/з сито 0,5": "",
         "Насыпной вес": "1.18",
-        "Загрузка печи в ковшах в час": "12",
+        "Загрузка печи в ковшах в час": "",
       },
     );
     assert.equal(shiftSupervisorInput.list.options[0]?.value, "Ильин И.И.");

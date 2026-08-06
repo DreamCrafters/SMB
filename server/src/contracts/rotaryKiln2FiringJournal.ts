@@ -5,7 +5,7 @@ export type RotaryKiln2FiringJournalSubmission = {
   waterAbsorption: number;
   temperatureBeforeCyclone: number;
   temperatureBeforeFilter: number;
-  temperatureInFieldChamber: number;
+  temperatureInFieldChamber?: number;
   temperatureAtRollback: number;
   gasConsumptionPerHour: number;
   vacuum: number;
@@ -13,9 +13,9 @@ export type RotaryKiln2FiringJournalSubmission = {
   shiftSupervisor: string;
   burnerOperator: string;
   laboratoryAssistant: string;
-  sievePass05: number;
+  sievePass05?: number;
   bulkDensity: number;
-  kilnLoadBucketsPerHour: number;
+  kilnLoadBucketsPerHour?: number;
   note?: string;
 };
 

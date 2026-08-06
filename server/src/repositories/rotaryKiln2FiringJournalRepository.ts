@@ -59,7 +59,7 @@ type RotaryKiln2FiringJournalRow = RowDataPacket & {
   water_absorption: number | string;
   temperature_before_cyclone: number | string;
   temperature_before_filter: number | string;
-  temperature_in_field_chamber: number | string;
+  temperature_in_field_chamber: number | string | null;
   temperature_at_rollback: number | string;
   gas_consumption_per_hour: number | string;
   vacuum_value: number | string;
@@ -67,9 +67,9 @@ type RotaryKiln2FiringJournalRow = RowDataPacket & {
   shift_supervisor: string;
   burner_operator: string;
   laboratory_assistant: string;
-  sieve_pass_05: number | string;
+  sieve_pass_05: number | string | null;
   bulk_density: number | string;
-  kiln_load_buckets_per_hour: number | string;
+  kiln_load_buckets_per_hour: number | string | null;
   note: string | null;
   created_at: Date | string;
   average_bulk_density: number | string | null;
@@ -148,7 +148,7 @@ export function createRotaryKiln2FiringJournalRepository(
           record.waterAbsorption,
           record.temperatureBeforeCyclone,
           record.temperatureBeforeFilter,
-          record.temperatureInFieldChamber,
+          record.temperatureInFieldChamber ?? null,
           record.temperatureAtRollback,
           record.gasConsumptionPerHour,
           record.vacuum,
@@ -156,9 +156,9 @@ export function createRotaryKiln2FiringJournalRepository(
           record.shiftSupervisor,
           record.burnerOperator,
           record.laboratoryAssistant,
-          record.sievePass05,
+          record.sievePass05 ?? null,
           record.bulkDensity,
-          record.kilnLoadBucketsPerHour,
+          record.kilnLoadBucketsPerHour ?? null,
           record.note ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
@@ -238,7 +238,7 @@ export function createRotaryKiln2FiringJournalRepository(
           input.record.waterAbsorption,
           input.record.temperatureBeforeCyclone,
           input.record.temperatureBeforeFilter,
-          input.record.temperatureInFieldChamber,
+          input.record.temperatureInFieldChamber ?? null,
           input.record.temperatureAtRollback,
           input.record.gasConsumptionPerHour,
           input.record.vacuum,
@@ -246,9 +246,9 @@ export function createRotaryKiln2FiringJournalRepository(
           input.record.shiftSupervisor,
           input.record.burnerOperator,
           input.record.laboratoryAssistant,
-          input.record.sievePass05,
+          input.record.sievePass05 ?? null,
           input.record.bulkDensity,
-          input.record.kilnLoadBucketsPerHour,
+          input.record.kilnLoadBucketsPerHour ?? null,
           input.record.note ?? null,
           input.id,
         ],
@@ -487,7 +487,12 @@ function mapRecord(
     waterAbsorption: Number(row.water_absorption),
     temperatureBeforeCyclone: Number(row.temperature_before_cyclone),
     temperatureBeforeFilter: Number(row.temperature_before_filter),
-    temperatureInFieldChamber: Number(row.temperature_in_field_chamber),
+    ...(row.temperature_in_field_chamber === null
+      ? {}
+      : {
+          temperatureInFieldChamber:
+            Number(row.temperature_in_field_chamber),
+        }),
     temperatureAtRollback: Number(row.temperature_at_rollback),
     gasConsumptionPerHour: Number(row.gas_consumption_per_hour),
     vacuum: Number(row.vacuum_value),
@@ -495,9 +500,16 @@ function mapRecord(
     shiftSupervisor: row.shift_supervisor,
     burnerOperator: row.burner_operator,
     laboratoryAssistant: row.laboratory_assistant,
-    sievePass05: Number(row.sieve_pass_05),
+    ...(row.sieve_pass_05 === null
+      ? {}
+      : { sievePass05: Number(row.sieve_pass_05) }),
     bulkDensity: Number(row.bulk_density),
-    kilnLoadBucketsPerHour: Number(row.kiln_load_buckets_per_hour),
+    ...(row.kiln_load_buckets_per_hour === null
+      ? {}
+      : {
+          kilnLoadBucketsPerHour:
+            Number(row.kiln_load_buckets_per_hour),
+        }),
     ...(row.note === null ? {} : { note: row.note }),
     createdAt: new Date(row.created_at).toISOString(),
   };

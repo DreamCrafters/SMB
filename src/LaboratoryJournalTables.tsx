@@ -466,7 +466,8 @@ export function RotaryKiln2FiringTable({
   );
 }
 
-export function formatLaboratoryNumber(value: number) {
+export function formatLaboratoryNumber(value: number | undefined) {
+  if (value === undefined) return "—";
   return new Intl.NumberFormat("ru-RU", {
     maximumFractionDigits: 4,
   }).format(value);

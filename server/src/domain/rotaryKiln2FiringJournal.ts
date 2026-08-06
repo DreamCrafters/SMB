@@ -24,6 +24,13 @@ const numericFields = [
   keyof RotaryKiln2FiringJournalSubmission,
   string,
 ][];
+const optionalNumericFields = new Set<
+  keyof RotaryKiln2FiringJournalSubmission
+>([
+  "temperatureInFieldChamber",
+  "sievePass05",
+  "kilnLoadBucketsPerHour",
+]);
 
 export function validateRotaryKiln2FiringJournalSubmission(
   input: unknown,
@@ -96,7 +103,12 @@ export function validateRotaryKiln2FiringJournalSubmission(
       waterAbsorption: numericValues.get("waterAbsorption")!,
       temperatureBeforeCyclone: numericValues.get("temperatureBeforeCyclone")!,
       temperatureBeforeFilter: numericValues.get("temperatureBeforeFilter")!,
-      temperatureInFieldChamber: numericValues.get("temperatureInFieldChamber")!,
+      ...(numericValues.has("temperatureInFieldChamber")
+        ? {
+            temperatureInFieldChamber:
+              numericValues.get("temperatureInFieldChamber")!,
+          }
+        : {}),
       temperatureAtRollback: numericValues.get("temperatureAtRollback")!,
       gasConsumptionPerHour: numericValues.get("gasConsumptionPerHour")!,
       vacuum: numericValues.get("vacuum")!,
@@ -104,9 +116,16 @@ export function validateRotaryKiln2FiringJournalSubmission(
       shiftSupervisor,
       burnerOperator,
       laboratoryAssistant,
-      sievePass05: numericValues.get("sievePass05")!,
+      ...(numericValues.has("sievePass05")
+        ? { sievePass05: numericValues.get("sievePass05")! }
+        : {}),
       bulkDensity: numericValues.get("bulkDensity")!,
-      kilnLoadBucketsPerHour: numericValues.get("kilnLoadBucketsPerHour")!,
+      ...(numericValues.has("kilnLoadBucketsPerHour")
+        ? {
+            kilnLoadBucketsPerHour:
+              numericValues.get("kilnLoadBucketsPerHour")!,
+          }
+        : {}),
       ...(note === undefined ? {} : { note }),
     },
   };
@@ -121,13 +140,24 @@ function validateNumericFields(
   values: Map<keyof RotaryKiln2FiringJournalSubmission, number>,
 ) {
   for (const [field, label] of fields) {
-    const value = readDecimal(input[field]);
+    const inputValue = input[field];
+    if (
+      optionalNumericFields.has(field) &&
+      isMissingOptionalDecimal(inputValue)
+    ) {
+      continue;
+    }
+    const value = readDecimal(inputValue);
     if (value === undefined) {
       errors.push(`Проверьте поле «${label}».`);
     } else {
       values.set(field, value);
     }
   }
+}
+
+function isMissingOptionalDecimal(value: unknown) {
+  return value === undefined || value === null || value === "";
 }
 
 function readCalendarDate(value: unknown) {

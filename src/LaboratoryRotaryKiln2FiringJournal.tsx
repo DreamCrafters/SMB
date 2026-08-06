@@ -53,10 +53,10 @@ const previousRecordAutofillDescriptors = [
   ["shiftSupervisor", (record) => record.shiftSupervisor],
   ["burnerOperator", (record) => record.burnerOperator],
   ["laboratoryAssistant", (record) => record.laboratoryAssistant],
-  ["sievePass05", (record) => String(record.sievePass05)],
+  ["sievePass05", (record) => formatOptionalNumber(record.sievePass05)],
   ["bulkDensity", (record) => String(record.bulkDensity)],
   ["kilnLoadBucketsPerHour", (record) =>
-    String(record.kilnLoadBucketsPerHour)],
+    formatOptionalNumber(record.kilnLoadBucketsPerHour)],
 ] satisfies readonly PreviousRecordAutofillDescriptor[];
 
 const previousRecordAutofillFields = new Set<keyof FormState>(
@@ -70,6 +70,11 @@ const allNumericFields = [
   ...rotaryKiln2EarlyNumericFields,
   ...rotaryKiln2LateNumericFields,
 ] as const;
+const optionalNumericFields = new Set<keyof FormState>([
+  "temperatureInFieldChamber",
+  "sievePass05",
+  "kilnLoadBucketsPerHour",
+]);
 
 export function LaboratoryRotaryKiln2FiringJournal({
   profile,
@@ -315,7 +320,8 @@ export function LaboratoryRotaryKiln2FiringJournal({
       waterAbsorption: String(record.waterAbsorption),
       temperatureBeforeCyclone: String(record.temperatureBeforeCyclone),
       temperatureBeforeFilter: String(record.temperatureBeforeFilter),
-      temperatureInFieldChamber: String(record.temperatureInFieldChamber),
+      temperatureInFieldChamber:
+        formatOptionalNumber(record.temperatureInFieldChamber),
       temperatureAtRollback: String(record.temperatureAtRollback),
       gasConsumptionPerHour: String(record.gasConsumptionPerHour),
       vacuum: String(record.vacuum),
@@ -323,9 +329,10 @@ export function LaboratoryRotaryKiln2FiringJournal({
       shiftSupervisor: record.shiftSupervisor,
       burnerOperator: record.burnerOperator,
       laboratoryAssistant: record.laboratoryAssistant,
-      sievePass05: String(record.sievePass05),
+      sievePass05: formatOptionalNumber(record.sievePass05),
       bulkDensity: String(record.bulkDensity),
-      kilnLoadBucketsPerHour: String(record.kilnLoadBucketsPerHour),
+      kilnLoadBucketsPerHour:
+        formatOptionalNumber(record.kilnLoadBucketsPerHour),
       note: record.note ?? "",
     });
     setFormMessage("");
@@ -393,6 +400,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
               field={field}
               key={field}
               label={label}
+              required={!optionalNumericFields.has(field)}
               type="number"
               value={form[field]}
               onChange={updateField}
@@ -423,6 +431,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
               field={field}
               key={field}
               label={label}
+              required={!optionalNumericFields.has(field)}
               type="number"
               value={form[field]}
               onChange={updateField}
@@ -534,6 +543,7 @@ function JournalInput<Field extends keyof FormState>({
   label,
   type = "text",
   options,
+  required = true,
   value,
   onChange,
 }: {
@@ -541,6 +551,7 @@ function JournalInput<Field extends keyof FormState>({
   label: string;
   type?: "date" | "number" | "text" | "time";
   options?: readonly string[];
+  required?: boolean;
   value: string;
   onChange: (field: Field, value: string) => void;
 }) {
@@ -550,7 +561,7 @@ function JournalInput<Field extends keyof FormState>({
     <label>
       <span>{label}</span>
       <input
-        required
+        required={required}
         maxLength={type === "text" ? 120 : undefined}
         list={options === undefined ? undefined : listId}
         step={type === "number" ? "any" : undefined}
@@ -583,6 +594,10 @@ function mergePersonnelOptions(current: readonly string[], addition: string) {
 
 function normalizePersonnelOption(value: string) {
   return value.trim().replace(/\s+/gu, " ");
+}
+
+function formatOptionalNumber(value: number | undefined) {
+  return value === undefined ? "" : String(value);
 }
 
 /**
@@ -650,8 +665,11 @@ function buildSubmission(
   form: FormState,
 ): RotaryKiln2FiringJournalSubmission | undefined {
   const numericValues = Object.fromEntries(
-    allNumericFields.map(([field]) => [field, Number(form[field])]),
-  ) as Record<(typeof allNumericFields)[number][0], number>;
+    allNumericFields.map(([field]) => [
+      field,
+      form[field].trim() === "" ? undefined : Number(form[field]),
+    ]),
+  ) as Record<(typeof allNumericFields)[number][0], number | undefined>;
   const producedMaterial = form.producedMaterial.trim().replace(/\s+/gu, " ");
   const textFields = [
     form.shiftSupervisor.trim(),
@@ -664,9 +682,12 @@ function buildSubmission(
     form.recordTime === "" ||
     producedMaterial === "" ||
     textFields.some((value) => value === "") ||
-    allNumericFields.some(([field]) =>
-      form[field].trim() === "" || !Number.isFinite(numericValues[field])
-    )
+    allNumericFields.some(([field]) => {
+      const value = numericValues[field];
+      return optionalNumericFields.has(field)
+        ? value !== undefined && !Number.isFinite(value)
+        : value === undefined || !Number.isFinite(value);
+    })
   ) {
     return undefined;
   }
@@ -675,20 +696,29 @@ function buildSubmission(
     recordDate: form.recordDate,
     recordTime: form.recordTime,
     producedMaterial,
-    waterAbsorption: numericValues.waterAbsorption,
-    temperatureBeforeCyclone: numericValues.temperatureBeforeCyclone,
-    temperatureBeforeFilter: numericValues.temperatureBeforeFilter,
-    temperatureInFieldChamber: numericValues.temperatureInFieldChamber,
-    temperatureAtRollback: numericValues.temperatureAtRollback,
-    gasConsumptionPerHour: numericValues.gasConsumptionPerHour,
-    vacuum: numericValues.vacuum,
-    pressure: numericValues.pressure,
+    waterAbsorption: numericValues.waterAbsorption!,
+    temperatureBeforeCyclone: numericValues.temperatureBeforeCyclone!,
+    temperatureBeforeFilter: numericValues.temperatureBeforeFilter!,
+    ...(numericValues.temperatureInFieldChamber === undefined
+      ? {}
+      : {
+          temperatureInFieldChamber:
+            numericValues.temperatureInFieldChamber,
+        }),
+    temperatureAtRollback: numericValues.temperatureAtRollback!,
+    gasConsumptionPerHour: numericValues.gasConsumptionPerHour!,
+    vacuum: numericValues.vacuum!,
+    pressure: numericValues.pressure!,
     shiftSupervisor: textFields[0]!,
     burnerOperator: textFields[1]!,
     laboratoryAssistant: textFields[2]!,
-    sievePass05: numericValues.sievePass05,
-    bulkDensity: numericValues.bulkDensity,
-    kilnLoadBucketsPerHour: numericValues.kilnLoadBucketsPerHour,
+    ...(numericValues.sievePass05 === undefined
+      ? {}
+      : { sievePass05: numericValues.sievePass05 }),
+    bulkDensity: numericValues.bulkDensity!,
+    ...(numericValues.kilnLoadBucketsPerHour === undefined
+      ? {}
+      : { kilnLoadBucketsPerHour: numericValues.kilnLoadBucketsPerHour }),
     ...(form.note.trim() === "" ? {} : { note: form.note.trim() }),
   };
 }

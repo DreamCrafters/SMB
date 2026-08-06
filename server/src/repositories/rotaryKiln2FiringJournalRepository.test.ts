@@ -75,6 +75,41 @@ test("rotary kiln 2 firing repository stores every parameter and session author"
   ]);
 });
 
+test("rotary kiln 2 firing repository stores omitted task 58 measurements as null", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRotaryKiln2FiringJournalRepository(pool, {
+    createId: () => "kiln-record-with-gaps",
+    now: () => new Date("2026-08-07T09:30:00.000Z"),
+  });
+  const {
+    temperatureInFieldChamber: _temperatureInFieldChamber,
+    sievePass05: _sievePass05,
+    kilnLoadBucketsPerHour: _kilnLoadBucketsPerHour,
+    ...recordWithoutOptionalMeasurements
+  } = record;
+
+  const saved = await repository.create({
+    record: recordWithoutOptionalMeasurements,
+    submittedByUserId: "laboratory-user",
+    submittedByAccountId: "laboratory-account",
+  });
+
+  assert.deepEqual(saved, {
+    id: "kiln-record-with-gaps",
+    ...recordWithoutOptionalMeasurements,
+    createdAt: "2026-08-07T09:30:00.000Z",
+  });
+  assert.equal(queries[0]?.parameters?.[7], null);
+  assert.equal(queries[0]?.parameters?.[15], null);
+  assert.equal(queries[0]?.parameters?.[17], null);
+});
+
 test("rotary kiln 2 firing repository averages exactly the filtered displayed rows", async () => {
   let querySql = "";
   let queryParameters: unknown[] = [];
@@ -284,6 +319,57 @@ test("rotary kiln 2 firing repository reads the last created record for the next
   assert.doesNotMatch(querySql, /record_date desc/u);
 });
 
+test("rotary kiln 2 firing repository omits null task 58 measurements", async () => {
+  const pool = {
+    async query() {
+      return [[{
+        id: "kiln-record-with-gaps",
+        record_date: "2026-08-07",
+        record_time: "09:15",
+        produced_material: "ШГР-К",
+        water_absorption: "4.2000",
+        temperature_before_cyclone: "850.0000",
+        temperature_before_filter: "210.5000",
+        temperature_in_field_chamber: null,
+        temperature_at_rollback: "96.0000",
+        gas_consumption_per_hour: "320.4000",
+        vacuum_value: "14.5000",
+        pressure_value: "1.8000",
+        shift_supervisor: "Петров П.П.",
+        burner_operator: "Сидоров С.С.",
+        laboratory_assistant: "Иванова А.А.",
+        sieve_pass_05: null,
+        bulk_density: "1.1600",
+        kiln_load_buckets_per_hour: null,
+        note: null,
+        created_at: "2026-08-07T09:30:00.000Z",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRotaryKiln2FiringJournalRepository(pool);
+
+  const latestRecord = await repository.findLatestCreated();
+
+  assert.deepEqual(latestRecord, {
+    id: "kiln-record-with-gaps",
+    recordDate: "2026-08-07",
+    recordTime: "09:15",
+    producedMaterial: "ШГР-К",
+    waterAbsorption: 4.2,
+    temperatureBeforeCyclone: 850,
+    temperatureBeforeFilter: 210.5,
+    temperatureAtRollback: 96,
+    gasConsumptionPerHour: 320.4,
+    vacuum: 14.5,
+    pressure: 1.8,
+    shiftSupervisor: "Петров П.П.",
+    burnerOperator: "Сидоров С.С.",
+    laboratoryAssistant: "Иванова А.А.",
+    bulkDensity: 1.16,
+    createdAt: "2026-08-07T09:30:00.000Z",
+  });
+});
+
 test("rotary kiln 2 firing repository corrects a stable record and stores a revision", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const pool = {
@@ -320,8 +406,14 @@ test("rotary kiln 2 firing repository corrects a stable record and stores a revi
     createId: () => "kiln-revision-1",
     now: () => new Date("2026-08-04T10:15:00.000Z"),
   });
+  const {
+    temperatureInFieldChamber: _temperatureInFieldChamber,
+    sievePass05: _sievePass05,
+    kilnLoadBucketsPerHour: _kilnLoadBucketsPerHour,
+    ...recordWithoutOptionalMeasurements
+  } = record;
   const correctedRecord = {
-    ...record,
+    ...recordWithoutOptionalMeasurements,
     recordTime: "09:15",
     producedMaterial: "ША-22",
     bulkDensity: 1.2,
@@ -351,6 +443,9 @@ test("rotary kiln 2 firing repository corrects a stable record and stores a revi
   assert.match(queries[0]?.sql ?? "", /where id = \?[\s\S]+for update/u);
   assert.deepEqual(queries[0]?.parameters, ["kiln-record-1"]);
   assert.match(queries[1]?.sql ?? "", /update rotary_kiln_2_firing_journal/u);
+  assert.equal(queries[1]?.parameters?.[6], null);
+  assert.equal(queries[1]?.parameters?.[14], null);
+  assert.equal(queries[1]?.parameters?.[16], null);
   assert.equal(queries[1]?.parameters?.at(-1), "kiln-record-1");
   assert.match(
     queries[2]?.sql ?? "",
