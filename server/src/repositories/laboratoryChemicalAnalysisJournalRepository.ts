@@ -54,6 +54,7 @@ export type LaboratoryChemicalAnalysisJournalRepository = {
     },
   ) => Promise<LaboratoryChemicalAnalysisSampleOption | undefined>;
   getNextLaboratoryAnalysisNumber: () => Promise<string>;
+  listLaboratoryAssistants: () => Promise<string[]>;
 };
 
 type LaboratoryChemicalAnalysisSampleOptionRow = RowDataPacket & {
@@ -99,6 +100,10 @@ type RepositoryOptions = {
 
 type LaboratoryNextAnalysisNumberRow = RowDataPacket & {
   analysis_number: string;
+};
+
+type LaboratoryChemicalAnalysisAssistantRow = RowDataPacket & {
+  chemical_analysis_laboratory_assistant: string;
 };
 
 const defaultListLimit = 200;
@@ -578,6 +583,24 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
       );
 
       return (BigInt(rows[0]?.analysis_number ?? "0") + 1n).toString();
+    },
+
+    async listLaboratoryAssistants() {
+      const [rows] = await pool.query<
+        LaboratoryChemicalAnalysisAssistantRow[]
+      >(
+        `select chemical_analysis_laboratory_assistant
+        from laboratory_chemical_analysis_journal
+        where trim(coalesce(chemical_analysis_laboratory_assistant, '')) <> ''
+        group by chemical_analysis_laboratory_assistant
+        order by
+          max(created_at) desc,
+          chemical_analysis_laboratory_assistant asc`,
+      );
+
+      return rows.map((row) =>
+        row.chemical_analysis_laboratory_assistant
+      );
     },
   };
 }

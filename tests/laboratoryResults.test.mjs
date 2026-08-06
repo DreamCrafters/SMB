@@ -154,7 +154,10 @@ test("chemical analysis service reads the next editable analysis number", async 
   let request;
   globalThis.fetch = async (input, init = {}) => {
     request = { url: input.toString(), init };
-    return jsonResponse({ laboratoryAnalysisNumber: "44" });
+    return jsonResponse({
+      laboratoryAnalysisNumber: "44",
+      laboratoryAssistants: ["Петрова П.П.", "Иванова А.А."],
+    });
   };
 
   try {
@@ -165,6 +168,7 @@ test("chemical analysis service reads the next editable analysis number", async 
     assert.deepEqual(result, {
       status: "ready",
       laboratoryAnalysisNumber: "44",
+      laboratoryAssistants: ["Петрова П.П.", "Иванова А.А."],
     });
     assert.equal(
       request.url,

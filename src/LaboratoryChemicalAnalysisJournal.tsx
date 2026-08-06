@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import {
   laboratoryChemicalAnalysisFields,
   laboratoryChemicalAnalysisTotalRuleMessage,
@@ -10,6 +10,7 @@ import {
 } from "./contracts";
 import { LaboratoryChemicalAnalysisTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { mergeLaboratoryJournalOptions } from "./laboratoryJournalOptions";
 import {
   correctLaboratoryChemicalAnalysisJournalRecord,
   requestLaboratoryChemicalAnalysisDraft,
@@ -41,6 +42,9 @@ type HistoryState =
       sampleOptions: LaboratoryChemicalAnalysisSampleOption[];
     };
 
+const laboratoryAssistantBySessionProfile =
+  new WeakMap<ServerUserProfile, string>();
+
 export function LaboratoryChemicalAnalysisJournal({
   profile,
   isAdminPreviewMode,
@@ -50,7 +54,11 @@ export function LaboratoryChemicalAnalysisJournal({
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
-  const [form, setForm] = useState(() => createEmptyForm(profile.displayName));
+  const initialLaboratoryAssistant =
+    laboratoryAssistantBySessionProfile.get(profile) ?? profile.displayName;
+  const [form, setForm] = useState(() =>
+    createEmptyForm(initialLaboratoryAssistant)
+  );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [query, setQuery] = useState("");
@@ -66,10 +74,16 @@ export function LaboratoryChemicalAnalysisJournal({
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [editingRecordCode, setEditingRecordCode] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [laboratoryAssistantOptions, setLaboratoryAssistantOptions] = useState<
+    string[]
+  >([]);
   const selectedSampleRef =
     useRef<LaboratoryChemicalAnalysisSampleOption | undefined>(undefined);
   const nextLaboratoryAnalysisNumberRef = useRef("");
   const isLaboratoryAnalysisNumberAuto = useRef(true);
+  const sessionLaboratoryAssistant = useRef(initialLaboratoryAssistant);
+  const laboratoryAssistantListId =
+    `chemical-analysis-laboratory-assistants-${useId().replaceAll(":", "")}`;
 
   useEffect(() => {
     if (isAdminPreviewMode) return;
@@ -79,6 +93,10 @@ export function LaboratoryChemicalAnalysisJournal({
     }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
+        setLaboratoryAssistantOptions((current) => mergeLaboratoryJournalOptions(
+          current,
+          result.laboratoryAssistants,
+        ));
         nextLaboratoryAnalysisNumberRef.current =
           result.laboratoryAnalysisNumber;
         if (isLaboratoryAnalysisNumberAuto.current) {
@@ -188,6 +206,15 @@ export function LaboratoryChemicalAnalysisJournal({
     }
 
     const wasEditing = editingRecordId !== undefined;
+    const savedLaboratoryAssistant =
+      result.record.chemicalAnalysisLaboratoryAssistant?.trim() ?? "";
+    if (!wasEditing && savedLaboratoryAssistant !== "") {
+      sessionLaboratoryAssistant.current = savedLaboratoryAssistant;
+      laboratoryAssistantBySessionProfile.set(
+        profile,
+        savedLaboratoryAssistant,
+      );
+    }
     const savedSampleKey = buildSampleKey(result.record);
     setHistory((current) => ({
       ...current,
@@ -196,6 +223,10 @@ export function LaboratoryChemicalAnalysisJournal({
       ),
     }));
     resetForm();
+    setLaboratoryAssistantOptions((current) => mergeLaboratoryJournalOptions(
+      current,
+      savedLaboratoryAssistant === "" ? [] : [savedLaboratoryAssistant],
+    ));
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
     onShowToast(
@@ -245,7 +276,7 @@ export function LaboratoryChemicalAnalysisJournal({
     setEditingRecordCode("");
     selectedSampleRef.current = undefined;
     setForm(createEmptyForm(
-      profile.displayName,
+      sessionLaboratoryAssistant.current,
       nextLaboratoryAnalysisNumberRef.current,
     ));
   }
@@ -377,6 +408,14 @@ export function LaboratoryChemicalAnalysisJournal({
                       ? "numeric"
                       : undefined}
                   maxLength={field.kind === "date" ? undefined : 120}
+                  list={field.id === "chemicalAnalysisLaboratoryAssistant"
+                    ? laboratoryAssistantListId
+                    : undefined}
+                  placeholder={
+                    field.id === "chemicalAnalysisLaboratoryAssistant"
+                      ? "Выберите или введите фамилию"
+                      : undefined
+                  }
                   type={field.kind === "date" ? "date" : "text"}
                   value={form[field.id]}
                   onChange={(event) => {
@@ -387,6 +426,11 @@ export function LaboratoryChemicalAnalysisJournal({
               </label>
             )
           ))}
+          <datalist id={laboratoryAssistantListId}>
+            {laboratoryAssistantOptions.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
         </div>
 
         <p className="chemical-analysis-total-note">

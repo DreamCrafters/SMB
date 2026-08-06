@@ -455,6 +455,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         return jsonResponse({
           laboratoryAnalysisNumber:
             chemicalAnalysisDraftRequests === 1 ? "43" : "44",
+          laboratoryAssistants: [
+            "Петрова П.П.",
+            "Иванова А.А.",
+          ],
         });
       }
       if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
@@ -1407,7 +1411,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       rootElement.textContent.includes("ЛП-2026-017")
     );
 
-    const chemicalAnalysisForm = rootElement.querySelector(
+    let chemicalAnalysisForm = rootElement.querySelector(
       ".chemical-analysis-journal-form",
     );
     assert.ok(chemicalAnalysisForm);
@@ -1421,6 +1425,24 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     await waitFor(React, () => laboratoryAnalysisNumberInput.value === "43");
     assert.equal(laboratoryAnalysisNumberInput.required, false);
+    const chemicalAnalysisLaboratoryAssistantInput = findControlByLabel(
+      chemicalAnalysisForm,
+      "Лаборант",
+    );
+    assert.equal(
+      chemicalAnalysisLaboratoryAssistantInput.value,
+      "Иванова Анна",
+    );
+    const chemicalAnalysisLaboratoryAssistantListId =
+      chemicalAnalysisLaboratoryAssistantInput.getAttribute("list");
+    assert.ok(chemicalAnalysisLaboratoryAssistantListId);
+    await waitFor(React, () =>
+      Array.from(
+        rootElement.querySelectorAll(
+          `#${chemicalAnalysisLaboratoryAssistantListId} option`,
+        ),
+      ).some((option) => option.value === "Петрова П.П.")
+    );
     for (const optionalLabel of [
       "Дата хим. анализа",
       "Лаборант",
@@ -1528,11 +1550,60 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       laboratoryAnalysisNumber: "47",
     });
     await waitFor(React, () => laboratoryAnalysisNumberInput.value === "44");
+    assert.equal(
+      chemicalAnalysisLaboratoryAssistantInput.value,
+      "Иванова Анна",
+    );
     await waitFor(React, () =>
       Array.from(sampleSelect.options).every(
         (option) =>
           option.value !== "sample_registration:sample-registration-1",
       )
+    );
+
+    await React.act(async () => {
+      setNativeInputValue(sampleSelect, "unshaped_product:unshaped-sample-19");
+      sampleSelect.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+      const chemicalAnalysisDateInput = findControlByLabel(
+        chemicalAnalysisForm,
+        "Дата хим. анализа",
+      );
+      setNativeInputValue(chemicalAnalysisDateInput, "");
+      chemicalAnalysisDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(
+        chemicalAnalysisLaboratoryAssistantInput,
+        "Сидорова С.С.",
+      );
+      chemicalAnalysisLaboratoryAssistantInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    await React.act(async () => {
+      chemicalAnalysisForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => chemicalAnalysisSubmissions.length === 2);
+    assert.deepEqual(chemicalAnalysisSubmissions[1], {
+      sampleSource: "unshaped_product",
+      sampleId: "unshaped-sample-19",
+      laboratoryAnalysisNumber: "44",
+      chemicalAnalysisLaboratoryAssistant: "Сидорова С.С.",
+    });
+    await waitFor(React, () =>
+      chemicalAnalysisLaboratoryAssistantInput.value === "Сидорова С.С."
+    );
+    assert.equal(
+      Array.from(
+        rootElement.querySelectorAll(
+          `#${chemicalAnalysisLaboratoryAssistantListId} option`,
+        ),
+      ).some((option) => option.value === "Сидорова С.С."),
+      true,
     );
 
     const chemicalAnalysisEditButton = rootElement.querySelector(
@@ -1639,6 +1710,35 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       chemicalAnalysisForm.textContent.includes("Редактирование анализа") ===
         false
+    );
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Лаборант").value,
+      "Сидорова С.С.",
+    );
+
+    const kilnJournalTabForSession = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find(
+      (button) => button.textContent?.trim() === "Журнал печи 2",
+    );
+    assert.ok(kilnJournalTabForSession);
+    await React.act(async () => kilnJournalTabForSession.click());
+    const reopenedChemicalAnalysisTab = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find(
+      (button) => button.textContent?.trim() === "Химические анализы",
+    );
+    assert.ok(reopenedChemicalAnalysisTab);
+    await React.act(async () => reopenedChemicalAnalysisTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".chemical-analysis-journal-form") !== null
+    );
+    chemicalAnalysisForm = rootElement.querySelector(
+      ".chemical-analysis-journal-form",
+    );
+    assert.equal(
+      findControlByLabel(chemicalAnalysisForm, "Лаборант").value,
+      "Сидорова С.С.",
     );
 
     const chemicalAnalysisFilters = rootElement.querySelector(

@@ -9,6 +9,7 @@ import {
 } from "./contracts";
 import { LaboratorySampleRegistrationTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
+import { mergeLaboratoryJournalOptions } from "./laboratoryJournalOptions";
 import {
   correctLaboratorySampleRegistrationJournalRecord,
   requestLaboratorySampleRegistrationDraft,
@@ -146,11 +147,11 @@ export function LaboratorySampleRegistrationJournal({
         } else if (isCurrentRequest) {
           previousSamplingLocation.current = latestSamplingLocation;
         }
-        setSamplingLocationOptions((current) => mergeJournalOptions(
+        setSamplingLocationOptions((current) => mergeLaboratoryJournalOptions(
           current,
           result.samplingLocations,
         ));
-        setLaboratoryAssistantOptions((current) => mergeJournalOptions(
+        setLaboratoryAssistantOptions((current) => mergeLaboratoryJournalOptions(
           current,
           result.laboratoryAssistants,
         ));
@@ -273,11 +274,11 @@ export function LaboratorySampleRegistrationJournal({
       );
     }
     resetForm();
-    setSamplingLocationOptions((current) => mergeJournalOptions(
+    setSamplingLocationOptions((current) => mergeLaboratoryJournalOptions(
       current,
       [result.record.samplingLocation],
     ));
-    setLaboratoryAssistantOptions((current) => mergeJournalOptions(
+    setLaboratoryAssistantOptions((current) => mergeLaboratoryJournalOptions(
       current,
       [result.record.samplingLaboratoryAssistant],
     ));
@@ -497,28 +498,6 @@ function JournalInput<Field extends keyof FormState>({
         )}
     </label>
   );
-}
-
-function mergeJournalOptions(
-  current: readonly string[],
-  additions: readonly string[],
-) {
-  const options = [...current];
-  const keys = new Set(options.map(normalizeJournalOptionKey));
-
-  for (const addition of additions) {
-    const normalized = addition.trim().replace(/\s+/gu, " ");
-    const key = normalizeJournalOptionKey(normalized);
-    if (normalized === "" || keys.has(key)) continue;
-    keys.add(key);
-    options.push(normalized);
-  }
-
-  return options;
-}
-
-function normalizeJournalOptionKey(value: string) {
-  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function createEmptyForm(

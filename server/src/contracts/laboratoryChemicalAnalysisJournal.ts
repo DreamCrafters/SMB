@@ -131,7 +131,9 @@ export type LaboratoryChemicalAnalysisJournalSubmission =
 export type LaboratoryChemicalAnalysisDraft = Required<Pick<
   LaboratoryChemicalAnalysisValues,
   "laboratoryAnalysisNumber"
->>;
+>> & {
+  laboratoryAssistants: string[];
+};
 
 export type LaboratoryChemicalAnalysisSampleOption =
   LaboratoryChemicalAnalysisSampleReference & {

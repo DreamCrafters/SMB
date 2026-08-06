@@ -766,6 +766,31 @@ test("chemical analysis repository starts numbering when numeric history is empt
   assert.equal(await repository.getNextLaboratoryAnalysisNumber(), "1");
 });
 
+test("chemical analysis repository lists every distinct laboratory assistant", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[
+        { chemical_analysis_laboratory_assistant: "Петрова П.П." },
+        { chemical_analysis_laboratory_assistant: "Иванова А.А." },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryChemicalAnalysisJournalRepository(pool);
+
+  assert.deepEqual(await repository.listLaboratoryAssistants(), [
+    "Петрова П.П.",
+    "Иванова А.А.",
+  ]);
+  assert.match(
+    querySql,
+    /group by chemical_analysis_laboratory_assistant/u,
+  );
+  assert.match(querySql, /order by\s+max\(created_at\) desc/u);
+  assert.doesNotMatch(querySql, /limit/u);
+});
+
 test("chemical analysis repository orders numeric values without leading-zero inflation", async () => {
   const pool = {
     async query(sql: string) {

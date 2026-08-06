@@ -3535,10 +3535,13 @@ async function handleLaboratoryRequest({
       return;
     }
 
+    const [laboratoryAnalysisNumber, laboratoryAssistants] = await Promise.all([
+      laboratoryChemicalAnalysisJournal.getNextLaboratoryAnalysisNumber(),
+      laboratoryChemicalAnalysisJournal.listLaboratoryAssistants(),
+    ]);
     sendJson(res, 200, {
-      laboratoryAnalysisNumber:
-        await laboratoryChemicalAnalysisJournal
-          .getNextLaboratoryAnalysisNumber(),
+      laboratoryAnalysisNumber,
+      laboratoryAssistants,
     });
     return;
   }

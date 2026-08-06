@@ -51,7 +51,11 @@ export async function requestLaboratoryChemicalAnalysisDraft(
   if (result.status === "error") return result;
   if (
     !isRecord(result.payload) ||
-    typeof result.payload.laboratoryAnalysisNumber !== "string"
+    typeof result.payload.laboratoryAnalysisNumber !== "string" ||
+    !Array.isArray(result.payload.laboratoryAssistants) ||
+    !result.payload.laboratoryAssistants.every(
+      (laboratoryAssistant) => typeof laboratoryAssistant === "string",
+    )
   ) {
     return invalidResponse(
       "Сервер вернул заготовку номера лабораторного анализа в неподдерживаемом формате.",
@@ -61,6 +65,7 @@ export async function requestLaboratoryChemicalAnalysisDraft(
   return {
     status: "ready",
     laboratoryAnalysisNumber: result.payload.laboratoryAnalysisNumber,
+    laboratoryAssistants: result.payload.laboratoryAssistants,
   };
 }
 

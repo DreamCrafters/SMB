@@ -951,6 +951,9 @@ test("laboratory review access reads every journal by name but cannot change lab
     async getNextLaboratoryAnalysisNumber() {
       throw new Error("Laboratory review access must not load form drafts.");
     },
+    async listLaboratoryAssistants() {
+      throw new Error("Laboratory review access must not list form options.");
+    },
   };
   const unshapedProductSampleFilters: Parameters<
     LaboratoryUnshapedProductSampleJournalRepository["list"]
@@ -2723,6 +2726,9 @@ test("chemical analysis journal links available samples from both source journal
     async getNextLaboratoryAnalysisNumber() {
       return "44";
     },
+    async listLaboratoryAssistants() {
+      return ["Петрова П.П.", "Иванова А.А."];
+    },
   };
   const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
   const audit: AuditRepository = {
@@ -2814,6 +2820,7 @@ test("chemical analysis journal links available samples from both source journal
       assert.equal(draftResponse.status, 200);
       assert.deepEqual(await draftResponse.json(), {
         laboratoryAnalysisNumber: "44",
+        laboratoryAssistants: ["Петрова П.П.", "Иванова А.А."],
       });
       assert.equal(invalidProtocolResponse.status, 400);
       assert.equal(emptyProtocolResponse.status, 404);
