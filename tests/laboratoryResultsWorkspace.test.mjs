@@ -349,6 +349,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             "Архивная площадка",
             " СКЛАД   СЫРЬЯ ",
           ],
+          laboratoryAssistants: [
+            "Петрова П.П.",
+            "Иванова А.А.",
+          ],
         });
       }
       if (url.pathname === "/api/laboratory/sample-registration-draft") {
@@ -1184,6 +1188,23 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleRegistrationForm,
       "Место отбора пробы",
     );
+    const samplingLaboratoryAssistantInput = findControlByLabel(
+      sampleRegistrationForm,
+      "Лаборант (отбор проб)",
+    );
+    const laboratoryAssistantListId =
+      samplingLaboratoryAssistantInput.getAttribute("list");
+    assert.ok(laboratoryAssistantListId);
+    const laboratoryAssistantList = rootElement.querySelector(
+      `#${laboratoryAssistantListId}`,
+    );
+    assert.ok(laboratoryAssistantList);
+    assert.deepEqual(
+      Array.from(laboratoryAssistantList.querySelectorAll("option")).map(
+        (option) => option.value,
+      ),
+      ["Петрова П.П.", "Иванова А.А."],
+    );
     const samplingLocationListId = samplingLocationInput.getAttribute("list");
     assert.ok(samplingLocationListId);
     const samplingLocationList = rootElement.querySelector(
@@ -1211,7 +1232,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     const sampleRegistrationValues = {
       "Дата отбора": "2026-07-30",
-      "Лаборант (отбор проб)": "Иванова А.А.",
+      "Лаборант (отбор проб)": "Сидорова С.С.",
       "Наименование пробы": "Глина огнеупорная",
       "Дата регистрации": "2026-07-30",
       "Место отбора пробы": "Пункт контроля № 2",
@@ -1233,14 +1254,20 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleNumber: "26-Б",
       laboratorySampleCode: ".25-Р",
       samplingDate: "2026-07-30",
-      samplingLaboratoryAssistant: "Иванова А.А.",
+      samplingLaboratoryAssistant: "Сидорова С.С.",
       sampleName: "Глина огнеупорная",
       registrationDate: "2026-07-30",
       samplingLocation: "Пункт контроля № 2",
     });
     await waitFor(React, () =>
       sampleNumberInput.value === "27" &&
-        laboratorySampleCodeInput.value === ".27"
+        laboratorySampleCodeInput.value === ".27" &&
+        samplingLaboratoryAssistantInput.value === "Сидорова С.С."
+    );
+    assert.ok(
+      Array.from(laboratoryAssistantList.querySelectorAll("option")).some(
+        (option) => option.value === "Сидорова С.С.",
+      ),
     );
     assert.ok(
       Array.from(samplingLocationList.querySelectorAll("option")).some(
@@ -1312,7 +1339,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     });
     await waitFor(React, () =>
       sampleRegistrationForm.textContent.includes("Редактирование пробы") ===
-        false && sampleNumberInput.value === "27"
+        false && sampleNumberInput.value === "27" &&
+        samplingLaboratoryAssistantInput.value === "Сидорова С.С."
     );
 
     const chemicalAnalysisTab = Array.from(
@@ -1979,6 +2007,27 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.equal(
       greenProductQualityCorrections[0].pressOperatorRecommendations,
       "Уменьшить давление.",
+    );
+
+    const centralLaboratoryTab = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim().startsWith("ЦЗЛ"));
+    assert.ok(centralLaboratoryTab);
+    await React.act(async () => centralLaboratoryTab.click());
+    const reopenedSampleRegistrationTab = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Регистрация проб");
+    assert.ok(reopenedSampleRegistrationTab);
+    await React.act(async () => reopenedSampleRegistrationTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".sample-registration-journal-form") !== null
+    );
+    assert.equal(
+      findControlByLabel(
+        rootElement.querySelector(".sample-registration-journal-form"),
+        "Лаборант (отбор проб)",
+      ).value,
+      "Сидорова С.С.",
     );
     await React.act(async () => root.unmount());
   } finally {

@@ -376,6 +376,28 @@ test("sample registration repository lists every distinct sampling location", as
   assert.doesNotMatch(querySql, /limit/u);
 });
 
+test("sample registration repository lists every distinct sampling laboratory assistant", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[
+        { sampling_laboratory_assistant: "Петрова П.П." },
+        { sampling_laboratory_assistant: "Иванова А.А." },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  assert.deepEqual(await repository.listLaboratoryAssistants(), [
+    "Петрова П.П.",
+    "Иванова А.А.",
+  ]);
+  assert.match(querySql, /group by sampling_laboratory_assistant/u);
+  assert.match(querySql, /order by max\(created_at\) desc/u);
+  assert.doesNotMatch(querySql, /limit/u);
+});
+
 test("sample registration repository suggests the next numeric sample number", async () => {
   let querySql = "";
   const pool = {

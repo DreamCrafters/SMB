@@ -38,6 +38,7 @@ export type LaboratorySampleRegistrationLocationsResult =
   | {
       status: "ready";
       samplingLocations: string[];
+      laboratoryAssistants: string[];
     }
   | ErrorResult;
 export type LaboratorySampleRegistrationDraftResult =
@@ -97,16 +98,21 @@ export async function requestLaboratorySampleRegistrationLocations(
     !Array.isArray(result.payload.samplingLocations) ||
     !result.payload.samplingLocations.every(
       (location) => typeof location === "string",
+    ) ||
+    !Array.isArray(result.payload.laboratoryAssistants) ||
+    !result.payload.laboratoryAssistants.every(
+      (laboratoryAssistant) => typeof laboratoryAssistant === "string",
     )
   ) {
     return invalidResponse(
-      "Сервер вернул список мест отбора проб в неподдерживаемом формате.",
+      "Сервер вернул списки для регистрации проб в неподдерживаемом формате.",
     );
   }
 
   return {
     status: "ready",
     samplingLocations: result.payload.samplingLocations,
+    laboratoryAssistants: result.payload.laboratoryAssistants,
   };
 }
 

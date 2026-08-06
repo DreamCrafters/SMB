@@ -43,6 +43,7 @@ export type LaboratorySampleRegistrationJournalRepository = {
   ) => Promise<LaboratorySampleRegistrationJournalRecord[]>;
   getNextSampleNumber: () => Promise<string>;
   listSamplingLocations: () => Promise<string[]>;
+  listLaboratoryAssistants: () => Promise<string[]>;
   listOptions: (filters?: {
     query?: string;
     limit?: number;
@@ -101,6 +102,10 @@ type LaboratorySampleRegistrationEditableRow = RowDataPacket & {
 
 type LaboratorySamplingLocationRow = RowDataPacket & {
   sampling_location: string;
+};
+
+type LaboratorySamplingLaboratoryAssistantRow = RowDataPacket & {
+  sampling_laboratory_assistant: string;
 };
 
 type LaboratoryNextSampleNumberRow = RowDataPacket & {
@@ -388,6 +393,20 @@ export function createLaboratorySampleRegistrationJournalRepository(
       );
 
       return rows.map((row) => row.sampling_location);
+    },
+
+    async listLaboratoryAssistants() {
+      const [rows] = await pool.query<
+        LaboratorySamplingLaboratoryAssistantRow[]
+      >(
+        `select sampling_laboratory_assistant
+        from laboratory_sample_registration_journal
+        where trim(sampling_laboratory_assistant) <> ''
+        group by sampling_laboratory_assistant
+        order by max(created_at) desc, sampling_laboratory_assistant asc`,
+      );
+
+      return rows.map((row) => row.sampling_laboratory_assistant);
     },
 
     async listOptions(filters = {}) {

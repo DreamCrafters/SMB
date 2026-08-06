@@ -905,6 +905,9 @@ test("laboratory review access reads every journal by name but cannot change lab
     async listSamplingLocations() {
       throw new Error("Laboratory review access must not list form options.");
     },
+    async listLaboratoryAssistants() {
+      throw new Error("Laboratory review access must not list form options.");
+    },
     async listOptions() {
       return [];
     },
@@ -1531,6 +1534,9 @@ test("sample registration journal saves and filters registration records", async
     async listSamplingLocations() {
       return ["Пункт контроля № 2"];
     },
+    async listLaboratoryAssistants() {
+      return ["Петрова П.П.", "Иванова А.А."];
+    },
     async listOptions() {
       return [];
     },
@@ -1624,6 +1630,7 @@ test("sample registration journal saves and filters registration records", async
       assert.equal(locationsResponse.status, 200);
       assert.deepEqual(await locationsResponse.json(), {
         samplingLocations: ["Пункт контроля № 2"],
+        laboratoryAssistants: ["Петрова П.П.", "Иванова А.А."],
       });
       assert.equal(draftResponse.status, 200);
       assert.deepEqual(await draftResponse.json(), {
@@ -2599,6 +2606,9 @@ test("chemical analysis journal links available samples from both source journal
       throw new Error("not used");
     },
     async listSamplingLocations() {
+      return [];
+    },
+    async listLaboratoryAssistants() {
       return [];
     },
     async listOptions(filters) {
@@ -4693,6 +4703,9 @@ test("account preview navigation grants reads without business mutations", async
       throw new Error("Account preview must not load form drafts.");
     },
     async listSamplingLocations() {
+      throw new Error("Account preview must not list form options.");
+    },
+    async listLaboratoryAssistants() {
       throw new Error("Account preview must not list form options.");
     },
     async listOptions() {

@@ -2507,10 +2507,11 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    sendJson(res, 200, {
-      samplingLocations:
-        await laboratorySampleRegistrationJournal.listSamplingLocations(),
-    });
+    const [samplingLocations, laboratoryAssistants] = await Promise.all([
+      laboratorySampleRegistrationJournal.listSamplingLocations(),
+      laboratorySampleRegistrationJournal.listLaboratoryAssistants(),
+    ]);
+    sendJson(res, 200, { samplingLocations, laboratoryAssistants });
     return;
   }
 

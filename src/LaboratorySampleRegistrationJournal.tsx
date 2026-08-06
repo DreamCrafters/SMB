@@ -39,6 +39,8 @@ type HistoryState =
     };
 
 const journalTitle = "Журнал регистрации отбора проб";
+const laboratoryAssistantBySessionProfile =
+  new WeakMap<ServerUserProfile, string>();
 
 export function LaboratorySampleRegistrationJournal({
   profile,
@@ -49,7 +51,11 @@ export function LaboratorySampleRegistrationJournal({
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
-  const [form, setForm] = useState(() => createEmptyForm(profile.displayName));
+  const initialLaboratoryAssistant =
+    laboratoryAssistantBySessionProfile.get(profile) ?? profile.displayName;
+  const [form, setForm] = useState(() =>
+    createEmptyForm(initialLaboratoryAssistant)
+  );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [query, setQuery] = useState("");
@@ -60,11 +66,15 @@ export function LaboratorySampleRegistrationJournal({
   const [samplingLocationOptions, setSamplingLocationOptions] = useState<
     string[]
   >(() => [...laboratorySampleRegistrationSamplingLocations]);
+  const [laboratoryAssistantOptions, setLaboratoryAssistantOptions] = useState<
+    string[]
+  >([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
   const isLaboratorySampleCodeAuto = useRef(true);
+  const sessionLaboratoryAssistant = useRef(initialLaboratoryAssistant);
 
   useEffect(() => {
     if (isAdminPreviewMode) return;
@@ -111,16 +121,20 @@ export function LaboratorySampleRegistrationJournal({
     }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
-        setSamplingLocationOptions((current) => mergeSamplingLocationOptions(
+        setSamplingLocationOptions((current) => mergeJournalOptions(
           current,
           result.samplingLocations,
+        ));
+        setLaboratoryAssistantOptions((current) => mergeJournalOptions(
+          current,
+          result.laboratoryAssistants,
         ));
         return;
       }
       setFormMessage((current) => current === ""
         ? readShortUserMessage(
             result.message,
-            "Не удалось загрузить список мест отбора проб.",
+            "Не удалось загрузить списки мест отбора и лаборантов.",
           )
         : current);
     });
@@ -209,10 +223,22 @@ export function LaboratorySampleRegistrationJournal({
     }
 
     const wasEditing = editingRecordId !== undefined;
+    if (!wasEditing) {
+      sessionLaboratoryAssistant.current =
+        result.record.samplingLaboratoryAssistant;
+      laboratoryAssistantBySessionProfile.set(
+        profile,
+        result.record.samplingLaboratoryAssistant,
+      );
+    }
     resetForm();
-    setSamplingLocationOptions((current) => mergeSamplingLocationOptions(
+    setSamplingLocationOptions((current) => mergeJournalOptions(
       current,
       [result.record.samplingLocation],
+    ));
+    setLaboratoryAssistantOptions((current) => mergeJournalOptions(
+      current,
+      [result.record.samplingLaboratoryAssistant],
     ));
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
@@ -241,7 +267,7 @@ export function LaboratorySampleRegistrationJournal({
   function resetForm() {
     isLaboratorySampleCodeAuto.current = true;
     setEditingRecordId(undefined);
-    setForm(createEmptyForm(profile.displayName));
+    setForm(createEmptyForm(sessionLaboratoryAssistant.current));
   }
 
   return (
@@ -268,10 +294,14 @@ export function LaboratorySampleRegistrationJournal({
                 label={field.label}
                 options={field.id === "samplingLocation"
                   ? samplingLocationOptions
-                  : undefined}
+                  : field.id === "samplingLaboratoryAssistant"
+                    ? laboratoryAssistantOptions
+                    : undefined}
                 placeholder={field.id === "samplingLocation"
                   ? "Выберите или введите новое место"
-                  : undefined}
+                  : field.id === "samplingLaboratoryAssistant"
+                    ? "Выберите или введите фамилию"
+                    : undefined}
                 inputMode={field.id === "waterAbsorption"
                   ? "decimal"
                   : undefined}
@@ -420,16 +450,16 @@ function JournalInput<Field extends keyof FormState>({
   );
 }
 
-function mergeSamplingLocationOptions(
+function mergeJournalOptions(
   current: readonly string[],
   additions: readonly string[],
 ) {
   const options = [...current];
-  const keys = new Set(options.map(normalizeSamplingLocationKey));
+  const keys = new Set(options.map(normalizeJournalOptionKey));
 
   for (const addition of additions) {
     const normalized = addition.trim().replace(/\s+/gu, " ");
-    const key = normalizeSamplingLocationKey(normalized);
+    const key = normalizeJournalOptionKey(normalized);
     if (normalized === "" || keys.has(key)) continue;
     keys.add(key);
     options.push(normalized);
@@ -438,7 +468,7 @@ function mergeSamplingLocationOptions(
   return options;
 }
 
-function normalizeSamplingLocationKey(value: string) {
+function normalizeJournalOptionKey(value: string) {
   return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
