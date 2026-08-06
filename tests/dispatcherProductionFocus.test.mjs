@@ -16,46 +16,46 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+
+test.after(async () => {
+  await vite.close();
+});
+
 test("production submission payload keeps dynamic fields for every category", async () => {
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const { readDispatcherSubmissionPayload } = await vite.ssrLoadModule(
+    "/src/App.tsx",
+  );
+  const formData = new FormData();
 
-  try {
-    const { readDispatcherSubmissionPayload } = await vite.ssrLoadModule(
-      "/src/App.tsx",
-    );
-    const formData = new FormData();
+  formData.set("reportDate", "2026-07-22");
+  formData.set("formingBrand1", "  МКР-1  ");
+  formData.set("formingFact1", "12,5");
+  formData.set("sortingBrand2", "ПБ   5");
+  formData.set("sortingFact2", "7,25");
+  formData.set("unformedBrand3", "НФ-1");
+  formData.set("unformedFact3", "4");
+  formData.set("chamotteBrand4", "Ш-1");
+  formData.set("chamotteFact4", "3");
 
-    formData.set("reportDate", "2026-07-22");
-    formData.set("formingBrand1", "  МКР-1  ");
-    formData.set("formingFact1", "12,5");
-    formData.set("sortingBrand2", "ПБ   5");
-    formData.set("sortingFact2", "7,25");
-    formData.set("unformedBrand3", "НФ-1");
-    formData.set("unformedFact3", "4");
-    formData.set("chamotteBrand4", "Ш-1");
-    formData.set("chamotteFact4", "3");
-
-    assert.deepEqual(
-      readDispatcherSubmissionPayload(formData, buildProductionFormDefinition()),
-      {
-        reportDate: "2026-07-22",
-        formingBrand1: "МКР-1",
-        formingFact1: "12.5",
-        sortingBrand2: "ПБ 5",
-        sortingFact2: "7.25",
-        unformedBrand3: "НФ-1",
-        unformedFact3: "4",
-        chamotteBrand4: "Ш-1",
-        chamotteFact4: "3",
-      },
-    );
-  } finally {
-    await vite.close();
-  }
+  assert.deepEqual(
+    readDispatcherSubmissionPayload(formData, buildProductionFormDefinition()),
+    {
+      reportDate: "2026-07-22",
+      formingBrand1: "МКР-1",
+      formingFact1: "12.5",
+      sortingBrand2: "ПБ 5",
+      sortingFact2: "7.25",
+      unformedBrand3: "НФ-1",
+      unformedFact3: "4",
+      chamotteBrand4: "Ш-1",
+      chamotteFact4: "3",
+    },
+  );
 });
 
 test("forming and sorting facts switch focus on the first mouse press", async () => {
@@ -69,12 +69,6 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
-
   try {
     const { ProductionCategoryTable } = await vite.ssrLoadModule("/src/App.tsx");
     const rootElement = dom.window.document.getElementById("root");
@@ -142,7 +136,6 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -159,11 +152,6 @@ test("production dashboard selects the first section that receives live rows", a
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const emptyTables = {
     forming: [],
     sorting: [],
@@ -233,7 +221,6 @@ test("production dashboard selects the first section that receives live rows", a
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -250,12 +237,6 @@ test("production dashboard shows visible row count and column totals below secti
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
-
   try {
     const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
       "/src/App.tsx",
@@ -351,7 +332,6 @@ test("production dashboard shows visible row count and column totals below secti
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -368,12 +348,6 @@ test("production dashboard totals follow the selected jars and granulation table
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
-
   try {
     const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
       "/src/App.tsx",
@@ -499,7 +473,6 @@ test("production dashboard totals follow the selected jars and granulation table
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -516,12 +489,6 @@ test("jar dashboard table shows the current bank content next to the number", as
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
-
   try {
     const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
       "/src/App.tsx",
@@ -606,7 +573,6 @@ test("jar dashboard table shows the current bank content next to the number", as
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
