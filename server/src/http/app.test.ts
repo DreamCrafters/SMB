@@ -2187,6 +2187,13 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
     { id: "wagon-2", number: "В-02" },
     { id: "wagon-1", number: "В-01" },
   ];
+  const availableWagons = wagons.map((wagon, index) => ({
+    ...wagon,
+    loadingDate: `2026-08-0${5 - index}`,
+    productBrand: "ШКУ-32",
+    setter: "Иванов И.И.",
+    pressOperator: "Петров П.П.",
+  }));
   let savedInput:
     | Parameters<LaboratoryGreenProductQualityJournalRepository["create"]>[0]
     | undefined;
@@ -2234,7 +2241,7 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
       return {
         setters: ["Иванов И.И."],
         pressOperators: ["Петров П.П."],
-        wagons,
+        wagons: availableWagons,
       };
     },
   };
@@ -2392,6 +2399,8 @@ test("refractory wagon journal creates real wagon options for green product qual
     number: "В-16",
     loadingDate: "2026-08-05",
     productBrand: "ШКУ-32",
+    setter: "Иванов И.И.",
+    pressOperator: "Петров П.П.",
     rawControlDate: null,
     firingDates: ["2026-08-06"],
     sortingDate: null,
@@ -2479,6 +2488,8 @@ test("refractory wagon journal creates real wagon options for green product qual
           number: " В-17 ",
           loadingDate: "2026-08-06",
           productBrand: " шку-32 ",
+          setter: " Сидоров С.С. ",
+          pressOperator: " Кузнецов К.К. ",
         }),
       });
       const correctionResponse = await fetch(
@@ -2490,6 +2501,8 @@ test("refractory wagon journal creates real wagon options for green product qual
             number: "В-16А",
             loadingDate: "2026-08-04",
             productBrand: " шку-32 ",
+            setter: " Иванов И.И. ",
+            pressOperator: " Петров П.П. ",
           }),
         },
       );
@@ -2500,6 +2513,8 @@ test("refractory wagon journal creates real wagon options for green product qual
           number: "В-16",
           loadingDate: "2026-08-06",
           productBrand: "ШКУ-32",
+          setter: "Иванов И.И.",
+          pressOperator: "Петров П.П.",
         }),
       });
 
@@ -2509,6 +2524,8 @@ test("refractory wagon journal creates real wagon options for green product qual
       assert.equal(correctionResponse.status, 200);
       assert.equal(duplicateResponse.status, 409);
       assert.equal(savedInput?.wagon.productBrand, "ШКУ-32");
+      assert.equal(savedInput?.wagon.setter, "Сидоров С.С.");
+      assert.equal(savedInput?.wagon.pressOperator, "Кузнецов К.К.");
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(
         savedInput?.submittedByAccountId,
@@ -2523,12 +2540,16 @@ test("refractory wagon journal creates real wagon options for green product qual
         { label: "№ вагона", value: "В-17" },
         { label: "Дата садки", value: "2026-08-06" },
         { label: "Марка", value: "ШКУ-32" },
+        { label: "Садчик", value: "Сидоров С.С." },
+        { label: "Прессовщик", value: "Кузнецов К.К." },
       ]);
       assert.equal(auditEvents[1]?.action, "refractory_wagon.correct");
       assert.deepEqual(auditEvents[1]?.details, [
         { label: "№ вагона", value: "В-16 → В-16А" },
         { label: "Дата садки", value: "2026-08-05 → 2026-08-04" },
         { label: "Марка", value: "ШКУ-32 → ШКУ-32" },
+        { label: "Садчик", value: "Иванов И.И. → Иванов И.И." },
+        { label: "Прессовщик", value: "Петров П.П. → Петров П.П." },
       ]);
     },
     dispatcherSubmissions,
@@ -8806,6 +8827,8 @@ test("refractory reports are submitted and reviewed independently through protec
     number: "В-17",
     loadingDate: "2026-07-19",
     productBrand: "ША",
+    setter: "Иванов И.И.",
+    pressOperator: "Петров П.П.",
     rawControlDate: "2026-07-19",
     firingDates: [],
     sortingDate: null,

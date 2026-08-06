@@ -133,8 +133,22 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   let greenProductQualityDraftRequests = 0;
   let greenProductQualityOptionsRequests = 0;
   const greenProductQualityWagons = [
-    { id: "wagon-1", number: "В-01" },
-    { id: "wagon-2", number: "В-02" },
+    {
+      id: "wagon-1",
+      number: "В-01",
+      loadingDate: "2026-08-04",
+      productBrand: "ШКУ-32",
+      setter: "Иванов И.И.",
+      pressOperator: "Петров П.П.",
+    },
+    {
+      id: "wagon-2",
+      number: "В-02",
+      loadingDate: "2026-08-05",
+      productBrand: "ШКИ-66",
+      setter: "Садчик с вагона",
+      pressOperator: "Прессовщик с вагона",
+    },
   ];
   const greenProductQualityRecord = {
     id: "green-quality-1",
@@ -2092,6 +2106,18 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         checkbox.click();
       }
     });
+    assert.equal(
+      findControlByLabel(greenQualityForm, "Марка изделия").value,
+      "ШКИ-66",
+    );
+    assert.equal(
+      findControlByLabel(greenQualityForm, "Садчик").value,
+      "Садчик с вагона",
+    );
+    assert.equal(
+      findControlByLabel(greenQualityForm, "Прессовщик").value,
+      "Прессовщик с вагона",
+    );
     assert.equal(findControlByLabel(greenQualityForm, "Длина 2").value, "230");
     await React.act(async () => {
       const secondLength = findControlByLabel(greenQualityForm, "Длина 2");
@@ -2118,6 +2144,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     ]);
     assert.equal(greenProductQualitySubmissions[0].lengthFirst, "232");
     assert.equal(greenProductQualitySubmissions[0].lengthSecond, "231");
+    assert.equal(
+      greenProductQualitySubmissions[0].setter,
+      "Садчик с вагона",
+    );
+    assert.equal(
+      greenProductQualitySubmissions[0].pressOperator,
+      "Прессовщик с вагона",
+    );
     const greenQualityHeadings = Array.from(
       rootElement.querySelectorAll(".green-product-quality-table th"),
     );

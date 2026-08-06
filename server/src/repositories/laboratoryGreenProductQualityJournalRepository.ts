@@ -3,6 +3,7 @@ import type { RowDataPacket } from "mysql2/promise";
 import type {
   LaboratoryGreenProductQualityFilters,
   LaboratoryGreenProductQualityOptions,
+  LaboratoryGreenProductQualityAvailableWagon,
   LaboratoryGreenProductQualityPressNumber,
   LaboratoryGreenProductQualityRecord,
   LaboratoryGreenProductQualitySubmission,
@@ -79,6 +80,13 @@ type OptionRow = RowDataPacket & {
 type WagonRow = RowDataPacket & {
   id: string;
   wagon_number: string;
+};
+
+type AvailableWagonRow = WagonRow & {
+  loading_date: Date | string | null;
+  product_brand: string | null;
+  setter_name: string | null;
+  press_operator: string | null;
 };
 
 type RepositoryOptions = {
@@ -261,10 +269,16 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         ) options
         order by option_type asc, last_used_at desc, value asc`,
       );
-      const [wagonRows] = await pool.query<WagonRow[]>(
-        `select id, wagon_number
+      const [wagonRows] = await pool.query<AvailableWagonRow[]>(
+        `select
+          id,
+          wagon_number,
+          loading_date,
+          product_brand,
+          setter_name,
+          press_operator
         from refractory_wagons
-        order by sequence_id desc`,
+        order by loading_date desc, sequence_id desc`,
       );
       return {
         setters: people
@@ -273,7 +287,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         pressOperators: people
           .filter((row) => row.option_type === "press_operator")
           .map((row) => row.value),
-        wagons: wagonRows.map((row) => ({ id: row.id, number: row.wagon_number })),
+        wagons: wagonRows.map(mapAvailableWagon),
       };
     },
 
@@ -483,6 +497,21 @@ function mapJournalRow(
     createdAt: row.created_at instanceof Date
       ? row.created_at.toISOString()
       : String(row.created_at),
+  };
+}
+
+function mapAvailableWagon(
+  row: AvailableWagonRow,
+): LaboratoryGreenProductQualityAvailableWagon {
+  return {
+    id: row.id,
+    number: row.wagon_number,
+    loadingDate: row.loading_date === null
+      ? null
+      : formatCalendarDate(row.loading_date),
+    productBrand: row.product_brand,
+    setter: row.setter_name,
+    pressOperator: row.press_operator,
   };
 }
 

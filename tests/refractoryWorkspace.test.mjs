@@ -63,6 +63,8 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         number: "В-16",
         loadingDate: "2026-08-05",
         productBrand: "ШКУ-32",
+        setter: "Иванов И.И.",
+        pressOperator: "Петров П.П.",
         rawControlDate: null,
         firingDates: ["2026-08-06", "2026-08-06"],
         sortingDate: "2026-08-08",
@@ -615,6 +617,8 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         "№ вагона",
         "Дата садки",
         "Марка",
+        "Садчик",
+        "Прессовщик",
         "Дата контроля сырца",
         "Даты обжига",
         "Дата сортировки",
@@ -631,9 +635,21 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     const wagonBrandInput = rootElement.querySelector(
       'input[aria-label="Марка вагона"]',
     );
+    const wagonSetterInput = rootElement.querySelector(
+      'input[name="wagonSetter"]',
+    );
+    const wagonPressOperatorInput = rootElement.querySelector(
+      'input[name="wagonPressOperator"]',
+    );
     assert.ok(wagonNumberInput);
     assert.ok(wagonLoadingDateInput);
     assert.ok(wagonBrandInput);
+    assert.ok(wagonSetterInput);
+    assert.ok(wagonPressOperatorInput);
+    assert.equal(wagonSetterInput.value, "Иванов И.И.");
+    assert.equal(wagonPressOperatorInput.value, "Петров П.П.");
+    assert.ok(wagonSetterInput.getAttribute("list"));
+    assert.ok(wagonPressOperatorInput.getAttribute("list"));
     await React.act(async () => {
       setNativeInputValue(wagonNumberInput, "В-17");
       wagonNumberInput.dispatchEvent(
@@ -647,6 +663,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       wagonBrandInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
+      setNativeInputValue(wagonSetterInput, "Сидоров С.С.");
+      wagonSetterInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(wagonPressOperatorInput, "Кузнецов К.К.");
+      wagonPressOperatorInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
     });
     const addWagonButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-form button"),
@@ -658,7 +682,11 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       number: "В-17",
       loadingDate: "2026-08-06",
       productBrand: "ШКУ-32",
+      setter: "Сидоров С.С.",
+      pressOperator: "Кузнецов К.К.",
     });
+    assert.equal(wagonSetterInput.value, "Сидоров С.С.");
+    assert.equal(wagonPressOperatorInput.value, "Кузнецов К.К.");
 
     const editWagonButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-edit-link"),
@@ -681,6 +709,8 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       number: "В-17",
       loadingDate: "2026-08-07",
       productBrand: "ШКУ-32",
+      setter: "Сидоров С.С.",
+      pressOperator: "Кузнецов К.К.",
     });
 
     await React.act(async () => root.unmount());
@@ -696,6 +726,139 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     restoreDomGlobals(previousGlobals);
   }
 });
+
+test("refractory wagon save preserves rows loaded while the request is pending", () =>
+  runRefractoryWagonSaveRace("load-first"));
+
+test("refractory wagon save supersedes stale initial defaults", () =>
+  runRefractoryWagonSaveRace("save-first"));
+
+async function runRefractoryWagonSaveRace(responseOrder) {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  let resolveInitialLoad;
+  let resolveSave;
+  globalThis.fetch = async (_input, init) => {
+    if (init?.method === "POST") {
+      return await new Promise((resolve) => {
+        resolveSave = resolve;
+      });
+    }
+    return await new Promise((resolve) => {
+      resolveInitialLoad = resolve;
+    });
+  };
+
+  try {
+    const { RefractoryWagonJournal } = await vite.ssrLoadModule(
+      "/src/RefractoryWagonJournal.tsx",
+    );
+    const rootElement = dom.window.document.querySelector("#root");
+    const root = createRoot(rootElement);
+    await React.act(async () => {
+      root.render(React.createElement(RefractoryWagonJournal, {
+        brandLabels: ["ШКУ-32"],
+        defaultLoadingDate: "2026-08-06",
+        isAdminPreviewMode: false,
+        onShowToast() {},
+      }));
+    });
+    await waitFor(React, () => typeof resolveInitialLoad === "function");
+
+    const numberInput = rootElement.querySelector('input[name="wagonNumber"]');
+    const brandInput = rootElement.querySelector('input[aria-label="Марка вагона"]');
+    await React.act(async () => {
+      setNativeInputValue(numberInput, "В-17");
+      numberInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      setNativeInputValue(brandInput, "ШКУ-32");
+      brandInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await React.act(async () => {
+      rootElement.querySelector(".refractory-wagon-form").dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => typeof resolveSave === "function");
+
+    const loadedWagon = {
+      id: "wagon-16",
+      number: "В-16",
+      loadingDate: "2026-08-05",
+      productBrand: "ШКУ-32",
+      setter: "Иванов И.И.",
+      pressOperator: "Петров П.П.",
+      rawControlDate: null,
+      firingDates: [],
+      sortingDate: null,
+      createdAt: "2026-08-05T08:00:00.000Z",
+    };
+    const initialLoadResponse = new Response(
+      JSON.stringify({ wagons: [loadedWagon] }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const savedWagon = {
+      ...loadedWagon,
+      id: "wagon-17",
+      number: "В-17",
+      loadingDate: "2026-08-06",
+      setter: null,
+      pressOperator: null,
+      createdAt: "2026-08-06T08:30:00.000Z",
+    };
+    const saveResponse = new Response(JSON.stringify({ wagon: savedWagon }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+    });
+    const finishInitialLoad = () => React.act(async () => {
+      resolveInitialLoad(initialLoadResponse);
+    });
+    const finishSave = () => React.act(async () => {
+      resolveSave(saveResponse);
+    });
+    if (responseOrder === "load-first") {
+      await finishInitialLoad();
+      await finishSave();
+    } else {
+      await finishSave();
+      await finishInitialLoad();
+    }
+
+    assert.deepEqual(
+      Array.from(rootElement.querySelectorAll(".refractory-wagon-edit-link"))
+        .map((button) => button.textContent),
+      ["В-17", "В-16"],
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="wagonSetter"]').value,
+      "",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="wagonPressOperator"]').value,
+      "",
+    );
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+}
 
 function buildBankAssignment(bankNumber, materialLabel, density) {
   return {

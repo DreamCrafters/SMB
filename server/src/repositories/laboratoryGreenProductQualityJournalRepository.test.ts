@@ -167,8 +167,22 @@ test("green product quality repository lists people from history and wagons from
       queries.push(sql);
       if (/from refractory_wagons/u.test(sql)) {
         return [[
-          { id: "wagon-2", wagon_number: "В-02" },
-          { id: "wagon-1", wagon_number: "В-01" },
+          {
+            id: "wagon-2",
+            wagon_number: "В-02",
+            loading_date: "2026-08-05",
+            product_brand: "ШКИ-66",
+            setter_name: "Сидоров С.С.",
+            press_operator: "Кузнецов К.К.",
+          },
+          {
+            id: "wagon-1",
+            wagon_number: "В-01",
+            loading_date: "2026-08-04",
+            product_brand: "ШКУ-32",
+            setter_name: null,
+            press_operator: null,
+          },
         ], []];
       }
       return [[
@@ -183,14 +197,28 @@ test("green product quality repository lists people from history and wagons from
     setters: ["Иванов И.И."],
     pressOperators: ["Петров П.П."],
     wagons: [
-      { id: "wagon-2", number: "В-02" },
-      { id: "wagon-1", number: "В-01" },
+      {
+        id: "wagon-2",
+        number: "В-02",
+        loadingDate: "2026-08-05",
+        productBrand: "ШКИ-66",
+        setter: "Сидоров С.С.",
+        pressOperator: "Кузнецов К.К.",
+      },
+      {
+        id: "wagon-1",
+        number: "В-01",
+        loadingDate: "2026-08-04",
+        productBrand: "ШКУ-32",
+        setter: null,
+        pressOperator: null,
+      },
     ],
   });
   assert.match(queries[0] ?? "", /group by setter_name/u);
   assert.match(queries[0] ?? "", /group by press_operator/u);
   assert.match(queries[0] ?? "", /order by option_type asc, last_used_at desc, value asc/u);
-  assert.match(queries[1] ?? "", /order by sequence_id desc/u);
+  assert.match(queries[1] ?? "", /order by loading_date desc, sequence_id desc/u);
 });
 
 test("green product quality repository corrects a stable row and stores wagon-aware revision snapshots", async () => {

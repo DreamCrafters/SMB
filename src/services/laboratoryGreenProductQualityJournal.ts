@@ -2,6 +2,7 @@ import {
   laboratoryGreenProductQualityFields,
   laboratoryGreenProductQualityPressNumberValues,
   type LaboratoryGreenProductQualityFilters,
+  type LaboratoryGreenProductQualityAvailableWagon,
   type LaboratoryGreenProductQualityOptions,
   type LaboratoryGreenProductQualityRecord,
   type LaboratoryGreenProductQualitySubmission,
@@ -91,7 +92,7 @@ export async function requestLaboratoryGreenProductQualityOptions(
     !isStringArray(optionPayload.setters) ||
     !isStringArray(optionPayload.pressOperators) ||
     !Array.isArray(optionPayload.wagons) ||
-    !optionPayload.wagons.every(isWagonOption)
+    !optionPayload.wagons.every(isAvailableWagon)
   ) {
     return invalidResponse("Сервер вернул списки журнала в неподдерживаемом формате.");
   }
@@ -200,6 +201,22 @@ function isWagonOption(value: unknown): value is LaboratoryGreenProductQualityWa
   return isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.number === "string";
+}
+
+function isAvailableWagon(
+  value: unknown,
+): value is LaboratoryGreenProductQualityAvailableWagon {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.number === "string" &&
+    isOptionalString(value.loadingDate) &&
+    isOptionalString(value.productBrand) &&
+    isOptionalString(value.setter) &&
+    isOptionalString(value.pressOperator);
+}
+
+function isOptionalString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function readRemoteError(payload: unknown, fallback: string): ErrorResult {

@@ -4251,6 +4251,14 @@ async function handleRefractoryWagonsRequest({
                   label: "Марка",
                   value: `${result.before.productBrand ?? "—"} → ${result.record.productBrand ?? "—"}`,
                 },
+                {
+                  label: "Садчик",
+                  value: `${result.before.setter ?? "—"} → ${result.record.setter ?? "—"}`,
+                },
+                {
+                  label: "Прессовщик",
+                  value: `${result.before.pressOperator ?? "—"} → ${result.record.pressOperator ?? "—"}`,
+                },
               ],
               targetType: "refractory_wagon",
               targetId: result.record.id,
@@ -4331,6 +4339,8 @@ async function handleRefractoryWagonsRequest({
           { label: "№ вагона", value: record.number },
           { label: "Дата садки", value: record.loadingDate ?? "—" },
           { label: "Марка", value: record.productBrand ?? "—" },
+          { label: "Садчик", value: record.setter ?? "—" },
+          { label: "Прессовщик", value: record.pressOperator ?? "—" },
         ],
         targetType: "refractory_wagon",
         targetId: record.id,

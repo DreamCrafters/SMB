@@ -112,6 +112,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
+    "048_refractory_wagon_production_crew",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -181,6 +182,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
+    "048_refractory_wagon_production_crew",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -253,6 +255,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
+    "048_refractory_wagon_production_crew",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -327,6 +330,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
+    "048_refractory_wagon_production_crew",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -397,6 +401,7 @@ test("kiln material migration adds the produced material and the journal density
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
+    "048_refractory_wagon_production_crew",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1933,6 +1938,46 @@ test("refractory wagon lifecycle migration derives firing and sorting from repor
     statements[0] ?? "",
     /foreign key \(source_report_id\)[\s\S]+references refractory_report_revisions \(id\)/u,
   );
+  assert.equal(
+    statements[1],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("refractory wagon production crew migration preserves legacy rows", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "048_refractory_wagon_production_crew" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(statements[0] ?? "", /alter table refractory_wagons/u);
+  assert.match(statements[0] ?? "", /setter_name varchar\(120\) null/u);
+  assert.match(statements[0] ?? "", /press_operator varchar\(120\) null/u);
   assert.equal(
     statements[1],
     "insert into schema_migrations (id) values (?)",

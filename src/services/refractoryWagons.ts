@@ -111,6 +111,8 @@ function isWagonRecord(value: unknown): value is RefractoryWagonRecord {
     typeof value.number === "string" &&
     isOptionalString(value.loadingDate) &&
     isOptionalString(value.productBrand) &&
+    isOptionalString(value.setter) &&
+    isOptionalString(value.pressOperator) &&
     isOptionalString(value.rawControlDate) &&
     Array.isArray(value.firingDates) &&
     value.firingDates.every((date) => typeof date === "string") &&

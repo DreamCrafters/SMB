@@ -17,6 +17,14 @@ export type LaboratoryGreenProductQualityWagonOption = {
   number: string;
 };
 
+export type LaboratoryGreenProductQualityAvailableWagon =
+  LaboratoryGreenProductQualityWagonOption & {
+    loadingDate: string | null;
+    productBrand: string | null;
+    setter: string | null;
+    pressOperator: string | null;
+  };
+
 export type LaboratoryGreenProductQualitySubmission = {
   recordDate: string;
   pressNumber: LaboratoryGreenProductQualityPressNumber;
@@ -54,7 +62,7 @@ export type LaboratoryGreenProductQualityFilters = {
 export type LaboratoryGreenProductQualityOptions = {
   setters: string[];
   pressOperators: string[];
-  wagons: LaboratoryGreenProductQualityWagonOption[];
+  wagons: LaboratoryGreenProductQualityAvailableWagon[];
 };
 
 export type LaboratoryGreenProductQualityFieldGroup =

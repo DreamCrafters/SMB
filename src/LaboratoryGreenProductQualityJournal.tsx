@@ -153,12 +153,36 @@ export function LaboratoryGreenProductQualityJournal({
   }
 
   function toggleWagon(id: string, checked: boolean) {
-    setForm((current) => ({
-      ...current,
-      wagonIds: checked
+    setForm((current) => {
+      const wagonIds = checked
         ? [...current.wagonIds, id]
-        : current.wagonIds.filter((wagonId) => wagonId !== id),
-    }));
+        : current.wagonIds.filter((wagonId) => wagonId !== id);
+      const latestSelectedWagon = options.wagons.reduce<
+        (typeof options.wagons)[number] | undefined
+      >((latest, wagon) => {
+        if (!wagonIds.includes(wagon.id)) return latest;
+        if (latest === undefined) return wagon;
+        return (wagon.loadingDate ?? "") > (latest.loadingDate ?? "")
+          ? wagon
+          : latest;
+      }, undefined);
+      return {
+        ...current,
+        wagonIds,
+        ...(latestSelectedWagon?.productBrand === null ||
+            latestSelectedWagon?.productBrand === undefined
+          ? {}
+          : { productBrand: latestSelectedWagon.productBrand }),
+        ...(latestSelectedWagon?.setter === null ||
+            latestSelectedWagon?.setter === undefined
+          ? {}
+          : { setter: latestSelectedWagon.setter }),
+        ...(latestSelectedWagon?.pressOperator === null ||
+            latestSelectedWagon?.pressOperator === undefined
+          ? {}
+          : { pressOperator: latestSelectedWagon.pressOperator }),
+      };
+    });
     setFormMessage("");
   }
 

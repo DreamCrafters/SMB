@@ -2529,6 +2529,16 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "048_refractory_wagon_production_crew",
+    statements: [
+      `
+      alter table refractory_wagons
+        add column setter_name varchar(120) null after product_brand,
+        add column press_operator varchar(120) null after setter_name;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {

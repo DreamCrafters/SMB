@@ -67,6 +67,8 @@ type WagonRow = RowDataPacket & {
   wagon_number: string;
   loading_date: Date | string | null;
   product_brand: string | null;
+  setter_name: string | null;
+  press_operator: string | null;
   raw_control_date: Date | string | null;
   created_at: Date | string;
 };
@@ -100,15 +102,19 @@ export function createRefractoryWagonsRepository(
             wagon_number,
             loading_date,
             product_brand,
+            setter_name,
+            press_operator,
             submitted_by_user_id,
             submitted_by_account_id,
             created_at
-          ) values (?, ?, ?, ?, ?, ?, ?)`,
+          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             input.wagon.number,
             input.wagon.loadingDate,
             input.wagon.productBrand,
+            input.wagon.setter,
+            input.wagon.pressOperator,
             input.submittedByUserId,
             input.submittedByAccountId,
             createdAt,
@@ -138,6 +144,8 @@ export function createRefractoryWagonsRepository(
           wagon_number,
           loading_date,
           product_brand,
+          setter_name,
+          press_operator,
           raw_control_date,
           created_at
         from refractory_wagons
@@ -243,6 +251,8 @@ export function createRefractoryWagonsRepository(
           wagon_number,
           loading_date,
           product_brand,
+          setter_name,
+          press_operator,
           raw_control_date,
           created_at
         from refractory_wagons
@@ -259,12 +269,15 @@ export function createRefractoryWagonsRepository(
       try {
         await pool.query(
           `update refractory_wagons
-          set wagon_number = ?, loading_date = ?, product_brand = ?
+          set wagon_number = ?, loading_date = ?, product_brand = ?,
+            setter_name = ?, press_operator = ?
           where id = ?`,
           [
             input.wagon.number,
             input.wagon.loadingDate,
             input.wagon.productBrand,
+            input.wagon.setter,
+            input.wagon.pressOperator,
             input.id,
           ],
         );
@@ -316,6 +329,8 @@ function mapWagonRow(
     number: row.wagon_number,
     loadingDate: formatOptionalCalendarDate(row.loading_date),
     productBrand: row.product_brand,
+    setter: row.setter_name,
+    pressOperator: row.press_operator,
     rawControlDate: formatOptionalCalendarDate(row.raw_control_date),
     firingDates: lifecycle?.firingDates ?? [],
     sortingDate: lifecycle?.sortingDate ?? null,

@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { RefractoryWagonRecord } from "./contracts/refractoryWagons";
+import { mergeLaboratoryJournalOptions } from "./laboratoryJournalOptions";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
@@ -29,10 +30,13 @@ export function RefractoryWagonJournal({
   const [number, setNumber] = useState("");
   const [loadingDate, setLoadingDate] = useState(defaultLoadingDate);
   const [productBrand, setProductBrand] = useState("");
+  const [setter, setSetter] = useState("");
+  const [pressOperator, setPressOperator] = useState("");
   const [message, setMessage] = useState("");
   const [hasError, setHasError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingWagonId, setEditingWagonId] = useState<string>();
+  const hasSuccessfulMutation = useRef(false);
 
   useEffect(() => {
     if (isAdminPreviewMode) return;
@@ -41,7 +45,24 @@ export function RefractoryWagonJournal({
     requestRefractoryWagons({ signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
-        setWagons(result.wagons);
+        if (hasSuccessfulMutation.current) {
+          setWagons((current) => {
+            const currentIds = new Set(current.map((wagon) => wagon.id));
+            return [
+              ...current,
+              ...result.wagons.filter((wagon) => !currentIds.has(wagon.id)),
+            ];
+          });
+        } else {
+          setWagons(result.wagons);
+          const latestWagon = result.wagons[0];
+          setSetter((current) => current === ""
+            ? latestWagon?.setter ?? ""
+            : current);
+          setPressOperator((current) => current === ""
+            ? latestWagon?.pressOperator ?? ""
+            : current);
+        }
         setLoadState("ready");
       } else {
         setLoadState("error");
@@ -61,8 +82,14 @@ export function RefractoryWagonJournal({
       number: number.trim(),
       loadingDate,
       productBrand: productBrand.trim(),
+      setter: setter.trim() || null,
+      pressOperator: pressOperator.trim() || null,
     };
-    if (Object.values(submission).some((value) => value.length === 0)) {
+    if (
+      submission.number.length === 0 ||
+      submission.loadingDate.length === 0 ||
+      submission.productBrand.length === 0
+    ) {
       setHasError(true);
       setMessage("Заполните номер вагона, дату садки и марку.");
       return;
@@ -79,13 +106,17 @@ export function RefractoryWagonJournal({
       setMessage(readShortUserMessage(result.message, "Не удалось сохранить вагон."));
       return;
     }
+    hasSuccessfulMutation.current = true;
     const wasEditing = editingWagonId !== undefined;
     setWagons((current) => wasEditing
       ? current.map((wagon) => wagon.id === result.wagon.id
         ? result.wagon
         : wagon)
       : [result.wagon, ...current]);
-    resetForm();
+    const latestWagon = wasEditing && wagons[0]?.id !== result.wagon.id
+      ? wagons[0]
+      : result.wagon;
+    resetForm(latestWagon);
     setMessage(wasEditing
       ? "Исправление вагона сохранено."
       : "Вагон добавлен в журнал.");
@@ -102,16 +133,31 @@ export function RefractoryWagonJournal({
     setNumber(wagon.number);
     setLoadingDate(wagon.loadingDate ?? "");
     setProductBrand(wagon.productBrand ?? "");
+    setSetter(wagon.setter ?? "");
+    setPressOperator(wagon.pressOperator ?? "");
     setHasError(false);
     setMessage("");
   }
 
-  function resetForm() {
+  function resetForm(latestWagon = wagons[0]) {
     setEditingWagonId(undefined);
     setNumber("");
     setLoadingDate(defaultLoadingDate);
     setProductBrand("");
+    setSetter(latestWagon?.setter ?? "");
+    setPressOperator(latestWagon?.pressOperator ?? "");
   }
+
+  const setterOptions = mergeLaboratoryJournalOptions(
+    [],
+    wagons.flatMap((wagon) => wagon.setter === null ? [] : [wagon.setter]),
+  );
+  const pressOperatorOptions = mergeLaboratoryJournalOptions(
+    [],
+    wagons.flatMap((wagon) =>
+      wagon.pressOperator === null ? [] : [wagon.pressOperator]
+    ),
+  );
 
   return (
     <section className="refractory-wagon-journal" aria-label="Журнал вагонов">
@@ -155,6 +201,26 @@ export function RefractoryWagonJournal({
                   onChange={setProductBrand}
                 />
               </label>
+              <label className="refractory-field">
+                <span>Садчик</span>
+                <input
+                  list="refractory-wagon-setter-options"
+                  maxLength={120}
+                  name="wagonSetter"
+                  value={setter}
+                  onChange={(event) => setSetter(event.currentTarget.value)}
+                />
+              </label>
+              <label className="refractory-field">
+                <span>Прессовщик</span>
+                <input
+                  list="refractory-wagon-press-operator-options"
+                  maxLength={120}
+                  name="wagonPressOperator"
+                  value={pressOperator}
+                  onChange={(event) => setPressOperator(event.currentTarget.value)}
+                />
+              </label>
             </div>
           </fieldset>
           <div className="refractory-form-actions">
@@ -170,7 +236,7 @@ export function RefractoryWagonJournal({
                 className="secondary-button"
                 disabled={isSubmitting}
                 type="button"
-                onClick={resetForm}
+                onClick={() => resetForm()}
               >
                 Отмена
               </button>
@@ -196,6 +262,8 @@ export function RefractoryWagonJournal({
                 <th>№ вагона</th>
                 <th>Дата садки</th>
                 <th>Марка</th>
+                <th>Садчик</th>
+                <th>Прессовщик</th>
                 <th>Дата контроля сырца</th>
                 <th>Даты обжига</th>
                 <th>Дата сортировки</th>
@@ -215,6 +283,8 @@ export function RefractoryWagonJournal({
                   </td>
                   <td>{formatDate(wagon.loadingDate)}</td>
                   <td>{wagon.productBrand ?? "—"}</td>
+                  <td>{wagon.setter ?? "—"}</td>
+                  <td>{wagon.pressOperator ?? "—"}</td>
                   <td>{formatDate(wagon.rawControlDate)}</td>
                   <td>{formatDates(wagon.firingDates)}</td>
                   <td>{formatDate(wagon.sortingDate)}</td>
@@ -224,6 +294,14 @@ export function RefractoryWagonJournal({
           </table>
         </div>
       ) : null}
+      <datalist id="refractory-wagon-setter-options">
+        {setterOptions.map((value) => <option key={value} value={value} />)}
+      </datalist>
+      <datalist id="refractory-wagon-press-operator-options">
+        {pressOperatorOptions.map((value) => (
+          <option key={value} value={value} />
+        ))}
+      </datalist>
     </section>
   );
 }
