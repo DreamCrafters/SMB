@@ -5067,9 +5067,15 @@ p {
   box-shadow: 0 6px 16px rgba(37, 53, 63, 0.08);
 }
 
-/* Журналы ЦЗЛ — вложенный ряд под кнопкой группы. */
+/* Лабораторные журналы — вложенные ряды под кнопками групп. */
 .laboratory-central-lab-tabs {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-left: var(--density-4);
+}
+
+.laboratory-quality-control-tabs {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 720px;
   margin-left: var(--density-4);
 }
 
@@ -5675,6 +5681,7 @@ p {
   }
 
   .laboratory-central-lab-tabs,
+  .laboratory-quality-control-tabs,
   .laboratory-refractory-shop-tabs,
   .laboratory-refractory-journal-tabs {
     margin-left: 0;

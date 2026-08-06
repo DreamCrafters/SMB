@@ -818,17 +818,21 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Журнал печи 2",
       "Регистрация проб",
       "Химические анализы",
+      "Пробы неформованной продукции",
     ]) {
       assert.equal(findTabByText(journalLabel), undefined);
     }
     const centralLabTab = findTabByText("ЦЗЛ (Центральная заводская лаборатория)");
     assert.ok(centralLabTab);
+    const qualityControlTab = findTabByText("ОТК");
+    assert.ok(qualityControlTab);
     await React.act(async () => centralLabTab.click());
 
     const kilnJournalTab = findTabByText("Журнал печи 2");
     assert.ok(kilnJournalTab);
     assert.ok(findTabByText("Регистрация проб"));
     assert.ok(findTabByText("Химические анализы"));
+    assert.equal(findTabByText("Пробы неформованной продукции"), undefined);
     await React.act(async () => kilnJournalTab.click());
     await waitFor(React, () =>
       rootElement.textContent.includes(
@@ -1590,6 +1594,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.deepEqual(chemicalAnalysisProtocolRequests[0], { query: "П-42" });
     assert.match(protocolPreview.location.href, /^blob:/u);
 
+    await React.act(async () => qualityControlTab.click());
     const unshapedSamplesTab = Array.from(
       rootElement.querySelectorAll("button"),
     ).find(

@@ -18,6 +18,7 @@ import { LaboratoryRawMaterialQualityJournal } from "./LaboratoryRawMaterialQual
 import { LaboratoryGreenProductQualityJournal } from "./LaboratoryGreenProductQualityJournal";
 import {
   centralLabTabLabel,
+  qualityControlTabLabel,
   refractoryShopTabLabel,
 } from "./LaboratoryJournalTables";
 import { ProductBrandPicker } from "./ProductBrandPicker";
@@ -42,12 +43,13 @@ type LaboratoryWorkspacePanel =
   | "results"
   | "banks"
   | "central-lab"
+  | "quality-control"
   | "refractory-shop";
 type CentralLabJournalId =
   | "kiln-journal"
   | "sample-registration"
-  | "chemical-analysis"
-  | "unshaped-product-samples";
+  | "chemical-analysis";
+type QualityControlJournalId = "unshaped-product-samples";
 type RefractoryShopJournalId =
   | "raw-material-quality"
   | "green-product-quality";
@@ -105,6 +107,12 @@ const centralLabJournals: readonly {
   { id: "kiln-journal", label: "Журнал печи 2" },
   { id: "sample-registration", label: "Регистрация проб" },
   { id: "chemical-analysis", label: "Химические анализы" },
+];
+
+const qualityControlJournals: readonly {
+  id: QualityControlJournalId;
+  label: string;
+}[] = [
   { id: "unshaped-product-samples", label: "Пробы неформованной продукции" },
 ];
 
@@ -144,6 +152,8 @@ export function LaboratoryResultsWorkspace({
   const [centralLabJournal, setCentralLabJournal] = useState<CentralLabJournalId>(
     centralLabJournals[0].id,
   );
+  const [qualityControlJournal, setQualityControlJournal] =
+    useState<QualityControlJournalId>(qualityControlJournals[0].id);
   const [refractoryShopJournal, setRefractoryShopJournal] =
     useState<RefractoryShopJournalId>(refractoryShopJournals[0].id);
   const [referenceState, setReferenceState] = useState<ReferenceState>({
@@ -457,6 +467,18 @@ export function LaboratoryResultsWorkspace({
           {centralLabTabLabel}
         </button>
         <button
+          aria-selected={activePanel === "quality-control"}
+          className={activePanel === "quality-control" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("quality-control");
+            setFormMessage("");
+          }}
+        >
+          {qualityControlTabLabel}
+        </button>
+        <button
           aria-selected={activePanel === "refractory-shop"}
           className={activePanel === "refractory-shop" ? "is-active" : ""}
           role="tab"
@@ -484,6 +506,27 @@ export function LaboratoryResultsWorkspace({
               role="tab"
               type="button"
               onClick={() => setCentralLabJournal(journal.id)}
+            >
+              {journal.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {activePanel === "quality-control" ? (
+        <div
+          className="laboratory-section-tabs laboratory-quality-control-tabs"
+          role="tablist"
+          aria-label="Журналы ОТК"
+        >
+          {qualityControlJournals.map((journal) => (
+            <button
+              aria-selected={qualityControlJournal === journal.id}
+              className={qualityControlJournal === journal.id ? "is-active" : ""}
+              key={journal.id}
+              role="tab"
+              type="button"
+              onClick={() => setQualityControlJournal(journal.id)}
             >
               {journal.label}
             </button>
@@ -546,19 +589,21 @@ export function LaboratoryResultsWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
-        ) : centralLabJournal === "chemical-analysis" ? (
+        ) : (
           <LaboratoryChemicalAnalysisJournal
             profile={profile}
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
-        ) : (
+        )
+      ) : activePanel === "quality-control" ? (
+        qualityControlJournal === "unshaped-product-samples" ? (
           <LaboratoryUnshapedProductSampleJournal
             profile={profile}
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
-        )
+        ) : null
       ) : activePanel === "refractory-shop" ? (
         refractoryShopJournal === "raw-material-quality" ? (
           <LaboratoryRawMaterialQualityJournal

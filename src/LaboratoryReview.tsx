@@ -12,6 +12,7 @@ import type {
 } from "./contracts";
 import {
   centralLabTabLabel,
+  qualityControlTabLabel,
   refractoryShopTabLabel,
   LaboratoryChemicalAnalysisTable,
   LaboratorySampleRegistrationTable,
@@ -34,6 +35,7 @@ import {
 import {
   laboratoryReviewCentralLabViews,
   laboratoryReviewJournals,
+  laboratoryReviewQualityControlViews,
   laboratoryReviewRootViews,
   laboratoryReviewRefractoryShopViews,
   laboratoryReviewViews,
@@ -97,6 +99,7 @@ export function LaboratoryReviewWorkspace({
   };
   const section: LaboratoryTableSection = view.section;
   const isCentralLabGroupOpen = view.group === "central-lab";
+  const isQualityControlGroupOpen = view.group === "quality-control";
   const isRefractoryShopGroupOpen = view.group === "refractory-shop";
   const { visible, excluded } = useMemo(
     () => selectLaboratoryReviewJournals(view, { isNameFilterEnabled }),
@@ -166,6 +169,15 @@ export function LaboratoryReviewWorkspace({
           {centralLabTabLabel}
         </button>
         <button
+          aria-selected={isQualityControlGroupOpen}
+          className={isQualityControlGroupOpen ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => setView(laboratoryReviewQualityControlViews[0])}
+        >
+          {qualityControlTabLabel}
+        </button>
+        <button
           aria-selected={isRefractoryShopGroupOpen}
           className={isRefractoryShopGroupOpen ? "is-active" : ""}
           role="tab"
@@ -183,6 +195,27 @@ export function LaboratoryReviewWorkspace({
           aria-label="Журналы ЦЗЛ"
         >
           {laboratoryReviewCentralLabViews.map((item) => (
+            <button
+              aria-selected={view.id === item.id}
+              className={view.id === item.id ? "is-active" : ""}
+              key={item.id}
+              role="tab"
+              type="button"
+              onClick={() => setView(item)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {isQualityControlGroupOpen ? (
+        <div
+          className="laboratory-section-tabs laboratory-quality-control-tabs"
+          role="tablist"
+          aria-label="Журналы ОТК"
+        >
+          {laboratoryReviewQualityControlViews.map((item) => (
             <button
               aria-selected={view.id === item.id}
               className={view.id === item.id ? "is-active" : ""}

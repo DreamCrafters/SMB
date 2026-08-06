@@ -272,6 +272,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readViewTabs(), [
       "Все испытания",
       "ЦЗЛ (Центральная заводская лаборатория)",
+      "ОТК",
       "ОЦ (Огнеупорный цех)",
     ]);
     assert.equal(
@@ -284,8 +285,8 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readJournalTitles(container), [
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
-      "Пробы неформованной продукции",
       "Журнал контроля параметров обжига вращающейся печи 2",
+      "Пробы неформованной продукции",
       "Журнал контроля качества сырья и соблюдения технологии",
       "Журнал контроля качества сырцовой продукции",
     ]);
@@ -411,10 +412,10 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readViewTabs(), [
       "Все испытания",
       "ЦЗЛ (Центральная заводская лаборатория)",
+      "ОТК",
       "ОЦ (Огнеупорный цех)",
       "Регистрация проб",
       "Химические анализы",
-      "Пробы неформованной продукции",
       "Журнал печи 2",
     ]);
     await React.act(async () => {
@@ -448,6 +449,28 @@ test("laboratory review filters every journal by date and nomenclature", async (
       null,
       "Review tab must not expose any data entry form.",
     );
+    await React.act(async () => {
+      findButtonByText(container, "ОТК").dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => readJournalTitles(container).length === 1);
+    assert.deepEqual(readViewTabs(), [
+      "Все испытания",
+      "ЦЗЛ (Центральная заводская лаборатория)",
+      "ОТК",
+      "ОЦ (Огнеупорный цех)",
+      "Пробы неформованной продукции",
+    ]);
+    assert.deepEqual(readJournalTitles(container), [
+      "Пробы неформованной продукции",
+    ]);
+    assert.equal(
+      container.querySelector(".unshaped-product-sample-edit-link"),
+      null,
+      "Management review must keep quality control samples read-only.",
+    );
+    assert.equal(container.querySelector("form"), null);
     await React.act(async () => {
       findButtonByText(container, "ОЦ (Огнеупорный цех)").dispatchEvent(
         new dom.window.MouseEvent("click", { bubbles: true }),

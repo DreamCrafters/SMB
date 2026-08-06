@@ -22,11 +22,11 @@ import { formatLaboratoryDate } from "./LaboratoryResultsTable";
  */
 
 /**
- * These four journals belong to the central plant laboratory, so both tabs hide
- * them behind one group button instead of listing them next to the control
- * sections.
+ * Shared labels keep the laboratory assistant and management review group
+ * buttons identical.
  */
 export const centralLabTabLabel = "ЦЗЛ (Центральная заводская лаборатория)";
+export const qualityControlTabLabel = "ОТК";
 export const refractoryShopTabLabel = "ОЦ (Огнеупорный цех)";
 
 /**

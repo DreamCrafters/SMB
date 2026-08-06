@@ -38,8 +38,8 @@ export type LaboratoryReviewJournal = {
 
 /**
  * Search scopes follow the laboratory assistant tab: the root row holds
- * `Все испытания` plus the `ЦЗЛ` and `ОЦ` group buttons, and each group's
- * journals open in their own nested row.
+ * `Все испытания` plus the `ЦЗЛ`, `ОТК`, and `ОЦ` group buttons, and each
+ * group's journals open in their own nested row.
  */
 export type LaboratoryReviewViewId =
   | "all"
@@ -49,6 +49,7 @@ export type LaboratoryReviewViewId =
 export type LaboratoryReviewViewGroup =
   | "root"
   | "central-lab"
+  | "quality-control"
   | "refractory-shop";
 
 export type LaboratoryReviewView = {
@@ -95,16 +96,16 @@ const allLaboratoryReviewJournals: readonly LaboratoryReviewJournal[] = [
     supportsNameQuery: true,
   },
   {
-    id: "unshaped_product_samples",
-    title: "Пробы неформованной продукции",
-    dateFilterLabel: "дата пробы",
-    supportsNameQuery: true,
-  },
-  {
     id: "rotary_kiln_2",
     title: "Журнал контроля параметров обжига вращающейся печи 2",
     dateFilterLabel: "дата записи",
     supportsNameQuery: false,
+  },
+  {
+    id: "unshaped_product_samples",
+    title: "Пробы неформованной продукции",
+    dateFilterLabel: "дата пробы",
+    supportsNameQuery: true,
   },
   {
     id: "raw_material_quality",
@@ -162,18 +163,18 @@ const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
     group: "central-lab",
   },
   {
-    id: "unshaped_product_samples",
-    label: "Пробы неформованной продукции",
-    journal: "unshaped_product_samples",
-    section: "all",
-    group: "central-lab",
-  },
-  {
     id: "rotary_kiln_2",
     label: "Журнал печи 2",
     journal: "rotary_kiln_2",
     section: "all",
     group: "central-lab",
+  },
+  {
+    id: "unshaped_product_samples",
+    label: "Пробы неформованной продукции",
+    journal: "unshaped_product_samples",
+    section: "all",
+    group: "quality-control",
   },
   {
     id: "raw_material_quality",
@@ -197,7 +198,7 @@ export const laboratoryReviewViews = allLaboratoryReviewViews.filter(
     visibleLaboratoryReviewSections.includes(view.section),
 );
 
-/** Buttons of the root row; the `ЦЗЛ` button is rendered after them. */
+/** Buttons of the root row; journal group buttons are rendered after them. */
 export const laboratoryReviewRootViews = laboratoryReviewViews.filter(
   (view) => view.group === "root",
 );
@@ -205,6 +206,11 @@ export const laboratoryReviewRootViews = laboratoryReviewViews.filter(
 /** Buttons of the nested row, opened from the `ЦЗЛ` button. */
 export const laboratoryReviewCentralLabViews = laboratoryReviewViews.filter(
   (view) => view.group === "central-lab",
+);
+
+/** Buttons of the nested row, opened from the `ОТК` button. */
+export const laboratoryReviewQualityControlViews = laboratoryReviewViews.filter(
+  (view) => view.group === "quality-control",
 );
 
 /** Buttons of the nested row, opened from the refractory shop group. */
