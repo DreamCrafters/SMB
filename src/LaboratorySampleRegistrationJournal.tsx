@@ -73,8 +73,13 @@ export function LaboratorySampleRegistrationJournal({
   const [formMessage, setFormMessage] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [samplingLocationRefreshVersion, setSamplingLocationRefreshVersion] =
+    useState(0);
   const isLaboratorySampleCodeAuto = useRef(true);
   const sessionLaboratoryAssistant = useRef(initialLaboratoryAssistant);
+  const previousSamplingLocation = useRef("");
+  const isSamplingLocationManuallyEdited = useRef(false);
+  const samplingLocationRequestVersion = useRef(0);
 
   useEffect(() => {
     if (isAdminPreviewMode) return;
@@ -116,11 +121,31 @@ export function LaboratorySampleRegistrationJournal({
   useEffect(() => {
     if (isAdminPreviewMode) return;
     const controller = new AbortController();
+    const requestVersion = samplingLocationRequestVersion.current + 1;
+    samplingLocationRequestVersion.current = requestVersion;
     requestLaboratorySampleRegistrationLocations({
       signal: controller.signal,
     }).then((result) => {
       if (controller.signal.aborted) return;
+      const isCurrentRequest =
+        samplingLocationRequestVersion.current === requestVersion;
       if (result.status === "ready") {
+        const latestSamplingLocation = result.samplingLocations[0]
+          ?.trim()
+          .replace(/\s+/gu, " ") ?? "";
+        if (
+          isCurrentRequest &&
+          latestSamplingLocation !== "" &&
+          !isSamplingLocationManuallyEdited.current
+        ) {
+          previousSamplingLocation.current = latestSamplingLocation;
+          setForm((current) => ({
+            ...current,
+            samplingLocation: latestSamplingLocation,
+          }));
+        } else if (isCurrentRequest) {
+          previousSamplingLocation.current = latestSamplingLocation;
+        }
         setSamplingLocationOptions((current) => mergeJournalOptions(
           current,
           result.samplingLocations,
@@ -131,6 +156,7 @@ export function LaboratorySampleRegistrationJournal({
         ));
         return;
       }
+      if (!isCurrentRequest) return;
       setFormMessage((current) => current === ""
         ? readShortUserMessage(
             result.message,
@@ -139,7 +165,7 @@ export function LaboratorySampleRegistrationJournal({
         : current);
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, [isAdminPreviewMode, samplingLocationRefreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -173,6 +199,9 @@ export function LaboratorySampleRegistrationJournal({
   function updateField(field: keyof FormState, value: string) {
     if (field === "laboratorySampleCode") {
       isLaboratorySampleCodeAuto.current = false;
+    }
+    if (field === "samplingLocation") {
+      isSamplingLocationManuallyEdited.current = true;
     }
     setForm((current) => {
       if (field === "sampleNumber") {
@@ -233,9 +262,11 @@ export function LaboratorySampleRegistrationJournal({
     }
 
     const wasEditing = editingRecordId !== undefined;
+    samplingLocationRequestVersion.current += 1;
     if (!wasEditing) {
       sessionLaboratoryAssistant.current =
         result.record.samplingLaboratoryAssistant;
+      previousSamplingLocation.current = result.record.samplingLocation;
       laboratoryAssistantBySessionProfile.set(
         profile,
         result.record.samplingLaboratoryAssistant,
@@ -252,6 +283,9 @@ export function LaboratorySampleRegistrationJournal({
     ));
     setFormMessage("");
     setRefreshVersion((value) => value + 1);
+    if (wasEditing) {
+      setSamplingLocationRefreshVersion((value) => value + 1);
+    }
     onShowToast(
       wasEditing ? "Проба исправлена" : "Запись сохранена",
       `${result.record.sampleNumber} · ${result.record.laboratorySampleCode}.`,
@@ -260,6 +294,7 @@ export function LaboratorySampleRegistrationJournal({
 
   function editRecord(record: LaboratorySampleRegistrationJournalRecord) {
     isLaboratorySampleCodeAuto.current = false;
+    isSamplingLocationManuallyEdited.current = true;
     setEditingRecordId(record.id);
     setForm({
       sampleNumber: record.sampleNumber,
@@ -276,8 +311,12 @@ export function LaboratorySampleRegistrationJournal({
 
   function resetForm() {
     isLaboratorySampleCodeAuto.current = true;
+    isSamplingLocationManuallyEdited.current = false;
     setEditingRecordId(undefined);
-    setForm(createEmptyForm(sessionLaboratoryAssistant.current));
+    setForm(createEmptyForm(
+      sessionLaboratoryAssistant.current,
+      previousSamplingLocation.current,
+    ));
   }
 
   return (
@@ -482,7 +521,10 @@ function normalizeJournalOptionKey(value: string) {
   return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
-function createEmptyForm(laboratoryAssistant: string): FormState {
+function createEmptyForm(
+  laboratoryAssistant: string,
+  samplingLocation = "",
+): FormState {
   const today = formatLocalCalendarDate(new Date());
   return {
     sampleNumber: "",
@@ -491,7 +533,7 @@ function createEmptyForm(laboratoryAssistant: string): FormState {
     samplingLaboratoryAssistant: laboratoryAssistant,
     sampleName: "",
     registrationDate: today,
-    samplingLocation: "",
+    samplingLocation,
     waterAbsorption: "",
   };
 }

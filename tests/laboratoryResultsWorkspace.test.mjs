@@ -76,6 +76,12 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   const sampleRegistrationRequests = [];
   let sampleRegistrationDraftRequests = 0;
   let sampleRegistrationLocationRequests = 0;
+  let sampleRegistrationLocationsDelay;
+  let sampleRegistrationSamplingLocations = [
+    "Опытная площадка",
+    "Архивная площадка",
+    " СКЛАД   СЫРЬЯ ",
+  ];
   const chemicalAnalysisSubmissions = [];
   const chemicalAnalysisCorrections = [];
   const chemicalAnalysisRequests = [];
@@ -343,12 +349,12 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       }
       if (url.pathname === "/api/laboratory/sample-registration-locations") {
         sampleRegistrationLocationRequests += 1;
+        const responseDelay = sampleRegistrationLocationsDelay;
+        sampleRegistrationLocationsDelay = undefined;
+        const samplingLocations = [...sampleRegistrationSamplingLocations];
+        if (responseDelay !== undefined) await responseDelay;
         return jsonResponse({
-          samplingLocations: [
-            "Опытная площадка",
-            "Архивная площадка",
-            " СКЛАД   СЫРЬЯ ",
-          ],
+          samplingLocations,
           laboratoryAssistants: [
             "Петрова П.П.",
             "Иванова А.А.",
@@ -369,6 +375,16 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         if (init.method === "POST") {
           const submission = JSON.parse(String(init.body));
           sampleRegistrationSubmissions.push(submission);
+          sampleRegistrationSamplingLocations = [
+            submission.samplingLocation,
+            ...sampleRegistrationSamplingLocations.filter(
+              (location) =>
+                location.trim().toLocaleLowerCase("ru-RU") !==
+                  submission.samplingLocation.trim().toLocaleLowerCase(
+                    "ru-RU",
+                  ),
+            ),
+          ];
           return jsonResponse({
             record: {
               id: "sample-registration-created",
@@ -1217,6 +1233,9 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleRegistrationForm,
       "Место отбора пробы",
     );
+    await waitFor(React, () =>
+      samplingLocationInput.value === "Опытная площадка"
+    );
     const samplingLaboratoryAssistantInput = findControlByLabel(
       sampleRegistrationForm,
       "Лаборант (отбор проб)",
@@ -1291,7 +1310,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       sampleNumberInput.value === "27" &&
         laboratorySampleCodeInput.value === ".27" &&
-        samplingLaboratoryAssistantInput.value === "Сидорова С.С."
+        samplingLaboratoryAssistantInput.value === "Сидорова С.С." &&
+        samplingLocationInput.value === "Пункт контроля № 2"
     );
     assert.ok(
       Array.from(laboratoryAssistantList.querySelectorAll("option")).some(
@@ -1369,7 +1389,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       sampleRegistrationForm.textContent.includes("Редактирование пробы") ===
         false && sampleNumberInput.value === "27" &&
-        samplingLaboratoryAssistantInput.value === "Сидорова С.С."
+        samplingLaboratoryAssistantInput.value === "Сидорова С.С." &&
+        samplingLocationInput.value === "Пункт контроля № 2"
     );
 
     const chemicalAnalysisTab = Array.from(
@@ -2038,6 +2059,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "Уменьшить давление.",
     );
 
+    let resolveStaleSamplingLocations;
+    sampleRegistrationLocationsDelay = new Promise((resolve) => {
+      resolveStaleSamplingLocations = resolve;
+    });
     const centralLaboratoryTab = Array.from(
       rootElement.querySelectorAll("button"),
     ).find((button) => button.textContent?.trim().startsWith("ЦЗЛ"));
@@ -2051,13 +2076,50 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () =>
       rootElement.querySelector(".sample-registration-journal-form") !== null
     );
+    const reopenedSampleRegistrationForm = rootElement.querySelector(
+      ".sample-registration-journal-form",
+    );
     assert.equal(
       findControlByLabel(
-        rootElement.querySelector(".sample-registration-journal-form"),
+        reopenedSampleRegistrationForm,
         "Лаборант (отбор проб)",
       ).value,
       "Сидорова С.С.",
     );
+    const reopenedSamplingLocationInput = findControlByLabel(
+      reopenedSampleRegistrationForm,
+      "Место отбора пробы",
+    );
+    await waitFor(React, () => sampleRegistrationLocationRequests === 3);
+    assert.equal(reopenedSamplingLocationInput.value, "");
+    await waitFor(React, () =>
+      findControlByLabel(reopenedSampleRegistrationForm, "№ пробы").value ===
+        "27"
+    );
+    await React.act(async () => {
+      const sampleNameInput = findControlByLabel(
+        reopenedSampleRegistrationForm,
+        "Наименование пробы",
+      );
+      setNativeInputValue(sampleNameInput, "Экспресс-проба");
+      sampleNameInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(reopenedSamplingLocationInput, "Экспресс-площадка");
+      reopenedSamplingLocationInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      reopenedSampleRegistrationForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () =>
+      sampleRegistrationSubmissions.length === 2 &&
+        reopenedSamplingLocationInput.value === "Экспресс-площадка"
+    );
+    assert.ok(resolveStaleSamplingLocations);
+    await React.act(async () => resolveStaleSamplingLocations());
+    assert.equal(reopenedSamplingLocationInput.value, "Экспресс-площадка");
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
