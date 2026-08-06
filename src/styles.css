@@ -6829,7 +6829,7 @@ p {
 
 .refractory-report-menu {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
 }
 
@@ -6893,6 +6893,7 @@ p {
 }
 
 .refractory-report-form,
+.refractory-wagon-form,
 .refractory-review-queue {
   border: 1px solid var(--line);
   border-radius: var(--radius-large);
@@ -6905,6 +6906,29 @@ p {
   margin: 0;
   border: 0;
   padding: 0;
+}
+
+.refractory-wagon-journal {
+  display: grid;
+  gap: var(--density-4);
+}
+
+.refractory-wagon-form > fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.refractory-wagon-form legend {
+  margin-bottom: var(--density-3);
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.refractory-wagon-table {
+  min-width: 720px;
 }
 
 .refractory-report-form > fieldset:disabled {

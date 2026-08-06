@@ -74,6 +74,15 @@ test("green product quality repository stores canonical wagon links with the jou
     "wagon-1",
     1,
   ]);
+  const rawControlUpdate = queries.find(
+    ({ sql }) => /update refractory_wagons wagon/u.test(sql),
+  );
+  assert.deepEqual(rawControlUpdate?.parameters, [
+    "wagon-2",
+    "wagon-1",
+    "wagon-2",
+    "wagon-1",
+  ]);
 });
 
 test("green product quality repository rejects a missing wagon before writing the journal", async () => {
@@ -274,6 +283,17 @@ test("green product quality repository corrects a stable row and stores wagon-aw
     "laboratory-account",
     "Иванова Анна",
     "2026-08-05T10:15:00.000Z",
+  ]);
+  const rawControlUpdate = queries.find(
+    ({ sql }) => /update refractory_wagons wagon/u.test(sql),
+  );
+  assert.deepEqual(rawControlUpdate?.parameters, [
+    "wagon-2",
+    "wagon-1",
+    "wagon-3",
+    "wagon-2",
+    "wagon-1",
+    "wagon-3",
   ]);
 });
 

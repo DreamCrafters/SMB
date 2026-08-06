@@ -8,6 +8,7 @@ export * from "./boardAssignments";
 export * from "./organization";
 export * from "./productionPlans";
 export * from "./refractoryReports";
+export * from "./refractoryWagons";
 export * from "./laboratoryResults";
 export * from "./laboratoryBanks";
 export * from "./rotaryKiln2FiringJournal";

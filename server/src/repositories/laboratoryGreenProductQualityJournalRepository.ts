@@ -148,6 +148,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         ],
       );
       await insertWagonLinks(pool, id, record.wagonIds);
+      await refreshRawControlDates(pool, record.wagonIds);
 
       return { id, ...record, wagons, createdAt };
     },
@@ -359,6 +360,13 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         [input.id],
       );
       await insertWagonLinks(pool, input.id, input.record.wagonIds);
+      await refreshRawControlDates(
+        pool,
+        [...new Set([
+          ...previousWagons.map((wagon) => wagon.id),
+          ...input.record.wagonIds,
+        ])],
+      );
       const correctedAt = now().toISOString();
       await pool.query(
         `insert into laboratory_green_product_quality_revisions (
@@ -517,5 +525,29 @@ async function insertWagonLinks(
       position
     ) values ${values}`,
     wagonIds.flatMap((wagonId, position) => [recordId, wagonId, position]),
+  );
+}
+
+async function refreshRawControlDates(
+  pool: DatabasePool,
+  wagonIds: string[],
+) {
+  if (wagonIds.length === 0) return;
+  const placeholders = wagonIds.map(() => "?").join(", ");
+  await pool.query(
+    `update refractory_wagons wagon
+    left join (
+      select
+        link.wagon_id,
+        max(journal.record_date) as raw_control_date
+      from laboratory_green_product_quality_wagons link
+      inner join laboratory_green_product_quality_journal journal
+        on journal.id = link.green_product_quality_id
+      where link.wagon_id in (${placeholders})
+      group by link.wagon_id
+    ) control on control.wagon_id = wagon.id
+    set wagon.raw_control_date = control.raw_control_date
+    where wagon.id in (${placeholders})`,
+    [...wagonIds, ...wagonIds],
   );
 }

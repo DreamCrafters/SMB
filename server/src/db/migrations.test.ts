@@ -110,6 +110,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
+    "046_refractory_wagon_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -177,6 +178,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
+    "046_refractory_wagon_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -247,6 +249,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
+    "046_refractory_wagon_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -319,6 +322,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
+    "046_refractory_wagon_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -387,6 +391,7 @@ test("kiln material migration adds the produced material and the journal density
     "043_chemical_analysis_sample_sources",
     "044_laboratory_raw_material_quality_journal",
     "045_laboratory_green_product_quality_journal",
+    "046_refractory_wagon_journal",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1820,6 +1825,58 @@ test("green product quality migration creates the wagon-linked editable journal"
   assert.match(statements[3] ?? "", /after_snapshot json not null/u);
   assert.equal(
     statements[4],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("refractory wagon journal migration adds production fields to the shared registry", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "046_refractory_wagon_journal" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 3);
+  assert.match(statements[0] ?? "", /alter table refractory_wagons/u);
+  assert.match(statements[0] ?? "", /loading_date date null/u);
+  assert.match(statements[0] ?? "", /product_brand varchar\(160\) null/u);
+  assert.match(statements[0] ?? "", /raw_control_date date null/u);
+  assert.match(statements[0] ?? "", /submitted_by_user_id varchar\(120\) null/u);
+  assert.match(statements[0] ?? "", /idx_refractory_wagons_loading_date/u);
+  assert.match(
+    statements[1] ?? "",
+    /create table if not exists refractory_wagon_revisions/u,
+  );
+  assert.match(statements[1] ?? "", /before_snapshot json not null/u);
+  assert.match(
+    statements[1] ?? "",
+    /corrected_by_user_id varchar\(120\) not null/u,
+  );
+  assert.equal(
+    statements[2],
     "insert into schema_migrations (id) values (?)",
   );
 });

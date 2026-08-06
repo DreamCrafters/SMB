@@ -60,6 +60,8 @@ import {
 import {
   normalizeProductionBrandLabelInput,
 } from "../domain/productionBrand.js";
+import { validateRefractoryWagonSubmission } from "../domain/refractoryWagons.js";
+import type { RefractoryWagonSubmission } from "../contracts/refractoryWagons.js";
 import {
   laboratorySections,
   validateLaboratoryResultSubmission,
@@ -245,6 +247,10 @@ import {
   type LaboratoryGreenProductQualityJournalRepository,
 } from "../repositories/laboratoryGreenProductQualityJournalRepository.js";
 import {
+  RefractoryWagonNumberAlreadyExistsError,
+  type RefractoryWagonsRepository,
+} from "../repositories/refractoryWagonsRepository.js";
+import {
   BoardAssignmentChangedError,
   type BoardAssignmentFilters,
   type BoardAssignmentsRepository,
@@ -263,6 +269,7 @@ type AppDependencies = {
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsDataSource;
   refractoryReports?: RefractoryReportsRepository;
+  refractoryWagons?: RefractoryWagonsRepository;
   laboratoryReferenceDataSource?: LaboratoryReferenceDataSource;
   laboratoryResults?: LaboratoryResultsRepository;
   laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository;
@@ -342,6 +349,7 @@ export function createApiServer({
     config.googleSheetsReference,
   ),
   refractoryReports,
+  refractoryWagons,
   laboratoryReferenceDataSource = createGoogleSheetsLaboratoryReferenceDataSource(
     config.googleSheetsReference,
   ),
@@ -596,6 +604,25 @@ export function createApiServer({
           audit,
           databaseTransaction,
           now,
+        });
+        return;
+      }
+
+      if (
+        url.pathname === "/api/refractory-wagons" ||
+        /^\/api\/refractory-wagons\/[^/]+$/u.test(url.pathname)
+      ) {
+        await handleRefractoryWagonsRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          refractoryWagons,
+          productionBrands,
+          audit,
+          databaseTransaction,
         });
         return;
       }
@@ -4099,6 +4126,247 @@ async function readLaboratoryReferenceForRequest(
     });
     return undefined;
   }
+}
+
+async function handleRefractoryWagonsRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  refractoryWagons,
+  productionBrands,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  refractoryWagons: RefractoryWagonsRepository | undefined;
+  productionBrands: ProductionBrandsDataSource;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  const access = await requireAuthentication(req, res, {
+    config,
+    devSessions,
+    authService,
+  });
+  if (access === undefined) return;
+
+  if (
+    !hasProfileCapability(
+      access.profile,
+      "business.submit_refractory_reports",
+    )
+  ) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Журнал вагонов доступен сотруднику огнеупорного цеха.",
+      },
+    });
+    return;
+  }
+  if (refractoryWagons === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище журнала вагонов не настроено.",
+      },
+    });
+    return;
+  }
+
+  const wagonMatch = url.pathname.match(
+    /^\/api\/refractory-wagons\/([^/]+)$/u,
+  );
+  if (wagonMatch !== null) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления вагона используется PATCH.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateRefractoryWagonSubmission(await readJsonBody(req));
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+    const wagon = await resolveRefractoryWagonBrand({
+      res,
+      productionBrands,
+      wagon: validation.value,
+    });
+    if (wagon === undefined) return;
+
+    try {
+      const correction = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => refractoryWagons.update({
+          id: wagonMatch[1],
+          wagon,
+          correctedByUserId: access.profile.userId,
+          correctedByAccountId: access.profile.activeAccess.accountId,
+          correctedByDisplayName: access.profile.displayName,
+        }),
+        buildEvent: (result) => result === undefined
+          ? undefined
+          : {
+              actor: buildAuditActor(access.profile),
+              category: "data_change",
+              action: "refractory_wagon.correct",
+              summary: `Исправлен вагон ${result.record.number}`,
+              details: [
+                {
+                  label: "№ вагона",
+                  value: `${result.before.number} → ${result.record.number}`,
+                },
+                {
+                  label: "Дата садки",
+                  value: `${result.before.loadingDate ?? "—"} → ${result.record.loadingDate ?? "—"}`,
+                },
+                {
+                  label: "Марка",
+                  value: `${result.before.productBrand ?? "—"} → ${result.record.productBrand ?? "—"}`,
+                },
+              ],
+              targetType: "refractory_wagon",
+              targetId: result.record.id,
+            },
+      });
+      if (correction === undefined) {
+        sendJson(res, 404, {
+          error: {
+            code: "not_found",
+            message: "Вагон не найден.",
+          },
+        });
+        return;
+      }
+      sendJson(res, 200, { wagon: correction.record });
+    } catch (error) {
+      if (error instanceof RefractoryWagonNumberAlreadyExistsError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Вагон с таким номером уже есть в журнале.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 200, { wagons: await refractoryWagons.list() });
+    return;
+  }
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Для журнала вагонов используются GET и POST.",
+      },
+    });
+    return;
+  }
+
+  const validation = validateRefractoryWagonSubmission(await readJsonBody(req));
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  const wagon = await resolveRefractoryWagonBrand({
+    res,
+    productionBrands,
+    wagon: validation.value,
+  });
+  if (wagon === undefined) return;
+
+  try {
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => refractoryWagons.create({
+        wagon,
+        submittedByUserId: access.profile.userId,
+        submittedByAccountId: access.profile.activeAccess.accountId,
+      }),
+      buildEvent: (record) => ({
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "refractory_wagon.create",
+        summary: `Добавлен вагон ${record.number}`,
+        details: [
+          { label: "№ вагона", value: record.number },
+          { label: "Дата садки", value: record.loadingDate ?? "—" },
+          { label: "Марка", value: record.productBrand ?? "—" },
+        ],
+        targetType: "refractory_wagon",
+        targetId: record.id,
+      }),
+    });
+    sendJson(res, 201, { wagon: saved });
+  } catch (error) {
+    if (error instanceof RefractoryWagonNumberAlreadyExistsError) {
+      sendJson(res, 409, {
+        error: {
+          code: "invalid_response",
+          message: "Вагон с таким номером уже есть в журнале.",
+        },
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function resolveRefractoryWagonBrand({
+  res,
+  productionBrands,
+  wagon,
+}: {
+  res: ServerResponse;
+  productionBrands: ProductionBrandsDataSource;
+  wagon: RefractoryWagonSubmission;
+}) {
+  const references = await resolveProductionBrandReferencesForRequest({
+    res,
+    productionBrands,
+    references: [{
+      fieldName: "productBrand",
+      label: wagon.productBrand,
+    }],
+    logEvent: "refractory_wagon_brand_lookup_failed",
+  });
+  if (references === undefined) return undefined;
+  return {
+    ...wagon,
+    productBrand: references[0]?.label ?? wagon.productBrand,
+  };
 }
 
 async function handleRefractoryReportsRequest({

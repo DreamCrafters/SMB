@@ -45,6 +45,10 @@ import type {
   RefractoryReportRevision,
   RefractoryReportsRepository,
 } from "../repositories/refractoryReportsRepository.js";
+import {
+  RefractoryWagonNumberAlreadyExistsError,
+  type RefractoryWagonsRepository,
+} from "../repositories/refractoryWagonsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
@@ -2365,6 +2369,173 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
     undefined,
     undefined,
     journal,
+  );
+});
+
+test("refractory wagon journal creates real wagon options for green product quality control", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.activeAccess.capabilities = ["business.submit_refractory_reports"];
+  profile.activeAccess.navigationItems = ["business.refractory_shop"];
+  const initialRecord = {
+    id: "wagon-16",
+    number: "В-16",
+    loadingDate: "2026-08-05",
+    productBrand: "ШКУ-32",
+    rawControlDate: null,
+    createdAt: "2026-08-05T08:00:00.000Z",
+  };
+  let savedInput: Parameters<RefractoryWagonsRepository["create"]>[0] | undefined;
+  let correctedInput: Parameters<RefractoryWagonsRepository["update"]>[0] | undefined;
+  const refractoryWagons: RefractoryWagonsRepository = {
+    async list() {
+      return [initialRecord];
+    },
+    async create(input) {
+      if (input.wagon.number === "В-16") {
+        throw new RefractoryWagonNumberAlreadyExistsError();
+      }
+      savedInput = input;
+      return {
+        id: "wagon-17",
+        ...input.wagon,
+        rawControlDate: null,
+        createdAt: "2026-08-06T08:30:00.000Z",
+      };
+    },
+    async update(input) {
+      correctedInput = input;
+      if (input.id !== initialRecord.id) return undefined;
+      return {
+        before: initialRecord,
+        record: {
+          ...initialRecord,
+          ...input.wagon,
+        },
+      };
+    },
+  };
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["ШКУ-32"];
+    },
+    async create(label, commitCreated) {
+      await commitCreated(label);
+      return { label, created: true };
+    },
+    async resolveReferences(references) {
+      return {
+        ok: true,
+        references: references.map((reference) => ({
+          ...reference,
+          label: "ШКУ-32",
+        })),
+      };
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const listResponse = await fetch(`${baseUrl}/api/refractory-wagons`, {
+        headers,
+      });
+      const createResponse = await fetch(`${baseUrl}/api/refractory-wagons`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          number: " В-17 ",
+          loadingDate: "2026-08-06",
+          productBrand: " шку-32 ",
+        }),
+      });
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/refractory-wagons/wagon-16`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            number: "В-16А",
+            loadingDate: "2026-08-04",
+            productBrand: " шку-32 ",
+          }),
+        },
+      );
+      const duplicateResponse = await fetch(`${baseUrl}/api/refractory-wagons`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          number: "В-16",
+          loadingDate: "2026-08-06",
+          productBrand: "ШКУ-32",
+        }),
+      });
+
+      assert.equal(listResponse.status, 200);
+      assert.deepEqual(await listResponse.json(), { wagons: [initialRecord] });
+      assert.equal(createResponse.status, 201);
+      assert.equal(correctionResponse.status, 200);
+      assert.equal(duplicateResponse.status, 409);
+      assert.equal(savedInput?.wagon.productBrand, "ШКУ-32");
+      assert.equal(savedInput?.submittedByUserId, profile.userId);
+      assert.equal(
+        savedInput?.submittedByAccountId,
+        profile.activeAccess.accountId,
+      );
+      assert.equal(correctedInput?.wagon.productBrand, "ШКУ-32");
+      assert.equal(correctedInput?.correctedByUserId, profile.userId);
+      assert.equal(correctedInput?.correctedByDisplayName, profile.displayName);
+      assert.equal(auditEvents.length, 2);
+      assert.equal(auditEvents[0]?.action, "refractory_wagon.create");
+      assert.deepEqual(auditEvents[0]?.details, [
+        { label: "№ вагона", value: "В-17" },
+        { label: "Дата садки", value: "2026-08-06" },
+        { label: "Марка", value: "ШКУ-32" },
+      ]);
+      assert.equal(auditEvents[1]?.action, "refractory_wagon.correct");
+      assert.deepEqual(auditEvents[1]?.details, [
+        { label: "№ вагона", value: "В-16 → В-16А" },
+        { label: "Дата садки", value: "2026-08-05 → 2026-08-04" },
+        { label: "Марка", value: "ШКУ-32 → ШКУ-32" },
+      ]);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    undefined,
+    productionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    refractoryWagons,
   );
 });
 
@@ -9752,6 +9923,7 @@ async function withApiServer(
     LaboratoryRawMaterialQualityJournalRepository,
   laboratoryGreenProductQualityJournal?:
     LaboratoryGreenProductQualityJournalRepository,
+  refractoryWagons?: RefractoryWagonsRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -9785,6 +9957,7 @@ async function withApiServer(
     laboratoryUnshapedProductSampleJournal,
     laboratoryRawMaterialQualityJournal,
     laboratoryGreenProductQualityJournal,
+    refractoryWagons,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,

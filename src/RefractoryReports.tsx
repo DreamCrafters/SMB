@@ -48,6 +48,7 @@ import {
 } from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { useProductionBrands } from "./useProductionBrands";
+import { RefractoryWagonJournal } from "./RefractoryWagonJournal";
 
 const reportTypes: readonly RefractoryReportType[] = [
   "cosh",
@@ -84,6 +85,7 @@ export function RefractoryShopWorkspace({
     initialShift.shiftNumber,
   );
   const [activeType, setActiveType] = useState<RefractoryReportType>("cosh");
+  const [isWagonJournalOpen, setIsWagonJournalOpen] = useState(false);
   const [reports, setReports] = useState<RefractoryReportRevision[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -325,6 +327,7 @@ export function RefractoryShopWorkspace({
               type="button"
               key={reportType}
               onClick={() => {
+                setIsWagonJournalOpen(false);
                 setActiveType(reportType);
                 setIsCorrectionMode(false);
                 setStatus("");
@@ -348,9 +351,33 @@ export function RefractoryShopWorkspace({
             </button>
           );
         })}
+        <button
+          aria-label="Вагоны. Журнал огнеупорного цеха."
+          className={isWagonJournalOpen ? "is-active" : undefined}
+          type="button"
+          onClick={() => {
+            setIsWagonJournalOpen(true);
+            setIsCorrectionMode(false);
+            setStatus("");
+            setHasError(false);
+          }}
+        >
+          <span className="refractory-report-menu-heading">
+            <span className="refractory-report-label">Вагоны</span>
+          </span>
+          <small>Журнал</small>
+        </button>
       </div>
 
-      {loadState === "loading" ? (
+      {isWagonJournalOpen ? (
+        <RefractoryWagonJournal
+          brandLabels={brandLabels}
+          defaultLoadingDate={reportDate}
+          isAdminPreviewMode={isAdminPreviewMode}
+          key={reportDate}
+          onShowToast={onShowToast}
+        />
+      ) : loadState === "loading" ? (
         <p className="form-status">Загружаем таблицы.</p>
       ) : (
         <form

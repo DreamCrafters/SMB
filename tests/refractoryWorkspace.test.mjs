@@ -17,7 +17,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("refractory workspace opens one of three independent table buttons", async () => {
+test("refractory workspace opens shift reports and the wagon journal", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -57,6 +57,18 @@ test("refractory workspace opens one of three independent table buttons", async 
         unformedRows: [],
       },
     });
+    const refractoryWagons = [
+      {
+        id: "wagon-16",
+        number: "В-16",
+        loadingDate: "2026-08-05",
+        productBrand: "ШКУ-32",
+        rawControlDate: null,
+        createdAt: "2026-08-05T08:00:00.000Z",
+      },
+    ];
+    let submittedWagon;
+    let correctedWagon;
     globalThis.fetch = async (input, init) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
       if (url.pathname.endsWith("/production-brands")) {
@@ -88,6 +100,42 @@ test("refractory workspace opens one of three independent table buttons", async 
             { heightMeters: 15, volumeCubicMeters: 0 },
           ] },
         }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (
+        url.pathname.includes("/refractory-wagons/") &&
+        init?.method === "PATCH"
+      ) {
+        correctedWagon = JSON.parse(String(init.body));
+        const wagonId = url.pathname.split("/").at(-1);
+        const index = refractoryWagons.findIndex((wagon) => wagon.id === wagonId);
+        refractoryWagons[index] = {
+          ...refractoryWagons[index],
+          ...correctedWagon,
+        };
+        return new Response(JSON.stringify({ wagon: refractoryWagons[index] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname.endsWith("/refractory-wagons")) {
+        if (init?.method === "POST") {
+          submittedWagon = JSON.parse(String(init.body));
+          const wagon = {
+            id: "wagon-17",
+            ...submittedWagon,
+            rawControlDate: null,
+            createdAt: "2026-08-06T08:30:00.000Z",
+          };
+          refractoryWagons.unshift(wagon);
+          return new Response(JSON.stringify({ wagon }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ wagons: refractoryWagons }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       const isReturnedShift =
         url.searchParams.get("date") === returnedReport.reportDate &&
@@ -123,7 +171,7 @@ test("refractory workspace opens one of three independent table buttons", async 
         (button) =>
           button.querySelector(".refractory-report-label")?.textContent,
       ),
-      ["ЦОШ", "Сводка по работе оборудования", "Печное отделение"],
+      ["ЦОШ", "Сводка по работе оборудования", "Печное отделение", "Вагоны"],
     );
     assert.equal(
       menuButtons[0].querySelector(".refractory-report-return-count"),
@@ -485,6 +533,73 @@ test("refractory workspace opens one of three independent table buttons", async 
       menuButtons[1].querySelector(".refractory-report-return-count"),
       null,
     );
+
+    await React.act(async () => menuButtons[3].click());
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".refractory-wagon-journal") !== null,
+    );
+    assert.match(rootElement.textContent, /В-16/u);
+    const wagonNumberInput = rootElement.querySelector(
+      'input[name="wagonNumber"]',
+    );
+    const wagonLoadingDateInput = rootElement.querySelector(
+      'input[name="wagonLoadingDate"]',
+    );
+    const wagonBrandInput = rootElement.querySelector(
+      'input[aria-label="Марка вагона"]',
+    );
+    assert.ok(wagonNumberInput);
+    assert.ok(wagonLoadingDateInput);
+    assert.ok(wagonBrandInput);
+    await React.act(async () => {
+      setNativeInputValue(wagonNumberInput, "В-17");
+      wagonNumberInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(wagonLoadingDateInput, "2026-08-06");
+      wagonLoadingDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(wagonBrandInput, "ШКУ-32");
+      wagonBrandInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    const addWagonButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-form button"),
+    ).find((button) => button.textContent === "Добавить вагон");
+    assert.ok(addWagonButton);
+    await React.act(async () => addWagonButton.click());
+    await waitFor(React, () => rootElement.textContent.includes("В-17"));
+    assert.deepEqual(submittedWagon, {
+      number: "В-17",
+      loadingDate: "2026-08-06",
+      productBrand: "ШКУ-32",
+    });
+
+    const editWagonButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-edit-link"),
+    ).find((button) => button.textContent === "В-17");
+    assert.ok(editWagonButton);
+    await React.act(async () => editWagonButton.click());
+    assert.equal(wagonNumberInput.value, "В-17");
+    await React.act(async () => {
+      setNativeInputValue(wagonLoadingDateInput, "2026-08-07");
+      wagonLoadingDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    const correctWagonButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-form button"),
+    ).find((button) => button.textContent === "Сохранить исправление");
+    assert.ok(correctWagonButton);
+    await React.act(async () => correctWagonButton.click());
+    assert.deepEqual(correctedWagon, {
+      number: "В-17",
+      loadingDate: "2026-08-07",
+      productBrand: "ШКУ-32",
+    });
 
     await React.act(async () => root.unmount());
   } finally {

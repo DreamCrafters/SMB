@@ -2453,6 +2453,38 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "046_refractory_wagon_journal",
+    statements: [
+      `
+      alter table refractory_wagons
+        add column loading_date date null after wagon_number,
+        add column product_brand varchar(160) null after loading_date,
+        add column raw_control_date date null after product_brand,
+        add column submitted_by_user_id varchar(120) null after raw_control_date,
+        add column submitted_by_account_id varchar(120) null after submitted_by_user_id,
+        add key idx_refractory_wagons_loading_date (loading_date, sequence_id),
+        add key idx_refractory_wagons_product_brand (product_brand);
+      `,
+      `
+      create table if not exists refractory_wagon_revisions (
+        id char(36) not null primary key,
+        wagon_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_refractory_wagon_revisions_wagon (wagon_id, created_at),
+        constraint fk_refractory_wagon_revision_wagon
+          foreign key (wagon_id)
+          references refractory_wagons (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 type MigrationRow = RowDataPacket & {
