@@ -4565,6 +4565,14 @@ const accounts: AccountsRepository = {
   async setPositionOrder() {
     return true;
   },
+  async setPositionProtected({ id, isProtected }) {
+    return {
+      id,
+      isProtected,
+      displayName: "Должность",
+      previousIsProtected: !isProtected,
+    };
+  },
 };
 
 test("dev access options list current positions and open the selected cabinet", async () => {
@@ -5394,6 +5402,102 @@ test("delegated account manager cannot change admin tabs on a position", async (
   ]);
 });
 
+test("delegated account manager cannot mutate or unprotect a protected position", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.activeAccess.navigationItems = ["admin.accounts"];
+  profile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const actorAccount = {
+    ...adminAccount,
+    accessId: profile.activeAccess.accountId,
+    userId: profile.userId,
+    login: "accounts-manager",
+    accountType: profile.accountType,
+    position: "position-accounts-manager",
+    positionDisplayName: "Менеджер учётных записей",
+    capabilities: profile.activeAccess.capabilities,
+    navigationItems: profile.activeAccess.navigationItems,
+  };
+  const protectedPosition = {
+    id: "position-protected",
+    displayName: "Защищённая должность",
+    accountType: "business_owner" as const,
+    navigationItems: ["business.overview" as const],
+    capabilities: ["business.view_all_statistics" as const],
+    boardAssignmentAccess: "none" as const,
+    isProtected: false,
+    isAdminProtected: true,
+    usageCount: 0,
+    createdAt: "2026-08-07T00:00:00.000Z",
+  };
+  let mutationCount = 0;
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listAccounts() {
+      return [actorAccount];
+    },
+    async listPositions() {
+      return [protectedPosition];
+    },
+    async updatePosition() {
+      mutationCount += 1;
+      return protectedPosition;
+    },
+    async deletePosition() {
+      mutationCount += 1;
+      return "deleted";
+    },
+    async setPositionProtected() {
+      mutationCount += 1;
+      return {
+        id: protectedPosition.id,
+        isProtected: false,
+        displayName: protectedPosition.displayName,
+        previousIsProtected: true,
+      };
+    },
+  };
+  const authService = buildAuthService({ profile });
+
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const updateResponse = await fetch(
+      `${baseUrl}/api/admin/positions/${protectedPosition.id}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          displayName: "Изменённая должность",
+          navigationItems: ["business.overview"],
+        }),
+      },
+    );
+    const deleteResponse = await fetch(
+      `${baseUrl}/api/admin/positions/${protectedPosition.id}`,
+      { method: "DELETE", headers },
+    );
+    const protectionResponse = await fetch(
+      `${baseUrl}/api/admin/positions/${protectedPosition.id}/protection`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ isProtected: false }),
+      },
+    );
+
+    assert.equal(updateResponse.status, 403);
+    assert.equal(deleteResponse.status, 403);
+    assert.equal(protectionResponse.status, 403);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, authService, repository);
+
+  assert.equal(mutationCount, 0);
+});
+
 test("delegated account manager cannot assign a position with admin tabs", async () => {
   const profile = buildProductionProfile("business_owner");
   profile.activeAccess.navigationItems = ["admin.accounts"];
@@ -5490,8 +5594,9 @@ test("delegated account manager cannot assign a position with admin tabs", async
   assert.equal(positionChangeCount, 0);
 });
 
-test("admin positions API updates a protected non-admin position without changing its technical type", async () => {
+test("original admin updates a protected non-admin position without changing its technical type", async () => {
   let updateInput: Parameters<AccountsRepository["updatePosition"]>[0] | undefined;
+  let allowedProtectedMutation = false;
   const existingPosition = {
     id: "position-custom",
     displayName: "Начальник смены",
@@ -5500,14 +5605,16 @@ test("admin positions API updates a protected non-admin position without changin
     capabilities: ["business.submit_dispatcher_forms" as const],
     boardAssignmentAccess: "none" as const,
     isProtected: true,
+    isAdminProtected: true,
     usageCount: 2,
     createdAt: "2026-07-12T00:00:00.000Z",
   };
   const repository: AccountsRepository = {
     ...accounts,
     async listPositions() { return [existingPosition]; },
-    async updatePosition(input) {
+    async updatePosition(input, allowProtected) {
       updateInput = input;
+      allowedProtectedMutation = allowProtected === true;
       return { ...existingPosition, ...input };
     },
   };
@@ -5533,6 +5640,84 @@ test("admin positions API updates a protected non-admin position without changin
     "business.view_dispatcher_feed",
     "business.submit_dispatcher_forms",
     "business.review_refractory_reports",
+  ]);
+  assert.equal(allowedProtectedMutation, true);
+});
+
+test("original admin can protect a selected position", async () => {
+  const position = {
+    id: "position-selected",
+    displayName: "Выбранная должность",
+    accountType: "business_owner" as const,
+    navigationItems: ["business.overview" as const],
+    capabilities: ["business.view_all_statistics" as const],
+    boardAssignmentAccess: "none" as const,
+    isProtected: false,
+    isAdminProtected: true,
+    usageCount: 0,
+    createdAt: "2026-08-07T00:00:00.000Z",
+  };
+  let protectionInput:
+    | Parameters<AccountsRepository["setPositionProtected"]>[0]
+    | undefined;
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listPositions() {
+      return [position];
+    },
+    async setPositionProtected(input) {
+      protectionInput = input;
+      return {
+        ...input,
+        displayName: position.displayName,
+        previousIsProtected: false,
+      };
+    },
+  };
+  const auditRepository: AuditRepository = {
+    async record(event) { recorded.push(event); },
+    async listReport() { throw new Error("not used"); },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(
+      `${baseUrl}/api/admin/positions/${position.id}/protection`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({ isProtected: true }),
+      },
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      id: position.id,
+      isProtected: true,
+    });
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository, undefined, auditRepository);
+
+  assert.deepEqual(protectionInput, {
+    id: position.id,
+    isProtected: true,
+  });
+  assert.deepEqual(
+    recorded
+      .filter((event) => event.category === "administration")
+      .map((event) => event.action),
+    ["admin.position_protection_enable"],
+  );
+  const protectionAudit = recorded.find(
+    (event) => event.action === "admin.position_protection_enable",
+  );
+  assert.deepEqual(protectionAudit?.details, [
+    { label: "Должность", value: position.displayName },
+    { label: "Прежняя защита", value: "Отключена" },
+    { label: "Новая защита", value: "Включена" },
   ]);
 });
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import { ProtectedAccountMutationError } from "../domain/adminAccountProtection.js";
+import { ProtectedPositionMutationError } from "../domain/adminPositionProtection.js";
 import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
@@ -53,11 +54,11 @@ test("setPositionOrder atomically assigns every current position its requested o
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, params });
-      if (normalized.startsWith("select id from account_positions")) {
+      if (normalized.startsWith("select id, is_admin_protected from account_positions")) {
         return [[
-          { id: "administrator" },
-          { id: "dispatcher" },
-          { id: "general_director" },
+          { id: "administrator", is_admin_protected: 0 },
+          { id: "dispatcher", is_admin_protected: 0 },
+          { id: "general_director", is_admin_protected: 0 },
         ], []];
       }
       return [[], []];
@@ -98,8 +99,11 @@ test("setPositionOrder rejects an incomplete position list without writing", asy
     release() {},
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select id from account_positions")) {
-        return [[{ id: "administrator" }, { id: "dispatcher" }], []];
+      if (normalized.startsWith("select id, is_admin_protected from account_positions")) {
+        return [[
+          { id: "administrator", is_admin_protected: 1 },
+          { id: "dispatcher", is_admin_protected: 0 },
+        ], []];
       }
       if (normalized.startsWith("update account_positions")) {
         didUpdate = true;
@@ -118,6 +122,88 @@ test("setPositionOrder rejects an incomplete position list without writing", asy
   assert.equal(result, false);
   assert.equal(didUpdate, false);
   assert.equal(didRollback, true);
+});
+
+test("setPositionOrder rejects moving a protected position for a delegated manager", async () => {
+  let didUpdate = false;
+  let didRollback = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() { didRollback = true; },
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select id, is_admin_protected from account_positions")) {
+        return [[
+          { id: "position-protected", is_admin_protected: 1 },
+          { id: "position-ordinary", is_admin_protected: 0 },
+        ], []];
+      }
+      if (normalized.startsWith("update account_positions")) didUpdate = true;
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).setPositionOrder([
+      "position-ordinary",
+      "position-protected",
+    ], false),
+    ProtectedPositionMutationError,
+  );
+  assert.equal(didUpdate, false);
+  assert.equal(didRollback, true);
+});
+
+test("setPositionProtected updates the selected row under a lock", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  let didCommit = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() { didCommit = true; },
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+      if (normalized.startsWith("select id, display_name, account_type, is_admin_protected")) {
+        return [[{
+          id: "position-selected",
+          display_name: "Выбранная должность",
+          account_type: "business_owner",
+          is_admin_protected: 0,
+        }], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).setPositionProtected({
+    id: "position-selected",
+    isProtected: true,
+  });
+
+  assert.deepEqual(result, {
+    id: "position-selected",
+    isProtected: true,
+    displayName: "Выбранная должность",
+    previousIsProtected: false,
+  });
+  assert.equal(didCommit, true);
+  assert.match(queries[0]?.sql ?? "", /for update$/u);
+  assert.deepEqual(
+    queries.find((query) =>
+      query.sql.startsWith("update account_positions set is_admin_protected")
+    )?.params,
+    [1, "position-selected"],
+  );
 });
 
 test("createPosition appends a new position after the current order", async () => {
@@ -197,6 +283,50 @@ test("updatePosition preserves the technical account type and refreshes linked s
     queries.find((query) => query.sql.startsWith("update account_positions set display_name"))?.params?.slice(0, 1),
     ["Диспетчер участка"],
   );
+});
+
+test("updatePosition rejects a protected position for a delegated manager inside the lock", async () => {
+  let didUpdate = false;
+  let didRollback = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() { didRollback = true; },
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.includes("from account_positions positions where positions.id")) {
+        return [[{
+          id: "position-protected",
+          display_name: "Защищённая должность",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(["business.overview"]),
+          capabilities: JSON.stringify(["business.view_all_statistics"]),
+          is_protected: 0,
+          is_admin_protected: 1,
+          created_at: "2026-08-07T00:00:00.000Z",
+          usage_count: 0,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions")) didUpdate = true;
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).updatePosition({
+      id: "position-protected",
+      displayName: "Изменённая должность",
+      navigationItems: ["business.overview"],
+      capabilities: ["business.view_all_statistics"],
+    }, false),
+    ProtectedPositionMutationError,
+  );
+  assert.equal(didUpdate, false);
+  assert.equal(didRollback, true);
 });
 
 test("setAccountPosition applies position access and revokes user sessions", async () => {
@@ -471,6 +601,39 @@ test("deletePosition deletes only an unused custom position", async () => {
     queries.find((query) => query.sql.startsWith("delete from account_positions"))?.params,
     ["position-unused"],
   );
+});
+
+test("deletePosition rejects a protected position for a delegated manager inside the lock", async () => {
+  let didDelete = false;
+  let didRollback = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() { didRollback = true; },
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select positions.account_type")) {
+        return [[{
+          account_type: "business_owner",
+          is_admin_protected: 1,
+          usage_count: 0,
+        }], []];
+      }
+      if (normalized.startsWith("delete from account_positions")) didDelete = true;
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).deletePosition("position-protected", false),
+    ProtectedPositionMutationError,
+  );
+  assert.equal(didDelete, false);
+  assert.equal(didRollback, true);
 });
 
 test("deletePosition deletes an unused program-created non-admin position", async () => {

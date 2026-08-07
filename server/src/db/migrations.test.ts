@@ -113,7 +113,8 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements",
+    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
+    "051_protected_account_positions",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -184,7 +185,8 @@ test("sample registration journal migration creates append-only laboratory stora
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements",
+    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
+    "051_protected_account_positions",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -258,7 +260,8 @@ test("chemical analysis migration links analyses to registered samples", async (
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements",
+    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
+    "051_protected_account_positions",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -334,7 +337,8 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements",
+    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
+    "051_protected_account_positions",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -406,7 +410,8 @@ test("kiln material migration adds the produced material and the journal density
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements",
+    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
+    "051_protected_account_positions",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -2085,6 +2090,45 @@ test("task 65 migration creates the product brand journal and imports the sheet 
   assert.match(statements[3] ?? "", /insert into user_audit_events/u);
   assert.match(statements[3] ?? "", /production_brand\.import/u);
   assert.equal(statements[4], "insert into schema_migrations (id) values (?)");
+});
+
+test("protected positions migration adds independent admin protection and protects administrator", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "051_protected_account_positions" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 3);
+  assert.match(
+    statements[0] ?? "",
+    /alter table account_positions add column is_admin_protected tinyint\(1\) not null default 0/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /update account_positions set is_admin_protected = 1 where id = 'administrator'/u,
+  );
+  assert.equal(statements[2], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

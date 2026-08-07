@@ -84,6 +84,7 @@ test("position order batches moves, survives refreshes, retries, and can be canc
         return jsonResponse({
           positions,
           canAssignAdminNavigation: true,
+          canManageProtectedPositions: true,
         });
       }
       if (url.pathname === "/api/admin/positions/order" && method === "PUT") {
@@ -107,6 +108,7 @@ test("position order batches moves, survives refreshes, retries, and can be canc
         return jsonResponse({
           positions,
           canAssignAdminNavigation: true,
+          canManageProtectedPositions: true,
         });
       }
       if (url.pathname === "/api/audit/events" && method === "POST") {
@@ -285,6 +287,7 @@ function buildPosition(id, displayName) {
     capabilities: ["business.view_all_statistics"],
     boardAssignmentAccess: "none",
     isProtected: false,
+    isAdminProtected: false,
     usageCount: 0,
     createdAt: "2026-08-03T08:00:00.000Z",
   };

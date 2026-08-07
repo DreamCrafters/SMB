@@ -148,6 +148,10 @@ import {
   isCanonicalAdminLogin,
   ProtectedAccountMutationError,
 } from "../domain/adminAccountProtection.js";
+import {
+  AdministratorPositionProtectionError,
+  ProtectedPositionMutationError,
+} from "../domain/adminPositionProtection.js";
 import type {
   DispatcherFeedFilters,
   DispatcherSubmissionsRepository,
@@ -7040,6 +7044,12 @@ async function handleAdminAccountsRequest({
     accountProtectionPathMatch === null
       ? undefined
       : decodeURIComponent(accountProtectionPathMatch[1] ?? "");
+  const positionProtectionPathMatch =
+    /^\/api\/admin\/positions\/([^/]+)\/protection$/u.exec(url.pathname);
+  const positionProtectionId =
+    positionProtectionPathMatch === null
+      ? undefined
+      : decodeURIComponent(positionProtectionPathMatch[1] ?? "");
   const isLoginStatusUpdate =
     url.pathname === "/api/admin/accounts" && req.method === "PATCH";
   const isAccountPositionUpdate =
@@ -7097,6 +7107,97 @@ async function handleAdminAccountsRequest({
     });
     return canAssignAdminNavigationPromise;
   };
+
+  if (positionProtectionId !== undefined) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Метод не поддерживается." },
+      });
+      return;
+    }
+    if (!(await canAssignAdminNavigation())) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message:
+            "Защиту должностей может изменять только исходный аккаунт admin.",
+        },
+      });
+      return;
+    }
+    const validation = validateSetPositionProtectionRequest(
+      await readJsonBody(req),
+      positionProtectionId,
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+    try {
+      const protection = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => accounts.setPositionProtected(validation.value),
+        buildEvent: (updatedProtection) =>
+          updatedProtection === undefined ||
+            updatedProtection.previousIsProtected ===
+              updatedProtection.isProtected
+            ? undefined
+            : {
+                actor: buildAuditActor(access.profile),
+                category: "administration",
+                action: updatedProtection.isProtected
+                  ? "admin.position_protection_enable"
+                  : "admin.position_protection_disable",
+                summary: `${updatedProtection.isProtected ? "Включена" : "Отключена"} защита должности «${updatedProtection.displayName}»`,
+                details: [
+                  {
+                    label: "Должность",
+                    value: updatedProtection.displayName,
+                  },
+                  {
+                    label: "Прежняя защита",
+                    value: updatedProtection.previousIsProtected
+                      ? "Включена"
+                      : "Отключена",
+                  },
+                  {
+                    label: "Новая защита",
+                    value: updatedProtection.isProtected
+                      ? "Включена"
+                      : "Отключена",
+                  },
+                ],
+                targetType: "account_position",
+                targetId: positionProtectionId,
+              },
+      });
+      if (protection === undefined) {
+        sendJson(res, 404, {
+          error: { code: "not_found", message: "Должность не найдена." },
+        });
+        return;
+      }
+      sendJson(res, 200, {
+        id: protection.id,
+        isProtected: protection.isProtected,
+      });
+    } catch (error) {
+      if (error instanceof AdministratorPositionProtectionError) {
+        sendJson(res, 409, {
+          error: { code: "invalid_response", message: error.message },
+        });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
 
   if (accountProtectionUserId !== undefined) {
     if (req.method !== "PATCH") {
@@ -7364,6 +7465,7 @@ async function handleAdminAccountsRequest({
       sendJson(res, 200, {
         positions: await accounts.listPositions(),
         canAssignAdminNavigation: await canAssignAdminNavigation(),
+        canManageProtectedPositions: await canAssignAdminNavigation(),
       });
       return;
     }
@@ -7427,26 +7529,38 @@ async function handleAdminAccountsRequest({
     const positionNameById = new Map(
       currentPositions.map((position) => [position.id, position.displayName]),
     );
-    const didUpdate = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => accounts.setPositionOrder(validation.value.positionIds),
-      buildEvent: (saved) => saved
-        ? {
-            actor: buildAuditActor(access.profile),
-            category: "administration",
-            action: "admin.position_order_update",
-            summary: "Изменён порядок должностей",
-            details: [{
-              label: "Новый порядок",
-              value: validation.value.positionIds
-                .map((id) => positionNameById.get(id) ?? id)
-                .join(" → "),
-            }],
-            targetType: "account_position",
-          }
-        : undefined,
-    });
+    let didUpdate = false;
+    try {
+      didUpdate = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: async () => accounts.setPositionOrder(
+          validation.value.positionIds,
+          await canAssignAdminNavigation(),
+        ),
+        buildEvent: (saved) => saved
+          ? {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: "admin.position_order_update",
+              summary: "Изменён порядок должностей",
+              details: [{
+                label: "Новый порядок",
+                value: validation.value.positionIds
+                  .map((id) => positionNameById.get(id) ?? id)
+                  .join(" → "),
+              }],
+              targetType: "account_position",
+            }
+          : undefined,
+      });
+    } catch (error) {
+      if (error instanceof ProtectedPositionMutationError) {
+        sendProtectedPositionMutationDenied(res);
+        return;
+      }
+      throw error;
+    }
     if (!didUpdate) {
       sendJson(res, 409, {
         error: {
@@ -7460,6 +7574,7 @@ async function handleAdminAccountsRequest({
     sendJson(res, 200, {
       positions: await accounts.listPositions(),
       canAssignAdminNavigation: await canAssignAdminNavigation(),
+      canManageProtectedPositions: await canAssignAdminNavigation(),
     });
     return;
   }
@@ -7479,23 +7594,42 @@ async function handleAdminAccountsRequest({
       sendJson(res, 409, { error: { code: "invalid_response", message: "Должность администратора нельзя изменить или удалить." } });
       return;
     }
+    if (
+      existing.isAdminProtected === true &&
+      !(await canAssignAdminNavigation())
+    ) {
+      sendProtectedPositionMutationDenied(res);
+      return;
+    }
     if (req.method === "DELETE") {
-      const result = await runAuditedMutation({
-        transaction: databaseTransaction,
-        audit,
-        mutate: () => accounts.deletePosition(id),
-        buildEvent: (deleteResult) => deleteResult === "deleted"
-          ? {
-              actor: buildAuditActor(access.profile),
-              category: "administration",
-              action: "admin.position_delete",
-              summary: `Удалена должность «${existing.displayName}»`,
-              details: buildPositionAuditDetails(existing),
-              targetType: "account_position",
-              targetId: id,
-            }
-          : undefined,
-      });
+      let result: Awaited<ReturnType<AccountsRepository["deletePosition"]>>;
+      try {
+        result = await runAuditedMutation({
+          transaction: databaseTransaction,
+          audit,
+          mutate: async () => accounts.deletePosition(
+            id,
+            await canAssignAdminNavigation(),
+          ),
+          buildEvent: (deleteResult) => deleteResult === "deleted"
+            ? {
+                actor: buildAuditActor(access.profile),
+                category: "administration",
+                action: "admin.position_delete",
+                summary: `Удалена должность «${existing.displayName}»`,
+                details: buildPositionAuditDetails(existing),
+                targetType: "account_position",
+                targetId: id,
+              }
+            : undefined,
+        });
+      } catch (error) {
+        if (error instanceof ProtectedPositionMutationError) {
+          sendProtectedPositionMutationDenied(res);
+          return;
+        }
+        throw error;
+      }
       if (result === "in_use") {
         sendJson(res, 409, { error: { code: "invalid_response", message: "Должность используется учётными записями." } });
         return;
@@ -7526,22 +7660,34 @@ async function handleAdminAccountsRequest({
       sendAdminNavigationAssignmentDenied(res);
       return;
     }
-    const position = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => accounts.updatePosition({ id, ...validation.value }),
-      buildEvent: (updatedPosition) => updatedPosition === undefined
-        ? undefined
-        : {
-            actor: buildAuditActor(access.profile),
-            category: "administration",
-            action: "admin.position_update",
-            summary: `Изменена должность «${updatedPosition.displayName}»`,
-            details: buildPositionAuditDetails(updatedPosition),
-            targetType: "account_position",
-            targetId: id,
-          },
-    });
+    let position: AdminPositionSummary | undefined;
+    try {
+      position = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: async () => accounts.updatePosition(
+          { id, ...validation.value },
+          await canAssignAdminNavigation(),
+        ),
+        buildEvent: (updatedPosition) => updatedPosition === undefined
+          ? undefined
+          : {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: "admin.position_update",
+              summary: `Изменена должность «${updatedPosition.displayName}»`,
+              details: buildPositionAuditDetails(updatedPosition),
+              targetType: "account_position",
+              targetId: id,
+            },
+      });
+    } catch (error) {
+      if (error instanceof ProtectedPositionMutationError) {
+        sendProtectedPositionMutationDenied(res);
+        return;
+      }
+      throw error;
+    }
     sendJson(res, 200, { position });
     return;
   }
@@ -7964,6 +8110,16 @@ function sendProtectedAccountMutationDenied(res: ServerResponse) {
   });
 }
 
+function sendProtectedPositionMutationDenied(res: ServerResponse) {
+  sendJson(res, 403, {
+    error: {
+      code: "access_denied",
+      message:
+        "Защищённую должность может изменить только исходный аккаунт admin.",
+    },
+  });
+}
+
 function validateUpdatePositionRequest(input: unknown):
   | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
@@ -8118,6 +8274,24 @@ function validateSetAccountProtectionRequest(
   return {
     ok: true,
     value: { userId, isProtected: input.isProtected },
+  };
+}
+
+function validateSetPositionProtectionRequest(
+  input: unknown,
+  id: string,
+):
+  | { ok: true; value: { id: string; isProtected: boolean } }
+  | { ok: false; errors: string[] } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return { ok: false, errors: ["Payload must be a JSON object."] };
+  }
+  if (typeof input.isProtected !== "boolean") {
+    return { ok: false, errors: ["isProtected must be a boolean."] };
+  }
+  return {
+    ok: true,
+    value: { id, isProtected: input.isProtected },
   };
 }
 

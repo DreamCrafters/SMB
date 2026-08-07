@@ -51,7 +51,7 @@ test("positions can combine the unified workspace with guarded admin tabs", asyn
   assert.match(appSource, /resolveAllowedWorkspaceKind\(/u);
   assert.match(
     appSource,
-    /position\.accountType === "admin" \|\|\s*positionOrderDraft !== undefined \|\|\s*isSavingPositionOrder/u,
+    /position\.accountType === "admin" \|\|\s*isProtectedMutationRestricted \|\|\s*positionOrderDraft !== undefined \|\|\s*isSavingPositionOrder/u,
   );
   assert.equal(appSource.includes("Сохранить порядок"), false);
   assert.match(appSource, />\s*Выше\s*</u);

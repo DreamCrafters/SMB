@@ -44,6 +44,7 @@ export type AdminPositionSummary = {
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
   isProtected: boolean;
+  isAdminProtected: boolean;
   usageCount: number;
   createdAt: string;
 };
@@ -51,6 +52,7 @@ export type AdminPositionSummary = {
 export type AdminPositionsListResponse = {
   positions: AdminPositionSummary[];
   canAssignAdminNavigation: boolean;
+  canManageProtectedPositions: boolean;
 };
 export type SaveAdminPositionOrderRequest = { positionIds: AccountPosition[] };
 export type SaveAdminPositionRequest = {
@@ -59,6 +61,14 @@ export type SaveAdminPositionRequest = {
   boardAssignmentAccess: BoardAssignmentAccess;
 };
 export type SaveAdminPositionResponse = { position: AdminPositionSummary };
+
+export type SetAdminPositionProtectedRequest = {
+  id: AccountPosition;
+  isProtected: boolean;
+};
+
+export type SetAdminPositionProtectedResponse =
+  SetAdminPositionProtectedRequest;
 
 export type SetAdminAccountNavigationRequest = {
   accessId: string;

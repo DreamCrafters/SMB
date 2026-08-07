@@ -14,6 +14,8 @@ import type {
   SetAdminAccountLoginEnabledResponse,
   SetAdminAccountProtectedRequest,
   SetAdminAccountProtectedResponse,
+  SetAdminPositionProtectedRequest,
+  SetAdminPositionProtectedResponse,
   SetAdminAccountPositionRequest,
   SetAdminAccountPositionResponse,
   SetAdminAccountNavigationRequest,
@@ -89,6 +91,7 @@ export type AdminPositionsResult =
       status: "ready";
       positions: AdminPositionSummary[];
       canAssignAdminNavigation: boolean;
+      canManageProtectedPositions: boolean;
     }
   | AdminAccountsErrorState;
 export type SaveAdminPositionResult =
@@ -96,6 +99,13 @@ export type SaveAdminPositionResult =
   | AdminAccountsErrorState;
 export type DeleteAdminPositionResult =
   | { status: "ready" }
+  | AdminAccountsErrorState;
+export type SetAdminPositionProtectedResult =
+  | {
+      status: "ready";
+      id: string;
+      isProtected: boolean;
+    }
   | AdminAccountsErrorState;
 
 export function canDeleteAdminPosition(position: AdminPositionSummary) {
@@ -156,6 +166,7 @@ export async function saveAdminPositionOrder(
         status: "ready",
         positions: payload.positions,
         canAssignAdminNavigation: payload.canAssignAdminNavigation,
+        canManageProtectedPositions: payload.canManageProtectedPositions,
       };
     }
     return {
@@ -208,6 +219,54 @@ export async function deleteAdminPosition(
   }
 }
 
+export async function setAdminPositionProtected(
+  value: SetAdminPositionProtectedRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<SetAdminPositionProtectedResult> {
+  const path = `${ADMIN_POSITIONS_PATH}/${encodeURIComponent(value.id)}/protection`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+  try {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify({ isProtected: value.isProtected }),
+    });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Не удалось изменить защиту должности.",
+      );
+    }
+    if (isSetAdminPositionProtectedResponse(payload)) {
+      return { status: "ready", ...payload };
+    }
+    return {
+      status: "error",
+      message: "Сервер вернул защиту должности в неподдерживаемом формате.",
+      code: "invalid_response",
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return { status: "error", message: "Изменение защиты отменено." };
+    }
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось изменить защиту должности.",
+        { baseUrl },
+      ),
+      code: "network_error",
+    };
+  }
+}
+
 async function requestPositions(
   method: "GET",
   body: undefined,
@@ -223,6 +282,7 @@ async function requestPositions(
         status: "ready",
         positions: payload.positions,
         canAssignAdminNavigation: payload.canAssignAdminNavigation,
+        canManageProtectedPositions: payload.canManageProtectedPositions,
       };
     }
     return { status: "error", message: "Сервер вернул должности в неподдерживаемом формате.", code: "invalid_response" };
@@ -737,7 +797,8 @@ function isAdminPositionsListResponse(value: unknown): value is AdminPositionsLi
     isRecord(value) &&
     Array.isArray(value.positions) &&
     value.positions.every(isAdminPositionSummary) &&
-    typeof value.canAssignAdminNavigation === "boolean"
+    typeof value.canAssignAdminNavigation === "boolean" &&
+    typeof value.canManageProtectedPositions === "boolean"
   );
 }
 
@@ -758,8 +819,19 @@ function isAdminPositionSummary(value: unknown): value is AdminPositionSummary {
       value.boardAssignmentAccess as (typeof boardAssignmentAccessLevels)[number],
     ) &&
     typeof value.isProtected === "boolean" &&
+    typeof value.isAdminProtected === "boolean" &&
     typeof value.usageCount === "number" &&
     typeof value.createdAt === "string"
+  );
+}
+
+function isSetAdminPositionProtectedResponse(
+  value: unknown,
+): value is SetAdminPositionProtectedResponse {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.isProtected === "boolean"
   );
 }
 

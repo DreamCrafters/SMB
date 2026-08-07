@@ -2766,6 +2766,20 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "051_protected_account_positions",
+    statements: [
+      `
+      alter table account_positions
+        add column is_admin_protected tinyint(1) not null default 0;
+      `,
+      `
+      update account_positions
+      set is_admin_protected = 1
+      where id = 'administrator';
+      `,
+    ],
+  },
 ];
 
 function buildInitialProductBrandInsert() {

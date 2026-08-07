@@ -67,6 +67,7 @@ test("delegated account manager preserves disabled admin tabs while editing busi
         return jsonResponse({
           positions: [position],
           canAssignAdminNavigation: false,
+          canManageProtectedPositions: false,
         });
       }
       if (
@@ -247,6 +248,7 @@ function buildHybridPosition() {
     ],
     boardAssignmentAccess: "none",
     isProtected: false,
+    isAdminProtected: false,
     usageCount: 1,
     createdAt: "2026-08-03T08:00:00.000Z",
   };

@@ -176,6 +176,7 @@ import {
   setAdminAccountLoginEnabled,
   setAdminAccountProtected,
   setAdminAccountPosition,
+  setAdminPositionProtected,
   updateAdminPosition,
   type AdminAccountsListResult,
   type AdminPositionsResult,
@@ -9636,6 +9637,7 @@ function AdminAccountsWorkspace({
     undefined,
   );
   const [protectingUserId, setProtectingUserId] = useState<string>();
+  const [protectingPositionId, setProtectingPositionId] = useState<string>();
   const [updatingPositionAccessId, setUpdatingPositionAccessId] = useState<
     string | undefined
   >(undefined);
@@ -9649,6 +9651,9 @@ function AdminAccountsWorkspace({
   const canManageProtectedAccounts =
     accountsState.status === "ready" &&
     accountsState.canManageProtectedAccounts;
+  const canManageProtectedPositions =
+    positionsState.status === "ready" &&
+    positionsState.canManageProtectedPositions;
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
   const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
@@ -9788,7 +9793,11 @@ function AdminAccountsWorkspace({
   }
 
   function openPositionModal(position?: AdminPositionSummary) {
-    if (positionOrderDraft !== undefined || isSavingPositionOrder) {
+    if (
+      positionOrderDraft !== undefined ||
+      isSavingPositionOrder ||
+      (position?.isAdminProtected === true && !canManageProtectedPositions)
+    ) {
       return;
     }
 
@@ -9848,6 +9857,7 @@ function AdminAccountsWorkspace({
   async function handleDeletePosition(position: AdminPositionSummary) {
     if (
       !canDeleteAdminPosition(position) ||
+      (position.isAdminProtected && !canManageProtectedPositions) ||
       deletingPositionId !== undefined ||
       positionOrderDraft !== undefined ||
       isSavingPositionOrder
@@ -9877,6 +9887,21 @@ function AdminAccountsWorkspace({
       isSavingPositionOrder ||
       deletingPositionId !== undefined ||
       isSubmitting
+    ) {
+      return;
+    }
+
+    const currentPositions = positionOrderDraft ?? positionsState.positions;
+    const currentIndex = currentPositions.findIndex(
+      (position) => position.id === positionId,
+    );
+    const movedPositions = [
+      currentPositions[currentIndex],
+      currentPositions[currentIndex + direction],
+    ];
+    if (
+      !canManageProtectedPositions &&
+      movedPositions.some((position) => position?.isAdminProtected === true)
     ) {
       return;
     }
@@ -9915,6 +9940,37 @@ function AdminAccountsWorkspace({
     onShowToast(
       "Порядок сохранён",
       "Списки должностей и учётных записей обновлены.",
+    );
+    setRefreshVersion((version) => version + 1);
+  }
+
+  async function handleSetPositionProtected(
+    position: AdminPositionSummary,
+    isProtected: boolean,
+  ) {
+    if (
+      !canManageProtectedPositions ||
+      protectingPositionId !== undefined ||
+      (position.accountType === "admin" && !isProtected)
+    ) {
+      return;
+    }
+    setProtectingPositionId(position.id);
+    setWorkspaceStatus("");
+    const result = await setAdminPositionProtected({
+      id: position.id,
+      isProtected,
+    });
+    setProtectingPositionId(undefined);
+    if (result.status !== "ready") {
+      setWorkspaceStatus(result.message);
+      return;
+    }
+    onShowToast(
+      "Защита изменена",
+      isProtected
+        ? `Должность «${position.displayName}» защищена.`
+        : `Защита должности «${position.displayName}» отключена.`,
     );
     setRefreshVersion((version) => version + 1);
   }
@@ -10584,13 +10640,28 @@ function AdminAccountsWorkspace({
                 <tr>
                   <th>Порядок</th>
                   <th>Должность</th>
+                  <th>Защита</th>
                   <th>Вкладки слева</th>
                   <th>Аккаунты</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {displayedPositions.map((position, index) => (
+                {displayedPositions.map((position, index) => {
+                  const isProtectedMutationRestricted =
+                    position.isAdminProtected &&
+                    !canManageProtectedPositions;
+                  const previousPosition = displayedPositions[index - 1];
+                  const nextPosition = displayedPositions[index + 1];
+                  const isMoveUpProtected =
+                    !canManageProtectedPositions &&
+                    (position.isAdminProtected ||
+                      previousPosition?.isAdminProtected === true);
+                  const isMoveDownProtected =
+                    !canManageProtectedPositions &&
+                    (position.isAdminProtected ||
+                      nextPosition?.isAdminProtected === true);
+                  return (
                   <tr key={position.id}>
                     <td>
                       <div className="admin-position-order-cell">
@@ -10604,6 +10675,7 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageAccess ||
                             index === 0 ||
+                            isMoveUpProtected ||
                             isSavingPositionOrder ||
                             deletingPositionId !== undefined ||
                             isSubmitting
@@ -10619,6 +10691,7 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageAccess ||
                             index === displayedPositions.length - 1 ||
+                            isMoveDownProtected ||
                             isSavingPositionOrder ||
                             deletingPositionId !== undefined ||
                             isSubmitting
@@ -10630,6 +10703,43 @@ function AdminAccountsWorkspace({
                       </div>
                     </td>
                     <td>{position.displayName}</td>
+                    <td>
+                      <label
+                        className="admin-account-protection-control"
+                        title={
+                          position.accountType === "admin"
+                            ? "Защиту должности администратора нельзя отключить."
+                            : !canManageProtectedPositions
+                              ? "Защиту может изменять только исходный аккаунт admin."
+                              : undefined
+                        }
+                      >
+                        <input
+                          aria-label={`Защитить должность ${position.displayName}`}
+                          type="checkbox"
+                          checked={position.isAdminProtected}
+                          disabled={
+                            !canManageProtectedPositions ||
+                            position.accountType === "admin" ||
+                            protectingPositionId !== undefined
+                          }
+                          onChange={(event) => {
+                            const isProtected = event.currentTarget.checked;
+                            void handleSetPositionProtected(
+                              position,
+                              isProtected,
+                            );
+                          }}
+                        />
+                        <span>
+                          {protectingPositionId === position.id
+                            ? "Сохраняем…"
+                            : position.isAdminProtected
+                              ? "Защищена"
+                              : "Обычная"}
+                        </span>
+                      </label>
+                    </td>
                     <td>{position.navigationItems
                       .map((id) => formatPositionNavigationItem(position, id))
                       .join(", ")}</td>
@@ -10642,6 +10752,7 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageAccess ||
                             position.accountType === "admin" ||
+                            isProtectedMutationRestricted ||
                             positionOrderDraft !== undefined ||
                             isSavingPositionOrder
                           }
@@ -10655,6 +10766,8 @@ function AdminAccountsWorkspace({
                           title={
                             position.accountType === "admin"
                               ? "Должность администратора удалить нельзя."
+                              : isProtectedMutationRestricted
+                                ? "Защищённую должность может удалить только исходный аккаунт admin."
                               : position.usageCount > 0
                                 ? "Сначала назначьте этим аккаунтам другую должность."
                                 : undefined
@@ -10662,6 +10775,7 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageAccess ||
                             !canDeleteAdminPosition(position) ||
+                            isProtectedMutationRestricted ||
                             deletingPositionId === position.id ||
                             positionOrderDraft !== undefined ||
                             isSavingPositionOrder
@@ -10678,7 +10792,8 @@ function AdminAccountsWorkspace({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

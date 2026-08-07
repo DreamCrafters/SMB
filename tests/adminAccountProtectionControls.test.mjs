@@ -64,6 +64,7 @@ test("delegated account manager cannot change protected account controls", async
         return jsonResponse({
           positions: [buildPosition()],
           canAssignAdminNavigation: false,
+          canManageProtectedPositions: false,
         });
       }
       if (url.pathname === "/api/audit/events" && method === "POST") {
@@ -108,6 +109,25 @@ test("delegated account manager cannot change protected account controls", async
     assert.equal(reset?.disabled, true);
     assert.equal(toggle?.disabled, true);
     assert.equal(remove?.disabled, true);
+
+    const positionRow = rootElement.querySelector(
+      ".admin-positions-table tbody tr",
+    );
+    assert.ok(positionRow);
+    const positionProtection = positionRow.querySelector(
+      'input[aria-label="Защитить должность Администратор подразделения"]',
+    );
+    const editPosition = Array.from(positionRow.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Изменить",
+    );
+    const removePosition = Array.from(positionRow.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Удалить",
+    );
+    assert.ok(positionProtection);
+    assert.equal(positionProtection.checked, true);
+    assert.equal(positionProtection.disabled, true);
+    assert.equal(editPosition?.disabled, true);
+    assert.equal(removePosition?.disabled, true);
 
     await React.act(async () => root.unmount());
   } finally {
@@ -171,7 +191,8 @@ function buildPosition() {
     capabilities: ["platform.manage_users", "platform.manage_access"],
     boardAssignmentAccess: "none",
     isProtected: false,
-    usageCount: 1,
+    isAdminProtected: true,
+    usageCount: 0,
     createdAt: "2026-08-03T08:00:00.000Z",
   };
 }
