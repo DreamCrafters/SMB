@@ -88,11 +88,3 @@ export type ProductionBrandLabel = string;
 export type ProductionBrandsResponse = {
   labels: ProductionBrandLabel[];
 };
-
-export type CreateProductionBrandRequest = {
-  label: string;
-};
-
-export type ProductionBrandResponse = {
-  label: ProductionBrandLabel;
-};

@@ -20,6 +20,8 @@ export const auditEventActions = [
   "data.import",
   "production_plan.save",
   "production_brand.create",
+  "production_brand.correct",
+  "production_brand.import",
   "refractory_report.submit",
   "refractory_report.approve",
   "refractory_report.reject",

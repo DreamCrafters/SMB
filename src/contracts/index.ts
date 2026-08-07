@@ -7,6 +7,7 @@ export * from "./businessOverview";
 export * from "./boardAssignments";
 export * from "./organization";
 export * from "./productionPlans";
+export * from "./productBrands";
 export * from "./refractoryReports";
 export * from "./refractoryWagons";
 export * from "./laboratoryResults";

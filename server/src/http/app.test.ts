@@ -26,12 +26,13 @@ import type {
   BankVolumeReferenceDataSource,
   LaboratoryReferenceDataSource,
   NotificationRecipients,
-  ProductionBrandsDataSource,
 } from "../integrations/googleSheetsReference.js";
+import type { ProductionBrandsDataSource } from "../domain/productionBrandsDataSource.js";
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import type { MaxNotificationService } from "../integrations/maxNotifications.js";
 import type { DispatcherSpreadsheetImportService } from "../integrations/dispatcherSpreadsheetImport.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
+import type { ProductBrandsRepository } from "../repositories/productBrandsRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import {
   productionSnapshotConfirmation,
@@ -267,10 +268,6 @@ const emptyReferenceDataSource: DispatcherReferenceDataSource = {
 const passthroughProductionBrands: ProductionBrandsDataSource = {
   async list() {
     return [];
-  },
-  async create(label, commitCreated) {
-    await commitCreated(label);
-    return { label, created: true };
   },
   async resolveReferences(references) {
     return { ok: true, references };
@@ -1066,6 +1063,10 @@ test("laboratory review access reads every journal by name but cannot change lab
       const banksResponse = await fetch(`${baseUrl}/api/laboratory/banks`, {
         headers,
       });
+      const productBrandJournalResponse = await fetch(
+        `${baseUrl}/api/laboratory/product-brands`,
+        { headers },
+      );
       const kilnJournalResponse = await fetch(
         `${baseUrl}/api/laboratory/rotary-kiln-2-journal?dateFrom=2026-07-01`,
         { headers },
@@ -1184,6 +1185,7 @@ test("laboratory review access reads every journal by name but cannot change lab
       );
       assert.equal(createResponse.status, 403);
       assert.equal(banksResponse.status, 403);
+      assert.equal(productBrandJournalResponse.status, 403);
       assert.equal(kilnJournalResponse.status, 200);
       assert.equal(kilnJournalCorrectionResponse.status, 403);
       assert.equal(kilnPersonnelOptionsResponse.status, 403);
@@ -1805,9 +1807,6 @@ test("unshaped product sample journal drafts, saves, corrects, and filters recor
     async list() {
       return ["Шамот молотый"];
     },
-    async create() {
-      throw new Error("not used");
-    },
     async resolveReferences(references) {
       assert.equal(insideTransaction, false);
       const reference = references[0];
@@ -1817,7 +1816,7 @@ test("unshaped product sample journal drafts, saves, corrects, and filters recor
         return { ok: false, missing: reference };
       }
       if (reference.label === "Источник недоступен") {
-        throw new Error("Google Sheets is unavailable");
+        throw new Error("Product brand journal is unavailable");
       }
 
       return {
@@ -2270,10 +2269,6 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
     async list() {
       return ["ШКУ-32"];
     },
-    async create(label, commitCreated) {
-      await commitCreated(label);
-      return { label, created: true };
-    },
     async resolveReferences(references) {
       return {
         ok: true,
@@ -2486,10 +2481,6 @@ test("refractory wagon journal creates real wagon options for green product qual
   const productionBrands: ProductionBrandsDataSource = {
     async list() {
       return ["ШКУ-32"];
-    },
-    async create(label, commitCreated) {
-      await commitCreated(label);
-      return { label, created: true };
     },
     async resolveReferences(references) {
       return {
@@ -3262,7 +3253,6 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
   };
   const productionBrands: ProductionBrandsDataSource = {
     async list() { return ["ШБО-69"]; },
-    async create() { throw new Error("not used"); },
     async resolveReferences(references) {
       const missing = references.find(
         (reference) =>
@@ -4059,10 +4049,6 @@ test("admin dispatcher editor uses and enforces the shared production brands", a
   const productionBrands: ProductionBrandsDataSource = {
     async list() {
       return ["ФЛ-1", "ША-22"];
-    },
-    async create(label, commitCreated) {
-      await commitCreated(label);
-      return { label, created: true };
     },
     async resolveReferences(references) {
       return {
@@ -7485,127 +7471,162 @@ test("dispatcher daily plan excludes the selected-day fact from the live deviati
   }
 });
 
-test("production brand API lets dispatcher add a normalized Google Sheets label", async () => {
-  const profile = buildProductionProfile("dispatcher");
-  const labels: string[] = [];
-  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
-  const auditRepository: AuditRepository = {
-    async record(event) {
-      recorded.push(event);
-    },
-    async listReport() {
-      throw new Error("not used");
+test("product brand journal is the managed source for the journal and every brand selector", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    displayName: "Иванова Анна",
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "laboratory_assistant",
+      positionDisplayName: "Лаборант",
+      navigationItems: ["business.laboratory_results"],
+      capabilities: ["business.manage_laboratory_results"],
     },
   };
-  const productionBrands: ProductionBrandsDataSource = {
+  const baseRecord = {
+    name: "ША-8",
+    description: "Шамотное изделие",
+    productClass: "Формованный",
+    applicationIndustry: "Металлургия",
+    normativeDocument: "ГОСТ 390-2018",
+    geometry: "230×114×65",
+    al2o3: "30 %",
+    fe2o3: "3 %",
+    strength: "20 Н/мм²",
+  };
+  let requestedFilters: Parameters<ProductBrandsRepository["listRecords"]>[0];
+  let createdInput: Parameters<ProductBrandsRepository["createRecord"]>[0] | undefined;
+  let updatedInput: Parameters<ProductBrandsRepository["updateRecord"]>[0] | undefined;
+  const productBrands: ProductBrandsRepository = {
     async list() {
-      return labels;
+      return ["ША-8"];
     },
     async resolveReferences(references) {
+      return { ok: true, references };
+    },
+    async listRecords(filters) {
+      requestedFilters = filters;
+      return [{
+        id: "brand-1",
+        ...baseRecord,
+        createdAt: "2026-08-07T08:00:00.000Z",
+        updatedAt: "2026-08-07T08:00:00.000Z",
+      }];
+    },
+    async createRecord(input) {
+      createdInput = input;
       return {
-        ok: true,
-        references: references.map((reference) => ({
-          fieldName: reference.fieldName,
-          label: reference.label,
-        })),
+        id: "brand-1",
+        ...baseRecord,
+        createdAt: "2026-08-07T08:00:00.000Z",
+        updatedAt: "2026-08-07T08:00:00.000Z",
       };
     },
-    async create(input, commitCreated) {
-      const existing = labels.find(
-        (label) =>
-          label.toLocaleLowerCase("ru-RU") === input.toLocaleLowerCase("ru-RU"),
-      );
-
-      if (existing !== undefined) {
-        return { label: existing, created: false };
-      }
-
-      labels.push(input);
-      await commitCreated(input);
-      return { label: input, created: true };
+    async updateRecord(input) {
+      updatedInput = input;
+      return {
+        before: {
+          id: "brand-1",
+          ...baseRecord,
+          createdAt: "2026-08-07T08:00:00.000Z",
+          updatedAt: "2026-08-07T08:00:00.000Z",
+        },
+        record: {
+          id: "brand-1",
+          ...baseRecord,
+          description: input.record.description,
+          createdAt: "2026-08-07T08:00:00.000Z",
+          updatedAt: "2026-08-07T09:00:00.000Z",
+        },
+      };
     },
   };
-  await withApiServer(async (baseUrl) => {
-    const headers = {
-      "Content-Type": "application/json",
-      Cookie: `${productionConfig.session.cookieName}=prod-session`,
-    };
-    const createResponse = await fetch(`${baseUrl}/api/production-brands`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        label: "  ПБ-5   огнеупорный  ",
-      }),
-    });
-    const created = await createResponse.json();
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    adminDatabase,
+    authService: buildAuthService({ profile }),
+    productionBrands: productBrands,
+    productBrandJournal: productBrands,
+    audit: {
+      async record(event) {
+        auditEvents.push(event);
+      },
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
 
-    assert.equal(createResponse.status, 201);
-    assert.equal(
-      isRecord(created) ? created.label : undefined,
-      "ПБ-5 огнеупорный",
+  try {
+    const listResponse = await fetch(
+      `${baseUrl}/api/laboratory/product-brands?query=%D0%A8%D0%90`,
+      { headers },
     );
-    assert.equal(recorded.at(-1)?.action, "production_brand.create");
-
-    const duplicateResponse = await fetch(`${baseUrl}/api/production-brands`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ label: "пб-5 огнеупорный" }),
-    });
-    assert.equal(duplicateResponse.status, 200);
-    assert.equal(recorded.length, 1);
-
-    const unexpectedFieldResponse = await fetch(
-      `${baseUrl}/api/production-brands`,
+    const createResponse = await fetch(
+      `${baseUrl}/api/laboratory/product-brands`,
+      { method: "POST", headers, body: JSON.stringify(baseRecord) },
+    );
+    const updateResponse = await fetch(
+      `${baseUrl}/api/laboratory/product-brands/brand-1`,
       {
-        method: "POST",
+        method: "PATCH",
         headers,
         body: JSON.stringify({
-          label: "ПБ-6",
-          createdByUserId: "forged-user",
+          ...baseRecord,
+          description: "Исправленное описание",
         }),
       },
     );
-    assert.equal(unexpectedFieldResponse.status, 400);
-    assert.equal(labels.length, 1);
-
-    const nestedLabelResponse = await fetch(
+    const selectorResponse = await fetch(`${baseUrl}/api/production-brands`, {
+      headers,
+    });
+    const legacyCreateResponse = await fetch(
       `${baseUrl}/api/production-brands`,
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ label: { value: "ПБ-6" } }),
+        body: JSON.stringify({ label: "Новая марка" }),
       },
     );
-    assert.equal(nestedLabelResponse.status, 400);
-    assert.equal(labels.length, 1);
 
-    profile.activeAccess.capabilities = ["business.view_dispatcher_feed"];
-    const listResponse = await fetch(`${baseUrl}/api/production-brands`, {
-      headers,
-    });
-    const list = await listResponse.json();
     assert.equal(listResponse.status, 200);
-    assert.equal(
-      isRecord(list) && Array.isArray(list.labels)
-        ? list.labels.length
-        : undefined,
-      1,
+    assert.equal(createResponse.status, 201);
+    assert.equal(updateResponse.status, 200);
+    assert.equal(selectorResponse.status, 200);
+    assert.deepEqual(await selectorResponse.json(), { labels: ["ША-8"] });
+    assert.equal(legacyCreateResponse.status, 405);
+    assert.deepEqual(requestedFilters, { query: "ША" });
+    assert.equal(createdInput?.record.normalizedName, "ша-8");
+    assert.equal(createdInput?.submittedByUserId, profile.userId);
+    assert.equal(updatedInput?.record.description, "Исправленное описание");
+    assert.equal(updatedInput?.correctedByDisplayName, "Иванова Анна");
+    assert.deepEqual(
+      auditEvents.map((event) => event.action),
+      ["production_brand.create", "production_brand.correct"],
     );
-
-    const forbiddenCreate = await fetch(`${baseUrl}/api/production-brands`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ label: "Ш-1" }),
-    });
-    assert.equal(forbiddenCreate.status, 403);
-  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined,
-  adminDatabase, productionConfig, buildAuthService({ profile }), undefined,
-  undefined, auditRepository, undefined, productionBrands);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
 });
 
-test("test environment rejects production brand creation before Google Sheets write", async () => {
+test("production brand selector API is read-only outside the laboratory journal", async () => {
   const profile = buildProductionProfile("dispatcher");
-  let createCalls = 0;
   const productionBrands: ProductionBrandsDataSource = {
     async list() {
       return ["ША-22"];
@@ -7613,46 +7634,27 @@ test("test environment rejects production brand creation before Google Sheets wr
     async resolveReferences(references) {
       return { ok: true, references };
     },
-    async create(label) {
-      createCalls += 1;
-      return { label, created: true };
-    },
   };
+  await withApiServer(async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: `${productionConfig.session.cookieName}=prod-session`,
+    };
+    const listResponse = await fetch(`${baseUrl}/api/production-brands`, {
+      headers,
+    });
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(await listResponse.json(), { labels: ["ША-22"] });
 
-  await withApiServer(
-    async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/production-brands`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: `${config.session.cookieName}=prod-session`,
-        },
-        body: JSON.stringify({ label: "Тестовая марка" }),
-      });
-      const payload = await response.json();
-
-      assert.equal(response.status, 403);
-      assert.equal(
-        isRecord(payload) && isRecord(payload.error)
-          ? payload.error.message
-          : undefined,
-        "На тестовом сайте добавление марок отключено.",
-      );
-      assert.equal(createCalls, 0);
-    },
-    dispatcherSubmissions,
-    emptyReferenceDataSource,
-    undefined,
-    undefined,
-    adminDatabase,
-    config,
-    buildAuthService({ profile }),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    productionBrands,
-  );
+    const createResponse = await fetch(`${baseUrl}/api/production-brands`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ label: "Ш-1" }),
+    });
+    assert.equal(createResponse.status, 405);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined,
+  adminDatabase, productionConfig, buildAuthService({ profile }), undefined,
+  undefined, undefined, undefined, productionBrands);
 });
 
 test("production submission accepts only brands from the shared nomenclature", async () => {
@@ -7692,9 +7694,6 @@ test("production submission accepts only brands from the shared nomenclature", a
             })),
           }
         : { ok: false, missing };
-    },
-    async create() {
-      throw new Error("not used");
     },
   };
   const transaction: DatabaseTransactionRunner = {
@@ -8806,10 +8805,6 @@ test("refractory user reads the same shared production brand list", async () => 
     async list() {
       return ["ША-22", "Смесь МК", "Гранулы 0-5"];
     },
-    async create(label, commitCreated) {
-      await commitCreated(label);
-      return { label, created: true };
-    },
     async resolveReferences(references) {
       return { ok: true, references };
     },
@@ -9018,10 +9013,6 @@ test("refractory reports are submitted and reviewed independently through protec
   const productionBrands: ProductionBrandsDataSource = {
     async list() {
       return ["ША", "ША-22"];
-    },
-    async create(label, commitCreated) {
-      await commitCreated(label);
-      return { label, created: true };
     },
     async resolveReferences(references) {
       const canonical = new Map([

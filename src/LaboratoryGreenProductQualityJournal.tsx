@@ -79,7 +79,7 @@ export function LaboratoryGreenProductQualityJournal({
     heightSecond: true,
   });
   const { labels: productBrands, loadState: productBrandsLoadState } =
-    useProductionBrands({ creationDisabled: true });
+    useProductionBrands();
 
   useEffect(() => {
     if (isAdminPreviewMode || editingRecordId !== undefined) return;

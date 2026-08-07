@@ -217,15 +217,9 @@ import {
   requestDispatcherProductionBankContents,
   type DispatcherProductionBankContentsResult,
 } from "./services/dispatcherBankContents";
-import {
-  ProductBrandCreateControl,
-  ProductBrandPicker,
-} from "./ProductBrandPicker";
+import { ProductBrandPicker } from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
-import {
-  useProductionBrands,
-  type ProductBrandCreator,
-} from "./useProductionBrands";
+import { useProductionBrands } from "./useProductionBrands";
 import { formatUserShortName } from "./services/userDisplayName";
 import {
   markToastExiting,
@@ -4128,9 +4122,7 @@ export function DispatcherProductionReportFormBody({
   const {
     labels: brandLabels,
     loadState: brandLoadState,
-    createBrand: handleCreateBrand,
   } = useProductionBrands({
-    creationDisabled: isAdminPreviewMode || !isProductionApp,
     refreshVersion: brandRefreshVersion,
   });
   const [reportLoadState, setReportLoadState] = useState<
@@ -4327,7 +4319,6 @@ export function DispatcherProductionReportFormBody({
           monthToDateValues={monthToDateValues}
           reportDate={reportDate}
           status={status}
-          onCreateBrand={handleCreateBrand}
           onRetryBrands={() =>
             setBrandRefreshVersion((current) => current + 1)
           }
@@ -4349,7 +4340,6 @@ function ProductionReportEditor({
   monthToDateValues,
   reportDate,
   status,
-  onCreateBrand,
   onRetryBrands,
 }: {
   bankContentsState: DispatcherProductionBankContentsState;
@@ -4368,7 +4358,6 @@ function ProductionReportEditor({
   >;
   reportDate: string;
   status: string;
-  onCreateBrand: ProductBrandCreator;
   onRetryBrands: () => void;
 }) {
   const initialPayload = initialSubmission?.payload;
@@ -4414,12 +4403,6 @@ function ProductionReportEditor({
           </button>
         </div>
       ) : null}
-
-      {isAdminPreviewMode ||
-      !isProductionApp ||
-      brandLoadState.status !== "ready" ? null : (
-        <ProductBrandCreateControl onCreateBrand={onCreateBrand} />
-      )}
 
       <fieldset className="production-report-section">
         <legend>Огнеупорный цех</legend>

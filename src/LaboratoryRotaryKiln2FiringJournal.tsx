@@ -110,7 +110,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
   >({ shiftSupervisors: [], burnerOperators: [] });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const { labels: productBrands, loadState: productBrandsLoadState } =
-    useProductionBrands({ creationDisabled: true });
+    useProductionBrands();
 
   useEffect(() => {
     if (isAdminPreviewMode) return;

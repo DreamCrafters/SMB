@@ -10,6 +10,7 @@ import type {
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
+import { ProductBrandJournal } from "./ProductBrandJournal";
 import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
 import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
@@ -42,6 +43,7 @@ type ShowToast = (title: string, message: string) => void;
 type LaboratoryWorkspacePanel =
   | "results"
   | "banks"
+  | "brands"
   | "central-lab"
   | "quality-control"
   | "refractory-shop";
@@ -171,8 +173,10 @@ export function LaboratoryResultsWorkspace({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [productBrandRefreshVersion, setProductBrandRefreshVersion] =
+    useState(0);
   const { labels: productBrands, loadState: productBrandsLoadState } =
-    useProductionBrands({ creationDisabled: true });
+    useProductionBrands({ refreshVersion: productBrandRefreshVersion });
 
   useEffect(() => {
     if (activePanel !== "results") return;
@@ -455,6 +459,18 @@ export function LaboratoryResultsWorkspace({
           Банки
         </button>
         <button
+          aria-selected={activePanel === "brands"}
+          className={activePanel === "brands" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("brands");
+            setFormMessage("");
+          }}
+        >
+          Марки
+        </button>
+        <button
           aria-selected={activePanel === "central-lab"}
           className={activePanel === "central-lab" ? "is-active" : ""}
           role="tab"
@@ -574,6 +590,14 @@ export function LaboratoryResultsWorkspace({
       {activePanel === "banks" ? (
         <LaboratoryBanksPanel
           isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
+        />
+      ) : activePanel === "brands" ? (
+        <ProductBrandJournal
+          isAdminPreviewMode={isAdminPreviewMode}
+          onBrandSaved={() => {
+            setProductBrandRefreshVersion((value) => value + 1);
+          }}
           onShowToast={onShowToast}
         />
       ) : activePanel === "central-lab" ? (

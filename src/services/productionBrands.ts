@@ -1,7 +1,5 @@
 import {
-  type CreateProductionBrandRequest,
   type ProductionBrandLabel,
-  type ProductionBrandResponse,
   type ProductionBrandsResponse,
 } from "../contracts/productionPlans.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
@@ -28,10 +26,6 @@ export type ProductionBrandsLoadResult =
   | { status: "ready"; labels: ProductionBrandLabel[] }
   | ProductionBrandsError;
 
-export type ProductionBrandCreateResult =
-  | { status: "ready"; label: ProductionBrandLabel }
-  | ProductionBrandsError;
-
 export async function requestProductionBrands(
   options: ProductionBrandsOptions = {},
 ): Promise<ProductionBrandsLoadResult> {
@@ -48,26 +42,9 @@ export async function requestProductionBrands(
   return { status: "ready", labels: result.payload.labels };
 }
 
-export async function createProductionBrand(
-  value: CreateProductionBrandRequest,
-  options: ProductionBrandsOptions = {},
-): Promise<ProductionBrandCreateResult> {
-  const result = await requestJson("POST", value, options);
-
-  if (result.status === "error") {
-    return result;
-  }
-
-  if (!isProductionBrandResponse(result.payload)) {
-    return invalidResponse("Сервер не вернул сохранённую марку.");
-  }
-
-  return { status: "ready", label: result.payload.label };
-}
-
 async function requestJson(
-  method: "GET" | "POST",
-  body: CreateProductionBrandRequest | undefined,
+  method: "GET",
+  body: undefined,
   { baseUrl, signal }: ProductionBrandsOptions,
 ): Promise<
   | { status: "ready"; payload: unknown }
@@ -119,10 +96,6 @@ function isProductionBrandsResponse(value: unknown): value is ProductionBrandsRe
     Array.isArray(value.labels) &&
     value.labels.every(isProductionBrandLabel)
   );
-}
-
-function isProductionBrandResponse(value: unknown): value is ProductionBrandResponse {
-  return isRecord(value) && isProductionBrandLabel(value.label);
 }
 
 function isProductionBrandLabel(value: unknown): value is ProductionBrandLabel {

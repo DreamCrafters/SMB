@@ -56,7 +56,7 @@ export function LaboratoryUnshapedProductSampleJournal({
   const isSampleCodeAuto = useRef(true);
   const sampleCodeYear = useRef<number | undefined>(undefined);
   const { labels: productNames, loadState: productNamesLoadState } =
-    useProductionBrands({ creationDisabled: true });
+    useProductionBrands();
 
   useEffect(() => {
     if (isAdminPreviewMode || editingRecordId !== undefined) return;

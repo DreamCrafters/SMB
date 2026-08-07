@@ -1,18 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  createProductionBrand,
-  requestProductionBrands,
-} from "./services/productionBrands";
+import { requestProductionBrands } from "./services/productionBrands";
 import { readShortUserMessage } from "./services/userFacingMessages";
-
-export type ProductBrandCreateOutcome = {
-  label?: string;
-  message?: string;
-};
-
-export type ProductBrandCreator = (
-  label: string,
-) => Promise<ProductBrandCreateOutcome>;
 
 export type ProductionBrandLoadState =
   | { status: "loading" }
@@ -20,10 +8,8 @@ export type ProductionBrandLoadState =
   | { status: "error"; message: string };
 
 export function useProductionBrands({
-  creationDisabled = false,
   refreshVersion = 0,
 }: {
-  creationDisabled?: boolean;
   refreshVersion?: number;
 } = {}) {
   const [labels, setLabels] = useState<string[]>([]);
@@ -54,36 +40,9 @@ export function useProductionBrands({
     });
 
     return () => controller.abort();
-  }, [creationDisabled, refreshVersion]);
+  }, [refreshVersion]);
 
-  const createBrand: ProductBrandCreator = async (label) => {
-    if (creationDisabled) {
-      return { message: "Добавление марок отключено." };
-    }
-
-    const result = await createProductionBrand({ label });
-
-    if (result.status === "error") {
-      return {
-        message: readShortUserMessage(
-          result.message,
-          "Не удалось сохранить марку.",
-        ),
-      };
-    }
-
-    setLabels((current) => [
-      ...current.filter(
-        (item) => normalizeProductBrandKey(item) !==
-          normalizeProductBrandKey(result.label),
-      ),
-      result.label,
-    ].sort((left, right) => left.localeCompare(right, "ru-RU")));
-
-    return { label: result.label };
-  };
-
-  return { labels, loadState, createBrand };
+  return { labels, loadState };
 }
 
 export function normalizeProductBrandKey(value: string) {

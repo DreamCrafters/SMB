@@ -57,9 +57,8 @@ import {
   type ProductionCategory,
   type ProductionCategoryScheduleInput,
 } from "../domain/productionPlan.js";
-import {
-  normalizeProductionBrandLabelInput,
-} from "../domain/productionBrand.js";
+import { validateProductBrandSubmission } from "../domain/productBrandJournal.js";
+import { productBrandFields } from "../contracts/productBrands.js";
 import { validateRefractoryWagonSubmission } from "../domain/refractoryWagons.js";
 import type { RefractoryWagonSubmission } from "../contracts/refractoryWagons.js";
 import {
@@ -169,16 +168,21 @@ import {
   type SetAccountPositionInput,
 } from "../repositories/accountsRepository.js";
 import {
-  createGoogleSheetsProductionBrandsDataSource,
   createGoogleSheetsLaboratoryReferenceDataSource,
   createGoogleSheetsBankVolumeReferenceDataSource,
   createGoogleSheetsReferenceDataSource,
   type DispatcherReferenceDataSource,
   type BankVolumeReferenceDataSource,
   type LaboratoryReferenceDataSource,
-  type ProductionBrandReference,
-  type ProductionBrandsDataSource,
 } from "../integrations/googleSheetsReference.js";
+import type {
+  ProductionBrandReference,
+  ProductionBrandsDataSource,
+} from "../domain/productionBrandsDataSource.js";
+import {
+  ProductBrandNameAlreadyExistsError,
+  type ProductBrandsRepository,
+} from "../repositories/productBrandsRepository.js";
 import {
   createEmailNotificationService,
   type EmailNotificationService,
@@ -271,6 +275,7 @@ type AppDependencies = {
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsDataSource;
+  productBrandJournal?: ProductBrandsRepository;
   refractoryReports?: RefractoryReportsRepository;
   refractoryWagons?: RefractoryWagonsRepository;
   laboratoryReferenceDataSource?: LaboratoryReferenceDataSource;
@@ -300,6 +305,14 @@ type JsonPayload = Record<string, unknown> | unknown[];
 
 const maxBodyBytes = 100_000;
 const maxBoardAssignmentDocumentBytes = 10_000_000;
+const unavailableProductionBrandsDataSource: ProductionBrandsDataSource = {
+  async list() {
+    throw new Error("Product brand repository is not configured.");
+  },
+  async resolveReferences() {
+    throw new Error("Product brand repository is not configured.");
+  },
+};
 const devSessionCookie = "smb_dev_access_session";
 const devSessionHeader = "x-smb-dev-session";
 const accountHeader = "x-smb-account-id";
@@ -317,6 +330,8 @@ const laboratoryRawMaterialQualityRecordPathPattern =
   /^\/api\/laboratory\/raw-material-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryGreenProductQualityRecordPathPattern =
   /^\/api\/laboratory\/green-product-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const productBrandRecordPathPattern =
+  /^\/api\/laboratory\/product-brands\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryChemicalAnalysisProtocolPath =
   "/api/laboratory/chemical-analysis-journal/protocol.pdf";
 
@@ -348,9 +363,8 @@ export function createApiServer({
   ),
   dispatcherSpreadsheetImport,
   productionPlans,
-  productionBrands = createGoogleSheetsProductionBrandsDataSource(
-    config.googleSheetsReference,
-  ),
+  productionBrands = unavailableProductionBrandsDataSource,
+  productBrandJournal,
   refractoryReports,
   refractoryWagons,
   laboratoryReferenceDataSource = createGoogleSheetsLaboratoryReferenceDataSource(
@@ -552,8 +566,6 @@ export function createApiServer({
           devSessions,
           authService,
           productionBrands,
-          audit,
-          databaseTransaction,
         });
         return;
       }
@@ -685,6 +697,8 @@ export function createApiServer({
         url.pathname === "/api/laboratory/green-product-quality-options" ||
         url.pathname === "/api/laboratory/green-product-quality-journal" ||
         laboratoryGreenProductQualityRecordPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/product-brands" ||
+        productBrandRecordPathPattern.test(url.pathname) ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
         await handleLaboratoryRequest({
@@ -704,6 +718,7 @@ export function createApiServer({
           laboratoryRawMaterialQualityJournal,
           laboratoryGreenProductQualityJournal,
           productionBrands,
+          productBrandJournal,
           audit,
           databaseTransaction,
           now,
@@ -1061,7 +1076,7 @@ export function createApiServer({
               references: readProductionSubmissionBrandReferences(
                 visitorStateValidation.value.draft.payload,
               ),
-              logEvent: "production_brands.google_sheets_fetch_failed",
+              logEvent: "production_brands.database_read_failed",
             });
 
             if (references === undefined) return;
@@ -2056,6 +2071,7 @@ async function handleLaboratoryRequest({
   laboratoryRawMaterialQualityJournal,
   laboratoryGreenProductQualityJournal,
   productionBrands,
+  productBrandJournal,
   audit,
   databaseTransaction,
   now,
@@ -2086,6 +2102,7 @@ async function handleLaboratoryRequest({
     | LaboratoryGreenProductQualityJournalRepository
     | undefined;
   productionBrands: ProductionBrandsDataSource;
+  productBrandJournal: ProductBrandsRepository | undefined;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   now: () => Date;
@@ -2128,6 +2145,190 @@ async function handleLaboratoryRequest({
         message: "Результаты лабораторных испытаний недоступны.",
       },
     });
+    return;
+  }
+
+  const productBrandRecordMatch = productBrandRecordPathPattern.exec(
+    url.pathname,
+  );
+  if (
+    url.pathname === "/api/laboratory/product-brands" ||
+    productBrandRecordMatch !== null
+  ) {
+    if (productBrandJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала марок не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (productBrandRecordMatch !== null) {
+      if (!canManageLaboratory) {
+        sendJson(res, 403, {
+          error: {
+            code: "access_denied",
+            message: "Исправление марки недоступно.",
+          },
+        });
+        return;
+      }
+      if (req.method !== "PATCH") {
+        sendJson(res, 405, {
+          error: {
+            code: "access_denied",
+            message: "Для исправления марки используется PATCH.",
+          },
+        });
+        return;
+      }
+
+      const validation = validateProductBrandSubmission(await readJsonBody(req));
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      try {
+        const correction = await runAuditedMutation({
+          transaction: databaseTransaction,
+          audit,
+          mutate: () => productBrandJournal.updateRecord({
+            id: productBrandRecordMatch[1],
+            record: validation.value,
+            correctedByUserId: access.profile.userId,
+            correctedByAccountId: access.profile.activeAccess.accountId,
+            correctedByDisplayName: access.profile.displayName,
+          }),
+          buildEvent: (result) => result === undefined
+            ? undefined
+            : {
+                actor: buildAuditActor(access.profile),
+                category: "data_change",
+                action: "production_brand.correct",
+                summary: `Исправлена марка «${result.record.name}»`,
+                details: productBrandFields.map((field) => ({
+                  label: field.label,
+                  value:
+                    `${formatProductBrandAuditValue(result.before[field.id])} → ${formatProductBrandAuditValue(result.record[field.id])}`,
+                })),
+                targetType: "production_brand",
+                targetId: result.record.id,
+              },
+        });
+        if (correction === undefined) {
+          sendJson(res, 404, {
+            error: { code: "not_found", message: "Марка не найдена." },
+          });
+          return;
+        }
+        sendJson(res, 200, { record: correction.record });
+      } catch (error) {
+        if (error instanceof ProductBrandNameAlreadyExistsError) {
+          sendJson(res, 409, {
+            error: {
+              code: "invalid_response",
+              message: "Марка с таким наименованием уже есть в журнале.",
+            },
+          });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    if (req.method === "GET") {
+      const query = readOptionalQueryParam(url, "query");
+      if (query !== undefined && query.length > 120) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Поиск по журналу должен быть не длиннее 120 символов.",
+          },
+        });
+        return;
+      }
+      sendJson(res, 200, {
+        records: await productBrandJournal.listRecords(
+          query === undefined ? {} : { query },
+        ),
+      });
+      return;
+    }
+
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Добавление марки недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала марок используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateProductBrandSubmission(await readJsonBody(req));
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    try {
+      const saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => productBrandJournal.createRecord({
+          record: validation.value,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "production_brand.create",
+          summary: `Добавлена марка «${record.name}»`,
+          details: productBrandFields.map((field) => ({
+            label: field.label,
+            value: formatProductBrandAuditValue(record[field.id]),
+          })),
+          targetType: "production_brand",
+          targetId: record.id,
+        }),
+      });
+      sendJson(res, 201, { record: saved });
+    } catch (error) {
+      if (error instanceof ProductBrandNameAlreadyExistsError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Марка с таким наименованием уже есть в журнале.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
     return;
   }
 
@@ -2274,7 +2475,7 @@ async function handleLaboratoryRequest({
         fieldName: "producedMaterial",
         label: validation.value.producedMaterial,
       }],
-      logEvent: "rotary_kiln_2_correction_brands.google_sheets_fetch_failed",
+      logEvent: "rotary_kiln_2_correction_brands.database_read_failed",
     });
     if (materialReferences === undefined) return;
     validation.value.producedMaterial = materialReferences[0]?.label ??
@@ -2402,7 +2603,7 @@ async function handleLaboratoryRequest({
         fieldName: "producedMaterial",
         label: validation.value.producedMaterial,
       }],
-      logEvent: "rotary_kiln_2_brands.google_sheets_fetch_failed",
+      logEvent: "rotary_kiln_2_brands.database_read_failed",
     });
     if (materialReferences === undefined) return;
     validation.value.producedMaterial = materialReferences[0]?.label ??
@@ -3336,7 +3537,7 @@ async function handleLaboratoryRequest({
         fieldName: "productName",
         label: validation.value.productName,
       }],
-      logEvent: "unshaped_product_sample_correction_brands.google_sheets_fetch_failed",
+      logEvent: "unshaped_product_sample_correction_brands.database_read_failed",
     });
     if (productReferences === undefined) return;
     validation.value.productName = productReferences[0]?.label ??
@@ -3471,7 +3672,7 @@ async function handleLaboratoryRequest({
         fieldName: "productName",
         label: validation.value.productName,
       }],
-      logEvent: "unshaped_product_sample_brands.google_sheets_fetch_failed",
+      logEvent: "unshaped_product_sample_brands.database_read_failed",
     });
     if (productReferences === undefined) return;
     validation.value.productName = productReferences[0]?.label ??
@@ -4090,7 +4291,7 @@ async function handleLaboratoryRequest({
         fieldName: "productBrand",
         label: validation.value.productBrand,
       }],
-      logEvent: "laboratory_brands.google_sheets_fetch_failed",
+      logEvent: "laboratory_brands.database_read_failed",
     });
     if (references === undefined) return;
     validation.value.productBrand = references[0]?.label ??
@@ -4741,7 +4942,7 @@ async function handleRefractoryReportsRequest({
       res,
       productionBrands,
       references: brandReferences,
-      logEvent: "refractory_brands.google_sheets_fetch_failed",
+      logEvent: "refractory_brands.database_read_failed",
       describeMissingReference: (reference) =>
         describeMissingRefractoryBrand(validation.value, reference),
     });
@@ -5062,7 +5263,7 @@ async function resolveProductionBrandReferencesForRequest({
       error: {
         code: "invalid_response",
         message: detail?.message ??
-          `Сначала добавьте марку «${resolution.missing.label}» в номенклатуру.`,
+          `Сначала добавьте марку «${resolution.missing.label}» в Журнал марок.`,
         ...(detail === undefined ? {} : { details: [detail] }),
       },
     });
@@ -5071,7 +5272,7 @@ async function resolveProductionBrandReferencesForRequest({
     sendJson(res, 502, {
       error: {
         code: "server_error",
-        message: "Не удалось проверить марки по Google Sheets.",
+        message: "Не удалось проверить марки по Журналу марок.",
       },
     });
   }
@@ -5326,8 +5527,6 @@ async function handleProductionBrandsRequest({
   devSessions,
   authService,
   productionBrands,
-  audit,
-  databaseTransaction,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -5335,8 +5534,6 @@ async function handleProductionBrandsRequest({
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
   productionBrands: ProductionBrandsDataSource;
-  audit: AuditRepository;
-  databaseTransaction: DatabaseTransactionRunner;
 }) {
   const access = await requireAuthentication(req, res, {
     config,
@@ -5368,96 +5565,27 @@ async function handleProductionBrandsRequest({
     return;
   }
 
-  if (req.method === "GET") {
-    try {
-      sendJson(res, 200, { labels: await productionBrands.list() });
-    } catch (error) {
-      console.warn("production_brands.google_sheets_fetch_failed", error);
-      sendJson(res, 502, {
-        error: {
-          code: "server_error",
-          message: "Не удалось загрузить марки из Google Sheets.",
-        },
-      });
-    }
-    return;
-  }
-
-  if (req.method !== "POST") {
+  if (req.method !== "GET") {
     sendJson(res, 405, {
       error: {
         code: "access_denied",
-        message: "Поддерживаются только GET и POST.",
+        message: "Для списка марок используется GET. Добавление доступно в журнале «Марки».",
       },
     });
     return;
   }
-
-  if (config.appEnv === "test") {
-    sendJson(res, 403, {
-      error: {
-        code: "access_denied",
-        message: "На тестовом сайте добавление марок отключено.",
-      },
-    });
-    return;
-  }
-
-  if (
-    !hasProfileCapability(access.profile, "business.submit_dispatcher_forms") &&
-    !hasProfileCapability(access.profile, "business.submit_refractory_reports")
-  ) {
-    sendJson(res, 403, {
-      error: {
-        code: "access_denied",
-        message: "Добавление марок недоступно.",
-      },
-    });
-    return;
-  }
-
-  const payload = await readJsonBody(req);
-  const validation = readProductionBrandCreateInput(payload);
-
-  if (!validation.ok) {
-    sendJson(res, 400, {
-      error: {
-        code: "invalid_response",
-        message: validation.errors.join(" "),
-      },
-    });
-    return;
-  }
-
-  let result;
 
   try {
-    result = await productionBrands.create(
-      validation.value.label,
-      (createdLabel) => databaseTransaction.run(() =>
-        audit.record({
-          actor: buildAuditActor(access.profile),
-          category: "data_change",
-          action: "production_brand.create",
-          summary: `Добавлена марка «${createdLabel}»`,
-          details: [{ label: "Марка", value: createdLabel }],
-          targetType: "production_brand",
-          targetId: createdLabel,
-        }),
-      ),
-    );
+    sendJson(res, 200, { labels: await productionBrands.list() });
   } catch (error) {
-    console.warn("production_brands.google_sheets_write_failed", error);
-    sendJson(res, 502, {
+    console.warn("production_brands.database_read_failed", error);
+    sendJson(res, 503, {
       error: {
         code: "server_error",
-        message: "Не удалось добавить марку в Google Sheets.",
+        message: "Не удалось загрузить журнал марок.",
       },
     });
-    return;
   }
-
-  sendJson(res, result.created ? 201 : 200, { label: result.label });
 }
 
 async function handleDispatcherProductionBankContentsRequest({
@@ -5795,29 +5923,6 @@ async function handleProductionSnapshotRequest({
 
     throw error;
   }
-}
-
-function readProductionBrandCreateInput(payload: unknown) {
-  if (!isRecord(payload) || Array.isArray(payload)) {
-    return {
-      ok: false as const,
-      errors: ["Передайте название марки."],
-    };
-  }
-
-  const allowedFields = new Set(["label"]);
-  const unexpectedFields = Object.keys(payload).filter(
-    (fieldName) => !allowedFields.has(fieldName),
-  );
-
-  if (unexpectedFields.length > 0) {
-    return {
-      ok: false as const,
-      errors: ["Запрос содержит неизвестные поля."],
-    };
-  }
-
-  return normalizeProductionBrandLabelInput(payload.label);
 }
 
 async function handleProductionPlansRequest({
@@ -6660,7 +6765,7 @@ async function handleAdminDatabaseRequest({
           res,
           productionBrands,
           references: brandReferences,
-          logEvent: "admin_dispatcher_brands.google_sheets_fetch_failed",
+          logEvent: "admin_dispatcher_brands.database_read_failed",
         });
 
         if (references === undefined) return;
@@ -9688,6 +9793,10 @@ function formatMoscowCalendarDate(value: Date) {
   const partByType = new Map(parts.map((part) => [part.type, part.value]));
 
   return `${partByType.get("year")}-${partByType.get("month")}-${partByType.get("day")}`;
+}
+
+function formatProductBrandAuditValue(value: string) {
+  return value === "" ? "—" : value;
 }
 
 function formatLaboratoryRawMaterialQualityAuditValue(

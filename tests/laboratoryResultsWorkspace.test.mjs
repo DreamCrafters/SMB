@@ -181,6 +181,24 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     pressOperatorRecommendations: "Проверить давление прессования.",
     createdAt: "2026-08-04T09:30:00.000Z",
   };
+  const productBrandSubmissions = [];
+  const productBrandCorrections = [];
+  const productBrandRequests = [];
+  const selectorBrandLabels = ["ША-22", "ШКИ-66"];
+  const productBrandRecord = {
+    id: "brand-1",
+    name: "ША-8",
+    description: "Шамотное изделие",
+    productClass: "Формованный",
+    applicationIndustry: "Металлургия",
+    normativeDocument: "ГОСТ 390-2018",
+    geometry: "230×114×65",
+    al2o3: "30 %",
+    fe2o3: "3 %",
+    strength: "20 Н/мм²",
+    createdAt: "2026-08-07T08:00:00.000Z",
+    updatedAt: "2026-08-07T08:00:00.000Z",
+  };
   const protocolPreview = {
     opener: {},
     document: { title: "" },
@@ -210,8 +228,39 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           },
         });
       }
+      if (url.pathname === "/api/laboratory/product-brands") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          productBrandSubmissions.push(submission);
+          selectorBrandLabels.push(submission.name);
+          return jsonResponse({
+            record: {
+              id: "brand-created",
+              ...submission,
+              createdAt: "2026-08-07T09:00:00.000Z",
+              updatedAt: "2026-08-07T09:00:00.000Z",
+            },
+          }, 201);
+        }
+        productBrandRequests.push(Object.fromEntries(url.searchParams));
+        return jsonResponse({ records: [productBrandRecord] });
+      }
+      if (
+        url.pathname === "/api/laboratory/product-brands/brand-1" &&
+        init.method === "PATCH"
+      ) {
+        const submission = JSON.parse(String(init.body));
+        productBrandCorrections.push(submission);
+        return jsonResponse({
+          record: {
+            ...productBrandRecord,
+            ...submission,
+            updatedAt: "2026-08-07T10:00:00.000Z",
+          },
+        });
+      }
       if (url.pathname === "/api/production-brands") {
-        return jsonResponse({ labels: ["ША-22", "ШКИ-66"] });
+        return jsonResponse({ labels: selectorBrandLabels });
       }
       if (url.pathname === "/api/laboratory/banks") {
         if (init.method === "POST") {
@@ -866,6 +915,94 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () => bankAssignments.length === 1);
     assert.deepEqual(bankAssignments[0], { bankNumber: 1, material: "ША-22" });
 
+    const rootTabLabels = Array.from(rootElement.querySelectorAll(
+      '.laboratory-section-tabs[aria-label="Разделы лаборатории"] > button',
+    )).map((button) => button.textContent?.trim());
+    assert.deepEqual(rootTabLabels.slice(0, 2), ["Банки", "Марки"]);
+    const brandsTab = Array.from(rootElement.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Марки",
+    );
+    assert.ok(brandsTab);
+    await React.act(async () => brandsTab.click());
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Журнал марок") &&
+      productBrandRequests.length === 1
+    );
+    const brandForm = rootElement.querySelector(".product-brand-journal-form");
+    assert.ok(brandForm);
+    for (const label of [
+      "Наименование",
+      "Описание",
+      "Класс",
+      "Отрасль применения",
+      "Норматив (ГОСТ, ТУ)",
+      "Геометрия Д*Ш*В",
+      "Al2O3",
+      "Fe2O3",
+      "Прочность",
+    ]) {
+      assert.ok(findControlByLabel(brandForm, label));
+    }
+    assert.equal(findControlByLabel(brandForm, "Наименование").required, true);
+    assert.equal(findControlByLabel(brandForm, "Описание").required, false);
+    await React.act(async () => {
+      const nameInput = findControlByLabel(brandForm, "Наименование");
+      setNativeInputValue(nameInput, "Новая марка");
+      nameInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      nameInput.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await React.act(async () => {
+      brandForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => productBrandSubmissions.length === 1);
+    assert.deepEqual(productBrandSubmissions[0], {
+      name: "Новая марка",
+      description: "",
+      productClass: "",
+      applicationIndustry: "",
+      normativeDocument: "",
+      geometry: "",
+      al2o3: "",
+      fe2o3: "",
+      strength: "",
+    });
+    const editBrandButton = Array.from(
+      rootElement.querySelectorAll(".product-brand-journal-table button"),
+    ).find((button) => button.textContent?.trim() === "ША-8");
+    assert.ok(editBrandButton);
+    await React.act(async () => editBrandButton.click());
+    await waitFor(React, () =>
+      findControlByLabel(
+        rootElement.querySelector(".product-brand-journal-form"),
+        "Описание",
+      ).value === "Шамотное изделие"
+    );
+    const editingBrandForm = rootElement.querySelector(
+      ".product-brand-journal-form",
+    );
+    await React.act(async () => {
+      const descriptionInput = findControlByLabel(editingBrandForm, "Описание");
+      setNativeInputValue(descriptionInput, "Исправленное описание");
+      descriptionInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      descriptionInput.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
+    await React.act(async () => {
+      editingBrandForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => productBrandCorrections.length === 1);
+    assert.equal(
+      productBrandCorrections[0].description,
+      "Исправленное описание",
+    );
+
     const findTabByText = (text) =>
       Array.from(rootElement.querySelectorAll("button")).find(
         (button) => button.textContent?.trim() === text,
@@ -921,10 +1058,23 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     ];
     const journalForm = rootElement.querySelector(".rotary-kiln-journal-form");
     assert.ok(journalForm);
+    const producedMaterialInput = findControlByLabel(
+      journalForm,
+      "Производимый материал",
+    );
+    await waitFor(React, () => {
+      const listId = producedMaterialInput.getAttribute("list");
+      const list = listId === null
+        ? null
+        : rootElement.querySelector(`#${listId}`);
+      return Array.from(list?.querySelectorAll("option") ?? []).some(
+        (option) => option.value === "Новая марка",
+      );
+    });
     assert.equal(
       journalForm.querySelector(".production-brand-source-note")?.textContent
         ?.trim(),
-      "Актуальный список марок хранится в Google Sheets: вкладка «Номенклатура», столбец «Наименование».",
+      "Актуальный список ведётся в разделе «Лаборатория → Марки».",
     );
     for (const label of expectedJournalLabels) {
       assert.ok(findControlByLabel(journalForm, label));

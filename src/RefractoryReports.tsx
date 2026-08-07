@@ -29,7 +29,6 @@ import {
 } from "./services/bankMeasurements";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import { readRefractoryShiftContext } from "./services/refractoryShift";
-import { isProductionAppEnv } from "./services/appEnvironment";
 import {
   decimalNumberInputPattern,
   decimalNumberInputTitle,
@@ -44,10 +43,7 @@ import {
   markRefractoryServerFieldErrors,
   validateRefractoryForm,
 } from "./services/refractoryFormValidation";
-import {
-  ProductBrandCreateControl,
-  ProductBrandPicker,
-} from "./ProductBrandPicker";
+import { ProductBrandPicker } from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { useProductionBrands } from "./useProductionBrands";
 import { RefractoryWagonJournal } from "./RefractoryWagonJournal";
@@ -100,12 +96,8 @@ export function RefractoryShopWorkspace({
   const [banksState, setBanksState] = useState<RefractoryBanksState>({
     status: "loading",
   });
-  const canCreateBrands = !isAdminPreviewMode && isProductionAppEnv();
-  const {
-    labels: brandLabels,
-    loadState: nomenclatureState,
-    createBrand: handleCreateBrand,
-  } = useProductionBrands({ creationDisabled: !canCreateBrands });
+  const { labels: brandLabels, loadState: nomenclatureState } =
+    useProductionBrands();
 
   useEffect(() => {
     if (isAdminPreviewMode) {
@@ -394,10 +386,6 @@ export function RefractoryShopWorkspace({
             onStartCorrection={() => setIsCorrectionMode(true)}
           />
           <fieldset disabled={isLocked || isSubmitting}>
-            {!canCreateBrands ||
-            nomenclatureState.status !== "ready" ? null : (
-              <ProductBrandCreateControl onCreateBrand={handleCreateBrand} />
-            )}
             {activeType === "cosh" ? (
               <CoshForm
                 brandLabels={brandLabels}

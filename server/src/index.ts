@@ -20,6 +20,7 @@ import { createDispatcherSubmissionsRepository } from "./repositories/dispatcher
 import { createDispatcherSpreadsheetImportRepository } from "./repositories/dispatcherSpreadsheetImportRepository.js";
 import { createAuditRepository } from "./repositories/auditRepository.js";
 import { createProductionPlansRepository } from "./repositories/productionPlansRepository.js";
+import { createProductBrandsRepository } from "./repositories/productBrandsRepository.js";
 import { createRefractoryReportsRepository } from "./repositories/refractoryReportsRepository.js";
 import { createRefractoryWagonsRepository } from "./repositories/refractoryWagonsRepository.js";
 import { createLaboratoryResultsRepository } from "./repositories/laboratoryResultsRepository.js";
@@ -56,6 +57,7 @@ const database = createDatabaseTransactionContext(
 const pool = database.pool;
 const dispatcherSpreadsheetImportRepository =
   createDispatcherSpreadsheetImportRepository(pool);
+const productBrands = createProductBrandsRepository(pool);
 
 if (config.runMigrationsOnStart) {
   if (config.productionSnapshot.enabled) {
@@ -78,6 +80,8 @@ const server = createApiServer({
   }),
   dispatcherSubmissions: createDispatcherSubmissionsRepository(pool),
   productionPlans: createProductionPlansRepository(pool),
+  productionBrands: productBrands,
+  productBrandJournal: productBrands,
   refractoryReports: createRefractoryReportsRepository(pool),
   refractoryWagons: createRefractoryWagonsRepository(pool),
   laboratoryResults: createLaboratoryResultsRepository(pool),

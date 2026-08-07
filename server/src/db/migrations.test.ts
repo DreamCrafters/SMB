@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "./pool.js";
-import { runMigrations } from "./migrations.js";
+import { initialProductBrandNames, runMigrations } from "./migrations.js";
 
 test("laboratory migration creates results storage and the system position", async () => {
   const appliedIds = new Set([
@@ -2040,6 +2040,51 @@ test("task 58 migration makes selected kiln measurements nullable", async () => 
     statements[1],
     "insert into schema_migrations (id) values (?)",
   );
+});
+
+test("task 65 migration creates the product brand journal and imports the sheet snapshot", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "050_product_brand_journal" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(initialProductBrandNames.length, 119);
+  assert.equal(
+    new Set(initialProductBrandNames.map((name) => name.toLocaleLowerCase("ru-RU"))).size,
+    119,
+  );
+  assert.equal(initialProductBrandNames[0], "Пропант");
+  assert.equal(initialProductBrandNames.at(-1), "ШТ-1.3 √5");
+  assert.equal(statements.length, 5);
+  assert.match(statements[0] ?? "", /create table if not exists product_brands/u);
+  assert.match(statements[0] ?? "", /unique key uq_product_brands_normalized_name/u);
+  assert.match(statements[1] ?? "", /create table if not exists product_brand_revisions/u);
+  assert.match(statements[2] ?? "", /insert into product_brands/u);
+  assert.match(statements[2] ?? "", /system-google-sheets-brand-import/u);
+  assert.match(statements[3] ?? "", /insert into user_audit_events/u);
+  assert.match(statements[3] ?? "", /production_brand\.import/u);
+  assert.equal(statements[4], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

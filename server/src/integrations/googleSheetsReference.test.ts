@@ -3,11 +3,9 @@ import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 import {
   buildGoogleSheetsCsvUrl,
-  createGoogleSheetsProductionBrandsDataSource,
   createGoogleSheetsReferenceDataSource,
   readBankVolumeReferenceFromRows,
   readLaboratoryReferenceFromRows,
-  readProductionBrandLabels,
   readGoogleSheetsWorkbook,
   readColumnOptionsFromCsv,
   readMaxNotificationRecipientsFromCsv,
@@ -167,112 +165,6 @@ test("laboratory reference follows the live section and indicator matrix", () =>
       { label: "Неформованные изделия", indicatorIds: [] },
     ],
   });
-});
-
-test("production brands use only the first Наименование column", () => {
-  const rows = [
-    ["Наименование", "Вид изделия"],
-    ["ША-22", "Формованный"],
-    ["", ""],
-    ["Смесь МК", "Неформованный"],
-    ["Гранулы 0-5", "Грануллированный"],
-    ["  ША-22  ", "формованный"],
-    ["Неизвестная строка", "Другое"],
-  ];
-
-  assert.deepEqual(readProductionBrandLabels(rows), [
-    "ША-22",
-    "Смесь МК",
-    "Гранулы 0-5",
-    "Неизвестная строка",
-  ]);
-});
-
-test("production brand source writes a new label into the first free cell from the top", async () => {
-  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" });
-  const requests: Array<{ url: string; init?: RequestInit }> = [];
-  const source = createGoogleSheetsProductionBrandsDataSource(
-    {
-      url: "https://docs.google.com/spreadsheets/d/sheet-id/edit?gid=1451265710",
-      responsibleColumn: "Ответственный",
-      locationColumn: "Место",
-      notificationEmailColumns: [],
-      maxUserIdColumns: [],
-      visitorNotificationEmailColumns: [],
-      visitorMaxUserIdColumns: [],
-      cacheTtlMs: 60_000,
-      authMode: "service_account",
-      serviceAccountKeyFile: "/private/google-service-account.json",
-    },
-    async (input, init) => {
-      const url = input.toString();
-      requests.push({ url, init });
-
-      if (url === "https://oauth2.googleapis.com/token") {
-        return new Response(JSON.stringify({ access_token: "write-token" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      if (init?.method === "PUT") {
-        return new Response(JSON.stringify({ updatedCells: 1 }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      return new Response(
-        JSON.stringify({ values: [["Наименование"], ["ША-22"], [], ["Смесь МК"]] }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    },
-    {
-      readTextFile: async () => JSON.stringify({
-        type: "service_account",
-        client_email: "smb-sheets-writer@example.iam.gserviceaccount.com",
-        private_key: privateKeyPem.toString(),
-        token_uri: "https://oauth2.googleapis.com/token",
-      }),
-      now: () => 1_800_000_000_000,
-    },
-  );
-
-  assert.deepEqual(await source.create("  Новая   марка  ", async () => {}), {
-    label: "Новая марка",
-    created: true,
-  });
-
-  const tokenRequest = requests.find(({ url }) =>
-    url === "https://oauth2.googleapis.com/token"
-  );
-  const assertion = tokenRequest?.init?.body instanceof URLSearchParams
-    ? tokenRequest.init.body.get("assertion")
-    : undefined;
-  const claim = JSON.parse(
-    Buffer.from(assertion?.split(".")[1] ?? "", "base64url").toString("utf8"),
-  ) as { scope?: string };
-  assert.equal(claim.scope, "https://www.googleapis.com/auth/spreadsheets");
-
-  const writeRequest = requests.find(({ init }) => init?.method === "PUT");
-  assert.match(writeRequest?.url ?? "", /values\/'%D0%9D%D0%BE%D0%BC%D0%B5%D0%BD%D0%BA%D0%BB%D0%B0%D1%82%D1%83%D1%80%D0%B0'!A3\?valueInputOption=RAW$/u);
-  assert.deepEqual(JSON.parse(String(writeRequest?.init?.body)), {
-    range: "'Номенклатура'!A3",
-    majorDimension: "ROWS",
-    values: [["Новая марка"]],
-  });
-
-  await assert.rejects(
-    source.create("Марка без аудита", async () => {
-      throw new Error("audit failed");
-    }),
-    /audit failed/u,
-  );
-  const rollbackRequest = requests.find(
-    ({ url, init }) => init?.method === "POST" && url.endsWith("!A3:clear"),
-  );
-  assert.ok(rollbackRequest, "failed audit must clear the inserted Google Sheets cell");
 });
 
 test("google sheets workbook reader requests exact public tab names", async () => {

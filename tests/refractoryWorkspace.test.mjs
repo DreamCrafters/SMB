@@ -77,13 +77,6 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     globalThis.fetch = async (input, init) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
       if (url.pathname.endsWith("/production-brands")) {
-        if (init?.method === "POST") {
-          const body = JSON.parse(String(init.body));
-          return new Response(JSON.stringify({ label: body.label }), {
-            status: 201,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
         return new Response(
           JSON.stringify({
             labels: ["ША-22", "Смесь МК", "Гранулы 0-5"],
@@ -404,47 +397,12 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     const addBrandButtons = rootElement.querySelectorAll(
       'button[aria-label="Добавить новую марку"]',
     );
-    assert.equal(addBrandButtons.length, 1);
-    const addBrandButton = addBrandButtons[0];
-    assert.ok(addBrandButton);
-    assert.equal(
-      rootElement.querySelector(".production-brand-source-note")?.textContent
-        ?.trim(),
-      "Актуальный список марок хранится в Google Sheets: вкладка «Номенклатура», столбец «Наименование».",
-    );
+    assert.equal(addBrandButtons.length, 0);
     assert.equal(
       formedBrand
         .closest(".production-brand-picker")
         ?.querySelector('button[aria-label="Добавить новую марку"]'),
       null,
-    );
-    assert.ok(
-      addBrandButton.compareDocumentPosition(
-        rootElement.querySelector(".refractory-table-wrap"),
-      ) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    await React.act(async () => addBrandButton.click());
-    const newBrandInput = rootElement.querySelector(
-      'input[aria-label="Новая марка"]',
-    );
-    assert.ok(newBrandInput);
-    await React.act(async () => {
-      setNativeInputValue(newBrandInput, "Новая марка");
-      newBrandInput.dispatchEvent(
-        new dom.window.Event("input", { bubbles: true }),
-      );
-    });
-    const saveBrandButton = Array.from(
-      rootElement.querySelectorAll(".production-brand-create button"),
-    ).find((button) => button.textContent === "Сохранить");
-    assert.ok(saveBrandButton);
-    await React.act(async () => saveBrandButton.click());
-    await waitFor(React, () =>
-      readBrandOptions(formedBrand, rootElement).includes("Новая марка"),
-    );
-    assert.match(
-      rootElement.querySelector(".production-brand-create-status")?.textContent ?? "",
-      /добавлена в актуальный список: «Номенклатура» → «Наименование»/u,
     );
     assert.equal(formedBrand.value, "Старая марка");
     assert.equal(rootElement.querySelectorAll("form").length, 1);
@@ -536,7 +494,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         ),
         rootElement,
       ),
-      ["Гранулы 0-5", "Новая марка", "Смесь МК", "ША-22"],
+      ["ША-22", "Смесь МК", "Гранулы 0-5"],
     );
     const firingWagonsSelect = rootElement.querySelector(
       'select[aria-label="Вагоны для обжига, строка 1"]',

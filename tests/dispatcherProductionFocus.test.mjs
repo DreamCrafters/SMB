@@ -671,7 +671,7 @@ for (const { label, appEnv, isAdminPreviewMode, expectedCreateButtons } of [
     label: "production dispatcher mode",
     appEnv: "production",
     isAdminPreviewMode: false,
-    expectedCreateButtons: 1,
+    expectedCreateButtons: 0,
   },
   {
     label: "production admin preview",
@@ -1089,18 +1089,6 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       'button[aria-label="Добавить новую марку"]',
     );
     assert.equal(addBrandButtons.length, expectedCreateButtons);
-    if (expectedCreateButtons > 0) {
-      assert.ok(
-        addBrandButtons[0].compareDocumentPosition(
-          rootElement.querySelector(".production-report-table-wrap"),
-        ) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
-      );
-      assert.equal(
-        rootElement.querySelector(".production-brand-source-note")?.textContent
-          ?.trim(),
-        "Актуальный список марок хранится в Google Sheets: вкладка «Номенклатура», столбец «Наименование».",
-      );
-    }
 
     await React.act(async () => {
       setNativeInputValue(reportDateInput, "2026-07-17");

@@ -6,6 +6,132 @@ type Migration = {
   statements: string[];
 };
 
+/**
+ * One-time snapshot of `Номенклатура!A2:A` read on 2026-08-07 for task 65.
+ * Runtime brand reads no longer depend on Google Sheets after this migration.
+ */
+export const initialProductBrandNames = [
+  "Пропант",
+  "Пропант алюмосиликатный (обжиг + затарка) ф 12/18, т",
+  "Пропант неконд",
+  "ГАС-порошок",
+  "Глина молотая ПГА",
+  "Глина молотая ПГБ, т",
+  "Мертель МШ-28 (подряд) ШГР-28, т",
+  "Мертель МШ-28 (ШГР-28), т",
+  "Мертель МШ-31 (подряд) ШГР-28, т",
+  "Мертель МШ-32\\2 (фасовка 25 кг), т",
+  "Мертель МШ-36 (подряд) ШГР-28, т",
+  "ММЛ-65",
+  "МШ-32\\2",
+  "Огнеупорная смесь (фасовка 25 кг) т, т",
+  "Огнеупорная смесь (фасовка 25 кг), шт",
+  "Пыль ШБКТ, т",
+  "Шамот молотый ПШБМ, т",
+  "ШБКТ",
+  "ШБО-69",
+  "ШКИ",
+  "ШКИ-66",
+  "ШКИ-69",
+  "МЛС 62 №5 (вес 1.29), т",
+  "ТР-50, ША-101",
+  "Ш-5",
+  "Ш-8",
+  "ША-10",
+  "ША-100 (вес 0,95), т",
+  "ША-101 (вес 0,84), т",
+  "ША-102, т",
+  "ША-12",
+  "ША-14 (вес 1,12), т",
+  "ША-15",
+  "ША-17 (вес 1,28), т",
+  "ША-19 А, т",
+  "ША-21 (вес 1,45), т",
+  "ША-22",
+  "ША-23",
+  "ША-25",
+  "ША-27 (вес 1,25), т",
+  "ША-29 (вес 1,16), т",
+  "ША-33 (вес 1,37), т",
+  "ША-34 (вес 1,18), т",
+  "ША-35",
+  "ША-4",
+  "ША-44",
+  "ША-45",
+  "ША-47",
+  "ША-49 (вес 1,36), т",
+  "ША-5",
+  "ША-50 (вес 1,37), т",
+  "ША-52",
+  "ША-6",
+  "ША-60 (вес 1,41), т",
+  "ША-68 (вес 1,44), т",
+  "ША-7 (вес 1,28), т",
+  "ША-70, т",
+  "ША-8",
+  "ША-82",
+  "ША-84",
+  "ША-86",
+  "ША-87",
+  "ША-9",
+  "ША-94",
+  "ШАК-5",
+  "ШБ-10 (вес 1,31), т",
+  "ШБ-22",
+  "ШБ-23",
+  "ШБ-25",
+  "ШБ-4 (вес 1,29), т",
+  "ШБ-44",
+  "ШБ-45",
+  "ШБ-47",
+  "ШБ-49 (вес 1,36), т",
+  "ШБ-5",
+  "ШБ-5 класс 4",
+  "ШБ-52",
+  "ШБ-6 (вес 1,24), т",
+  "ШБ-68 (вес 1,4), т",
+  "ШБ-7 (вес 1,24), т",
+  "ШБ-8",
+  "ШБ-8 класс 4",
+  "ШБ-9",
+  "ШБ-94, т",
+  "ШВГ-35/1",
+  "ШВГ-35/2",
+  "ШВГ-35/3",
+  "ШЛ-1,3 № 5, т",
+  "ШТ-1,3 № 5",
+  "ШЦУ-1 (вес 1,36), т",
+  "ШЦУ-1 (по ТУ1508), т",
+  "ШЦУ-14 (вес 1,35), т",
+  "ШЦУ-15 (вес 1,39), т",
+  "ШЦУ-17 (вес 1,48), т",
+  "ШЦУ-2 (вес 1,20), т",
+  "ШЦУ-2 (по ТУ1508), т",
+  "ШЦУ-20 (вес 1,28), т",
+  "ШЦУ-3",
+  "ШЦУ-3 (по ТУ1508), т",
+  "ШЦУ-4",
+  "ШЦУ-4 (по ТУ1508)",
+  "ШЦУ-5",
+  "ШЦУ-5 (по ТУ1508)",
+  "ШЦУ-9 (вес 1,42), т",
+  "ГМГ-2, т",
+  "ЗША-4 кл (0-5), т",
+  "ЗША-5 кл (0-3), т",
+  "ЗШБ 4 кл., т",
+  "ЗШБ 5 кл., т",
+  "ПК-5, т",
+  "ПК-8, т",
+  "ПМВ-69 - 3 мм, т",
+  "СШБЖ-35, т",
+  "СШБЖ-60, т",
+  "шб-5б\\к",
+  "ШГР-28",
+  "ШГР-К",
+  "ШБ-8 б.к.",
+  "ШТ-1.3 √5",
+] as const;
+
 const migrations: Migration[] = [
   {
     id: "001_dispatcher_submissions_mysql",
@@ -2550,7 +2676,126 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "050_product_brand_journal",
+    statements: [
+      `
+      create table if not exists product_brands (
+        sequence_id bigint unsigned not null auto_increment,
+        id char(36) not null primary key,
+        name varchar(120) not null,
+        normalized_name varchar(120) not null,
+        description text null,
+        product_class varchar(255) null,
+        application_industry varchar(255) null,
+        normative_document varchar(255) null,
+        geometry varchar(255) null,
+        al2o3 varchar(120) null,
+        fe2o3 varchar(120) null,
+        strength varchar(120) null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        unique key uq_product_brands_sequence (sequence_id),
+        unique key uq_product_brands_normalized_name (normalized_name),
+        key idx_product_brands_name (name)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists product_brand_revisions (
+        id char(36) not null primary key,
+        product_brand_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_product_brand_revisions_brand (
+          product_brand_id,
+          created_at
+        ),
+        constraint fk_product_brand_revision_brand
+          foreign key (product_brand_id)
+          references product_brands (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      buildInitialProductBrandInsert(),
+      `
+      insert into user_audit_events (
+        id,
+        actor_user_id,
+        actor_account_id,
+        actor_display_name,
+        actor_position_display_name,
+        category,
+        action,
+        outcome,
+        summary,
+        details,
+        target_type,
+        target_id
+      )
+      select
+        uuid(),
+        'system-google-sheets-brand-import',
+        'system-google-sheets-brand-import',
+        'Импорт номенклатуры',
+        'Системный импорт',
+        'data_change',
+        'production_brand.import',
+        'success',
+        concat('Импортирована марка «', brands.name, '»'),
+        json_array(
+          json_object('label', 'Наименование', 'value', brands.name)
+        ),
+        'production_brand',
+        brands.id
+      from product_brands brands
+      where brands.submitted_by_user_id = 'system-google-sheets-brand-import'
+        and not exists (
+          select 1
+          from user_audit_events events
+          where events.action = 'production_brand.import'
+            and events.target_type = 'production_brand'
+            and events.target_id = brands.id
+        );
+      `,
+    ],
+  },
 ];
+
+function buildInitialProductBrandInsert() {
+  const values = initialProductBrandNames.map((name) => `(
+    uuid(),
+    ${sqlString(name)},
+    ${sqlString(normalizeInitialProductBrandName(name))},
+    'system-google-sheets-brand-import',
+    'system-google-sheets-brand-import'
+  )`).join(",\n");
+
+  return `
+    insert into product_brands (
+      id,
+      name,
+      normalized_name,
+      submitted_by_user_id,
+      submitted_by_account_id
+    ) values ${values}
+    on duplicate key update name = values(name);
+  `;
+}
+
+function normalizeInitialProductBrandName(name: string) {
+  return name.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
+}
+
+function sqlString(value: string) {
+  return `'${value.replaceAll("'", "''").replaceAll("\\", "\\\\")}'`;
+}
 
 type MigrationRow = RowDataPacket & {
   id: string;

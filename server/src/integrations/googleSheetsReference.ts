@@ -23,26 +23,6 @@ export type DispatcherReferenceDataSource = {
   read: () => Promise<DispatcherReferenceData>;
 };
 
-export type ProductionBrandReference = {
-  fieldName: string;
-  label: string;
-};
-
-export type ProductionBrandResolution =
-  | { ok: true; references: ProductionBrandReference[] }
-  | { ok: false; missing: ProductionBrandReference };
-
-export type ProductionBrandsDataSource = {
-  list: () => Promise<string[]>;
-  create: (
-    label: string,
-    commitCreated: (label: string) => Promise<void>,
-  ) => Promise<{ label: string; created: boolean }>;
-  resolveReferences: (
-    references: ProductionBrandReference[],
-  ) => Promise<ProductionBrandResolution>;
-};
-
 export const laboratoryIndicatorDefinitions = [
   { id: "al2o3", label: "Al2O3" },
   { id: "fe2o3", label: "Fe2O3" },
@@ -153,10 +133,7 @@ const emptyReferenceData: DispatcherReferenceData = {
 };
 const googleSheetsReadonlyScope =
   "https://www.googleapis.com/auth/spreadsheets.readonly";
-const googleSheetsWriteScope =
-  "https://www.googleapis.com/auth/spreadsheets";
 const defaultGoogleTokenUri = "https://oauth2.googleapis.com/token";
-const productionBrandsSheetTitle = "Номенклатура";
 const laboratorySheetTitle = "Лаборатория";
 const banksSheetTitle = "Банки";
 /**
@@ -228,193 +205,6 @@ export function createGoogleSheetsReferenceDataSource(
       cacheExpiresAt = readStartedAt + config.cacheTtlMs;
 
       return cachedData;
-    },
-  };
-}
-
-export function createGoogleSheetsProductionBrandsDataSource(
-  config: GoogleSheetsReferenceConfig,
-  fetchImpl: FetchLike = fetch,
-  dependencies: GoogleSheetsReferenceDependencies = {},
-): ProductionBrandsDataSource {
-  let cachedData: string[] | undefined;
-  let cacheExpiresAt = 0;
-  let writeQueue = Promise.resolve();
-  const now = dependencies.now ?? Date.now;
-  const readTextFile =
-    dependencies.readTextFile ?? ((path: string) => readFile(path, "utf8"));
-
-  async function list() {
-    const readStartedAt = now();
-
-    if (cachedData !== undefined && readStartedAt < cacheExpiresAt) {
-      return cachedData;
-    }
-
-    const workbook = await readGoogleSheetsWorkbook(
-      config,
-      config.url,
-      [productionBrandsSheetTitle],
-      fetchImpl,
-      dependencies,
-    );
-    cachedData = readProductionBrandLabels(
-      workbook.rowsBySheet[productionBrandsSheetTitle] ?? [],
-    );
-    cacheExpiresAt = readStartedAt + config.cacheTtlMs;
-
-    return cachedData;
-  }
-
-  async function createNow(
-    rawLabel: string,
-    commitCreated: (label: string) => Promise<void>,
-  ) {
-    const label = normalizeProductionBrandLabel(rawLabel);
-
-    if (config.authMode !== "service_account") {
-      throw new Error(
-        "Adding production brands requires GOOGLE_SHEETS_AUTH=service_account.",
-      );
-    }
-    if (config.serviceAccountKeyFile === undefined) {
-      throw new Error(
-        "GOOGLE_SERVICE_ACCOUNT_KEY_FILE is required when GOOGLE_SHEETS_AUTH=service_account.",
-      );
-    }
-
-    const spreadsheetId = readSpreadsheetId(new URL(config.url));
-
-    if (spreadsheetId === undefined) {
-      throw new Error("GOOGLE_SHEETS_REFERENCE_URL must be a Google Sheets URL.");
-    }
-
-    const credentials = await readGoogleServiceAccountCredentials(
-      config.serviceAccountKeyFile,
-      readTextFile,
-    );
-    const accessToken = await requestGoogleAccessToken(
-      credentials,
-      fetchImpl,
-      now,
-      googleSheetsWriteScope,
-    );
-    const rows = await readGoogleSheetRowsByTitle(
-      spreadsheetId,
-      productionBrandsSheetTitle,
-      accessToken,
-      fetchImpl,
-      "A:A",
-    );
-    const labels = readProductionBrandLabels(rows);
-    const normalizedLabel = normalizeOption(label);
-    const existing = labels.find(
-      (candidate) => normalizeOption(candidate) === normalizedLabel,
-    );
-
-    if (existing !== undefined) {
-      cachedData = labels;
-      cacheExpiresAt = now() + config.cacheTtlMs;
-      return { label: existing, created: false };
-    }
-
-    let rowIndex = 1;
-
-    while ((rows[rowIndex]?.[0] ?? "").trim().length > 0) {
-      rowIndex += 1;
-    }
-
-    const rowNumber = rowIndex + 1;
-    const range = `${quoteA1SheetName(productionBrandsSheetTitle)}!A${rowNumber}`;
-    const valuesUrl = new URL(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-        range,
-      )}`,
-    );
-    valuesUrl.searchParams.set("valueInputOption", "RAW");
-
-    await fetchGoogleJson(
-      valuesUrl,
-      accessToken,
-      fetchImpl,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          range,
-          majorDimension: "ROWS",
-          values: [[label]],
-        }),
-      },
-    );
-
-    try {
-      await commitCreated(label);
-    } catch (commitError) {
-      const clearUrl = new URL(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-          range,
-        )}:clear`,
-      );
-
-      try {
-        await fetchGoogleJson(clearUrl, accessToken, fetchImpl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-        });
-      } catch (rollbackError) {
-        throw new AggregateError(
-          [commitError, rollbackError],
-          "Production brand audit failed and the Google Sheets rollback failed.",
-        );
-      }
-
-      cachedData = labels;
-      cacheExpiresAt = now() + config.cacheTtlMs;
-      throw commitError;
-    }
-
-    const updatedRows = rows.map((row) => [...row]);
-    updatedRows[rowIndex] = [label];
-    cachedData = readProductionBrandLabels(updatedRows);
-    cacheExpiresAt = now() + config.cacheTtlMs;
-
-    return { label, created: true };
-  }
-
-  return {
-    list,
-    create(label, commitCreated) {
-      const operation = writeQueue.then(
-        () => createNow(label, commitCreated),
-        () => createNow(label, commitCreated),
-      );
-      writeQueue = operation.then(
-        () => undefined,
-        () => undefined,
-      );
-      return operation;
-    },
-    async resolveReferences(references) {
-      const labelByKey = new Map(
-        (await list()).map((label) => [normalizeOption(label), label]),
-      );
-      const missing = references.find(
-        (reference) => !labelByKey.has(normalizeOption(reference.label)),
-      );
-
-      if (missing !== undefined) {
-        return { ok: false, missing };
-      }
-
-      return {
-        ok: true,
-        references: references.map((reference) => ({
-          fieldName: reference.fieldName,
-          label: labelByKey.get(normalizeOption(reference.label)) ?? reference.label,
-        })),
-      };
     },
   };
 }
@@ -951,36 +741,6 @@ export function readColumnOptionsFromRows(
   return options;
 }
 
-export function readProductionBrandLabels(rows: string[][]) {
-  if (normalizeHeader(rows[0]?.[0] ?? "") !== "наименование") {
-    throw new Error(
-      "Google Sheets tab Номенклатура must contain Наименование in cell A1.",
-    );
-  }
-
-  const labels: string[] = [];
-  const seen = new Set<string>();
-
-  for (const row of rows.slice(1)) {
-    const label = (row[0] ?? "").trim().replace(/\s+/g, " ");
-
-    if (label.length === 0 || label.length > 120) {
-      continue;
-    }
-
-    const normalizedLabel = normalizeOption(label);
-
-    if (seen.has(normalizedLabel)) {
-      continue;
-    }
-
-    seen.add(normalizedLabel);
-    labels.push(label);
-  }
-
-  return labels;
-}
-
 export function readLaboratoryReferenceFromRows(
   rows: string[][],
 ): LaboratoryReferenceData {
@@ -1113,19 +873,6 @@ function readLocalizedNumber(value: string | undefined) {
   if (normalized.length === 0) return undefined;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function normalizeProductionBrandLabel(value: string) {
-  const label = value.trim().replace(/\s+/gu, " ");
-
-  if (label.length === 0) {
-    throw new Error("Введите название марки.");
-  }
-  if (label.length > 120) {
-    throw new Error("Название марки должно быть не длиннее 120 символов.");
-  }
-
-  return label;
 }
 
 export function readNotificationRecipientsFromRows(
