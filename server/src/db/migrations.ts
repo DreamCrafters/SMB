@@ -2780,6 +2780,139 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "052_remove_stale_test_visitor_entry",
+    statements: [
+      `
+      insert into user_audit_events (
+        id,
+        actor_user_id,
+        actor_account_id,
+        actor_display_name,
+        actor_position_display_name,
+        category,
+        action,
+        outcome,
+        summary,
+        details,
+        target_type,
+        target_id
+      )
+      select
+        uuid(),
+        'system-task-62-cleanup',
+        'system-task-62-cleanup',
+        'Очистка тестовых данных',
+        'Системная миграция',
+        'data_change',
+        'data.delete',
+        'success',
+        'Удалена тестовая запись входа посетителя от 04.08.2026 09:26',
+        json_array(
+          json_object(
+            'label',
+            'Дата и время входа',
+            'value',
+            json_unquote(json_extract(submissions.payload, '$.entryAt'))
+          ),
+          json_object(
+            'label',
+            'Причина',
+            'value',
+            'Тестовая запись по задаче 62'
+          )
+        ),
+        'dispatcher_submission',
+        submissions.id
+      from dispatcher_submissions submissions
+      join (
+        select min(candidate.id) as id
+        from dispatcher_submissions candidate
+        where candidate.form_id = 'visitor'
+          and trim(json_unquote(json_extract(candidate.payload, '$.entryAt'))) =
+            '04.08.2026 09:26'
+          and not exists (
+            select 1
+            from dispatcher_submissions exits
+            where exits.form_id = 'visitor_exit'
+              and (
+                trim(json_unquote(json_extract(
+                  exits.payload,
+                  '$.visitorEntryId'
+                ))) = candidate.id
+                or (
+                  (
+                    nullif(trim(json_unquote(json_extract(
+                      exits.payload,
+                      '$.visitorEntryId'
+                    ))), '') is null
+                    or not exists (
+                      select 1
+                      from dispatcher_submissions linked_entry
+                      where linked_entry.form_id = 'visitor'
+                        and linked_entry.id = trim(json_unquote(json_extract(
+                          exits.payload,
+                          '$.visitorEntryId'
+                        )))
+                    )
+                  )
+                  and lower(trim(coalesce(json_unquote(json_extract(
+                    exits.payload,
+                    '$.fio'
+                  )), ''))) = lower(trim(coalesce(json_unquote(json_extract(
+                    candidate.payload,
+                    '$.fio'
+                  )), '')))
+                  and lower(trim(coalesce(json_unquote(json_extract(
+                    exits.payload,
+                    '$.organization'
+                  )), ''))) = lower(trim(coalesce(json_unquote(json_extract(
+                    candidate.payload,
+                    '$.organization'
+                  )), '')))
+                  and coalesce(
+                    str_to_date(
+                      json_unquote(json_extract(exits.payload, '$.exitAt')),
+                      '%d.%m.%Y %H:%i'
+                    ),
+                    exits.received_at
+                  ) >= coalesce(
+                    str_to_date(
+                      json_unquote(json_extract(candidate.payload, '$.entryAt')),
+                      '%d.%m.%Y %H:%i'
+                    ),
+                    candidate.received_at
+                  )
+                )
+              )
+          )
+        having count(*) = 1
+      ) exact_match on exact_match.id = submissions.id
+      where not exists (
+        select 1
+        from user_audit_events events
+        where events.action = 'data.delete'
+          and events.actor_account_id = 'system-task-62-cleanup'
+          and events.target_type = 'dispatcher_submission'
+          and events.target_id = submissions.id
+      );
+      `,
+      `
+      delete submissions
+      from dispatcher_submissions submissions
+      join user_audit_events events
+        on events.target_id = submissions.id
+        and events.target_type = 'dispatcher_submission'
+        and events.action = 'data.delete'
+        and events.actor_account_id = 'system-task-62-cleanup'
+        and events.summary =
+          'Удалена тестовая запись входа посетителя от 04.08.2026 09:26'
+      where submissions.form_id = 'visitor'
+        and trim(json_unquote(json_extract(submissions.payload, '$.entryAt'))) =
+          '04.08.2026 09:26';
+      `,
+    ],
+  },
 ];
 
 function buildInitialProductBrandInsert() {

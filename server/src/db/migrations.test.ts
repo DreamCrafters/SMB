@@ -114,7 +114,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions",
+    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -186,7 +186,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions",
+    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -261,7 +261,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions",
+    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -338,7 +338,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions",
+    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -411,7 +411,7 @@ test("kiln material migration adds the produced material and the journal density
     "047_refractory_wagon_lifecycle_dates",
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions",
+    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -1110,7 +1110,10 @@ test("single organization migration preserves history and removes business stora
   assert.match(statements[9] ?? "", /add key idx_account_accesses_scope \(scope_kind\)/);
   assert.match(statements[12] ?? "", /alter table user_audit_events drop column business_account_id/);
   assert.equal(statements[13], "drop table if exists business_accounts;");
-  assert.doesNotMatch(statements.join(" "), /delete from dispatcher_submissions/u);
+  assert.doesNotMatch(
+    statements.slice(0, 14).join(" "),
+    /delete from dispatcher_submissions/u,
+  );
 });
 
 test("production planning migration adds revisions and enables the economist position", async () => {
@@ -2128,6 +2131,52 @@ test("protected positions migration adds independent admin protection and protec
     statements[1] ?? "",
     /update account_positions set is_admin_protected = 1 where id = 'administrator'/u,
   );
+  assert.equal(statements[2], "insert into schema_migrations (id) values (?)");
+});
+
+test("stale visitor test entry migration audits and removes only the exact unique record", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "052_remove_stale_test_visitor_entry" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 3);
+  assert.match(statements[0] ?? "", /insert into user_audit_events/u);
+  assert.match(statements[0] ?? "", /'data\.delete'/u);
+  assert.match(statements[0] ?? "", /04\.08\.2026 09:26/u);
+  assert.match(statements[0] ?? "", /exits\.form_id = 'visitor_exit'/u);
+  assert.match(statements[0] ?? "", /\$\.visitorEntryId/u);
+  assert.match(statements[0] ?? "", /\$\.fio/u);
+  assert.match(statements[0] ?? "", /\$\.organization/u);
+  assert.match(statements[0] ?? "", /having count\(\*\) = 1/u);
+  assert.match(
+    statements[1] ?? "",
+    /delete submissions from dispatcher_submissions submissions join user_audit_events events/u,
+  );
+  assert.match(statements[1] ?? "", /events\.action = 'data\.delete'/u);
+  assert.match(statements[1] ?? "", /system-task-62-cleanup/u);
+  assert.match(statements[1] ?? "", /04\.08\.2026 09:26/u);
   assert.equal(statements[2], "insert into schema_migrations (id) values (?)");
 });
 

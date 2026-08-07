@@ -2754,14 +2754,6 @@ export function OwnerOverviewPanel({
                 title="Лаборатория"
                 metrics={[
                   {
-                    label: "Испытаний за месяц",
-                    value: businessOverview.overview.laboratory.monthTotal,
-                  },
-                  {
-                    label: "Испытаний сегодня",
-                    value: businessOverview.overview.laboratory.todayTotal,
-                  },
-                  {
                     label: "Отобранных проб за месяц",
                     value:
                       businessOverview.overview.laboratory.sampled.monthTotal,

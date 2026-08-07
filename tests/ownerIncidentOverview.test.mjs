@@ -89,8 +89,6 @@ test("owner overview renders every operational section as glanceable metrics", a
       ["Не закрыто сейчас", "4"],
     ]);
     assert.deepEqual(readOverviewMetrics(document, "Лаборатория"), [
-      ["Испытаний за месяц", "31"],
-      ["Испытаний сегодня", "3"],
       ["Отобранных проб за месяц", "18"],
       ["Отобранных проб сегодня", "2"],
       ["Химанализов за месяц", "14"],
