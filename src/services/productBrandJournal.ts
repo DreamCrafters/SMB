@@ -1,5 +1,7 @@
 import {
   productBrandFields,
+  type ProductBrandDeletionImpact,
+  type ProductBrandDeletionResult,
   type ProductBrandFilters,
   type ProductBrandRecord,
   type ProductBrandSubmission,
@@ -26,6 +28,14 @@ export type ProductBrandJournalListResult =
 
 export type ProductBrandJournalSaveResult =
   | { status: "ready"; record: ProductBrandRecord }
+  | ErrorResult;
+
+export type ProductBrandDeletionImpactResult =
+  | { status: "ready"; impact: ProductBrandDeletionImpact }
+  | ErrorResult;
+
+export type ProductBrandDeleteResult =
+  | { status: "ready"; deletion: ProductBrandDeletionResult }
   | ErrorResult;
 
 export async function requestProductBrandJournal(
@@ -71,6 +81,47 @@ export async function correctProductBrand(
   ));
 }
 
+export async function requestProductBrandDeletionImpact(
+  id: string,
+  options: RequestOptions = {},
+): Promise<ProductBrandDeletionImpactResult> {
+  const result = await requestJson(
+    `${JOURNAL_PATH}/${encodeURIComponent(id)}/deletion-impact`,
+    "GET",
+    undefined,
+    options,
+  );
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !isProductBrandDeletionImpact(result.payload.impact)
+  ) {
+    return invalidResponse("Сервер не вернул сведения об использовании марки.");
+  }
+  return { status: "ready", impact: result.payload.impact };
+}
+
+export async function deleteProductBrand(
+  id: string,
+  replacementId: string | undefined,
+  options: RequestOptions = {},
+): Promise<ProductBrandDeleteResult> {
+  const result = await requestJson(
+    `${JOURNAL_PATH}/${encodeURIComponent(id)}`,
+    "DELETE",
+    replacementId === undefined ? {} : { replacementId },
+    options,
+  );
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !isProductBrandDeletionResult(result.payload.deletion)
+  ) {
+    return invalidResponse("Сервер не подтвердил удаление марки.");
+  }
+  return { status: "ready", deletion: result.payload.deletion };
+}
+
 function readSaveResult(
   result: { status: "ready"; payload: unknown } | ErrorResult,
 ): ProductBrandJournalSaveResult {
@@ -83,8 +134,8 @@ function readSaveResult(
 
 async function requestJson(
   path: string,
-  method: "GET" | "POST" | "PATCH",
-  body: ProductBrandSubmission | undefined,
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  body: ProductBrandSubmission | { replacementId?: string } | undefined,
   { baseUrl, signal }: RequestOptions,
 ): Promise<{ status: "ready"; payload: unknown } | ErrorResult> {
   const endpoint = resolveApiEndpoint(path, path, { baseUrl });
@@ -123,6 +174,28 @@ function isProductBrandRecord(value: unknown): value is ProductBrandRecord {
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string" &&
     productBrandFields.every((field) => typeof value[field.id] === "string");
+}
+
+function isProductBrandDeletionImpact(
+  value: unknown,
+): value is ProductBrandDeletionImpact {
+  return isRecord(value) &&
+    typeof value.usageCount === "number" &&
+    Number.isSafeInteger(value.usageCount) &&
+    value.usageCount >= 0;
+}
+
+function isProductBrandDeletionResult(
+  value: unknown,
+): value is ProductBrandDeletionResult {
+  return isRecord(value) &&
+    typeof value.sourceId === "string" &&
+    typeof value.sourceName === "string" &&
+    typeof value.updatedRecords === "number" &&
+    Number.isSafeInteger(value.updatedRecords) &&
+    value.updatedRecords >= 0 &&
+    (value.replacementId === undefined || typeof value.replacementId === "string") &&
+    (value.replacementName === undefined || typeof value.replacementName === "string");
 }
 
 function readRemoteError(payload: unknown): ErrorResult {

@@ -6,6 +6,21 @@ export type DatabaseTransactionRunner = {
   run: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
+type LocalMutationLockQueue = {
+  locked: boolean;
+  waiters: LocalMutationLockWaiter[];
+};
+
+type LocalMutationLockWaiter = {
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
+const localMutationLockQueues = new WeakMap<
+  DatabasePool,
+  Map<string, LocalMutationLockQueue>
+>();
+
 export async function runWithDatabaseMutationLock<T>({
   pool,
   lockName,
@@ -33,6 +48,139 @@ export async function runWithDatabaseMutationLock<T>({
       connection.release();
     }
   }
+}
+
+export async function acquireDatabaseMutationLock({
+  pool,
+  lockName,
+  timeoutSeconds = 30,
+  signal,
+}: {
+  pool: DatabasePool;
+  lockName: string;
+  timeoutSeconds?: number;
+  signal?: AbortSignal;
+}) {
+  const releaseLocalLock = await acquireLocalMutationLock(
+    pool,
+    lockName,
+    signal,
+  );
+  let connection: PoolConnection | undefined;
+  const abortPendingConnection = () => {
+    connection?.destroy();
+  };
+
+  try {
+    throwIfMutationLockAborted(signal);
+    connection = await pool.getConnection();
+    throwIfMutationLockAborted(signal);
+    signal?.addEventListener("abort", abortPendingConnection, { once: true });
+    await acquireMutationLock(connection, lockName, timeoutSeconds);
+    throwIfMutationLockAborted(signal);
+  } catch (error) {
+    signal?.removeEventListener("abort", abortPendingConnection);
+    if (signal?.aborted) {
+      connection?.destroy();
+    } else {
+      connection?.release();
+    }
+    releaseLocalLock();
+    if (signal?.aborted) throw createMutationLockAbortError();
+    throw error;
+  }
+  signal?.removeEventListener("abort", abortPendingConnection);
+  const lockedConnection = connection;
+
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    try {
+      await releaseMutationLock(lockedConnection, lockName);
+    } finally {
+      try {
+        lockedConnection.release();
+      } finally {
+        releaseLocalLock();
+      }
+    }
+  };
+}
+
+async function acquireLocalMutationLock(
+  pool: DatabasePool,
+  lockName: string,
+  signal?: AbortSignal,
+) {
+  throwIfMutationLockAborted(signal);
+  let queues = localMutationLockQueues.get(pool);
+  if (queues === undefined) {
+    queues = new Map();
+    localMutationLockQueues.set(pool, queues);
+  }
+  let queue = queues.get(lockName);
+  if (queue === undefined) {
+    queue = { locked: false, waiters: [] };
+    queues.set(lockName, queue);
+  }
+  if (queue.locked) {
+    let abortWaiter: (() => void) | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const waiter: LocalMutationLockWaiter = { resolve, reject };
+        abortWaiter = () => {
+          const index = queue!.waiters.indexOf(waiter);
+          if (index >= 0) queue!.waiters.splice(index, 1);
+          reject(createMutationLockAbortError());
+        };
+        queue!.waiters.push(waiter);
+        signal?.addEventListener("abort", abortWaiter, { once: true });
+        if (signal?.aborted) abortWaiter();
+      });
+    } finally {
+      if (abortWaiter !== undefined) {
+        signal?.removeEventListener("abort", abortWaiter);
+      }
+    }
+  } else {
+    queue.locked = true;
+  }
+  if (signal?.aborted) {
+    const next = queue.waiters.shift();
+    if (next === undefined) {
+      queue.locked = false;
+      queues.delete(lockName);
+      if (queues.size === 0) localMutationLockQueues.delete(pool);
+    } else {
+      next.resolve();
+    }
+    throw createMutationLockAbortError();
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const next = queue!.waiters.shift();
+    if (next !== undefined) {
+      next.resolve();
+      return;
+    }
+    queue!.locked = false;
+    queues!.delete(lockName);
+    if (queues!.size === 0) localMutationLockQueues.delete(pool);
+  };
+}
+
+function throwIfMutationLockAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw createMutationLockAbortError();
+}
+
+function createMutationLockAbortError() {
+  const error = new Error("Database mutation lock request was aborted.");
+  error.name = "AbortError";
+  return error;
 }
 
 export function createDatabaseTransactionContext(

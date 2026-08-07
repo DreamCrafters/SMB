@@ -2037,6 +2037,15 @@ p {
   outline-color: var(--brick-soft);
 }
 
+.product-brand-journal-actions {
+  white-space: nowrap;
+}
+
+.product-brand-delete-button {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
 .equipment-unsaved-alert {
   display: flex;
   gap: var(--density-2);

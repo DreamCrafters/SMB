@@ -57,7 +57,12 @@ const database = createDatabaseTransactionContext(
 const pool = database.pool;
 const dispatcherSpreadsheetImportRepository =
   createDispatcherSpreadsheetImportRepository(pool);
-const productBrands = createProductBrandsRepository(pool);
+const productBrands = createProductBrandsRepository(pool, {
+  referenceLockPool: applicationPool,
+});
+const refractoryReports = createRefractoryReportsRepository(pool, {
+  readProductBrandMergeAliases: () => productBrands.listMergeAliases(),
+});
 
 if (config.runMigrationsOnStart) {
   if (config.productionSnapshot.enabled) {
@@ -82,7 +87,7 @@ const server = createApiServer({
   productionPlans: createProductionPlansRepository(pool),
   productionBrands: productBrands,
   productBrandJournal: productBrands,
-  refractoryReports: createRefractoryReportsRepository(pool),
+  refractoryReports,
   refractoryWagons: createRefractoryWagonsRepository(pool),
   laboratoryResults: createLaboratoryResultsRepository(pool),
   laboratoryBankAssignments: createLaboratoryBankAssignmentsRepository(pool),

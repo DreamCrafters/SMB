@@ -185,6 +185,9 @@ import type {
 } from "../domain/productionBrandsDataSource.js";
 import {
   ProductBrandNameAlreadyExistsError,
+  ProductBrandReplacementNotFoundError,
+  ProductBrandReplacementRequiredError,
+  ProductBrandSameReplacementError,
   type ProductBrandsRepository,
 } from "../repositories/productBrandsRepository.js";
 import {
@@ -336,8 +339,14 @@ const laboratoryGreenProductQualityRecordPathPattern =
   /^\/api\/laboratory\/green-product-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const productBrandRecordPathPattern =
   /^\/api\/laboratory\/product-brands\/([a-zA-Z0-9-]{1,100})$/u;
+const productBrandDeletionImpactPathPattern =
+  /^\/api\/laboratory\/product-brands\/([a-zA-Z0-9-]{1,100})\/deletion-impact$/u;
 const laboratoryChemicalAnalysisProtocolPath =
   "/api/laboratory/chemical-analysis-journal/protocol.pdf";
+const productBrandMutationLockByResponse = new WeakMap<
+  ServerResponse,
+  Promise<void>
+>();
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -703,6 +712,7 @@ export function createApiServer({
         laboratoryGreenProductQualityRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/product-brands" ||
         productBrandRecordPathPattern.test(url.pathname) ||
+        productBrandDeletionImpactPathPattern.test(url.pathname) ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
         await handleLaboratoryRequest({
@@ -2155,9 +2165,12 @@ async function handleLaboratoryRequest({
   const productBrandRecordMatch = productBrandRecordPathPattern.exec(
     url.pathname,
   );
+  const productBrandDeletionImpactMatch =
+    productBrandDeletionImpactPathPattern.exec(url.pathname);
   if (
     url.pathname === "/api/laboratory/product-brands" ||
-    productBrandRecordMatch !== null
+    productBrandRecordMatch !== null ||
+    productBrandDeletionImpactMatch !== null
   ) {
     if (productBrandJournal === undefined) {
       sendJson(res, 503, {
@@ -2166,6 +2179,38 @@ async function handleLaboratoryRequest({
           message: "Хранилище журнала марок не настроено.",
         },
       });
+      return;
+    }
+
+    if (productBrandDeletionImpactMatch !== null) {
+      if (!canManageLaboratory) {
+        sendJson(res, 403, {
+          error: {
+            code: "access_denied",
+            message: "Удаление марки недоступно.",
+          },
+        });
+        return;
+      }
+      if (req.method !== "GET") {
+        sendJson(res, 405, {
+          error: {
+            code: "access_denied",
+            message: "Для проверки использования марки используется GET.",
+          },
+        });
+        return;
+      }
+      const impact = await productBrandJournal.readDeletionImpact(
+        productBrandDeletionImpactMatch[1],
+      );
+      if (impact === undefined) {
+        sendJson(res, 404, {
+          error: { code: "not_found", message: "Марка не найдена." },
+        });
+        return;
+      }
+      sendJson(res, 200, { impact });
       return;
     }
 
@@ -2179,11 +2224,95 @@ async function handleLaboratoryRequest({
         });
         return;
       }
+      if (req.method === "DELETE") {
+        const input = readProductBrandDeleteRequest(await readJsonBody(req));
+        if (input === undefined) {
+          sendJson(res, 400, {
+            error: {
+              code: "invalid_response",
+              message: "Выберите корректную марку для замены.",
+            },
+          });
+          return;
+        }
+        await ensureProductBrandMutationLock(res, productionBrands);
+        try {
+          const deletion = await runAuditedMutation({
+            transaction: databaseTransaction,
+            audit,
+            mutate: () => productBrandJournal.deleteRecord({
+              id: productBrandRecordMatch[1],
+              ...input,
+              deletedByUserId: access.profile.userId,
+              deletedByAccountId: access.profile.activeAccess.accountId,
+              deletedByDisplayName: access.profile.displayName,
+            }),
+            buildEvent: (result) => result === undefined
+              ? undefined
+              : {
+                  actor: buildAuditActor(access.profile),
+                  category: "data_change",
+                  action: result.replacementName === undefined
+                    ? "production_brand.delete"
+                    : "production_brand.merge",
+                  summary: result.replacementName === undefined
+                    ? `Удалена марка «${result.sourceName}»`
+                    : `Марка «${result.sourceName}» объединена с «${result.replacementName}»`,
+                  details: [
+                    { label: "Удалённая марка", value: result.sourceName },
+                    ...(result.replacementName === undefined
+                      ? []
+                      : [{ label: "Марка для замены", value: result.replacementName }]),
+                    {
+                      label: "Обновлено записей",
+                      value: String(result.updatedRecords),
+                    },
+                  ],
+                  targetType: "production_brand",
+                  targetId: result.sourceId,
+                },
+          });
+          if (deletion === undefined) {
+            sendJson(res, 404, {
+              error: { code: "not_found", message: "Марка не найдена." },
+            });
+            return;
+          }
+          sendJson(res, 200, { deletion });
+        } catch (error) {
+          if (error instanceof ProductBrandReplacementRequiredError) {
+            sendJson(res, 409, {
+              error: {
+                code: "invalid_response",
+                message:
+                  "Марка используется в журналах. Выберите другую марку для замены.",
+              },
+            });
+            return;
+          }
+          if (
+            error instanceof ProductBrandReplacementNotFoundError ||
+            error instanceof ProductBrandSameReplacementError
+          ) {
+            sendJson(res, 400, {
+              error: {
+                code: "invalid_response",
+                message: error instanceof ProductBrandSameReplacementError
+                  ? "Нельзя заменить марку на неё же."
+                  : "Выбранная марка для замены не найдена.",
+              },
+            });
+            return;
+          }
+          throw error;
+        }
+        return;
+      }
       if (req.method !== "PATCH") {
         sendJson(res, 405, {
           error: {
             code: "access_denied",
-            message: "Для исправления марки используется PATCH.",
+            message: "Для исправления и удаления марки используются PATCH и DELETE.",
           },
         });
         return;
@@ -4113,6 +4242,7 @@ async function handleLaboratoryRequest({
       });
       return;
     }
+    await ensureProductBrandMutationLock(res, productionBrands);
     const [materialBulkDensity] = await rotaryKiln2FiringJournal
       .listMaterialBulkDensities({ material: validation.value.material });
     const resolution = resolveLaboratoryBankAssignment(
@@ -5258,6 +5388,7 @@ async function resolveProductionBrandReferencesForRequest({
   ) => ProductionBrandReferenceErrorDetail | undefined;
 }): Promise<ProductionBrandReference[] | undefined> {
   try {
+    await ensureProductBrandMutationLock(res, productionBrands);
     const resolution = await productionBrands.resolveReferences(references);
 
     if (resolution.ok) return resolution.references;
@@ -5282,6 +5413,54 @@ async function resolveProductionBrandReferencesForRequest({
   }
 
   return undefined;
+}
+
+async function ensureProductBrandMutationLock(
+  res: ServerResponse,
+  productionBrands: ProductionBrandsDataSource,
+) {
+  if (productionBrands.acquireReferenceMutationLock === undefined) return;
+  const existing = productBrandMutationLockByResponse.get(res);
+  if (existing !== undefined) {
+    await existing;
+    return;
+  }
+
+  const ready = (async () => {
+    const abortController = new AbortController();
+    const markResponseClosed = () => {
+      abortController.abort();
+    };
+    res.once("close", markResponseClosed);
+    let release: () => Promise<void>;
+    try {
+      release = await productionBrands.acquireReferenceMutationLock!(
+        abortController.signal,
+      );
+    } finally {
+      res.off("close", markResponseClosed);
+    }
+    if (abortController.signal.aborted || res.destroyed || res.writableFinished) {
+      await release();
+      throw new Error("HTTP response closed while waiting for the product brand lock.");
+    }
+    let released = false;
+    const releaseOnce = () => {
+      if (released) return;
+      released = true;
+      productBrandMutationLockByResponse.delete(res);
+      void release().catch(() => undefined);
+    };
+    res.once("finish", releaseOnce);
+    res.once("close", releaseOnce);
+  })();
+  productBrandMutationLockByResponse.set(res, ready);
+  try {
+    await ready;
+  } catch (error) {
+    productBrandMutationLockByResponse.delete(res);
+    throw error;
+  }
 }
 
 function readAdminDispatcherBrandReferences(
@@ -9967,6 +10146,21 @@ function formatMoscowCalendarDate(value: Date) {
   const partByType = new Map(parts.map((part) => [part.type, part.value]));
 
   return `${partByType.get("year")}-${partByType.get("month")}-${partByType.get("day")}`;
+}
+
+function readProductBrandDeleteRequest(value: unknown):
+  | { replacementId?: string }
+  | undefined {
+  if (!isRecord(value) || Array.isArray(value)) return undefined;
+  if (Object.keys(value).some((key) => key !== "replacementId")) return undefined;
+  if (value.replacementId === undefined) return {};
+  if (
+    typeof value.replacementId !== "string" ||
+    !/^[a-zA-Z0-9-]{1,100}$/u.test(value.replacementId)
+  ) {
+    return undefined;
+  }
+  return { replacementId: value.replacementId };
 }
 
 function formatProductBrandAuditValue(value: string) {

@@ -3,6 +3,7 @@ import test from "node:test";
 import type { PoolConnection } from "mysql2/promise";
 import type { DatabasePool } from "./pool.js";
 import {
+  acquireDatabaseMutationLock,
   createDatabaseTransactionContext,
   runWithDatabaseMutationLock,
 } from "./transactionContext.js";
@@ -145,6 +146,86 @@ test("database mutation lock wraps a whole external CLI operation", async () => 
     "select release_lock(?)",
     "release",
   ]);
+});
+
+test("database mutation lock lease stays held until its explicit release", async () => {
+  const calls: string[] = [];
+  const connection = buildConnection(calls);
+  const sourcePool = {
+    async getConnection() {
+      calls.push("getConnection");
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  const release = await acquireDatabaseMutationLock({
+    pool: sourcePool,
+    lockName: "smb:product_brand_references",
+  });
+  calls.push("request mutation");
+  await release();
+  await release();
+
+  assert.deepEqual(calls, [
+    "getConnection",
+    "select get_lock(?, ?) as acquired",
+    "request mutation",
+    "select release_lock(?)",
+    "release",
+  ]);
+});
+
+test("database mutation lock serializes local waiters before borrowing pool connections", async () => {
+  const calls: string[] = [];
+  const sourcePool = {
+    async getConnection() {
+      calls.push("getConnection");
+      return buildConnection(calls);
+    },
+  } as unknown as DatabasePool;
+
+  const releaseFirst = await acquireDatabaseMutationLock({
+    pool: sourcePool,
+    lockName: "smb:product_brand_references",
+  });
+  const secondLease = acquireDatabaseMutationLock({
+    pool: sourcePool,
+    lockName: "smb:product_brand_references",
+  });
+  await Promise.resolve();
+  assert.equal(calls.filter((call) => call === "getConnection").length, 1);
+
+  await releaseFirst();
+  const releaseSecond = await secondLease;
+  assert.equal(calls.filter((call) => call === "getConnection").length, 2);
+  await releaseSecond();
+});
+
+test("database mutation lock removes an aborted local waiter before it borrows a connection", async () => {
+  const calls: string[] = [];
+  const sourcePool = {
+    async getConnection() {
+      calls.push("getConnection");
+      return buildConnection(calls);
+    },
+  } as unknown as DatabasePool;
+  const releaseFirst = await acquireDatabaseMutationLock({
+    pool: sourcePool,
+    lockName: "smb:product_brand_references",
+  });
+  const abortController = new AbortController();
+  const abortedLease = acquireDatabaseMutationLock({
+    pool: sourcePool,
+    lockName: "smb:product_brand_references",
+    signal: abortController.signal,
+  });
+  await Promise.resolve();
+
+  abortController.abort();
+  await assert.rejects(abortedLease, { name: "AbortError" });
+  await releaseFirst();
+
+  assert.equal(calls.filter((call) => call === "getConnection").length, 1);
 });
 
 function buildConnection(calls: string[], failQuery?: string) {

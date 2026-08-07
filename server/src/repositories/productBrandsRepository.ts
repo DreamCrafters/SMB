@@ -1,14 +1,25 @@
 import { randomUUID } from "node:crypto";
-import type { RowDataPacket } from "mysql2/promise";
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import type {
+  ProductBrandDeletionImpact,
+  ProductBrandDeletionResult,
   ProductBrandFilters,
+  ProductBrandMergeAlias,
   ProductBrandRecord,
   ProductBrandSubmission,
 } from "../contracts/productBrands.js";
 import type { DatabasePool } from "../db/pool.js";
+import { acquireDatabaseMutationLock } from "../db/transactionContext.js";
 import {
+  mergeDispatcherProductionBrandReferences,
+  mergeRefractoryReportBrandReferences,
   normalizeProductionBrandLookupLabel,
 } from "../domain/productionBrand.js";
+import {
+  buildDispatcherSubmissionSummary,
+  type DispatcherSubmissionPayload,
+} from "../domain/dispatcherSubmission.js";
+import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type {
   ProductionBrandReference,
   ProductionBrandResolution,
@@ -20,6 +31,27 @@ export class ProductBrandNameAlreadyExistsError extends Error {
   constructor() {
     super("A product brand with this normalized name already exists.");
     this.name = "ProductBrandNameAlreadyExistsError";
+  }
+}
+
+export class ProductBrandReplacementRequiredError extends Error {
+  constructor() {
+    super("A referenced product brand requires a replacement before deletion.");
+    this.name = "ProductBrandReplacementRequiredError";
+  }
+}
+
+export class ProductBrandReplacementNotFoundError extends Error {
+  constructor() {
+    super("The replacement product brand does not exist or is inactive.");
+    this.name = "ProductBrandReplacementNotFoundError";
+  }
+}
+
+export class ProductBrandSameReplacementError extends Error {
+  constructor() {
+    super("A product brand cannot replace itself.");
+    this.name = "ProductBrandSameReplacementError";
   }
 }
 
@@ -37,6 +69,15 @@ export type ProductBrandsRepository = ProductionBrandsDataSource & {
     correctedByAccountId: string;
     correctedByDisplayName: string;
   }) => Promise<ProductBrandCorrectionResult | undefined>;
+  readDeletionImpact: (id: string) => Promise<ProductBrandDeletionImpact | undefined>;
+  listMergeAliases: () => Promise<ProductBrandMergeAlias[]>;
+  deleteRecord: (input: {
+    id: string;
+    replacementId?: string;
+    deletedByUserId: string;
+    deletedByAccountId: string;
+    deletedByDisplayName: string;
+  }) => Promise<ProductBrandDeletionResult | undefined>;
 };
 
 export type ProductBrandCorrectionResult = {
@@ -64,10 +105,40 @@ type BrandLabelRow = RowDataPacket & {
   name: string;
   normalized_name: string;
 };
+type BrandMergeRow = RowDataPacket & {
+  id: string;
+  name: string;
+  merged_into_id: string | null;
+};
+
+type CountRow = RowDataPacket & { count: number | string };
+type DispatcherBrandRow = RowDataPacket & {
+  id: string;
+  payload: unknown;
+};
+type RefractoryBrandRow = RowDataPacket & {
+  id: string;
+  report_type: string;
+  payload: unknown;
+};
+type LaboratoryResultBrandRow = RowDataPacket & {
+  id: string;
+  payload: unknown;
+};
+type CurrentBankAssignmentRow = RowDataPacket & {
+  bank_number: number;
+  laboratory_result_id: string | null;
+  sample_index: number | null;
+  sample_identifier: string | null;
+  bulk_density: number | string;
+  bulk_density_source: string;
+  bulk_density_sample_count: number | string | null;
+};
 
 type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
+  referenceLockPool?: DatabasePool;
 };
 
 export function createProductBrandsRepository(
@@ -75,15 +146,260 @@ export function createProductBrandsRepository(
   {
     createId = randomUUID,
     now = () => new Date(),
+    referenceLockPool = pool,
   }: RepositoryOptions = {},
 ): ProductBrandsRepository {
   async function readLabels() {
     const [rows] = await pool.query<BrandLabelRow[]>(
       `select name, normalized_name
       from product_brands
+      where deleted_at is null
       order by name asc`,
     );
     return rows;
+  }
+
+  async function readMergeAliases() {
+    const [rows] = await pool.query<BrandMergeRow[]>(
+      `select id, name, merged_into_id
+      from product_brands`,
+    );
+    return buildTerminalMergeAliases(rows);
+  }
+
+  async function readDeletionUsageCount(
+    source: Pick<ProductBrandRow, "id" | "name">,
+    lockRows = false,
+  ) {
+    const sourceName = source.name;
+    let usageCount = 0;
+    for (const { table, column } of directBrandReferenceColumns) {
+      const [rows] = await pool.query<CountRow[]>(
+        `select count(*) as count
+        from ${table}
+        where ${column} = ?`,
+        [sourceName],
+      );
+      usageCount += Number(rows[0]?.count ?? 0);
+    }
+
+    const [bankRows] = await pool.query<CountRow[]>(
+      `select count(*) as count
+      from laboratory_bank_assignments assignment
+      join (
+        select bank_number, max(sequence_id) as sequence_id
+        from laboratory_bank_assignments
+        group by bank_number
+      ) current_assignment
+        on current_assignment.sequence_id = assignment.sequence_id
+      where assignment.material_label = ?`,
+      [sourceName],
+    );
+    usageCount += Number(bankRows[0]?.count ?? 0);
+
+    const lockClause = lockRows ? " for update" : "";
+    const [dispatcherRows] = await pool.query<DispatcherBrandRow[]>(
+      `select id, payload
+      from dispatcher_submissions
+      where form_id = 'production'${lockClause}`,
+    );
+    usageCount += dispatcherRows.filter((row) =>
+      mergeDispatcherProductionBrandReferences(
+        readStringPayload(row.payload),
+        sourceName,
+        sourceName,
+      ).changed
+    ).length;
+
+    usageCount += await countCurrentRefractoryReferences(
+      sourceName,
+      sourceName,
+    );
+    return usageCount;
+  }
+
+  async function mergeReferences(
+    sourceName: string,
+    replacementName: string,
+    actor: {
+      userId: string;
+      accountId: string;
+      displayName: string;
+    },
+  ) {
+    let updatedRecords = 0;
+    for (const { table, column } of directBulkBrandReferenceColumns) {
+      const [result] = await pool.query<ResultSetHeader>(
+        `update ${table}
+        set ${column} = ?
+        where ${column} = ?`,
+        [replacementName, sourceName],
+      );
+      updatedRecords += result.affectedRows;
+    }
+
+    const [bankAssignments] = await pool.query<CurrentBankAssignmentRow[]>(
+      `select
+        assignment.bank_number,
+        assignment.laboratory_result_id,
+        assignment.sample_index,
+        assignment.sample_identifier,
+        assignment.bulk_density,
+        assignment.bulk_density_source,
+        assignment.bulk_density_sample_count
+      from laboratory_bank_assignments assignment
+      join (
+        select bank_number, max(sequence_id) as sequence_id
+        from laboratory_bank_assignments
+        group by bank_number
+      ) current_assignment
+        on current_assignment.sequence_id = assignment.sequence_id
+      where assignment.material_label = ?
+      for update`,
+      [sourceName],
+    );
+    for (const assignment of bankAssignments) {
+      await pool.query(
+        `insert into laboratory_bank_assignments (
+          id,
+          bank_number,
+          laboratory_result_id,
+          sample_index,
+          sample_identifier,
+          material_label,
+          bulk_density,
+          bulk_density_source,
+          bulk_density_sample_count,
+          assigned_by_user_id,
+          assigned_by_account_id,
+          assigned_by_display_name,
+          assigned_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          createId(),
+          assignment.bank_number,
+          assignment.laboratory_result_id,
+          assignment.sample_index,
+          assignment.sample_identifier,
+          replacementName,
+          assignment.bulk_density,
+          assignment.bulk_density_source,
+          assignment.bulk_density_sample_count,
+          actor.userId,
+          actor.accountId,
+          actor.displayName,
+          now().toISOString(),
+        ],
+      );
+      updatedRecords += 1;
+    }
+
+    const [laboratoryRows] = await pool.query<LaboratoryResultBrandRow[]>(
+      `select id, payload
+      from laboratory_results
+      where product_brand = ?
+      for update`,
+      [sourceName],
+    );
+    for (const row of laboratoryRows) {
+      const payload = readJsonRecord(row.payload);
+      await pool.query(
+        `update laboratory_results
+        set product_brand = ?, payload = ?
+        where id = ?`,
+        [
+          replacementName,
+          JSON.stringify({ ...payload, productBrand: replacementName }),
+          row.id,
+        ],
+      );
+      updatedRecords += 1;
+    }
+
+    const [dispatcherRows] = await pool.query<DispatcherBrandRow[]>(
+      `select id, payload
+      from dispatcher_submissions
+      where form_id = 'production'
+      for update`,
+    );
+    const productionForm = getDispatcherFormDefinition("production");
+    for (const row of dispatcherRows) {
+      const result = mergeDispatcherProductionBrandReferences(
+        readStringPayload(row.payload),
+        sourceName,
+        replacementName,
+      );
+      if (!result.changed) continue;
+      await pool.query(
+        `update dispatcher_submissions
+        set payload = ?, summary = ?
+        where id = ?`,
+        [
+          JSON.stringify(result.payload),
+          productionForm === undefined
+            ? "Запись без краткого описания"
+            : buildDispatcherSubmissionSummary(productionForm, result.payload),
+          row.id,
+        ],
+      );
+      updatedRecords += 1;
+    }
+
+    updatedRecords += await countCurrentRefractoryReferences(
+      sourceName,
+      replacementName,
+    );
+    return updatedRecords;
+  }
+
+  async function countCurrentRefractoryReferences(
+    sourceName: string,
+    replacementName: string,
+  ) {
+    const [rows] = await pool.query<RefractoryBrandRow[]>(
+      `select revisions.id, revisions.report_type, revisions.payload
+      from refractory_report_revisions revisions
+      where not exists (
+        select 1
+        from refractory_report_revisions newer
+        where newer.report_type = revisions.report_type
+          and newer.report_date = revisions.report_date
+          and newer.shift_number = revisions.shift_number
+          and newer.revision_number > revisions.revision_number
+      ) or (
+        revisions.report_type = 'cosh'
+        and revisions.status = 'approved'
+        and not exists (
+          select 1
+          from refractory_report_revisions newer_approved
+          where newer_approved.report_type = revisions.report_type
+            and newer_approved.report_date = revisions.report_date
+            and newer_approved.status = 'approved'
+            and (
+              newer_approved.shift_number > revisions.shift_number
+              or (
+                newer_approved.shift_number = revisions.shift_number
+                and newer_approved.revision_number > revisions.revision_number
+              )
+            )
+        )
+      )`,
+    );
+    const aliases = await readMergeAliases();
+    return rows.filter((row) =>
+      mergeRefractoryReportBrandReferences(
+        row.report_type,
+        aliases.reduce<unknown>((payload, alias) =>
+          mergeRefractoryReportBrandReferences(
+            row.report_type,
+            payload,
+            alias.sourceName,
+            alias.replacementName,
+          ).payload, readJsonValue(row.payload)),
+        sourceName,
+        replacementName,
+      ).changed
+    ).length;
   }
 
   async function createRecord(input: {
@@ -148,6 +464,14 @@ export function createProductBrandsRepository(
   }
 
   return {
+    acquireReferenceMutationLock(signal) {
+      return acquireDatabaseMutationLock({
+        pool: referenceLockPool,
+        lockName: "smb:product_brand_references",
+        signal,
+      });
+    },
+
     async list() {
       return (await readLabels()).map((row) => row.name);
     },
@@ -155,8 +479,8 @@ export function createProductBrandsRepository(
     async listRecords(filters = {}) {
       const query = filters.query?.trim();
       const where = query === undefined || query === ""
-        ? ""
-        : `where instr(
+        ? "where deleted_at is null"
+        : `where deleted_at is null and instr(
           concat_ws(
             ' ',
             name,
@@ -213,7 +537,7 @@ export function createProductBrandsRepository(
           created_at,
           updated_at
         from product_brands
-        where id = ?
+        where id = ? and deleted_at is null
         limit 1
         for update`,
         [input.id],
@@ -293,6 +617,93 @@ export function createProductBrandsRepository(
       return { before, record };
     },
 
+    async readDeletionImpact(id) {
+      const [rows] = await pool.query<ProductBrandRow[]>(
+        `${productBrandRecordSelect}
+        where id = ? and deleted_at is null
+        limit 1`,
+        [id],
+      );
+      const source = rows[0];
+      if (source === undefined) return undefined;
+      return { usageCount: await readDeletionUsageCount(source) };
+    },
+
+    async listMergeAliases() {
+      return readMergeAliases();
+    },
+
+    async deleteRecord({
+      id,
+      replacementId,
+      deletedByUserId,
+      deletedByAccountId,
+      deletedByDisplayName,
+    }) {
+      if (replacementId === id) throw new ProductBrandSameReplacementError();
+      const [rows] = replacementId === undefined
+        ? await pool.query<ProductBrandRow[]>(
+            `${productBrandRecordSelect}
+            where id = ? and deleted_at is null
+            limit 1
+            for update`,
+            [id],
+          )
+        : await pool.query<ProductBrandRow[]>(
+            `${productBrandRecordSelect}
+            where id in (?, ?) and deleted_at is null
+            order by id asc
+            for update`,
+            [id, replacementId],
+          );
+      const source = rows.find((row) => row.id === id);
+      if (source === undefined) return undefined;
+      const replacement = replacementId === undefined
+        ? undefined
+        : rows.find((row) => row.id === replacementId);
+      if (replacementId !== undefined && replacement === undefined) {
+        throw new ProductBrandReplacementNotFoundError();
+      }
+
+      const updatedRecords = replacement === undefined
+        ? 0
+        : await mergeReferences(source.name, replacement.name, {
+            userId: deletedByUserId,
+            accountId: deletedByAccountId,
+            displayName: deletedByDisplayName,
+          });
+      if (
+        replacement === undefined &&
+        await readDeletionUsageCount(source, true) > 0
+      ) {
+        throw new ProductBrandReplacementRequiredError();
+      }
+
+      const deletedAt = now().toISOString();
+      await pool.query(
+        `update product_brands
+        set deleted_at = ?, merged_into_id = ?, updated_at = ?
+        where id = ? and deleted_at is null`,
+        [
+          deletedAt,
+          replacement?.id ?? null,
+          deletedAt,
+          source.id,
+        ],
+      );
+      return {
+        sourceId: source.id,
+        sourceName: source.name,
+        ...(replacement === undefined
+          ? {}
+          : {
+              replacementId: replacement.id,
+              replacementName: replacement.name,
+            }),
+        updatedRecords,
+      };
+    },
+
     async resolveReferences(references: ProductionBrandReference[]): Promise<ProductionBrandResolution> {
       const labels = await readLabels();
       const labelByKey = new Map(
@@ -315,6 +726,34 @@ export function createProductBrandsRepository(
 
   };
 }
+
+const productBrandRecordSelect = `select
+  id,
+  name,
+  normalized_name,
+  description,
+  product_class,
+  application_industry,
+  normative_document,
+  geometry,
+  al2o3,
+  fe2o3,
+  strength,
+  created_at,
+  updated_at
+from product_brands`;
+
+const directBrandReferenceColumns = [
+  { table: "rotary_kiln_2_firing_journal", column: "produced_material" },
+  { table: "laboratory_unshaped_product_sample_journal", column: "product_name" },
+  { table: "laboratory_results", column: "product_brand" },
+  { table: "refractory_wagons", column: "product_brand" },
+  { table: "laboratory_green_product_quality_journal", column: "product_brand" },
+] as const;
+
+const directBulkBrandReferenceColumns = directBrandReferenceColumns.filter(
+  ({ table }) => table !== "laboratory_results",
+);
 
 function mapProductBrandRow(row: ProductBrandRow): ProductBrandRecord {
   return {
@@ -352,4 +791,46 @@ function isDuplicateEntryError(error: unknown) {
   return error instanceof Error &&
     "code" in error &&
     error.code === "ER_DUP_ENTRY";
+}
+
+function readJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function readJsonRecord(value: unknown): Record<string, unknown> {
+  const parsed = readJsonValue(value);
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
+}
+
+function readStringPayload(value: unknown): DispatcherSubmissionPayload {
+  const parsed = readJsonRecord(value);
+  return Object.fromEntries(Object.entries(parsed).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  ));
+}
+
+function buildTerminalMergeAliases(
+  rows: readonly BrandMergeRow[],
+): ProductBrandMergeAlias[] {
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  return rows.flatMap((source) => {
+    if (source.merged_into_id === null) return [];
+    const visited = new Set([source.id]);
+    let target = rowById.get(source.merged_into_id);
+    while (target !== undefined && target.merged_into_id !== null) {
+      if (visited.has(target.id)) return [];
+      visited.add(target.id);
+      target = rowById.get(target.merged_into_id);
+    }
+    return target === undefined
+      ? []
+      : [{ sourceName: source.name, replacementName: target.name }];
+  });
 }

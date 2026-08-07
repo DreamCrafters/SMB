@@ -9,6 +9,9 @@ export type ProductionBrandResolution =
 
 export type ProductionBrandsDataSource = {
   list: () => Promise<string[]>;
+  acquireReferenceMutationLock?: (
+    signal?: AbortSignal,
+  ) => Promise<() => Promise<void>>;
   resolveReferences: (
     references: ProductionBrandReference[],
   ) => Promise<ProductionBrandResolution>;

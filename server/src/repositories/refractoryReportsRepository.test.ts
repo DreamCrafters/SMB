@@ -145,3 +145,40 @@ test("repository selects the latest approved COSH shift for each requested date"
   assert.match(querySql, /newer\.revision_number > revisions\.revision_number/u);
   assert.deepEqual(queryParameters, ["2026-07-20", "2026-07-21"]);
 });
+
+test("repository canonicalizes merged brands while keeping report revision rows immutable", async () => {
+  const statements: string[] = [];
+  const pool = {
+    async query(sql: string) {
+      statements.push(sql);
+      return [[{
+        ...pendingRow,
+        id: "cosh-current",
+        report_type: "cosh",
+        status: "approved",
+        payload: JSON.stringify({
+          chamotteOutputRows: [
+            { productBrand: "Дубль", quantityTons: 1.25 },
+            { productBrand: "Основная", quantityTons: 0.75 },
+          ],
+        }),
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRefractoryReportsRepository(pool, {
+    readProductBrandMergeAliases: async () => [{
+      sourceName: "Дубль",
+      replacementName: "Основная",
+    }],
+  });
+
+  const reports = await repository.listLatestForShift({
+    reportDate: "2026-07-20",
+    shiftNumber: 2,
+  });
+
+  assert.deepEqual(reports[0]?.payload, {
+    chamotteOutputRows: [{ productBrand: "Основная", quantityTons: 2 }],
+  });
+  assert.equal(statements.some((sql) => /^\s*update /u.test(sql)), false);
+});

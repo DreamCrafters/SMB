@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   correctProductBrand,
+  deleteProductBrand,
+  requestProductBrandDeletionImpact,
   requestProductBrandJournal,
   submitProductBrand,
 } from "../.test-build/src/services/productBrandJournal.js";
@@ -42,6 +44,20 @@ test("product brand journal service lists, creates and corrects detailed records
 
   globalThis.fetch = async (url, init = {}) => {
     calls.push({ url: String(url), init });
+    if (String(url).endsWith("/brand-1/deletion-impact")) {
+      return jsonResponse({ impact: { usageCount: 4 } });
+    }
+    if (init.method === "DELETE") {
+      return jsonResponse({
+        deletion: {
+          sourceId: "brand-1",
+          sourceName: "ША-8",
+          replacementId: "brand-2",
+          replacementName: "ШБ-5",
+          updatedRecords: 4,
+        },
+      });
+    }
     return jsonResponse(init.method === "GET" || init.method === undefined
       ? { records: [record] }
       : { record }, init.method === "POST" ? 201 : 200);
@@ -64,6 +80,27 @@ test("product brand journal service lists, creates and corrects detailed records
     }),
     { status: "ready", record },
   );
+  assert.deepEqual(
+    await requestProductBrandDeletionImpact("brand-1", {
+      baseUrl: "http://api.test",
+    }),
+    { status: "ready", impact: { usageCount: 4 } },
+  );
+  assert.deepEqual(
+    await deleteProductBrand("brand-1", "brand-2", {
+      baseUrl: "http://api.test",
+    }),
+    {
+      status: "ready",
+      deletion: {
+        sourceId: "brand-1",
+        sourceName: "ША-8",
+        replacementId: "brand-2",
+        replacementName: "ШБ-5",
+        updatedRecords: 4,
+      },
+    },
+  );
 
   assert.equal(
     calls[0].url,
@@ -75,6 +112,12 @@ test("product brand journal service lists, creates and corrects detailed records
     calls[2].url,
     "http://api.test/api/laboratory/product-brands/brand-1",
   );
+  assert.equal(
+    calls[3].url,
+    "http://api.test/api/laboratory/product-brands/brand-1/deletion-impact",
+  );
+  assert.equal(calls[4].init.method, "DELETE");
+  assert.deepEqual(JSON.parse(calls[4].init.body), { replacementId: "brand-2" });
 });
 
 function jsonResponse(value, status = 200) {

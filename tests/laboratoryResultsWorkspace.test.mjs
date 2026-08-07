@@ -183,6 +183,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   };
   const productBrandSubmissions = [];
   const productBrandCorrections = [];
+  const productBrandDeletions = [];
   const productBrandRequests = [];
   const selectorBrandLabels = ["ША-22", "ШКИ-66"];
   const productBrandRecord = {
@@ -198,6 +199,12 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     strength: "20 Н/мм²",
     createdAt: "2026-08-07T08:00:00.000Z",
     updatedAt: "2026-08-07T08:00:00.000Z",
+  };
+  const replacementProductBrandRecord = {
+    ...productBrandRecord,
+    id: "brand-2",
+    name: "ШБ-5",
+    description: "Основная марка",
   };
   const protocolPreview = {
     opener: {},
@@ -243,7 +250,16 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           }, 201);
         }
         productBrandRequests.push(Object.fromEntries(url.searchParams));
-        return jsonResponse({ records: [productBrandRecord] });
+        return jsonResponse({
+          records: [productBrandRecord, replacementProductBrandRecord],
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/product-brands/brand-1/deletion-impact" &&
+        (init.method === undefined || init.method === "GET")
+      ) {
+        return jsonResponse({ impact: { usageCount: 2 } });
       }
       if (
         url.pathname === "/api/laboratory/product-brands/brand-1" &&
@@ -256,6 +272,22 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             ...productBrandRecord,
             ...submission,
             updatedAt: "2026-08-07T10:00:00.000Z",
+          },
+        });
+      }
+      if (
+        url.pathname === "/api/laboratory/product-brands/brand-1" &&
+        init.method === "DELETE"
+      ) {
+        const input = JSON.parse(String(init.body));
+        productBrandDeletions.push(input);
+        return jsonResponse({
+          deletion: {
+            sourceId: "brand-1",
+            sourceName: "ША-8",
+            replacementId: input.replacementId,
+            replacementName: "ШБ-5",
+            updatedRecords: 2,
           },
         });
       }
@@ -1011,6 +1043,37 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       productBrandCorrections[0].description,
       "Исправленное описание",
     );
+    const deleteBrandButton = rootElement.querySelector(
+      'button[aria-label="Удалить марку ША-8"]',
+    );
+    assert.ok(deleteBrandButton);
+    await React.act(async () => deleteBrandButton.click());
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Марка используется в 2 записях")
+    );
+    const deletionDialog = rootElement.querySelector(
+      '.product-brand-delete-dialog[role="dialog"]',
+    );
+    assert.ok(deletionDialog);
+    const replacementSelect = findControlByLabel(
+      deletionDialog,
+      "Марка для замены",
+      "select",
+    );
+    assert.ok(replacementSelect);
+    await React.act(async () => {
+      setNativeInputValue(replacementSelect, "brand-2");
+      replacementSelect.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
+    const confirmBrandDeletion = Array.from(
+      deletionDialog.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Объединить и удалить");
+    assert.ok(confirmBrandDeletion);
+    await React.act(async () => confirmBrandDeletion.click());
+    await waitFor(React, () => productBrandDeletions.length === 1);
+    assert.deepEqual(productBrandDeletions[0], { replacementId: "brand-2" });
 
     const findTabByText = (text) =>
       Array.from(rootElement.querySelectorAll("button")).find(

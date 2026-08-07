@@ -552,6 +552,27 @@ test("laboratory API reads the live matrix and saves the session-authored result
       capabilities: ["business.manage_laboratory_results"],
     },
   };
+  let referenceMutationLockHeld = false;
+  const referenceMutationLockEvents: string[] = [];
+  const productionBrands: ProductionBrandsDataSource = {
+    async acquireReferenceMutationLock() {
+      assert.equal(referenceMutationLockHeld, false);
+      referenceMutationLockHeld = true;
+      referenceMutationLockEvents.push("acquired");
+      return async () => {
+        assert.equal(referenceMutationLockHeld, true);
+        referenceMutationLockHeld = false;
+        referenceMutationLockEvents.push("released");
+      };
+    },
+    async list() {
+      return [];
+    },
+    async resolveReferences(references) {
+      assert.equal(referenceMutationLockHeld, true);
+      return { ok: true, references };
+    },
+  };
   const laboratoryReferenceDataSource: LaboratoryReferenceDataSource = {
     async read() {
       return {
@@ -622,6 +643,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
   >> = [];
   const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
     async assign(input) {
+      assert.equal(referenceMutationLockHeld, true);
       const assignment = {
         assignmentId: "bank-assignment-1",
         bankNumber: input.bankNumber,
@@ -662,6 +684,9 @@ test("laboratory API reads the live matrix and saves the session-authored result
       return { shiftSupervisors: [], burnerOperators: [] };
     },
     async listMaterialBulkDensities(filters) {
+      if (filters?.material !== undefined) {
+        assert.equal(referenceMutationLockHeld, true);
+      }
       kilnMaterialFilters.push(filters);
       const materials = [{
         material: "ШКИ-66",
@@ -793,6 +818,15 @@ test("laboratory API reads the live matrix and saves the session-authored result
       assert.equal(savedInput?.result.materialLabel, "Неформованные изделия");
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
+      assert.equal(referenceMutationLockHeld, false);
+      assert.deepEqual(referenceMutationLockEvents, [
+        "acquired",
+        "released",
+        "acquired",
+        "released",
+        "acquired",
+        "released",
+      ]);
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -805,7 +839,7 @@ test("laboratory API reads the live matrix and saves the session-authored result
     undefined,
     undefined,
     undefined,
-    passthroughProductionBrands,
+    productionBrands,
     undefined,
     undefined,
     laboratoryReferenceDataSource,
@@ -7682,7 +7716,15 @@ test("product brand journal is the managed source for the journal and every bran
   let requestedFilters: Parameters<ProductBrandsRepository["listRecords"]>[0];
   let createdInput: Parameters<ProductBrandsRepository["createRecord"]>[0] | undefined;
   let updatedInput: Parameters<ProductBrandsRepository["updateRecord"]>[0] | undefined;
+  let deletedInput: Parameters<ProductBrandsRepository["deleteRecord"]>[0] | undefined;
+  const referenceMutationLockEvents: string[] = [];
   const productBrands: ProductBrandsRepository = {
+    async acquireReferenceMutationLock() {
+      referenceMutationLockEvents.push("acquired");
+      return async () => {
+        referenceMutationLockEvents.push("released");
+      };
+    },
     async list() {
       return ["ША-8"];
     },
@@ -7723,6 +7765,22 @@ test("product brand journal is the managed source for the journal and every bran
           createdAt: "2026-08-07T08:00:00.000Z",
           updatedAt: "2026-08-07T09:00:00.000Z",
         },
+      };
+    },
+    async readDeletionImpact() {
+      return { usageCount: 3 };
+    },
+    async listMergeAliases() {
+      return [];
+    },
+    async deleteRecord(input) {
+      deletedInput = input;
+      return {
+        sourceId: "brand-1",
+        sourceName: baseRecord.name,
+        replacementId: "brand-2",
+        replacementName: "ШБ-5",
+        updatedRecords: 3,
       };
     },
   };
@@ -7777,6 +7835,18 @@ test("product brand journal is the managed source for the journal and every bran
         }),
       },
     );
+    const impactResponse = await fetch(
+      `${baseUrl}/api/laboratory/product-brands/brand-1/deletion-impact`,
+      { headers },
+    );
+    const deleteResponse = await fetch(
+      `${baseUrl}/api/laboratory/product-brands/brand-1`,
+      {
+        method: "DELETE",
+        headers,
+        body: JSON.stringify({ replacementId: "brand-2" }),
+      },
+    );
     const selectorResponse = await fetch(`${baseUrl}/api/production-brands`, {
       headers,
     });
@@ -7792,6 +7862,18 @@ test("product brand journal is the managed source for the journal and every bran
     assert.equal(listResponse.status, 200);
     assert.equal(createResponse.status, 201);
     assert.equal(updateResponse.status, 200);
+    assert.equal(impactResponse.status, 200);
+    assert.deepEqual(await impactResponse.json(), { impact: { usageCount: 3 } });
+    assert.equal(deleteResponse.status, 200);
+    assert.deepEqual(await deleteResponse.json(), {
+      deletion: {
+        sourceId: "brand-1",
+        sourceName: "ША-8",
+        replacementId: "brand-2",
+        replacementName: "ШБ-5",
+        updatedRecords: 3,
+      },
+    });
     assert.equal(selectorResponse.status, 200);
     assert.deepEqual(await selectorResponse.json(), { labels: ["ША-8"] });
     assert.equal(legacyCreateResponse.status, 405);
@@ -7800,9 +7882,21 @@ test("product brand journal is the managed source for the journal and every bran
     assert.equal(createdInput?.submittedByUserId, profile.userId);
     assert.equal(updatedInput?.record.description, "Исправленное описание");
     assert.equal(updatedInput?.correctedByDisplayName, "Иванова Анна");
+    assert.deepEqual(deletedInput, {
+      id: "brand-1",
+      replacementId: "brand-2",
+      deletedByUserId: profile.userId,
+      deletedByAccountId: profile.activeAccess.accountId,
+      deletedByDisplayName: profile.displayName,
+    });
+    assert.deepEqual(referenceMutationLockEvents, ["acquired", "released"]);
     assert.deepEqual(
       auditEvents.map((event) => event.action),
-      ["production_brand.create", "production_brand.correct"],
+      [
+        "production_brand.create",
+        "production_brand.correct",
+        "production_brand.merge",
+      ],
     );
   } finally {
     server.close();
@@ -7846,19 +7940,33 @@ test("production submission accepts only brands from the shared nomenclature", a
   const profile = buildProductionProfile("dispatcher");
   let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
   let insideTransaction = false;
+  let referenceMutationLockHeld = false;
+  const referenceMutationLockEvents: string[] = [];
   const repository: DispatcherSubmissionsRepository = {
     ...dispatcherSubmissions,
     async create(value, submittedByAccountId) {
+      assert.equal(referenceMutationLockHeld, true);
       createdDraft = value;
       return dispatcherSubmissions.create(value, submittedByAccountId);
     },
   };
   const productionBrands: ProductionBrandsDataSource = {
+    async acquireReferenceMutationLock() {
+      assert.equal(referenceMutationLockHeld, false);
+      referenceMutationLockHeld = true;
+      referenceMutationLockEvents.push("acquired");
+      return async () => {
+        assert.equal(referenceMutationLockHeld, true);
+        referenceMutationLockHeld = false;
+        referenceMutationLockEvents.push("released");
+      };
+    },
     async list() {
       return ["ФЛ-1", "ПБ-5"];
     },
     async resolveReferences(references) {
       assert.equal(insideTransaction, false);
+      assert.equal(referenceMutationLockHeld, true);
       const labels = await this.list();
       const resolved = references.map((reference) => ({
         reference,
@@ -7935,6 +8043,13 @@ test("production submission accepts only brands from the shared nomenclature", a
 
     assert.equal(rejected.status, 400);
     assert.equal(createdDraft, undefined);
+    assert.equal(referenceMutationLockHeld, false);
+    assert.deepEqual(referenceMutationLockEvents, [
+      "acquired",
+      "released",
+      "acquired",
+      "released",
+    ]);
   }, repository, emptyReferenceDataSource, undefined, undefined, adminDatabase,
   productionConfig, buildAuthService({ profile }), undefined, undefined,
   undefined, transaction, productionBrands);

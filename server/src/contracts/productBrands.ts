@@ -20,6 +20,23 @@ export type ProductBrandFilters = {
   query?: string;
 };
 
+export type ProductBrandDeletionImpact = {
+  usageCount: number;
+};
+
+export type ProductBrandDeletionResult = {
+  sourceId: string;
+  sourceName: string;
+  replacementId?: string;
+  replacementName?: string;
+  updatedRecords: number;
+};
+
+export type ProductBrandMergeAlias = {
+  sourceName: string;
+  replacementName: string;
+};
+
 export const productBrandFields = [
   { id: "name", label: "Наименование", kind: "text", maxLength: 120 },
   { id: "description", label: "Описание", kind: "long_text", maxLength: 2000 },

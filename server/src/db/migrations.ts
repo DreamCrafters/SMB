@@ -2913,6 +2913,18 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "053_product_brand_merge_deletion",
+    statements: [
+      `
+      alter table product_brands
+        add column deleted_at timestamp(3) null after updated_at,
+        add column merged_into_id char(36) null after deleted_at,
+        add key idx_product_brands_active (deleted_at, name),
+        add key idx_product_brands_merged_into (merged_into_id);
+      `,
+    ],
+  },
 ];
 
 function buildInitialProductBrandInsert() {

@@ -7,6 +7,8 @@ import {
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
   correctProductBrand,
+  deleteProductBrand,
+  requestProductBrandDeletionImpact,
   requestProductBrandJournal,
   submitProductBrand,
 } from "./services/productBrandJournal";
@@ -18,6 +20,14 @@ type HistoryState =
   | { status: "loading"; records: ProductBrandRecord[] }
   | { status: "ready"; records: ProductBrandRecord[] }
   | { status: "error"; message: string; records: ProductBrandRecord[] };
+type DeletionDialogState = {
+  source: ProductBrandRecord;
+  usageCount: number;
+  replacements: ProductBrandRecord[];
+  replacementId: string;
+  isDeleting: boolean;
+  message: string;
+};
 
 export function ProductBrandJournal({
   isAdminPreviewMode,
@@ -38,6 +48,9 @@ export function ProductBrandJournal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [loadingDeletionId, setLoadingDeletionId] = useState<string>();
+  const [deletionDialog, setDeletionDialog] =
+    useState<DeletionDialogState>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -115,6 +128,83 @@ export function ProductBrandJournal({
     setEditingRecordId(undefined);
     setForm(createEmptyForm());
     setFormMessage("");
+  }
+
+  async function prepareDeletion(record: ProductBrandRecord) {
+    if (isAdminPreviewMode || loadingDeletionId !== undefined) return;
+    setLoadingDeletionId(record.id);
+    setFormMessage("");
+    const impactResult = await requestProductBrandDeletionImpact(record.id);
+    if (impactResult.status === "error") {
+      setLoadingDeletionId(undefined);
+      setFormMessage(readShortUserMessage(
+        impactResult.message,
+        "Не удалось проверить использование марки.",
+      ));
+      return;
+    }
+
+    let replacements: ProductBrandRecord[] = [];
+    if (impactResult.impact.usageCount > 0) {
+      const brandsResult = await requestProductBrandJournal();
+      if (brandsResult.status === "error") {
+        setLoadingDeletionId(undefined);
+        setFormMessage(readShortUserMessage(
+          brandsResult.message,
+          "Не удалось загрузить марки для замены.",
+        ));
+        return;
+      }
+      replacements = brandsResult.records.filter((item) => item.id !== record.id);
+    }
+
+    setLoadingDeletionId(undefined);
+    setDeletionDialog({
+      source: record,
+      usageCount: impactResult.impact.usageCount,
+      replacements,
+      replacementId: "",
+      isDeleting: false,
+      message: "",
+    });
+  }
+
+  async function confirmDeletion() {
+    const current = deletionDialog;
+    if (current === undefined || current.isDeleting) return;
+    if (current.usageCount > 0 && current.replacementId === "") {
+      setDeletionDialog({ ...current, message: "Выберите марку для замены." });
+      return;
+    }
+    setDeletionDialog({ ...current, isDeleting: true, message: "" });
+    const result = await deleteProductBrand(
+      current.source.id,
+      current.replacementId === "" ? undefined : current.replacementId,
+    );
+    if (result.status === "error") {
+      setDeletionDialog({
+        ...current,
+        isDeleting: false,
+        message: readShortUserMessage(
+          result.message,
+          "Не удалось удалить марку.",
+        ),
+      });
+      return;
+    }
+
+    if (editingRecordId === current.source.id) cancelEditing();
+    setDeletionDialog(undefined);
+    setRefreshVersion((value) => value + 1);
+    onBrandSaved();
+    onShowToast(
+      result.deletion.replacementName === undefined
+        ? "Марка удалена"
+        : "Марки объединены",
+      result.deletion.replacementName === undefined
+        ? result.deletion.sourceName
+        : `${result.deletion.sourceName} → ${result.deletion.replacementName}`,
+    );
   }
 
   return (
@@ -224,8 +314,24 @@ export function ProductBrandJournal({
         <ProductBrandJournalTable
           records={history.records}
           onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onDeleteRecord={isAdminPreviewMode ? undefined : prepareDeletion}
+          loadingDeletionId={loadingDeletionId}
         />
       </section>
+      {deletionDialog === undefined ? null : (
+        <ProductBrandDeleteDialog
+          state={deletionDialog}
+          onCancel={() => {
+            if (!deletionDialog.isDeleting) setDeletionDialog(undefined);
+          }}
+          onConfirm={confirmDeletion}
+          onReplacementChange={(replacementId) => {
+            setDeletionDialog((current) => current === undefined
+              ? current
+              : { ...current, replacementId, message: "" });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -233,9 +339,13 @@ export function ProductBrandJournal({
 function ProductBrandJournalTable({
   records,
   onEditRecord,
+  onDeleteRecord,
+  loadingDeletionId,
 }: {
   records: ProductBrandRecord[];
   onEditRecord?: (record: ProductBrandRecord) => void;
+  onDeleteRecord?: (record: ProductBrandRecord) => void;
+  loadingDeletionId?: string;
 }) {
   if (records.length === 0) {
     return <p className="laboratory-empty-note">По выбранному поиску марок нет.</p>;
@@ -249,6 +359,7 @@ function ProductBrandJournalTable({
             {productBrandFields.map((field) => (
               <th key={field.id}>{field.label}</th>
             ))}
+            {onDeleteRecord === undefined ? null : <th>Действия</th>}
           </tr>
         </thead>
         <tbody>
@@ -267,12 +378,123 @@ function ProductBrandJournalTable({
                   ) : record[field.id] === "" ? "—" : record[field.id]}
                 </td>
               ))}
+              {onDeleteRecord === undefined ? null : (
+                <td className="product-brand-journal-actions">
+                  <button
+                    aria-label={`Удалить марку ${record.name}`}
+                    className="secondary-button secondary-button-danger product-brand-delete-button"
+                    disabled={loadingDeletionId !== undefined}
+                    type="button"
+                    onClick={() => onDeleteRecord(record)}
+                  >
+                    {loadingDeletionId === record.id ? "Проверяем…" : "Удалить"}
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   );
+}
+
+function ProductBrandDeleteDialog({
+  state,
+  onCancel,
+  onConfirm,
+  onReplacementChange,
+}: {
+  state: DeletionDialogState;
+  onCancel: () => void;
+  onConfirm: () => void;
+  onReplacementChange: (replacementId: string) => void;
+}) {
+  const titleId = "product-brand-delete-title";
+  const hasUsage = state.usageCount > 0;
+
+  return (
+    <div
+      className="admin-db-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !state.isDeleting) onCancel();
+      }}
+    >
+      <section
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="admin-db-editor admin-db-clear-dialog product-brand-delete-dialog"
+        role="dialog"
+      >
+        <div className="admin-db-clear-copy">
+          <span>{hasUsage ? "Объединение марок" : "Удаление марки"}</span>
+          <strong id={titleId}>Удалить «{state.source.name}»?</strong>
+          {hasUsage ? (
+            <p>
+              {`Марка используется в ${formatUsageCount(state.usageCount)}. `}
+              Выберите другое наименование: все текущие записи будут перенесены на него,
+              а исходная марка исчезнет из списка.
+            </p>
+          ) : (
+            <p>Марка не используется в журналах и будет удалена из списка.</p>
+          )}
+        </div>
+        {hasUsage ? (
+          <label className="admin-db-editor-field">
+            <span>Марка для замены</span>
+            <select
+              disabled={state.isDeleting}
+              value={state.replacementId}
+              onChange={(event) => {
+                const replacementId = event.currentTarget.value;
+                onReplacementChange(replacementId);
+              }}
+            >
+              <option value="">Выберите существующую марку</option>
+              {state.replacements.map((record) => (
+                <option key={record.id} value={record.id}>{record.name}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {state.message === "" ? null : (
+          <p className="form-message is-error" role="alert">{state.message}</p>
+        )}
+        <div className="admin-db-actions">
+          <button
+            className="secondary-button"
+            disabled={state.isDeleting}
+            type="button"
+            onClick={onCancel}
+          >
+            Отмена
+          </button>
+          <button
+            className="secondary-button secondary-button-danger"
+            disabled={state.isDeleting || (hasUsage && state.replacementId === "")}
+            type="button"
+            onClick={onConfirm}
+          >
+            {state.isDeleting
+              ? <LoadingIndicator label="Удаляем…" variant="button" />
+              : hasUsage ? "Объединить и удалить" : "Удалить марку"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function formatUsageCount(value: number) {
+  const lastTwo = value % 100;
+  const last = value % 10;
+  const noun = lastTwo >= 11 && lastTwo <= 14
+    ? "записях"
+    : last === 1
+      ? "записи"
+      : "записях";
+  return `${value} ${noun}`;
 }
 
 function createEmptyForm(): FormState {

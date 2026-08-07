@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
+import type { ProductBrandMergeAlias } from "../contracts/productBrands.js";
+import { mergeRefractoryReportBrandReferences } from "../domain/productionBrand.js";
 import type {
   RefractoryReportDecision,
   RefractoryReportStatus,
@@ -107,6 +109,7 @@ type RefractoryReportRow = RowDataPacket & {
 
 type RefractoryReportsRepositoryOptions = {
   createId?: () => string;
+  readProductBrandMergeAliases?: () => Promise<readonly ProductBrandMergeAlias[]>;
 };
 
 const revisionFieldNames = [
@@ -134,8 +137,30 @@ const selectRevisionFieldsWithAlias = revisionFieldNames
 
 export function createRefractoryReportsRepository(
   pool: DatabasePool,
-  { createId = randomUUID }: RefractoryReportsRepositoryOptions = {},
+  {
+    createId = randomUUID,
+    readProductBrandMergeAliases = async () => [],
+  }: RefractoryReportsRepositoryOptions = {},
 ): RefractoryReportsRepository {
+  async function mapPersistedRevisions(rows: RefractoryReportRow[]) {
+    if (rows.length === 0) return [];
+    const aliases = await readProductBrandMergeAliases();
+    return rows.map((row) => {
+      const revision = mapRevision(row);
+      const payload = aliases.reduce<unknown>((current, alias) =>
+        mergeRefractoryReportBrandReferences(
+          revision.reportType,
+          current,
+          alias.sourceName,
+          alias.replacementName,
+        ).payload, revision.payload);
+      return {
+        ...revision,
+        payload: payload as ValidatedRefractoryReportSubmission["payload"],
+      };
+    });
+  }
+
   async function readById(reportId: string, forUpdate = false) {
     const [rows] = await pool.query<RefractoryReportRow[]>(
       `select ${selectRevisionFields}
@@ -144,7 +169,7 @@ export function createRefractoryReportsRepository(
        ${forUpdate ? "for update" : ""}`,
       [reportId],
     );
-    return rows[0] === undefined ? undefined : mapRevision(rows[0]);
+    return (await mapPersistedRevisions(rows))[0];
   }
 
   return {
@@ -228,7 +253,7 @@ export function createRefractoryReportsRepository(
           input.shiftNumber,
         ],
       );
-      return rows.map(mapRevision);
+      return mapPersistedRevisions(rows);
     },
 
     async listLatestApprovedCoshForDates(input) {
@@ -262,7 +287,7 @@ export function createRefractoryReportsRepository(
          order by revisions.report_date asc`,
         reportDates,
       );
-      return rows.map(mapRevision);
+      return mapPersistedRevisions(rows);
     },
 
     async listPending() {
@@ -272,7 +297,7 @@ export function createRefractoryReportsRepository(
          where status = 'pending'
          order by submitted_at asc, id asc`,
       );
-      return rows.map(mapRevision);
+      return mapPersistedRevisions(rows);
     },
 
     async listRecentForSubmitter(input) {
@@ -301,7 +326,7 @@ export function createRefractoryReportsRepository(
                   revisions.id desc`,
         [input.submittedByAccountId],
       );
-      return rows.map(mapRevision);
+      return mapPersistedRevisions(rows);
     },
 
     async review(input) {

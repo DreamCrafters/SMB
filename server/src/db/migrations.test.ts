@@ -115,6 +115,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
+    "053_product_brand_merge_deletion",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -187,6 +188,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
+    "053_product_brand_merge_deletion",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -262,6 +264,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
+    "053_product_brand_merge_deletion",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -339,6 +342,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
+    "053_product_brand_merge_deletion",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -412,6 +416,7 @@ test("kiln material migration adds the produced material and the journal density
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
+    "053_product_brand_merge_deletion",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -2178,6 +2183,40 @@ test("stale visitor test entry migration audits and removes only the exact uniqu
   assert.match(statements[1] ?? "", /system-task-62-cleanup/u);
   assert.match(statements[1] ?? "", /04\.08\.2026 09:26/u);
   assert.equal(statements[2], "insert into schema_migrations (id) values (?)");
+});
+
+test("product brand merge migration keeps deleted records for immutable revisions", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "053_product_brand_merge_deletion" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(statements[0] ?? "", /add column deleted_at timestamp\(3\) null/u);
+  assert.match(statements[0] ?? "", /add column merged_into_id char\(36\) null/u);
+  assert.match(statements[0] ?? "", /idx_product_brands_active/u);
+  assert.equal(statements[1], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {
