@@ -32,6 +32,9 @@ test("owner overview renders every operational section as glanceable metrics", a
             laboratory: {
               monthTotal: 31,
               todayTotal: 3,
+              sampled: { monthTotal: 18, todayTotal: 2 },
+              chemicalAnalyses: { monthTotal: 14, todayTotal: 1 },
+              rotaryKiln2Readings: { monthTotal: 62, todayTotal: 4 },
             },
             receivedAt: "2026-07-23T12:00:00.000Z",
           },
@@ -50,6 +53,11 @@ test("owner overview renders every operational section as glanceable metrics", a
           production: {
             month: "2026-07",
             totalFact: 46,
+            forming: { monthFact: 19, todayFact: 11 },
+            sorting: { monthFact: 12, todayFact: 7 },
+            unformed: { monthFact: 7, todayFact: 5 },
+            chamotte: { monthFact: 8, todayFact: 5 },
+            granulation: { monthFact: 9, todayFact: 5.5 },
           },
           equipment: {
             updatedAt: "2026-07-23T11:30:00.000Z",
@@ -83,6 +91,12 @@ test("owner overview renders every operational section as glanceable metrics", a
     assert.deepEqual(readOverviewMetrics(document, "Лаборатория"), [
       ["Испытаний за месяц", "31"],
       ["Испытаний сегодня", "3"],
+      ["Отобранных проб за месяц", "18"],
+      ["Отобранных проб сегодня", "2"],
+      ["Химанализов за месяц", "14"],
+      ["Химанализов сегодня", "1"],
+      ["Показаний печи 2 за месяц", "62"],
+      ["Показаний печи 2 сегодня", "4"],
     ]);
     assert.deepEqual(readOverviewHeadingMeta(document, "Оборудование"), [
       "Последний отчёт",
@@ -92,7 +106,16 @@ test("owner overview renders every operational section as glanceable metrics", a
       ["Работало прессов", "2"],
     ]);
     assert.deepEqual(readOverviewMetrics(document, "Выработка"), [
-      ["Всего за месяц, т", "46"],
+      ["Отформовано с начала месяца, т", "19"],
+      ["Отформовано сегодня, т", "11"],
+      ["Отсортировано с начала месяца, т", "12"],
+      ["Отсортировано сегодня, т", "7"],
+      ["Неформованной продукции с начала месяца, т", "7"],
+      ["Неформованной продукции сегодня, т", "5"],
+      ["Шамота с начала месяца, т", "8"],
+      ["Шамота сегодня, т", "5"],
+      ["Гранулировано с начала месяца, т", "9"],
+      ["Гранулировано сегодня, т", "5,5"],
     ]);
     assert.deepEqual(readOverviewHeadingMeta(document, "Посетители"), [
       "Последний день посещений",

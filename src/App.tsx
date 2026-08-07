@@ -194,6 +194,8 @@ import {
   buildOpenIncidentOptions,
   buildOpenIncidentRows,
   buildOpenVisitorOptions,
+  buildProductionBrandCategoryTotals,
+  filterProductionBrandCategoryRows,
   filterProductionReportTables,
   buildVisitorVisitRows,
   type DispatcherFeedGroup,
@@ -2764,6 +2766,36 @@ export function OwnerOverviewPanel({
                     label: "Испытаний сегодня",
                     value: businessOverview.overview.laboratory.todayTotal,
                   },
+                  {
+                    label: "Отобранных проб за месяц",
+                    value:
+                      businessOverview.overview.laboratory.sampled.monthTotal,
+                  },
+                  {
+                    label: "Отобранных проб сегодня",
+                    value:
+                      businessOverview.overview.laboratory.sampled.todayTotal,
+                  },
+                  {
+                    label: "Химанализов за месяц",
+                    value: businessOverview.overview.laboratory
+                      .chemicalAnalyses.monthTotal,
+                  },
+                  {
+                    label: "Химанализов сегодня",
+                    value: businessOverview.overview.laboratory
+                      .chemicalAnalyses.todayTotal,
+                  },
+                  {
+                    label: "Показаний печи 2 за месяц",
+                    value: businessOverview.overview.laboratory
+                      .rotaryKiln2Readings.monthTotal,
+                  },
+                  {
+                    label: "Показаний печи 2 сегодня",
+                    value: businessOverview.overview.laboratory
+                      .rotaryKiln2Readings.todayTotal,
+                  },
                 ]}
               />
             </>
@@ -2884,8 +2916,44 @@ function OwnerProductionOverviewBlock({
       title="Выработка"
       metrics={[
         {
-          label: "Всего за месяц, т",
-          value: overview.production?.totalFact ?? "—",
+          label: "Отформовано с начала месяца, т",
+          value: overview.production?.forming.monthFact ?? "—",
+        },
+        {
+          label: "Отформовано сегодня, т",
+          value: overview.production?.forming.todayFact ?? "—",
+        },
+        {
+          label: "Отсортировано с начала месяца, т",
+          value: overview.production?.sorting.monthFact ?? "—",
+        },
+        {
+          label: "Отсортировано сегодня, т",
+          value: overview.production?.sorting.todayFact ?? "—",
+        },
+        {
+          label: "Неформованной продукции с начала месяца, т",
+          value: overview.production?.unformed.monthFact ?? "—",
+        },
+        {
+          label: "Неформованной продукции сегодня, т",
+          value: overview.production?.unformed.todayFact ?? "—",
+        },
+        {
+          label: "Шамота с начала месяца, т",
+          value: overview.production?.chamotte.monthFact ?? "—",
+        },
+        {
+          label: "Шамота сегодня, т",
+          value: overview.production?.chamotte.todayFact ?? "—",
+        },
+        {
+          label: "Гранулировано с начала месяца, т",
+          value: overview.production?.granulation.monthFact ?? "—",
+        },
+        {
+          label: "Гранулировано сегодня, т",
+          value: overview.production?.granulation.todayFact ?? "—",
         },
       ]}
       note={
@@ -6734,10 +6802,16 @@ export function ProductionReportSummaryTable({
   const [section, setSection] = useState<ProductionReportSection>(
     () => firstAvailableSection ?? "forming",
   );
+  const [formingBrandQuery, setFormingBrandQuery] = useState("");
   const hadAvailableSectionRef = useRef(firstAvailableSection !== undefined);
   const [detailReportId, setDetailReportId] = useState<string>();
-  const selectedRows = tables[section] as ProductionReportBaseRow[];
-  const selectedTotals = totals[section];
+  const filteredFormingRows = filterProductionBrandCategoryRows(
+    tables.forming,
+    formingBrandQuery,
+  );
+  const selectedRows = (
+    section === "forming" ? filteredFormingRows : tables[section]
+  ) as ProductionReportBaseRow[];
   const detailRow = selectedRows.find(
     (row) => row.reportId === detailReportId,
   );
@@ -6818,8 +6892,21 @@ export function ProductionReportSummaryTable({
         ))}
       </div>
 
+      {section === "forming" ? (
+        <label className="production-dashboard-brand-filter">
+          <span>Фильтр по марке</span>
+          <input
+            aria-label="Фильтр по марке"
+            type="search"
+            value={formingBrandQuery}
+            placeholder="Введите марку"
+            onChange={(event) => setFormingBrandQuery(event.currentTarget.value)}
+          />
+        </label>
+      ) : null}
+
       <p className="production-dashboard-row-count">
-        Строк в таблице: {selectedTotals.rowCount}
+        Строк в таблице: {selectedRows.length}
       </p>
 
       {selectedRows.length === 0 ? (
@@ -6831,8 +6918,12 @@ export function ProductionReportSummaryTable({
         section === "unformed" ||
         section === "chamotte" ? (
         <ProductionBrandDashboardTable
-          rows={tables[section]}
-          totals={totals[section]}
+          rows={section === "forming" ? filteredFormingRows : tables[section]}
+          totals={
+            section === "forming" && formingBrandQuery.trim() !== ""
+              ? buildProductionBrandCategoryTotals(filteredFormingRows)
+              : totals[section]
+          }
           formAvailable={form !== undefined}
           onOpen={setDetailReportId}
         />

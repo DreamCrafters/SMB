@@ -1764,8 +1764,21 @@ function isProductionMonthOverview(
     isRecord(value) &&
     /^\d{4}-\d{2}$/u.test(String(value.month)) &&
     typeof value.totalFact === "number" &&
-    Number.isFinite(value.totalFact)
+    Number.isFinite(value.totalFact) &&
+    isProductionOverviewValue(value.forming) &&
+    isProductionOverviewValue(value.sorting) &&
+    isProductionOverviewValue(value.unformed) &&
+    isProductionOverviewValue(value.chamotte) &&
+    isProductionOverviewValue(value.granulation)
   );
+}
+
+function isProductionOverviewValue(value: unknown) {
+  return isRecord(value) &&
+    typeof value.monthFact === "number" &&
+    Number.isFinite(value.monthFact) &&
+    typeof value.todayFact === "number" &&
+    Number.isFinite(value.todayFact);
 }
 
 function isProductionReportTables(value: unknown): value is ProductionReportTables {

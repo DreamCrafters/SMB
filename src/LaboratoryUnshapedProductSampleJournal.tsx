@@ -54,6 +54,7 @@ export function LaboratoryUnshapedProductSampleJournal({
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
   const isSampleCodeAuto = useRef(true);
+  const sampleCodeYear = useRef<number | undefined>(undefined);
   const { labels: productNames, loadState: productNamesLoadState } =
     useProductionBrands({ creationDisabled: true });
 
@@ -65,6 +66,7 @@ export function LaboratoryUnshapedProductSampleJournal({
     }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
+        sampleCodeYear.current = result.currentYear;
         setForm((current) => {
           const sampleNumber = current.sampleNumber === ""
             ? result.sampleNumber
@@ -75,7 +77,10 @@ export function LaboratoryUnshapedProductSampleJournal({
             sampleCode: isSampleCodeAuto.current && current.sampleCode === ""
               ? current.sampleNumber === ""
                 ? result.sampleCode
-                : buildLaboratoryUnshapedProductSampleCodeDraft(sampleNumber)
+                : buildLaboratoryUnshapedProductSampleCodeDraft(
+                    sampleNumber,
+                    result.currentYear,
+                  )
               : current.sampleCode,
             sampleDate: current.sampleDate === ""
               ? result.sampleDate
@@ -125,18 +130,22 @@ export function LaboratoryUnshapedProductSampleJournal({
 
   function updateField(field: keyof FormState, value: string) {
     if (field === "sampleCode") isSampleCodeAuto.current = false;
-    setForm((current) => field === "sampleNumber"
-      ? {
-          ...current,
-          sampleNumber: value,
-          ...(isSampleCodeAuto.current
-            ? {
-                sampleCode:
-                  buildLaboratoryUnshapedProductSampleCodeDraft(value),
-              }
-            : {}),
-        }
-      : { ...current, [field]: value });
+    setForm((current) => {
+      if (field !== "sampleNumber") return { ...current, [field]: value };
+      const currentYear = sampleCodeYear.current;
+      return {
+        ...current,
+        sampleNumber: value,
+        ...(isSampleCodeAuto.current && currentYear !== undefined
+          ? {
+              sampleCode: buildLaboratoryUnshapedProductSampleCodeDraft(
+                value,
+                currentYear,
+              ),
+            }
+          : {}),
+      };
+    });
     setFormMessage("");
   }
 

@@ -41,6 +41,7 @@ export type LaboratoryUnshapedProductSampleDraft = {
   sampleCode: string;
   sampleDate: string;
   sampledBy: string;
+  currentYear: number;
 };
 
 export type LaboratoryUnshapedProductSampleRecord =
@@ -106,6 +107,7 @@ export const laboratoryUnshapedProductSampleFields = [
 
 export function buildLaboratoryUnshapedProductSampleCodeDraft(
   sampleNumber: string,
+  currentYear: number,
 ) {
-  return buildLaboratorySampleCodeDraft(sampleNumber);
+  return buildLaboratorySampleCodeDraft(sampleNumber, currentYear);
 }

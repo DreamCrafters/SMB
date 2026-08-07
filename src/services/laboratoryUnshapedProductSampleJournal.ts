@@ -74,6 +74,7 @@ export async function requestLaboratoryUnshapedProductSampleDraft(
   if (
     !isRecord(result.payload) ||
     typeof result.payload.sampleNumber !== "string" ||
+    !Number.isInteger(result.payload.currentYear) ||
     typeof result.payload.sampleCode !== "string" ||
     typeof result.payload.sampleDate !== "string" ||
     typeof result.payload.sampledBy !== "string"
@@ -86,6 +87,7 @@ export async function requestLaboratoryUnshapedProductSampleDraft(
   return {
     status: "ready",
     sampleNumber: result.payload.sampleNumber,
+    currentYear: result.payload.currentYear as number,
     sampleCode: result.payload.sampleCode,
     sampleDate: result.payload.sampleDate,
     sampledBy: result.payload.sampledBy,

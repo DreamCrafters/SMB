@@ -33,6 +33,14 @@ export type LaboratoryResultFilters = {
 export type LaboratoryOverviewSummary = {
   monthTotal: number;
   todayTotal: number;
+  sampled: LaboratoryOverviewCount;
+  chemicalAnalyses: LaboratoryOverviewCount;
+  rotaryKiln2Readings: LaboratoryOverviewCount;
+};
+
+type LaboratoryOverviewCount = {
+  monthTotal: number;
+  todayTotal: number;
 };
 
 export type LaboratoryResultsRepository = {
@@ -68,8 +76,14 @@ type LaboratoryResultsRepositoryOptions = {
 };
 
 type LaboratoryOverviewRow = RowDataPacket & {
-  month_count: number | string;
-  today_count: number | string | null;
+  result_month_count: number | string;
+  result_today_count: number | string;
+  sampled_month_count: number | string;
+  sampled_today_count: number | string;
+  chemical_analysis_month_count: number | string;
+  chemical_analysis_today_count: number | string;
+  kiln_month_count: number | string;
+  kiln_today_count: number | string;
 };
 
 const defaultListLimit = 100;
@@ -190,18 +204,88 @@ export function createLaboratoryResultsRepository(
     async readOverviewSummary({ monthStart, today }) {
       const [rows] = await pool.query<LaboratoryOverviewRow[]>(
         `select
-          count(*) as month_count,
-          sum(case when analysis_date = ? then 1 else 0 end) as today_count
-        from laboratory_results
-        where analysis_date >= ?
-          and analysis_date <= ?`,
-        [today, monthStart, today],
+          (
+            select count(*)
+            from laboratory_results
+            where analysis_date >= ? and analysis_date <= ?
+          ) as result_month_count,
+          (
+            select count(*)
+            from laboratory_results
+            where analysis_date = ?
+          ) as result_today_count,
+          (
+            select count(*)
+            from laboratory_sample_registration_journal
+            where sampling_date >= ? and sampling_date <= ?
+          ) as sampled_month_count,
+          (
+            select count(*)
+            from laboratory_sample_registration_journal
+            where sampling_date = ?
+          ) as sampled_today_count,
+          (
+            select count(*)
+            from laboratory_chemical_analysis_journal
+            where coalesce(
+              chemical_analysis_date,
+              date(convert_tz(created_at, '+00:00', '+03:00'))
+            ) >= ?
+              and coalesce(
+                chemical_analysis_date,
+                date(convert_tz(created_at, '+00:00', '+03:00'))
+              ) <= ?
+          ) as chemical_analysis_month_count,
+          (
+            select count(*)
+            from laboratory_chemical_analysis_journal
+            where coalesce(
+              chemical_analysis_date,
+              date(convert_tz(created_at, '+00:00', '+03:00'))
+            ) = ?
+          ) as chemical_analysis_today_count,
+          (
+            select count(*)
+            from rotary_kiln_2_firing_journal
+            where record_date >= ? and record_date <= ?
+          ) as kiln_month_count,
+          (
+            select count(*)
+            from rotary_kiln_2_firing_journal
+            where record_date = ?
+          ) as kiln_today_count`,
+        [
+          monthStart,
+          today,
+          today,
+          monthStart,
+          today,
+          today,
+          monthStart,
+          today,
+          today,
+          monthStart,
+          today,
+          today,
+        ],
       );
       const row = rows[0];
 
       return {
-        monthTotal: Number(row?.month_count ?? 0),
-        todayTotal: Number(row?.today_count ?? 0),
+        monthTotal: Number(row?.result_month_count ?? 0),
+        todayTotal: Number(row?.result_today_count ?? 0),
+        sampled: {
+          monthTotal: Number(row?.sampled_month_count ?? 0),
+          todayTotal: Number(row?.sampled_today_count ?? 0),
+        },
+        chemicalAnalyses: {
+          monthTotal: Number(row?.chemical_analysis_month_count ?? 0),
+          todayTotal: Number(row?.chemical_analysis_today_count ?? 0),
+        },
+        rotaryKiln2Readings: {
+          monthTotal: Number(row?.kiln_month_count ?? 0),
+          todayTotal: Number(row?.kiln_today_count ?? 0),
+        },
       };
     },
 

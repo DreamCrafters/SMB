@@ -521,6 +521,36 @@ test("visitor state rules close same-timestamp entries before duplicate checks",
   }
 });
 
+test("visitor state rules close a legacy entry when its exit link is stale", () => {
+  const result = validateDispatcherSubmissionDraft({
+    formId: "visitor",
+    payload: {
+      fio: "Visitor Name",
+      organization: "External Org",
+    },
+  });
+
+  assert.equal(result.ok, true);
+
+  if (result.ok) {
+    const stateResult = applyVisitorStateRules(result.value, [
+      buildDispatcherSubmission("visitor-entry-id", "visitor", {
+        fio: "Visitor Name",
+        organization: "External Org",
+        entryAt: "18.06.2026 10:30",
+      }),
+      buildDispatcherSubmission("visitor-exit-id", "visitor_exit", {
+        visitorEntryId: "missing-imported-entry-id",
+        fio: "Visitor Name",
+        organization: "External Org",
+        exitAt: "18.06.2026 10:45",
+      }),
+    ]);
+
+    assert.equal(stateResult.ok, true);
+  }
+});
+
 test("visitor state rules allow exit only for entries from today", () => {
   const result = validateDispatcherSubmissionDraft({
     formId: "visitor_exit",

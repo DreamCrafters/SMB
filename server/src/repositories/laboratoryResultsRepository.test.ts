@@ -174,8 +174,14 @@ test("laboratory repository counts saved tests for the current month and today",
       querySql = sql;
       queryParameters = parameters ?? [];
       return [[{
-        month_count: "7",
-        today_count: 2,
+        result_month_count: "7",
+        result_today_count: 2,
+        sampled_month_count: "11",
+        sampled_today_count: 3,
+        chemical_analysis_month_count: "9",
+        chemical_analysis_today_count: 1,
+        kiln_month_count: "24",
+        kiln_today_count: 4,
       }], []];
     },
   } as unknown as DatabasePool;
@@ -189,15 +195,33 @@ test("laboratory repository counts saved tests for the current month and today",
   assert.deepEqual(summary, {
     monthTotal: 7,
     todayTotal: 2,
+    sampled: { monthTotal: 11, todayTotal: 3 },
+    chemicalAnalyses: { monthTotal: 9, todayTotal: 1 },
+    rotaryKiln2Readings: { monthTotal: 24, todayTotal: 4 },
   });
-  assert.match(querySql, /count\(\*\) as month_count/u);
+  assert.match(querySql, /from laboratory_sample_registration_journal/u);
+  assert.match(querySql, /from laboratory_chemical_analysis_journal/u);
   assert.match(
     querySql,
-    /sum\(case when analysis_date = \? then 1 else 0 end\) as today_count/u,
+    /date\(convert_tz\(created_at, '\+00:00', '\+03:00'\)\)/u,
+  );
+  assert.match(querySql, /from rotary_kiln_2_firing_journal/u);
+  assert.match(
+    querySql,
+    /analysis_date = \?[^]*as result_today_count/u,
   );
   assert.deepEqual(queryParameters, [
+    "2026-07-01",
+    "2026-07-23",
     "2026-07-23",
     "2026-07-01",
+    "2026-07-23",
+    "2026-07-23",
+    "2026-07-01",
+    "2026-07-23",
+    "2026-07-23",
+    "2026-07-01",
+    "2026-07-23",
     "2026-07-23",
   ]);
 });

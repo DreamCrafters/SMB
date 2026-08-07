@@ -103,6 +103,16 @@ export type ProductionReportDateRange = {
 export type ProductionMonthOverview = {
   month: string;
   totalFact: number;
+  forming: ProductionOverviewValue;
+  sorting: ProductionOverviewValue;
+  unformed: ProductionOverviewValue;
+  chamotte: ProductionOverviewValue;
+  granulation: ProductionOverviewValue;
+};
+
+type ProductionOverviewValue = {
+  monthFact: number;
+  todayFact: number;
 };
 
 export type ProductionMonthToDateValue = {
@@ -272,36 +282,80 @@ function readLatestProductionRow<Row extends ProductionReportBaseRow>(
 export function buildProductionMonthOverview(
   tables: ProductionReportTables,
   currentDate = new Date(),
-): ProductionMonthOverview | undefined {
-  const month = currentDate.toISOString().slice(0, 7);
-  let totalFact = 0;
-  let hasFact = false;
+): ProductionMonthOverview {
+  const today = formatMoscowProductionCalendarDate(currentDate);
+  const month = today.slice(0, 7);
+  const forming = buildCategoryOverviewValue(tables.forming, month, today);
+  const sorting = buildCategoryOverviewValue(tables.sorting, month, today);
+  const unformed = buildCategoryOverviewValue(tables.unformed, month, today);
+  const chamotte = buildCategoryOverviewValue(tables.chamotte, month, today);
+  const granulation = buildGranulationOverviewValue(
+    tables.granulation,
+    month,
+    today,
+  );
+  return {
+    month,
+    totalFact:
+      forming.monthFact + sorting.monthFact + unformed.monthFact +
+      chamotte.monthFact,
+    forming,
+    sorting,
+    unformed,
+    chamotte,
+    granulation,
+  };
+}
 
-  for (const rows of [
-    tables.forming,
-    tables.sorting,
-    tables.unformed,
-    tables.chamotte,
-  ]) {
-    let latestRow: ProductionMetricRow | undefined;
+function formatMoscowProductionCalendarDate(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const partByType = new Map(parts.map((part) => [part.type, part.value]));
 
-    for (const row of rows) {
-      if (
-        row.reportDate.startsWith(month) &&
-        row.monthFact !== undefined &&
-        (latestRow === undefined || row.reportDate > latestRow.reportDate)
-      ) {
-        latestRow = row;
-      }
-    }
+  return `${partByType.get("year")}-${partByType.get("month")}-${partByType.get("day")}`;
+}
 
-    if (latestRow?.monthFact !== undefined) {
-      totalFact += latestRow.monthFact;
-      hasFact = true;
-    }
-  }
+function buildCategoryOverviewValue(
+  rows: readonly ProductionMetricRow[],
+  month: string,
+  today: string,
+): ProductionOverviewValue {
+  const latestMonthRow = readLatestProductionRow(
+    rows.filter((row) =>
+      row.reportDate.startsWith(month) && row.monthFact !== undefined),
+  );
+  const todayRow = readLatestProductionRow(
+    rows.filter((row) => row.reportDate === today),
+  );
 
-  return hasFact ? { month, totalFact } : undefined;
+  return {
+    monthFact: latestMonthRow?.monthFact ?? 0,
+    todayFact: todayRow?.dayFact ?? 0,
+  };
+}
+
+function buildGranulationOverviewValue(
+  rows: readonly ProductionGranulationRow[],
+  month: string,
+  today: string,
+): ProductionOverviewValue {
+  const latestMonthRow = readLatestProductionRow(
+    rows.filter((row) => row.reportDate.startsWith(month)),
+  );
+  const todayRow = readLatestProductionRow(
+    rows.filter((row) => row.reportDate === today),
+  );
+
+  return {
+    monthFact: (latestMonthRow?.fraction1630Month ?? 0) +
+      (latestMonthRow?.fraction1218Month ?? 0),
+    todayFact: (todayRow?.fraction1630Day ?? 0) +
+      (todayRow?.fraction1218Day ?? 0),
+  };
 }
 
 export function buildProductionMonthToDate(

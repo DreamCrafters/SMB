@@ -471,7 +471,13 @@ test("business overview returns server-owned incident and laboratory counts", as
     },
     async readOverviewSummary(period) {
       requestedLaboratoryPeriod = period;
-      return { monthTotal: 7, todayTotal: 2 };
+      return {
+        monthTotal: 7,
+        todayTotal: 2,
+        sampled: { monthTotal: 11, todayTotal: 3 },
+        chemicalAnalyses: { monthTotal: 9, todayTotal: 1 },
+        rotaryKiln2Readings: { monthTotal: 24, todayTotal: 4 },
+      };
     },
     async findById() {
       return undefined;
@@ -504,6 +510,9 @@ test("business overview returns server-owned incident and laboratory counts", as
         laboratory: {
           monthTotal: 7,
           todayTotal: 2,
+          sampled: { monthTotal: 11, todayTotal: 3 },
+          chemicalAnalyses: { monthTotal: 9, todayTotal: 1 },
+          rotaryKiln2Readings: { monthTotal: 24, todayTotal: 4 },
         },
         receivedAt: "2026-07-23T12:00:00.000Z",
       });
@@ -593,6 +602,9 @@ test("laboratory API reads the live matrix and saves the session-authored result
       return {
         monthTotal: savedInput === undefined ? 0 : 1,
         todayTotal: savedInput?.result.analysisDate === "2026-07-22" ? 1 : 0,
+        sampled: { monthTotal: 0, todayTotal: 0 },
+        chemicalAnalyses: { monthTotal: 0, todayTotal: 0 },
+        rotaryKiln2Readings: { monthTotal: 0, todayTotal: 0 },
       };
     },
     async findById() {
@@ -856,7 +868,13 @@ test("laboratory review access reads every journal by name but cannot change lab
       return [storedResult];
     },
     async readOverviewSummary() {
-      return { monthTotal: 1, todayTotal: 0 };
+      return {
+        monthTotal: 1,
+        todayTotal: 0,
+        sampled: { monthTotal: 0, todayTotal: 0 },
+        chemicalAnalyses: { monthTotal: 0, todayTotal: 0 },
+        rotaryKiln2Readings: { monthTotal: 0, todayTotal: 0 },
+      };
     },
     async findById() {
       return storedResult;
@@ -1636,7 +1654,8 @@ test("sample registration journal saves and filters registration records", async
       assert.equal(draftResponse.status, 200);
       assert.deepEqual(await draftResponse.json(), {
         sampleNumber: "19",
-        laboratorySampleCode: ".19",
+        currentYear: 2026,
+        laboratorySampleCode: "26.19",
       });
       assert.equal(invalidFilterResponse.status, 400);
       assert.deepEqual(requestedFilters, {
@@ -1882,7 +1901,8 @@ test("unshaped product sample journal drafts, saves, corrects, and filters recor
       assert.equal(draftResponse.status, 200);
       assert.deepEqual(await draftResponse.json(), {
         sampleNumber: "18",
-        sampleCode: ".18",
+        currentYear: 2026,
+        sampleCode: "26.18",
         sampleDate: "2026-08-05",
         sampledBy: "Иванова А.А.",
       });

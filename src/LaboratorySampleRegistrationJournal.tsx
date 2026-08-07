@@ -77,6 +77,7 @@ export function LaboratorySampleRegistrationJournal({
   const [samplingLocationRefreshVersion, setSamplingLocationRefreshVersion] =
     useState(0);
   const isLaboratorySampleCodeAuto = useRef(true);
+  const sampleCodeYear = useRef<number | undefined>(undefined);
   const sessionLaboratoryAssistant = useRef(initialLaboratoryAssistant);
   const previousSamplingLocation = useRef("");
   const isSamplingLocationManuallyEdited = useRef(false);
@@ -90,6 +91,7 @@ export function LaboratorySampleRegistrationJournal({
     }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
+        sampleCodeYear.current = result.currentYear;
         setForm((current) => {
           const usesSuggestedNumber = current.sampleNumber.trim() === "";
           const sampleNumber = usesSuggestedNumber
@@ -103,7 +105,10 @@ export function LaboratorySampleRegistrationJournal({
                 current.laboratorySampleCode.trim() === ""
                 ? usesSuggestedNumber
                   ? result.laboratorySampleCode
-                  : buildLaboratorySampleCodeDraft(sampleNumber)
+                  : buildLaboratorySampleCodeDraft(
+                      sampleNumber,
+                      result.currentYear,
+                    )
                 : current.laboratorySampleCode,
           };
         });
@@ -206,11 +211,17 @@ export function LaboratorySampleRegistrationJournal({
     }
     setForm((current) => {
       if (field === "sampleNumber") {
+        const currentYear = sampleCodeYear.current;
         return {
           ...current,
           sampleNumber: value,
-          ...(isLaboratorySampleCodeAuto.current
-            ? { laboratorySampleCode: buildLaboratorySampleCodeDraft(value) }
+          ...(isLaboratorySampleCodeAuto.current && currentYear !== undefined
+            ? {
+                laboratorySampleCode: buildLaboratorySampleCodeDraft(
+                  value,
+                  currentYear,
+                ),
+              }
             : {}),
         };
       }

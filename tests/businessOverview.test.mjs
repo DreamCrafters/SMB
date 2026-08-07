@@ -22,6 +22,9 @@ test("requestBusinessOverview accepts the server-owned overview contract", async
       laboratory: {
         monthTotal: 31,
         todayTotal: 3,
+        sampled: { monthTotal: 18, todayTotal: 2 },
+        chemicalAnalyses: { monthTotal: 14, todayTotal: 1 },
+        rotaryKiln2Readings: { monthTotal: 62, todayTotal: 4 },
       },
       receivedAt: "2026-07-23T12:00:00.000Z",
     }), {
@@ -49,6 +52,9 @@ test("requestBusinessOverview accepts the server-owned overview contract", async
           laboratory: {
             monthTotal: 31,
             todayTotal: 3,
+            sampled: { monthTotal: 18, todayTotal: 2 },
+            chemicalAnalyses: { monthTotal: 14, todayTotal: 1 },
+            rotaryKiln2Readings: { monthTotal: 62, todayTotal: 4 },
           },
           receivedAt: "2026-07-23T12:00:00.000Z",
         },

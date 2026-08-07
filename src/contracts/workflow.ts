@@ -187,6 +187,16 @@ export type ProductionReportTableTotals = {
 export type ProductionMonthOverview = {
   month: string;
   totalFact: number;
+  forming: ProductionOverviewValue;
+  sorting: ProductionOverviewValue;
+  unformed: ProductionOverviewValue;
+  chamotte: ProductionOverviewValue;
+  granulation: ProductionOverviewValue;
+};
+
+export type ProductionOverviewValue = {
+  monthFact: number;
+  todayFact: number;
 };
 
 export type OpenIncidentSummary = {

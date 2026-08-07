@@ -63,7 +63,13 @@ test("hybrid position switches between business and admin navigation", async () 
             todayTotal: 0,
             openNow: 0,
           },
-          laboratory: { monthTotal: 0, todayTotal: 0 },
+          laboratory: {
+            monthTotal: 0,
+            todayTotal: 0,
+            sampled: { monthTotal: 0, todayTotal: 0 },
+            chemicalAnalyses: { monthTotal: 0, todayTotal: 0 },
+            rotaryKiln2Readings: { monthTotal: 0, todayTotal: 0 },
+          },
           receivedAt: "2026-08-03T08:00:00.000Z",
         });
       }

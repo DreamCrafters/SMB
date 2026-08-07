@@ -93,7 +93,16 @@ function isBusinessOverview(value: unknown): value is BusinessOverview {
     isRecord(value.laboratory) &&
     isNonNegativeInteger(value.laboratory.monthTotal) &&
     isNonNegativeInteger(value.laboratory.todayTotal) &&
+    isOverviewCount(value.laboratory.sampled) &&
+    isOverviewCount(value.laboratory.chemicalAnalyses) &&
+    isOverviewCount(value.laboratory.rotaryKiln2Readings) &&
     typeof value.receivedAt === "string";
+}
+
+function isOverviewCount(value: unknown) {
+  return isRecord(value) &&
+    isNonNegativeInteger(value.monthTotal) &&
+    isNonNegativeInteger(value.todayTotal);
 }
 
 function isCalendarDate(value: unknown) {

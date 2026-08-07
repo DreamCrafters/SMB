@@ -98,12 +98,15 @@ function buildOpenVisitorEntries(
     }
 
     const visitorEntryId = submission.payload.visitorEntryId;
-    const index =
+    const linkedIndex =
       visitorEntryId !== undefined
         ? openEntries.findIndex((entry) => entry.submission.id === visitorEntryId)
-        : openEntries.findIndex(
-            (entry) => entry.key === buildVisitorKey(submission.payload),
-          );
+        : -1;
+    const index = linkedIndex >= 0
+      ? linkedIndex
+      : openEntries.findIndex(
+          (entry) => entry.key === buildVisitorKey(submission.payload),
+        );
 
     if (index >= 0) {
       openEntries.splice(index, 1);

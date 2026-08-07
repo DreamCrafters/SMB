@@ -2243,6 +2243,29 @@ p {
   gap: var(--density-1);
 }
 
+.production-dashboard-brand-filter {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) minmax(180px, 320px);
+  gap: var(--density-2);
+  align-items: center;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.production-dashboard-brand-filter input {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  font: inherit;
+}
+
 .production-dashboard-row-count {
   min-height: 34px;
   margin: 0;

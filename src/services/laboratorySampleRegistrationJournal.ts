@@ -125,6 +125,7 @@ export async function requestLaboratorySampleRegistrationDraft(
   if (
     !isRecord(result.payload) ||
     typeof result.payload.sampleNumber !== "string" ||
+    !Number.isInteger(result.payload.currentYear) ||
     typeof result.payload.laboratorySampleCode !== "string"
   ) {
     return invalidResponse(
@@ -135,6 +136,7 @@ export async function requestLaboratorySampleRegistrationDraft(
   return {
     status: "ready",
     sampleNumber: result.payload.sampleNumber,
+    currentYear: result.payload.currentYear as number,
     laboratorySampleCode: result.payload.laboratorySampleCode,
   };
 }

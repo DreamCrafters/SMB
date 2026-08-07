@@ -17,11 +17,15 @@ export type LaboratorySampleRegistrationCorrection =
 export type LaboratorySampleRegistrationDraft = Pick<
   LaboratorySampleRegistrationJournalSubmission,
   "sampleNumber" | "laboratorySampleCode"
->;
+> & { currentYear: number };
 
-export function buildLaboratorySampleCodeDraft(sampleNumber: string) {
+export function buildLaboratorySampleCodeDraft(
+  sampleNumber: string,
+  currentYear: number,
+) {
   const numericValue = sampleNumber.match(/\d+/u)?.[0] ?? "";
-  return numericValue === "" ? "" : `.${numericValue}`;
+  const shortYear = String(currentYear).padStart(4, "0").slice(-2);
+  return numericValue === "" ? "" : `${shortYear}.${numericValue}`;
 }
 
 export const laboratorySampleRegistrationSamplingLocations = [

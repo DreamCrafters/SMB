@@ -14,6 +14,7 @@ import {
   buildProductionMonthOverview,
   buildProductionReportTables,
   buildVisitorVisitRows,
+  filterProductionBrandCategoryRows,
   filterProductionReportTables,
 } from "../.test-build/src/services/dispatcherFeedViews.js";
 
@@ -339,7 +340,7 @@ test("local production totals mirror the server rules for the visible range", ()
   assert.equal(totals.sorting.dayPlan, undefined);
 });
 
-test("buildProductionMonthOverview mirrors the server total in local test mode", () => {
+test("buildProductionMonthOverview mirrors server month and today values locally", () => {
   const tables = buildProductionReportTables(
     [
       buildSubmission("production-july-1", "production", {
@@ -369,13 +370,71 @@ test("buildProductionMonthOverview mirrors the server total in local test mode",
   assert.deepEqual(
     buildProductionMonthOverview(
       tables,
-      new Date("2026-07-18T12:00:00.000Z"),
+      new Date("2026-07-02T12:00:00.000Z"),
     ),
     {
       month: "2026-07",
       totalFact: 46,
+      forming: { monthFact: 19, todayFact: 11 },
+      sorting: { monthFact: 12, todayFact: 7 },
+      unformed: { monthFact: 7, todayFact: 5 },
+      chamotte: { monthFact: 8, todayFact: 5 },
+      granulation: { monthFact: 120, todayFact: 70 },
     },
   );
+});
+
+test("buildProductionMonthOverview starts a new Moscow month with zero values locally", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("production-july", "production", {
+      reportDate: "31.07.2026",
+      formingDay: "8",
+    }),
+  ], {});
+
+  assert.deepEqual(
+    buildProductionMonthOverview(
+      tables,
+      new Date("2026-07-31T22:30:00.000Z"),
+    ),
+    {
+      month: "2026-08",
+      totalFact: 0,
+      forming: { monthFact: 0, todayFact: 0 },
+      sorting: { monthFact: 0, todayFact: 0 },
+      unformed: { monthFact: 0, todayFact: 0 },
+      chamotte: { monthFact: 0, todayFact: 0 },
+      granulation: { monthFact: 0, todayFact: 0 },
+    },
+  );
+});
+
+test("forming brand filter removes unrelated facts from mixed report rows", () => {
+  const [row] = filterProductionBrandCategoryRows([
+    {
+      reportId: "production-july-2",
+      reportDate: "2026-07-02",
+      receivedAt: "2026-07-02T18:00:00.000Z",
+      facts: [
+        { brand: "МКР-1", value: 4, monthValue: 10 },
+        { brand: "МКР-2", value: 7, monthValue: 15 },
+      ],
+      dayPlan: 20,
+      dayFact: 11,
+      monthPlan: 40,
+      monthFact: 25,
+      deviation: -15,
+    },
+  ], "мкр-2");
+
+  assert.deepEqual(row, {
+    reportId: "production-july-2",
+    reportDate: "2026-07-02",
+    receivedAt: "2026-07-02T18:00:00.000Z",
+    facts: [{ brand: "МКР-2", value: 7, monthValue: 15 }],
+    dayFact: 7,
+    monthFact: 15,
+  });
 });
 
 test("buildProductionReportTables groups unformed products and chamotte by brand", () => {
@@ -688,6 +747,28 @@ test("visitor helpers close entries when exit has the same received timestamp", 
   assert.equal(rows[0].exitAt, "04.07.2026 09:15");
 });
 
+test("visitor overview closes a legacy entry when an exit contains a stale link", () => {
+  const submissions = [
+    buildSubmission("visit-current", "visitor", {
+      fio: "Иван Иванов",
+      organization: "ООО Ромашка",
+      entryAt: "04.07.2026 09:10",
+    }),
+    buildSubmission("visit-exit", "visitor_exit", {
+      visitorEntryId: "legacy-missing-entry",
+      fio: "Иван Иванов",
+      organization: "ООО Ромашка",
+      exitAt: "04.07.2026 12:00",
+    }),
+  ];
+
+  assert.equal(
+    buildOwnerDispatcherOverview(submissions).visitors.openCount,
+    0,
+  );
+  assert.deepEqual(buildOpenVisitorOptions(submissions), []);
+});
+
 test("buildVisitorVisitRows sorts completed visits by exit time descending", () => {
   const submissions = [
     buildSubmission("visit-july", "visitor", {
@@ -833,11 +914,21 @@ test("buildOwnerDispatcherOverview restores equipment, production, and visitors"
     buildOwnerDispatcherOverview(submissions, {
       month: "2026-07",
       totalFact: 46,
+      forming: { monthFact: 19, todayFact: 11 },
+      sorting: { monthFact: 12, todayFact: 7 },
+      unformed: { monthFact: 7, todayFact: 5 },
+      chamotte: { monthFact: 8, todayFact: 5 },
+      granulation: { monthFact: 9, todayFact: 5.5 },
     }),
     {
       production: {
         month: "2026-07",
         totalFact: 46,
+        forming: { monthFact: 19, todayFact: 11 },
+        sorting: { monthFact: 12, todayFact: 7 },
+        unformed: { monthFact: 7, todayFact: 5 },
+        chamotte: { monthFact: 8, todayFact: 5 },
+        granulation: { monthFact: 9, todayFact: 5.5 },
       },
       equipment: {
         updatedAt: "2026-07-24T08:02:00.000Z",

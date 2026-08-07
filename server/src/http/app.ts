@@ -921,6 +921,7 @@ export function createApiServer({
           );
           const productionMonthOverview = buildProductionMonthOverview(
             productionReportTables,
+            now(),
           );
           const submissions = await dispatcherSubmissions.listLatest(filters.value);
           const summary = await dispatcherSubmissions.readSummary(filters.value);
@@ -2472,9 +2473,14 @@ async function handleLaboratoryRequest({
 
     const sampleNumber =
       await laboratorySampleRegistrationJournal.getNextSampleNumber();
+    const currentYear = Number(formatMoscowCalendarDate(now()).slice(0, 4));
     sendJson(res, 200, {
       sampleNumber,
-      laboratorySampleCode: buildLaboratorySampleCodeDraft(sampleNumber),
+      currentYear,
+      laboratorySampleCode: buildLaboratorySampleCodeDraft(
+        sampleNumber,
+        currentYear,
+      ),
     });
     return;
   }
@@ -3265,9 +3271,14 @@ async function handleLaboratoryRequest({
       laboratoryUnshapedProductSampleJournal.getNextSampleNumber(),
       laboratoryUnshapedProductSampleJournal.getLastSampledBy(),
     ]);
+    const currentYear = Number(formatMoscowCalendarDate(now()).slice(0, 4));
     sendJson(res, 200, {
       sampleNumber,
-      sampleCode: buildLaboratoryUnshapedProductSampleCodeDraft(sampleNumber),
+      currentYear,
+      sampleCode: buildLaboratoryUnshapedProductSampleCodeDraft(
+        sampleNumber,
+        currentYear,
+      ),
       sampleDate: formatMoscowCalendarDate(now()),
       sampledBy,
     });

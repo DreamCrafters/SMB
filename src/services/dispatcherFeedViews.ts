@@ -362,36 +362,80 @@ export function buildProductionReportTables(
 export function buildProductionMonthOverview(
   tables: ProductionReportTables,
   currentDate = new Date(),
-): ProductionMonthOverview | undefined {
-  const month = currentDate.toISOString().slice(0, 7);
-  let totalFact = 0;
-  let hasFact = false;
+): ProductionMonthOverview {
+  const today = formatMoscowProductionCalendarDate(currentDate);
+  const month = today.slice(0, 7);
+  const forming = buildCategoryOverviewValue(tables.forming, month, today);
+  const sorting = buildCategoryOverviewValue(tables.sorting, month, today);
+  const unformed = buildCategoryOverviewValue(tables.unformed, month, today);
+  const chamotte = buildCategoryOverviewValue(tables.chamotte, month, today);
+  const granulation = buildGranulationOverviewValue(
+    tables.granulation,
+    month,
+    today,
+  );
+  return {
+    month,
+    totalFact:
+      forming.monthFact + sorting.monthFact + unformed.monthFact +
+      chamotte.monthFact,
+    forming,
+    sorting,
+    unformed,
+    chamotte,
+    granulation,
+  };
+}
 
-  for (const rows of [
-    tables.forming,
-    tables.sorting,
-    tables.unformed,
-    tables.chamotte,
-  ]) {
-    let latestRow: ProductionMetricRow | undefined;
+function formatMoscowProductionCalendarDate(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const partByType = new Map(parts.map((part) => [part.type, part.value]));
 
-    for (const row of rows) {
-      if (
-        row.reportDate.startsWith(month) &&
-        row.monthFact !== undefined &&
-        (latestRow === undefined || row.reportDate > latestRow.reportDate)
-      ) {
-        latestRow = row;
-      }
-    }
+  return `${partByType.get("year")}-${partByType.get("month")}-${partByType.get("day")}`;
+}
 
-    if (latestRow?.monthFact !== undefined) {
-      totalFact += latestRow.monthFact;
-      hasFact = true;
-    }
-  }
+function buildCategoryOverviewValue(
+  rows: readonly ProductionMetricRow[],
+  month: string,
+  today: string,
+) {
+  const latestMonthRow = readLatestProductionRow(
+    rows.filter((row) =>
+      row.reportDate.startsWith(month) && row.monthFact !== undefined),
+  );
+  const todayRow = readLatestProductionRow(
+    rows.filter((row) => row.reportDate === today),
+  );
 
-  return hasFact ? { month, totalFact } : undefined;
+  return {
+    monthFact: latestMonthRow?.monthFact ?? 0,
+    todayFact: todayRow?.dayFact ?? 0,
+  };
+}
+
+function buildGranulationOverviewValue(
+  rows: readonly ProductionGranulationRow[],
+  month: string,
+  today: string,
+) {
+  const latestMonthRow = readLatestProductionRow(
+    rows.filter((row) => row.reportDate.startsWith(month)),
+  );
+  const todayRow = readLatestProductionRow(
+    rows.filter((row) => row.reportDate === today),
+  );
+
+  return {
+    monthFact: (latestMonthRow?.fraction1630Month ?? 0) +
+      (latestMonthRow?.fraction1218Month ?? 0),
+    todayFact: (todayRow?.fraction1630Day ?? 0) +
+      (todayRow?.fraction1218Day ?? 0),
+  };
 }
 
 export function filterProductionReportTables(
@@ -416,16 +460,16 @@ export function buildLocalProductionReportTableTotals(
   const filteredTables = filterProductionReportTables(tables, range);
 
   return {
-    forming: buildLocalBrandCategoryTotals(filteredTables.forming),
-    sorting: buildLocalBrandCategoryTotals(filteredTables.sorting),
-    unformed: buildLocalBrandCategoryTotals(filteredTables.unformed),
-    chamotte: buildLocalBrandCategoryTotals(filteredTables.chamotte),
+    forming: buildProductionBrandCategoryTotals(filteredTables.forming),
+    sorting: buildProductionBrandCategoryTotals(filteredTables.sorting),
+    unformed: buildProductionBrandCategoryTotals(filteredTables.unformed),
+    chamotte: buildProductionBrandCategoryTotals(filteredTables.chamotte),
     jars: buildLocalJarMeasurementTotals(filteredTables.jars),
     granulation: buildLocalGranulationTotals(filteredTables.granulation),
   };
 }
 
-function buildLocalBrandCategoryTotals(
+export function buildProductionBrandCategoryTotals(
   rows: readonly ProductionBrandCategoryRow[],
 ) {
   const dayPlan = sumOptionalProductionNumbers(rows.map((row) => row.dayPlan));
@@ -440,6 +484,47 @@ function buildLocalBrandCategoryTotals(
     monthFact: latestRow?.monthFact,
     deviation: latestRow?.deviation,
   };
+}
+
+export function filterProductionBrandCategoryRows(
+  rows: readonly ProductionBrandCategoryRow[],
+  query: string,
+) {
+  const normalizedQuery = normalizeProductionBrandSearchValue(query);
+
+  if (normalizedQuery === "") return [...rows];
+
+  return rows.flatMap((row) => {
+    const matchingFacts = row.facts.filter((fact) =>
+      normalizeProductionBrandSearchValue(fact.brand).includes(
+        normalizedQuery,
+      ));
+
+    if (matchingFacts.length === 0) return [];
+
+    const {
+      dayPlan: _dayPlan,
+      dayFact: _dayFact,
+      monthPlan: _monthPlan,
+      monthFact: _monthFact,
+      deviation: _deviation,
+      ...baseRow
+    } = row;
+
+    return [{
+      ...baseRow,
+      facts: matchingFacts,
+      dayFact: matchingFacts.reduce((sum, fact) => sum + fact.value, 0),
+      monthFact: matchingFacts.reduce(
+        (sum, fact) => sum + fact.monthValue,
+        0,
+      ),
+    }];
+  });
+}
+
+function normalizeProductionBrandSearchValue(value: string) {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function buildLocalJarMeasurementTotals(
@@ -941,6 +1026,7 @@ export function buildVisitorVisitRows(
     .filter((submission) => submission.formId === "visitor_exit")
     .sort(compareSubmissionsAscending);
   const exitsByEntryId = new Map<string, DispatcherSubmission>();
+  const knownEntryIds = new Set(entries.map((entry) => entry.id));
 
   for (const exit of exits) {
     const entryId = exit.payload.visitorEntryId;
@@ -968,7 +1054,10 @@ export function buildVisitorVisitRows(
           }
 
           return (
-            item.payload.visitorEntryId === undefined &&
+            (
+              item.payload.visitorEntryId === undefined ||
+              !knownEntryIds.has(item.payload.visitorEntryId)
+            ) &&
             buildVisitorKey(item.payload) === key &&
             (readPayloadDateTime(item.payload.exitAt) ?? readTimestamp(item.receivedAt)) >=
               (readPayloadDateTime(entry.payload.entryAt) ??
@@ -1119,12 +1208,15 @@ function buildOpenVisitorEntries(
     }
 
     const visitorEntryId = submission.payload.visitorEntryId;
-    const index =
+    const linkedIndex =
       visitorEntryId !== undefined
         ? openEntries.findIndex((entry) => entry.submission.id === visitorEntryId)
-        : openEntries.findIndex(
-            (entry) => entry.key === buildVisitorKey(submission.payload),
-          );
+        : -1;
+    const index = linkedIndex >= 0
+      ? linkedIndex
+      : openEntries.findIndex(
+          (entry) => entry.key === buildVisitorKey(submission.payload),
+        );
 
     if (index >= 0) {
       openEntries.splice(index, 1);

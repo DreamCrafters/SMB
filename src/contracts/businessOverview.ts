@@ -12,6 +12,18 @@ export type BusinessOverview = {
   laboratory: {
     monthTotal: number;
     todayTotal: number;
+    sampled: {
+      monthTotal: number;
+      todayTotal: number;
+    };
+    chemicalAnalyses: {
+      monthTotal: number;
+      todayTotal: number;
+    };
+    rotaryKiln2Readings: {
+      monthTotal: number;
+      todayTotal: number;
+    };
   };
   receivedAt: string;
 };

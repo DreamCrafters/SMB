@@ -389,7 +389,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           : "27";
         return jsonResponse({
           sampleNumber,
-          laboratorySampleCode: `.${sampleNumber}`,
+          currentYear: 2031,
+          laboratorySampleCode: `31.${sampleNumber}`,
         });
       }
       if (url.pathname === "/api/laboratory/sample-registration-journal") {
@@ -603,7 +604,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           : "20";
         return jsonResponse({
           sampleNumber,
-          sampleCode: `.${sampleNumber}`,
+          currentYear: 2032,
+          sampleCode: `32.${sampleNumber}`,
           sampleDate: "2026-08-05",
           sampledBy: "Иванова А.А.",
         });
@@ -1231,7 +1233,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     await waitFor(React, () =>
       sampleNumberInput.value === "18" &&
-        laboratorySampleCodeInput.value === ".18"
+        laboratorySampleCodeInput.value === "31.18"
     );
     assert.equal(sampleNumberInput.readOnly, false);
     assert.equal(laboratorySampleCodeInput.readOnly, false);
@@ -1274,9 +1276,9 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    assert.equal(laboratorySampleCodeInput.value, ".25");
+    assert.equal(laboratorySampleCodeInput.value, "31.25");
     await React.act(async () => {
-      setNativeInputValue(laboratorySampleCodeInput, ".25-Р");
+      setNativeInputValue(laboratorySampleCodeInput, "31.25-Р");
       laboratorySampleCodeInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
@@ -1285,7 +1287,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    assert.equal(laboratorySampleCodeInput.value, ".25-Р");
+    assert.equal(laboratorySampleCodeInput.value, "31.25-Р");
     const samplingLocationInput = findControlByLabel(
       sampleRegistrationForm,
       "Место отбора пробы",
@@ -1357,7 +1359,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await waitFor(React, () => sampleRegistrationSubmissions.length === 1);
     assert.deepEqual(sampleRegistrationSubmissions[0], {
       sampleNumber: "26-Б",
-      laboratorySampleCode: ".25-Р",
+      laboratorySampleCode: "31.25-Р",
       samplingDate: "2026-07-30",
       samplingLaboratoryAssistant: "Сидорова С.С.",
       sampleName: "Глина огнеупорная",
@@ -1366,7 +1368,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     });
     await waitFor(React, () =>
       sampleNumberInput.value === "27" &&
-        laboratorySampleCodeInput.value === ".27" &&
+        laboratorySampleCodeInput.value === "31.27" &&
         samplingLaboratoryAssistantInput.value === "Сидорова С.С." &&
         samplingLocationInput.value === "Пункт контроля № 2"
     );
@@ -1959,7 +1961,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     await waitFor(React, () =>
       unshapedSampleNumber.value === "19" &&
-        unshapedSampleCode.value === ".19"
+        unshapedSampleCode.value === "32.19"
     );
     assert.equal(
       findControlByLabel(unshapedSampleForm, "Дата").value,
@@ -2018,7 +2020,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       sampleDate: "2026-08-05",
       sampledBy: "Иванова А.А.",
       batchNumber: "56",
-      sampleCode: ".19",
+      sampleCode: "32.19",
       productName: "ШКИ-66",
       batchMass: "20 т",
       moisture: "0,8",
@@ -2026,7 +2028,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       fireResistance: "1710 °C",
       suitability: "yes",
     });
-    await waitFor(React, () => unshapedSampleNumber.value === "20");
+    await waitFor(React, () =>
+      unshapedSampleNumber.value === "20" &&
+        unshapedSampleCode.value === "32.20"
+    );
 
     const rejectedRow = rootElement.querySelector(
       ".unshaped-product-sample-suitability-no",

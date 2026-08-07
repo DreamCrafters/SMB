@@ -157,7 +157,7 @@ test("buildProductionReportTables uses only the latest report for each date", ()
   assert.equal(tables.forming[0]?.monthFact, 11);
 });
 
-test("buildProductionMonthOverview totals the four production categories for the current month", () => {
+test("buildProductionMonthOverview returns month and today values for every overview category", () => {
   const tables = buildProductionReportTables([
     buildSubmission("june", {
       reportDate: "30.06.2026",
@@ -189,12 +189,59 @@ test("buildProductionMonthOverview totals the four production categories for the
   assert.deepEqual(
     buildProductionMonthOverview(
       tables,
-      new Date("2026-07-18T12:00:00.000Z"),
+      new Date("2026-07-02T12:00:00.000Z"),
     ),
     {
       month: "2026-07",
       totalFact: 46,
+      forming: { monthFact: 19, todayFact: 11 },
+      sorting: { monthFact: 12, todayFact: 7 },
+      unformed: { monthFact: 7, todayFact: 5 },
+      chamotte: { monthFact: 8, todayFact: 5 },
+      granulation: { monthFact: 120, todayFact: 70 },
     },
+  );
+});
+
+test("buildProductionMonthOverview starts a new Moscow month with zero values", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("july", {
+      reportDate: "31.07.2026",
+      formingDay: "8",
+    }),
+  ]);
+
+  assert.deepEqual(
+    buildProductionMonthOverview(
+      tables,
+      new Date("2026-07-31T22:30:00.000Z"),
+    ),
+    {
+      month: "2026-08",
+      totalFact: 0,
+      forming: { monthFact: 0, todayFact: 0 },
+      sorting: { monthFact: 0, todayFact: 0 },
+      unformed: { monthFact: 0, todayFact: 0 },
+      chamotte: { monthFact: 0, todayFact: 0 },
+      granulation: { monthFact: 0, todayFact: 0 },
+    },
+  );
+});
+
+test("buildProductionMonthOverview uses the Moscow day after UTC evening", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("july-3", {
+      reportDate: "03.07.2026",
+      formingDay: "9",
+    }),
+  ]);
+
+  assert.equal(
+    buildProductionMonthOverview(
+      tables,
+      new Date("2026-07-02T22:30:00.000Z"),
+    )?.forming.todayFact,
+    9,
   );
 });
 
