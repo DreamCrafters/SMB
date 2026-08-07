@@ -242,6 +242,7 @@ import {
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import {
+  LaboratoryGreenProductQualityWagonBrandMismatchError,
   LaboratoryGreenProductQualityWagonUnavailableError,
   type LaboratoryGreenProductQualitySnapshot,
   type LaboratoryGreenProductQualityJournalRepository,
@@ -9731,6 +9732,15 @@ function sendLaboratoryGreenProductQualityWagonError(
   res: ServerResponse,
   error: unknown,
 ) {
+  if (error instanceof LaboratoryGreenProductQualityWagonBrandMismatchError) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: "Выбраны вагоны с разными марками, выберите с одинаковыми.",
+      },
+    });
+    return true;
+  }
   if (!(error instanceof LaboratoryGreenProductQualityWagonUnavailableError)) {
     return false;
   }

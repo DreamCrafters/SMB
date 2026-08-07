@@ -46,6 +46,9 @@ const dimensionPairs = [
   { label: "Высота", first: "heightFirst", second: "heightSecond" },
 ] as const;
 
+const wagonBrandMismatchMessage =
+  "Выбраны вагоны с разными марками, выберите с одинаковыми.";
+
 type DimensionFirstField = (typeof dimensionPairs)[number]["first"];
 type DimensionSecondField = (typeof dimensionPairs)[number]["second"];
 type TextField = Exclude<keyof FormState, "wagonIds">;
@@ -153,6 +156,21 @@ export function LaboratoryGreenProductQualityJournal({
   }
 
   function toggleWagon(id: string, checked: boolean) {
+    if (checked) {
+      const selectedWagons = options.wagons.filter((wagon) =>
+        form.wagonIds.includes(wagon.id) || wagon.id === id
+      );
+      const selectedBrands = new Set(
+        selectedWagons
+          .map((wagon) => normalizeProductBrand(wagon.productBrand))
+          .filter((brand): brand is string => brand !== undefined),
+      );
+      if (selectedBrands.size > 1) {
+        setFormMessage(wagonBrandMismatchMessage);
+        return;
+      }
+    }
+
     setForm((current) => {
       const wagonIds = checked
         ? [...current.wagonIds, id]
@@ -635,4 +653,11 @@ function buildSubmission(
 
 function addOption(values: string[], value: string) {
   return [value, ...values.filter((item) => item !== value)];
+}
+
+function normalizeProductBrand(value: string | null) {
+  const normalized = value?.trim().replace(/\s+/gu, " ");
+  return normalized === undefined || normalized === ""
+    ? undefined
+    : normalized.toLocaleLowerCase("ru-RU");
 }

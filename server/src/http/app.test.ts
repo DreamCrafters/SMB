@@ -62,6 +62,7 @@ import type { LaboratoryChemicalAnalysisSampleOption } from "../contracts/labora
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import {
+  LaboratoryGreenProductQualityWagonBrandMismatchError,
   LaboratoryGreenProductQualityWagonUnavailableError,
   type LaboratoryGreenProductQualityJournalRepository,
 } from "../repositories/laboratoryGreenProductQualityJournalRepository.js";
@@ -2205,6 +2206,9 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
       if (input.record.wagonIds.includes("missing-wagon")) {
         throw new LaboratoryGreenProductQualityWagonUnavailableError();
       }
+      if (input.record.wagonIds.includes("different-brand-wagon")) {
+        throw new LaboratoryGreenProductQualityWagonBrandMismatchError();
+      }
       savedInput = input;
       return {
         id: "green-quality-1",
@@ -2324,6 +2328,17 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
           body: JSON.stringify({ ...record, wagonIds: ["missing-wagon"] }),
         },
       );
+      const differentBrandResponse = await fetch(
+        `${baseUrl}/api/laboratory/green-product-quality-journal`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            ...record,
+            wagonIds: ["wagon-1", "different-brand-wagon"],
+          }),
+        },
+      );
 
       assert.equal(draftResponse.status, 200);
       assert.deepEqual(await draftResponse.json(), { recordDate: "2026-08-05" });
@@ -2340,6 +2355,13 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
         error: {
           code: "invalid_response",
           message: "Один или несколько выбранных вагонов отсутствуют в журнале вагонов.",
+        },
+      });
+      assert.equal(differentBrandResponse.status, 400);
+      assert.deepEqual(await differentBrandResponse.json(), {
+        error: {
+          code: "invalid_response",
+          message: "Выбраны вагоны с разными марками, выберите с одинаковыми.",
         },
       });
       assert.equal(savedInput?.record.productBrand, "ШКУ-32");

@@ -19,6 +19,13 @@ export class LaboratoryGreenProductQualityWagonUnavailableError extends Error {
   }
 }
 
+export class LaboratoryGreenProductQualityWagonBrandMismatchError extends Error {
+  constructor() {
+    super("Selected refractory wagons have different product brands.");
+    this.name = "LaboratoryGreenProductQualityWagonBrandMismatchError";
+  }
+}
+
 export type LaboratoryGreenProductQualityJournalRepository = {
   create: (input: {
     record: LaboratoryGreenProductQualitySubmission;
@@ -80,6 +87,10 @@ type OptionRow = RowDataPacket & {
 type WagonRow = RowDataPacket & {
   id: string;
   wagon_number: string;
+};
+
+type ResolvedWagonRow = WagonRow & {
+  product_brand: string | null;
 };
 
 type AvailableWagonRow = WagonRow & {
@@ -525,10 +536,11 @@ async function resolveWagons(
   wagonIds: string[],
 ): Promise<LaboratoryGreenProductQualityWagonOption[]> {
   const placeholders = wagonIds.map(() => "?").join(", ");
-  const [rows] = await pool.query<WagonRow[]>(
-    `select id, wagon_number
+  const [rows] = await pool.query<ResolvedWagonRow[]>(
+    `select id, wagon_number, product_brand
       from refractory_wagons
-      where id in (${placeholders})`,
+      where id in (${placeholders})
+      for update`,
     wagonIds,
   );
   const wagonById = new Map(rows.map((row) => [
@@ -538,7 +550,22 @@ async function resolveWagons(
   if (wagonById.size !== wagonIds.length) {
     throw new LaboratoryGreenProductQualityWagonUnavailableError();
   }
+  const productBrands = new Set(
+    rows
+      .map((row) => normalizeProductBrand(row.product_brand))
+      .filter((brand): brand is string => brand !== undefined),
+  );
+  if (productBrands.size > 1) {
+    throw new LaboratoryGreenProductQualityWagonBrandMismatchError();
+  }
   return wagonIds.map((id) => wagonById.get(id)!);
+}
+
+function normalizeProductBrand(value: string | null) {
+  const normalized = value?.trim().replace(/\s+/gu, " ");
+  return normalized === undefined || normalized === ""
+    ? undefined
+    : normalized.toLocaleLowerCase("ru-RU");
 }
 
 async function insertWagonLinks(

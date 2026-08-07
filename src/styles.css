@@ -5177,8 +5177,9 @@ p {
 
 .chemical-analysis-total-note {
   margin: 0;
-  color: var(--muted);
+  color: var(--brick);
   font-size: 13px;
+  font-weight: 800;
 }
 
 .chemical-analysis-sample-picker {

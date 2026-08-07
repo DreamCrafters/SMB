@@ -149,6 +149,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       setter: "Садчик с вагона",
       pressOperator: "Прессовщик с вагона",
     },
+    {
+      id: "wagon-3",
+      number: "В-03",
+      loadingDate: "2026-08-03",
+      productBrand: "ШКИ-66",
+      setter: "Другой садчик",
+      pressOperator: "Другой прессовщик",
+    },
   ];
   const greenProductQualityRecord = {
     id: "green-quality-1",
@@ -157,8 +165,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     productBrand: "ШКИ-66",
     setter: "Иванов И.И.",
     pressOperator: "Петров П.П.",
-    wagonIds: ["wagon-1", "wagon-2"],
-    wagons: greenProductQualityWagons,
+    wagonIds: ["wagon-2", "wagon-3"],
+    wagons: greenProductQualityWagons.filter((wagon) =>
+      ["wagon-2", "wagon-3"].includes(wagon.id)
+    ),
     lengthFirst: "230",
     lengthSecond: "231",
     widthFirst: "114",
@@ -1501,6 +1511,15 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         false,
       );
     }
+    const chemicalAnalysisTotalNote = chemicalAnalysisForm.querySelector(
+      ".chemical-analysis-total-note",
+    );
+    assert.ok(chemicalAnalysisTotalNote);
+    const chemicalAnalysisTotalNoteStyle = dom.window.getComputedStyle(
+      chemicalAnalysisTotalNote,
+    );
+    assert.equal(chemicalAnalysisTotalNoteStyle.color, "var(--brick)");
+    assert.equal(chemicalAnalysisTotalNoteStyle.fontWeight, "800");
     assert.equal(
       chemicalAnalysisForm.textContent.includes(
         "Поиск пробы без химического анализа",
@@ -2226,11 +2245,31 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       const press = findControlByLabel(greenQualityForm, "№ пресса", "select");
       setNativeInputValue(press, "3");
       press.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-      for (const wagonId of ["wagon-1", "wagon-2"]) {
-        const checkbox = greenQualityForm.querySelector(
+      const firstBrandCheckbox = greenQualityForm.querySelector(
+        '.green-product-quality-wagons input[value="wagon-1"]',
+      );
+      const differentBrandCheckbox = greenQualityForm.querySelector(
+        '.green-product-quality-wagons input[value="wagon-2"]',
+      );
+      firstBrandCheckbox.click();
+      differentBrandCheckbox.click();
+    });
+    const differentBrandCheckbox = greenQualityForm.querySelector(
+      '.green-product-quality-wagons input[value="wagon-2"]',
+    );
+    assert.equal(differentBrandCheckbox.checked, false);
+    assert.match(
+      greenQualityForm.textContent,
+      /Выбраны вагоны с разными марками, выберите с одинаковыми/u,
+    );
+    await React.act(async () => {
+      greenQualityForm.querySelector(
+        '.green-product-quality-wagons input[value="wagon-1"]',
+      ).click();
+      for (const wagonId of ["wagon-2", "wagon-3"]) {
+        greenQualityForm.querySelector(
           `.green-product-quality-wagons input[value="${wagonId}"]`,
-        );
-        checkbox.click();
+        ).click();
       }
     });
     assert.equal(
@@ -2266,8 +2305,8 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     });
     await waitFor(React, () => greenProductQualitySubmissions.length === 1);
     assert.deepEqual(greenProductQualitySubmissions[0].wagonIds, [
-      "wagon-1",
       "wagon-2",
+      "wagon-3",
     ]);
     assert.equal(greenProductQualitySubmissions[0].lengthFirst, "232");
     assert.equal(greenProductQualitySubmissions[0].lengthSecond, "231");
@@ -2290,7 +2329,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     assert.match(
       rootElement.querySelector(".green-product-quality-table").textContent,
-      /В-01; В-02/u,
+      /В-02; В-03/u,
     );
     const greenQualityEditButton = rootElement.querySelector(
       ".green-product-quality-edit-link",

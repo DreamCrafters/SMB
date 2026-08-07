@@ -3,6 +3,7 @@ import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import {
   createLaboratoryGreenProductQualityJournalRepository,
+  LaboratoryGreenProductQualityWagonBrandMismatchError,
   LaboratoryGreenProductQualityWagonUnavailableError,
 } from "./laboratoryGreenProductQualityJournalRepository.js";
 
@@ -32,8 +33,16 @@ test("green product quality repository stores canonical wagon links with the jou
       queries.push({ sql, parameters });
       if (/from refractory_wagons/u.test(sql)) {
         return [[
-          { id: "wagon-1", wagon_number: "В-01" },
-          { id: "wagon-2", wagon_number: "В-02" },
+          {
+            id: "wagon-1",
+            wagon_number: "В-01",
+            product_brand: " шку-32 ",
+          },
+          {
+            id: "wagon-2",
+            wagon_number: "В-02",
+            product_brand: "ШКУ-32",
+          },
         ], []];
       }
       return [[], []];
@@ -90,7 +99,11 @@ test("green product quality repository rejects a missing wagon before writing th
   const pool = {
     async query(sql: string, parameters?: unknown[]) {
       queries.push({ sql, parameters });
-      return [[{ id: "wagon-1", wagon_number: "В-01" }], []];
+      return [[{
+        id: "wagon-1",
+        wagon_number: "В-01",
+        product_brand: null,
+      }], []];
     },
   } as unknown as DatabasePool;
   const repository = createLaboratoryGreenProductQualityJournalRepository(pool);
@@ -105,6 +118,80 @@ test("green product quality repository rejects a missing wagon before writing th
   );
   assert.equal(queries.length, 1);
   assert.match(queries[0]?.sql ?? "", /from refractory_wagons/u);
+});
+
+test("green product quality repository rejects wagons with different product brands", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[
+        {
+          id: "wagon-1",
+          wagon_number: "В-01",
+          product_brand: "ШКУ-32",
+        },
+        {
+          id: "wagon-2",
+          wagon_number: "В-02",
+          product_brand: "ШКИ-66",
+        },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryGreenProductQualityJournalRepository(pool);
+
+  await assert.rejects(
+    () => repository.create({
+      record,
+      submittedByUserId: "laboratory-user",
+      submittedByAccountId: "laboratory-account",
+    }),
+    LaboratoryGreenProductQualityWagonBrandMismatchError,
+  );
+  assert.equal(queries.length, 1);
+  assert.match(queries[0]?.sql ?? "", /product_brand/u);
+  assert.match(queries[0]?.sql ?? "", /for update/u);
+});
+
+test("green product quality repository accepts a legacy wagon without a product brand", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/from refractory_wagons/u.test(sql)) {
+        return [[
+          {
+            id: "wagon-1",
+            wagon_number: "В-01",
+            product_brand: null,
+          },
+          {
+            id: "wagon-2",
+            wagon_number: "В-02",
+            product_brand: "ШКУ-32",
+          },
+        ], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryGreenProductQualityJournalRepository(pool, {
+    createId: () => "green-quality-with-legacy-wagon",
+    now: () => new Date("2026-08-05T08:30:00.000Z"),
+  });
+
+  const saved = await repository.create({
+    record,
+    submittedByUserId: "laboratory-user",
+    submittedByAccountId: "laboratory-account",
+  });
+
+  assert.deepEqual(saved.wagons, [
+    { id: "wagon-2", number: "В-02" },
+    { id: "wagon-1", number: "В-01" },
+  ]);
+  assert.match(queries[0]?.sql ?? "", /for update/u);
 });
 
 test("green product quality repository filters and returns wagon numbers in selection order", async () => {
@@ -233,7 +320,11 @@ test("green product quality repository corrects a stable row and stores wagon-aw
     async query(sql: string, parameters?: unknown[]) {
       queries.push({ sql, parameters });
       if (/from refractory_wagons/u.test(sql) && !/inner join/u.test(sql)) {
-        return [[{ id: "wagon-3", wagon_number: "В-03" }], []];
+        return [[{
+          id: "wagon-3",
+          wagon_number: "В-03",
+          product_brand: "ШКУ-32",
+        }], []];
       }
       if (/for update/u.test(sql)) return [[buildJournalRow()], []];
       if (/select\s+link\.green_product_quality_id/u.test(sql)) {
