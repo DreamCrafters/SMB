@@ -413,6 +413,8 @@ export function LaboratoryChemicalAnalysisJournal({
       history.sampleOptions[activeSampleOptionIndex] !== undefined
       ? `${sampleOptionsListId}-option-${activeSampleOptionIndex}`
       : undefined;
+  const isTotalRuleError =
+    formMessage === laboratoryChemicalAnalysisTotalRuleMessage;
 
   useEffect(() => {
     if (activeSampleOptionId === undefined) return;
@@ -553,10 +555,6 @@ export function LaboratoryChemicalAnalysisJournal({
           </datalist>
         </div>
 
-        <p className="chemical-analysis-total-note">
-          {laboratoryChemicalAnalysisTotalRuleMessage}
-        </p>
-
         {history.status !== "loading" &&
             sampleQuery.trim() === "" &&
             history.sampleOptions.length === 0
@@ -602,7 +600,16 @@ export function LaboratoryChemicalAnalysisJournal({
             : null}
           {formMessage === ""
             ? null
-            : <span className="form-message" role="status">{formMessage}</span>}
+            : (
+                <span
+                  className={`form-message${isTotalRuleError
+                    ? " is-error chemical-analysis-total-error"
+                    : ""}`}
+                  role={isTotalRuleError ? "alert" : "status"}
+                >
+                  {formMessage}
+                </span>
+              )}
         </div>
       </form>
 

@@ -5198,8 +5198,8 @@ p {
   font-size: 16px;
 }
 
-.chemical-analysis-total-note {
-  margin: 0;
+.chemical-analysis-total-error,
+.green-product-quality-wagon-brand-error {
   color: var(--brick);
   font-size: 13px;
   font-weight: 800;
@@ -5326,7 +5326,14 @@ p {
   white-space: normal;
 }
 
+.green-product-quality-wagons-field {
+  display: grid;
+  gap: var(--density-1);
+}
+
 .green-product-quality-wagons {
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   margin: 0;
   padding: var(--density-3);
@@ -5369,6 +5376,10 @@ p {
   margin: var(--density-2) 0 0;
   color: var(--muted);
   font-size: 13px;
+}
+
+.green-product-quality-wagon-brand-error {
+  margin: 0;
 }
 
 .green-product-quality-dimensions {

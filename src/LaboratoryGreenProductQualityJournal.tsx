@@ -71,6 +71,7 @@ export function LaboratoryGreenProductQualityJournal({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
+  const [wagonBrandError, setWagonBrandError] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
   const mirroredSecondFields = useRef<Record<DimensionSecondField, boolean>>({
@@ -166,7 +167,7 @@ export function LaboratoryGreenProductQualityJournal({
           .filter((brand): brand is string => brand !== undefined),
       );
       if (selectedBrands.size > 1) {
-        setFormMessage(wagonBrandMismatchMessage);
+        setWagonBrandError(wagonBrandMismatchMessage);
         return;
       }
     }
@@ -201,6 +202,7 @@ export function LaboratoryGreenProductQualityJournal({
           : { pressOperator: latestSelectedWagon.pressOperator }),
       };
     });
+    setWagonBrandError("");
     setFormMessage("");
   }
 
@@ -271,12 +273,14 @@ export function LaboratoryGreenProductQualityJournal({
       mirroredSecondFields.current[pair.second] =
         record[pair.first] === record[pair.second];
     }
+    setWagonBrandError("");
     setFormMessage("");
   }
 
   function resetForm() {
     setEditingRecordId(undefined);
     setForm(createEmptyForm());
+    setWagonBrandError("");
     mirroredSecondFields.current = {
       lengthSecond: true,
       widthSecond: true,
@@ -350,39 +354,49 @@ export function LaboratoryGreenProductQualityJournal({
               options.pressOperators,
               updateTextField,
             )}
-            <fieldset className="laboratory-form-wide green-product-quality-wagons">
-              <legend>№№ вагонов</legend>
-              {options.wagons.length === 0 ? (
-                <p className="laboratory-empty-note">
-                  Вагоны появятся после добавления записей в журнале вагонов.
+            <div className="laboratory-form-wide green-product-quality-wagons-field">
+              <fieldset className="green-product-quality-wagons">
+                <legend>№№ вагонов</legend>
+                {options.wagons.length === 0 ? (
+                  <p className="laboratory-empty-note">
+                    Вагоны появятся после добавления записей в журнале вагонов.
+                  </p>
+                ) : (
+                  <div className="green-product-quality-wagon-options">
+                    {options.wagons.map((wagon) => (
+                      <label key={wagon.id}>
+                        <input
+                          checked={form.wagonIds.includes(wagon.id)}
+                          type="checkbox"
+                          value={wagon.id}
+                          onChange={(event) => {
+                            const checked = event.currentTarget.checked;
+                            toggleWagon(wagon.id, checked);
+                          }}
+                        />
+                        <span>{wagon.number}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {form.wagonIds.length > 0 ? (
+                  <p className="green-product-quality-wagon-summary">
+                    {options.wagons
+                      .filter((wagon) => form.wagonIds.includes(wagon.id))
+                      .map((wagon) => wagon.number)
+                      .join("; ")}
+                  </p>
+                ) : null}
+              </fieldset>
+              {wagonBrandError === "" ? null : (
+                <p
+                  className="form-message is-error green-product-quality-wagon-brand-error"
+                  role="alert"
+                >
+                  {wagonBrandError}
                 </p>
-              ) : (
-                <div className="green-product-quality-wagon-options">
-                  {options.wagons.map((wagon) => (
-                    <label key={wagon.id}>
-                      <input
-                        checked={form.wagonIds.includes(wagon.id)}
-                        type="checkbox"
-                        value={wagon.id}
-                        onChange={(event) => {
-                          const checked = event.currentTarget.checked;
-                          toggleWagon(wagon.id, checked);
-                        }}
-                      />
-                      <span>{wagon.number}</span>
-                    </label>
-                  ))}
-                </div>
               )}
-              {form.wagonIds.length > 0 ? (
-                <p className="green-product-quality-wagon-summary">
-                  {options.wagons
-                    .filter((wagon) => form.wagonIds.includes(wagon.id))
-                    .map((wagon) => wagon.number)
-                    .join("; ")}
-                </p>
-              ) : null}
-            </fieldset>
+            </div>
           </div>
         </section>
 

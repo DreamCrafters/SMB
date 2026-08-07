@@ -535,6 +535,15 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       if (url.pathname === "/api/laboratory/chemical-analysis-journal") {
         if (init.method === "POST") {
           const submission = JSON.parse(String(init.body));
+          if (submission.al2o3 === "100,01") {
+            return jsonResponse({
+              error: {
+                code: "validation_error",
+                message:
+                  "Сумма полей «Al2O3», «Fe2O3», «SiO2», «CaO2», «P2O5» и «ппп» не может быть больше 100.",
+              },
+            }, 400);
+          }
           chemicalAnalysisSubmissions.push(submission);
           return jsonResponse({
             record: {
@@ -1663,15 +1672,16 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         false,
       );
     }
-    const chemicalAnalysisTotalNote = chemicalAnalysisForm.querySelector(
-      ".chemical-analysis-total-note",
+    assert.equal(
+      chemicalAnalysisForm.querySelector(".chemical-analysis-total-note"),
+      null,
     );
-    assert.ok(chemicalAnalysisTotalNote);
-    const chemicalAnalysisTotalNoteStyle = dom.window.getComputedStyle(
-      chemicalAnalysisTotalNote,
+    assert.equal(
+      chemicalAnalysisForm.textContent.includes(
+        "Сумма полей «Al2O3», «Fe2O3», «SiO2», «CaO2», «P2O5» и «ппп» не может быть больше 100.",
+      ),
+      false,
     );
-    assert.equal(chemicalAnalysisTotalNoteStyle.color, "var(--brick)");
-    assert.equal(chemicalAnalysisTotalNoteStyle.fontWeight, "800");
     assert.equal(
       chemicalAnalysisForm.textContent.includes(
         "Поиск пробы без химического анализа",
@@ -1811,6 +1821,38 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.equal(sampleCodeInput.getAttribute("aria-activedescendant"), null);
     assert.equal(dom.window.document.activeElement, sampleCodeInput);
     await React.act(async () => {
+      const al2o3Input = findControlByLabel(chemicalAnalysisForm, "Al2O3");
+      setNativeInputValue(al2o3Input, "100,01");
+      al2o3Input.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      chemicalAnalysisForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => chemicalAnalysisForm.querySelector(
+      ".chemical-analysis-total-error",
+    ) !== null);
+    const chemicalAnalysisTotalError = chemicalAnalysisForm.querySelector(
+      ".chemical-analysis-total-error",
+    );
+    assert.equal(
+      chemicalAnalysisTotalError.textContent,
+      "Сумма полей «Al2O3», «Fe2O3», «SiO2», «CaO2», «P2O5» и «ппп» не может быть больше 100.",
+    );
+    assert.equal(chemicalAnalysisTotalError.getAttribute("role"), "alert");
+    const chemicalAnalysisTotalErrorStyle = dom.window.getComputedStyle(
+      chemicalAnalysisTotalError,
+    );
+    assert.equal(chemicalAnalysisTotalErrorStyle.color, "var(--brick)");
+    assert.equal(chemicalAnalysisTotalErrorStyle.fontWeight, "800");
+    assert.equal(chemicalAnalysisSubmissions.length, 0);
+    await React.act(async () => {
+      const al2o3Input = findControlByLabel(chemicalAnalysisForm, "Al2O3");
+      setNativeInputValue(al2o3Input, "");
+      al2o3Input.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
       setNativeInputValue(laboratoryAnalysisNumberInput, "47");
       laboratoryAnalysisNumberInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
@@ -2413,9 +2455,32 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       '.green-product-quality-wagons input[value="wagon-2"]',
     );
     assert.equal(differentBrandCheckbox.checked, false);
-    assert.match(
-      greenQualityForm.textContent,
-      /Выбраны вагоны с разными марками, выберите с одинаковыми/u,
+    const wagonFieldContainer = greenQualityForm.querySelector(
+      ".green-product-quality-wagons-field",
+    );
+    const wagonField = wagonFieldContainer.querySelector(
+      ".green-product-quality-wagons",
+    );
+    const wagonBrandError = wagonFieldContainer.querySelector(
+      ".green-product-quality-wagon-brand-error",
+    );
+    assert.ok(wagonBrandError);
+    assert.equal(wagonBrandError.previousElementSibling, wagonField);
+    assert.equal(
+      wagonBrandError.textContent,
+      "Выбраны вагоны с разными марками, выберите с одинаковыми.",
+    );
+    assert.equal(wagonBrandError.getAttribute("role"), "alert");
+    const wagonBrandErrorStyle = dom.window.getComputedStyle(wagonBrandError);
+    assert.equal(wagonBrandErrorStyle.color, "var(--brick)");
+    assert.equal(wagonBrandErrorStyle.fontWeight, "800");
+    assert.equal(
+      Array.from(greenQualityForm.children).some((element) =>
+        element.matches("p.form-message") && element.textContent?.includes(
+          "Выбраны вагоны с разными марками, выберите с одинаковыми.",
+        )
+      ),
+      false,
     );
     await React.act(async () => {
       greenQualityForm.querySelector(
