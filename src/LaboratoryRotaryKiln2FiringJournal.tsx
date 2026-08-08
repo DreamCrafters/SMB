@@ -25,12 +25,12 @@ import {
   submitRotaryKiln2FiringJournalRecord,
 } from "./services/rotaryKiln2FiringJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 import {
   normalizeProductBrandKey,
   useProductionBrands,
 } from "./useProductionBrands";
 
-type ShowToast = (title: string, body: string) => void;
 type FormState = Record<keyof RotaryKiln2FiringJournalSubmission, string>;
 type SelectionState =
   | { status: "loading"; records: RotaryKiln2FiringJournalRecord[]; average: number | null }
@@ -306,6 +306,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
     onShowToast(
       wasEditing ? "Запись исправлена" : "Запись сохранена",
       `${formatDate(result.record.recordDate)} · ${result.record.recordTime}.`,
+      "success",
     );
   }
 

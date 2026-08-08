@@ -18,9 +18,9 @@ import {
   submitLaboratoryUnshapedProductSampleRecord,
 } from "./services/laboratoryUnshapedProductSampleJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 import { useProductionBrands } from "./useProductionBrands";
 
-type ShowToast = (title: string, body: string) => void;
 type FormState = Record<keyof LaboratoryUnshapedProductSampleSubmission, string>;
 type HistoryState =
   | { status: "loading"; records: LaboratoryUnshapedProductSampleRecord[] }
@@ -183,6 +183,7 @@ export function LaboratoryUnshapedProductSampleJournal({
     onShowToast(
       wasEditing ? "Проба исправлена" : "Запись сохранена",
       `${result.record.sampleNumber} · ${result.record.sampleCode}.`,
+      "success",
     );
   }
 

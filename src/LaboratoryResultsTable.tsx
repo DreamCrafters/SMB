@@ -7,8 +7,7 @@ import type {
 } from "./contracts";
 import { requestLaboratoryProtocolPdf } from "./services/laboratoryResults";
 import { readShortUserMessage } from "./services/userFacingMessages";
-
-type ShowToast = (title: string, message: string) => void;
+import type { ShowToast } from "./services/toastStack";
 
 export type LaboratoryTableSection = LaboratorySection | "all";
 
@@ -136,6 +135,7 @@ function LaboratoryProtocolActions({
           response.message,
           "Не удалось сформировать протокол испытаний.",
         ),
+        "warning",
       );
       return;
     }

@@ -21,8 +21,8 @@ import {
   submitLaboratoryRawMaterialQualityRecord,
 } from "./services/laboratoryRawMaterialQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 
-type ShowToast = (title: string, body: string) => void;
 type FormState = Record<keyof LaboratoryRawMaterialQualitySubmission, string>;
 type HistoryState =
   | { status: "loading"; records: LaboratoryRawMaterialQualityRecord[] }
@@ -178,6 +178,7 @@ export function LaboratoryRawMaterialQualityJournal({
     onShowToast(
       wasEditing ? "Запись исправлена" : "Запись сохранена",
       `${result.record.recordDate} · ${result.record.shiftSupervisor}.`,
+      "success",
     );
   }
 

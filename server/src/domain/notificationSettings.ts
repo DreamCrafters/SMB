@@ -23,9 +23,17 @@ export const boardAssignmentOverdueLoginDeliveryKey =
 export type LoginNotificationDeliveryKey =
   typeof boardAssignmentOverdueLoginDeliveryKey;
 
+export const loginNotificationTones = [
+  "warning",
+  "suggestion",
+  "success",
+] as const;
+export type LoginNotificationTone = (typeof loginNotificationTones)[number];
+
 export type LoginNotification = {
   title: string;
   message: string;
+  tone: LoginNotificationTone;
 };
 
 type OverdueBoardAssignment = {
@@ -159,6 +167,7 @@ export function buildGeneralDirectorLoginNotifications({
     notifications.push({
       title: "Совет директоров",
       message: boardMeetingReminder,
+      tone: "suggestion",
     });
   }
 
@@ -166,6 +175,7 @@ export function buildGeneralDirectorLoginNotifications({
     notifications.push({
       title: "Просрочено поручение",
       message: `Просрочено поручений: ${overdueAssignments.length}`,
+      tone: "warning",
     });
   }
 

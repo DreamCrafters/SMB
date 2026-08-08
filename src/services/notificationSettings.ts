@@ -5,6 +5,7 @@ import {
   type NotificationType,
   type UserNotificationSettings,
 } from "../contracts/notificationSettings.js";
+import { notificationTones } from "../contracts/notifications.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
   describeRemoteNetworkFailure,
@@ -181,7 +182,9 @@ function isNotificationSetting(value: unknown): value is NotificationSetting {
 function isLoginNotification(value: unknown): value is LoginNotification {
   return isRecord(value) &&
     typeof value.title === "string" &&
-    typeof value.message === "string";
+    typeof value.message === "string" &&
+    typeof value.tone === "string" &&
+    notificationTones.includes(value.tone as LoginNotification["tone"]);
 }
 
 function readErrorMessage(value: unknown) {

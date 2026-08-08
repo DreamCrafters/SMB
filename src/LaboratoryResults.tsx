@@ -34,12 +34,12 @@ import {
   submitLaboratoryResult,
 } from "./services/laboratoryResults";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 import {
   normalizeProductBrandKey,
   useProductionBrands,
 } from "./useProductionBrands";
 
-type ShowToast = (title: string, message: string) => void;
 type LaboratoryWorkspacePanel =
   | "results"
   | "banks"
@@ -411,6 +411,7 @@ export function LaboratoryResultsWorkspace({
     onShowToast(
       "Результат сохранён",
       `${sectionLabels[section]} · ${result.result.materialLabel}.`,
+      "success",
     );
   }
 

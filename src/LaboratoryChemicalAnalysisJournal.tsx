@@ -26,8 +26,8 @@ import {
   submitLaboratoryChemicalAnalysisJournalRecord,
 } from "./services/laboratoryChemicalAnalysisJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 
-type ShowToast = (title: string, body: string) => void;
 type FormState = Record<keyof LaboratoryChemicalAnalysisValues, string> & {
   sampleKey: string;
 };
@@ -303,6 +303,7 @@ export function LaboratoryChemicalAnalysisJournal({
       result.record.batchNumber === undefined
         ? `${result.record.laboratorySampleCode}.`
         : `${result.record.laboratorySampleCode} · ${result.record.batchNumber}.`,
+      "success",
     );
   }
 
@@ -385,6 +386,7 @@ export function LaboratoryChemicalAnalysisJournal({
           response.message,
           "Не удалось сформировать протокол химических анализов.",
         ),
+        "warning",
       );
       return;
     }

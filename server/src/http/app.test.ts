@@ -10677,12 +10677,20 @@ test("notification settings API returns login reminders and persists server-owne
       body: "{}",
     });
     const loginPayload = await loginResponse.json() as {
-      notifications: Array<{ title: string; message: string }>;
+      notifications: Array<{
+        title: string;
+        message: string;
+        tone: string;
+      }>;
     };
     assert.equal(loginResponse.status, 200);
     assert.deepEqual(loginPayload.notifications.map(({ title }) => title), [
       "Совет директоров",
       "Просрочено поручение",
+    ]);
+    assert.deepEqual(loginPayload.notifications.map(({ tone }) => tone), [
+      "suggestion",
+      "warning",
     ]);
     assert.equal(
       loginPayload.notifications[1]?.message,

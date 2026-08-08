@@ -133,12 +133,14 @@ test("refractory decision notifications report approvals and rejection comments"
         reportId: "approved",
         title: "Таблица принята",
         message: "Печное отделение · 20.07.2026 · смена 2.",
+        tone: "success",
       },
       {
         reportId: "rejected",
         title: "Возвращено на доработку",
         message:
           "Печное отделение · 20.07.2026 · смена 2. Причина: Уточните выпуск шамота",
+        tone: "warning",
       },
     ],
   );

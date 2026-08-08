@@ -34,6 +34,7 @@ import {
   updateBoardAssignment,
 } from "./services/boardAssignments";
 import { LoadingIndicator } from "./LoadingIndicator";
+import type { ShowToast } from "./services/toastStack";
 
 const statusLabels: Record<BoardAssignmentStatus, string> = {
   in_progress: "В работе",
@@ -108,7 +109,7 @@ export function BoardAssignmentsWorkspace({
   onShowToast,
 }: {
   isAdminPreviewMode: boolean;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: ShowToast;
 }) {
   const [filters, setFilters] = useState<BoardAssignmentFilters>({});
   const [registerMode, setRegisterMode] = useState<"live" | "history">("live");
@@ -347,11 +348,13 @@ export function BoardAssignmentsWorkspace({
         createDocuments.length === 0
           ? "Новое поручение появилось в общем реестре."
           : "Поручение и документы появились в общем реестре.",
+        "success",
       );
     } else {
       onShowToast(
         "Поручение создано",
         `Поля сохранены, но не все документы загружены: ${documentError} Добавьте их через редактирование.`,
+        "warning",
       );
     }
   }
@@ -416,11 +419,13 @@ export function BoardAssignmentsWorkspace({
       onShowToast(
         "Поручение обновлено",
         "Изменения синхронизированы для текущего и следующих исполнений.",
+        "success",
       );
     } else {
       onShowToast(
         "Поля поручения обновлены",
         `Не все изменения документов сохранены: ${documentError} Откройте редактирование и повторите действие.`,
+        "warning",
       );
     }
   }
@@ -474,9 +479,16 @@ export function BoardAssignmentsWorkspace({
         `Следующая дата: ${
           formatCalendarDate(result.assignment.currentOccurrenceDate)
         }.`,
+        "success",
       );
     } else {
-      onShowToast("Статус обновлён", statusLabels[result.assignment.status]);
+      onShowToast(
+        "Статус обновлён",
+        statusLabels[result.assignment.status],
+        result.assignment.status === "revision_requested"
+          ? "warning"
+          : "success",
+      );
     }
   }
 
@@ -493,7 +505,7 @@ export function BoardAssignmentsWorkspace({
     setIsMaterialOpening(false);
     if (result.status === "error") {
       previewWindow?.close();
-      onShowToast("Не удалось открыть материал", result.message);
+      onShowToast("Не удалось открыть материал", result.message, "warning");
       return;
     }
 

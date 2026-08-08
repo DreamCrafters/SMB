@@ -45,6 +45,7 @@ import {
 } from "./services/refractoryFormValidation";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
+import type { ShowToast } from "./services/toastStack";
 import { useProductionBrands } from "./useProductionBrands";
 import { RefractoryWagonJournal } from "./RefractoryWagonJournal";
 
@@ -60,7 +61,6 @@ const reportStatusLabels = {
   approved: "Подтверждено",
 } as const;
 
-type ShowToast = (title: string, message: string) => void;
 type RefractoryBanksState =
   | { status: "loading" }
   | ({ status: "ready" } & RefractoryBanksResponse)
@@ -242,6 +242,7 @@ export function RefractoryShopWorkspace({
     onShowToast(
       "Отправлено диспетчеру",
       `Таблица «${refractoryReportLabels[activeType]}» ожидает подтверждения.`,
+      "success",
     );
   }
 
@@ -1688,6 +1689,7 @@ export function RefractoryReviewQueue({
         ? "Таблица подтверждена"
         : "Возвращено на доработку",
       refractoryReportLabels[report.reportType],
+      decision === "approve" ? "success" : "warning",
     );
   }
 

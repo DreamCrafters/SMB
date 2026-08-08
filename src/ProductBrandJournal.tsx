@@ -13,8 +13,8 @@ import {
   submitProductBrand,
 } from "./services/productBrandJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 
-type ShowToast = (title: string, body: string) => void;
 type FormState = Record<keyof ProductBrandSubmission, string>;
 type HistoryState =
   | { status: "loading"; records: ProductBrandRecord[] }
@@ -113,6 +113,7 @@ export function ProductBrandJournal({
     onShowToast(
       wasEditing ? "Марка исправлена" : "Марка добавлена",
       result.record.name,
+      "success",
     );
   }
 
@@ -204,6 +205,7 @@ export function ProductBrandJournal({
       result.deletion.replacementName === undefined
         ? result.deletion.sourceName
         : `${result.deletion.sourceName} → ${result.deletion.replacementName}`,
+      "success",
     );
   }
 

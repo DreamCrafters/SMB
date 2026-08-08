@@ -16,9 +16,9 @@ import {
   submitLaboratoryGreenProductQualityRecord,
 } from "./services/laboratoryGreenProductQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 import { useProductionBrands } from "./useProductionBrands";
 
-type ShowToast = (title: string, body: string) => void;
 type FormState = {
   [Field in keyof LaboratoryGreenProductQualitySubmission]:
     LaboratoryGreenProductQualitySubmission[Field] extends string[]
@@ -246,6 +246,7 @@ export function LaboratoryGreenProductQualityJournal({
     onShowToast(
       wasEditing ? "Запись исправлена" : "Запись сохранена",
       `${result.record.recordDate} · пресс № ${result.record.pressNumber}.`,
+      "success",
     );
   }
 

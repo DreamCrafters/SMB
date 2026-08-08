@@ -9,8 +9,7 @@ import {
   submitRefractoryWagon,
 } from "./services/refractoryWagons";
 import { readShortUserMessage } from "./services/userFacingMessages";
-
-type ShowToast = (title: string, message: string) => void;
+import type { ShowToast } from "./services/toastStack";
 
 export function RefractoryWagonJournal({
   brandLabels,
@@ -125,6 +124,7 @@ export function RefractoryWagonJournal({
       wasEditing
         ? `${result.wagon.number} обновлён без изменения внутренней связи.`
         : `${result.wagon.number} теперь доступен в журнале контроля качества сырца.`,
+      "success",
     );
   }
 

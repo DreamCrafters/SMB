@@ -10,6 +10,7 @@ import {
   requestLaboratoryBanks,
 } from "./services/laboratoryBanks";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 
 const bankNumbers = [1, 2, 3] as const;
 const bankLabels: Record<BankNumber, string> = { 1: "I", 2: "II", 3: "III" };
@@ -24,7 +25,7 @@ export function LaboratoryBanksPanel({
   onShowToast,
 }: {
   isAdminPreviewMode: boolean;
-  onShowToast: (title: string, message: string) => void;
+  onShowToast: ShowToast;
 }) {
   const [state, setState] = useState<BanksState>({
     status: "loading",
@@ -85,6 +86,7 @@ export function LaboratoryBanksPanel({
     onShowToast(
       "Содержимое банки назначено",
       `Банка ${bankLabels[bankNumber]} · ${result.assignment.materialLabel}.`,
+      "success",
     );
   }
 

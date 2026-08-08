@@ -1,14 +1,22 @@
+import type { NotificationTone } from "../contracts/notifications.js";
+
 export type AppToastState = "visible" | "exiting";
+export type ShowToast = (
+  title: string,
+  message: string,
+  tone: NotificationTone,
+) => void;
 
 export type AppToast = {
   id: number;
   title: string;
   message: string;
+  tone: NotificationTone;
   state: AppToastState;
 };
 
-export function shouldToastAutoDismiss(title: string) {
-  return title === "Добро пожаловать";
+export function shouldToastAutoDismiss(tone: NotificationTone) {
+  return tone === "success";
 }
 
 export function prependToast(

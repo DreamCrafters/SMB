@@ -18,8 +18,8 @@ import {
   submitLaboratorySampleRegistrationJournalRecord,
 } from "./services/laboratorySampleRegistrationJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
+import type { ShowToast } from "./services/toastStack";
 
-type ShowToast = (title: string, body: string) => void;
 type FormState = Record<
   keyof LaboratorySampleRegistrationJournalSubmission,
   string
@@ -301,6 +301,7 @@ export function LaboratorySampleRegistrationJournal({
     onShowToast(
       wasEditing ? "Проба исправлена" : "Запись сохранена",
       `${result.record.sampleNumber} · ${result.record.laboratorySampleCode}.`,
+      "success",
     );
   }
 

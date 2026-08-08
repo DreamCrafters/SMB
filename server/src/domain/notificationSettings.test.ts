@@ -99,10 +99,12 @@ test("general director login shows the board reminder only from day 1 through da
     {
       title: "Совет директоров",
       message: "Необходимо подготовиться к Совету директоров на 15 число",
+      tone: "suggestion",
     },
     {
       title: "Просрочено поручение",
       message: "Просрочено поручений: 2",
+      tone: "warning",
     },
   ]);
 

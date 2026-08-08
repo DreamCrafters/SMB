@@ -1,3 +1,5 @@
+import type { NotificationTone } from "./notifications.js";
+
 export const notificationTypes = [
   "incidents",
   "visitors",
@@ -35,4 +37,5 @@ export type UserNotificationSettings = {
 export type LoginNotification = {
   title: string;
   message: string;
+  tone: NotificationTone;
 };

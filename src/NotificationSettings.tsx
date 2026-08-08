@@ -4,6 +4,7 @@ import type {
   UserNotificationSettings,
 } from "./contracts/notificationSettings";
 import { LoadingIndicator } from "./LoadingIndicator";
+import type { ShowToast } from "./services/toastStack";
 import {
   requestAdminNotificationSettings,
   requestOwnNotificationSettings,
@@ -11,8 +12,6 @@ import {
   updateAdminNotificationPermission,
   updateOwnNotificationSetting,
 } from "./services/notificationSettings";
-
-type ShowToast = (title: string, message: string) => void;
 
 export function NotificationSettingsWorkspace({
   isAdminPreviewMode,
@@ -66,11 +65,15 @@ export function NotificationSettingsWorkspace({
     });
     setSavingType(undefined);
     if (result.status !== "ready") {
-      onShowToast("Не сохранено", result.message);
+      onShowToast("Не сохранено", result.message, "warning");
       return;
     }
     setState({ status: "ready", settings: result.settings });
-    onShowToast("Настройки сохранены", "Способы получения рассылки обновлены.");
+    onShowToast(
+      "Настройки сохранены",
+      "Способы получения рассылки обновлены.",
+      "success",
+    );
   }
 
   if (state.status === "loading") {
@@ -233,7 +236,11 @@ export function AdminNotificationSettingsModal({
       return;
     }
     replaceUser(result.settings);
-    onShowToast("Рассылка обновлена", "Разрешение администратора сохранено.");
+    onShowToast(
+      "Рассылка обновлена",
+      "Разрешение администратора сохранено.",
+      "success",
+    );
   }
 
   async function saveContacts() {
@@ -256,7 +263,11 @@ export function AdminNotificationSettingsModal({
       maxUserId: result.settings.maxUserId ?? "",
     });
     onContactsUpdated();
-    onShowToast("Контакты сохранены", `Контакты «${result.settings.displayName}» обновлены.`);
+    onShowToast(
+      "Контакты сохранены",
+      `Контакты «${result.settings.displayName}» обновлены.`,
+      "success",
+    );
   }
 
   function closeOnBackdrop(event: MouseEvent<HTMLDivElement>) {

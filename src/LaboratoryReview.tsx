@@ -48,8 +48,7 @@ import { requestLaboratoryUnshapedProductSampleJournal } from "./services/labora
 import { requestLaboratoryRawMaterialQualityJournal } from "./services/laboratoryRawMaterialQualityJournal";
 import { requestLaboratoryGreenProductQualityJournal } from "./services/laboratoryGreenProductQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
-
-type ShowToast = (title: string, message: string) => void;
+import type { ShowToast } from "./services/toastStack";
 
 /** Empty values mean the matching filter button is switched off. */
 type ReviewQuery = {

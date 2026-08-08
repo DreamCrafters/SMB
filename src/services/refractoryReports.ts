@@ -8,6 +8,7 @@ import {
   type RefractoryShiftNumber,
 } from "../contracts/refractoryReports.js";
 import type { RefractoryBanksResponse } from "../contracts/laboratoryBanks.js";
+import type { NotificationTone } from "../contracts/notifications.js";
 import { isLaboratoryBankAssignment } from "./laboratoryBanks.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -117,11 +118,18 @@ export async function requestOwnRefractoryReports(
   return { status: "ready", reports: result.payload.reports };
 }
 
+type RefractoryDecisionNotification = {
+  reportId: string;
+  title: string;
+  message: string;
+  tone: NotificationTone;
+};
+
 export function buildRefractoryDecisionNotifications(
   previousStatuses: ReadonlyMap<string, RefractoryReportRevision["status"]>,
   reports: readonly RefractoryReportRevision[],
-) {
-  return reports.flatMap((report) => {
+): RefractoryDecisionNotification[] {
+  return reports.flatMap<RefractoryDecisionNotification>((report) => {
     if (
       report.status === "pending" ||
       previousStatuses.get(report.id) === report.status
@@ -135,7 +143,12 @@ export function buildRefractoryDecisionNotifications(
 
     if (report.status === "approved") {
       return [
-        { reportId: report.id, title: "Таблица принята", message: context },
+        {
+          reportId: report.id,
+          title: "Таблица принята",
+          message: context,
+          tone: "success",
+        },
       ];
     }
 
@@ -147,6 +160,7 @@ export function buildRefractoryDecisionNotifications(
         reportId: report.id,
         title: "Возвращено на доработку",
         message: `${context} Причина: ${comment}`,
+        tone: "warning",
       },
     ];
   });

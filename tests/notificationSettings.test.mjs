@@ -85,13 +85,31 @@ test("login notification service accepts the board reminder payload", async () =
     notifications: [{
       title: "Совет директоров",
       message: "Необходимо подготовиться к Совету директоров на 15 число",
+      tone: "suggestion",
     }],
   });
 
   const result = await requestLoginNotifications();
 
   assert.equal(result.status, "ready");
-  assert.equal(result.notifications[0].title, "Совет директоров");
+  assert.deepEqual(result.notifications[0], {
+    title: "Совет директоров",
+    message: "Необходимо подготовиться к Совету директоров на 15 число",
+    tone: "suggestion",
+  });
+});
+
+test("login notification service rejects messages without a semantic tone", async () => {
+  globalThis.fetch = async () => jsonResponse({
+    notifications: [{
+      title: "Совет директоров",
+      message: "Необходимо подготовиться к Совету директоров на 15 число",
+    }],
+  });
+
+  const result = await requestLoginNotifications();
+
+  assert.equal(result.status, "error");
 });
 
 function jsonResponse(payload, status = 200) {

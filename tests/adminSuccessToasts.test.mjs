@@ -33,12 +33,12 @@ test(
     }
 
     const toastSuccessMessages = [
-      'onShowToast(\n      "Сохранено",\n      `Должность «${result.position.displayName}» сохранена.`,',
-      'onShowToast("Удалено", `Должность «${position.displayName}» удалена.`);',
-      'onShowToast(\n      "Аккаунт создан",\n      `Учётная запись «${result.account.login}» создана.`,',
-      'onShowToast("Пароль изменён", `Пароль для «${submittedLogin}» изменён.`);',
-      'onShowToast("Сохранено", "Строка БД обновлена.");',
-      'onShowToast("Удалено", "Строка БД удалена.");',
+      'onShowToast(\n      "Сохранено",\n      `Должность «${result.position.displayName}» сохранена.`,\n      "success",',
+      'onShowToast(\n      "Удалено",\n      `Должность «${position.displayName}» удалена.`,\n      "success",',
+      'onShowToast(\n      "Аккаунт создан",\n      `Учётная запись «${result.account.login}» создана.`,\n      "success",',
+      'onShowToast(\n      "Пароль изменён",\n      `Пароль для «${submittedLogin}» изменён.`,\n      "success",',
+      'onShowToast("Сохранено", "Строка БД обновлена.", "success");',
+      'onShowToast("Удалено", "Строка БД удалена.", "success");',
     ];
 
     for (const toastSuccessMessage of toastSuccessMessages) {
@@ -72,6 +72,9 @@ test(
       /\.toast-viewport\s*\{[^}]*position:\s*fixed;[^}]*bottom:\s*var\(--density-4\);[^}]*right:\s*var\(--density-4\);/,
     );
     assert.doesNotMatch(stylesSource, /\.toast-viewport\s*\{[^}]*top:/);
+    assert.match(stylesSource, /\.app-toast-warning\s*\{[^}]*var\(--brick\)/);
+    assert.match(stylesSource, /\.app-toast-suggestion\s*\{[^}]*var\(--amber\)/);
+    assert.match(stylesSource, /\.app-toast-success\s*\{[^}]*var\(--emerald\)/);
     assert.match(
       appSource,
       /setAccountsState\(\(current\) =>\s*current\.status === "ready"\s*\? current\s*:/,

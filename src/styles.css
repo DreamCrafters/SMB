@@ -1907,13 +1907,14 @@ p {
 }
 
 .app-toast {
+  --toast-accent: var(--emerald);
   position: relative;
   display: grid;
   gap: 3px;
   width: 100%;
   padding: 12px 44px 12px 14px;
-  border: 1px solid var(--emerald);
-  border-left: 5px solid var(--emerald);
+  border: 1px solid var(--toast-accent);
+  border-left: 5px solid var(--toast-accent);
   border-radius: var(--radius);
   color: var(--ink);
   background: var(--surface-raised);
@@ -1923,12 +1924,24 @@ p {
   will-change: transform, opacity, translate;
 }
 
+.app-toast-warning {
+  --toast-accent: var(--brick);
+}
+
+.app-toast-suggestion {
+  --toast-accent: var(--amber);
+}
+
+.app-toast-success {
+  --toast-accent: var(--emerald);
+}
+
 .app-toast-exiting {
   animation: app-toast-slide-out 260ms ease-in both;
 }
 
 .app-toast strong {
-  color: var(--emerald);
+  color: var(--toast-accent);
   font-size: 13px;
   font-weight: 900;
   line-height: 1.2;

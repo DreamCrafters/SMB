@@ -228,7 +228,9 @@ import {
   removeToast,
   shouldToastAutoDismiss,
   type AppToast,
+  type ShowToast,
 } from "./services/toastStack";
+import type { NotificationTone } from "./contracts/notifications";
 import {
   RefractoryReviewQueue,
   RefractoryShopWorkspace,
@@ -295,8 +297,6 @@ type DataEntrySubmitStateControls = {
 type DataEntrySubmitCallbacks = {
   onSuccess?: (message: string) => void;
 };
-
-type ShowToast = (title: string, message: string) => void;
 
 type DataEntrySubmitHandler = (
   event: FormEvent<HTMLFormElement>,
@@ -407,7 +407,7 @@ type DispatcherFormChoiceGroup = {
 
 type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
 
-const welcomeToastVisibleDurationMs = 4_000;
+const successToastVisibleDurationMs = 4_000;
 const toastExitDurationMs = 260;
 const toastShiftDurationMs = 220;
 const authScrollRestoreGuardDurationMs = 1_000;
@@ -993,7 +993,11 @@ export default function App() {
           result.reports,
         );
         for (const notification of notifications) {
-          handleShowToast(notification.title, notification.message);
+          handleShowToast(
+            notification.title,
+            notification.message,
+            notification.tone,
+          );
         }
         if (notifications.length > 0) {
           setRefractoryDecisionVersion((value) => value + 1);
@@ -1070,6 +1074,7 @@ export default function App() {
         handleShowToast(
           "Ожидают подтверждения",
           `Таблицы огнеупорного цеха: ${result.reports.length}.`,
+          "suggestion",
         );
       } else if (newReports.length > 0) {
         handleShowToast(
@@ -1077,6 +1082,7 @@ export default function App() {
           newReports.length === 1
             ? "Поступила таблица на подтверждение."
             : `Поступило таблиц: ${newReports.length}.`,
+          "suggestion",
         );
       }
 
@@ -1137,6 +1143,7 @@ export default function App() {
     handleShowToast(
       "Добро пожаловать",
       shortName.length > 0 ? `Здравствуйте, ${shortName}!` : "Здравствуйте!",
+      "success",
     );
     setIsWelcomePending(false);
     void requestLoginNotifications().then((result) => {
@@ -1144,8 +1151,8 @@ export default function App() {
         loginNotificationRequestIdRef.current !== requestId ||
         result.status !== "ready"
       ) return;
-      result.notifications.forEach(({ title, message }) => {
-        handleShowToast(title, message);
+      result.notifications.forEach(({ title, message, tone }) => {
+        handleShowToast(title, message, tone);
       });
     });
   }, [accessProfile, isWelcomePending]);
@@ -1243,7 +1250,11 @@ export default function App() {
     toastTimeoutIdsRef.current.delete(timeoutId);
   }
 
-  function handleShowToast(title: string, message: string) {
+  function handleShowToast(
+    title: string,
+    message: string,
+    tone: NotificationTone,
+  ) {
     const toastId = nextToastIdRef.current + 1;
     nextToastIdRef.current = toastId;
 
@@ -1252,15 +1263,16 @@ export default function App() {
         id: toastId,
         title,
         message,
+        tone,
         state: "visible",
       }),
     );
 
-    if (shouldToastAutoDismiss(title)) {
+    if (shouldToastAutoDismiss(tone)) {
       const timeoutId = scheduleToastTimeout(() => {
         toastAutoDismissTimeoutIdsRef.current.delete(toastId);
         handleDismissToast(toastId);
-      }, welcomeToastVisibleDurationMs);
+      }, successToastVisibleDurationMs);
       toastAutoDismissTimeoutIdsRef.current.set(toastId, timeoutId);
     }
   }
@@ -2135,7 +2147,7 @@ function DispatcherIncidentLoginPrompt({
   );
 }
 
-function ToastViewport({
+export function ToastViewport({
   toasts,
   onDismiss,
 }: {
@@ -2157,7 +2169,7 @@ function ToastViewport({
       const element = toastElementsRef.current.get(toast.id);
 
       if (element !== undefined) {
-        nextPositions.set(toast.id, element.offsetTop);
+        nextPositions.set(toast.id, element.getBoundingClientRect().top);
       }
     });
 
@@ -2231,7 +2243,7 @@ function ToastViewport({
     >
       {toasts.map((toast) => (
         <div
-          className={`app-toast app-toast-${toast.state}`}
+          className={`app-toast app-toast-${toast.tone} app-toast-${toast.state}`}
           key={toast.id}
           ref={(element) => {
             if (element === null) {
@@ -3333,6 +3345,7 @@ export function ProductionPlanWorkspace({
     onShowToast(
       "План сохранён",
       `${productionCategoryLabels[category]} · ${formatProductionPlanMonth(month)}`,
+      "success",
     );
   }
 
@@ -3881,7 +3894,7 @@ export function DataEntryWorkspace({
   function handleSuccessfulSubmit(message: string) {
     formLeaveGuardRef.current = undefined;
     setIsHistoryOpen(false);
-    onShowToast("Отправлено", message);
+    onShowToast("Отправлено", message, "success");
     setSelectedFormId("");
   }
 
@@ -8364,7 +8377,7 @@ function AdminDatabaseWorkspace({
 
     if (result.status === "ready") {
       setMutationStatus("");
-      onShowToast("Сохранено", "Строка БД обновлена.");
+      onShowToast("Сохранено", "Строка БД обновлена.", "success");
       setEditor(undefined);
       setRefreshVersion((version) => version + 1);
       return;
@@ -8405,7 +8418,7 @@ function AdminDatabaseWorkspace({
 
     if (result.status === "ready") {
       setMutationStatus("");
-      onShowToast("Удалено", "Строка БД удалена.");
+      onShowToast("Удалено", "Строка БД удалена.", "success");
       setDeleteCandidate(undefined);
       setRefreshVersion((version) => version + 1);
       return;
@@ -8453,7 +8466,11 @@ function AdminDatabaseWorkspace({
 
     if (result.status === "ready") {
       setMutationStatus("");
-      onShowToast("Марки объединены", `${sourceLabel} → ${target.label}`);
+      onShowToast(
+        "Марки объединены",
+        `${sourceLabel} → ${target.label}`,
+        "success",
+      );
       setMergeCandidate(undefined);
       setRowsOffset(0);
       setRefreshVersion((version) => version + 1);
@@ -8480,6 +8497,7 @@ function AdminDatabaseWorkspace({
       onShowToast(
         "Раздел очищен",
         `Удалено записей: ${result.deleted}.`,
+        "success",
       );
       setClearCandidate(undefined);
       setRowsOffset(0);
@@ -8718,6 +8736,7 @@ function AdminProductionSnapshotPanel({
     onShowToast(
       "Тестовая БД обновлена",
       `${result.tableCount} таблиц · ${result.rowCount.toLocaleString("ru-RU")} строк. Активные сессии очищены.`,
+      "success",
     );
     onSynchronized();
     setRefreshVersion((version) => version + 1);
@@ -8917,6 +8936,7 @@ function AdminDispatcherImportPanel({
     onShowToast(
       "Импорт завершён",
       `Импорт завершён: добавлено ${result.inserted}, пропущено ${result.skipped}.`,
+      "success",
     );
     onImported();
   }
@@ -9980,6 +10000,7 @@ function AdminAccountsWorkspace({
     onShowToast(
       "Сохранено",
       `Должность «${result.position.displayName}» сохранена.`,
+      "success",
     );
     setRefreshVersion((version) => version + 1);
   }
@@ -10007,7 +10028,11 @@ function AdminAccountsWorkspace({
       return;
     }
     setWorkspaceStatus("");
-    onShowToast("Удалено", `Должность «${position.displayName}» удалена.`);
+    onShowToast(
+      "Удалено",
+      `Должность «${position.displayName}» удалена.`,
+      "success",
+    );
     setRefreshVersion((version) => version + 1);
   }
 
@@ -10070,6 +10095,7 @@ function AdminAccountsWorkspace({
     onShowToast(
       "Порядок сохранён",
       "Списки должностей и учётных записей обновлены.",
+      "success",
     );
     setRefreshVersion((version) => version + 1);
   }
@@ -10101,6 +10127,7 @@ function AdminAccountsWorkspace({
       isProtected
         ? `Должность «${position.displayName}» защищена.`
         : `Защита должности «${position.displayName}» отключена.`,
+      "success",
     );
     setRefreshVersion((version) => version + 1);
   }
@@ -10217,6 +10244,7 @@ function AdminAccountsWorkspace({
     onShowToast(
       "Аккаунт создан",
       `Учётная запись «${result.account.login}» создана.`,
+      "success",
     );
     setForm({
       ...emptyAdminAccountForm,
@@ -10270,7 +10298,11 @@ function AdminAccountsWorkspace({
       [submittedLogin]: submittedPassword,
     }));
     setWorkspaceStatus("");
-    onShowToast("Пароль изменён", `Пароль для «${submittedLogin}» изменён.`);
+    onShowToast(
+      "Пароль изменён",
+      `Пароль для «${submittedLogin}» изменён.`,
+      "success",
+    );
     finishPasswordResetModal();
   }
 
@@ -10297,6 +10329,7 @@ function AdminAccountsWorkspace({
       isEnabled
         ? `Доступ для «${account.login}» включён.`
         : `Доступ для «${account.login}» отключён.`,
+      "success",
     );
     setRefreshVersion((version) => version + 1);
   }
@@ -10327,6 +10360,7 @@ function AdminAccountsWorkspace({
       isProtected
         ? `Учётная запись «${account.login}» защищена.`
         : `Защита учётной записи «${account.login}» отключена.`,
+      "success",
     );
     setRefreshVersion((version) => version + 1);
   }
@@ -10377,6 +10411,7 @@ function AdminAccountsWorkspace({
     onShowToast(
       "Должность изменена",
       `Должность для «${account.login}» изменена на «${result.account.positionDisplayName}». Пользователю нужно войти заново.`,
+      "success",
     );
     setRefreshVersion((version) => version + 1);
   }
@@ -10403,6 +10438,7 @@ function AdminAccountsWorkspace({
     onShowToast(
       "Аккаунт удалён",
       `Учётная запись «${account.login}» удалена.`,
+      "success",
     );
     setRefreshVersion((version) => version + 1);
   }
