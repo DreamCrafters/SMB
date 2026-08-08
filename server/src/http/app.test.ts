@@ -3576,6 +3576,19 @@ test("test admin can fully replace the test database with a production snapshot"
       assert.equal(isRecord(payload) ? payload.tableCount : undefined, 12);
       assert.equal(isRecord(payload) ? payload.rowCount : undefined, 345);
       assert.equal(replaceCalls, 1);
+
+      const staleProfileResponse = await fetch(
+        `${baseUrl}/api/access/profile`,
+        { headers },
+      );
+      const staleProfilePayload = await staleProfileResponse.json();
+      assert.equal(staleProfileResponse.status, 200);
+      assert.equal(
+        isRecord(staleProfilePayload)
+          ? staleProfilePayload.profile
+          : undefined,
+        null,
+      );
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,

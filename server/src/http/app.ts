@@ -6543,11 +6543,13 @@ async function handleProductionSnapshotRequest({
   req,
   res,
   config,
+  devSessions,
   productionSnapshot,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
   config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
   productionSnapshot: ProductionDatabaseSnapshotService | undefined;
 }) {
   if (config.appEnv !== "test") {
@@ -6606,12 +6608,17 @@ async function handleProductionSnapshotRequest({
 
   try {
     const result = await productionSnapshot.replaceTestDatabase();
+    devSessions.clear();
     console.info("production_snapshot.completed", {
       tableCount: result.tableCount,
       rowCount: result.rowCount,
       authSessionsCleared: result.authSessionsCleared,
     });
 
+    res.setHeader("set-cookie", [
+      buildExpiredAuthCookie(config),
+      `${devSessionCookie}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+    ]);
     sendJson(res, 200, {
       ok: true,
       ...result,
@@ -7229,6 +7236,7 @@ async function handleAdminDatabaseRequest({
       req,
       res,
       config,
+      devSessions,
       productionSnapshot,
     });
     return;

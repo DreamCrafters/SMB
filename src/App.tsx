@@ -1787,6 +1787,9 @@ export default function App() {
               : () => setDataEntryStatus("")
           }
           onShowToast={handleShowToast}
+          onProductionSnapshotSynchronized={() => {
+            void handleClearSession();
+          }}
           onSelectAdminAccountView={handleStartAdminAccountView}
           pendingRefractoryReports={pendingRefractoryReports}
           refractoryQueueError={refractoryQueueError}
@@ -2532,6 +2535,7 @@ function RoleWorkspace({
   onDispatcherFeedFiltersChange,
   onDataEntryStatusReset,
   onShowToast,
+  onProductionSnapshotSynchronized,
   onSelectAdminAccountView,
   pendingRefractoryReports,
   refractoryQueueError,
@@ -2558,6 +2562,7 @@ function RoleWorkspace({
   ) => void;
   onDataEntryStatusReset: () => void;
   onShowToast: ShowToast;
+  onProductionSnapshotSynchronized: () => void;
   onSelectAdminAccountView: (account: AdminAccountSummary) => void;
   pendingRefractoryReports: RefractoryReportRevision[];
   refractoryQueueError: string;
@@ -2587,6 +2592,9 @@ function RoleWorkspace({
         profile={profile}
         activeTab={effectiveAdminTab}
         onShowToast={onShowToast}
+        onProductionSnapshotSynchronized={
+          onProductionSnapshotSynchronized
+        }
         onSelectAccountView={onSelectAdminAccountView}
       />
     );
@@ -7643,16 +7651,24 @@ function AdminWorkspace({
   profile,
   activeTab,
   onShowToast,
+  onProductionSnapshotSynchronized,
   onSelectAccountView,
 }: {
   profile: ServerUserProfile;
   activeTab: AdminTab;
   onShowToast: ShowToast;
+  onProductionSnapshotSynchronized: () => void;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
   if (activeTab === "database") {
     return (
-      <AdminDatabaseWorkspace profile={profile} onShowToast={onShowToast} />
+      <AdminDatabaseWorkspace
+        profile={profile}
+        onShowToast={onShowToast}
+        onProductionSnapshotSynchronized={
+          onProductionSnapshotSynchronized
+        }
+      />
     );
   }
 
@@ -8139,9 +8155,11 @@ function AdminAccountPreviewButton({
 function AdminDatabaseWorkspace({
   profile,
   onShowToast,
+  onProductionSnapshotSynchronized,
 }: {
   profile: ServerUserProfile;
   onShowToast: ShowToast;
+  onProductionSnapshotSynchronized: () => void;
 }) {
   const canManageDatabase = canManageAnalyticsDatabase(profile);
   const [tablesState, setTablesState] = useState<AdminDatabaseTablesLoadState>({
@@ -8487,7 +8505,7 @@ function AdminDatabaseWorkspace({
       {!isProductionApp ? (
         <AdminProductionSnapshotPanel
           onShowToast={onShowToast}
-          onSynchronized={() => setRefreshVersion((version) => version + 1)}
+          onSynchronized={onProductionSnapshotSynchronized}
         />
       ) : null}
       <AdminDispatcherImportPanel
