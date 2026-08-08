@@ -226,6 +226,7 @@ import {
   markToastExiting,
   prependToast,
   removeToast,
+  shouldToastAutoDismiss,
   type AppToast,
 } from "./services/toastStack";
 import {
@@ -406,7 +407,7 @@ type DispatcherFormChoiceGroup = {
 
 type FormLeaveGuard = (continueAfterDiscard: () => void) => boolean;
 
-const toastVisibleDurationMs = 4_000;
+const welcomeToastVisibleDurationMs = 4_000;
 const toastExitDurationMs = 260;
 const toastShiftDurationMs = 220;
 const authScrollRestoreGuardDurationMs = 1_000;
@@ -648,6 +649,8 @@ export default function App() {
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const nextToastIdRef = useRef(0);
   const toastTimeoutIdsRef = useRef<Set<number>>(new Set());
+  const toastAutoDismissTimeoutIdsRef = useRef<Map<number, number>>(new Map());
+  const exitingToastIdsRef = useRef<Set<number>>(new Set());
   const loginNotificationRequestIdRef = useRef(0);
   const lastRecordedScreenRef = useRef("");
 
@@ -731,6 +734,8 @@ export default function App() {
       loginNotificationRequestIdRef.current += 1;
       timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       timeoutIds.clear();
+      toastAutoDismissTimeoutIdsRef.current.clear();
+      exitingToastIdsRef.current.clear();
     };
   }, []);
 
@@ -1230,6 +1235,12 @@ export default function App() {
     }, delayMs);
 
     toastTimeoutIdsRef.current.add(timeoutId);
+    return timeoutId;
+  }
+
+  function cancelToastTimeout(timeoutId: number) {
+    window.clearTimeout(timeoutId);
+    toastTimeoutIdsRef.current.delete(timeoutId);
   }
 
   function handleShowToast(title: string, message: string) {
@@ -1245,12 +1256,32 @@ export default function App() {
       }),
     );
 
+    if (shouldToastAutoDismiss(title)) {
+      const timeoutId = scheduleToastTimeout(() => {
+        toastAutoDismissTimeoutIdsRef.current.delete(toastId);
+        handleDismissToast(toastId);
+      }, welcomeToastVisibleDurationMs);
+      toastAutoDismissTimeoutIdsRef.current.set(toastId, timeoutId);
+    }
+  }
+
+  function handleDismissToast(toastId: number) {
+    const autoDismissTimeoutId =
+      toastAutoDismissTimeoutIdsRef.current.get(toastId);
+    if (autoDismissTimeoutId !== undefined) {
+      cancelToastTimeout(autoDismissTimeoutId);
+      toastAutoDismissTimeoutIdsRef.current.delete(toastId);
+    }
+    if (exitingToastIdsRef.current.has(toastId)) {
+      return;
+    }
+
+    exitingToastIdsRef.current.add(toastId);
+    setToasts((current) => markToastExiting(current, toastId));
     scheduleToastTimeout(() => {
-      setToasts((current) => markToastExiting(current, toastId));
-      scheduleToastTimeout(() => {
-        setToasts((current) => removeToast(current, toastId));
-      }, toastExitDurationMs);
-    }, toastVisibleDurationMs);
+      setToasts((current) => removeToast(current, toastId));
+      exitingToastIdsRef.current.delete(toastId);
+    }, toastExitDurationMs);
   }
 
   function clearToastStack() {
@@ -1258,6 +1289,8 @@ export default function App() {
       window.clearTimeout(timeoutId),
     );
     toastTimeoutIdsRef.current.clear();
+    toastAutoDismissTimeoutIdsRef.current.clear();
+    exitingToastIdsRef.current.clear();
     setToasts([]);
   }
 
@@ -1705,7 +1738,7 @@ export default function App() {
         />
       ) : null}
 
-      <ToastViewport toasts={toasts} />
+      <ToastViewport toasts={toasts} onDismiss={handleDismissToast} />
 
       {dispatcherIncidentLoginPrompt === "open" &&
       dispatcherFeed.status === "ready" ? (
@@ -2099,7 +2132,13 @@ function DispatcherIncidentLoginPrompt({
   );
 }
 
-function ToastViewport({ toasts }: { toasts: readonly AppToast[] }) {
+function ToastViewport({
+  toasts,
+  onDismiss,
+}: {
+  toasts: readonly AppToast[];
+  onDismiss: (toastId: number) => void;
+}) {
   const toastElementsRef = useRef(new Map<number, HTMLDivElement>());
   const previousPositionsRef = useRef(new Map<number, number>());
   const shiftAnimationsRef = useRef(new Map<number, Animation>());
@@ -2202,6 +2241,15 @@ function ToastViewport({ toasts }: { toasts: readonly AppToast[] }) {
         >
           <strong>{toast.title}</strong>
           <span>{toast.message}</span>
+          <button
+            aria-label={`Закрыть уведомление «${toast.title}»`}
+            className="app-toast-close"
+            disabled={toast.state === "exiting"}
+            type="button"
+            onClick={() => onDismiss(toast.id)}
+          >
+            ×
+          </button>
         </div>
       ))}
     </div>

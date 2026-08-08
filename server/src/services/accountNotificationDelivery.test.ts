@@ -5,7 +5,7 @@ import type { MaxNotificationService } from "../integrations/maxNotifications.js
 import type { NotificationSettingsRepository } from "../repositories/notificationSettingsRepository.js";
 import {
   sendBoardAssignmentReviewNotification,
-  sendOverdueBoardAssignmentNotifications,
+  sendOverdueBoardAssignmentNotification,
 } from "./accountNotificationDelivery.js";
 
 function createFixture() {
@@ -60,11 +60,11 @@ test("review notification follows the requested board recipient channels", async
 test("overdue assignment reaches the general director and every board role", async () => {
   const fixture = createFixture();
 
-  await sendOverdueBoardAssignmentNotifications({
+  await sendOverdueBoardAssignmentNotification({
     repository: fixture.repository,
     emailService: fixture.emailService,
     maxService: fixture.maxService,
-    messages: ["Просрочено поручение"],
+    message: "Просрочено поручение",
   });
 
   assert.deepEqual(fixture.emails[0]?.recipients, []);
@@ -73,22 +73,19 @@ test("overdue assignment reaches the general director and every board role", asy
   ]);
 });
 
-test("overdue delivery attempts every assignment even when one message fails", async () => {
+test("overdue delivery sends the combined assignment text once", async () => {
   const fixture = createFixture();
   const attempted: string[] = [];
   fixture.maxService.sendTextNotification = async (_recipients, text) => {
     attempted.push(text);
-    if (text === "Первое") throw new Error("MAX unavailable");
   };
 
-  await assert.rejects(
-    sendOverdueBoardAssignmentNotifications({
-      repository: fixture.repository,
-      emailService: fixture.emailService,
-      maxService: fixture.maxService,
-      messages: ["Первое", "Второе"],
-    }),
-    AggregateError,
-  );
-  assert.deepEqual(attempted, ["Первое", "Второе"]);
+  await sendOverdueBoardAssignmentNotification({
+    repository: fixture.repository,
+    emailService: fixture.emailService,
+    maxService: fixture.maxService,
+    message: "Первое\n\nВторое",
+  });
+
+  assert.deepEqual(attempted, ["Первое\n\nВторое"]);
 });

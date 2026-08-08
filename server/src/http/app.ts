@@ -114,6 +114,7 @@ import {
   getNextBoardAssignmentOccurrenceDate,
   getBoardAssignmentPermissions,
   isBoardAssignmentActiveOn,
+  isBoardAssignmentOverdueOn,
   validateBoardAssignmentAction,
   validateBoardAssignmentCreateRequest,
   validateBoardAssignmentUpdateRequest,
@@ -123,6 +124,7 @@ import {
 import {
   boardAssignmentOverdueLoginDeliveryKey,
   buildBoardAssignmentReviewNotification,
+  buildGeneralDirectorBoardMeetingReminder,
   buildGeneralDirectorLoginNotifications,
   isNotificationType,
   notificationTypes,
@@ -287,7 +289,7 @@ import {
 } from "../repositories/notificationSettingsRepository.js";
 import {
   sendBoardAssignmentReviewNotification,
-  sendOverdueBoardAssignmentNotifications,
+  sendOverdueBoardAssignmentNotification,
 } from "../services/accountNotificationDelivery.js";
 
 type AppDependencies = {
@@ -1334,7 +1336,7 @@ async function handleNotificationSettingsRequest({
       access.profile.activeAccess.position === "general_director" &&
       boardAssignments !== undefined
         ? (await boardAssignments.list({}, { activeOn: today })).filter(
-            ({ currentOccurrenceDate }) => currentOccurrenceDate < today,
+            (assignment) => isBoardAssignmentOverdueOn(assignment, today),
           )
         : [];
     const notifications = buildGeneralDirectorLoginNotifications({
@@ -1342,9 +1344,9 @@ async function handleNotificationSettingsRequest({
       today,
       overdueAssignments,
     });
-    const overdueMessages = notifications
-      .filter(({ title }) => title === "Просрочено поручение")
-      .map(({ message }) => message);
+    const overdueMessage = notifications.find(
+      ({ title }) => title === "Просрочено поручение",
+    )?.message;
 
     let isFirstDeliveryRequest = false;
     if (notificationSettings !== undefined) {
@@ -1367,15 +1369,15 @@ async function handleNotificationSettingsRequest({
     if (
       isFirstDeliveryRequest &&
       notificationSettings !== undefined &&
-      overdueMessages.length > 0
+      overdueMessage !== undefined
     ) {
       await notifyAccountDeliverySafely(
         "board_assignment_overdue",
-        () => sendOverdueBoardAssignmentNotifications({
+        () => sendOverdueBoardAssignmentNotification({
           repository: notificationSettings,
           emailService: emailNotificationService,
           maxService: maxNotificationService,
-          messages: overdueMessages,
+          message: overdueMessage,
         }),
       );
     }
@@ -2087,12 +2089,23 @@ async function handleBoardAssignmentsRequest({
       }
 
       const today = buildIncidentOverviewPeriod(now()).today;
+      const boardMeetingReminder = buildGeneralDirectorBoardMeetingReminder({
+        position: access.profile.activeAccess.position,
+        today,
+      });
+      const assignments = await boardAssignments.list(
+        filters.value,
+        permissions.canExecute ? { activeOn: today } : undefined,
+      );
       sendJson(res, 200, {
-        assignments: await boardAssignments.list(
-          filters.value,
-          permissions.canExecute ? { activeOn: today } : undefined,
-        ),
+        assignments: assignments.map((assignment) => ({
+          ...assignment,
+          isOverdue: isBoardAssignmentOverdueOn(assignment, today),
+        })),
         permissions,
+        ...(boardMeetingReminder === undefined
+          ? {}
+          : { boardMeetingReminder }),
       });
       return;
     }

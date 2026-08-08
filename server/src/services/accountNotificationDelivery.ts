@@ -52,16 +52,12 @@ export async function sendBoardAssignmentReviewNotification({
   });
 }
 
-export async function sendOverdueBoardAssignmentNotifications({
+export async function sendOverdueBoardAssignmentNotification({
   repository,
   emailService,
   maxService,
-  messages,
-}: DeliveryDependencies & { messages: readonly string[] }) {
-  if (messages.length === 0) {
-    return;
-  }
-
+  message,
+}: DeliveryDependencies & { message: string }) {
   const recipients = await repository.listDeliveryRecipients(
     boardAssignmentNotificationType,
   );
@@ -70,27 +66,15 @@ export async function sendOverdueBoardAssignmentNotifications({
     "general_director",
   ]);
 
-  const results = await Promise.allSettled(messages.map((message) =>
-    deliverTextNotification({
-      emailService,
-      maxService,
-      recipients,
-      subject: "Просрочено поручение Совета директоров",
-      text: message,
-      emailPositions: new Set<AccountPosition>(),
-      maxPositions: positions,
-    })
-  ));
-  const failures = results.filter(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  );
-
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures.map(({ reason }) => reason),
-      "Не удалось отправить одно или несколько сообщений о просроченных поручениях.",
-    );
-  }
+  await deliverTextNotification({
+    emailService,
+    maxService,
+    recipients,
+    subject: "Просрочено поручение Совета директоров",
+    text: message,
+    emailPositions: new Set<AccountPosition>(),
+    maxPositions: positions,
+  });
 }
 
 async function deliverTextNotification({

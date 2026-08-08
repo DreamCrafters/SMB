@@ -15,10 +15,10 @@ import {
   type BoardAssignmentCreateInput,
   type BoardAssignmentDocument,
   type BoardAssignmentFilters,
+  type BoardAssignmentListItem,
   type BoardAssignmentPermissions,
   type BoardAssignmentRecurrence,
   type BoardAssignmentStatus,
-  type BoardAssignmentSummary,
   type BoardAssignmentUpdateInput,
 } from "./contracts";
 import {
@@ -76,9 +76,13 @@ const emptyCreateInput: BoardAssignmentCreateInput = {
 };
 
 type ListState =
-  | { status: "loading"; assignments: BoardAssignmentSummary[] }
-  | { status: "ready"; assignments: BoardAssignmentSummary[] }
-  | { status: "error"; assignments: BoardAssignmentSummary[]; message: string };
+  | { status: "loading"; assignments: BoardAssignmentListItem[] }
+  | { status: "ready"; assignments: BoardAssignmentListItem[] }
+  | {
+      status: "error";
+      assignments: BoardAssignmentListItem[];
+      message: string;
+    };
 
 type DetailState =
   | { status: "loading" }
@@ -118,6 +122,7 @@ export function BoardAssignmentsWorkspace({
     assignments: [],
   });
   const [permissions, setPermissions] = useState(emptyPermissions);
+  const [boardMeetingReminder, setBoardMeetingReminder] = useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
   const [detailState, setDetailState] = useState<DetailState>();
   const [completionListState, setCompletionListState] =
@@ -166,6 +171,7 @@ export function BoardAssignmentsWorkspace({
         }
 
         setPermissions(result.permissions);
+        setBoardMeetingReminder(result.boardMeetingReminder);
         setListState({
           status: "ready",
           assignments: result.assignments,
@@ -550,6 +556,9 @@ export function BoardAssignmentsWorkspace({
   const reviewAssignments = listState.assignments.filter(
     (assignment) => assignment.status === "under_review",
   );
+  const selectedAssignmentIsOverdue = listState.assignments.some(
+    (assignment) => assignment.id === selectedId && assignment.isOverdue,
+  );
   const activeListState =
     registerMode === "history" ? completionListState : listState;
 
@@ -583,6 +592,18 @@ export function BoardAssignmentsWorkspace({
           </button>
         </nav>
       </header>
+
+      {boardMeetingReminder === undefined ? null : (
+        <section
+          aria-label="Напоминание к Совету директоров"
+          className="board-assignment-view-notice board-assignment-meeting-reminder"
+        >
+          <div>
+            <span>Напоминание</span>
+            <p>{boardMeetingReminder}</p>
+          </div>
+        </section>
+      )}
 
       {registerMode === "history" ? (
         <section
@@ -852,14 +873,20 @@ export function BoardAssignmentsWorkspace({
         >
           {listState.assignments.map((assignment) => (
             <article
-              className={`board-assignment-executor-card is-${assignment.status}`}
+              className={`board-assignment-executor-card is-${assignment.status}${
+                assignment.isOverdue ? " is-overdue" : ""
+              }`}
               key={assignment.id}
             >
               <div className="board-assignment-executor-card-heading">
                 <span
-                  className={`board-assignment-status is-${assignment.status}`}
+                  className={`board-assignment-status is-${assignment.status}${
+                    assignment.isOverdue ? " is-overdue" : ""
+                  }`}
                 >
-                  {statusLabels[assignment.status]}
+                  {assignment.isOverdue
+                    ? "Просрочено"
+                    : statusLabels[assignment.status]}
                 </span>
                 <span>
                   К исполнению{" "}
@@ -973,7 +1000,10 @@ export function BoardAssignmentsWorkspace({
             </thead>
             <tbody>
               {listState.assignments.map((assignment) => (
-                <tr key={assignment.id}>
+                <tr
+                  className={assignment.isOverdue ? "is-overdue" : undefined}
+                  key={assignment.id}
+                >
                   <td>{formatCalendarDate(assignment.meetingDate)}</td>
                   <td>
                     <button
@@ -1009,9 +1039,13 @@ export function BoardAssignmentsWorkspace({
                   </td>
                   <td>
                     <span
-                      className={`board-assignment-status is-${assignment.status}`}
+                      className={`board-assignment-status is-${assignment.status}${
+                        assignment.isOverdue ? " is-overdue" : ""
+                      }`}
                     >
-                      {statusLabels[assignment.status]}
+                      {assignment.isOverdue
+                        ? "Просрочено"
+                        : statusLabels[assignment.status]}
                     </span>
                   </td>
                 </tr>
@@ -1105,6 +1139,7 @@ export function BoardAssignmentsWorkspace({
           actionComment={actionComment}
           detailState={detailState}
           formMessage={formMessage}
+          isOverdue={selectedAssignmentIsOverdue}
           isAdminPreviewMode={isAdminPreviewMode}
           isMaterialOpening={isMaterialOpening}
           isSaving={isSaving}
@@ -1135,6 +1170,7 @@ export function BoardAssignmentsWorkspace({
               : completionDetailState
           }
           formMessage=""
+          isOverdue={false}
           isAdminPreviewMode={false}
           isMaterialOpening={isMaterialOpening}
           isSaving={false}
@@ -1589,6 +1625,7 @@ function BoardAssignmentDetailDialog({
   actionComment,
   isSaving,
   formMessage,
+  isOverdue,
   onCommentChange,
   onCancel,
   onOpenMaterial,
@@ -1603,6 +1640,7 @@ function BoardAssignmentDetailDialog({
   actionComment: string;
   isSaving: boolean;
   formMessage: string;
+  isOverdue: boolean;
   onCommentChange: (value: string) => void;
   onCancel: () => void;
   onOpenMaterial: (material: BoardAssignmentMaterialReference) => void;
@@ -1738,9 +1776,13 @@ function BoardAssignmentDetailDialog({
                 <dt>Статус</dt>
                 <dd>
                   <span
-                    className={`board-assignment-status is-${detailState.assignment.status}`}
+                    className={`board-assignment-status is-${detailState.assignment.status}${
+                      isOverdue ? " is-overdue" : ""
+                    }`}
                   >
-                    {statusLabels[detailState.assignment.status]}
+                    {isOverdue
+                      ? "Просрочено"
+                      : statusLabels[detailState.assignment.status]}
                   </span>
                 </dd>
               </div>

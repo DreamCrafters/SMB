@@ -4,6 +4,7 @@ import {
   markToastExiting,
   prependToast,
   removeToast,
+  shouldToastAutoDismiss,
 } from "../.test-build/src/services/toastStack.js";
 
 const firstToast = {
@@ -34,4 +35,11 @@ test("toast exit and removal preserve the remaining stack order", () => {
     firstToast,
   ]);
   assert.deepEqual(removeToast(exitingStack, 2), [firstToast]);
+});
+
+test("only the welcome notification closes automatically", () => {
+  assert.equal(shouldToastAutoDismiss("Добро пожаловать"), true);
+  assert.equal(shouldToastAutoDismiss("Совет директоров"), false);
+  assert.equal(shouldToastAutoDismiss("Просрочено поручение"), false);
+  assert.equal(shouldToastAutoDismiss("Сохранено"), false);
 });

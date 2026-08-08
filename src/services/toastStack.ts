@@ -7,6 +7,10 @@ export type AppToast = {
   state: AppToastState;
 };
 
+export function shouldToastAutoDismiss(title: string) {
+  return title === "Добро пожаловать";
+}
+
 export function prependToast(
   currentToasts: readonly AppToast[],
   toast: AppToast,

@@ -8,6 +8,7 @@ import {
   type BoardAssignmentCreateInput,
   type BoardAssignmentDocument,
   type BoardAssignmentFilters,
+  type BoardAssignmentListItem,
   type BoardAssignmentPermissions,
   type BoardAssignmentStatus,
   type BoardAssignmentSummary,
@@ -38,8 +39,9 @@ type ErrorResult = {
 export type BoardAssignmentsResult =
   | {
       status: "ready";
-      assignments: BoardAssignmentSummary[];
+      assignments: BoardAssignmentListItem[];
       permissions: BoardAssignmentPermissions;
+      boardMeetingReminder?: string;
     }
   | ErrorResult;
 
@@ -109,8 +111,12 @@ export async function requestBoardAssignments(
   if (
     !isRecord(result.payload) ||
     !Array.isArray(result.payload.assignments) ||
-    !result.payload.assignments.every(isBoardAssignmentSummary) ||
-    !isBoardAssignmentPermissions(result.payload.permissions)
+    !result.payload.assignments.every(isBoardAssignmentListItem) ||
+    !isBoardAssignmentPermissions(result.payload.permissions) ||
+    (
+      result.payload.boardMeetingReminder !== undefined &&
+      typeof result.payload.boardMeetingReminder !== "string"
+    )
   ) {
     return invalidResponse("Не удалось загрузить реестр поручений.");
   }
@@ -119,6 +125,9 @@ export async function requestBoardAssignments(
     status: "ready",
     assignments: result.payload.assignments,
     permissions: result.payload.permissions,
+    ...(typeof result.payload.boardMeetingReminder === "string"
+      ? { boardMeetingReminder: result.payload.boardMeetingReminder }
+      : {}),
   };
 }
 
@@ -505,6 +514,14 @@ function isBoardAssignmentSummary(
     typeof value.createdByDisplayName === "string" &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string";
+}
+
+function isBoardAssignmentListItem(
+  value: unknown,
+): value is BoardAssignmentListItem {
+  return isRecord(value) &&
+    typeof value.isOverdue === "boolean" &&
+    isBoardAssignmentSummary(value);
 }
 
 function isBoardAssignmentCompletionSummary(

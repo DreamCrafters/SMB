@@ -71,6 +71,10 @@ export type BoardAssignmentSummary = {
   updatedAt: string;
 };
 
+export type BoardAssignmentListItem = BoardAssignmentSummary & {
+  isOverdue: boolean;
+};
+
 export type BoardAssignment = BoardAssignmentSummary & {
   details: string;
   documents?: BoardAssignmentDocument[];

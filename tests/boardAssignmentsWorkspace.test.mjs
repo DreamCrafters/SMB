@@ -44,6 +44,7 @@ test("board assignment executor sees active cards and submits without choosing a
     activeFrom: "2026-08-01",
     activeTo: "2026-12-31",
     currentOccurrenceDate: "2026-08-01",
+    isOverdue: true,
     status: "in_progress",
     createdByDisplayName: "Белов Ю.И.",
     createdAt: "2026-07-10T08:00:00.000Z",
@@ -65,7 +66,12 @@ test("board assignment executor sees active cards and submits without choosing a
       const url = new URL(String(input), "http://127.0.0.1:5173/");
 
       if (url.pathname === "/api/board-assignments") {
-        return jsonResponse({ assignments: [summary], permissions });
+        return jsonResponse({
+          assignments: [summary],
+          permissions,
+          boardMeetingReminder:
+            "Необходимо подготовиться к Совету директоров на 15 число",
+        });
       }
       if (
         url.pathname === "/api/board-assignments/assignment-1/action" &&
@@ -128,6 +134,11 @@ test("board assignment executor sees active cards and submits without choosing a
     await waitFor(React, () =>
       rootElement.querySelector(".board-assignment-link") !== null
     );
+    assert.equal(
+      rootElement.querySelector(".board-assignment-meeting-reminder")
+        ?.textContent,
+      "НапоминаниеНеобходимо подготовиться к Совету директоров на 15 число",
+    );
 
     assert.match(
       rootElement.querySelector(".board-assignment-executor-overview")
@@ -137,6 +148,11 @@ test("board assignment executor sees active cards and submits without choosing a
     assert.notEqual(
       rootElement.querySelector(".board-assignment-executor-card"),
       null,
+    );
+    assert.equal(
+      rootElement.querySelector(".board-assignment-executor-card.is-overdue")
+        ?.querySelector(".board-assignment-status")?.textContent,
+      "Просрочено",
     );
     assert.equal(rootElement.querySelector("table"), null);
     assert.equal(
@@ -388,6 +404,7 @@ test("board assignment reviewer gets a decision queue with direct actions", asyn
     activeFrom: "2026-07-28",
     activeTo: "2026-07-28",
     currentOccurrenceDate: "2026-07-28",
+    isOverdue: false,
     status: "under_review",
     createdByDisplayName: "Белов Ю.И.",
     createdAt: "2026-07-10T08:00:00.000Z",
@@ -544,6 +561,7 @@ test("board assignment viewer gets a quiet read-only register", async () => {
     activeFrom: "2026-07-28",
     activeTo: "2026-07-28",
     currentOccurrenceDate: "2026-07-28",
+    isOverdue: true,
     status: "in_progress",
     createdByDisplayName: "Белов Ю.И.",
     createdAt: "2026-07-10T08:00:00.000Z",
@@ -656,6 +674,7 @@ test("board assignment creator edits live tasks and opens immutable completion h
     activeFrom: "2026-07-10",
     activeTo: "2026-12-31",
     currentOccurrenceDate: "2026-08-10",
+    isOverdue: false,
     status: "under_review",
     createdByDisplayName: "Белов Ю.И.",
     createdAt: "2026-07-10T08:00:00.000Z",

@@ -423,6 +423,19 @@ export function isBoardAssignmentActiveOn({
   );
 }
 
+export function isBoardAssignmentOverdueOn({
+  status,
+  currentOccurrenceDate,
+}: {
+  status: BoardAssignmentStatus;
+  currentOccurrenceDate: string;
+}, calendarDate: string) {
+  return (
+    (status === "in_progress" || status === "revision_requested") &&
+    currentOccurrenceDate < calendarDate
+  );
+}
+
 export function formatBoardAssignmentSchedule({
   recurrence,
   activeFrom,

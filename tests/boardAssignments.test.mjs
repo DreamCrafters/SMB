@@ -29,6 +29,7 @@ const summary = {
   activeFrom: "2026-08-01",
   activeTo: "2026-12-31",
   currentOccurrenceDate: "2026-08-01",
+  isOverdue: true,
   status: "in_progress",
   createdByDisplayName: "Протокол №369",
   createdAt: "2026-07-10T08:00:00.000Z",
@@ -71,7 +72,12 @@ test("board assignments service filters the register and validates detail histor
     requests.push({ url: input.toString(), init });
     return input.toString().endsWith("/protocol-369-assignment-2-3")
       ? jsonResponse({ assignment: detail, permissions })
-      : jsonResponse({ assignments: [summary], permissions });
+      : jsonResponse({
+          assignments: [summary],
+          permissions,
+          boardMeetingReminder:
+            "Необходимо подготовиться к Совету директоров на 15 число",
+        });
   };
 
   try {
@@ -90,6 +96,18 @@ test("board assignments service filters the register and validates detail histor
     );
 
     assert.equal(register.status, "ready");
+    assert.equal(
+      register.status === "ready"
+        ? register.assignments[0]?.isOverdue
+        : undefined,
+      true,
+    );
+    assert.equal(
+      register.status === "ready"
+        ? register.boardMeetingReminder
+        : undefined,
+      "Необходимо подготовиться к Совету директоров на 15 число",
+    );
     assert.equal(assignment.status, "ready");
     assert.equal(
       assignment.status === "ready"

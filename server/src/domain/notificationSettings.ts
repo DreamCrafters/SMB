@@ -149,25 +149,49 @@ export function buildGeneralDirectorLoginNotifications({
     return [];
   }
 
-  const day = Number(today.slice(8, 10));
   const notifications: LoginNotification[] = [];
+  const boardMeetingReminder = buildGeneralDirectorBoardMeetingReminder({
+    position,
+    today,
+  });
 
-  if (Number.isInteger(day) && day >= 1 && day <= 14) {
+  if (boardMeetingReminder !== undefined) {
     notifications.push({
       title: "Совет директоров",
-      message: "Необходимо подготовиться к Совету директоров на 15 число",
+      message: boardMeetingReminder,
     });
   }
 
-  notifications.push(...overdueAssignments.map((assignment) => ({
+  const overdueMessages = overdueAssignments.map((assignment) =>
+    `Поручение Совета директоров (${assignment.summary}) от ${
+      formatCalendarDate(assignment.meetingDate)
+    } не выполнено в срок!`
+  );
+  if (overdueMessages.length > 0) {
+    notifications.push({
       title: "Просрочено поручение",
-      message:
-        `Поручение Совета директоров (${assignment.summary}) от ${
-        formatCalendarDate(assignment.meetingDate)
-      } не выполнено в срок!`,
-  })));
+      message: overdueMessages.join("\n\n"),
+    });
+  }
 
   return notifications;
+}
+
+export function buildGeneralDirectorBoardMeetingReminder({
+  position,
+  today,
+}: {
+  position: AccountPosition;
+  today: string;
+}) {
+  if (position !== "general_director") {
+    return undefined;
+  }
+
+  const day = Number(today.slice(8, 10));
+  return Number.isInteger(day) && day >= 1 && day <= 14
+    ? "Необходимо подготовиться к Совету директоров на 15 число"
+    : undefined;
 }
 
 export function buildBoardAssignmentReviewNotification({

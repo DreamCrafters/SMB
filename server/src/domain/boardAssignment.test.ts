@@ -6,6 +6,7 @@ import {
   getNextBoardAssignmentOccurrenceDate,
   getBoardAssignmentPermissions,
   isBoardAssignmentActiveOn,
+  isBoardAssignmentOverdueOn,
   validateBoardAssignmentAction,
   validateBoardAssignmentCreateRequest,
   validateBoardAssignmentUpdateRequest,
@@ -201,6 +202,37 @@ test("executor activity starts on the occurrence date and keeps overdue work act
       activeFrom: "2026-08-01",
       activeTo: "2026-08-31",
     }, "2026-08-10"),
+    false,
+  );
+});
+
+test("only unfinished assignments before the current date are overdue", () => {
+  assert.equal(
+    isBoardAssignmentOverdueOn({
+      status: "in_progress",
+      currentOccurrenceDate: "2026-08-07",
+    }, "2026-08-08"),
+    true,
+  );
+  assert.equal(
+    isBoardAssignmentOverdueOn({
+      status: "revision_requested",
+      currentOccurrenceDate: "2026-08-07",
+    }, "2026-08-08"),
+    true,
+  );
+  assert.equal(
+    isBoardAssignmentOverdueOn({
+      status: "in_progress",
+      currentOccurrenceDate: "2026-08-08",
+    }, "2026-08-08"),
+    false,
+  );
+  assert.equal(
+    isBoardAssignmentOverdueOn({
+      status: "under_review",
+      currentOccurrenceDate: "2026-08-07",
+    }, "2026-08-08"),
     false,
   );
 });

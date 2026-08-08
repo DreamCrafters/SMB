@@ -9888,6 +9888,10 @@ test("board assignment API enforces creation, execution and review capabilities"
       { headers },
     );
     assert.equal(activeListResponse.status, 200);
+    const activeListPayload = await activeListResponse.json() as {
+      assignments: Array<{ isOverdue: boolean }>;
+    };
+    assert.equal(activeListPayload.assignments[0]?.isOverdue, true);
     assert.deepEqual(listOptions, { activeOn: "2026-07-20" });
     current.currentOccurrenceDate = "2026-07-21";
     const inactiveDetailResponse = await fetch(
@@ -10497,8 +10501,12 @@ test("notification settings API returns login reminders and persists server-owne
   profile.userId = "director-user";
   profile.activeAccess.position = "general_director";
   profile.activeAccess.positionDisplayName = "Генеральный директор";
-  profile.activeAccess.navigationItems = ["business.settings"];
+  profile.activeAccess.navigationItems = [
+    "business.board_assignments",
+    "business.settings",
+  ];
   profile.activeAccess.capabilities = [
+    "business.view_board_assignments",
     "business.manage_notification_settings",
   ];
   const setting = {
@@ -10554,27 +10562,47 @@ test("notification settings API returns login reminders and persists server-owne
   };
   const boardAssignments = {
     async list() {
-      return [{
-        id: "assignment-1",
-        meetingDate: "2026-07-10",
-        protocolNumber: "369",
-        decisionNumber: "2.3",
-        summary: "Подготовить анализ",
-        coExecutors: [],
-        dueDate: "07.08.2026",
-        recurrence: "once",
-        activeFrom: "2026-07-10",
-        activeTo: "2026-08-31",
-        currentOccurrenceDate: "2026-08-07",
-        status: "in_progress",
-        createdByDisplayName: "Лариков А.Т.",
-        createdAt: "2026-07-10T08:00:00.000Z",
-        updatedAt: "2026-07-10T08:00:00.000Z",
-      }];
+      return [
+        {
+          id: "assignment-1",
+          meetingDate: "2026-07-10",
+          protocolNumber: "369",
+          decisionNumber: "2.3",
+          summary: "Подготовить анализ",
+          coExecutors: [],
+          dueDate: "07.08.2026",
+          recurrence: "once",
+          activeFrom: "2026-07-10",
+          activeTo: "2026-08-31",
+          currentOccurrenceDate: "2026-08-07",
+          status: "in_progress",
+          createdByDisplayName: "Лариков А.Т.",
+          createdAt: "2026-07-10T08:00:00.000Z",
+          updatedAt: "2026-07-10T08:00:00.000Z",
+        },
+        {
+          id: "assignment-2",
+          meetingDate: "2026-07-15",
+          protocolNumber: "370",
+          decisionNumber: "1.1",
+          summary: "Согласовать бюджет",
+          coExecutors: [],
+          dueDate: "06.08.2026",
+          recurrence: "once",
+          activeFrom: "2026-07-15",
+          activeTo: "2026-08-31",
+          currentOccurrenceDate: "2026-08-06",
+          status: "in_progress",
+          createdByDisplayName: "Лариков А.Т.",
+          createdAt: "2026-07-15T08:00:00.000Z",
+          updatedAt: "2026-07-15T08:00:00.000Z",
+        },
+      ];
     },
   } as unknown as BoardAssignmentsRepository;
   const sentEmail: string[] = [];
   const sentMax: string[] = [];
+  const sentMaxMessages: string[] = [];
   const auditActions: string[] = [];
   const auditDetailValues: string[] = [];
   const emailNotificationService = {
@@ -10586,8 +10614,9 @@ test("notification settings API returns login reminders and persists server-owne
     async sendRefractoryReportNotification() {},
   } satisfies EmailNotificationService;
   const maxNotificationService = {
-    async sendTextNotification(recipients: readonly string[]) {
+    async sendTextNotification(recipients: readonly string[], text: string) {
       sentMax.push(...recipients);
+      sentMaxMessages.push(text);
     },
     async sendDispatcherSubmissionNotification() {},
     async sendEquipmentReportNotification() {},
@@ -10642,8 +10671,30 @@ test("notification settings API returns login reminders and persists server-owne
       "Совет директоров",
       "Просрочено поручение",
     ]);
+    assert.match(
+      loginPayload.notifications[1]?.message ?? "",
+      /Подготовить анализ/u,
+    );
+    assert.match(
+      loginPayload.notifications[1]?.message ?? "",
+      /Согласовать бюджет/u,
+    );
     assert.deepEqual(sentEmail, []);
     assert.deepEqual(sentMax, ["101"]);
+    assert.equal(sentMaxMessages.length, 1);
+
+    const assignmentsResponse = await fetch(
+      `${baseUrl}/api/board-assignments`,
+      { headers },
+    );
+    const assignmentsPayload = await assignmentsResponse.json() as {
+      boardMeetingReminder?: string;
+    };
+    assert.equal(assignmentsResponse.status, 200);
+    assert.equal(
+      assignmentsPayload.boardMeetingReminder,
+      "Необходимо подготовиться к Совету директоров на 15 число",
+    );
 
     const repeatedLoginResponse = await fetch(
       `${baseUrl}/api/login-notifications`,
