@@ -178,6 +178,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "active",
     },
     {
+      id: "business.settings",
+      label: "Настройки",
+      description: "Способы получения сообщений",
+      state: "active",
+    },
+    {
       id: "business.user_actions",
       label: "Действия пользователей",
       description: "Действия сотрудников бизнеса",

@@ -14,10 +14,12 @@ import {
 function buildSnapshot({
   businessValue,
   sessionRows = [["session-id"]],
+  includeDeliveryClaims = false,
   migrationId = "001_initial",
 }: {
   businessValue: string;
   sessionRows?: unknown[][];
+  includeDeliveryClaims?: boolean;
   migrationId?: string;
 }): DatabaseSnapshot {
   return {
@@ -28,6 +30,14 @@ function buildSnapshot({
         columns: ["id"],
         rows: sessionRows,
       },
+      ...(includeDeliveryClaims
+        ? [{
+            name: "auth_session_notification_deliveries",
+            createSql: "create table `auth_session_notification_deliveries` (`session_id` varchar(64)) engine=InnoDB",
+            columns: ["session_id"],
+            rows: [["session-id"]],
+          }]
+        : []),
       {
         name: "business_data",
         createSql: "create table `business_data` (`value` varchar(255)) engine=InnoDB",
@@ -45,8 +55,14 @@ function buildSnapshot({
 }
 
 test("production snapshot replaces all test data and clears copied auth sessions", async () => {
-  const production = buildSnapshot({ businessValue: "production" });
-  const testBackup = buildSnapshot({ businessValue: "test" });
+  const production = buildSnapshot({
+    businessValue: "production",
+    includeDeliveryClaims: true,
+  });
+  const testBackup = buildSnapshot({
+    businessValue: "test",
+    includeDeliveryClaims: true,
+  });
   const replacements: DatabaseSnapshot[] = [];
   const source: DatabaseSnapshotStore = {
     async capture() { return production; },
@@ -68,8 +84,14 @@ test("production snapshot replaces all test data and clears copied auth sessions
     replacements[0]?.tables.find((table) => table.name === "auth_sessions")?.rows,
     [],
   );
+  assert.deepEqual(
+    replacements[0]?.tables.find(
+      (table) => table.name === "auth_session_notification_deliveries",
+    )?.rows,
+    [],
+  );
   assert.deepEqual(result, {
-    tableCount: 3,
+    tableCount: 4,
     rowCount: 2,
     authSessionsCleared: true,
   });

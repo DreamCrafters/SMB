@@ -3942,6 +3942,192 @@ p {
   }
 }
 
+.notification-settings-workspace {
+  display: grid;
+  gap: var(--density-4);
+  min-width: 0;
+}
+
+.notification-settings-heading {
+  align-items: flex-start;
+}
+
+.notification-settings-heading p,
+.notification-settings-note {
+  color: var(--muted);
+}
+
+.notification-settings-table-scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.notification-settings-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+}
+
+.notification-settings-table th,
+.notification-settings-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.notification-settings-table thead th {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.notification-settings-table td:not(:first-child),
+.notification-settings-table thead th:not(:first-child) {
+  width: 96px;
+  text-align: center;
+}
+
+.notification-settings-table input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.notification-settings-max-help {
+  padding: var(--density-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.notification-settings-max-help p,
+.notification-settings-max-help ol {
+  margin: 0;
+}
+
+.notification-settings-max-help ol {
+  display: grid;
+  gap: var(--density-2);
+  margin-top: var(--density-2);
+  padding-left: 20px;
+}
+
+.notification-admin-modal {
+  display: grid;
+  gap: var(--density-4);
+  width: min(100%, 1180px);
+  max-height: min(100%, 860px);
+  overflow: auto;
+  padding: var(--density-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.notification-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: var(--density-4);
+  min-height: 340px;
+}
+
+.notification-admin-users {
+  max-height: 620px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.notification-admin-user-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.notification-admin-user-table th,
+.notification-admin-user-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.notification-admin-user-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.notification-admin-user-table tr.is-active td {
+  background: var(--surface-subtle);
+}
+
+.notification-admin-user-table button {
+  padding: 0;
+  border: 0;
+  color: var(--emerald);
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-admin-user-table button:disabled {
+  color: var(--muted);
+  cursor: wait;
+}
+
+.notification-admin-detail {
+  display: grid;
+  align-content: start;
+  gap: var(--density-4);
+  min-width: 0;
+}
+
+.notification-admin-detail .notification-settings-table {
+  min-width: 440px;
+}
+
+.notification-admin-detail .notification-settings-table caption {
+  padding: 0 0 var(--density-2);
+  color: var(--ink);
+  font-weight: 900;
+  text-align: left;
+}
+
+.notification-admin-contacts {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: var(--density-3);
+  align-items: end;
+}
+
+.notification-admin-contacts label {
+  display: grid;
+  gap: var(--density-1);
+}
+
+@media (max-width: 900px) {
+  .notification-admin-layout,
+  .notification-admin-contacts {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-admin-users {
+    max-height: 220px;
+  }
+}
+
 .board-assignments-workspace {
   display: grid;
   gap: var(--density-5);

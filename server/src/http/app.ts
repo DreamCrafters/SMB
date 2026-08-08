@@ -121,6 +121,17 @@ import {
   type BoardAssignmentStatus,
 } from "../domain/boardAssignment.js";
 import {
+  boardAssignmentOverdueLoginDeliveryKey,
+  buildBoardAssignmentReviewNotification,
+  buildGeneralDirectorLoginNotifications,
+  isNotificationType,
+  notificationTypes,
+  validateAdminNotificationSettingRequest,
+  validateNotificationContactsRequest,
+  validateOwnNotificationSettingRequest,
+  type NotificationType,
+} from "../domain/notificationSettings.js";
+import {
   bankNumbers,
   calculateCoshBankMeasurements,
   type BankNumber,
@@ -269,6 +280,15 @@ import {
   type BoardAssignmentFilters,
   type BoardAssignmentsRepository,
 } from "../repositories/boardAssignmentsRepository.js";
+import {
+  NotificationChannelUnavailableError,
+  NotificationPermissionDisabledError,
+  type NotificationSettingsRepository,
+} from "../repositories/notificationSettingsRepository.js";
+import {
+  sendBoardAssignmentReviewNotification,
+  sendOverdueBoardAssignmentNotifications,
+} from "../services/accountNotificationDelivery.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -279,6 +299,7 @@ type AppDependencies = {
   referenceDataSource?: DispatcherReferenceDataSource;
   emailNotificationService?: EmailNotificationService;
   maxNotificationService?: MaxNotificationService;
+  notificationSettings?: NotificationSettingsRepository;
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsDataSource;
@@ -374,6 +395,7 @@ export function createApiServer({
     {},
     config.appEnv,
   ),
+  notificationSettings,
   dispatcherSpreadsheetImport,
   productionPlans,
   productionBrands = unavailableProductionBrandsDataSource,
@@ -402,6 +424,7 @@ export function createApiServer({
   now = () => new Date(),
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
+  const deliveredDevLoginNotificationSessions = new Set<string>();
 
   return createServer(async (req, res) => {
     applyCors(req, res, config);
@@ -531,6 +554,33 @@ export function createApiServer({
       }
 
       if (
+        url.pathname === "/api/login-notifications" ||
+        url.pathname === "/api/notification-settings" ||
+        url.pathname.startsWith("/api/notification-settings/") ||
+        url.pathname === "/api/admin/notification-settings" ||
+        url.pathname.startsWith("/api/admin/notification-settings/")
+      ) {
+        await handleNotificationSettingsRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          accounts,
+          notificationSettings,
+          boardAssignments,
+          emailNotificationService,
+          maxNotificationService,
+          audit,
+          databaseTransaction,
+          deliveredDevLoginNotificationSessions,
+          now,
+        });
+        return;
+      }
+
+      if (
         url.pathname === "/api/admin/accounts" ||
         url.pathname === "/api/admin/accounts/reset-password" ||
         url.pathname.startsWith("/api/admin/accounts/") ||
@@ -629,6 +679,9 @@ export function createApiServer({
           authService,
           boardAssignments,
           boardAssignmentMaterials,
+          notificationSettings,
+          emailNotificationService,
+          maxNotificationService,
           audit,
           databaseTransaction,
           now,
@@ -871,6 +924,7 @@ export function createApiServer({
           submissions,
           reportStatus,
           referenceDataSource,
+          notificationSettings,
           emailNotificationService,
           maxNotificationService,
         );
@@ -1125,6 +1179,7 @@ export function createApiServer({
           await notifyDispatcherSubmission(
             submission,
             referenceDataSource,
+            notificationSettings,
             emailNotificationService,
             maxNotificationService,
           );
@@ -1226,6 +1281,450 @@ async function handleBusinessOverviewRequest({
   });
 }
 
+async function handleNotificationSettingsRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  accounts,
+  notificationSettings,
+  boardAssignments,
+  emailNotificationService,
+  maxNotificationService,
+  audit,
+  databaseTransaction,
+  deliveredDevLoginNotificationSessions,
+  now,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts: AccountsRepository | undefined;
+  notificationSettings: NotificationSettingsRepository | undefined;
+  boardAssignments: BoardAssignmentsRepository | undefined;
+  emailNotificationService: EmailNotificationService;
+  maxNotificationService: MaxNotificationService;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+  deliveredDevLoginNotificationSessions: Set<string>;
+  now: () => Date;
+}) {
+  if (url.pathname === "/api/login-notifications") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для уведомлений при входе используется POST." },
+      });
+      return;
+    }
+
+    const access = await requireAuthentication(req, res, {
+      config,
+      devSessions,
+      authService,
+    });
+    if (access === undefined) return;
+
+    const today = buildIncidentOverviewPeriod(now()).today;
+    const overdueAssignments =
+      access.profile.activeAccess.position === "general_director" &&
+      boardAssignments !== undefined
+        ? (await boardAssignments.list({}, { activeOn: today })).filter(
+            ({ currentOccurrenceDate }) => currentOccurrenceDate < today,
+          )
+        : [];
+    const notifications = buildGeneralDirectorLoginNotifications({
+      position: access.profile.activeAccess.position,
+      today,
+      overdueAssignments,
+    });
+    const overdueMessages = notifications
+      .filter(({ title }) => title === "Просрочено поручение")
+      .map(({ message }) => message);
+
+    let isFirstDeliveryRequest = false;
+    if (notificationSettings !== undefined) {
+      if (access.source === "auth") {
+        try {
+          isFirstDeliveryRequest = await notificationSettings.claimLoginDelivery({
+            sessionId: access.sessionId,
+            deliveryKey: boardAssignmentOverdueLoginDeliveryKey,
+          });
+        } catch (error) {
+          console.warn("board_assignment_overdue.claim_failed", error);
+        }
+      } else {
+        isFirstDeliveryRequest = !deliveredDevLoginNotificationSessions.has(
+          access.sessionId,
+        );
+        deliveredDevLoginNotificationSessions.add(access.sessionId);
+      }
+    }
+    if (
+      isFirstDeliveryRequest &&
+      notificationSettings !== undefined &&
+      overdueMessages.length > 0
+    ) {
+      await notifyAccountDeliverySafely(
+        "board_assignment_overdue",
+        () => sendOverdueBoardAssignmentNotifications({
+          repository: notificationSettings,
+          emailService: emailNotificationService,
+          maxService: maxNotificationService,
+          messages: overdueMessages,
+        }),
+      );
+    }
+
+    sendJson(res, 200, { notifications });
+    return;
+  }
+
+  const isAdminRequest = url.pathname.startsWith(
+    "/api/admin/notification-settings",
+  );
+  const access = isAdminRequest
+    ? await requireCapability(req, res, {
+        config,
+        devSessions,
+        authService,
+        capability: "platform.manage_users",
+        message: "Управление рассылками недоступно.",
+      })
+    : await requireCapability(req, res, {
+        config,
+        devSessions,
+        authService,
+        capability: "business.manage_notification_settings",
+        message: "Настройки рассылок недоступны.",
+      });
+  if (access === undefined) return;
+
+  if (notificationSettings === undefined) {
+    sendJson(res, 503, {
+      error: { code: "server_error", message: "Хранилище настроек рассылок не настроено." },
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/notification-settings") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для чтения настроек используется GET." },
+      });
+      return;
+    }
+    const settings = await notificationSettings.readUserSettings(
+      access.profile.userId,
+    );
+    if (settings === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    sendJson(res, 200, { settings });
+    return;
+  }
+
+  const ownSettingMatch = /^\/api\/notification-settings\/([^/]+)$/u.exec(
+    url.pathname,
+  );
+  if (ownSettingMatch !== null) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для изменения настройки используется PATCH." },
+      });
+      return;
+    }
+    const type = decodeURIComponent(ownSettingMatch[1] ?? "");
+    if (!isNotificationType(type)) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Рассылка не найдена." },
+      });
+      return;
+    }
+    const validation = validateOwnNotificationSettingRequest(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: validation.errors.join(" ") },
+      });
+      return;
+    }
+    const notificationLabel = readNotificationTypeLabel(type);
+
+    try {
+      await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => notificationSettings.setOwnChannels({
+          userId: access.profile.userId,
+          type,
+          ...validation.value,
+        }),
+        buildEvent: () => ({
+          actor: buildAuditActor(access.profile),
+          category: "administration",
+          action: "account.notification_settings_update",
+          summary: "Изменены персональные каналы рассылки",
+          details: [
+            { label: "Рассылка", value: notificationLabel },
+            {
+              label: "Email",
+              value: validation.value.emailEnabled ? "Включён" : "Выключен",
+            },
+            {
+              label: "MAX",
+              value: validation.value.maxEnabled ? "Включён" : "Выключен",
+            },
+          ],
+          targetType: "user_account",
+          targetId: access.profile.userId,
+        }),
+      });
+    } catch (error) {
+      if (
+        error instanceof NotificationPermissionDisabledError ||
+        error instanceof NotificationChannelUnavailableError
+      ) {
+        sendJson(res, 409, {
+          error: { code: "invalid_response", message: error.message },
+        });
+        return;
+      }
+      throw error;
+    }
+    sendJson(res, 200, {
+      settings: await notificationSettings.readUserSettings(
+        access.profile.userId,
+      ),
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/admin/notification-settings") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для журнала рассылок используется GET." },
+      });
+      return;
+    }
+    sendJson(res, 200, { users: await notificationSettings.listUsers() });
+    return;
+  }
+
+  const contactsMatch =
+    /^\/api\/admin\/notification-settings\/([^/]+)\/contacts$/u.exec(
+      url.pathname,
+    );
+  if (contactsMatch !== null) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для изменения контактов используется PATCH." },
+      });
+      return;
+    }
+    if (accounts === undefined) {
+      sendJson(res, 503, {
+        error: { code: "server_error", message: "Хранилище учётных записей не настроено." },
+      });
+      return;
+    }
+    const userId = decodeURIComponent(contactsMatch[1] ?? "");
+    const targetAccount = (await accounts.listAccounts()).find(
+      (account) => account.userId === userId,
+    );
+    if (targetAccount === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    if (
+      targetAccount.isProtected &&
+      !(await readCanAssignAdminNavigation({
+        profile: access.profile,
+        accounts,
+        devAccessEnabled: config.devAccessEnabled,
+      }))
+    ) {
+      sendProtectedAccountMutationDenied(res);
+      return;
+    }
+    const validation = validateNotificationContactsRequest(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: validation.errors.join(" ") },
+      });
+      return;
+    }
+    const allowProtectedAccountMutation = await readCanAssignAdminNavigation({
+      profile: access.profile,
+      accounts,
+      devAccessEnabled: config.devAccessEnabled,
+    });
+    let updated: boolean;
+    try {
+      updated = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => notificationSettings.updateContacts({
+          userId,
+          ...validation.value,
+          allowProtectedAccountMutation,
+        }),
+        buildEvent: (result) => result
+          ? {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: "admin.account_notification_contacts_update",
+              summary: `Изменены контакты рассылок учётной записи «${targetAccount.userDisplayName}»`,
+              details: buildAccountAuditDetails(targetAccount),
+              targetType: "user_account",
+              targetId: userId,
+            }
+          : undefined,
+      });
+    } catch (error) {
+      if (error instanceof ProtectedAccountMutationError) {
+        sendProtectedAccountMutationDenied(res);
+        return;
+      }
+      throw error;
+    }
+    if (!updated) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      settings: await notificationSettings.readUserSettings(userId),
+    });
+    return;
+  }
+
+  const adminSettingMatch =
+    /^\/api\/admin\/notification-settings\/([^/]+)\/([^/]+)$/u.exec(
+      url.pathname,
+    );
+  if (adminSettingMatch !== null) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: { code: "access_denied", message: "Для изменения разрешения используется PATCH." },
+      });
+      return;
+    }
+    const userId = decodeURIComponent(adminSettingMatch[1] ?? "");
+    const type = decodeURIComponent(adminSettingMatch[2] ?? "");
+    if (!isNotificationType(type)) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Рассылка не найдена." },
+      });
+      return;
+    }
+    const validation = validateAdminNotificationSettingRequest(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: validation.errors.join(" ") },
+      });
+      return;
+    }
+    const targetSettings = await notificationSettings.readUserSettings(userId);
+    if (targetSettings === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    const notificationLabel = readNotificationTypeLabel(type);
+    const allowProtectedAccountMutation = accounts !== undefined &&
+      await readCanAssignAdminNavigation({
+        profile: access.profile,
+        accounts,
+        devAccessEnabled: config.devAccessEnabled,
+      });
+    let updated: boolean;
+    try {
+      updated = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => notificationSettings.setAdminEnabled({
+          userId,
+          type,
+          ...validation.value,
+          allowProtectedAccountMutation,
+        }),
+        buildEvent: (result) => result
+          ? {
+              actor: buildAuditActor(access.profile),
+              category: "administration",
+              action: "admin.account_notification_permission_update",
+              summary: `${validation.value.adminEnabled ? "Разрешена" : "Отключена"} рассылка для «${targetSettings.displayName}»`,
+              details: [
+                { label: "Пользователь", value: targetSettings.displayName },
+                { label: "Рассылка", value: notificationLabel },
+                {
+                  label: "Состояние",
+                  value: validation.value.adminEnabled
+                    ? "Разрешена"
+                    : "Отключена",
+                },
+              ],
+              targetType: "user_account",
+              targetId: userId,
+            }
+          : undefined,
+      });
+    } catch (error) {
+      if (error instanceof ProtectedAccountMutationError) {
+        sendProtectedAccountMutationDenied(res);
+        return;
+      }
+      throw error;
+    }
+    if (!updated) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    sendJson(res, 200, {
+      settings: await notificationSettings.readUserSettings(userId),
+    });
+    return;
+  }
+
+  sendJson(res, 404, {
+    error: { code: "not_found", message: "Настройки рассылок не найдены." },
+  });
+}
+
+async function notifyAccountDeliverySafely(
+  context: string,
+  operation: () => Promise<void>,
+) {
+  try {
+    await operation();
+  } catch (error) {
+    console.warn(`account_notifications.${context}_failed`, error);
+  }
+}
+
+function readNotificationTypeLabel(type: NotificationType) {
+  return notificationTypes.find(({ id }) => id === type)?.label ?? type;
+}
+
 async function handleBoardAssignmentsRequest({
   req,
   res,
@@ -1235,6 +1734,9 @@ async function handleBoardAssignmentsRequest({
   authService,
   boardAssignments,
   boardAssignmentMaterials,
+  notificationSettings,
+  emailNotificationService,
+  maxNotificationService,
   audit,
   databaseTransaction,
   now,
@@ -1247,6 +1749,9 @@ async function handleBoardAssignmentsRequest({
   authService: AuthSessionService | undefined;
   boardAssignments: BoardAssignmentsRepository | undefined;
   boardAssignmentMaterials: BoardAssignmentMaterialsSource;
+  notificationSettings: NotificationSettingsRepository | undefined;
+  emailNotificationService: EmailNotificationService;
+  maxNotificationService: MaxNotificationService;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   now: () => Date;
@@ -1749,7 +2254,11 @@ async function handleBoardAssignmentsRequest({
           assignment,
           action: validation.value.action,
         }));
-        return { kind: "saved" as const, assignment };
+        return {
+          kind: "saved" as const,
+          assignment,
+          action: validation.value.action,
+        };
       });
 
       if (result.kind === "not_found") {
@@ -1764,6 +2273,28 @@ async function handleBoardAssignmentsRequest({
           },
         });
         return;
+      }
+
+      if (
+        result.action === "submit_for_review" &&
+        notificationSettings !== undefined
+      ) {
+        const notification = buildBoardAssignmentReviewNotification({
+          summary: result.assignment.summary,
+          meetingDate: result.assignment.meetingDate,
+          protocolNumber: result.assignment.protocolNumber,
+          decisionNumber: result.assignment.decisionNumber,
+          submittedByDisplayName: access.profile.displayName,
+        });
+        await notifyAccountDeliverySafely(
+          "board_assignment_review",
+          () => sendBoardAssignmentReviewNotification({
+            repository: notificationSettings,
+            emailService: emailNotificationService,
+            maxService: maxNotificationService,
+            notification,
+          }),
+        );
       }
 
       sendJson(res, 200, {
@@ -6623,6 +7154,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.laboratory_results": "Результаты испытаний",
     "business.laboratory_review": "Лаборатория",
     "business.board_assignments": "Поручения Совета директоров",
+    "business.settings": "Настройки",
     "business.dispatcher_form": "Форма",
   };
 
@@ -7824,7 +8356,10 @@ async function handleAdminAccountsRequest({
       sendJson(res, 200, { ok: true });
       return;
     }
-    const validation = validateUpdatePositionRequest(await readJsonBody(req));
+    const validation = validateUpdatePositionRequest(
+      await readJsonBody(req),
+      { requireNotificationSettings: existing.accountType === "business_owner" },
+    );
     if (!validation.ok) {
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
@@ -8123,6 +8658,10 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
   const displayName =
     typeof input.displayName === "string" ? input.displayName.trim() : "";
   const position = input.position;
+  const contacts = validateNotificationContactsRequest({
+    email: input.email ?? "",
+    maxUserId: input.maxUserId ?? "",
+  });
 
   if (login.length === 0) {
     errors.push("login is required.");
@@ -8136,7 +8675,14 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
     errors.push("displayName is required.");
   }
 
-  const allowedFields = new Set(["login", "password", "displayName", "position"]);
+  const allowedFields = new Set([
+    "login",
+    "password",
+    "displayName",
+    "position",
+    "email",
+    "maxUserId",
+  ]);
 
   for (const field of Object.keys(input)) {
     if (!allowedFields.has(field)) {
@@ -8147,6 +8693,10 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
   if (!isAccountPosition(position) || positionDefinition === undefined) {
     errors.push("position is not supported.");
     return { ok: false, errors };
+  }
+
+  if (!contacts.ok) {
+    errors.push(...contacts.errors);
   }
 
   const accountType = positionDefinition.accountType;
@@ -8164,13 +8714,19 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
       displayName,
       accountType,
       position,
+      ...(contacts.ok ? contacts.value : {}),
       navigationItems,
       capabilities: positionDefinition.capabilities,
     },
   };
 }
 
-function validateCreatePositionRequest(input: unknown):
+function validateCreatePositionRequest(
+  input: unknown,
+  { requireNotificationSettings = true }: {
+    requireNotificationSettings?: boolean;
+  } = {},
+):
   | { ok: true; value: {
       displayName: string;
       navigationItems: AccountNavigationItem[];
@@ -8188,7 +8744,15 @@ function validateCreatePositionRequest(input: unknown):
       key !== "boardAssignmentAccess",
   );
   const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
-  const navigationItems = Array.isArray(input.navigationItems) ? input.navigationItems : [];
+  const requestedNavigationItems = Array.isArray(input.navigationItems)
+    ? input.navigationItems
+    : [];
+  const navigationItems = requireNotificationSettings
+    ? Array.from(new Set([
+        ...requestedNavigationItems,
+        "business.settings" as const,
+      ]))
+    : requestedNavigationItems;
   const hasBoardAssignments = navigationItems.includes(
     "business.board_assignments",
   );
@@ -8206,8 +8770,8 @@ function validateCreatePositionRequest(input: unknown):
     errors.push("Укажите название должности.");
   }
   if (
-    navigationItems.length === 0 ||
-    !navigationItems.every(isAccountNavigationItem) ||
+    requestedNavigationItems.length === 0 ||
+    !requestedNavigationItems.every(isAccountNavigationItem) ||
     !validatePositionNavigationItems(navigationItems)
   ) {
     errors.push("Выберите хотя бы одну доступную вкладку.");
@@ -8299,10 +8863,13 @@ function sendProtectedPositionMutationDenied(res: ServerResponse) {
   });
 }
 
-function validateUpdatePositionRequest(input: unknown):
+function validateUpdatePositionRequest(
+  input: unknown,
+  options: { requireNotificationSettings?: boolean } = {},
+):
   | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
-  const validation = validateCreatePositionRequest(input);
+  const validation = validateCreatePositionRequest(input, options);
   if (!validation.ok) {
     return validation;
   }
@@ -9025,6 +9592,7 @@ function readEquipmentReportDate(submissions: readonly DispatcherSubmission[]) {
 async function notifyDispatcherSubmission(
   submission: Awaited<ReturnType<DispatcherSubmissionsRepository["create"]>>,
   referenceDataSource: DispatcherReferenceDataSource,
+  notificationSettings: NotificationSettingsRepository | undefined,
   emailNotificationService: EmailNotificationService,
   maxNotificationService: MaxNotificationService,
 ) {
@@ -9033,17 +9601,26 @@ async function notifyDispatcherSubmission(
   }
 
   try {
-    const referenceData = await referenceDataSource.read();
+    const notificationType = readDispatcherNotificationType(submission.formId);
+    const recipients = notificationSettings !== undefined && notificationType !== undefined
+      ? await readAccountNotificationRecipients(
+          notificationSettings,
+          notificationType,
+        )
+      : undefined;
+    const referenceData = recipients === undefined
+      ? await referenceDataSource.read()
+      : undefined;
 
     await notifyByEmail(
       emailNotificationService,
       submission,
-      referenceData.notificationRecipients,
+      recipients?.email ?? referenceData!.notificationRecipients,
     );
     await notifyByMax(
       maxNotificationService,
       submission,
-      referenceData.maxNotificationRecipients,
+      recipients?.max ?? referenceData!.maxNotificationRecipients,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.reference_data_failed", error);
@@ -9142,27 +9719,78 @@ async function notifyDispatcherEquipmentReport(
   submissions: readonly DispatcherSubmission[],
   reportStatus: "created" | "updated",
   referenceDataSource: DispatcherReferenceDataSource,
+  notificationSettings: NotificationSettingsRepository | undefined,
   emailNotificationService: EmailNotificationService,
   maxNotificationService: MaxNotificationService,
 ) {
   try {
-    const referenceData = await referenceDataSource.read();
+    const recipients = notificationSettings === undefined
+      ? undefined
+      : await readAccountNotificationRecipients(
+          notificationSettings,
+          "equipment_reports",
+        );
+    const referenceData = recipients === undefined
+      ? await referenceDataSource.read()
+      : undefined;
 
     await notifyEquipmentReportByEmail(
       emailNotificationService,
       submissions,
-      referenceData.notificationRecipients,
+      recipients?.email ?? referenceData!.notificationRecipients,
       reportStatus,
     );
     await notifyEquipmentReportByMax(
       maxNotificationService,
       submissions,
-      referenceData.maxNotificationRecipients,
+      recipients?.max ?? referenceData!.maxNotificationRecipients,
       reportStatus,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.reference_data_failed", error);
   }
+}
+
+function readDispatcherNotificationType(
+  formId: DispatcherSubmission["formId"],
+): NotificationType | undefined {
+  if (formId === "incident" || formId === "incident_close") {
+    return "incidents";
+  }
+  if (formId === "visitor" || formId === "visitor_exit") {
+    return "visitors";
+  }
+  if (formId === "production") {
+    return "production_reports";
+  }
+  return undefined;
+}
+
+async function readAccountNotificationRecipients(
+  notificationSettings: NotificationSettingsRepository,
+  type: NotificationType,
+) {
+  const recipients = await notificationSettings.listDeliveryRecipients(type);
+  const emails = Array.from(new Set(recipients.flatMap(({ email }) =>
+    email === undefined ? [] : [email]
+  )));
+  const maxUserIds = Array.from(new Set(recipients.flatMap(({ maxUserId }) =>
+    maxUserId === undefined ? [] : [maxUserId]
+  )));
+
+  return {
+    email: buildDispatcherRecipientGroups(emails),
+    max: buildDispatcherRecipientGroups(maxUserIds),
+  };
+}
+
+function buildDispatcherRecipientGroups(values: readonly string[]) {
+  return {
+    incidentAndEquipment: [...values],
+    mechanicalDowntime: [],
+    electricalDowntime: [],
+    visitors: [...values],
+  };
 }
 
 async function notifyByEmail(
@@ -9662,6 +10290,7 @@ async function readRequestAccess(
   | {
       profile: ServerUserProfile;
       source: "auth" | "dev";
+      sessionId: string;
     }
   | undefined
 > {
@@ -9674,6 +10303,7 @@ async function readRequestAccess(
       return {
         profile: session.profile,
         source: "auth",
+        sessionId: session.sessionId,
       };
     }
   }
@@ -9686,7 +10316,7 @@ async function readRequestAccess(
   const devSession =
     devSessionId === undefined ? undefined : devSessions.get(devSessionId);
 
-  if (devSession === undefined) {
+  if (devSessionId === undefined || devSession === undefined) {
     return undefined;
   }
 
@@ -9703,6 +10333,7 @@ async function readRequestAccess(
       devSession.createdAt,
     ) as ServerUserProfile,
     source: "dev",
+    sessionId: devSessionId,
   };
 }
 

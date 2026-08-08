@@ -74,6 +74,7 @@ import type {
   BoardAssignmentFilters,
   BoardAssignmentsRepository,
 } from "../repositories/boardAssignmentsRepository.js";
+import type { NotificationSettingsRepository } from "../repositories/notificationSettingsRepository.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
 import { createApiServer } from "./app.js";
@@ -5047,7 +5048,15 @@ test("admin positions API creates a position with tabs from the unified workspac
     assert.equal(response.status, 201);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 
-  assert.deepEqual(createdInput?.navigationItems, ["business.overview", "business.dispatcher_form"]);
+  assert.deepEqual(createdInput?.navigationItems, [
+    "business.overview",
+    "business.dispatcher_form",
+    "business.settings",
+  ]);
+  assert.equal(
+    createdInput?.capabilities.includes("business.manage_notification_settings"),
+    true,
+  );
   assert.equal(createdInput?.capabilities.includes("business.view_dispatcher_feed"), true);
 });
 
@@ -5172,6 +5181,7 @@ test("admin positions API stores the selected board assignment access variant", 
 
   assert.deepEqual(created[0]?.capabilities, [
     "business.view_board_assignments",
+    "business.manage_notification_settings",
     "business.create_board_assignments",
     "business.review_board_assignments",
   ]);
@@ -5252,12 +5262,17 @@ test("primary admin can add admin tabs to a unified position", async () => {
 
   assert.deepEqual(created[1], {
     displayName: "Руководитель с админской БД",
-    navigationItems: ["business.overview", "admin.database"],
+    navigationItems: [
+      "business.overview",
+      "admin.database",
+      "business.settings",
+    ],
     capabilities: [
       "business.view_all_statistics",
       "business.view_notifications",
       "business.view_dispatcher_feed",
       "platform.manage_analytics_database",
+      "business.manage_notification_settings",
     ],
   });
 });
@@ -5327,6 +5342,7 @@ test("production account with canonical admin login can assign admin tabs", asyn
   assert.deepEqual(created[0]?.navigationItems, [
     "business.overview",
     "admin.database",
+    "business.settings",
   ]);
 });
 
@@ -5433,6 +5449,7 @@ test("delegated account manager cannot change admin tabs on a position", async (
     "business.overview",
     "business.dispatcher",
     "admin.database",
+    "business.settings",
   ]);
 });
 
@@ -8676,6 +8693,98 @@ test("remote API notifies recipients after successful incident submission", asyn
   );
 });
 
+test("dispatcher notifications use the per-user server settings instead of sheet recipients", async () => {
+  let requestedType: string | undefined;
+  let emailRecipients: NotificationRecipients | undefined;
+  let maxRecipients: NotificationRecipients | undefined;
+  const notificationSettings = {
+    async listDeliveryRecipients(type: string) {
+      requestedType = type;
+      return [{
+        userId: "manager-user",
+        position: "business_owner",
+        email: "manager@example.com",
+        maxUserId: "501",
+      }];
+    },
+  } as NotificationSettingsRepository;
+  const emailNotificationService = {
+    async sendDispatcherSubmissionNotification(_submission, recipients) {
+      emailRecipients = recipients;
+    },
+    async sendEquipmentReportNotification() {},
+    async sendRefractoryReportNotification() {},
+  } satisfies EmailNotificationService;
+  const maxNotificationService = {
+    async sendDispatcherSubmissionNotification(_submission, recipients) {
+      maxRecipients = recipients;
+    },
+    async sendEquipmentReportNotification() {},
+    async sendRefractoryReportNotification() {},
+  } satisfies MaxNotificationService;
+  const server = createApiServer({
+    config,
+    dispatcherSubmissions,
+    referenceDataSource: {
+      async read() {
+        throw new Error("Google Sheets recipients must not be read.");
+      },
+    },
+    notificationSettings,
+    emailNotificationService,
+    maxNotificationService,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: {
+      async run(operation) { return operation(); },
+    },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const headers = await createDispatcherHeaders(baseUrl);
+    const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        formId: "incident",
+        payload: {
+          datetime: "2026-06-18T10:30",
+          location: "Цех №1",
+          incidentType: "Поломка оборудования по мех. части",
+          description: "Поломка",
+          criticality: "Средний",
+          responsible: "Диспетчер",
+          immediateActions: "Остановили участок",
+        },
+      }),
+    });
+
+    assert.equal(response.status, 201);
+    assert.equal(requestedType, "incidents");
+    assert.deepEqual(emailRecipients, {
+      incidentAndEquipment: ["manager@example.com"],
+      mechanicalDowntime: [],
+      electricalDowntime: [],
+      visitors: ["manager@example.com"],
+    });
+    assert.deepEqual(maxRecipients, {
+      incidentAndEquipment: ["501"],
+      mechanicalDowntime: [],
+      electricalDowntime: [],
+      visitors: ["501"],
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("remote API notifies visitor recipients after successful visitor submission", async () => {
   let notifiedSubmissionId: string | undefined;
   let notifiedRecipients: NotificationRecipients | undefined;
@@ -10377,6 +10486,220 @@ test("board assignment completion history returns immutable accepted snapshots",
       detailPayload.completion.assignment.comments.at(-1)?.comment,
       "Исполнение принято.",
     );
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("notification settings API returns login reminders and persists server-owned channel choices", async () => {
+  const profile = buildProductionProfile("business_owner");
+  profile.userId = "director-user";
+  profile.activeAccess.position = "general_director";
+  profile.activeAccess.positionDisplayName = "Генеральный директор";
+  profile.activeAccess.navigationItems = ["business.settings"];
+  profile.activeAccess.capabilities = [
+    "business.manage_notification_settings",
+  ];
+  const setting = {
+    type: "board_assignments" as const,
+    label: "Поручения Совета директоров",
+    adminEnabled: true,
+    emailEnabled: true,
+    maxEnabled: true,
+  };
+  const userSettings = {
+    userId: profile.userId,
+    displayName: profile.displayName,
+    position: "general_director" as const,
+    positionDisplayName: "Генеральный директор",
+    isProtected: false,
+    email: "director@example.com",
+    maxUserId: "101",
+    settings: [setting],
+  };
+  const ownUpdates: unknown[] = [];
+  const adminUpdates: unknown[] = [];
+  let hasClaimedLoginDelivery = false;
+  const notificationSettings: NotificationSettingsRepository = {
+    async listUsers() {
+      return [userSettings];
+    },
+    async readUserSettings() {
+      return userSettings;
+    },
+    async setAdminEnabled(input) {
+      adminUpdates.push(input);
+      return true;
+    },
+    async setOwnChannels(input) {
+      ownUpdates.push(input);
+    },
+    async updateContacts() {
+      return true;
+    },
+    async listDeliveryRecipients() {
+      return [{
+        userId: profile.userId,
+        position: "general_director",
+        email: "director@example.com",
+        maxUserId: "101",
+      }];
+    },
+    async claimLoginDelivery() {
+      if (hasClaimedLoginDelivery) return false;
+      hasClaimedLoginDelivery = true;
+      return true;
+    },
+  };
+  const boardAssignments = {
+    async list() {
+      return [{
+        id: "assignment-1",
+        meetingDate: "2026-07-10",
+        protocolNumber: "369",
+        decisionNumber: "2.3",
+        summary: "Подготовить анализ",
+        coExecutors: [],
+        dueDate: "07.08.2026",
+        recurrence: "once",
+        activeFrom: "2026-07-10",
+        activeTo: "2026-08-31",
+        currentOccurrenceDate: "2026-08-07",
+        status: "in_progress",
+        createdByDisplayName: "Лариков А.Т.",
+        createdAt: "2026-07-10T08:00:00.000Z",
+        updatedAt: "2026-07-10T08:00:00.000Z",
+      }];
+    },
+  } as unknown as BoardAssignmentsRepository;
+  const sentEmail: string[] = [];
+  const sentMax: string[] = [];
+  const auditActions: string[] = [];
+  const auditDetailValues: string[] = [];
+  const emailNotificationService = {
+    async sendTextNotification(recipients: readonly string[]) {
+      sentEmail.push(...recipients);
+    },
+    async sendDispatcherSubmissionNotification() {},
+    async sendEquipmentReportNotification() {},
+    async sendRefractoryReportNotification() {},
+  } satisfies EmailNotificationService;
+  const maxNotificationService = {
+    async sendTextNotification(recipients: readonly string[]) {
+      sentMax.push(...recipients);
+    },
+    async sendDispatcherSubmissionNotification() {},
+    async sendEquipmentReportNotification() {},
+    async sendRefractoryReportNotification() {},
+  } satisfies MaxNotificationService;
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile }),
+    notificationSettings,
+    boardAssignments,
+    emailNotificationService,
+    maxNotificationService,
+    audit: {
+      async record(event) {
+        auditActions.push(event.action);
+        auditDetailValues.push(
+          ...(event.details ?? []).map(({ value }) => value),
+        );
+      },
+      async listReport() {
+        throw new Error("not used");
+      },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+    now: () => new Date("2026-08-08T08:00:00.000Z"),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const loginResponse = await fetch(`${baseUrl}/api/login-notifications`, {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
+    const loginPayload = await loginResponse.json() as {
+      notifications: Array<{ title: string; message: string }>;
+    };
+    assert.equal(loginResponse.status, 200);
+    assert.deepEqual(loginPayload.notifications.map(({ title }) => title), [
+      "Совет директоров",
+      "Просрочено поручение",
+    ]);
+    assert.deepEqual(sentEmail, []);
+    assert.deepEqual(sentMax, ["101"]);
+
+    const repeatedLoginResponse = await fetch(
+      `${baseUrl}/api/login-notifications`,
+      { method: "POST", headers, body: "{}" },
+    );
+    assert.equal(repeatedLoginResponse.status, 200);
+    assert.deepEqual(sentMax, ["101"]);
+
+    const getResponse = await fetch(`${baseUrl}/api/notification-settings`, {
+      headers,
+    });
+    assert.equal(getResponse.status, 200);
+
+    const patchResponse = await fetch(
+      `${baseUrl}/api/notification-settings/board_assignments`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ emailEnabled: false, maxEnabled: true }),
+      },
+    );
+    assert.equal(patchResponse.status, 200);
+    assert.deepEqual(ownUpdates, [{
+      userId: profile.userId,
+      type: "board_assignments",
+      emailEnabled: false,
+      maxEnabled: true,
+    }]);
+    assert.ok(auditActions.includes("account.notification_settings_update"));
+
+    profile.activeAccess.navigationItems = ["admin.accounts"];
+    profile.activeAccess.capabilities = ["platform.manage_users"];
+    const adminListResponse = await fetch(
+      `${baseUrl}/api/admin/notification-settings`,
+      { headers },
+    );
+    assert.equal(adminListResponse.status, 200);
+    const adminPatchResponse = await fetch(
+      `${baseUrl}/api/admin/notification-settings/${profile.userId}/board_assignments`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ adminEnabled: false }),
+      },
+    );
+    assert.equal(adminPatchResponse.status, 200);
+    assert.deepEqual(adminUpdates, [{
+      userId: profile.userId,
+      type: "board_assignments",
+      adminEnabled: false,
+      allowProtectedAccountMutation: false,
+    }]);
+    assert.ok(auditDetailValues.includes("Поручения Совета директоров"));
+    assert.ok(auditDetailValues.includes(profile.displayName));
+    assert.equal(auditDetailValues.includes("board_assignments"), false);
+    assert.equal(auditDetailValues.includes(profile.userId), false);
   } finally {
     server.close();
     await once(server, "close");

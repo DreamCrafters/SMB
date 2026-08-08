@@ -419,6 +419,84 @@ test("forming dashboard filters report rows by product brand", async () => {
   }
 });
 
+test("sorting dashboard filters report rows by product brand", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  installDomGlobals(dom.window);
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  try {
+    const { ProductionReportSummaryTable } = await vite.ssrLoadModule(
+      "/src/App.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(React.createElement(ProductionReportSummaryTable, {
+        form: undefined,
+        submissions: [],
+        bankContents: [],
+        tables: {
+          forming: [],
+          sorting: [
+            {
+              reportId: "sorting-1",
+              reportDate: "2026-08-01",
+              receivedAt: "2026-08-01T18:00:00.000Z",
+              facts: [{ brand: "МКР-1", value: 5, monthValue: 5 }],
+              dayFact: 5,
+              monthFact: 5,
+            },
+            {
+              reportId: "sorting-2",
+              reportDate: "2026-08-02",
+              receivedAt: "2026-08-02T18:00:00.000Z",
+              facts: [{ brand: "МКР-2", value: 7, monthValue: 7 }],
+              dayFact: 7,
+              monthFact: 12,
+            },
+          ],
+          unformed: [],
+          chamotte: [],
+          jars: [],
+          granulation: [],
+        },
+        totals: {
+          ...emptyProductionTableTotals(),
+          sorting: { rowCount: 2, dayFact: 12, monthFact: 12 },
+        },
+      }));
+    });
+
+    const brandFilter = rootElement.querySelector(
+      'input[aria-label="Фильтр по марке"]',
+    );
+    assert.ok(brandFilter instanceof dom.window.HTMLInputElement);
+
+    await React.act(async () => {
+      setNativeInputValue(brandFilter, " мкр-2 ");
+      brandFilter.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+
+    assert.equal(
+      rootElement.querySelector(".production-dashboard-row-count")?.textContent,
+      "Строк в таблице: 1",
+    );
+    assert.match(rootElement.textContent ?? "", /МКР-2/u);
+    assert.doesNotMatch(rootElement.textContent ?? "", /МКР-1/u);
+
+    await React.act(async () => root.unmount());
+  } finally {
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 test("production dashboard totals follow the selected jars and granulation table", async () => {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id=\"root\"></div></body></html>",

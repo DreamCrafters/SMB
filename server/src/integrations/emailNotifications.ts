@@ -30,6 +30,11 @@ export type EmailMessage = {
 };
 
 export type EmailNotificationService = {
+  sendTextNotification?: (
+    recipients: readonly string[],
+    subject: string,
+    text: string,
+  ) => Promise<void>;
   sendDispatcherSubmissionNotification: (
     submission: DispatcherSubmission,
     recipients: NotificationRecipients,
@@ -57,6 +62,9 @@ export function createEmailNotificationService(
 ): EmailNotificationService {
   if (!config.enabled) {
     return {
+      async sendTextNotification() {
+        // Email notifications are intentionally disabled by env.
+      },
       async sendDispatcherSubmissionNotification() {
         // Email notifications are intentionally disabled by env.
       },
@@ -72,6 +80,22 @@ export function createEmailNotificationService(
   const sendMail = dependencies.sendMail ?? createSmtpSendMail(config);
 
   return {
+    async sendTextNotification(recipients, subject, text) {
+      const to = dedupeEmailRecipients(recipients);
+
+      if (to.length === 0) {
+        return;
+      }
+
+      await sendMail({
+        from: config.from,
+        to,
+        subject: config.subjectPrefix.length > 0
+          ? `[${config.subjectPrefix}] ${subject}`
+          : subject,
+        text: appendNotificationEnvironmentNote(text, appEnv),
+      });
+    },
     async sendDispatcherSubmissionNotification(submission, recipients) {
       const message = buildDispatcherSubmissionEmail(
         submission,
@@ -129,6 +153,12 @@ export function createEmailNotificationService(
       }
     },
   };
+}
+
+function dedupeEmailRecipients(recipients: readonly string[]) {
+  return Array.from(new Set(
+    recipients.map((recipient) => recipient.trim()).filter(Boolean),
+  ));
 }
 
 export function buildRefractoryReviewRequestEmail(

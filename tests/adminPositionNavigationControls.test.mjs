@@ -163,6 +163,7 @@ test("delegated account manager preserves disabled admin tabs while editing busi
       navigationItems: [
         "business.overview",
         "admin.database",
+        "business.settings",
         "business.dispatcher",
       ],
       boardAssignmentAccess: "none",

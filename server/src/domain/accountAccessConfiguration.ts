@@ -62,6 +62,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.laboratory_results",
   "business.laboratory_review",
   "business.board_assignments",
+  "business.settings",
   "business.dispatcher_form",
 ];
 
@@ -90,6 +91,7 @@ const capabilitiesByNavigationItem: Record<
   "business.laboratory_results": ["business.manage_laboratory_results"],
   "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
+  "business.settings": ["business.manage_notification_settings"],
   "business.dispatcher_form": [
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",

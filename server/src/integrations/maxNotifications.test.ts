@@ -104,6 +104,37 @@ test("createMaxNotificationService sends incident openings to user ids", async (
   });
 });
 
+test("createMaxNotificationService sends an addressed text notification", async () => {
+  const sent: { url: string; init: RequestInit | undefined }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), init });
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+
+  await service.sendTextNotification?.(
+    ["1001", "1001", "2002"],
+    "Поручение передано на проверку.",
+  );
+
+  assert.deepEqual(sent.map(({ url }) => url), [
+    "https://platform-api2.max.ru/messages?user_id=1001",
+    "https://platform-api2.max.ru/messages?user_id=2002",
+  ]);
+  assert.match(String(sent[0]?.init?.body), /\[SMB Monitor\]/u);
+  assert.match(String(sent[0]?.init?.body), /Поручение передано на проверку/u);
+});
+
 test("createMaxNotificationService sends production reports to equipment recipients", async () => {
   const sent: { url: string; body: string }[] = [];
   const service = createMaxNotificationService(
@@ -341,7 +372,13 @@ test("createMaxNotificationService rejects when MAX responds with an error", asy
         buildSubmission("incident", { incidentNumber: "INC-2026-1" }),
         recipients,
       ),
-    /MAX responded with 403: \{"message":"access denied"\}/,
+    (error: unknown) => {
+      assert.ok(error instanceof AggregateError);
+      assert.match(error.message, /1 of 1 recipients/u);
+      assert.doesNotMatch(error.message, /access denied/u);
+      assert.doesNotMatch(JSON.stringify(error.errors), /access denied/u);
+      return true;
+    },
   );
 });
 
@@ -379,7 +416,7 @@ test("createMaxNotificationService keeps sending after a failed recipient", asyn
     (error: unknown) => {
       assert.ok(error instanceof AggregateError);
       assert.match(error.message, /1 of 3 recipients/u);
-      assert.match(error.message, /4002: MAX responded with 404/u);
+      assert.doesNotMatch(error.message, /4002/u);
       return true;
     },
   );

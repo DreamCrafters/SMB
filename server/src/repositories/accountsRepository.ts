@@ -28,6 +28,8 @@ export type AdminAccountSummary = {
   userId: string;
   login: string;
   userDisplayName: string;
+  email?: string;
+  maxUserId?: string;
   userStatus: AdminUserStatus;
   isProtected: boolean;
   accessDisplayName: string;
@@ -80,6 +82,8 @@ export type CreateAccountInput = {
   login: string;
   password: string;
   displayName: string;
+  email?: string;
+  maxUserId?: string;
   accountType: AccountType;
   position?: AccountPosition;
   capabilities: AccountCapability[];
@@ -193,6 +197,8 @@ type AccountRow = RowDataPacket & {
   user_id: string;
   login: string;
   user_display_name: string;
+  email: string | null;
+  max_user_id: string | null;
   user_status: string;
   is_protected: number | boolean;
   access_display_name: string;
@@ -259,6 +265,8 @@ const accountRowSelect = `
     users.id as user_id,
     users.login,
     users.display_name as user_display_name,
+    users.email,
+    users.max_user_id,
     users.status as user_status,
     users.is_admin_protected as is_protected,
     accesses.display_name as access_display_name,
@@ -565,10 +573,18 @@ export function createAccountsRepository(
       try {
         await connection.query(
           `
-            insert into app_users (id, login, display_name, status)
-            values (?, ?, ?, 'active')
+            insert into app_users (
+              id, login, display_name, email, max_user_id, status
+            )
+            values (?, ?, ?, ?, ?, 'active')
           `,
-          [userId, input.login, input.displayName],
+          [
+            userId,
+            input.login,
+            input.displayName,
+            input.email ?? null,
+            input.maxUserId ?? null,
+          ],
         );
       } catch (error) {
         if (isDuplicateEntryError(error)) {
@@ -1011,6 +1027,8 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     userId: row.user_id,
     login: row.login,
     userDisplayName: row.user_display_name,
+    ...optionalText("email", row.email),
+    ...optionalText("maxUserId", row.max_user_id),
     userStatus: readAdminUserStatus(row.user_status),
     isProtected: row.is_protected === true || row.is_protected === 1,
     accessDisplayName: row.access_display_name,
@@ -1094,6 +1112,17 @@ function readCapabilities(value: unknown): AccountCapability[] {
   const parsed = typeof value === "string" ? safelyParseJson(value) : value;
 
   return Array.isArray(parsed) ? (parsed as AccountCapability[]) : [];
+}
+
+function optionalText<Key extends "email" | "maxUserId">(
+  key: Key,
+  value: string | null,
+): Partial<Record<Key, string>> {
+  const normalized = value?.trim();
+
+  return normalized === undefined || normalized.length === 0
+    ? {}
+    : { [key]: normalized } as Record<Key, string>;
 }
 
 function safelyParseJson(value: string) {

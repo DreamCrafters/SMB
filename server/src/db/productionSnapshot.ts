@@ -447,7 +447,8 @@ function normalizeCreateTableSql(value: string) {
 function withClearedAuthSessions(snapshot: DatabaseSnapshot): DatabaseSnapshot {
   return {
     tables: snapshot.tables.map((table) =>
-      table.name === "auth_sessions"
+      table.name === "auth_sessions" ||
+        table.name === "auth_session_notification_deliveries"
         ? { ...table, rows: [] }
         : table,
     ),

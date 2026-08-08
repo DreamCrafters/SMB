@@ -12,6 +12,8 @@ export type AdminAccountSummary = {
   userId: string;
   login: string;
   userDisplayName: string;
+  email?: string;
+  maxUserId?: string;
   userStatus: string;
   isProtected: boolean;
   accessDisplayName: string;
@@ -33,7 +35,19 @@ export type CreateAdminAccountRequest = {
   login: string;
   password: string;
   displayName: string;
+  email?: string;
+  maxUserId?: string;
   position: AccountPosition;
+};
+
+export type UpdateAdminAccountContactsRequest = {
+  userId: string;
+  email: string;
+  maxUserId: string;
+};
+
+export type UpdateAdminAccountContactsResponse = {
+  account: AdminAccountSummary;
 };
 
 export type AdminPositionSummary = {

@@ -525,6 +525,38 @@ test("createEmailNotificationService sends through injected mailer when enabled"
   assert.doesNotMatch(sent[0]?.text ?? "", /Тестовое сообщение/u);
 });
 
+test("createEmailNotificationService sends an addressed text notification", async () => {
+  const sent: EmailMessage[] = [];
+  const service = createEmailNotificationService(
+    {
+      enabled: true,
+      from: "noreply@example.com",
+      subjectPrefix: "SMB Monitor",
+      smtpHost: "smtp.example.com",
+      smtpPort: 587,
+      smtpSecure: false,
+    },
+    {
+      async sendMail(message) {
+        sent.push(message);
+      },
+    },
+  );
+
+  await service.sendTextNotification?.(
+    [" first@example.com ", "first@example.com", "second@example.com"],
+    "Проверка поручения",
+    "Поручение передано на проверку.",
+  );
+
+  assert.deepEqual(sent, [{
+    from: "noreply@example.com",
+    to: ["first@example.com", "second@example.com"],
+    subject: "[SMB Monitor] Проверка поручения",
+    text: "Поручение передано на проверку.",
+  }]);
+});
+
 test("createEmailNotificationService marks every test-site message at the end", async () => {
   const sent: EmailMessage[] = [];
   const service = createEmailNotificationService(

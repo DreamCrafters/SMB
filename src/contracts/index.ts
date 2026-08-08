@@ -6,6 +6,7 @@ export * from "./audit";
 export * from "./businessOverview";
 export * from "./boardAssignments";
 export * from "./organization";
+export * from "./notificationSettings";
 export * from "./productionPlans";
 export * from "./productBrands";
 export * from "./refractoryReports";

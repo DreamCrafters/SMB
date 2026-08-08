@@ -76,6 +76,8 @@ test("admin accounts service creates an account without client-generated ids", a
     login: "dispatcher-1",
     password: "supersecret1",
     displayName: "Диспетчер Один",
+    email: "dispatcher@example.com",
+    maxUserId: "101",
     position: "dispatcher",
   });
 
@@ -86,6 +88,8 @@ test("admin accounts service creates an account without client-generated ids", a
     login: "dispatcher-1",
     password: "supersecret1",
     displayName: "Диспетчер Один",
+    email: "dispatcher@example.com",
+    maxUserId: "101",
     position: "dispatcher",
   });
 });

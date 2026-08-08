@@ -20,6 +20,7 @@ test("positions can combine the unified workspace with guarded admin tabs", asyn
       "business.laboratory_results",
       "business.laboratory_review",
       "business.board_assignments",
+      "business.settings",
       "business.user_actions",
       "business.dispatcher_form",
     ],

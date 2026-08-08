@@ -245,6 +245,11 @@ import {
 import { LaboratoryResultsWorkspace } from "./LaboratoryResults";
 import { LaboratoryReviewWorkspace } from "./LaboratoryReview";
 import { BoardAssignmentsWorkspace } from "./BoardAssignments";
+import {
+  AdminNotificationSettingsModal,
+  NotificationSettingsWorkspace,
+} from "./NotificationSettings";
+import { requestLoginNotifications } from "./services/notificationSettings";
 
 type BusinessTab =
   | "overview"
@@ -255,6 +260,7 @@ type BusinessTab =
   | "laboratory_results"
   | "laboratory_review"
   | "board_assignments"
+  | "settings"
   | "user_actions"
   | "dispatcher_form";
 type AdminTab = "account_preview" | "accounts" | "database" | "user_actions";
@@ -268,6 +274,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   laboratory_results: "business.laboratory_results",
   laboratory_review: "business.laboratory_review",
   board_assignments: "business.board_assignments",
+  settings: "business.settings",
   user_actions: "business.user_actions",
   dispatcher_form: "business.dispatcher_form",
 };
@@ -530,6 +537,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "laboratory_review";
     case "business.board_assignments":
       return "board_assignments";
+    case "business.settings":
+      return "settings";
     case "business.user_actions":
       return "user_actions";
     case "business.dispatcher_form":
@@ -639,6 +648,7 @@ export default function App() {
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const nextToastIdRef = useRef(0);
   const toastTimeoutIdsRef = useRef<Set<number>>(new Set());
+  const loginNotificationRequestIdRef = useRef(0);
   const lastRecordedScreenRef = useRef("");
 
   useEffect(() => {
@@ -718,6 +728,7 @@ export default function App() {
     const timeoutIds = toastTimeoutIdsRef.current;
 
     return () => {
+      loginNotificationRequestIdRef.current += 1;
       timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
       timeoutIds.clear();
     };
@@ -1115,12 +1126,23 @@ export default function App() {
     }
 
     const shortName = formatUserShortName(accessProfile.profile.displayName);
+    const requestId = loginNotificationRequestIdRef.current + 1;
+    loginNotificationRequestIdRef.current = requestId;
 
     handleShowToast(
       "Добро пожаловать",
       shortName.length > 0 ? `Здравствуйте, ${shortName}!` : "Здравствуйте!",
     );
     setIsWelcomePending(false);
+    void requestLoginNotifications().then((result) => {
+      if (
+        loginNotificationRequestIdRef.current !== requestId ||
+        result.status !== "ready"
+      ) return;
+      result.notifications.forEach(({ title, message }) => {
+        handleShowToast(title, message);
+      });
+    });
   }, [accessProfile, isWelcomePending]);
 
   useEffect(() => {
@@ -1264,6 +1286,7 @@ export default function App() {
   }
 
   async function handleClearSession() {
+    loginNotificationRequestIdRef.current += 1;
     setIsWelcomePending(false);
     setDispatcherIncidentLoginPrompt("idle");
     setRequestedDispatcherFormId(undefined);
@@ -1281,6 +1304,7 @@ export default function App() {
   }
 
   async function handleAutomaticDispatcherLogout() {
+    loginNotificationRequestIdRef.current += 1;
     setIsWelcomePending(false);
     setDispatcherIncidentLoginPrompt("idle");
     setRequestedDispatcherFormId(undefined);
@@ -2560,6 +2584,14 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "board_assignments") {
     return (
       <BoardAssignmentsWorkspace
+        isAdminPreviewMode={isAdminPreviewMode}
+        onShowToast={onShowToast}
+      />
+    );
+  }
+  if (effectiveOwnerTab === "settings") {
+    return (
+      <NotificationSettingsWorkspace
         isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
       />
@@ -6779,14 +6811,23 @@ export function ProductionReportSummaryTable({
     () => firstAvailableSection ?? "forming",
   );
   const [formingBrandQuery, setFormingBrandQuery] = useState("");
+  const [sortingBrandQuery, setSortingBrandQuery] = useState("");
   const hadAvailableSectionRef = useRef(firstAvailableSection !== undefined);
   const [detailReportId, setDetailReportId] = useState<string>();
   const filteredFormingRows = filterProductionBrandCategoryRows(
     tables.forming,
     formingBrandQuery,
   );
+  const filteredSortingRows = filterProductionBrandCategoryRows(
+    tables.sorting,
+    sortingBrandQuery,
+  );
   const selectedRows = (
-    section === "forming" ? filteredFormingRows : tables[section]
+    section === "forming"
+      ? filteredFormingRows
+      : section === "sorting"
+        ? filteredSortingRows
+        : tables[section]
   ) as ProductionReportBaseRow[];
   const detailRow = selectedRows.find(
     (row) => row.reportId === detailReportId,
@@ -6868,15 +6909,25 @@ export function ProductionReportSummaryTable({
         ))}
       </div>
 
-      {section === "forming" ? (
+      {section === "forming" || section === "sorting" ? (
         <label className="production-dashboard-brand-filter">
           <span>Фильтр по марке</span>
           <input
             aria-label="Фильтр по марке"
             type="search"
-            value={formingBrandQuery}
+            value={
+              section === "forming" ? formingBrandQuery : sortingBrandQuery
+            }
             placeholder="Введите марку"
-            onChange={(event) => setFormingBrandQuery(event.currentTarget.value)}
+            onChange={(event) => {
+              const query = event.currentTarget.value;
+
+              if (section === "forming") {
+                setFormingBrandQuery(query);
+              } else {
+                setSortingBrandQuery(query);
+              }
+            }}
           />
         </label>
       ) : null}
@@ -6894,10 +6945,18 @@ export function ProductionReportSummaryTable({
         section === "unformed" ||
         section === "chamotte" ? (
         <ProductionBrandDashboardTable
-          rows={section === "forming" ? filteredFormingRows : tables[section]}
+          rows={
+            section === "forming"
+              ? filteredFormingRows
+              : section === "sorting"
+                ? filteredSortingRows
+                : tables[section]
+          }
           totals={
             section === "forming" && formingBrandQuery.trim() !== ""
               ? buildProductionBrandCategoryTotals(filteredFormingRows)
+              : section === "sorting" && sortingBrandQuery.trim() !== ""
+                ? buildProductionBrandCategoryTotals(filteredSortingRows)
               : totals[section]
           }
           formAvailable={form !== undefined}
@@ -9407,6 +9466,8 @@ type AdminAccountFormState = {
   login: string;
   password: string;
   displayName: string;
+  email: string;
+  maxUserId: string;
   position: AccountPosition;
 };
 
@@ -9419,6 +9480,8 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   login: "",
   password: "",
   displayName: "",
+  email: "",
+  maxUserId: "",
   position: "worker",
 };
 
@@ -9428,6 +9491,7 @@ type AdminPositionFormState = {
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
   showAdminNavigation: boolean;
+  requireNotificationSettings: boolean;
 };
 
 const emptyAdminPositionForm: AdminPositionFormState = {
@@ -9442,6 +9506,7 @@ const emptyAdminPositionForm: AdminPositionFormState = {
     .map(({ id }) => id),
   boardAssignmentAccess: "view",
   showAdminNavigation: false,
+  requireNotificationSettings: true,
 };
 
 const positionOrderAutosaveDelayMs = 5_000;
@@ -9614,6 +9679,7 @@ function AdminAccountsWorkspace({
   const [formStatus, setFormStatus] = useState("");
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [positionForm, setPositionForm] = useState<AdminPositionFormState>(emptyAdminPositionForm);
   const [positionFormStatus, setPositionFormStatus] = useState("");
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
@@ -9801,14 +9867,20 @@ function AdminAccountsWorkspace({
       : {
           id: position.id,
           displayName: position.displayName,
-          navigationItems: position.navigationItems.filter((id) =>
-            [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin]
-              .some((item) => item.id === id),
-          ),
+          navigationItems: Array.from(new Set([
+            ...position.navigationItems.filter((id) =>
+              [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin]
+                .some((item) => item.id === id),
+            ),
+            ...(position.accountType === "business_owner"
+              ? ["business.settings" as const]
+              : []),
+          ])),
           boardAssignmentAccess: position.boardAssignmentAccess,
           showAdminNavigation: position.navigationItems.some(
             isAdminNavigationItemId,
           ),
+          requireNotificationSettings: position.accountType === "business_owner",
         });
     setPositionFormStatus("");
     setIsPositionModalOpen(true);
@@ -10059,6 +10131,8 @@ function AdminAccountsWorkspace({
       login: submittedLogin,
       password: submittedPassword,
       displayName: form.displayName.trim(),
+      email: form.email.trim(),
+      maxUserId: form.maxUserId.trim(),
       position: form.position,
     });
 
@@ -10316,6 +10390,13 @@ function AdminAccountsWorkspace({
           >
             Новая должность
           </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => setIsNotificationModalOpen(true)}
+          >
+            Рассылки
+          </button>
         </div>
 
         {workspaceStatus.length > 0 ? (
@@ -10338,6 +10419,8 @@ function AdminAccountsWorkspace({
                   <th scope="col">Должность</th>
                   <th scope="col">Имя</th>
                   <th scope="col">Логин</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">MAX</th>
                   <th scope="col">Защита</th>
                   <th scope="col">Пароль</th>
                   <th scope="col">Вкладки слева</th>
@@ -10463,6 +10546,8 @@ function AdminAccountsWorkspace({
                       </td>
                       <td>{account.userDisplayName}</td>
                       <td>{account.login}</td>
+                      <td>{account.email ?? "—"}</td>
+                      <td>{account.maxUserId ?? "—"}</td>
                       <td>
                         <label
                           className="admin-account-protection-control"
@@ -10592,7 +10677,7 @@ function AdminAccountsWorkspace({
                 })}
                 {accounts.length === 0 ? (
                   <tr>
-                    <td colSpan={7}>Учётных записей пока нет.</td>
+                    <td colSpan={9}>Учётных записей пока нет.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -10796,6 +10881,14 @@ function AdminAccountsWorkspace({
         )}
       </div>
 
+      <AdminNotificationSettingsModal
+        isOpen={isNotificationModalOpen}
+        canManageProtectedAccounts={canManageProtectedAccounts}
+        onClose={() => setIsNotificationModalOpen(false)}
+        onContactsUpdated={() => setRefreshVersion((current) => current + 1)}
+        onShowToast={onShowToast}
+      />
+
       {isCreateModalOpen ? (
         <div
           className="admin-db-modal-backdrop"
@@ -10878,6 +10971,28 @@ function AdminAccountsWorkspace({
                     })
                   }
                   required
+                />
+              </label>
+
+              <label>
+                <span>Email</span>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(event) =>
+                    handleFormFieldChange({ email: event.currentTarget.value })
+                  }
+                />
+              </label>
+
+              <label>
+                <span>MAX</span>
+                <input
+                  type="text"
+                  value={form.maxUserId}
+                  onChange={(event) =>
+                    handleFormFieldChange({ maxUserId: event.currentTarget.value })
+                  }
                 />
               </label>
 
@@ -10999,7 +11114,13 @@ function AdminAccountsWorkspace({
                     )
                     .map((item) => (
                       <label key={item.id} className="admin-account-navigation-option">
-                        <input type="checkbox" disabled={isSubmitting} checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
+                        <input type="checkbox" disabled={
+                          isSubmitting ||
+                          (
+                            item.id === "business.settings" &&
+                            positionForm.requireNotificationSettings
+                          )
+                        } checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
                           const isChecked = event.currentTarget.checked;
                           setPositionForm((current) => ({
                             ...current,

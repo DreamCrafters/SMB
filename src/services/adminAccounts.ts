@@ -434,6 +434,8 @@ export async function createAdminAccount(
         login: value.login,
         password: value.password,
         displayName: value.displayName,
+        email: value.email,
+        maxUserId: value.maxUserId,
         position: value.position,
       }),
     });
@@ -880,6 +882,8 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     typeof value.userId === "string" &&
     typeof value.login === "string" &&
     typeof value.userDisplayName === "string" &&
+    (value.email === undefined || typeof value.email === "string") &&
+    (value.maxUserId === undefined || typeof value.maxUserId === "string") &&
     typeof value.userStatus === "string" &&
     typeof value.isProtected === "boolean" &&
     typeof value.accessDisplayName === "string" &&

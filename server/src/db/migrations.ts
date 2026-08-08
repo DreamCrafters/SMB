@@ -2925,6 +2925,114 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "054_user_notification_settings",
+    statements: [
+      `
+      alter table app_users
+        add column email varchar(320) null after display_name,
+        add column max_user_id varchar(120) null after email;
+      `,
+      `
+      create table if not exists user_notification_settings (
+        user_id char(36) not null,
+        notification_type varchar(64) not null,
+        admin_enabled tinyint(1) not null default 0,
+        email_enabled tinyint(1) not null default 0,
+        max_enabled tinyint(1) not null default 0,
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        primary key (user_id, notification_type),
+        key idx_user_notification_delivery (
+          notification_type,
+          admin_enabled,
+          email_enabled,
+          max_enabled
+        ),
+        constraint fk_user_notification_settings_user
+          foreign key (user_id) references app_users(id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists auth_session_notification_deliveries (
+        session_id char(64) not null,
+        delivery_key varchar(64) not null,
+        claimed_at timestamp(3) not null default current_timestamp(3),
+        primary key (session_id, delivery_key),
+        constraint fk_auth_session_notification_deliveries_session
+          foreign key (session_id) references auth_sessions(id)
+          on delete cascade
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(
+              navigation_items,
+              json_quote('business.settings')
+            ) then navigation_items
+            else json_array_append(
+              navigation_items,
+              '$',
+              'business.settings'
+            )
+          end,
+          capabilities = case
+            when json_contains(
+              capabilities,
+              json_quote('business.manage_notification_settings')
+            ) then capabilities
+            else json_array_append(
+              capabilities,
+              '$',
+              'business.manage_notification_settings'
+            )
+          end
+      where account_type = 'business_owner';
+      `,
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(navigation_items, json_quote('admin.accounts'))
+              then navigation_items
+            else json_array_append(navigation_items, '$', 'admin.accounts')
+          end,
+          capabilities = case
+            when json_contains(capabilities, json_quote('platform.manage_users'))
+              then capabilities
+            else json_array_append(
+              capabilities,
+              '$',
+              'platform.manage_users',
+              '$',
+              'platform.manage_access'
+            )
+          end
+      where id = 'board_chair';
+      `,
+      `
+      update account_accesses accesses
+      join account_positions positions on positions.id = accesses.position_code
+      set accesses.navigation_items = positions.navigation_items,
+          accesses.capabilities = positions.capabilities
+      where json_contains(
+        positions.navigation_items,
+        json_quote('business.settings')
+      ) or positions.id = 'board_chair';
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      join account_positions positions on positions.id = accesses.position_code
+      where json_contains(
+        positions.navigation_items,
+        json_quote('business.settings')
+      ) or positions.id = 'board_chair';
+      `,
+    ],
+  },
 ];
 
 function buildInitialProductBrandInsert() {

@@ -21,6 +21,10 @@ import {
 } from "./refractoryNotifications.js";
 
 export type MaxNotificationService = {
+  sendTextNotification?: (
+    recipients: readonly string[],
+    text: string,
+  ) => Promise<void>;
   sendDispatcherSubmissionNotification: (
     submission: DispatcherSubmission,
     recipients: MaxNotificationRecipients,
@@ -72,6 +76,9 @@ export function createMaxNotificationService(
 ): MaxNotificationService {
   if (!config.enabled) {
     return {
+      async sendTextNotification() {
+        // MAX notifications are intentionally disabled by env.
+      },
       async sendDispatcherSubmissionNotification() {
         // MAX notifications are intentionally disabled by env.
       },
@@ -98,6 +105,36 @@ export function createMaxNotificationService(
       : readTextFile(config.caCertFile);
 
   return {
+    async sendTextNotification(recipients, text) {
+      const logContext = { notificationType: "account_notification" };
+      const userIds = readMaxDeliveryTargets(
+        Array.from(new Set(
+          recipients.map((recipient) => recipient.trim()).filter(Boolean),
+        )),
+        config,
+        "account_notifications",
+        logContext,
+      );
+
+      if (userIds.length === 0) {
+        return;
+      }
+
+      const caCertificate = await caCertificatePromise;
+      await deliverMaxMessages(
+        httpClient,
+        config,
+        userIds,
+        buildMaxMessageTexts(
+          withMaxSubjectPrefix(config.subjectPrefix, text),
+          appEnv,
+        ),
+        caCertificate,
+        sleep,
+        "account_notifications",
+        logContext,
+      );
+    },
     async sendDispatcherSubmissionNotification(submission, recipients) {
       const logContext = { formId: submission.formId };
       const userIds = readMaxDeliveryTargets(
@@ -242,7 +279,7 @@ async function deliverMaxMessages(
   logPrefix: string,
   logContext: Record<string, string>,
 ) {
-  const failures: { userId: string; error: unknown }[] = [];
+  const failures: unknown[] = [];
   let deliveredCount = 0;
 
   for (const userId of userIds) {
@@ -260,12 +297,12 @@ async function deliverMaxMessages(
 
       deliveredCount += 1;
     } catch (error) {
-      failures.push({ userId, error });
+      const safeError = buildSafeMaxDeliveryError(error);
+      failures.push(safeError);
       console.warn(`${logPrefix}.max_recipient_failed`, {
         ...logContext,
         recipientIdType: config.recipientIdType,
-        recipientId: userId,
-        error: readMaxErrorMessage(error),
+        error: safeError.message,
       });
     }
   }
@@ -280,12 +317,10 @@ async function deliverMaxMessages(
 
   if (failures.length > 0) {
     throw new AggregateError(
-      failures.map((failure) => failure.error),
+      failures,
       `MAX delivery failed for ${failures.length} of ${
         userIds.length
-      } recipients — ${failures
-        .map((failure) => `${failure.userId}: ${readMaxErrorMessage(failure.error)}`)
-        .join("; ")}`,
+      } recipients.`,
     );
   }
 }
@@ -343,8 +378,16 @@ function isRetryableMaxError(error: unknown) {
   return true;
 }
 
-function readMaxErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+function buildSafeMaxDeliveryError(error: unknown) {
+  if (error instanceof MaxResponseError) {
+    return new Error(`MAX responded with status ${error.status}.`);
+  }
+
+  return new Error(
+    error instanceof Error
+      ? `MAX delivery failed with ${error.name}.`
+      : "MAX delivery failed.",
+  );
 }
 
 function defaultSleep(milliseconds: number) {

@@ -115,7 +115,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion",
+    "053_product_brand_merge_deletion", "054_user_notification_settings",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -188,7 +188,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion",
+    "053_product_brand_merge_deletion", "054_user_notification_settings",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -264,7 +264,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion",
+    "053_product_brand_merge_deletion", "054_user_notification_settings",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -342,7 +342,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion",
+    "053_product_brand_merge_deletion", "054_user_notification_settings",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -416,7 +416,7 @@ test("kiln material migration adds the produced material and the journal density
     "048_refractory_wagon_production_crew",
     "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
     "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion",
+    "053_product_brand_merge_deletion", "054_user_notification_settings",
   ]);
   const statements: string[] = [];
   const connection = {
@@ -2217,6 +2217,64 @@ test("product brand merge migration keeps deleted records for immutable revision
   assert.match(statements[0] ?? "", /add column merged_into_id char\(36\) null/u);
   assert.match(statements[0] ?? "", /idx_product_brands_active/u);
   assert.equal(statements[1], "insert into schema_migrations (id) values (?)");
+});
+
+test("notification settings migration adds contacts, per-user permissions and manager navigation", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "054_user_notification_settings" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 8);
+  assert.match(
+    statements[0] ?? "",
+    /alter table app_users add column email varchar\(320\) null/u,
+  );
+  assert.match(statements[0] ?? "", /add column max_user_id varchar\(120\) null/u);
+  assert.match(
+    statements[1] ?? "",
+    /create table if not exists user_notification_settings/u,
+  );
+  assert.match(statements[1] ?? "", /user_id char\(36\) not null/u);
+  assert.match(statements[1] ?? "", /primary key \(user_id, notification_type\)/u);
+  assert.match(statements[1] ?? "", /foreign key \(user_id\) references app_users\(id\)/u);
+  assert.match(
+    statements[2] ?? "",
+    /create table if not exists auth_session_notification_deliveries/u,
+  );
+  assert.match(statements[2] ?? "", /primary key \(session_id, delivery_key\)/u);
+  assert.match(statements[2] ?? "", /references auth_sessions\(id\)/u);
+  assert.match(statements[2] ?? "", /on delete cascade/u);
+  assert.match(statements[3] ?? "", /business\.settings/u);
+  assert.match(statements[3] ?? "", /business\.manage_notification_settings/u);
+  assert.match(statements[3] ?? "", /account_type = 'business_owner'/u);
+  assert.match(statements[4] ?? "", /where id = 'board_chair'/u);
+  assert.match(statements[4] ?? "", /admin\.accounts/u);
+  assert.match(statements[4] ?? "", /platform\.manage_users/u);
+  assert.match(statements[5] ?? "", /update account_accesses accesses/u);
+  assert.match(statements[6] ?? "", /delete sessions from auth_sessions/u);
+  assert.equal(statements[7], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

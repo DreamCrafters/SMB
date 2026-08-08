@@ -755,6 +755,8 @@ test("createAccount generates worker ids and commits all rows together", async (
       user_id: "worker-user-id",
       login: "worker-1",
       user_display_name: "Работник Один",
+      email: "worker@example.com",
+      max_user_id: "101",
       user_status: "active",
       is_protected: 0,
       access_display_name: "Работник Один access",
@@ -780,6 +782,8 @@ test("createAccount generates worker ids and commits all rows together", async (
     login: "worker-1",
     password: "supersecret1",
     displayName: "Работник Один",
+    email: "worker@example.com",
+    maxUserId: "101",
     accountType: "worker",
     capabilities: ["business.submit_forms"],
   });
@@ -790,6 +794,8 @@ test("createAccount generates worker ids and commits all rows together", async (
   assert.equal(database.didRelease, true);
   assert.equal(ids.length, 0);
   assert.deepEqual(account.scope, { kind: "organization" });
+  assert.equal(account.email, "worker@example.com");
+  assert.equal(account.maxUserId, "101");
   const userInsert = database.queries.find((query) =>
     query.sql.includes("insert into app_users"),
   );
@@ -801,6 +807,8 @@ test("createAccount generates worker ids and commits all rows together", async (
     "worker-user-id",
     "worker-1",
     "Работник Один",
+    "worker@example.com",
+    "101",
   ]);
   assert.equal(userInsert?.sql.includes("on duplicate key update"), false);
   assert.deepEqual(accessInsert?.params?.slice(0, 6), [
@@ -1071,6 +1079,8 @@ type FakeAccountRow = {
   user_id: string;
   login: string;
   user_display_name: string;
+  email?: string | null;
+  max_user_id?: string | null;
   user_status: string;
   is_protected: number | boolean;
   access_display_name: string;

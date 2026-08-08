@@ -30,6 +30,7 @@ export const accountNavigationItems = [
   "business.laboratory_results",
   "business.laboratory_review",
   "business.board_assignments",
+  "business.settings",
   "business.dispatcher_form",
 ] as const;
 
@@ -59,6 +60,7 @@ export const accountCapabilities = [
   "business.create_board_assignments",
   "business.execute_board_assignments",
   "business.review_board_assignments",
+  "business.manage_notification_settings",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];
