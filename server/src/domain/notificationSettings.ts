@@ -162,15 +162,10 @@ export function buildGeneralDirectorLoginNotifications({
     });
   }
 
-  const overdueMessages = overdueAssignments.map((assignment) =>
-    `Поручение Совета директоров (${assignment.summary}) от ${
-      formatCalendarDate(assignment.meetingDate)
-    } не выполнено в срок!`
-  );
-  if (overdueMessages.length > 0) {
+  if (overdueAssignments.length > 0) {
     notifications.push({
       title: "Просрочено поручение",
-      message: overdueMessages.join("\n\n"),
+      message: `Просрочено поручений: ${overdueAssignments.length}`,
     });
   }
 

@@ -10684,17 +10684,13 @@ test("notification settings API returns login reminders and persists server-owne
       "Совет директоров",
       "Просрочено поручение",
     ]);
-    assert.match(
-      loginPayload.notifications[1]?.message ?? "",
-      /Подготовить анализ/u,
-    );
-    assert.match(
-      loginPayload.notifications[1]?.message ?? "",
-      /Согласовать бюджет/u,
+    assert.equal(
+      loginPayload.notifications[1]?.message,
+      "Просрочено поручений: 2",
     );
     assert.deepEqual(sentEmail, []);
     assert.deepEqual(sentMax, ["101"]);
-    assert.equal(sentMaxMessages.length, 1);
+    assert.deepEqual(sentMaxMessages, ["Просрочено поручений: 2"]);
 
     const assignmentsResponse = await fetch(
       `${baseUrl}/api/board-assignments`,

@@ -87,7 +87,14 @@ test("general director login shows the board reminder only from day 1 through da
   assert.deepEqual(buildGeneralDirectorLoginNotifications({
     position: "general_director",
     today: "2026-08-08",
-    overdueAssignments: [assignment],
+    overdueAssignments: [
+      assignment,
+      {
+        ...assignment,
+        id: "assignment-2",
+        summary: "Согласовать бюджет",
+      },
+    ],
   }), [
     {
       title: "Совет директоров",
@@ -95,8 +102,7 @@ test("general director login shows the board reminder only from day 1 through da
     },
     {
       title: "Просрочено поручение",
-      message:
-        "Поручение Совета директоров (Подготовить анализ причин невыполнения плана) от 10.07.2026 не выполнено в срок!",
+      message: "Просрочено поручений: 2",
     },
   ]);
 
