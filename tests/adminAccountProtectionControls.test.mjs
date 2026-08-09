@@ -67,6 +67,26 @@ test("delegated account manager cannot change protected account controls", async
           canManageProtectedPositions: false,
         });
       }
+      if (url.pathname === "/api/admin/notification-settings" && method === "GET") {
+        return jsonResponse({
+          users: [{
+            userId: account.userId,
+            displayName: account.userDisplayName,
+            position: account.position,
+            positionDisplayName: account.positionDisplayName,
+            isProtected: true,
+            email: "protected@example.com",
+            maxUserId: "101",
+            settings: [{
+              type: "board_assignments",
+              label: "Поручения Совета директоров",
+              adminEnabled: true,
+              emailEnabled: true,
+              maxEnabled: true,
+            }],
+          }],
+        });
+      }
       if (url.pathname === "/api/audit/events" && method === "POST") {
         return jsonResponse({ ok: true });
       }
@@ -82,6 +102,20 @@ test("delegated account manager cannot change protected account controls", async
     await waitFor(
       React,
       () => rootElement.querySelector(".admin-accounts-table tbody tr") !== null,
+    );
+
+    const accountTabs = Array.from(
+      rootElement.querySelectorAll('[role="tablist"][aria-label="Разделы учётных записей"] [role="tab"]'),
+      (tab) => tab.textContent?.trim(),
+    );
+    assert.deepEqual(accountTabs, [
+      "Учётные записи",
+      "Должности",
+      "Уведомления",
+    ]);
+    assert.equal(
+      rootElement.querySelector(".admin-accounts-table th:nth-child(4)")?.textContent,
+      "Защита",
     );
 
     const row = rootElement.querySelector(".admin-accounts-table tbody tr");
@@ -110,6 +144,16 @@ test("delegated account manager cannot change protected account controls", async
     assert.equal(toggle?.disabled, true);
     assert.equal(remove?.disabled, true);
 
+    await React.act(async () => {
+      rootElement.querySelector(
+        'button[role="tab"][aria-controls="admin-accounts-panel-positions"]',
+      )?.click();
+    });
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".admin-positions-table tbody tr") !== null,
+    );
+
     const positionRow = rootElement.querySelector(
       ".admin-positions-table tbody tr",
     );
@@ -128,6 +172,27 @@ test("delegated account manager cannot change protected account controls", async
     assert.equal(positionProtection.disabled, true);
     assert.equal(editPosition?.disabled, true);
     assert.equal(removePosition?.disabled, true);
+
+    await React.act(async () => {
+      rootElement.querySelector(
+        'button[role="tab"][aria-controls="admin-accounts-panel-notifications"]',
+      )?.click();
+    });
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".notification-admin-user-table button") !== null,
+    );
+    await React.act(async () => {
+      rootElement.querySelector(".notification-admin-user-table button")?.click();
+    });
+    const contactInputs = rootElement.querySelectorAll(
+      ".notification-admin-contacts input",
+    );
+    assert.equal(contactInputs.length, 2);
+    assert.equal(contactInputs[0].value, "protected@example.com");
+    assert.equal(contactInputs[1].value, "101");
+    assert.equal(contactInputs[0].disabled, true);
+    assert.equal(contactInputs[1].disabled, true);
 
     await React.act(async () => root.unmount());
   } finally {

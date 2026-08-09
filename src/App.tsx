@@ -249,7 +249,7 @@ import { LaboratoryResultsWorkspace } from "./LaboratoryResults";
 import { LaboratoryReviewWorkspace } from "./LaboratoryReview";
 import { BoardAssignmentsWorkspace } from "./BoardAssignments";
 import {
-  AdminNotificationSettingsModal,
+  AdminNotificationSettingsWorkspace,
   NotificationSettingsWorkspace,
 } from "./NotificationSettings";
 import { requestLoginNotifications } from "./services/notificationSettings";
@@ -9552,10 +9552,10 @@ type AdminAccountFormState = {
   login: string;
   password: string;
   displayName: string;
-  email: string;
-  maxUserId: string;
   position: AccountPosition;
 };
+
+type AdminAccountsSection = "accounts" | "positions" | "notifications";
 
 type AdminPasswordResetFormState = {
   login: string;
@@ -9566,8 +9566,6 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   login: "",
   password: "",
   displayName: "",
-  email: "",
-  maxUserId: "",
   position: "worker",
 };
 
@@ -9577,7 +9575,6 @@ type AdminPositionFormState = {
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
   showAdminNavigation: boolean;
-  requireNotificationSettings: boolean;
 };
 
 const emptyAdminPositionForm: AdminPositionFormState = {
@@ -9587,12 +9584,12 @@ const emptyAdminPositionForm: AdminPositionFormState = {
       ({ id }) =>
         id !== "business.dispatcher_form" &&
         id !== "business.user_actions" &&
-        id !== "business.production_plan",
+        id !== "business.production_plan" &&
+        id !== "business.settings",
     )
     .map(({ id }) => id),
   boardAssignmentAccess: "view",
   showAdminNavigation: false,
-  requireNotificationSettings: true,
 };
 
 const positionOrderAutosaveDelayMs = 5_000;
@@ -9765,7 +9762,8 @@ function AdminAccountsWorkspace({
   const [formStatus, setFormStatus] = useState("");
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [activeSection, setActiveSection] =
+    useState<AdminAccountsSection>("accounts");
   const [positionForm, setPositionForm] = useState<AdminPositionFormState>(emptyAdminPositionForm);
   const [positionFormStatus, setPositionFormStatus] = useState("");
   const [isPositionModalOpen, setIsPositionModalOpen] = useState(false);
@@ -9953,20 +9951,14 @@ function AdminAccountsWorkspace({
       : {
           id: position.id,
           displayName: position.displayName,
-          navigationItems: Array.from(new Set([
-            ...position.navigationItems.filter((id) =>
+          navigationItems: position.navigationItems.filter((id) =>
               [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin]
                 .some((item) => item.id === id),
             ),
-            ...(position.accountType === "business_owner"
-              ? ["business.settings" as const]
-              : []),
-          ])),
           boardAssignmentAccess: position.boardAssignmentAccess,
           showAdminNavigation: position.navigationItems.some(
             isAdminNavigationItemId,
           ),
-          requireNotificationSettings: position.accountType === "business_owner",
         });
     setPositionFormStatus("");
     setIsPositionModalOpen(true);
@@ -10224,8 +10216,6 @@ function AdminAccountsWorkspace({
       login: submittedLogin,
       password: submittedPassword,
       displayName: form.displayName.trim(),
-      email: form.email.trim(),
-      maxUserId: form.maxUserId.trim(),
       position: form.position,
     });
 
@@ -10460,45 +10450,29 @@ function AdminAccountsWorkspace({
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
       <div className="admin-accounts-list">
-        <div className="admin-accounts-toolbar">
-          <button
-            ref={createAccountButtonRef}
-            aria-controls="admin-account-create-dialog"
-            aria-expanded={isCreateModalOpen}
-            aria-haspopup="dialog"
-            className="primary-button"
-            type="button"
-            disabled={
-              positionsState.status !== "ready" ||
-              !positionsState.positions.some(
-                (position) =>
-                  positionsState.canAssignAdminNavigation ||
-                  !hasAdminPositionNavigation(position),
-              )
-            }
-            onClick={openCreateModal}
-          >
-            Новая учётная запись
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={
-              !canManageAccess ||
-              positionOrderDraft !== undefined ||
-              isSavingPositionOrder
-            }
-            onClick={() => openPositionModal()}
-          >
-            Новая должность
-          </button>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => setIsNotificationModalOpen(true)}
-          >
-            Рассылки
-          </button>
+        <div
+          className="admin-accounts-tabs"
+          role="tablist"
+          aria-label="Разделы учётных записей"
+        >
+          {([
+            ["accounts", "Учётные записи"],
+            ["positions", "Должности"],
+            ["notifications", "Уведомления"],
+          ] as const).map(([id, label]) => (
+            <button
+              aria-controls={`admin-accounts-panel-${id}`}
+              aria-selected={activeSection === id}
+              className={activeSection === id ? "is-active" : ""}
+              id={`admin-accounts-tab-${id}`}
+              key={id}
+              role="tab"
+              type="button"
+              onClick={() => setActiveSection(id)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {workspaceStatus.length > 0 ? (
@@ -10506,6 +10480,35 @@ function AdminAccountsWorkspace({
             {workspaceStatus}
           </p>
         ) : null}
+
+        {activeSection === "accounts" ? (
+          <div
+            aria-labelledby="admin-accounts-tab-accounts"
+            className="admin-accounts-panel"
+            id="admin-accounts-panel-accounts"
+            role="tabpanel"
+          >
+            <div className="admin-accounts-toolbar">
+              <button
+                ref={createAccountButtonRef}
+                aria-controls="admin-account-create-dialog"
+                aria-expanded={isCreateModalOpen}
+                aria-haspopup="dialog"
+                className="primary-button"
+                type="button"
+                disabled={
+                  positionsState.status !== "ready" ||
+                  !positionsState.positions.some(
+                    (position) =>
+                      positionsState.canAssignAdminNavigation ||
+                      !hasAdminPositionNavigation(position),
+                  )
+                }
+                onClick={openCreateModal}
+              >
+                Новая учётная запись
+              </button>
+            </div>
         {accountsState.status === "loading" ? (
           <LoadingIndicator label={accountsState.message} variant="page" />
         ) : null}
@@ -10521,8 +10524,6 @@ function AdminAccountsWorkspace({
                   <th scope="col">Должность</th>
                   <th scope="col">Имя</th>
                   <th scope="col">Логин</th>
-                  <th scope="col">Email</th>
-                  <th scope="col">MAX</th>
                   <th scope="col">Защита</th>
                   <th scope="col">Пароль</th>
                   <th scope="col">Вкладки слева</th>
@@ -10648,8 +10649,6 @@ function AdminAccountsWorkspace({
                       </td>
                       <td>{account.userDisplayName}</td>
                       <td>{account.login}</td>
-                      <td>{account.email ?? "—"}</td>
-                      <td>{account.maxUserId ?? "—"}</td>
                       <td>
                         <label
                           className="admin-account-protection-control"
@@ -10779,15 +10778,24 @@ function AdminAccountsWorkspace({
                 })}
                 {accounts.length === 0 ? (
                   <tr>
-                    <td colSpan={9}>Учётных записей пока нет.</td>
+                    <td colSpan={7}>Учётных записей пока нет.</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
         ) : null}
+          </div>
+        ) : null}
 
-        <div className="admin-positions-heading">
+        {activeSection === "positions" ? (
+          <div
+            aria-labelledby="admin-accounts-tab-positions"
+            className="admin-accounts-panel"
+            id="admin-accounts-panel-positions"
+            role="tabpanel"
+          >
+          <div className="admin-positions-heading">
           <div>
             <h3 className="admin-positions-title">Должности и доступы</h3>
             <p>
@@ -10796,6 +10804,18 @@ function AdminAccountsWorkspace({
             </p>
           </div>
           <div className="admin-position-order-actions">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={
+                !canManageAccess ||
+                positionOrderDraft !== undefined ||
+                isSavingPositionOrder
+              }
+              onClick={() => openPositionModal()}
+            >
+              Новая должность
+            </button>
             <button
               className="secondary-button"
               type="button"
@@ -10981,15 +11001,23 @@ function AdminAccountsWorkspace({
         ) : (
           <p className="dispatcher-status-line">{positionsState.message}</p>
         )}
-      </div>
+          </div>
+        ) : null}
 
-      <AdminNotificationSettingsModal
-        isOpen={isNotificationModalOpen}
-        canManageProtectedAccounts={canManageProtectedAccounts}
-        onClose={() => setIsNotificationModalOpen(false)}
-        onContactsUpdated={() => setRefreshVersion((current) => current + 1)}
-        onShowToast={onShowToast}
-      />
+        {activeSection === "notifications" ? (
+          <div
+            aria-labelledby="admin-accounts-tab-notifications"
+            className="admin-accounts-panel"
+            id="admin-accounts-panel-notifications"
+            role="tabpanel"
+          >
+            <AdminNotificationSettingsWorkspace
+              canManageProtectedAccounts={canManageProtectedAccounts}
+              onShowToast={onShowToast}
+            />
+          </div>
+        ) : null}
+      </div>
 
       {isCreateModalOpen ? (
         <div
@@ -11073,28 +11101,6 @@ function AdminAccountsWorkspace({
                     })
                   }
                   required
-                />
-              </label>
-
-              <label>
-                <span>Email</span>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(event) =>
-                    handleFormFieldChange({ email: event.currentTarget.value })
-                  }
-                />
-              </label>
-
-              <label>
-                <span>MAX</span>
-                <input
-                  type="text"
-                  value={form.maxUserId}
-                  onChange={(event) =>
-                    handleFormFieldChange({ maxUserId: event.currentTarget.value })
-                  }
                 />
               </label>
 
@@ -11216,13 +11222,7 @@ function AdminAccountsWorkspace({
                     )
                     .map((item) => (
                       <label key={item.id} className="admin-account-navigation-option">
-                        <input type="checkbox" disabled={
-                          isSubmitting ||
-                          (
-                            item.id === "business.settings" &&
-                            positionForm.requireNotificationSettings
-                          )
-                        } checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
+                        <input type="checkbox" disabled={isSubmitting} checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
                           const isChecked = event.currentTarget.checked;
                           setPositionForm((current) => ({
                             ...current,

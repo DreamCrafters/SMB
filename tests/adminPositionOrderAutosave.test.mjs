@@ -127,6 +127,13 @@ test("position order batches moves, survives refreshes, retries, and can be canc
     });
     await waitFor(
       React,
+      () => rootElement.querySelector(".admin-accounts-table tbody tr") !== null,
+    );
+    await React.act(async () => {
+      findButton(rootElement, "Должности")?.click();
+    });
+    await waitFor(
+      React,
       () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 3,
     );
 
@@ -143,9 +150,23 @@ test("position order batches moves, survives refreshes, retries, and can be canc
         true,
       );
       await React.act(async () => {
+        findButton(rootElement, "Учётные записи")?.click();
+      });
+      await waitFor(
+        React,
+        () => findButton(rootElement, "Отключить вход для dispatcher-1") !== undefined,
+      );
+      await React.act(async () => {
         findButton(rootElement, "Отключить вход для dispatcher-1")?.click();
       });
       await waitFor(React, () => accountRefreshCount === 2);
+      await React.act(async () => {
+        findButton(rootElement, "Должности")?.click();
+      });
+      await waitFor(
+        React,
+        () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 3,
+      );
       await React.act(async () => clock.advanceBy(4_000));
       assert.deepEqual(savedOrders, []);
 

@@ -8377,10 +8377,7 @@ async function handleAdminAccountsRequest({
       sendJson(res, 200, { ok: true });
       return;
     }
-    const validation = validateUpdatePositionRequest(
-      await readJsonBody(req),
-      { requireNotificationSettings: existing.accountType === "business_owner" },
-    );
+    const validation = validateUpdatePositionRequest(await readJsonBody(req));
     if (!validation.ok) {
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
@@ -8744,9 +8741,6 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
 
 function validateCreatePositionRequest(
   input: unknown,
-  { requireNotificationSettings = true }: {
-    requireNotificationSettings?: boolean;
-  } = {},
 ):
   | { ok: true; value: {
       displayName: string;
@@ -8768,12 +8762,7 @@ function validateCreatePositionRequest(
   const requestedNavigationItems = Array.isArray(input.navigationItems)
     ? input.navigationItems
     : [];
-  const navigationItems = requireNotificationSettings
-    ? Array.from(new Set([
-        ...requestedNavigationItems,
-        "business.settings" as const,
-      ]))
-    : requestedNavigationItems;
+  const navigationItems = requestedNavigationItems;
   const hasBoardAssignments = navigationItems.includes(
     "business.board_assignments",
   );
@@ -8886,11 +8875,10 @@ function sendProtectedPositionMutationDenied(res: ServerResponse) {
 
 function validateUpdatePositionRequest(
   input: unknown,
-  options: { requireNotificationSettings?: boolean } = {},
 ):
   | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
-  const validation = validateCreatePositionRequest(input, options);
+  const validation = validateCreatePositionRequest(input);
   if (!validation.ok) {
     return validation;
   }

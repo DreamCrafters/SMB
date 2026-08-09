@@ -103,6 +103,15 @@ test("delegated account manager preserves disabled admin tabs while editing busi
     });
     await waitFor(
       React,
+      () => rootElement.querySelector(".admin-accounts-table tbody tr") !== null,
+    );
+    await React.act(async () => {
+      rootElement.querySelector(
+        'button[role="tab"][aria-controls="admin-accounts-panel-positions"]',
+      )?.click();
+    });
+    await waitFor(
+      React,
       () => rootElement.querySelector(".admin-positions-table tbody tr") !== null,
     );
 
@@ -122,6 +131,7 @@ test("delegated account manager preserves disabled admin tabs while editing busi
     const adminToggle = findCheckbox(dialog, "Админ");
     const databaseToggle = findCheckbox(dialog, "БД (");
     const dispatcherToggle = findCheckbox(dialog, "Диспетчерская (");
+    const settingsToggle = findCheckbox(dialog, "Настройки (");
     const dialogHeader = dialog.querySelector(".admin-account-modal-header");
     const navigationFieldsets = Array.from(dialog.querySelectorAll("fieldset"));
     const businessFieldset = navigationFieldsets.find(
@@ -143,6 +153,9 @@ test("delegated account manager preserves disabled admin tabs while editing busi
     assert.ok(dispatcherToggle);
     assert.equal(dispatcherToggle.checked, false);
     assert.equal(dispatcherToggle.disabled, false);
+    assert.ok(settingsToggle);
+    assert.equal(settingsToggle.checked, false);
+    assert.equal(settingsToggle.disabled, false);
     assert.ok(businessFieldset);
     assert.ok(adminFieldset);
     assert.equal(businessFieldset.contains(dispatcherToggle), true);
@@ -152,6 +165,8 @@ test("delegated account manager preserves disabled admin tabs while editing busi
     await React.act(async () => dispatcherToggle.click());
     assert.equal(dispatcherToggle.checked, true);
     assert.equal(databaseToggle.checked, true);
+    await React.act(async () => settingsToggle.click());
+    assert.equal(settingsToggle.checked, true);
 
     const saveButton = dialog.querySelector('button[type="submit"]');
     assert.ok(saveButton);
@@ -163,8 +178,8 @@ test("delegated account manager preserves disabled admin tabs while editing busi
       navigationItems: [
         "business.overview",
         "admin.database",
-        "business.settings",
         "business.dispatcher",
+        "business.settings",
       ],
       boardAssignmentAccess: "none",
     });

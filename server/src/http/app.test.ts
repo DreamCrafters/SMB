@@ -5064,11 +5064,10 @@ test("admin positions API creates a position with tabs from the unified workspac
   assert.deepEqual(createdInput?.navigationItems, [
     "business.overview",
     "business.dispatcher_form",
-    "business.settings",
   ]);
   assert.equal(
     createdInput?.capabilities.includes("business.manage_notification_settings"),
-    true,
+    false,
   );
   assert.equal(createdInput?.capabilities.includes("business.view_dispatcher_feed"), true);
 });
@@ -5194,7 +5193,6 @@ test("admin positions API stores the selected board assignment access variant", 
 
   assert.deepEqual(created[0]?.capabilities, [
     "business.view_board_assignments",
-    "business.manage_notification_settings",
     "business.create_board_assignments",
     "business.review_board_assignments",
   ]);
@@ -5265,7 +5263,11 @@ test("primary admin can add admin tabs to a unified position", async () => {
       headers,
       body: JSON.stringify({
         displayName: "Руководитель с админской БД",
-        navigationItems: ["business.overview", "admin.database"],
+        navigationItems: [
+          "business.overview",
+          "admin.database",
+          "business.settings",
+        ],
       }),
     });
 
@@ -5355,7 +5357,6 @@ test("production account with canonical admin login can assign admin tabs", asyn
   assert.deepEqual(created[0]?.navigationItems, [
     "business.overview",
     "admin.database",
-    "business.settings",
   ]);
 });
 
@@ -5462,7 +5463,6 @@ test("delegated account manager cannot change admin tabs on a position", async (
     "business.overview",
     "business.dispatcher",
     "admin.database",
-    "business.settings",
   ]);
 });
 

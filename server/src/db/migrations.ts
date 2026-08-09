@@ -3033,6 +3033,67 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "055_optional_notification_settings_navigation",
+    statements: [
+      `
+      update account_positions
+      set navigation_items = case
+            when json_contains(
+              navigation_items,
+              json_quote('business.settings')
+            ) then json_remove(
+              navigation_items,
+              json_unquote(json_search(
+                navigation_items,
+                'one',
+                'business.settings'
+              ))
+            )
+            else navigation_items
+          end,
+          capabilities = case
+            when json_contains(
+              capabilities,
+              json_quote('business.manage_notification_settings')
+            ) then json_remove(
+              capabilities,
+              json_unquote(json_search(
+                capabilities,
+                'one',
+                'business.manage_notification_settings'
+              ))
+            )
+            else capabilities
+          end
+      where account_type = 'business_owner'
+        and (
+          json_contains(
+            navigation_items,
+            json_quote('business.settings')
+          )
+          or json_contains(
+            capabilities,
+            json_quote('business.manage_notification_settings')
+          )
+        );
+      `,
+      `
+      update account_accesses accesses
+      join account_positions positions on positions.id = accesses.position_code
+      set accesses.navigation_items = positions.navigation_items,
+          accesses.capabilities = positions.capabilities
+      where positions.account_type = 'business_owner';
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      join account_positions positions on positions.id = accesses.position_code
+      where positions.account_type = 'business_owner';
+      `,
+    ],
+  },
 ];
 
 function buildInitialProductBrandInsert() {

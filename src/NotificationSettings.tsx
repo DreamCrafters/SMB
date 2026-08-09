@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState } from "react";
 import type {
   NotificationType,
   UserNotificationSettings,
@@ -164,28 +164,21 @@ export function NotificationSettingsWorkspace({
   );
 }
 
-export function AdminNotificationSettingsModal({
-  isOpen,
+export function AdminNotificationSettingsWorkspace({
   canManageProtectedAccounts,
-  onClose,
-  onContactsUpdated,
   onShowToast,
 }: {
-  isOpen: boolean;
   canManageProtectedAccounts: boolean;
-  onClose: () => void;
-  onContactsUpdated: () => void;
   onShowToast: ShowToast;
 }) {
   const [users, setUsers] = useState<UserNotificationSettings[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>();
   const [status, setStatus] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string>();
   const [contacts, setContacts] = useState({ email: "", maxUserId: "" });
 
   useEffect(() => {
-    if (!isOpen) return;
     const controller = new AbortController();
     setUsers([]);
     setSelectedUserId(undefined);
@@ -204,7 +197,7 @@ export function AdminNotificationSettingsModal({
       },
     );
     return () => controller.abort();
-  }, [isOpen]);
+  }, []);
 
   const selected = users.find(({ userId }) => userId === selectedUserId);
 
@@ -262,7 +255,6 @@ export function AdminNotificationSettingsModal({
       email: result.settings.email ?? "",
       maxUserId: result.settings.maxUserId ?? "",
     });
-    onContactsUpdated();
     onShowToast(
       "Контакты сохранены",
       `Контакты «${result.settings.displayName}» обновлены.`,
@@ -270,126 +262,118 @@ export function AdminNotificationSettingsModal({
     );
   }
 
-  function closeOnBackdrop(event: MouseEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget && savingKey === undefined) {
-      onClose();
-    }
-  }
-
-  if (!isOpen) return null;
-
   const selectedAccountIsReadOnly =
     selected?.isProtected === true && !canManageProtectedAccounts;
 
   return (
-    <div className="admin-db-modal-backdrop" onMouseDown={closeOnBackdrop}>
-      <section className="admin-db-modal notification-admin-modal" role="dialog" aria-modal="true" aria-label="Рассылки">
-        <div className="admin-db-modal-heading">
-          <div>
-            <span className="eyebrow">Учётные записи</span>
-            <h2>Рассылки</h2>
-          </div>
-          <button className="secondary-button" type="button" disabled={savingKey !== undefined} onClick={onClose}>Закрыть</button>
+    <section className="notification-admin-workspace" aria-label="Уведомления">
+      <div className="section-heading notification-admin-heading">
+        <div>
+          <span className="eyebrow">Учётные записи</span>
+          <h2>Уведомления</h2>
+          <p>
+            Укажите Email и MAX пользователей и разрешите нужные типы уведомлений.
+          </p>
         </div>
-        {status.length > 0 ? <p className="admin-accounts-status-message" role="status">{status}</p> : null}
-        {isLoading ? <LoadingIndicator label="Загружаем журнал рассылок…" variant="page" /> : (
-          <div className="notification-admin-layout">
-            <div className="notification-admin-users" aria-label="Пользователи рассылок">
-              <table className="notification-admin-user-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Должность</th>
-                    <th scope="col">Имя</th>
+      </div>
+      {status.length > 0 ? <p className="admin-accounts-status-message" role="status">{status}</p> : null}
+      {isLoading ? <LoadingIndicator label="Загружаем настройки уведомлений…" variant="page" /> : (
+        <div className="notification-admin-layout">
+          <div className="notification-admin-users" aria-label="Пользователи уведомлений">
+            <table className="notification-admin-user-table">
+              <thead>
+                <tr>
+                  <th scope="col">Должность</th>
+                  <th scope="col">Имя</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr
+                    className={user.userId === selectedUserId ? "is-active" : ""}
+                    key={user.userId}
+                  >
+                    <td>{user.positionDisplayName}</td>
+                    <td>
+                      <button
+                        type="button"
+                        disabled={savingKey !== undefined}
+                        onClick={() => selectUser(user)}
+                      >
+                        {user.displayName}
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {users.map((user) => (
-                    <tr
-                      className={user.userId === selectedUserId ? "is-active" : ""}
-                      key={user.userId}
-                    >
-                      <td>{user.positionDisplayName}</td>
-                      <td>
-                        <button
-                          type="button"
-                          disabled={savingKey !== undefined}
-                          onClick={() => selectUser(user)}
-                        >
-                          {user.displayName}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {users.length === 0 ? (
-                    <tr>
-                      <td colSpan={2}>Пользователей пока нет.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            {selected === undefined ? (
-              <p className="dispatcher-status-line">Выберите пользователя, чтобы открыть его таблицу рассылок.</p>
-            ) : (
-              <div className="notification-admin-detail">
-                {selectedAccountIsReadOnly ? (
-                  <p className="admin-accounts-status-message">
-                    Защищённую учётную запись может изменять только исходный admin.
-                  </p>
+                ))}
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan={2}>Пользователей пока нет.</td>
+                  </tr>
                 ) : null}
-                <div className="notification-admin-contacts">
-                  <label>
-                    <span>Email</span>
-                    <input
-                      type="email"
-                      value={contacts.email}
-                      disabled={savingKey !== undefined || selectedAccountIsReadOnly}
-                      onChange={(event) => {
-                        const email = event.currentTarget.value;
-                        setContacts((current) => ({ ...current, email }));
-                      }}
-                    />
-                  </label>
-                  <label>
-                    <span>MAX</span>
-                    <input
-                      value={contacts.maxUserId}
-                      disabled={savingKey !== undefined || selectedAccountIsReadOnly}
-                      onChange={(event) => {
-                        const maxUserId = event.currentTarget.value;
-                        setContacts((current) => ({ ...current, maxUserId }));
-                      }}
-                    />
-                  </label>
-                  <button className="secondary-button" type="button" disabled={savingKey !== undefined || selectedAccountIsReadOnly} onClick={() => void saveContacts()}>Сохранить контакты</button>
-                </div>
-                <div className="notification-settings-table-scroll">
-                  <table className="notification-settings-table">
-                    <caption>Администраторам</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Рассылка</th>
-                        <th scope="col">Включить</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selected.settings.map((setting) => (
-                        <tr key={setting.type}>
-                          <th scope="row">{setting.label}</th>
-                          <td><input aria-label={`Разрешить: ${setting.label}`} type="checkbox" checked={setting.adminEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly} onChange={(event) => {
-                            const checked = event.currentTarget.checked;
-                            void savePermission(setting.type, checked);
-                          }} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+              </tbody>
+            </table>
           </div>
-        )}
-      </section>
-    </div>
+          {selected === undefined ? (
+            <p className="dispatcher-status-line">Выберите пользователя, чтобы настроить его контакты и уведомления.</p>
+          ) : (
+            <div className="notification-admin-detail">
+              {selectedAccountIsReadOnly ? (
+                <p className="admin-accounts-status-message">
+                  Защищённую учётную запись может изменять только исходный admin.
+                </p>
+              ) : null}
+              <div className="notification-admin-contacts">
+                <label>
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={contacts.email}
+                    disabled={savingKey !== undefined || selectedAccountIsReadOnly}
+                    onChange={(event) => {
+                      const email = event.currentTarget.value;
+                      setContacts((current) => ({ ...current, email }));
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>MAX</span>
+                  <input
+                    value={contacts.maxUserId}
+                    disabled={savingKey !== undefined || selectedAccountIsReadOnly}
+                    onChange={(event) => {
+                      const maxUserId = event.currentTarget.value;
+                      setContacts((current) => ({ ...current, maxUserId }));
+                    }}
+                  />
+                </label>
+                <button className="secondary-button" type="button" disabled={savingKey !== undefined || selectedAccountIsReadOnly} onClick={() => void saveContacts()}>Сохранить контакты</button>
+              </div>
+              <div className="notification-settings-table-scroll">
+                <table className="notification-settings-table">
+                  <caption>Администраторам</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Рассылка</th>
+                      <th scope="col">Включить</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selected.settings.map((setting) => (
+                      <tr key={setting.type}>
+                        <th scope="row">{setting.label}</th>
+                        <td><input aria-label={`Разрешить: ${setting.label}`} type="checkbox" checked={setting.adminEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly} onChange={(event) => {
+                          const checked = event.currentTarget.checked;
+                          void savePermission(setting.type, checked);
+                        }} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }

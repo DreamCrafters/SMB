@@ -2509,6 +2509,39 @@ p {
   min-width: 0;
 }
 
+.admin-accounts-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 760px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.admin-accounts-tabs button {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 850;
+}
+
+.admin-accounts-tabs button.is-active {
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--surface-raised);
+  box-shadow: 0 6px 16px rgba(37, 53, 63, 0.08);
+}
+
+.admin-accounts-panel {
+  display: grid;
+  gap: var(--density-3);
+  min-width: 0;
+}
+
 .admin-accounts-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -4060,17 +4093,15 @@ p {
   padding-left: 20px;
 }
 
-.notification-admin-modal {
+.notification-admin-workspace {
   display: grid;
   gap: var(--density-4);
-  width: min(100%, 1180px);
-  max-height: min(100%, 860px);
-  overflow: auto;
-  padding: var(--density-5);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  min-width: 0;
+}
+
+.notification-admin-heading h2,
+.notification-admin-heading p {
+  margin-bottom: 0;
 }
 
 .notification-admin-layout {
@@ -4161,6 +4192,7 @@ p {
 }
 
 @media (max-width: 900px) {
+  .admin-accounts-tabs,
   .notification-admin-layout,
   .notification-admin-contacts {
     grid-template-columns: 1fr;

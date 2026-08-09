@@ -3,6 +3,17 @@ import test from "node:test";
 import type { DatabasePool } from "./pool.js";
 import { initialProductBrandNames, runMigrations } from "./migrations.js";
 
+const migrationsAfterRefractoryWagonLifecycle = [
+  "048_refractory_wagon_production_crew",
+  "049_optional_rotary_kiln_2_measurements",
+  "050_product_brand_journal",
+  "051_protected_account_positions",
+  "052_remove_stale_test_visitor_entry",
+  "053_product_brand_merge_deletion",
+  "054_user_notification_settings",
+  "055_optional_notification_settings_navigation",
+] as const;
+
 test("laboratory migration creates results storage and the system position", async () => {
   const appliedIds = new Set([
     "001_dispatcher_submissions_mysql", "002_equipment_submission_dedupe_key",
@@ -112,10 +123,7 @@ test("rotary kiln 2 firing journal migration creates append-only parameter stora
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
-    "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion", "054_user_notification_settings",
+    ...migrationsAfterRefractoryWagonLifecycle,
   ]);
   const statements: string[] = [];
   const connection = {
@@ -185,10 +193,7 @@ test("sample registration journal migration creates append-only laboratory stora
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
-    "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion", "054_user_notification_settings",
+    ...migrationsAfterRefractoryWagonLifecycle,
   ]);
   const statements: string[] = [];
   const connection = {
@@ -261,10 +266,7 @@ test("chemical analysis migration links analyses to registered samples", async (
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
-    "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion", "054_user_notification_settings",
+    ...migrationsAfterRefractoryWagonLifecycle,
   ]);
   const statements: string[] = [];
   const connection = {
@@ -339,10 +341,7 @@ test("chemical analysis optional-values migration keeps the original batch requi
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
-    "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion", "054_user_notification_settings",
+    ...migrationsAfterRefractoryWagonLifecycle,
   ]);
   const statements: string[] = [];
   const connection = {
@@ -413,10 +412,7 @@ test("kiln material migration adds the produced material and the journal density
     "045_laboratory_green_product_quality_journal",
     "046_refractory_wagon_journal",
     "047_refractory_wagon_lifecycle_dates",
-    "048_refractory_wagon_production_crew",
-    "049_optional_rotary_kiln_2_measurements", "050_product_brand_journal",
-    "051_protected_account_positions", "052_remove_stale_test_visitor_entry",
-    "053_product_brand_merge_deletion", "054_user_notification_settings",
+    ...migrationsAfterRefractoryWagonLifecycle,
   ]);
   const statements: string[] = [];
   const connection = {
@@ -2275,6 +2271,46 @@ test("notification settings migration adds contacts, per-user permissions and ma
   assert.match(statements[5] ?? "", /update account_accesses accesses/u);
   assert.match(statements[6] ?? "", /delete sessions from auth_sessions/u);
   assert.equal(statements[7], "insert into schema_migrations (id) values (?)");
+});
+
+test("optional notification settings migration removes the forced manager navigation", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "055_optional_notification_settings_navigation" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 4);
+  assert.match(statements[0] ?? "", /update account_positions/u);
+  assert.match(statements[0] ?? "", /json_remove/u);
+  assert.match(statements[0] ?? "", /business\.settings/u);
+  assert.match(statements[0] ?? "", /business\.manage_notification_settings/u);
+  assert.match(statements[1] ?? "", /update account_accesses accesses/u);
+  assert.match(statements[2] ?? "", /delete sessions from auth_sessions/u);
+  assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {
