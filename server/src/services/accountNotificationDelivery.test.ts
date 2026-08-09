@@ -39,8 +39,15 @@ function createFixture() {
   return { repository, emailService, maxService, emails, maxMessages };
 }
 
-test("review notification follows the requested board recipient channels", async () => {
+test("review notification follows the administrator-selected recipient channels", async () => {
   const fixture = createFixture();
+  fixture.repository.listDeliveryRecipients = async () => [
+    { userId: "chair", position: "board_chair", email: "chair@example.com" },
+    { userId: "deputy", position: "board_deputy_chair", maxUserId: "102" },
+    { userId: "reviewer", position: "board_assignment_reviewer", email: "reviewer@example.com", maxUserId: "103" },
+    { userId: "member", position: "board_member", email: "member@example.com" },
+    { userId: "director", position: "general_director", maxUserId: "105" },
+  ];
 
   await sendBoardAssignmentReviewNotification({
     repository: fixture.repository,
@@ -51,10 +58,14 @@ test("review notification follows the requested board recipient channels", async
 
   assert.deepEqual(fixture.emails[0]?.recipients, [
     "chair@example.com",
-    "deputy@example.com",
     "reviewer@example.com",
+    "member@example.com",
   ]);
-  assert.deepEqual(fixture.maxMessages[0]?.recipients, ["102", "103"]);
+  assert.deepEqual(fixture.maxMessages[0]?.recipients, [
+    "102",
+    "103",
+    "105",
+  ]);
 });
 
 test("overdue assignment reaches the general director and every board role", async () => {

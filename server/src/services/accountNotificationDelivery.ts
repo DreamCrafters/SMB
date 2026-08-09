@@ -13,16 +13,6 @@ const boardPositions = new Set<AccountPosition>([
   "board_assignment_reviewer",
   "board_member",
 ]);
-const reviewEmailPositions = new Set<AccountPosition>([
-  "board_chair",
-  "board_deputy_chair",
-  "board_assignment_reviewer",
-]);
-const reviewMaxPositions = new Set<AccountPosition>([
-  "board_deputy_chair",
-  "board_assignment_reviewer",
-]);
-
 type DeliveryDependencies = {
   repository: Pick<NotificationSettingsRepository, "listDeliveryRecipients">;
   emailService: EmailNotificationService;
@@ -47,8 +37,6 @@ export async function sendBoardAssignmentReviewNotification({
     recipients,
     subject: notification.subject,
     text: notification.text,
-    emailPositions: reviewEmailPositions,
-    maxPositions: reviewMaxPositions,
   });
 }
 
@@ -91,17 +79,17 @@ async function deliverTextNotification({
   recipients: readonly NotificationDeliveryRecipient[];
   subject: string;
   text: string;
-  emailPositions: ReadonlySet<AccountPosition>;
-  maxPositions: ReadonlySet<AccountPosition>;
+  emailPositions?: ReadonlySet<AccountPosition>;
+  maxPositions?: ReadonlySet<AccountPosition>;
 }) {
   const emailRecipients = dedupe(
     recipients
-      .filter(({ position }) => emailPositions.has(position))
+      .filter(({ position }) => emailPositions?.has(position) ?? true)
       .flatMap(({ email }) => email === undefined ? [] : [email]),
   );
   const maxRecipients = dedupe(
     recipients
-      .filter(({ position }) => maxPositions.has(position))
+      .filter(({ position }) => maxPositions?.has(position) ?? true)
       .flatMap(({ maxUserId }) => maxUserId === undefined ? [] : [maxUserId]),
   );
 
