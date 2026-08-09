@@ -43,10 +43,11 @@ export type NotificationSettingsRepository = {
   readUserSettings: (
     userId: string,
   ) => Promise<UserNotificationSettings | undefined>;
-  setAdminEnabled: (input: {
+  setAdminChannels: (input: {
     userId: string;
     type: NotificationType;
-    adminEnabled: boolean;
+    emailEnabled: boolean;
+    maxEnabled: boolean;
     allowProtectedAccountMutation: boolean;
   }) => Promise<boolean>;
   setOwnChannels: (input: {
@@ -192,15 +193,17 @@ export function createNotificationSettingsRepository(
     } satisfies UserNotificationSettings;
   }
 
-  async function setAdminEnabled({
+  async function setAdminChannels({
     userId,
     type,
-    adminEnabled,
+    emailEnabled,
+    maxEnabled,
     allowProtectedAccountMutation,
   }: {
     userId: string;
     type: NotificationType;
-    adminEnabled: boolean;
+    emailEnabled: boolean;
+    maxEnabled: boolean;
     allowProtectedAccountMutation: boolean;
   }) {
     const connection = await pool.getConnection();
@@ -216,12 +219,28 @@ export function createNotificationSettingsRepository(
         isProtected: readBoolean(account.is_admin_protected),
         allowProtected: allowProtectedAccountMutation,
       });
+      if (emailEnabled && normalizeOptional(account.email) === undefined) {
+        throw new NotificationChannelUnavailableError("email");
+      }
+      if (maxEnabled && normalizeOptional(account.max_user_id) === undefined) {
+        throw new NotificationChannelUnavailableError("max");
+      }
+      const adminEnabled = emailEnabled || maxEnabled;
       await connection.query(
         `insert into user_notification_settings (
-          user_id, notification_type, admin_enabled
-        ) values (?, ?, ?)
-        on duplicate key update admin_enabled = values(admin_enabled)`,
-        [userId, type, adminEnabled ? 1 : 0],
+          user_id, notification_type, admin_enabled, email_enabled, max_enabled
+        ) values (?, ?, ?, ?, ?)
+        on duplicate key update
+          admin_enabled = values(admin_enabled),
+          email_enabled = values(email_enabled),
+          max_enabled = values(max_enabled)`,
+        [
+          userId,
+          type,
+          adminEnabled ? 1 : 0,
+          emailEnabled ? 1 : 0,
+          maxEnabled ? 1 : 0,
+        ],
       );
       await connection.commit();
       return true;
@@ -313,10 +332,21 @@ export function createNotificationSettingsRepository(
       if (normalizedEmail === undefined || normalizedMaxUserId === undefined) {
         await connection.query(
           `update user_notification_settings
-           set email_enabled = case when ? is null then 0 else email_enabled end,
+           set admin_enabled = case
+               when (? is not null and email_enabled = 1)
+                 or (? is not null and max_enabled = 1)
+               then 1 else 0
+             end,
+             email_enabled = case when ? is null then 0 else email_enabled end,
              max_enabled = case when ? is null then 0 else max_enabled end
            where user_id = ?`,
-          [normalizedEmail ?? null, normalizedMaxUserId ?? null, userId],
+          [
+            normalizedEmail ?? null,
+            normalizedMaxUserId ?? null,
+            normalizedEmail ?? null,
+            normalizedMaxUserId ?? null,
+            userId,
+          ],
         );
       }
       await connection.commit();
@@ -378,7 +408,7 @@ export function createNotificationSettingsRepository(
   return {
     listUsers,
     readUserSettings,
-    setAdminEnabled,
+    setAdminChannels,
     setOwnChannels,
     updateContacts,
     listDeliveryRecipients,

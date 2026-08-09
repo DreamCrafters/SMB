@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  NotificationSetting,
   NotificationType,
   UserNotificationSettings,
 } from "./contracts/notificationSettings";
@@ -8,10 +9,23 @@ import type { ShowToast } from "./services/toastStack";
 import {
   requestAdminNotificationSettings,
   requestOwnNotificationSettings,
+  updateAdminNotificationChannels,
   updateAdminNotificationContacts,
-  updateAdminNotificationPermission,
   updateOwnNotificationSetting,
 } from "./services/notificationSettings";
+
+type NotificationChannel = "email" | "max";
+
+function changeNotificationChannel(
+  current: Pick<NotificationSetting, "emailEnabled" | "maxEnabled">,
+  channel: NotificationChannel,
+  checked: boolean,
+) {
+  return {
+    emailEnabled: channel === "email" ? checked : current.emailEnabled,
+    maxEnabled: channel === "max" ? checked : current.maxEnabled,
+  };
+}
 
 export function NotificationSettingsWorkspace({
   isAdminPreviewMode,
@@ -49,7 +63,7 @@ export function NotificationSettingsWorkspace({
 
   async function saveSetting(
     type: NotificationType,
-    channel: "email" | "max",
+    channel: NotificationChannel,
     checked: boolean,
   ) {
     if (state.status !== "ready") return;
@@ -59,10 +73,10 @@ export function NotificationSettingsWorkspace({
     if (current === undefined) return;
 
     setSavingType(type);
-    const result = await updateOwnNotificationSetting(type, {
-      emailEnabled: channel === "email" ? checked : current.emailEnabled,
-      maxEnabled: channel === "max" ? checked : current.maxEnabled,
-    });
+    const result = await updateOwnNotificationSetting(
+      type,
+      changeNotificationChannel(current, channel, checked),
+    );
     setSavingType(undefined);
     if (result.status !== "ready") {
       onShowToast("Не сохранено", result.message, "warning");
@@ -213,15 +227,21 @@ export function AdminNotificationSettingsWorkspace({
     ));
   }
 
-  async function savePermission(type: NotificationType, adminEnabled: boolean) {
+  async function saveChannels(
+    type: NotificationType,
+    channel: NotificationChannel,
+    checked: boolean,
+  ) {
     if (selected === undefined) return;
+    const current = selected.settings.find((setting) => setting.type === type);
+    if (current === undefined) return;
     const key = `${selected.userId}:${type}`;
     setStatus("");
     setSavingKey(key);
-    const result = await updateAdminNotificationPermission(
+    const result = await updateAdminNotificationChannels(
       selected.userId,
       type,
-      adminEnabled,
+      changeNotificationChannel(current, channel, checked),
     );
     setSavingKey(undefined);
     if (result.status !== "ready") {
@@ -231,7 +251,7 @@ export function AdminNotificationSettingsWorkspace({
     replaceUser(result.settings);
     onShowToast(
       "Рассылка обновлена",
-      "Разрешение администратора сохранено.",
+      "Каналы получения рассылки сохранены.",
       "success",
     );
   }
@@ -272,7 +292,7 @@ export function AdminNotificationSettingsWorkspace({
           <span className="eyebrow">Учётные записи</span>
           <h2>Уведомления</h2>
           <p>
-            Укажите Email и MAX пользователей и разрешите нужные типы уведомлений.
+            Укажите контакты пользователей и выберите каналы для нужных рассылок.
           </p>
         </div>
       </div>
@@ -290,19 +310,25 @@ export function AdminNotificationSettingsWorkspace({
               <tbody>
                 {users.map((user) => (
                   <tr
-                    className={user.userId === selectedUserId ? "is-active" : ""}
+                    className={`notification-admin-user-row${user.userId === selectedUserId ? " is-active" : ""}`}
+                    aria-selected={user.userId === selectedUserId}
                     key={user.userId}
+                    tabIndex={savingKey === undefined ? 0 : -1}
+                    onClick={() => {
+                      if (savingKey === undefined) selectUser(user);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        savingKey === undefined &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
+                        event.preventDefault();
+                        selectUser(user);
+                      }
+                    }}
                   >
                     <td>{user.positionDisplayName}</td>
-                    <td>
-                      <button
-                        type="button"
-                        disabled={savingKey !== undefined}
-                        onClick={() => selectUser(user)}
-                      >
-                        {user.displayName}
-                      </button>
-                    </td>
+                    <td>{user.displayName}</td>
                   </tr>
                 ))}
                 {users.length === 0 ? (
@@ -354,16 +380,21 @@ export function AdminNotificationSettingsWorkspace({
                   <thead>
                     <tr>
                       <th scope="col">Рассылка</th>
-                      <th scope="col">Включить</th>
+                      <th scope="col">Почта</th>
+                      <th scope="col">MAX</th>
                     </tr>
                   </thead>
                   <tbody>
                     {selected.settings.map((setting) => (
                       <tr key={setting.type}>
                         <th scope="row">{setting.label}</th>
-                        <td><input aria-label={`Разрешить: ${setting.label}`} type="checkbox" checked={setting.adminEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly} onChange={(event) => {
+                        <td><input aria-label={`Почта: ${setting.label}`} type="checkbox" checked={setting.emailEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly || selected.email === undefined} onChange={(event) => {
                           const checked = event.currentTarget.checked;
-                          void savePermission(setting.type, checked);
+                          void saveChannels(setting.type, "email", checked);
+                        }} /></td>
+                        <td><input aria-label={`MAX: ${setting.label}`} type="checkbox" checked={setting.maxEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly || selected.maxUserId === undefined} onChange={(event) => {
+                          const checked = event.currentTarget.checked;
+                          void saveChannels(setting.type, "max", checked);
                         }} /></td>
                       </tr>
                     ))}

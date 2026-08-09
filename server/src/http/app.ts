@@ -1621,7 +1621,7 @@ async function handleNotificationSettingsRequest({
   if (adminSettingMatch !== null) {
     if (req.method !== "PATCH") {
       sendJson(res, 405, {
-        error: { code: "access_denied", message: "Для изменения разрешения используется PATCH." },
+        error: { code: "access_denied", message: "Для изменения каналов используется PATCH." },
       });
       return;
     }
@@ -1661,7 +1661,7 @@ async function handleNotificationSettingsRequest({
       updated = await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
-        mutate: () => notificationSettings.setAdminEnabled({
+        mutate: () => notificationSettings.setAdminChannels({
           userId,
           type,
           ...validation.value,
@@ -1672,15 +1672,21 @@ async function handleNotificationSettingsRequest({
               actor: buildAuditActor(access.profile),
               category: "administration",
               action: "admin.account_notification_permission_update",
-              summary: `${validation.value.adminEnabled ? "Разрешена" : "Отключена"} рассылка для «${targetSettings.displayName}»`,
+              summary: `Изменены каналы рассылки для «${targetSettings.displayName}»`,
               details: [
                 { label: "Пользователь", value: targetSettings.displayName },
                 { label: "Рассылка", value: notificationLabel },
                 {
-                  label: "Состояние",
-                  value: validation.value.adminEnabled
-                    ? "Разрешена"
-                    : "Отключена",
+                  label: "Email",
+                  value: validation.value.emailEnabled
+                    ? "Включён"
+                    : "Выключен",
+                },
+                {
+                  label: "MAX",
+                  value: validation.value.maxEnabled
+                    ? "Включён"
+                    : "Выключен",
                 },
               ],
               targetType: "user_account",
@@ -1691,6 +1697,12 @@ async function handleNotificationSettingsRequest({
     } catch (error) {
       if (error instanceof ProtectedAccountMutationError) {
         sendProtectedAccountMutationDenied(res);
+        return;
+      }
+      if (error instanceof NotificationChannelUnavailableError) {
+        sendJson(res, 409, {
+          error: { code: "invalid_response", message: error.message },
+        });
         return;
       }
       throw error;

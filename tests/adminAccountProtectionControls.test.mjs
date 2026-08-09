@@ -180,10 +180,10 @@ test("delegated account manager cannot change protected account controls", async
     });
     await waitFor(
       React,
-      () => rootElement.querySelector(".notification-admin-user-table button") !== null,
+      () => rootElement.querySelector(".notification-admin-user-row") !== null,
     );
     await React.act(async () => {
-      rootElement.querySelector(".notification-admin-user-table button")?.click();
+      rootElement.querySelector(".notification-admin-user-row")?.click();
     });
     const contactInputs = rootElement.querySelectorAll(
       ".notification-admin-contacts input",
@@ -193,6 +193,12 @@ test("delegated account manager cannot change protected account controls", async
     assert.equal(contactInputs[1].value, "101");
     assert.equal(contactInputs[0].disabled, true);
     assert.equal(contactInputs[1].disabled, true);
+    const channelInputs = rootElement.querySelectorAll(
+      ".notification-settings-table input[type=\"checkbox\"]",
+    );
+    assert.equal(channelInputs.length, 2);
+    assert.equal(channelInputs[0].disabled, true);
+    assert.equal(channelInputs[1].disabled, true);
 
     await React.act(async () => root.unmount());
   } finally {

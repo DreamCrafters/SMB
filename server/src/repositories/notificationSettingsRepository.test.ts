@@ -156,6 +156,136 @@ test("delivery recipients are server-filtered by account status, permission and 
   );
 });
 
+test("administrative channel settings persist both channels and derive the broad permission", async () => {
+  const writes: unknown[][] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, parameters: unknown[] = []) {
+      if (sql.includes("from app_users")) {
+        return [[{
+          email: "director@example.com",
+          max_user_id: "101",
+          is_admin_protected: 0,
+        }], []];
+      }
+      assert.match(sql, /email_enabled = values\(email_enabled\)/u);
+      assert.match(sql, /max_enabled = values\(max_enabled\)/u);
+      writes.push(parameters);
+      return [{ affectedRows: 1 }, []];
+    },
+  };
+  const pool = {
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+  const repository = createNotificationSettingsRepository(pool);
+
+  await repository.setAdminChannels({
+    userId: "general-director-user",
+    type: "board_assignments",
+    emailEnabled: false,
+    maxEnabled: true,
+    allowProtectedAccountMutation: false,
+  });
+  await repository.setAdminChannels({
+    userId: "general-director-user",
+    type: "board_assignments",
+    emailEnabled: false,
+    maxEnabled: false,
+    allowProtectedAccountMutation: false,
+  });
+
+  assert.deepEqual(writes, [
+    ["general-director-user", "board_assignments", 1, 0, 1],
+    ["general-director-user", "board_assignments", 0, 0, 0],
+  ]);
+});
+
+test("administrative channel settings reject a selected channel without a contact", async () => {
+  let writeCount = 0;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      if (sql.includes("from app_users")) {
+        return [[{
+          email: "director@example.com",
+          max_user_id: null,
+          is_admin_protected: 0,
+        }], []];
+      }
+      writeCount += 1;
+      return [{ affectedRows: 1 }, []];
+    },
+  };
+  const pool = {
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createNotificationSettingsRepository(pool).setAdminChannels({
+      userId: "general-director-user",
+      type: "board_assignments",
+      emailEnabled: true,
+      maxEnabled: true,
+      allowProtectedAccountMutation: false,
+    }),
+    NotificationChannelUnavailableError,
+  );
+  assert.equal(writeCount, 0);
+});
+
+test("removing a contact also recomputes the broad permission from remaining channels", async () => {
+  const writes: Array<{ sql: string; parameters: unknown[] }> = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, parameters: unknown[] = []) {
+      if (sql.includes("from app_users")) {
+        return [[{
+          email: "director@example.com",
+          max_user_id: "101",
+          is_admin_protected: 0,
+        }], []];
+      }
+      writes.push({ sql, parameters });
+      return [{ affectedRows: 1 }, []];
+    },
+  };
+  const pool = {
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await createNotificationSettingsRepository(pool).updateContacts({
+    userId: "general-director-user",
+    email: undefined,
+    maxUserId: "101",
+    allowProtectedAccountMutation: false,
+  });
+
+  assert.equal(writes.length, 2);
+  assert.match(writes[1]?.sql ?? "", /admin_enabled\s*=\s*case/u);
+  assert.deepEqual(writes[1]?.parameters, [
+    null,
+    "101",
+    null,
+    "101",
+    "general-director-user",
+  ]);
+});
+
 test("administrative notification changes recheck protected accounts under lock", async () => {
   let writeCount = 0;
   const connection = {
@@ -192,10 +322,11 @@ test("administrative notification changes recheck protected accounts under lock"
     ProtectedAccountMutationError,
   );
   await assert.rejects(
-    repository.setAdminEnabled({
+    repository.setAdminChannels({
       userId: "protected-user",
       type: "incidents",
-      adminEnabled: true,
+      emailEnabled: true,
+      maxEnabled: false,
       allowProtectedAccountMutation: false,
     }),
     ProtectedAccountMutationError,

@@ -1,26 +1,40 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { JSDOM } from "jsdom";
+import { createServer } from "vite";
 
 const projectRoot = new URL("../", import.meta.url);
+const DOM_GLOBAL_NAMES = [
+  "document",
+  "Element",
+  "Event",
+  "HTMLElement",
+  "HTMLInputElement",
+  "KeyboardEvent",
+  "MouseEvent",
+  "navigator",
+  "Node",
+  "window",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 test("notification workspaces expose the List9 matrix and exact MAX onboarding", async () => {
   const workspace = await readFile(
     new URL("src/NotificationSettings.tsx", projectRoot),
     "utf8",
   );
+  const styles = await readFile(new URL("src/styles.css", projectRoot), "utf8");
 
   assert.match(workspace, />Администраторам</u);
   assert.match(workspace, />Рассылка</u);
-  assert.match(workspace, />Включить</u);
+  assert.doesNotMatch(workspace, />Включить</u);
+  assert.match(workspace, />Почта</u);
+  assert.match(workspace, />MAX</u);
   assert.match(workspace, />емейл</u);
   assert.match(workspace, />Макс</u);
   assert.match(workspace, /<th scope="col">Должность<\/th>/u);
   assert.match(workspace, /<th scope="col">Имя<\/th>/u);
-  assert.match(
-    workspace,
-    /<button\s+type="button"\s+disabled=\{savingKey !== undefined\}\s+onClick=\{\(\) => selectUser\(user\)\}\s*>/u,
-  );
   assert.match(workspace, /!setting\.adminEnabled/u);
   assert.match(workspace, /settings\.email === undefined/u);
   assert.match(workspace, /settings\.maxUserId === undefined/u);
@@ -28,7 +42,7 @@ test("notification workspaces expose the List9 matrix and exact MAX onboarding",
   assert.match(workspace, /!canManageProtectedAccounts/u);
   assert.match(
     workspace,
-    /async function savePermission[\s\S]*?setStatus\(""\);[\s\S]*?setSavingKey\(key\)/u,
+    /async function saveChannels[\s\S]*?setStatus\(""\);[\s\S]*?setSavingKey\(key\)/u,
   );
   assert.match(
     workspace,
@@ -37,4 +51,187 @@ test("notification workspaces expose the List9 matrix and exact MAX onboarding",
   assert.match(workspace, /https:\/\/max\.ru\/id7116027251_bot/u);
   assert.match(workspace, /Напишите боту <code>\/start<\/code>/u);
   assert.match(workspace, /9239239@gmail\.com/u);
+  assert.match(
+    styles,
+    /\.notification-admin-layout\s*\{[^}]*grid-template-columns:\s*minmax\(360px, 480px\)/su,
+  );
+  assert.match(
+    styles,
+    /\.notification-admin-user-table\s*\{[^}]*min-width:\s*420px/su,
+  );
 });
+
+test("administrator selects a notification user by the whole row and saves both channels", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  let savedChannels;
+  const user = {
+    userId: "director-user",
+    displayName: "Фридман Е.М.",
+    position: "general_director",
+    positionDisplayName: "Генеральный директор",
+    isProtected: false,
+    email: "director@example.com",
+    maxUserId: "101",
+    settings: [{
+      type: "board_assignments",
+      label: "Поручения Совета директоров",
+      adminEnabled: true,
+      emailEnabled: true,
+      maxEnabled: false,
+    }],
+  };
+
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      const method = init.method ?? "GET";
+      if (url.pathname === "/api/admin/notification-settings" && method === "GET") {
+        return jsonResponse({ users: [user] });
+      }
+      if (
+        url.pathname ===
+          "/api/admin/notification-settings/director-user/board_assignments" &&
+        method === "PATCH"
+      ) {
+        savedChannels = JSON.parse(String(init.body));
+        return jsonResponse({
+          settings: {
+            ...user,
+            settings: [{
+              ...user.settings[0],
+              ...savedChannels,
+              adminEnabled: true,
+            }],
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+    };
+
+    const { AdminNotificationSettingsWorkspace } = await vite.ssrLoadModule(
+      "/src/NotificationSettings.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    await React.act(async () => {
+      root.render(React.createElement(AdminNotificationSettingsWorkspace, {
+        canManageProtectedAccounts: true,
+        onShowToast() {},
+      }));
+    });
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".notification-admin-user-table tbody tr") !== null,
+    );
+
+    const userRow = rootElement.querySelector(
+      ".notification-admin-user-table tbody tr",
+    );
+    assert.ok(userRow);
+    await React.act(async () => userRow.click());
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".notification-admin-detail") !== null,
+    );
+
+    const channelHeaders = Array.from(
+      rootElement.querySelectorAll(
+        ".notification-admin-detail .notification-settings-table thead th",
+      ),
+      (header) => header.textContent?.trim(),
+    );
+    assert.deepEqual(channelHeaders, ["Рассылка", "Почта", "MAX"]);
+    const emailToggle = rootElement.querySelector(
+      'input[aria-label="Почта: Поручения Совета директоров"]',
+    );
+    const maxToggle = rootElement.querySelector(
+      'input[aria-label="MAX: Поручения Совета директоров"]',
+    );
+    assert.ok(emailToggle);
+    assert.ok(maxToggle);
+    assert.equal(emailToggle.checked, true);
+    assert.equal(maxToggle.checked, false);
+
+    await React.act(async () => maxToggle.click());
+    await waitFor(React, () => savedChannels !== undefined);
+    assert.deepEqual(savedChannels, {
+      emailEnabled: true,
+      maxEnabled: true,
+    });
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function waitFor(React, predicate) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (predicate()) return;
+    await React.act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  assert.fail("Timed out waiting for notification settings workspace.");
+}
+
+function captureDomGlobals() {
+  return Object.fromEntries(
+    DOM_GLOBAL_NAMES.map((name) => [
+      name,
+      Object.getOwnPropertyDescriptor(globalThis, name),
+    ]),
+  );
+}
+
+function installDomGlobals(window) {
+  const values = {
+    document: window.document,
+    Element: window.Element,
+    Event: window.Event,
+    HTMLElement: window.HTMLElement,
+    HTMLInputElement: window.HTMLInputElement,
+    KeyboardEvent: window.KeyboardEvent,
+    MouseEvent: window.MouseEvent,
+    navigator: window.navigator,
+    Node: window.Node,
+    window,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  for (const [name, value] of Object.entries(values)) {
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
+  }
+}
+
+function restoreDomGlobals(previousGlobals) {
+  for (const [name, descriptor] of Object.entries(previousGlobals)) {
+    if (descriptor === undefined) delete globalThis[name];
+    else Object.defineProperty(globalThis, name, descriptor);
+  }
+}

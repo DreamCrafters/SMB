@@ -55,21 +55,8 @@ export function isNotificationType(value: unknown): value is NotificationType {
 
 export function validateAdminNotificationSettingRequest(
   input: unknown,
-): ValidationResult<{ adminEnabled: boolean }> {
-  if (!isRecord(input) || Array.isArray(input)) {
-    return { ok: false, errors: ["Передайте настройку рассылки."] };
-  }
-  if (
-    Object.keys(input).length !== 1 ||
-    typeof input.adminEnabled !== "boolean"
-  ) {
-    return {
-      ok: false,
-      errors: ["Укажите только разрешение администратора."],
-    };
-  }
-
-  return { ok: true, value: { adminEnabled: input.adminEnabled } };
+): ValidationResult<{ emailEnabled: boolean; maxEnabled: boolean }> {
+  return validateOwnNotificationSettingRequest(input);
 }
 
 export function validateOwnNotificationSettingRequest(

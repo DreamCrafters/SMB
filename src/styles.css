@@ -4106,7 +4106,7 @@ p {
 
 .notification-admin-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(360px, 480px) minmax(0, 1fr);
   gap: var(--density-4);
   min-height: 340px;
 }
@@ -4120,7 +4120,9 @@ p {
 
 .notification-admin-user-table {
   width: 100%;
+  min-width: 420px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .notification-admin-user-table th,
@@ -4141,24 +4143,31 @@ p {
   text-transform: uppercase;
 }
 
-.notification-admin-user-table tr.is-active td {
-  background: var(--surface-subtle);
+.notification-admin-user-table th:first-child {
+  width: 56%;
 }
 
-.notification-admin-user-table button {
-  padding: 0;
-  border: 0;
-  color: var(--emerald);
-  background: transparent;
-  font: inherit;
-  font-weight: 800;
-  text-align: left;
+.notification-admin-user-row {
   cursor: pointer;
 }
 
-.notification-admin-user-table button:disabled {
-  color: var(--muted);
-  cursor: wait;
+.notification-admin-user-row:hover td,
+.notification-admin-user-row:focus-visible td {
+  background: var(--surface-subtle);
+}
+
+.notification-admin-user-row:focus-visible {
+  outline: 2px solid var(--emerald);
+  outline-offset: -2px;
+}
+
+.notification-admin-user-table tr.is-active td {
+  background: var(--emerald-soft);
+}
+
+.notification-admin-user-table td:last-child {
+  color: var(--emerald);
+  font-weight: 800;
 }
 
 .notification-admin-detail {

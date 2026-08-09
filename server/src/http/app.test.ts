@@ -10549,7 +10549,7 @@ test("notification settings API returns login reminders and persists server-owne
     async readUserSettings() {
       return userSettings;
     },
-    async setAdminEnabled(input) {
+    async setAdminChannels(input) {
       adminUpdates.push(input);
       return true;
     },
@@ -10754,14 +10754,15 @@ test("notification settings API returns login reminders and persists server-owne
       {
         method: "PATCH",
         headers,
-        body: JSON.stringify({ adminEnabled: false }),
+        body: JSON.stringify({ emailEnabled: false, maxEnabled: true }),
       },
     );
     assert.equal(adminPatchResponse.status, 200);
     assert.deepEqual(adminUpdates, [{
       userId: profile.userId,
       type: "board_assignments",
-      adminEnabled: false,
+      emailEnabled: false,
+      maxEnabled: true,
       allowProtectedAccountMutation: false,
     }]);
     assert.ok(auditDetailValues.includes("Поручения Совета директоров"));

@@ -58,16 +58,16 @@ export async function requestAdminNotificationSettings(
     : { status: "error", message: result.message ?? "Сервер вернул журнал рассылок в неподдерживаемом формате." };
 }
 
-export function updateAdminNotificationPermission(
+export function updateAdminNotificationChannels(
   userId: string,
   type: NotificationType,
-  adminEnabled: boolean,
+  value: { emailEnabled: boolean; maxEnabled: boolean },
   options: RequestOptions = {},
 ) {
   return requestSettings(
     `/api/admin/notification-settings/${encodeURIComponent(userId)}/${encodeURIComponent(type)}`,
     "PATCH",
-    { adminEnabled },
+    value,
     options,
   );
 }
