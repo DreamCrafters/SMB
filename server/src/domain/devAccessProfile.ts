@@ -24,6 +24,7 @@ const navigationItemsByAccountType = {
   admin: [
     "admin.account_preview",
     "admin.accounts",
+    "admin.navigation",
     "admin.database",
     "admin.user_actions",
   ],
@@ -36,6 +37,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
   admin: [
     "platform.manage_users",
     "platform.manage_access",
+    "platform.manage_navigation_order",
     "platform.manage_analytics_database",
     "platform.manage_integrations",
     "platform.view_audit",

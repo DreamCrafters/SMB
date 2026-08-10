@@ -15,6 +15,7 @@ import {
   setAdminAccountLoginEnabled,
   setAdminAccountProtected,
   setAdminPositionProtected,
+  setAdminPositionNavigationAccess,
   setAdminAccountNavigation,
   updateAdminPosition,
 } from "../.test-build/src/services/adminAccounts.js";
@@ -32,6 +33,7 @@ const account = {
   userDisplayName: "Диспетчер Один",
   userStatus: "active",
   isProtected: false,
+  isProtectedByAdminRights: false,
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher",
   position: "dispatcher",
@@ -122,7 +124,7 @@ test("admin positions service lists and creates positions without a base cabinet
     capabilities: ["business.view_dashboard", "business.view_dispatcher_feed"],
     boardAssignmentAccess: "none",
     isProtected: false,
-    isAdminProtected: false,
+    hasAdminRights: false,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
   };
@@ -166,7 +168,7 @@ test("admin positions service updates only the title and unified tabs", async ()
     capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
     boardAssignmentAccess: "none",
     isProtected: false,
-    isAdminProtected: false,
+    hasAdminRights: false,
     usageCount: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
   };
@@ -215,7 +217,7 @@ test("admin positions service saves the complete position order", async () => {
       capabilities: ["business.view_all_statistics"],
       boardAssignmentAccess: "none",
       isProtected: true,
-      isAdminProtected: false,
+      hasAdminRights: false,
       usageCount: 1,
       createdAt: "2026-07-12T00:00:00.000Z",
     },
@@ -227,7 +229,7 @@ test("admin positions service saves the complete position order", async () => {
       capabilities: ["platform.manage_access"],
       boardAssignmentAccess: "none",
       isProtected: true,
-      isAdminProtected: true,
+      hasAdminRights: true,
       usageCount: 1,
       createdAt: "2026-07-10T00:00:00.000Z",
     },
@@ -479,6 +481,36 @@ test("admin accounts service updates left navigation access", async () => {
 
   assert.equal(result.status, "ready");
   assert.equal(calls[0].init.method, "PATCH");
+});
+
+test("admin accounts service updates selected tab access for positions", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({
+      positions: [],
+      canAssignAdminNavigation: true,
+      canManageProtectedPositions: true,
+    });
+  };
+
+  const result = await setAdminPositionNavigationAccess({
+    navigationItem: "business.settings",
+    positionIds: ["general_director", "dispatcher"],
+    enabled: true,
+  });
+
+  assert.equal(result.status, "ready");
+  assert.equal(
+    calls[0].url,
+    "/api/admin/positions/navigation-access",
+  );
+  assert.equal(calls[0].init.method, "PUT");
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    navigationItem: "business.settings",
+    positionIds: ["general_director", "dispatcher"],
+    enabled: true,
+  });
 });
 
 test("admin accounts service surfaces server errors", async () => {

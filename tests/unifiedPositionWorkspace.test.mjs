@@ -8,7 +8,7 @@ import {
 
 const projectRoot = new URL("../", import.meta.url);
 
-test("positions can combine the unified workspace with guarded admin tabs", async () => {
+test("position form edits working tabs while admin rights are managed separately", async () => {
   assert.deepEqual(
     nonAdminNavigationItems.map(({ id }) => id),
     [
@@ -30,7 +30,7 @@ test("positions can combine the unified workspace with guarded admin tabs", asyn
   const positionFormSource = /type AdminPositionFormState = \{([\s\S]*?)\n\};/u.exec(appSource)?.[1];
 
   assert.equal(positionFormSource?.includes("accountType"), false);
-  assert.equal(positionFormSource?.includes("showAdminNavigation"), true);
+  assert.equal(positionFormSource?.includes("showAdminNavigation"), false);
   assert.equal(appSource.includes("<span>Базовый кабинет</span>"), false);
   assert.match(
     appSource,
@@ -40,21 +40,27 @@ test("positions can combine the unified workspace with guarded admin tabs", asyn
     appSource,
     /\{boardAssignmentAccessOptions\.map\(\(option\) => \(/u,
   );
-  assert.match(appSource, />\s*Админ\s*</u);
+  assert.equal(appSource.includes(">Админ<"), false);
+  assert.equal(appSource.includes("Административные вкладки"), false);
+  assert.match(appSource, /<th>Права админа<\/th>/u);
+  assert.match(appSource, /aria-label=\{`Права админа для должности/u);
   assert.match(
     appSource,
-    /navigationItemsByAccountType\.admin\.map\(\(item\) => \(/u,
+    /positionForm\.navigationItems\.length === 0 &&\s*editedPosition\?\.hasAdminRights !== true/u,
   );
   assert.match(
     appSource,
-    /disabled=\{isSubmitting \|\| !positionsState\.canAssignAdminNavigation\}/u,
+    /Перед отключением прав админа добавьте должности рабочую вкладку/u,
   );
   assert.match(appSource, /resolveAllowedWorkspaceKind\(/u);
   assert.match(
     appSource,
     /position\.accountType === "admin" \|\|\s*isProtectedMutationRestricted \|\|\s*positionOrderDraft !== undefined \|\|\s*isSavingPositionOrder/u,
   );
-  assert.equal(appSource.includes("Сохранить порядок"), false);
+  assert.doesNotMatch(
+    appSource,
+    /admin-position-order-actions[\s\S]{0,500}Сохранить порядок/u,
+  );
   assert.match(appSource, />\s*Выше\s*</u);
   assert.match(appSource, />\s*Ниже\s*</u);
 

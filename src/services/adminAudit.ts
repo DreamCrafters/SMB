@@ -34,12 +34,14 @@ export async function requestAdminAuditReport({
   category,
   limit = 50,
   offset = 0,
+  organizationOnly = false,
   showTechnicalDetails = true,
 }: RequestOptions & {
   actorAccountId?: string;
   category?: AuditEventCategory;
   limit?: number;
   offset?: number;
+  organizationOnly?: boolean;
   showTechnicalDetails?: boolean;
 } = {}): Promise<AdminAuditReportResult> {
   const endpoint = new URL(
@@ -55,6 +57,9 @@ export async function requestAdminAuditReport({
   }
   endpoint.searchParams.set("limit", String(limit));
   endpoint.searchParams.set("offset", String(offset));
+  if (organizationOnly) {
+    endpoint.searchParams.set("scope", "organization");
+  }
 
   try {
     const response = await fetch(toRequestUrl(endpoint), {

@@ -44,6 +44,7 @@ export const navigationItemsByAccountType: Record<
   admin: [
     "admin.account_preview",
     "admin.accounts",
+    "admin.navigation",
     "admin.database",
     "admin.user_actions",
   ],
@@ -66,12 +67,15 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.dispatcher_form",
 ];
 
+const delegatedAdminNavigationItem = "admin.accounts" as const;
+
 const capabilitiesByNavigationItem: Record<
   AccountNavigationItem,
   AccountCapability[]
 > = {
   "admin.account_preview": [],
   "admin.accounts": ["platform.manage_users", "platform.manage_access"],
+  "admin.navigation": ["platform.manage_navigation_order"],
   "admin.database": ["platform.manage_analytics_database"],
   "admin.user_actions": ["platform.view_audit"],
   "business.overview": [
@@ -111,10 +115,17 @@ export function resolveCapabilitiesForPosition(
   position: AccountPosition,
   navigationItems: AccountNavigationItem[],
   boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
+  hasAdminRights = false,
 ) {
-  const capabilities = resolveCapabilitiesForNavigation(navigationItems);
+  const resolvedNavigationItems =
+    position === defaultPositionByAccountType.admin
+      ? Array.from(new Set(navigationItems))
+      : resolveNavigationForPosition(navigationItems, hasAdminRights);
+  const capabilities = resolveCapabilitiesForNavigation(
+    resolvedNavigationItems,
+  );
 
-  if (!navigationItems.includes("business.board_assignments")) {
+  if (!resolvedNavigationItems.includes("business.board_assignments")) {
     return capabilities;
   }
 
@@ -131,6 +142,20 @@ export function resolveCapabilitiesForPosition(
           : [];
 
   return Array.from(new Set([...capabilities, ...boardCapabilities]));
+}
+
+export function resolveNavigationForPosition(
+  navigationItems: AccountNavigationItem[],
+  hasAdminRights: boolean,
+) {
+  const workingNavigationItems = navigationItems.filter((item) =>
+    nonAdminNavigationItems.includes(item),
+  );
+
+  return Array.from(new Set([
+    ...workingNavigationItems,
+    ...(hasAdminRights ? [delegatedAdminNavigationItem] : []),
+  ]));
 }
 
 export function isBoardAssignmentAccess(
@@ -203,10 +228,7 @@ export function hasSameAdminNavigationItems(
 export function validatePositionNavigationItems(
   navigationItems: AccountNavigationItem[],
 ) {
-  const allowed = new Set([
-    ...nonAdminNavigationItems,
-    ...navigationItemsByAccountType.admin,
-  ]);
+  const allowed = new Set(nonAdminNavigationItems);
 
   return navigationItems.length > 0 && navigationItems.every((item) => allowed.has(item));
 }

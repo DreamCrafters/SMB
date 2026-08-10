@@ -6,6 +6,7 @@ import {
   readBoardAssignmentAccess,
   resolveCapabilitiesForPosition,
   resolveCapabilitiesForNavigation,
+  resolveNavigationForPosition,
   validatePositionNavigationItems,
 } from "./accountAccessConfiguration.js";
 
@@ -18,7 +19,7 @@ test("executive positions use the business owner workspace", () => {
   assert.equal(accountTypeByPosition.economist, "business_owner");
 });
 
-test("positions share one business and admin navigation catalog", () => {
+test("positions accept only working navigation selected by an administrator", () => {
   assert.equal(
     navigationItemsByAccountType.business_owner.includes("business.user_actions"),
     false,
@@ -33,7 +34,7 @@ test("positions share one business and admin navigation catalog", () => {
     validatePositionNavigationItems([
       "admin.database",
     ]),
-    true,
+    false,
   );
   assert.equal(validatePositionNavigationItems([]), false);
   assert.equal(
@@ -68,7 +69,54 @@ test("positions share one business and admin navigation catalog", () => {
   );
   assert.equal(
     validatePositionNavigationItems(["business.overview", "admin.database"]),
-    true,
+    false,
+  );
+});
+
+test("position admin rights grant account management without root admin panels", () => {
+  assert.deepEqual(
+    resolveNavigationForPosition(["business.overview"], true),
+    ["business.overview", "admin.accounts"],
+  );
+  assert.deepEqual(
+    resolveCapabilitiesForPosition(
+      "position-delegated-admin",
+      ["business.overview"],
+      "none",
+      true,
+    ),
+    [
+      "business.view_all_statistics",
+      "business.view_notifications",
+      "business.view_dispatcher_feed",
+      "platform.manage_users",
+      "platform.manage_access",
+    ],
+  );
+  assert.deepEqual(
+    resolveNavigationForPosition(
+      ["business.overview", "admin.database", "admin.user_actions"],
+      true,
+    ),
+    ["business.overview", "admin.accounts"],
+  );
+});
+
+test("system administrator keeps every navigation-derived root capability when recomputed", () => {
+  assert.deepEqual(
+    resolveCapabilitiesForPosition(
+      "administrator",
+      navigationItemsByAccountType.admin,
+      "none",
+      true,
+    ),
+    [
+      "platform.manage_users",
+      "platform.manage_access",
+      "platform.manage_navigation_order",
+      "platform.manage_analytics_database",
+      "platform.view_audit",
+    ],
   );
 });
 

@@ -43,11 +43,10 @@ export type NotificationSettingsRepository = {
   readUserSettings: (
     userId: string,
   ) => Promise<UserNotificationSettings | undefined>;
-  setAdminChannels: (input: {
+  setAdminPermission: (input: {
     userId: string;
     type: NotificationType;
-    emailEnabled: boolean;
-    maxEnabled: boolean;
+    adminEnabled: boolean;
     allowProtectedAccountMutation: boolean;
   }) => Promise<boolean>;
   setOwnChannels: (input: {
@@ -112,6 +111,10 @@ type ContactRow = RowDataPacket & {
   is_admin_protected: number | boolean;
 };
 
+type AdminRightsAccessRow = RowDataPacket & {
+  is_admin_protected: number | boolean;
+};
+
 type AdminPermissionRow = RowDataPacket & {
   admin_enabled: number | boolean;
 };
@@ -127,7 +130,20 @@ type DeliveryRecipientRow = RowDataPacket & {
 
 const userSelect = `
   select users.id as user_id, users.display_name, users.email,
-    users.max_user_id, users.is_admin_protected, accesses.position_code,
+    users.max_user_id,
+    greatest(
+      users.is_admin_protected,
+      exists (
+        select 1
+        from account_accesses protected_accesses
+        join account_positions protected_positions
+          on protected_positions.id = protected_accesses.position_code
+        where protected_accesses.user_id = users.id
+          and protected_accesses.is_active = 1
+          and protected_positions.is_admin_protected = 1
+      )
+    ) as is_admin_protected,
+    accesses.position_code,
     positions.display_name as position_display_name
   from app_users users
   join account_accesses accesses
@@ -193,17 +209,15 @@ export function createNotificationSettingsRepository(
     } satisfies UserNotificationSettings;
   }
 
-  async function setAdminChannels({
+  async function setAdminPermission({
     userId,
     type,
-    emailEnabled,
-    maxEnabled,
+    adminEnabled,
     allowProtectedAccountMutation,
   }: {
     userId: string;
     type: NotificationType;
-    emailEnabled: boolean;
-    maxEnabled: boolean;
+    adminEnabled: boolean;
     allowProtectedAccountMutation: boolean;
   }) {
     const connection = await pool.getConnection();
@@ -219,27 +233,18 @@ export function createNotificationSettingsRepository(
         isProtected: readBoolean(account.is_admin_protected),
         allowProtected: allowProtectedAccountMutation,
       });
-      if (emailEnabled && normalizeOptional(account.email) === undefined) {
-        throw new NotificationChannelUnavailableError("email");
-      }
-      if (maxEnabled && normalizeOptional(account.max_user_id) === undefined) {
-        throw new NotificationChannelUnavailableError("max");
-      }
-      const adminEnabled = emailEnabled || maxEnabled;
       await connection.query(
         `insert into user_notification_settings (
           user_id, notification_type, admin_enabled, email_enabled, max_enabled
-        ) values (?, ?, ?, ?, ?)
+        ) values (?, ?, ?, 0, 0)
         on duplicate key update
           admin_enabled = values(admin_enabled),
-          email_enabled = values(email_enabled),
-          max_enabled = values(max_enabled)`,
+          email_enabled = 0,
+          max_enabled = 0`,
         [
           userId,
           type,
           adminEnabled ? 1 : 0,
-          emailEnabled ? 1 : 0,
-          maxEnabled ? 1 : 0,
         ],
       );
       await connection.commit();
@@ -332,17 +337,10 @@ export function createNotificationSettingsRepository(
       if (normalizedEmail === undefined || normalizedMaxUserId === undefined) {
         await connection.query(
           `update user_notification_settings
-           set admin_enabled = case
-               when (? is not null and email_enabled = 1)
-                 or (? is not null and max_enabled = 1)
-               then 1 else 0
-             end,
-             email_enabled = case when ? is null then 0 else email_enabled end,
+           set email_enabled = case when ? is null then 0 else email_enabled end,
              max_enabled = case when ? is null then 0 else max_enabled end
            where user_id = ?`,
           [
-            normalizedEmail ?? null,
-            normalizedMaxUserId ?? null,
             normalizedEmail ?? null,
             normalizedMaxUserId ?? null,
             userId,
@@ -408,7 +406,7 @@ export function createNotificationSettingsRepository(
   return {
     listUsers,
     readUserSettings,
-    setAdminChannels,
+    setAdminPermission,
     setOwnChannels,
     updateContacts,
     listDeliveryRecipients,
@@ -421,13 +419,34 @@ async function readContactForUpdate(
   userId: string,
 ) {
   const [rows] = await connection.query<ContactRow[]>(
-    `select email, max_user_id, is_admin_protected from app_users
-     where id = ? and status <> 'archived'
+    `select users.email, users.max_user_id, users.is_admin_protected
+     from app_users users
+     where users.id = ? and users.status <> 'archived'
      limit 1 for update`,
     [userId],
   );
+  const contact = rows[0];
+  if (contact === undefined) {
+    return undefined;
+  }
+  const [adminRightsRows] = await connection.query<AdminRightsAccessRow[]>(
+    `select positions.is_admin_protected
+     from account_accesses protected_accesses
+     join account_positions positions
+       on positions.id = protected_accesses.position_code
+     where protected_accesses.user_id = ?
+       and protected_accesses.is_active = 1
+     order by protected_accesses.id, positions.id
+     for update`,
+    [userId],
+  );
 
-  return rows[0];
+  return {
+    ...contact,
+    is_admin_protected:
+      readBoolean(contact.is_admin_protected) ||
+      adminRightsRows.some((row) => readBoolean(row.is_admin_protected)),
+  };
 }
 
 async function readPermissionForUpdate(

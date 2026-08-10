@@ -3094,7 +3094,227 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "056_position_admin_rights",
+    statements: [
+      `
+      insert into account_positions (
+        id, display_name, account_type, navigation_items, capabilities,
+        is_protected, sort_order, is_admin_protected
+      )
+      select
+        'delegated_administrator',
+        'Делегированный администратор сайта',
+        'business_owner',
+        json_array('admin.accounts'),
+        json_array('platform.manage_users', 'platform.manage_access'),
+        0,
+        next_order.sort_order,
+        1
+      from (
+        select coalesce(max(sort_order), 0) + 1 as sort_order
+        from account_positions
+      ) next_order
+      where exists (
+        select 1
+        from account_accesses accesses
+        join app_users users on users.id = accesses.user_id
+        where accesses.position_code = 'administrator'
+          and lower(trim(users.login)) <> 'admin'
+      )
+        and not exists (
+          select 1 from account_positions existing
+          where existing.id = 'delegated_administrator'
+        );
+      `,
+      `
+      update account_accesses accesses
+      join app_users users on users.id = accesses.user_id
+      set accesses.account_type = 'business_owner',
+          accesses.position_code = 'delegated_administrator',
+          accesses.scope_kind = 'organization',
+          accesses.navigation_items = json_array('admin.accounts'),
+          accesses.capabilities = json_array(
+            'platform.manage_users',
+            'platform.manage_access'
+          )
+      where accesses.position_code = 'administrator'
+        and lower(trim(users.login)) <> 'admin';
+      `,
+      ...[
+        "admin.account_preview",
+        "admin.database",
+        "admin.user_actions",
+      ].map((item) => removePositionJsonValue(
+        "navigation_items",
+        item,
+        "account_type <> 'admin'",
+      )),
+      ...[
+        "platform.manage_analytics_database",
+        "platform.manage_integrations",
+        "platform.view_audit",
+        "platform.view_logs",
+        "platform.use_debug_tools",
+      ].map((capability) => removePositionJsonValue(
+        "capabilities",
+        capability,
+        "account_type <> 'admin'",
+      )),
+      removePositionJsonValue(
+        "navigation_items",
+        "admin.accounts",
+        "account_type <> 'admin' and is_admin_protected = 0",
+      ),
+      removePositionJsonValue(
+        "capabilities",
+        "platform.manage_users",
+        "account_type <> 'admin' and is_admin_protected = 0",
+      ),
+      removePositionJsonValue(
+        "capabilities",
+        "platform.manage_access",
+        "account_type <> 'admin' and is_admin_protected = 0",
+      ),
+      addPositionJsonValue(
+        "navigation_items",
+        "admin.accounts",
+        "account_type <> 'admin' and is_admin_protected = 1",
+      ),
+      addPositionJsonValue(
+        "capabilities",
+        "platform.manage_users",
+        "account_type <> 'admin' and is_admin_protected = 1",
+      ),
+      addPositionJsonValue(
+        "capabilities",
+        "platform.manage_access",
+        "account_type <> 'admin' and is_admin_protected = 1",
+      ),
+      `
+      update account_accesses accesses
+      join account_positions positions on positions.id = accesses.position_code
+      set accesses.navigation_items = positions.navigation_items,
+          accesses.capabilities = positions.capabilities
+      where positions.account_type <> 'admin';
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      join account_positions positions on positions.id = accesses.position_code
+      where positions.account_type <> 'admin';
+      `,
+    ],
+  },
+  {
+    id: "057_notification_permission_user_channels",
+    statements: [
+      `
+      update user_notification_settings
+      set admin_enabled = case
+            when admin_enabled = 1
+              or email_enabled = 1
+              or max_enabled = 1
+              then 1
+            else 0
+          end,
+          email_enabled = 0,
+          max_enabled = 0;
+      `,
+    ],
+  },
+  {
+    id: "058_navigation_order",
+    statements: [
+      `
+      create table if not exists app_navigation_settings (
+        setting_key varchar(80) not null primary key,
+        navigation_order json not null,
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into app_navigation_settings (setting_key, navigation_order)
+      values (
+        'left_rail',
+        json_array(
+          'business.overview',
+          'business.dispatcher',
+          'business.work',
+          'business.production_plan',
+          'business.refractory_shop',
+          'business.laboratory_results',
+          'business.laboratory_review',
+          'business.board_assignments',
+          'business.settings',
+          'business.user_actions',
+          'business.dispatcher_form',
+          'admin.account_preview',
+          'admin.accounts',
+          'admin.navigation',
+          'admin.user_actions',
+          'admin.database'
+        )
+      )
+      on duplicate key update setting_key = values(setting_key);
+      `,
+      addPositionJsonValue(
+        "navigation_items",
+        "admin.navigation",
+        "id = 'administrator'",
+      ),
+      addPositionJsonValue(
+        "capabilities",
+        "platform.manage_navigation_order",
+        "id = 'administrator'",
+      ),
+      `
+      update account_accesses accesses
+      join account_positions positions on positions.id = accesses.position_code
+      set accesses.navigation_items = positions.navigation_items,
+          accesses.capabilities = positions.capabilities
+      where positions.id = 'administrator';
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      where accesses.position_code = 'administrator';
+      `,
+    ],
+  },
 ];
+
+function removePositionJsonValue(
+  column: "navigation_items" | "capabilities",
+  value: string,
+  where: string,
+) {
+  return `
+    update account_positions
+    set ${column} = json_remove(
+      ${column},
+      json_unquote(json_search(${column}, 'one', '${value}'))
+    )
+    where ${where}
+      and json_contains(${column}, json_quote('${value}'));
+  `;
+}
+
+function addPositionJsonValue(
+  column: "navigation_items" | "capabilities",
+  value: string,
+  where: string,
+) {
+  return `
+    update account_positions
+    set ${column} = json_array_append(${column}, '$', '${value}')
+    where ${where}
+      and not json_contains(${column}, json_quote('${value}'));
+  `;
+}
 
 function buildInitialProductBrandInsert() {
   const values = initialProductBrandNames.map((name) => `(

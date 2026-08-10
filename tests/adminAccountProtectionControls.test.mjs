@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
+import { defaultNavigationOrder } from "../.test-build/src/content.js";
 
 const DOM_GLOBAL_NAMES = [
   "document",
@@ -49,6 +50,9 @@ test("delegated account manager cannot change protected account controls", async
   try {
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
+      if (url.pathname === "/api/navigation-order") {
+        return jsonResponse({ navigationOrder: defaultNavigationOrder });
+      }
       const method = init.method ?? "GET";
 
       if (url.pathname === "/api/access/profile") {
@@ -139,6 +143,10 @@ test("delegated account manager cannot change protected account controls", async
     assert.ok(protection);
     assert.equal(protection.checked, true);
     assert.equal(protection.disabled, true);
+    assert.equal(
+      protection.closest("label")?.title,
+      "Аккаунт защищён автоматически правами админа его должности.",
+    );
     assert.equal(position?.disabled, true);
     assert.equal(reset?.disabled, true);
     assert.equal(toggle?.disabled, true);
@@ -159,7 +167,11 @@ test("delegated account manager cannot change protected account controls", async
     );
     assert.ok(positionRow);
     const positionProtection = positionRow.querySelector(
-      'input[aria-label="Защитить должность Администратор подразделения"]',
+      'input[aria-label="Права админа для должности Администратор подразделения"]',
+    );
+    assert.equal(
+      rootElement.querySelector(".admin-positions-table th:nth-child(3)")?.textContent,
+      "Права админа",
     );
     const editPosition = Array.from(positionRow.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Изменить",
@@ -193,12 +205,11 @@ test("delegated account manager cannot change protected account controls", async
     assert.equal(contactInputs[1].value, "101");
     assert.equal(contactInputs[0].disabled, true);
     assert.equal(contactInputs[1].disabled, true);
-    const channelInputs = rootElement.querySelectorAll(
+    const permissionInputs = rootElement.querySelectorAll(
       ".notification-settings-table input[type=\"checkbox\"]",
     );
-    assert.equal(channelInputs.length, 2);
-    assert.equal(channelInputs[0].disabled, true);
-    assert.equal(channelInputs[1].disabled, true);
+    assert.equal(permissionInputs.length, 1);
+    assert.equal(permissionInputs[0].disabled, true);
 
     await React.act(async () => root.unmount());
   } finally {
@@ -242,6 +253,7 @@ function buildProtectedAccount() {
     userDisplayName: "Защищённый администратор",
     userStatus: "active",
     isProtected: true,
+    isProtectedByAdminRights: true,
     accessDisplayName: "Защищённый администратор access",
     accountType: "business_owner",
     position: "protected-position",
@@ -262,7 +274,7 @@ function buildPosition() {
     capabilities: ["platform.manage_users", "platform.manage_access"],
     boardAssignmentAccess: "none",
     isProtected: false,
-    isAdminProtected: true,
+    hasAdminRights: true,
     usageCount: 0,
     createdAt: "2026-08-03T08:00:00.000Z",
   };

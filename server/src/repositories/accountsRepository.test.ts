@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
-import { ProtectedAccountMutationError } from "../domain/adminAccountProtection.js";
-import { ProtectedPositionMutationError } from "../domain/adminPositionProtection.js";
+import {
+  CanonicalAdminMutationRequiredError,
+  ProtectedAccountMutationError,
+} from "../domain/adminAccountProtection.js";
+import {
+  PositionAdminRightsRemovalRequiresNavigationError,
+  PositionNavigationRemovalRequiresNavigationError,
+  ProtectedPositionMutationError,
+} from "../domain/adminPositionProtection.js";
 import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   createAccountsRepository,
+  SystemAdministratorPositionAssignmentError,
 } from "./accountsRepository.js";
 
 test("listAccounts follows the server-owned position order and sorts names within each group", async () => {
@@ -23,6 +31,14 @@ test("listAccounts follows the server-owned position order and sorts names withi
   assert.match(
     selectSql,
     /order by positions\.sort_order asc, users\.display_name asc/,
+  );
+  assert.match(
+    selectSql,
+    /protected_accesses\.user_id = users\.id.*protected_accesses\.is_active = 1.*protected_positions\.is_admin_protected = 1.*as is_protected/u,
+  );
+  assert.match(
+    selectSql,
+    /protected_positions\.is_admin_protected = 1.*as is_protected_by_admin_rights/u,
   );
 });
 
@@ -159,7 +175,7 @@ test("setPositionOrder rejects moving a protected position for a delegated manag
   assert.equal(didRollback, true);
 });
 
-test("setPositionProtected updates the selected row under a lock", async () => {
+test("setPositionNavigationAccess atomically updates selected working tabs and linked sessions", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let didCommit = false;
   const connection = {
@@ -170,12 +186,285 @@ test("setPositionProtected updates the selected row under a lock", async () => {
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, params });
-      if (normalized.startsWith("select id, display_name, account_type, is_admin_protected")) {
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[
+          {
+            id: "position-director",
+            display_name: "Генеральный директор",
+            account_type: "business_owner",
+            navigation_items: JSON.stringify(["business.overview"]),
+            capabilities: JSON.stringify([
+              "business.view_all_statistics",
+              "business.view_notifications",
+              "business.view_dispatcher_feed",
+            ]),
+            is_protected: 1,
+            is_admin_protected: 0,
+            created_at: "2026-08-10T00:00:00.000Z",
+            usage_count: 1,
+          },
+          {
+            id: "position-manager",
+            display_name: "Начальник производства",
+            account_type: "business_owner",
+            navigation_items: JSON.stringify([
+              "business.dispatcher",
+              "business.settings",
+            ]),
+            capabilities: JSON.stringify([
+              "business.view_dispatcher_feed",
+              "business.manage_notification_settings",
+            ]),
+            is_protected: 0,
+            is_admin_protected: 0,
+            created_at: "2026-08-10T00:00:00.000Z",
+            usage_count: 2,
+          },
+        ], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).setPositionNavigationAccess({
+    navigationItem: "business.settings",
+    positionIds: ["position-director", "position-manager"],
+    enabled: true,
+  }, {
+    userId: "root-admin-user",
+    accessId: "root-admin-access",
+    devAccessEnabled: false,
+  });
+
+  assert.equal(didCommit, true);
+  assert.deepEqual(result, {
+    navigationItem: "business.settings",
+    enabled: true,
+    positions: [
+      { id: "position-director", displayName: "Генеральный директор" },
+    ],
+  });
+  assert.deepEqual(queries[0]?.params, ["root-admin-user"]);
+  assert.match(
+    queries.find((query) =>
+      query.sql.startsWith("select positions.id, positions.display_name")
+    )?.sql ?? "",
+    /order by positions\.id for update$/u,
+  );
+  assert.deepEqual(
+    queries.find((query) =>
+      query.sql.startsWith("update account_positions set navigation_items")
+    )?.params,
+    [
+      JSON.stringify(["business.overview", "business.settings"]),
+      JSON.stringify([
+        "business.view_all_statistics",
+        "business.view_notifications",
+        "business.view_dispatcher_feed",
+        "business.manage_notification_settings",
+      ]),
+      "position-director",
+    ],
+  );
+  assert.equal(
+    queries.some((query) =>
+      query.sql.startsWith("update account_accesses accesses") &&
+      query.params?.at(-1) === "position-director"
+    ),
+    true,
+  );
+  assert.equal(
+    queries.some((query) =>
+      query.sql.startsWith("delete sessions from auth_sessions sessions") &&
+      query.params?.at(-1) === "position-director"
+    ),
+    true,
+  );
+});
+
+test("setPositionNavigationAccess keeps the last working tab of an ordinary position", async () => {
+  let didUpdate = false;
+  let didRollback = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() { didRollback = true; },
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "position-only-overview",
+          display_name: "Наблюдатель",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(["business.overview"]),
+          capabilities: JSON.stringify(["business.view_all_statistics"]),
+          is_protected: 0,
+          is_admin_protected: 0,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions")) {
+        didUpdate = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).setPositionNavigationAccess({
+      navigationItem: "business.overview",
+      positionIds: ["position-only-overview"],
+      enabled: false,
+    }, {
+      userId: "root-admin-user",
+      accessId: "root-admin-access",
+      devAccessEnabled: false,
+    }),
+    PositionNavigationRemovalRequiresNavigationError,
+  );
+
+  assert.equal(didUpdate, false);
+  assert.equal(didRollback, true);
+});
+
+test("setPositionNavigationAccess lets synthetic dev admin clear an admin-rights position", async () => {
+  let didUpdate = false;
+  let didCommit = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() { didCommit = true; },
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        throw new Error("Synthetic dev admin must not require an app_users row.");
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "position-admin-rights",
+          display_name: "Администратор подразделения",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify([
+            "business.overview",
+            "admin.accounts",
+          ]),
+          capabilities: JSON.stringify([
+            "business.view_all_statistics",
+            "platform.manage_users",
+            "platform.manage_access",
+          ]),
+          is_protected: 0,
+          is_admin_protected: 1,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions")) {
+        didUpdate = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).setPositionNavigationAccess({
+    navigationItem: "business.overview",
+    positionIds: ["position-admin-rights"],
+    enabled: false,
+  }, {
+    userId: "dev-user-admin",
+    accessId: "dev-access-admin",
+    devAccessEnabled: true,
+  });
+
+  assert.equal(didUpdate, true);
+  assert.equal(didCommit, true);
+  assert.deepEqual(result?.positions, [{
+    id: "position-admin-rights",
+    displayName: "Администратор подразделения",
+  }]);
+});
+
+test("setPositionNavigationAccess rechecks the original admin under lock", async () => {
+  let didReadPositions = false;
+  let didRollback = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() { didRollback = true; },
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "delegated-admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        didReadPositions = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).setPositionNavigationAccess({
+      navigationItem: "business.settings",
+      positionIds: ["position-manager"],
+      enabled: true,
+    }, {
+      userId: "delegated-user",
+      accessId: "delegated-access",
+      devAccessEnabled: false,
+    }),
+    CanonicalAdminMutationRequiredError,
+  );
+
+  assert.equal(didReadPositions, false);
+  assert.equal(didRollback, true);
+});
+
+test("setPositionProtected atomically grants delegated admin access and revokes linked sessions", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  let didCommit = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() { didCommit = true; },
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+      if (normalized.startsWith("select id, display_name, account_type, navigation_items")) {
         return [[{
           id: "position-selected",
           display_name: "Выбранная должность",
           account_type: "business_owner",
           is_admin_protected: 0,
+          navigation_items: JSON.stringify(["business.overview"]),
+          capabilities: JSON.stringify([
+            "business.view_all_statistics",
+            "business.view_notifications",
+            "business.view_dispatcher_feed",
+          ]),
         }], []];
       }
       return [[], []];
@@ -202,8 +491,147 @@ test("setPositionProtected updates the selected row under a lock", async () => {
     queries.find((query) =>
       query.sql.startsWith("update account_positions set is_admin_protected")
     )?.params,
-    [1, "position-selected"],
+    [
+      1,
+      JSON.stringify(["business.overview", "admin.accounts"]),
+      JSON.stringify([
+        "business.view_all_statistics",
+        "business.view_notifications",
+        "business.view_dispatcher_feed",
+        "platform.manage_users",
+        "platform.manage_access",
+      ]),
+      "position-selected",
+    ],
   );
+  assert.equal(
+    queries.some((query) =>
+      query.sql.startsWith("update account_accesses accesses") &&
+      query.sql.includes("where accesses.position_code = ?")
+    ),
+    true,
+  );
+  assert.equal(
+    queries.some((query) =>
+      query.sql.startsWith("delete sessions from auth_sessions sessions")
+    ),
+    true,
+  );
+});
+
+test("setPositionProtected keeps root panels for the system administrator", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+      if (normalized.startsWith("select id, display_name, account_type, navigation_items")) {
+        return [[{
+          id: "administrator",
+          display_name: "Администратор",
+          account_type: "admin",
+          is_admin_protected: 1,
+          navigation_items: JSON.stringify([
+            "admin.account_preview",
+            "admin.accounts",
+            "admin.database",
+            "admin.user_actions",
+          ]),
+          capabilities: JSON.stringify([
+            "platform.manage_users",
+            "platform.manage_access",
+            "platform.manage_analytics_database",
+            "platform.manage_integrations",
+            "platform.view_audit",
+            "platform.view_logs",
+            "platform.use_debug_tools",
+            "business.view_all_statistics",
+          ]),
+        }], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await createAccountsRepository(pool).setPositionProtected({
+    id: "administrator",
+    isProtected: true,
+  });
+
+  assert.deepEqual(
+    queries.find((query) =>
+      query.sql.startsWith("update account_positions set is_admin_protected")
+    )?.params,
+    [
+      1,
+      JSON.stringify([
+        "admin.account_preview",
+        "admin.accounts",
+        "admin.database",
+        "admin.user_actions",
+      ]),
+      JSON.stringify([
+        "platform.manage_users",
+        "platform.manage_access",
+        "platform.manage_analytics_database",
+        "platform.manage_integrations",
+        "platform.view_audit",
+        "platform.view_logs",
+        "platform.use_debug_tools",
+        "business.view_all_statistics",
+      ]),
+      "administrator",
+    ],
+  );
+});
+
+test("setPositionProtected keeps admin rights until a working tab is selected", async () => {
+  let didUpdate = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select id, display_name, account_type, navigation_items")) {
+        return [[{
+          id: "delegated_administrator",
+          display_name: "Делегированный администратор сайта",
+          account_type: "business_owner",
+          is_admin_protected: 1,
+          navigation_items: JSON.stringify(["admin.accounts"]),
+          capabilities: JSON.stringify([
+            "platform.manage_users",
+            "platform.manage_access",
+          ]),
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions")) {
+        didUpdate = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).setPositionProtected({
+      id: "delegated_administrator",
+      isProtected: false,
+    }),
+    PositionAdminRightsRemovalRequiresNavigationError,
+  );
+  assert.equal(didUpdate, false);
 });
 
 test("createPosition appends a new position after the current order", async () => {
@@ -329,6 +757,72 @@ test("updatePosition rejects a protected position for a delegated manager inside
   assert.equal(didRollback, true);
 });
 
+test("updatePosition preserves delegated admin access when original admin edits working tabs", async () => {
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, params });
+      if (normalized.includes("from account_positions positions where positions.id")) {
+        return [[{
+          id: "position-admin-manager",
+          display_name: "Администратор подразделения",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify([
+            "business.overview",
+            "admin.accounts",
+          ]),
+          capabilities: JSON.stringify([
+            "business.view_all_statistics",
+            "business.view_notifications",
+            "business.view_dispatcher_feed",
+            "platform.manage_users",
+            "platform.manage_access",
+          ]),
+          is_protected: 0,
+          is_admin_protected: 1,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const result = await createAccountsRepository(pool).updatePosition({
+    id: "position-admin-manager",
+    displayName: "Администратор производства",
+    navigationItems: ["business.dispatcher"],
+    capabilities: ["business.view_dispatcher_feed"],
+  }, true);
+
+  const update = queries.find((query) =>
+    query.sql.startsWith("update account_positions set display_name")
+  );
+  assert.deepEqual(update?.params, [
+    "Администратор производства",
+    JSON.stringify(["business.dispatcher", "admin.accounts"]),
+    JSON.stringify([
+      "business.view_dispatcher_feed",
+      "platform.manage_users",
+      "platform.manage_access",
+    ]),
+    "position-admin-manager",
+  ]);
+  assert.equal(result?.hasAdminRights, true);
+  assert.deepEqual(result?.navigationItems, [
+    "business.dispatcher",
+    "admin.accounts",
+  ]);
+});
+
 test("setAccountPosition applies position access and revokes user sessions", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let didCommit = false;
@@ -349,7 +843,7 @@ test("setAccountPosition applies position access and revokes user sessions", asy
         }], []];
       }
 
-      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+      if (normalized.startsWith("select users.status, greatest(")) {
         return [[{ status: "active", is_admin_protected: 0 }], []];
       }
 
@@ -427,6 +921,160 @@ test("setAccountPosition applies position access and revokes user sessions", asy
   );
 });
 
+test("setAccountPosition rejects a target position with admin rights inside the lock", async () => {
+  let didUpdate = false;
+  let didRollback = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() { didRollback = true; },
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select accesses.id as access_id, accesses.user_id")) {
+        return [[{ access_id: "access-worker", user_id: "user-worker" }], []];
+      }
+      if (normalized.startsWith("select users.status, greatest(")) {
+        return [[{ status: "active", is_admin_protected: 0 }], []];
+      }
+      if (normalized.startsWith("select accesses.id as access_id")) {
+        return [[{
+          access_id: "access-worker",
+          user_id: "user-worker",
+          login: "worker",
+          user_display_name: "Работник",
+          user_status: "active",
+          is_protected: 0,
+          access_display_name: "Работник access",
+          account_type: "worker",
+          position_code: "worker",
+          position_display_name: "Работник",
+          scope_kind: "organization",
+          capabilities: "[]",
+          navigation_items: "[]",
+          created_at: "2026-08-10T00:00:00.000Z",
+        }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "position-admin-manager",
+          display_name: "Администратор подразделения",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(["admin.accounts"]),
+          capabilities: JSON.stringify([
+            "platform.manage_users",
+            "platform.manage_access",
+          ]),
+          is_protected: 0,
+          is_admin_protected: 1,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_accesses")) {
+        didUpdate = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).setAccountPosition({
+      accessId: "access-worker",
+      position: "position-admin-manager",
+    }),
+    ProtectedPositionMutationError,
+  );
+  assert.equal(didUpdate, false);
+  assert.equal(didRollback, true);
+});
+
+test("setAccountPosition keeps the system administrator position exclusive to admin", async () => {
+  let didUpdate = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select accesses.id as access_id, accesses.user_id")) {
+        return [[{
+          access_id: "access-worker",
+          user_id: "user-worker",
+          login: "worker",
+        }], []];
+      }
+      if (normalized.startsWith("select users.status, greatest(")) {
+        return [[{ status: "active", is_admin_protected: 0 }], []];
+      }
+      if (normalized.startsWith("select protected_positions.is_admin_protected")) {
+        return [[], []];
+      }
+      if (normalized.startsWith("select accesses.id as access_id")) {
+        return [[{
+          access_id: "access-worker",
+          user_id: "user-worker",
+          login: "worker",
+          user_display_name: "Работник",
+          user_status: "active",
+          is_protected: 0,
+          is_protected_by_admin_rights: 0,
+          access_display_name: "Работник access",
+          account_type: "worker",
+          position_code: "worker",
+          position_display_name: "Работник",
+          scope_kind: "organization",
+          capabilities: "[]",
+          navigation_items: "[]",
+          created_at: "2026-08-10T00:00:00.000Z",
+        }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "administrator",
+          display_name: "Администратор",
+          account_type: "admin",
+          navigation_items: JSON.stringify([
+            "admin.accounts",
+            "admin.account_preview",
+            "admin.database",
+            "admin.user_actions",
+          ]),
+          capabilities: JSON.stringify([
+            "platform.manage_users",
+            "platform.manage_access",
+            "platform.manage_analytics_database",
+          ]),
+          is_protected: 1,
+          is_admin_protected: 1,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_accesses")) {
+        didUpdate = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).setAccountPosition({
+      accessId: "access-worker",
+      position: "administrator",
+    }, true),
+    SystemAdministratorPositionAssignmentError,
+  );
+  assert.equal(didUpdate, false);
+});
+
 test("setAccountPosition treats the locked current position as a no-op", async () => {
   const queries: string[] = [];
   const connection = {
@@ -445,7 +1093,7 @@ test("setAccountPosition treats the locked current position as a no-op", async (
         }], []];
       }
 
-      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+      if (normalized.startsWith("select users.status, greatest(")) {
         return [[{ status: "active", is_admin_protected: 0 }], []];
       }
 
@@ -510,7 +1158,7 @@ test("setAccountPosition creates organization scope when an administrator become
         }], []];
       }
 
-      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+      if (normalized.startsWith("select users.status, greatest(")) {
         return [[{ status: "active", is_admin_protected: 0 }], []];
       }
 
@@ -853,6 +1501,142 @@ test("createAccount rejects an existing login before changing related rows", asy
   );
 });
 
+test("createAccount rejects a position with admin rights inside the lock", async () => {
+  let didInsert = false;
+  const ids = ["new-user", "new-access"];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select id from app_users")) {
+        return [[], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "position-admin-manager",
+          display_name: "Администратор подразделения",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(["admin.accounts"]),
+          capabilities: JSON.stringify([
+            "platform.manage_users",
+            "platform.manage_access",
+          ]),
+          is_protected: 0,
+          is_admin_protected: 1,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 0,
+        }], []];
+      }
+      if (normalized.startsWith("insert into")) {
+        didInsert = true;
+      }
+      if (normalized.startsWith("select accesses.id as access_id")) {
+        return [[{
+          access_id: "new-access",
+          user_id: "new-user",
+          login: "new-admin",
+          user_display_name: "Новый администратор",
+          user_status: "active",
+          is_protected: 1,
+          access_display_name: "Новый администратор access",
+          account_type: "business_owner",
+          position_code: "position-admin-manager",
+          position_display_name: "Администратор подразделения",
+          scope_kind: "organization",
+          capabilities: JSON.stringify([
+            "platform.manage_users",
+            "platform.manage_access",
+          ]),
+          navigation_items: JSON.stringify(["admin.accounts"]),
+          created_at: "2026-08-10T00:00:00.000Z",
+        }], []];
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool, {
+      createId: () => ids.shift() ?? "unexpected-id",
+    }).createAccount({
+      login: "new-admin",
+      password: "supersecret1",
+      displayName: "Новый администратор",
+      accountType: "business_owner",
+      position: "position-admin-manager",
+      capabilities: ["platform.manage_users", "platform.manage_access"],
+      navigationItems: ["admin.accounts"],
+    }),
+    ProtectedPositionMutationError,
+  );
+  assert.equal(didInsert, false);
+});
+
+test("createAccount keeps the system administrator position exclusive to admin", async () => {
+  let didInsert = false;
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select id from app_users")) {
+        return [[], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "administrator",
+          display_name: "Администратор",
+          account_type: "admin",
+          navigation_items: JSON.stringify([
+            "admin.accounts",
+            "admin.account_preview",
+            "admin.database",
+            "admin.user_actions",
+          ]),
+          capabilities: JSON.stringify([
+            "platform.manage_users",
+            "platform.manage_access",
+            "platform.manage_analytics_database",
+          ]),
+          is_protected: 1,
+          is_admin_protected: 1,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("insert into")) {
+        didInsert = true;
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await assert.rejects(
+    createAccountsRepository(pool).createAccount({
+      login: "new-admin",
+      password: "supersecret1",
+      displayName: "Новый администратор",
+      accountType: "admin",
+      position: "administrator",
+      capabilities: ["platform.manage_users", "platform.manage_access"],
+      navigationItems: ["admin.accounts"],
+    }, true),
+    SystemAdministratorPositionAssignmentError,
+  );
+  assert.equal(didInsert, false);
+});
+
 test("createAccount rolls back partial provisioning when a write fails", async () => {
   const ids = ["owner-user-id"];
   const database = buildFakeDatabase({ failOn: "auth_password_credentials" });
@@ -917,10 +1701,10 @@ test("setAccountLoginEnabled suspends login and deletes existing sessions", asyn
   );
 });
 
-test("setAccountLoginEnabled rejects a protected account without original admin authority", async () => {
+test("setAccountLoginEnabled locks and rejects an account protected by admin rights", async () => {
   const database = buildFakeDatabase({
     userStatus: "active",
-    isProtected: true,
+    hasAdminRightsAccess: true,
   });
   const repository = createAccountsRepository(database.pool);
 
@@ -934,6 +1718,10 @@ test("setAccountLoginEnabled rejects a protected account without original admin 
 
   assert.equal(database.didCommit, false);
   assert.equal(database.didRollback, true);
+  assert.match(
+    database.queries[1]?.sql ?? "",
+    /select protected_positions\.is_admin_protected.*protected_accesses\.is_active = 1.*for update/u,
+  );
   assert.equal(
     database.queries.some((query) =>
       query.sql.startsWith("update app_users set status"),
@@ -1095,12 +1883,14 @@ function buildFakeDatabase({
   accountRow,
   failOn,
   isProtected = false,
+  hasAdminRightsAccess = false,
   userStatus,
 }: {
   existingUserId?: string;
   accountRow?: FakeAccountRow;
   failOn?: string;
   isProtected?: boolean;
+  hasAdminRightsAccess?: boolean;
   userStatus?: string;
 } = {}) {
   const state = {
@@ -1136,11 +1926,47 @@ function buildFakeDatabase({
         return [existingUserId === undefined ? [] : [{ id: existingUserId }], []];
       }
 
-      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        const positionId = String(params?.[0] ?? "worker");
+        const accountType =
+          positionId === "business_owner" ? "business_owner" :
+            positionId === "dispatcher" ? "dispatcher" : "worker";
+        const navigationItems =
+          accountType === "business_owner" ? ["business.overview"] :
+            accountType === "dispatcher" ? ["business.dispatcher_form"] : [];
+        const capabilities =
+          accountType === "business_owner" ? ["business.view_all_statistics"] :
+            accountType === "dispatcher"
+              ? ["business.submit_dispatcher_forms"]
+              : ["business.submit_forms"];
+        return [[{
+          id: positionId,
+          display_name: positionId,
+          account_type: accountType,
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_protected: 0,
+          is_admin_protected: 0,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 0,
+        }], []];
+      }
+
+      if (
+        normalized.startsWith("select status, is_admin_protected from app_users") ||
+        normalized.startsWith("select users.status, greatest(")
+      ) {
         return [
           userStatus === undefined
             ? []
             : [{ status: userStatus, is_admin_protected: isProtected ? 1 : 0 }],
+          [],
+        ];
+      }
+
+      if (normalized.startsWith("select protected_positions.is_admin_protected")) {
+        return [
+          hasAdminRightsAccess ? [{ is_admin_protected: 1 }] : [],
           [],
         ];
       }

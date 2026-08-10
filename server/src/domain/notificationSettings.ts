@@ -55,8 +55,23 @@ export function isNotificationType(value: unknown): value is NotificationType {
 
 export function validateAdminNotificationSettingRequest(
   input: unknown,
-): ValidationResult<{ emailEnabled: boolean; maxEnabled: boolean }> {
-  return validateOwnNotificationSettingRequest(input);
+): ValidationResult<{ adminEnabled: boolean }> {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return { ok: false, errors: ["Передайте разрешение типа уведомления."] };
+  }
+  const fields = Object.keys(input);
+  if (
+    fields.length !== 1 ||
+    !fields.includes("adminEnabled") ||
+    typeof input.adminEnabled !== "boolean"
+  ) {
+    return { ok: false, errors: ["Укажите только флажок Вкл."] };
+  }
+
+  return {
+    ok: true,
+    value: { adminEnabled: input.adminEnabled },
+  };
 }
 
 export function validateOwnNotificationSettingRequest(

@@ -33,6 +33,7 @@ import { createLaboratoryRawMaterialQualityJournalRepository } from "./repositor
 import { createLaboratoryGreenProductQualityJournalRepository } from "./repositories/laboratoryGreenProductQualityJournalRepository.js";
 import { createBoardAssignmentsRepository } from "./repositories/boardAssignmentsRepository.js";
 import { createNotificationSettingsRepository } from "./repositories/notificationSettingsRepository.js";
+import { createNavigationOrderRepository } from "./repositories/navigationOrderRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
 
 const config = readServerConfig();
@@ -106,6 +107,7 @@ const server = createApiServer({
     createLaboratoryGreenProductQualityJournalRepository(pool),
   boardAssignments: createBoardAssignmentsRepository(pool),
   notificationSettings: createNotificationSettingsRepository(pool),
+  navigationOrder: createNavigationOrderRepository(pool),
   audit: createAuditRepository(pool),
   databaseTransaction: database.transaction,
   productionSnapshot,

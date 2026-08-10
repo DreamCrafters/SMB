@@ -5,7 +5,7 @@ import {
   requestLoginNotifications,
   requestOwnNotificationSettings,
   updateAdminNotificationContacts,
-  updateAdminNotificationChannels,
+  updateAdminNotificationPermission,
   updateOwnNotificationSetting,
 } from "../.test-build/src/services/notificationSettings.js";
 
@@ -62,10 +62,10 @@ test("notification service writes only server-owned setting fields", async () =>
     emailEnabled: true,
     maxEnabled: false,
   });
-  await updateAdminNotificationChannels(
+  await updateAdminNotificationPermission(
     "user-1",
     "board_assignments",
-    { emailEnabled: false, maxEnabled: true },
+    { adminEnabled: true },
   );
   await updateAdminNotificationContacts(
     "user-1",
@@ -75,7 +75,7 @@ test("notification service writes only server-owned setting fields", async () =>
 
   assert.deepEqual(calls.map(({ init }) => JSON.parse(init.body)), [
     { emailEnabled: true, maxEnabled: false },
-    { emailEnabled: false, maxEnabled: true },
+    { adminEnabled: true },
     { email: "director@example.com", maxUserId: "101" },
   ]);
 });

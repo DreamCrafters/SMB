@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
+import { defaultNavigationOrder } from "../.test-build/src/content.js";
 
 const DOM_GLOBAL_NAMES = [
   "document",
@@ -17,7 +18,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("delegated account manager preserves disabled admin tabs while editing business tabs", async () => {
+test("delegated account manager edits only working tabs of ordinary positions", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -52,6 +53,9 @@ test("delegated account manager preserves disabled admin tabs while editing busi
   try {
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
+      if (url.pathname === "/api/navigation-order") {
+        return jsonResponse({ navigationOrder: defaultNavigationOrder });
+      }
       const method = init.method ?? "GET";
 
       if (url.pathname === "/api/access/profile") {
@@ -114,6 +118,12 @@ test("delegated account manager preserves disabled admin tabs while editing busi
       React,
       () => rootElement.querySelector(".admin-positions-table tbody tr") !== null,
     );
+    assert.equal(
+      Array.from(rootElement.querySelectorAll("button")).some(
+        (button) => button.textContent?.trim() === "Доступ по вкладке",
+      ),
+      false,
+    );
 
     const positionRow = Array.from(
       rootElement.querySelectorAll(".admin-positions-table tbody tr"),
@@ -128,28 +138,15 @@ test("delegated account manager preserves disabled admin tabs while editing busi
 
     const dialog = rootElement.querySelector('[role="dialog"]');
     assert.ok(dialog);
-    const adminToggle = findCheckbox(dialog, "Админ");
     const databaseToggle = findCheckbox(dialog, "БД (");
     const dispatcherToggle = findCheckbox(dialog, "Диспетчерская (");
     const settingsToggle = findCheckbox(dialog, "Настройки (");
-    const dialogHeader = dialog.querySelector(".admin-account-modal-header");
     const navigationFieldsets = Array.from(dialog.querySelectorAll("fieldset"));
     const businessFieldset = navigationFieldsets.find(
       (fieldset) => fieldset.querySelector("legend")?.textContent === "Рабочие вкладки",
     );
-    const adminFieldset = navigationFieldsets.find(
-      (fieldset) =>
-        fieldset.querySelector("legend")?.textContent ===
-        "Административные вкладки",
-    );
-
-    assert.ok(adminToggle);
-    assert.equal(adminToggle.checked, true);
-    assert.equal(adminToggle.disabled, true);
-    assert.ok(dialogHeader?.contains(adminToggle));
-    assert.ok(databaseToggle);
-    assert.equal(databaseToggle.checked, true);
-    assert.equal(databaseToggle.disabled, true);
+    assert.equal(findCheckbox(dialog, "Админ"), undefined);
+    assert.equal(databaseToggle, undefined);
     assert.ok(dispatcherToggle);
     assert.equal(dispatcherToggle.checked, false);
     assert.equal(dispatcherToggle.disabled, false);
@@ -157,14 +154,16 @@ test("delegated account manager preserves disabled admin tabs while editing busi
     assert.equal(settingsToggle.checked, false);
     assert.equal(settingsToggle.disabled, false);
     assert.ok(businessFieldset);
-    assert.ok(adminFieldset);
     assert.equal(businessFieldset.contains(dispatcherToggle), true);
-    assert.equal(businessFieldset.contains(databaseToggle), false);
-    assert.equal(adminFieldset.contains(databaseToggle), true);
+    assert.deepEqual(
+      Array.from(dialog.querySelectorAll("fieldset legend"), (legend) =>
+        legend.textContent?.trim()
+      ),
+      ["Рабочие вкладки"],
+    );
 
     await React.act(async () => dispatcherToggle.click());
     assert.equal(dispatcherToggle.checked, true);
-    assert.equal(databaseToggle.checked, true);
     await React.act(async () => settingsToggle.click());
     assert.equal(settingsToggle.checked, true);
 
@@ -177,7 +176,6 @@ test("delegated account manager preserves disabled admin tabs while editing busi
       displayName: "Руководитель с БД",
       navigationItems: [
         "business.overview",
-        "admin.database",
         "business.dispatcher",
         "business.settings",
       ],
@@ -196,15 +194,7 @@ test("delegated account manager preserves disabled admin tabs while editing busi
       createDialog.querySelector("#admin-position-title")?.textContent,
       "Новая должность",
     );
-    const createAdminToggle = findCheckbox(createDialog, "Админ");
-    assert.ok(createAdminToggle);
-    assert.equal(createAdminToggle.checked, false);
-    assert.equal(createAdminToggle.disabled, true);
-    assert.ok(
-      createDialog
-        .querySelector(".admin-account-modal-header")
-        ?.contains(createAdminToggle),
-    );
+    assert.equal(findCheckbox(createDialog, "Админ"), undefined);
     assert.deepEqual(
       Array.from(createDialog.querySelectorAll("fieldset legend"), (legend) =>
         legend.textContent?.trim(),
@@ -264,7 +254,7 @@ function buildHybridPosition() {
     ],
     boardAssignmentAccess: "none",
     isProtected: false,
-    isAdminProtected: false,
+    hasAdminRights: false,
     usageCount: 1,
     createdAt: "2026-08-03T08:00:00.000Z",
   };

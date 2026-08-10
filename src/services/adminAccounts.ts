@@ -16,6 +16,7 @@ import type {
   SetAdminAccountProtectedResponse,
   SetAdminPositionProtectedRequest,
   SetAdminPositionProtectedResponse,
+  SetAdminPositionNavigationAccessRequest,
   SetAdminAccountPositionRequest,
   SetAdminAccountPositionResponse,
   SetAdminAccountNavigationRequest,
@@ -192,6 +193,59 @@ export async function saveAdminPositionOrder(
   }
 }
 
+export async function setAdminPositionNavigationAccess(
+  value: SetAdminPositionNavigationAccessRequest,
+  { baseUrl, signal }: AdminAccountsRequestOptions = {},
+): Promise<AdminPositionsResult> {
+  const path = `${ADMIN_POSITIONS_PATH}/navigation-access`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+  try {
+    const response = await fetch(endpoint, {
+      method: "PUT",
+      headers: buildDevAccessHeaders({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      }),
+      credentials: "include",
+      signal,
+      body: JSON.stringify(value),
+    });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      return readRemoteError(
+        payload,
+        response.status,
+        "Не удалось изменить доступ к вкладке.",
+      );
+    }
+    if (isAdminPositionsListResponse(payload)) {
+      return {
+        status: "ready",
+        positions: payload.positions,
+        canAssignAdminNavigation: payload.canAssignAdminNavigation,
+        canManageProtectedPositions: payload.canManageProtectedPositions,
+      };
+    }
+    return {
+      status: "error",
+      message: "Сервер вернул доступы в неподдерживаемом формате.",
+      code: "invalid_response",
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return { status: "error", message: "Изменение доступа отменено." };
+    }
+    return {
+      status: "error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось изменить доступ к вкладке.",
+        { baseUrl },
+      ),
+      code: "network_error",
+    };
+  }
+}
+
 export async function deleteAdminPosition(
   id: string,
   { baseUrl, signal }: AdminAccountsRequestOptions = {},
@@ -241,7 +295,7 @@ export async function setAdminPositionProtected(
       return readRemoteError(
         payload,
         response.status,
-        "Не удалось изменить защиту должности.",
+        "Не удалось изменить права админа.",
       );
     }
     if (isSetAdminPositionProtectedResponse(payload)) {
@@ -249,17 +303,17 @@ export async function setAdminPositionProtected(
     }
     return {
       status: "error",
-      message: "Сервер вернул защиту должности в неподдерживаемом формате.",
+      message: "Сервер вернул права админа в неподдерживаемом формате.",
       code: "invalid_response",
     };
   } catch (error) {
     if (isAbortError(error)) {
-      return { status: "error", message: "Изменение защиты отменено." };
+      return { status: "error", message: "Изменение прав админа отменено." };
     }
     return {
       status: "error",
       message: describeRemoteNetworkFailure(
-        "Не удалось изменить защиту должности.",
+        "Не удалось изменить права админа.",
         { baseUrl },
       ),
       code: "network_error",
@@ -821,7 +875,7 @@ function isAdminPositionSummary(value: unknown): value is AdminPositionSummary {
       value.boardAssignmentAccess as (typeof boardAssignmentAccessLevels)[number],
     ) &&
     typeof value.isProtected === "boolean" &&
-    typeof value.isAdminProtected === "boolean" &&
+    typeof value.hasAdminRights === "boolean" &&
     typeof value.usageCount === "number" &&
     typeof value.createdAt === "string"
   );
@@ -886,6 +940,7 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     (value.maxUserId === undefined || typeof value.maxUserId === "string") &&
     typeof value.userStatus === "string" &&
     typeof value.isProtected === "boolean" &&
+    typeof value.isProtectedByAdminRights === "boolean" &&
     typeof value.accessDisplayName === "string" &&
     typeof value.accountType === "string" &&
     typeof value.position === "string" &&

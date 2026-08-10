@@ -16,6 +16,7 @@ export type AdminAccountSummary = {
   maxUserId?: string;
   userStatus: string;
   isProtected: boolean;
+  isProtectedByAdminRights: boolean;
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
@@ -58,7 +59,7 @@ export type AdminPositionSummary = {
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
   isProtected: boolean;
-  isAdminProtected: boolean;
+  hasAdminRights: boolean;
   usageCount: number;
   createdAt: string;
 };
@@ -75,6 +76,12 @@ export type SaveAdminPositionRequest = {
   boardAssignmentAccess: BoardAssignmentAccess;
 };
 export type SaveAdminPositionResponse = { position: AdminPositionSummary };
+
+export type SetAdminPositionNavigationAccessRequest = {
+  navigationItem: AccountNavigationItem;
+  positionIds: AccountPosition[];
+  enabled: boolean;
+};
 
 export type SetAdminPositionProtectedRequest = {
   id: AccountPosition;

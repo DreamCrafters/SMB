@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
+import { defaultNavigationOrder } from "../.test-build/src/content.js";
 
 const DOM_GLOBAL_NAMES = [
   "document",
@@ -61,6 +62,9 @@ test("position order batches moves, survives refreshes, retries, and can be canc
   try {
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
+      if (url.pathname === "/api/navigation-order") {
+        return jsonResponse({ navigationOrder: defaultNavigationOrder });
+      }
       const method = init.method ?? "GET";
 
       if (url.pathname === "/api/access/profile") {
@@ -239,6 +243,218 @@ test("position order batches moves, survives refreshes, retries, and can be canc
   }
 });
 
+test("original admin manages account access to a selected working tab by position", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  dom.window.matchMedia = () => ({
+    matches: false,
+    media: "",
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent() { return false; },
+  });
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  let positions = [
+    buildPosition("manager", "Начальник производства"),
+    {
+      ...buildPosition("dispatcher", "Диспетчер"),
+      navigationItems: ["business.dispatcher_form", "business.settings"],
+      capabilities: [
+        "business.submit_dispatcher_forms",
+        "business.manage_notification_settings",
+      ],
+    },
+    {
+      ...buildPosition("delegated-admin", "Администратор подразделения"),
+      navigationItems: ["business.settings", "admin.accounts"],
+      capabilities: [
+        "business.manage_notification_settings",
+        "platform.manage_users",
+        "platform.manage_access",
+      ],
+      hasAdminRights: true,
+    },
+  ];
+  const accounts = [
+    buildAccountForPosition("manager-a", "manager", "Начальник производства"),
+    buildAccountForPosition("manager-b", "manager", "Начальник производства"),
+    buildAccountForPosition("dispatcher", "dispatcher", "Диспетчер"),
+    buildAccountForPosition(
+      "delegated-admin",
+      "delegated-admin",
+      "Администратор подразделения",
+    ),
+  ];
+  const changes = [];
+
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      const method = init.method ?? "GET";
+      if (url.pathname === "/api/navigation-order") {
+        return jsonResponse({ navigationOrder: defaultNavigationOrder });
+      }
+      if (url.pathname === "/api/access/profile") {
+        return jsonResponse({ profile: buildAdminProfile() });
+      }
+      if (url.pathname === "/api/admin/accounts" && method === "GET") {
+        return jsonResponse({
+          accounts,
+          canManageProtectedAccounts: true,
+        });
+      }
+      if (url.pathname === "/api/admin/positions" && method === "GET") {
+        return jsonResponse({
+          positions,
+          canAssignAdminNavigation: true,
+          canManageProtectedPositions: true,
+        });
+      }
+      if (
+        url.pathname === "/api/admin/positions/navigation-access" &&
+        method === "PUT"
+      ) {
+        const change = JSON.parse(String(init.body));
+        changes.push(change);
+        const targetIds = new Set(change.positionIds);
+        positions = positions.map((position) => {
+          if (!targetIds.has(position.id)) return position;
+          const navigationItems = change.enabled
+            ? Array.from(new Set([
+                ...position.navigationItems,
+                change.navigationItem,
+              ]))
+            : position.navigationItems.filter(
+                (item) => item !== change.navigationItem,
+              );
+          return { ...position, navigationItems };
+        });
+        return jsonResponse({
+          positions,
+          canAssignAdminNavigation: true,
+          canManageProtectedPositions: true,
+        });
+      }
+      if (url.pathname === "/api/audit/events" && method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+    };
+
+    const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    await React.act(async () => root.render(React.createElement(App)));
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".admin-accounts-table tbody tr") !== null,
+    );
+    await React.act(async () => findButton(rootElement, "Должности")?.click());
+    await waitFor(
+      React,
+      () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 3,
+    );
+
+    const openButton = findButton(rootElement, "Доступ по вкладке");
+    assert.ok(openButton);
+    await React.act(async () => openButton.click());
+    const dialog = rootElement.querySelector(
+      '#admin-position-navigation-access-dialog[role="dialog"]',
+    );
+    assert.ok(dialog);
+    const select = dialog.querySelector("select");
+    assert.ok(select);
+    await React.act(async () => {
+      select.value = "business.settings";
+      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+
+    const managerA = dialog.querySelector(
+      'input[aria-label="Доступ к вкладке для manager-a"]',
+    );
+    const managerB = dialog.querySelector(
+      'input[aria-label="Доступ к вкладке для manager-b"]',
+    );
+    const dispatcher = dialog.querySelector(
+      'input[aria-label="Доступ к вкладке для dispatcher"]',
+    );
+    const delegatedAdmin = dialog.querySelector(
+      'input[aria-label="Доступ к вкладке для delegated-admin"]',
+    );
+    assert.ok(managerA);
+    assert.ok(managerB);
+    assert.ok(dispatcher);
+    assert.ok(delegatedAdmin);
+    assert.equal(managerA.checked, false);
+    assert.equal(managerB.checked, false);
+    assert.equal(dispatcher.checked, true);
+    assert.equal(delegatedAdmin.checked, true);
+    assert.equal(delegatedAdmin.disabled, false);
+
+    await React.act(async () => managerA.click());
+    await waitFor(React, () => changes.length === 1);
+    assert.deepEqual(changes[0], {
+      navigationItem: "business.settings",
+      positionIds: ["manager"],
+      enabled: true,
+    });
+    assert.equal(managerA.checked, true);
+    assert.equal(managerB.checked, true);
+
+    await React.act(async () => findButton(dialog, "Выкл. все")?.click());
+    await waitFor(React, () => changes.length === 2);
+    assert.deepEqual(changes[1], {
+      navigationItem: "business.settings",
+      positionIds: ["manager", "dispatcher", "delegated-admin"],
+      enabled: false,
+    });
+    assert.equal(managerA.checked, false);
+    assert.equal(managerB.checked, false);
+    assert.equal(dispatcher.checked, false);
+    assert.equal(delegatedAdmin.checked, false);
+
+    await React.act(async () => findButton(dialog, "Вкл. все")?.click());
+    await waitFor(React, () => changes.length === 3);
+    assert.deepEqual(changes[2], {
+      navigationItem: "business.settings",
+      positionIds: ["manager", "dispatcher", "delegated-admin"],
+      enabled: true,
+    });
+    assert.equal(managerA.checked, true);
+    assert.equal(managerB.checked, true);
+    assert.equal(dispatcher.checked, true);
+    assert.equal(delegatedAdmin.checked, true);
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousRemoteApiUrl === undefined) {
+      delete process.env.VITE_SMB_REMOTE_API_URL;
+    } else {
+      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+    }
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 function installWindowClock(window) {
   const originalSetTimeout = window.setTimeout;
   const originalClearTimeout = window.clearTimeout;
@@ -308,7 +524,7 @@ function buildPosition(id, displayName) {
     capabilities: ["business.view_all_statistics"],
     boardAssignmentAccess: "none",
     isProtected: false,
-    isAdminProtected: false,
+    hasAdminRights: false,
     usageCount: 0,
     createdAt: "2026-08-03T08:00:00.000Z",
   };
@@ -322,6 +538,7 @@ function buildAccount() {
     userDisplayName: "Диспетчер Один",
     userStatus: "active",
     isProtected: false,
+    isProtectedByAdminRights: false,
     accessDisplayName: "Диспетчер Один access",
     accountType: "dispatcher",
     position: "first",
@@ -330,6 +547,18 @@ function buildAccount() {
     capabilities: ["business.view_all_statistics"],
     navigationItems: ["business.overview"],
     createdAt: "2026-08-03T08:00:00.000Z",
+  };
+}
+
+function buildAccountForPosition(login, position, positionDisplayName) {
+  return {
+    ...buildAccount(),
+    accessId: `${login}-access`,
+    userId: `${login}-user`,
+    login,
+    userDisplayName: login,
+    position,
+    positionDisplayName,
   };
 }
 

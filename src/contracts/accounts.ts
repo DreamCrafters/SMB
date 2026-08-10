@@ -19,6 +19,7 @@ export type AccountPosition = string;
 export const accountNavigationItems = [
   "admin.account_preview",
   "admin.accounts",
+  "admin.navigation",
   "admin.database",
   "admin.user_actions",
   "business.overview",
@@ -39,6 +40,7 @@ export type AccountNavigationItem = (typeof accountNavigationItems)[number];
 export const accountCapabilities = [
   "platform.manage_users",
   "platform.manage_access",
+  "platform.manage_navigation_order",
   "platform.manage_analytics_database",
   "platform.manage_integrations",
   "platform.view_audit",

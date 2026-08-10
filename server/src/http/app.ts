@@ -16,6 +16,7 @@ import {
   hasAdminNavigationItems,
   hasSameAdminNavigationItems,
   isBoardAssignmentAccess,
+  nonAdminNavigationItems,
   resolveCapabilitiesForPosition,
   validatePositionNavigationItems,
 } from "../domain/accountAccessConfiguration.js";
@@ -158,13 +159,20 @@ import {
   isDispatcherFormId,
 } from "../domain/dispatcherForms.js";
 import {
+  CanonicalAdminMutationRequiredError,
   isCanonicalAdminLogin,
   ProtectedAccountMutationError,
 } from "../domain/adminAccountProtection.js";
 import {
   AdministratorPositionProtectionError,
+  PositionAdminRightsRemovalRequiresNavigationError,
+  PositionNavigationRemovalRequiresNavigationError,
   ProtectedPositionMutationError,
 } from "../domain/adminPositionProtection.js";
+import {
+  defaultNavigationOrder,
+  validateNavigationOrder,
+} from "../domain/navigationOrder.js";
 import type {
   DispatcherFeedFilters,
   DispatcherSubmissionsRepository,
@@ -177,6 +185,7 @@ import type {
 import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
+  SystemAdministratorPositionAssignmentError,
   type AccountsRepository,
   type AdminAccountSummary,
   type AdminPositionSummary,
@@ -287,6 +296,7 @@ import {
   NotificationPermissionDisabledError,
   type NotificationSettingsRepository,
 } from "../repositories/notificationSettingsRepository.js";
+import type { NavigationOrderRepository } from "../repositories/navigationOrderRepository.js";
 import {
   sendBoardAssignmentReviewNotification,
   sendOverdueBoardAssignmentNotification,
@@ -302,6 +312,7 @@ type AppDependencies = {
   emailNotificationService?: EmailNotificationService;
   maxNotificationService?: MaxNotificationService;
   notificationSettings?: NotificationSettingsRepository;
+  navigationOrder?: NavigationOrderRepository;
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsDataSource;
@@ -398,6 +409,7 @@ export function createApiServer({
     config.appEnv,
   ),
   notificationSettings,
+  navigationOrder,
   dispatcherSpreadsheetImport,
   productionPlans,
   productionBrands = unavailableProductionBrandsDataSource,
@@ -487,6 +499,24 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+        });
+        return;
+      }
+
+      if (
+        url.pathname === "/api/navigation-order" ||
+        url.pathname === "/api/admin/navigation-order"
+      ) {
+        await handleNavigationOrderRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          navigationOrder,
+          audit,
+          databaseTransaction,
         });
         return;
       }
@@ -1621,7 +1651,10 @@ async function handleNotificationSettingsRequest({
   if (adminSettingMatch !== null) {
     if (req.method !== "PATCH") {
       sendJson(res, 405, {
-        error: { code: "access_denied", message: "Для изменения каналов используется PATCH." },
+        error: {
+          code: "access_denied",
+          message: "Для изменения разрешения используется PATCH.",
+        },
       });
       return;
     }
@@ -1661,7 +1694,7 @@ async function handleNotificationSettingsRequest({
       updated = await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
-        mutate: () => notificationSettings.setAdminChannels({
+        mutate: () => notificationSettings.setAdminPermission({
           userId,
           type,
           ...validation.value,
@@ -1672,19 +1705,13 @@ async function handleNotificationSettingsRequest({
               actor: buildAuditActor(access.profile),
               category: "administration",
               action: "admin.account_notification_permission_update",
-              summary: `Изменены каналы рассылки для «${targetSettings.displayName}»`,
+              summary: `Изменено разрешение рассылки для «${targetSettings.displayName}»`,
               details: [
                 { label: "Пользователь", value: targetSettings.displayName },
                 { label: "Рассылка", value: notificationLabel },
                 {
-                  label: "Email",
-                  value: validation.value.emailEnabled
-                    ? "Включён"
-                    : "Выключен",
-                },
-                {
-                  label: "MAX",
-                  value: validation.value.maxEnabled
+                  label: "Доступ пользователю",
+                  value: validation.value.adminEnabled
                     ? "Включён"
                     : "Выключен",
                 },
@@ -1697,12 +1724,6 @@ async function handleNotificationSettingsRequest({
     } catch (error) {
       if (error instanceof ProtectedAccountMutationError) {
         sendProtectedAccountMutationDenied(res);
-        return;
-      }
-      if (error instanceof NotificationChannelUnavailableError) {
-        sendJson(res, 409, {
-          error: { code: "invalid_response", message: error.message },
-        });
         return;
       }
       throw error;
@@ -6114,12 +6135,23 @@ async function handleAdminAuditReportRequest({
     access.profile,
     "business.view_user_actions",
   );
+  const requestedScope = url.searchParams.get("scope");
 
   if (!canViewPlatformAudit && !canViewOrganizationAudit) {
     sendJson(res, 403, {
       error: {
         code: "access_denied",
         message: "Просмотр действий пользователей недоступен.",
+      },
+    });
+    return;
+  }
+
+  if (requestedScope !== null && requestedScope !== "organization") {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: "Неизвестная область журнала действий.",
       },
     });
     return;
@@ -6142,7 +6174,9 @@ async function handleAdminAuditReportRequest({
     200,
     await audit.listReport({
       ...filters.value,
-      ...(canViewPlatformAudit ? {} : { organizationOnly: true }),
+      ...(canViewPlatformAudit && requestedScope !== "organization"
+        ? {}
+        : { organizationOnly: true }),
     }),
   );
 }
@@ -7173,8 +7207,9 @@ function buildPositionAuditDetails(position: AdminPositionSummary) {
 
 function readNavigationItemLabel(item: AccountNavigationItem) {
   const labels: Record<AccountNavigationItem, string> = {
-    "admin.account_preview": "Просмотр аккаунта",
+    "admin.account_preview": "Предпросмотр",
     "admin.accounts": "Учётные записи",
+    "admin.navigation": "Вкладки",
     "admin.database": "БД",
     "admin.user_actions": "Действия пользователей",
     "business.overview": "Обзор",
@@ -7191,6 +7226,114 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
   };
 
   return labels[item];
+}
+
+async function handleNavigationOrderRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  navigationOrder,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  navigationOrder: NavigationOrderRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  if (url.pathname === "/api/navigation-order") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для чтения порядка используется GET.",
+        },
+      });
+      return;
+    }
+    const access = await requireAuthentication(req, res, {
+      config,
+      devSessions,
+      authService,
+    });
+    if (access === undefined) return;
+
+    sendJson(res, 200, {
+      navigationOrder: navigationOrder === undefined
+        ? [...defaultNavigationOrder]
+        : await navigationOrder.read(),
+    });
+    return;
+  }
+
+  if (req.method !== "PUT") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Для сохранения порядка используется PUT.",
+      },
+    });
+    return;
+  }
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "platform.manage_navigation_order",
+    message: "Изменение порядка вкладок недоступно.",
+  });
+  if (access === undefined) return;
+  if (navigationOrder === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище порядка вкладок не настроено.",
+      },
+    });
+    return;
+  }
+
+  const validation = validateNavigationOrder(await readJsonBody(req));
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  const change = await runAuditedMutation({
+    transaction: databaseTransaction,
+    audit,
+    mutate: () => navigationOrder.set(validation.value),
+    buildEvent: ({ previous, updated }) =>
+      previous.every((item, index) => item === updated[index])
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.navigation_order_update",
+            summary: "Изменён порядок вкладок в левой панели",
+            details: [{
+              label: "Новый порядок",
+              value: updated.map(readNavigationItemLabel).join(" → "),
+            }],
+            targetType: "navigation_order",
+            targetId: "left_rail",
+          },
+  });
+
+  sendJson(res, 200, { navigationOrder: change.updated });
 }
 
 function readAdminDatabaseSectionLabel(tableName: string) {
@@ -7864,7 +8007,7 @@ async function handleAdminAccountsRequest({
         error: {
           code: "access_denied",
           message:
-            "Защиту должностей может изменять только исходный аккаунт admin.",
+            "Права админа может изменять только исходный аккаунт admin.",
         },
       });
       return;
@@ -7896,25 +8039,25 @@ async function handleAdminAccountsRequest({
                 actor: buildAuditActor(access.profile),
                 category: "administration",
                 action: updatedProtection.isProtected
-                  ? "admin.position_protection_enable"
-                  : "admin.position_protection_disable",
-                summary: `${updatedProtection.isProtected ? "Включена" : "Отключена"} защита должности «${updatedProtection.displayName}»`,
+                  ? "admin.position_admin_rights_enable"
+                  : "admin.position_admin_rights_disable",
+                summary: `${updatedProtection.isProtected ? "Включены" : "Отключены"} права админа для должности «${updatedProtection.displayName}»`,
                 details: [
                   {
                     label: "Должность",
                     value: updatedProtection.displayName,
                   },
                   {
-                    label: "Прежняя защита",
+                    label: "Прежние права админа",
                     value: updatedProtection.previousIsProtected
-                      ? "Включена"
-                      : "Отключена",
+                      ? "Включены"
+                      : "Отключены",
                   },
                   {
-                    label: "Новая защита",
+                    label: "Новые права админа",
                     value: updatedProtection.isProtected
-                      ? "Включена"
-                      : "Отключена",
+                      ? "Включены"
+                      : "Отключены",
                   },
                 ],
                 targetType: "account_position",
@@ -7932,7 +8075,10 @@ async function handleAdminAccountsRequest({
         isProtected: protection.isProtected,
       });
     } catch (error) {
-      if (error instanceof AdministratorPositionProtectionError) {
+      if (
+        error instanceof AdministratorPositionProtectionError ||
+        error instanceof PositionAdminRightsRemovalRequiresNavigationError
+      ) {
         sendJson(res, 409, {
           error: { code: "invalid_response", message: error.message },
         });
@@ -8091,6 +8237,19 @@ async function handleAdminAccountsRequest({
       return;
     }
     if (
+      targetPosition.accountType === "admin" &&
+      !isCanonicalAdminLogin(targetAccount.login)
+    ) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message:
+            "Системная должность администратора доступна только исходному аккаунту admin.",
+        },
+      });
+      return;
+    }
+    if (
       hasAdminNavigationItems(targetPosition.navigationItems) &&
       !(await canAssignAdminNavigation())
     ) {
@@ -8129,6 +8288,10 @@ async function handleAdminAccountsRequest({
     } catch (error) {
       if (error instanceof ProtectedAccountMutationError) {
         sendProtectedAccountMutationDenied(res);
+        return;
+      }
+      if (error instanceof ProtectedPositionMutationError) {
+        sendAdminNavigationAssignmentDenied(res);
         return;
       }
       throw error;
@@ -8323,6 +8486,125 @@ async function handleAdminAccountsRequest({
     return;
   }
 
+  if (url.pathname === "/api/admin/positions/navigation-access") {
+    if (req.method !== "PUT") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Метод не поддерживается.",
+        },
+      });
+      return;
+    }
+    if (!(await canAssignAdminNavigation())) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message:
+            "Доступ по выбранной вкладке может менять только исходный аккаунт admin.",
+        },
+      });
+      return;
+    }
+    const validation = validatePositionNavigationAccessRequest(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    try {
+      let change: Awaited<
+        ReturnType<AccountsRepository["setPositionNavigationAccess"]>
+      >;
+      let deadlockRetryCount = 0;
+      while (true) {
+        try {
+          change = await runAuditedMutation({
+            transaction: databaseTransaction,
+            audit,
+            mutate: () => accounts.setPositionNavigationAccess(
+              validation.value,
+              {
+                userId: access.profile.userId,
+                accessId: access.profile.activeAccess.accountId,
+                devAccessEnabled: config.devAccessEnabled,
+              },
+            ),
+            buildEvent: (updated) =>
+              updated === undefined || updated.positions.length === 0
+                ? undefined
+                : {
+                    actor: buildAuditActor(access.profile),
+                    category: "administration",
+                    action: "admin.position_navigation_access_update",
+                    summary: `${updated.enabled ? "Включён" : "Отключён"} доступ к вкладке «${readNavigationItemLabel(updated.navigationItem)}»`,
+                    details: [
+                      {
+                        label: "Вкладка",
+                        value: readNavigationItemLabel(updated.navigationItem),
+                      },
+                      {
+                        label: "Доступ",
+                        value: updated.enabled ? "Включён" : "Отключён",
+                      },
+                      {
+                        label: "Должности",
+                        value: updated.positions
+                          .map((position) => position.displayName)
+                          .join(", "),
+                      },
+                    ],
+                    targetType: "account_position",
+                  },
+          });
+          break;
+        } catch (error) {
+          if (!isDatabaseDeadlockError(error) || deadlockRetryCount >= 1) {
+            throw error;
+          }
+          deadlockRetryCount += 1;
+        }
+      }
+      if (change === undefined) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Список должностей изменился. Обновите страницу и повторите попытку.",
+          },
+        });
+        return;
+      }
+      sendJson(res, 200, {
+        positions: await accounts.listPositions(),
+        canAssignAdminNavigation: true,
+        canManageProtectedPositions: true,
+      });
+    } catch (error) {
+      if (error instanceof CanonicalAdminMutationRequiredError) {
+        sendJson(res, 403, {
+          error: { code: "access_denied", message: error.message },
+        });
+        return;
+      }
+      if (error instanceof PositionNavigationRemovalRequiresNavigationError) {
+        sendJson(res, 409, {
+          error: { code: "invalid_response", message: error.message },
+        });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
   if (url.pathname.startsWith("/api/admin/positions/")) {
     if (req.method !== "PATCH" && req.method !== "DELETE") {
       sendJson(res, 405, { error: { code: "access_denied", message: "Метод не поддерживается." } });
@@ -8339,7 +8621,7 @@ async function handleAdminAccountsRequest({
       return;
     }
     if (
-      existing.isAdminProtected === true &&
+      existing.hasAdminRights === true &&
       !(await canAssignAdminNavigation())
     ) {
       sendProtectedPositionMutationDenied(res);
@@ -8389,7 +8671,10 @@ async function handleAdminAccountsRequest({
       sendJson(res, 200, { ok: true });
       return;
     }
-    const validation = validateUpdatePositionRequest(await readJsonBody(req));
+    const validation = validateUpdatePositionRequest(
+      await readJsonBody(req),
+      existing.hasAdminRights,
+    );
     if (!validation.ok) {
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
@@ -8469,6 +8754,16 @@ async function handleAdminAccountsRequest({
         sendAdminNavigationAssignmentDenied(res);
         return;
       }
+      if (requestedPosition?.accountType === "admin") {
+        sendJson(res, 403, {
+          error: {
+            code: "access_denied",
+            message:
+              "Системная должность администратора доступна только исходному аккаунту admin.",
+          },
+        });
+        return;
+      }
       const validation = validateCreateAccountRequest(payload, requestedPosition);
 
       if (!validation.ok) {
@@ -8485,7 +8780,10 @@ async function handleAdminAccountsRequest({
         const account = await runAuditedMutation({
           transaction: databaseTransaction,
           audit,
-          mutate: () => accounts.createAccount(validation.value),
+          mutate: async () => accounts.createAccount(
+            validation.value,
+            await canAssignAdminNavigation(),
+          ),
           buildEvent: (createdAccount) => ({
             actor: buildAuditActor(access.profile),
             category: "administration",
@@ -8753,6 +9051,7 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
 
 function validateCreatePositionRequest(
   input: unknown,
+  allowEmptyNavigationItems = false,
 ):
   | { ok: true; value: {
       displayName: string;
@@ -8792,9 +9091,10 @@ function validateCreatePositionRequest(
     errors.push("Укажите название должности.");
   }
   if (
-    requestedNavigationItems.length === 0 ||
+    (requestedNavigationItems.length === 0 && !allowEmptyNavigationItems) ||
     !requestedNavigationItems.every(isAccountNavigationItem) ||
-    !validatePositionNavigationItems(navigationItems)
+    (requestedNavigationItems.length > 0 &&
+      !validatePositionNavigationItems(navigationItems))
   ) {
     errors.push("Выберите хотя бы одну доступную вкладку.");
   }
@@ -8860,7 +9160,7 @@ function sendAdminNavigationAssignmentDenied(res: ServerResponse) {
   sendJson(res, 403, {
     error: {
       code: "access_denied",
-      message: "Административные вкладки может назначать только аккаунт admin.",
+      message: "Корневые админские панели доступны только исходному аккаунту admin.",
     },
   });
 }
@@ -8880,17 +9180,21 @@ function sendProtectedPositionMutationDenied(res: ServerResponse) {
     error: {
       code: "access_denied",
       message:
-        "Защищённую должность может изменить только исходный аккаунт admin.",
+        "Должность с правами админа может изменить только исходный аккаунт admin.",
     },
   });
 }
 
 function validateUpdatePositionRequest(
   input: unknown,
+  allowEmptyNavigationItems = false,
 ):
   | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
-  const validation = validateCreatePositionRequest(input);
+  const validation = validateCreatePositionRequest(
+    input,
+    allowEmptyNavigationItems,
+  );
   if (!validation.ok) {
     return validation;
   }
@@ -8942,6 +9246,80 @@ function validatePositionOrderRequest(input: unknown):
     ok: true,
     value: { positionIds: positionIds as string[] },
   };
+}
+
+function validatePositionNavigationAccessRequest(input: unknown):
+  | {
+      ok: true;
+      value: {
+        navigationItem: AccountNavigationItem;
+        positionIds: string[];
+        enabled: boolean;
+      };
+    }
+  | { ok: false; errors: string[] } {
+  if (!isRecord(input) || Array.isArray(input)) {
+    return { ok: false, errors: ["Payload must be a JSON object."] };
+  }
+
+  const unknownFields = Object.keys(input).filter(
+    (key) =>
+      key !== "navigationItem" && key !== "positionIds" && key !== "enabled",
+  );
+  const navigationItem = input.navigationItem;
+  const positionIds = Array.isArray(input.positionIds)
+    ? input.positionIds
+    : [];
+  const errors: string[] = [];
+
+  if (unknownFields.length > 0) {
+    errors.push("Запрос содержит неизвестные поля.");
+  }
+  if (
+    !isAccountNavigationItem(navigationItem) ||
+    !nonAdminNavigationItems.includes(navigationItem)
+  ) {
+    errors.push("Выберите рабочую вкладку.");
+  }
+  if (
+    positionIds.length === 0 ||
+    !positionIds.every(
+      (id) => typeof id === "string" && id.trim().length > 0,
+    )
+  ) {
+    errors.push("Выберите хотя бы одну должность.");
+  } else if (new Set(positionIds).size !== positionIds.length) {
+    errors.push("Каждая должность должна встречаться в списке один раз.");
+  }
+  if (typeof input.enabled !== "boolean") {
+    errors.push("enabled must be a boolean.");
+  }
+  if (
+    errors.length > 0 ||
+    !isAccountNavigationItem(navigationItem) ||
+    !nonAdminNavigationItems.includes(navigationItem) ||
+    typeof input.enabled !== "boolean"
+  ) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      navigationItem,
+      positionIds: positionIds as string[],
+      enabled: input.enabled,
+    },
+  };
+}
+
+function isDatabaseDeadlockError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (("code" in error && error.code === "ER_LOCK_DEADLOCK") ||
+      ("errno" in error && error.errno === 1213))
+  );
 }
 
 function validateResetPasswordRequest(input: unknown):
@@ -9097,6 +9475,11 @@ function sendAdminAccountsError(res: ServerResponse, error: unknown) {
     return;
   }
 
+  if (error instanceof ProtectedPositionMutationError) {
+    sendAdminNavigationAssignmentDenied(res);
+    return;
+  }
+
   if (error instanceof AccountLoginAlreadyExistsError) {
     sendJson(res, 409, {
       error: {
@@ -9113,6 +9496,14 @@ function sendAdminAccountsError(res: ServerResponse, error: unknown) {
         code: "invalid_response",
         message: error.message,
       },
+    });
+    return;
+  }
+
+
+  if (error instanceof SystemAdministratorPositionAssignmentError) {
+    sendJson(res, 403, {
+      error: { code: "access_denied", message: error.message },
     });
     return;
   }

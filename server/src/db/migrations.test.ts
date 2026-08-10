@@ -12,6 +12,9 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "053_product_brand_merge_deletion",
   "054_user_notification_settings",
   "055_optional_notification_settings_navigation",
+  "056_position_admin_rights",
+  "057_notification_permission_user_channels",
+  "058_navigation_order",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2311,6 +2314,138 @@ test("optional notification settings migration removes the forced manager naviga
   assert.match(statements[1] ?? "", /update account_accesses accesses/u);
   assert.match(statements[2] ?? "", /delete sessions from auth_sessions/u);
   assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
+});
+
+test("position admin rights migration grants only account management and refreshes sessions", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "056_position_admin_rights" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  const migrationSql = statements.join(" ");
+  assert.match(migrationSql, /delegated_administrator/u);
+  assert.match(
+    migrationSql,
+    /accesses\.position_code = 'administrator'.*lower\(trim\(users\.login\)\) <> 'admin'/u,
+  );
+  assert.match(migrationSql, /account_type <> 'admin'/u);
+  assert.match(migrationSql, /admin\.account_preview/u);
+  assert.match(migrationSql, /admin\.database/u);
+  assert.match(migrationSql, /admin\.user_actions/u);
+  assert.match(migrationSql, /admin\.accounts/u);
+  assert.match(migrationSql, /platform\.manage_users/u);
+  assert.match(migrationSql, /platform\.manage_access/u);
+  assert.match(migrationSql, /platform\.manage_analytics_database/u);
+  assert.match(migrationSql, /update account_accesses accesses/u);
+  assert.match(migrationSql, /delete sessions from auth_sessions/u);
+  assert.equal(
+    statements.at(-1),
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("notification permission migration keeps visible rows and resets personal channels", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "057_notification_permission_user_channels" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(statements[0] ?? "", /update user_notification_settings/u);
+  assert.match(
+    statements[0] ?? "",
+    /admin_enabled = case when admin_enabled = 1 or email_enabled = 1 or max_enabled = 1 then 1 else 0 end/u,
+  );
+  assert.match(statements[0] ?? "", /email_enabled = 0/u);
+  assert.match(statements[0] ?? "", /max_enabled = 0/u);
+  assert.equal(
+    statements[1],
+    "insert into schema_migrations (id) values (?)",
+  );
+});
+
+test("navigation order migration creates global storage and grants only the system administrator", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "058_navigation_order" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 7);
+  assert.match(statements[0] ?? "", /create table if not exists app_navigation_settings/u);
+  assert.match(statements[1] ?? "", /insert into app_navigation_settings/u);
+  assert.match(statements[1] ?? "", /admin\.navigation/u);
+  assert.match(statements[2] ?? "", /admin\.navigation/u);
+  assert.match(statements[2] ?? "", /id = 'administrator'/u);
+  assert.match(statements[3] ?? "", /platform\.manage_navigation_order/u);
+  assert.match(statements[4] ?? "", /update account_accesses accesses/u);
+  assert.match(statements[5] ?? "", /delete sessions from auth_sessions/u);
+  assert.equal(statements[6], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

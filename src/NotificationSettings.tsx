@@ -9,7 +9,7 @@ import type { ShowToast } from "./services/toastStack";
 import {
   requestAdminNotificationSettings,
   requestOwnNotificationSettings,
-  updateAdminNotificationChannels,
+  updateAdminNotificationPermission,
   updateAdminNotificationContacts,
   updateOwnNotificationSetting,
 } from "./services/notificationSettings";
@@ -102,6 +102,9 @@ export function NotificationSettingsWorkspace({
   }
 
   const { settings } = state;
+  const enabledSettings = settings.settings.filter(
+    (setting) => setting.adminEnabled,
+  );
   return (
     <section className="notification-settings-workspace" aria-label="Настройки">
       <div className="section-heading notification-settings-heading">
@@ -111,17 +114,18 @@ export function NotificationSettingsWorkspace({
           <p>Выберите каналы только для разрешённых администратором сообщений.</p>
         </div>
       </div>
-      <div className="notification-settings-table-scroll">
-        <table className="notification-settings-table">
-          <thead>
-            <tr>
-              <th scope="col">Рассылка</th>
-              <th scope="col">емейл</th>
-              <th scope="col">Макс</th>
-            </tr>
-          </thead>
-          <tbody>
-            {settings.settings.map((setting) => (
+      {enabledSettings.length > 0 ? (
+        <div className="notification-settings-table-scroll">
+          <table className="notification-settings-table">
+            <thead>
+              <tr>
+                <th scope="col">Рассылка</th>
+                <th scope="col">емейл</th>
+                <th scope="col">Макс</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enabledSettings.map((setting) => (
               <tr key={setting.type}>
                 <th scope="row">{setting.label}</th>
                 <td>
@@ -157,10 +161,15 @@ export function NotificationSettingsWorkspace({
                   />
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="notification-settings-note">
+          Администратор пока не включил доступные для настройки уведомления.
+        </p>
+      )}
       {settings.email === undefined ? (
         <p className="notification-settings-note">В учётной записи не указан Email.</p>
       ) : null}
@@ -227,21 +236,18 @@ export function AdminNotificationSettingsWorkspace({
     ));
   }
 
-  async function saveChannels(
+  async function savePermission(
     type: NotificationType,
-    channel: NotificationChannel,
-    checked: boolean,
+    adminEnabled: boolean,
   ) {
     if (selected === undefined) return;
-    const current = selected.settings.find((setting) => setting.type === type);
-    if (current === undefined) return;
     const key = `${selected.userId}:${type}`;
     setStatus("");
     setSavingKey(key);
-    const result = await updateAdminNotificationChannels(
+    const result = await updateAdminNotificationPermission(
       selected.userId,
       type,
-      changeNotificationChannel(current, channel, checked),
+      { adminEnabled },
     );
     setSavingKey(undefined);
     if (result.status !== "ready") {
@@ -251,7 +257,9 @@ export function AdminNotificationSettingsWorkspace({
     replaceUser(result.settings);
     onShowToast(
       "Рассылка обновлена",
-      "Каналы получения рассылки сохранены.",
+      adminEnabled
+        ? "Пользователь сможет настроить способы получения рассылки."
+        : "Рассылка скрыта из персональных настроек пользователя.",
       "success",
     );
   }
@@ -292,7 +300,8 @@ export function AdminNotificationSettingsWorkspace({
           <span className="eyebrow">Учётные записи</span>
           <h2>Уведомления</h2>
           <p>
-            Укажите контакты пользователей и выберите каналы для нужных рассылок.
+            Укажите контакты и выберите типы уведомлений, которые пользователь
+            сможет настроить самостоятельно.
           </p>
         </div>
       </div>
@@ -380,21 +389,16 @@ export function AdminNotificationSettingsWorkspace({
                   <thead>
                     <tr>
                       <th scope="col">Рассылка</th>
-                      <th scope="col">Почта</th>
-                      <th scope="col">MAX</th>
+                      <th scope="col">Вкл.</th>
                     </tr>
                   </thead>
                   <tbody>
                     {selected.settings.map((setting) => (
                       <tr key={setting.type}>
                         <th scope="row">{setting.label}</th>
-                        <td><input aria-label={`Почта: ${setting.label}`} type="checkbox" checked={setting.emailEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly || selected.email === undefined} onChange={(event) => {
+                        <td><input aria-label={`Включить: ${setting.label}`} type="checkbox" checked={setting.adminEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly} onChange={(event) => {
                           const checked = event.currentTarget.checked;
-                          void saveChannels(setting.type, "email", checked);
-                        }} /></td>
-                        <td><input aria-label={`MAX: ${setting.label}`} type="checkbox" checked={setting.maxEnabled} disabled={savingKey !== undefined || selectedAccountIsReadOnly || selected.maxUserId === undefined} onChange={(event) => {
-                          const checked = event.currentTarget.checked;
-                          void saveChannels(setting.type, "max", checked);
+                          void savePermission(setting.type, checked);
                         }} /></td>
                       </tr>
                     ))}

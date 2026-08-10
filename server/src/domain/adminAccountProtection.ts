@@ -7,6 +7,13 @@ export class ProtectedAccountMutationError extends Error {
   }
 }
 
+export class CanonicalAdminMutationRequiredError extends Error {
+  constructor() {
+    super("Действие доступно только исходному аккаунту admin.");
+    this.name = "CanonicalAdminMutationRequiredError";
+  }
+}
+
 export function isCanonicalAdminLogin(login: string) {
   return login.trim().toLocaleLowerCase("en-US") === "admin";
 }

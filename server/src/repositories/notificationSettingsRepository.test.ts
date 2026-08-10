@@ -20,9 +20,11 @@ const accountRow = {
 };
 
 test("notification settings repository expands missing rows from the server catalog", async () => {
+  let userSql = "";
   const pool = {
     async query(sql: string) {
       if (sql.includes("from app_users users")) {
+        userSql = sql.replace(/\s+/g, " ").trim();
         return [[accountRow], []];
       }
       if (sql.includes("from user_notification_settings")) {
@@ -42,6 +44,10 @@ test("notification settings repository expands missing rows from the server cata
 
   assert.equal(result?.settings.length, 10);
   assert.equal(result?.isProtected, false);
+  assert.match(
+    userSql,
+    /protected_accesses\.user_id = users\.id.*protected_accesses\.is_active = 1.*protected_positions\.is_admin_protected = 1.*as is_admin_protected/u,
+  );
   assert.deepEqual(result?.settings.find(
     ({ type }) => type === "board_assignments",
   ), {
@@ -74,6 +80,9 @@ test("own notification channels require administrator permission and stored cont
     async query(sql: string) {
       if (sql.includes("from app_users")) {
         return [[{ email: "director@example.com", max_user_id: null }], []];
+      }
+      if (sql.includes("from account_accesses protected_accesses")) {
+        return [[], []];
       }
       if (sql.includes("from user_notification_settings")) {
         return [[settingRows[currentSetting]], []];
@@ -156,7 +165,7 @@ test("delivery recipients are server-filtered by account status, permission and 
   );
 });
 
-test("administrative channel settings persist both channels and derive the broad permission", async () => {
+test("administrative permission starts user channels disabled", async () => {
   const writes: unknown[][] = [];
   const connection = {
     async beginTransaction() {},
@@ -171,8 +180,11 @@ test("administrative channel settings persist both channels and derive the broad
           is_admin_protected: 0,
         }], []];
       }
-      assert.match(sql, /email_enabled = values\(email_enabled\)/u);
-      assert.match(sql, /max_enabled = values\(max_enabled\)/u);
+      if (sql.includes("from account_accesses protected_accesses")) {
+        return [[], []];
+      }
+      assert.match(sql, /email_enabled = 0/u);
+      assert.match(sql, /max_enabled = 0/u);
       writes.push(parameters);
       return [{ affectedRows: 1 }, []];
     },
@@ -184,28 +196,26 @@ test("administrative channel settings persist both channels and derive the broad
   } as unknown as DatabasePool;
   const repository = createNotificationSettingsRepository(pool);
 
-  await repository.setAdminChannels({
+  await repository.setAdminPermission({
     userId: "general-director-user",
     type: "board_assignments",
-    emailEnabled: false,
-    maxEnabled: true,
+    adminEnabled: true,
     allowProtectedAccountMutation: false,
   });
-  await repository.setAdminChannels({
+  await repository.setAdminPermission({
     userId: "general-director-user",
     type: "board_assignments",
-    emailEnabled: false,
-    maxEnabled: false,
+    adminEnabled: false,
     allowProtectedAccountMutation: false,
   });
 
   assert.deepEqual(writes, [
-    ["general-director-user", "board_assignments", 1, 0, 1],
-    ["general-director-user", "board_assignments", 0, 0, 0],
+    ["general-director-user", "board_assignments", 1],
+    ["general-director-user", "board_assignments", 0],
   ]);
 });
 
-test("administrative channel settings reject a selected channel without a contact", async () => {
+test("administrative permission does not require notification contacts", async () => {
   let writeCount = 0;
   const connection = {
     async beginTransaction() {},
@@ -220,6 +230,9 @@ test("administrative channel settings reject a selected channel without a contac
           is_admin_protected: 0,
         }], []];
       }
+      if (sql.includes("from account_accesses protected_accesses")) {
+        return [[], []];
+      }
       writeCount += 1;
       return [{ affectedRows: 1 }, []];
     },
@@ -230,20 +243,16 @@ test("administrative channel settings reject a selected channel without a contac
     },
   } as unknown as DatabasePool;
 
-  await assert.rejects(
-    createNotificationSettingsRepository(pool).setAdminChannels({
-      userId: "general-director-user",
-      type: "board_assignments",
-      emailEnabled: true,
-      maxEnabled: true,
-      allowProtectedAccountMutation: false,
-    }),
-    NotificationChannelUnavailableError,
-  );
-  assert.equal(writeCount, 0);
+  await createNotificationSettingsRepository(pool).setAdminPermission({
+    userId: "general-director-user",
+    type: "board_assignments",
+    adminEnabled: true,
+    allowProtectedAccountMutation: false,
+  });
+  assert.equal(writeCount, 1);
 });
 
-test("removing a contact also recomputes the broad permission from remaining channels", async () => {
+test("removing a contact keeps administrator permission and disables only the missing channel", async () => {
   const writes: Array<{ sql: string; parameters: unknown[] }> = [];
   const connection = {
     async beginTransaction() {},
@@ -257,6 +266,9 @@ test("removing a contact also recomputes the broad permission from remaining cha
           max_user_id: "101",
           is_admin_protected: 0,
         }], []];
+      }
+      if (sql.includes("from account_accesses protected_accesses")) {
+        return [[], []];
       }
       writes.push({ sql, parameters });
       return [{ affectedRows: 1 }, []];
@@ -276,10 +288,9 @@ test("removing a contact also recomputes the broad permission from remaining cha
   });
 
   assert.equal(writes.length, 2);
-  assert.match(writes[1]?.sql ?? "", /admin_enabled\s*=\s*case/u);
+  assert.doesNotMatch(writes[1]?.sql ?? "", /admin_enabled/u);
+  assert.match(writes[1]?.sql ?? "", /email_enabled\s*=\s*case/u);
   assert.deepEqual(writes[1]?.parameters, [
-    null,
-    "101",
     null,
     "101",
     "general-director-user",
@@ -288,6 +299,8 @@ test("removing a contact also recomputes the broad permission from remaining cha
 
 test("administrative notification changes recheck protected accounts under lock", async () => {
   let writeCount = 0;
+  const contactReads: string[] = [];
+  const adminRightsReads: string[] = [];
   const connection = {
     async beginTransaction() {},
     async commit() {},
@@ -295,11 +308,16 @@ test("administrative notification changes recheck protected accounts under lock"
     release() {},
     async query(sql: string) {
       if (sql.includes("from app_users")) {
+        contactReads.push(sql.replace(/\s+/g, " ").trim());
         return [[{
           email: "protected@example.com",
           max_user_id: "101",
-          is_admin_protected: 1,
+          is_admin_protected: 0,
         }], []];
+      }
+      if (sql.includes("from account_accesses protected_accesses")) {
+        adminRightsReads.push(sql.replace(/\s+/g, " ").trim());
+        return [[{ is_admin_protected: 1 }], []];
       }
       writeCount += 1;
       return [{ affectedRows: 1 }, []];
@@ -322,16 +340,24 @@ test("administrative notification changes recheck protected accounts under lock"
     ProtectedAccountMutationError,
   );
   await assert.rejects(
-    repository.setAdminChannels({
+    repository.setAdminPermission({
       userId: "protected-user",
       type: "incidents",
-      emailEnabled: true,
-      maxEnabled: false,
+      adminEnabled: true,
       allowProtectedAccountMutation: false,
     }),
     ProtectedAccountMutationError,
   );
   assert.equal(writeCount, 0);
+  assert.equal(contactReads.length, 2);
+  assert.equal(
+    adminRightsReads.length === 2 && adminRightsReads.every((sql) =>
+      sql.includes("positions.is_admin_protected") &&
+      sql.includes("protected_accesses.is_active = 1") &&
+      sql.endsWith("for update")
+    ),
+    true,
+  );
 });
 
 test("login delivery claim is atomic and persistent for one auth session", async () => {

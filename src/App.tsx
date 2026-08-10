@@ -11,6 +11,7 @@ import {
 import {
   accountCapabilities,
   productionCategories,
+  type AccountCapability,
   type AccountNavigationItem,
   type AccountPosition,
   type AccountType,
@@ -57,6 +58,7 @@ import {
   accountPositionLabels,
   authOptions,
   boardAssignmentAccessOptions,
+  defaultNavigationOrder,
   navigationItemsByAccountType,
   nonAdminNavigationItems,
   shellCopy,
@@ -80,6 +82,10 @@ import {
   requestAccessProfile,
   type AccessProfileLoadState,
 } from "./services/accessProfile";
+import {
+  requestNavigationOrder,
+  saveNavigationOrder,
+} from "./services/navigationOrder";
 import {
   dispatcherFeedPageLimit,
   mergeDispatcherFeedSubmissions,
@@ -173,6 +179,7 @@ import {
   requestAdminPositions,
   resetAdminAccountPassword,
   saveAdminPositionOrder,
+  setAdminPositionNavigationAccess,
   setAdminAccountLoginEnabled,
   setAdminAccountProtected,
   setAdminAccountPosition,
@@ -266,7 +273,12 @@ type BusinessTab =
   | "settings"
   | "user_actions"
   | "dispatcher_form";
-type AdminTab = "account_preview" | "accounts" | "database" | "user_actions";
+type AdminTab =
+  | "account_preview"
+  | "accounts"
+  | "navigation"
+  | "database"
+  | "user_actions";
 
 const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   overview: "business.overview",
@@ -285,8 +297,28 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
 const navigationByAdminTab: Record<AdminTab, AccountNavigationItem> = {
   account_preview: "admin.account_preview",
   accounts: "admin.accounts",
+  navigation: "admin.navigation",
   database: "admin.database",
   user_actions: "admin.user_actions",
+};
+
+const adminPreviewReadCapabilitiesByNavigationItem: Partial<
+  Record<AccountNavigationItem, readonly AccountCapability[]>
+> = {
+  "business.overview": [
+    "business.view_all_statistics",
+    "business.view_notifications",
+    "business.view_dispatcher_feed",
+  ],
+  "business.dispatcher": ["business.view_dispatcher_feed"],
+  "business.work": [
+    "business.view_notifications",
+    "business.view_own_submissions",
+  ],
+  "business.user_actions": ["business.view_user_actions"],
+  "business.laboratory_review": ["business.view_laboratory_results"],
+  "business.board_assignments": ["business.view_board_assignments"],
+  "business.dispatcher_form": ["business.view_dispatcher_feed"],
 };
 
 type DataEntrySubmitStateControls = {
@@ -317,6 +349,11 @@ type SessionRequestState =
       status: "error";
       message: string;
     };
+
+type NavigationOrderLoadState =
+  | { status: "loading" }
+  | { status: "ready" }
+  | { status: "error"; message: string };
 
 type DispatcherFeedLoadState =
   | {
@@ -477,17 +514,37 @@ const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
 const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
 const isProductionApp = isProductionAppEnv();
 const isLocalTestFallbackEnabled = !isProductionApp;
+const workingNavigationItemIds = new Set(
+  nonAdminNavigationItems.map((item) => item.id),
+);
+
+function countWorkingNavigationItems(
+  navigationItems: readonly AccountNavigationItem[],
+) {
+  return navigationItems.filter((item) => workingNavigationItemIds.has(item))
+    .length;
+}
 
 function buildNavigationItems(
   profile: ServerUserProfile,
   businessTab: BusinessTab,
   adminTab: AdminTab,
   workspaceKind: WorkspaceKind,
+  navigationOrder: readonly AccountNavigationItem[],
 ): NavigationItem[] {
+  const orderById = new Map(
+    navigationOrder.map((item, index) => [item, index]),
+  );
   const navigationItems = [
     ...nonAdminNavigationItems,
     ...navigationItemsByAccountType.admin,
-  ].filter((item) => profile.activeAccess.navigationItems.includes(item.id));
+  ]
+    .filter((item) => profile.activeAccess.navigationItems.includes(item.id))
+    .sort(
+      (left, right) =>
+        (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (orderById.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    );
   const effectiveWorkspaceKind = resolveAllowedWorkspaceKind(
     workspaceKind,
     profile.activeAccess.navigationItems,
@@ -555,6 +612,8 @@ function getAdminTabForNavigationItem(item: NavigationItem): AdminTab | undefine
       return "account_preview";
     case "admin.accounts":
       return "accounts";
+    case "admin.navigation":
+      return "navigation";
     case "admin.database":
       return "database";
     case "admin.user_actions":
@@ -590,6 +649,13 @@ export default function App() {
   const [isDataEntrySubmitting, setIsDataEntrySubmitting] = useState(false);
   const [ownerTab, setOwnerTab] = useState<BusinessTab>("overview");
   const [adminTab, setAdminTab] = useState<AdminTab>("account_preview");
+  const [navigationOrder, setNavigationOrder] =
+    useState<AccountNavigationItem[]>([...defaultNavigationOrder]);
+  const [navigationOrderLoadState, setNavigationOrderLoadState] =
+    useState<NavigationOrderLoadState>({ status: "loading" });
+  const [navigationOrderRequestVersion, setNavigationOrderRequestVersion] =
+    useState(0);
+  const navigationOrderRequestIdRef = useRef(0);
   const [workspaceKind, setWorkspaceKind] = useState<WorkspaceKind>("business");
   const [workspaceNavigationVersion, setWorkspaceNavigationVersion] =
     useState(0);
@@ -773,6 +839,39 @@ export default function App() {
       controller.abort();
     };
   }, [requestVersion]);
+
+  useEffect(() => {
+    if (accessProfile.status !== "ready") return;
+
+    const controller = new AbortController();
+    const requestId = navigationOrderRequestIdRef.current + 1;
+    navigationOrderRequestIdRef.current = requestId;
+    setNavigationOrderLoadState({ status: "loading" });
+    void requestNavigationOrder({ signal: controller.signal }).then((result) => {
+      if (
+        controller.signal.aborted ||
+        navigationOrderRequestIdRef.current !== requestId
+      ) return;
+
+      if (result.status === "ready") {
+        setNavigationOrder(result.navigationOrder);
+        setNavigationOrderLoadState({ status: "ready" });
+      } else {
+        setNavigationOrderLoadState({
+          status: "error",
+          message: result.message,
+        });
+      }
+    });
+
+    return () => controller.abort();
+  }, [accessProfile, navigationOrderRequestVersion]);
+
+  function handleNavigationOrderChange(order: AccountNavigationItem[]) {
+    navigationOrderRequestIdRef.current += 1;
+    setNavigationOrder(order);
+    setNavigationOrderLoadState({ status: "ready" });
+  }
 
   useEffect(() => {
     const visibleDispatcherNavigationItems =
@@ -1729,6 +1828,11 @@ export default function App() {
             : handleOwnerTabNavigation
         }
         adminTab={adminTab}
+        navigationOrder={navigationOrder}
+        navigationOrderLoadState={navigationOrderLoadState}
+        onNavigationOrderRetry={() =>
+          setNavigationOrderRequestVersion((version) => version + 1)
+        }
         onAdminTabChange={handleAdminTabNavigation}
         pendingRefractoryCount={
           isAdminPreviewMode ? 0 : pendingRefractoryReports.length
@@ -1803,6 +1907,12 @@ export default function App() {
             void handleClearSession();
           }}
           onSelectAdminAccountView={handleStartAdminAccountView}
+          navigationOrder={navigationOrder}
+          navigationOrderLoadState={navigationOrderLoadState}
+          onNavigationOrderChange={handleNavigationOrderChange}
+          onNavigationOrderRetry={() =>
+            setNavigationOrderRequestVersion((version) => version + 1)
+          }
           pendingRefractoryReports={pendingRefractoryReports}
           refractoryQueueError={refractoryQueueError}
           refractoryDecisionVersion={refractoryDecisionVersion}
@@ -2286,6 +2396,9 @@ export function SideRail({
   workspaceKind,
   onOwnerTabChange,
   adminTab,
+  navigationOrder = defaultNavigationOrder,
+  navigationOrderLoadState = { status: "ready" },
+  onNavigationOrderRetry = () => undefined,
   onAdminTabChange,
   pendingRefractoryCount,
   returnedRefractoryCount,
@@ -2305,6 +2418,9 @@ export function SideRail({
   workspaceKind: WorkspaceKind;
   onOwnerTabChange: (tab: BusinessTab) => void;
   adminTab: AdminTab;
+  navigationOrder?: readonly AccountNavigationItem[];
+  navigationOrderLoadState?: NavigationOrderLoadState;
+  onNavigationOrderRetry?: () => void;
   onAdminTabChange: (tab: AdminTab) => void;
   pendingRefractoryCount: number;
   returnedRefractoryCount: number;
@@ -2313,12 +2429,15 @@ export function SideRail({
   const railRef = useRef<HTMLElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerMenuButtonRef = useRef<HTMLButtonElement>(null);
-  const navigationItems = buildNavigationItems(
-    profile,
-    ownerTab,
-    adminTab,
-    workspaceKind,
-  );
+  const navigationItems = navigationOrderLoadState.status === "ready"
+    ? buildNavigationItems(
+        profile,
+        ownerTab,
+        adminTab,
+        workspaceKind,
+        navigationOrder,
+      )
+    : [];
 
   useEffect(() => {
     if (!isMobile || !isOpen) {
@@ -2442,6 +2561,26 @@ export function SideRail({
           </p>
         </div>
         <nav className="primary-nav" id="primary-navigation">
+          {navigationOrderLoadState.status === "loading" ? (
+            <div className="rail-navigation-status">
+              <LoadingIndicator
+                announce={false}
+                label="Загружаем вкладки…"
+                variant="inline"
+              />
+            </div>
+          ) : navigationOrderLoadState.status === "error" ? (
+            <div className="rail-navigation-status">
+              <small>{navigationOrderLoadState.message}</small>
+              <button
+                className="rail-navigation-retry"
+                type="button"
+                onClick={onNavigationOrderRetry}
+              >
+                Повторить
+              </button>
+            </div>
+          ) : null}
           {navigationItems.map((item) => {
             const ownerTarget = getBusinessTabForNavigationItem(item);
             const adminTarget = getAdminTabForNavigationItem(item);
@@ -2549,6 +2688,10 @@ function RoleWorkspace({
   onShowToast,
   onProductionSnapshotSynchronized,
   onSelectAdminAccountView,
+  navigationOrder,
+  navigationOrderLoadState,
+  onNavigationOrderChange,
+  onNavigationOrderRetry,
   pendingRefractoryReports,
   refractoryQueueError,
   refractoryDecisionVersion,
@@ -2576,6 +2719,10 @@ function RoleWorkspace({
   onShowToast: ShowToast;
   onProductionSnapshotSynchronized: () => void;
   onSelectAdminAccountView: (account: AdminAccountSummary) => void;
+  navigationOrder: AccountNavigationItem[];
+  navigationOrderLoadState: NavigationOrderLoadState;
+  onNavigationOrderChange: (order: AccountNavigationItem[]) => void;
+  onNavigationOrderRetry: () => void;
   pendingRefractoryReports: RefractoryReportRevision[];
   refractoryQueueError: string;
   refractoryDecisionVersion: number;
@@ -2608,6 +2755,10 @@ function RoleWorkspace({
           onProductionSnapshotSynchronized
         }
         onSelectAccountView={onSelectAdminAccountView}
+        navigationOrder={navigationOrder}
+        navigationOrderLoadState={navigationOrderLoadState}
+        onNavigationOrderChange={onNavigationOrderChange}
+        onNavigationOrderRetry={onNavigationOrderRetry}
       />
     );
   }
@@ -2666,9 +2817,12 @@ function RoleWorkspace({
     );
   }
   if (effectiveOwnerTab === "user_actions") {
-    return isAdminPreviewMode
-      ? <UserActionsPreviewNotice />
-      : <UserActionsWorkspace profile={profile} />;
+    return (
+      <UserActionsWorkspace
+        profile={profile}
+        organizationOnly={isAdminPreviewMode}
+      />
+    );
   }
   if (effectiveOwnerTab === "dispatcher_form") {
     return (
@@ -7666,12 +7820,20 @@ function AdminWorkspace({
   onShowToast,
   onProductionSnapshotSynchronized,
   onSelectAccountView,
+  navigationOrder,
+  navigationOrderLoadState,
+  onNavigationOrderChange,
+  onNavigationOrderRetry,
 }: {
   profile: ServerUserProfile;
   activeTab: AdminTab;
   onShowToast: ShowToast;
   onProductionSnapshotSynchronized: () => void;
   onSelectAccountView: (account: AdminAccountSummary) => void;
+  navigationOrder: AccountNavigationItem[];
+  navigationOrderLoadState: NavigationOrderLoadState;
+  onNavigationOrderChange: (order: AccountNavigationItem[]) => void;
+  onNavigationOrderRetry: () => void;
 }) {
   if (activeTab === "database") {
     return (
@@ -7691,11 +7853,168 @@ function AdminWorkspace({
     );
   }
 
+  if (activeTab === "navigation") {
+    return (
+      <NavigationOrderWorkspace
+        navigationOrder={navigationOrder}
+        loadState={navigationOrderLoadState}
+        onNavigationOrderChange={onNavigationOrderChange}
+        onRetry={onNavigationOrderRetry}
+        onShowToast={onShowToast}
+      />
+    );
+  }
+
   if (activeTab === "user_actions") {
     return <UserActionsWorkspace profile={profile} />;
   }
 
   return <AdminAccountPreviewWorkspace onSelectAccountView={onSelectAccountView} />;
+}
+
+function NavigationOrderWorkspace({
+  navigationOrder,
+  loadState,
+  onNavigationOrderChange,
+  onRetry,
+  onShowToast,
+}: {
+  navigationOrder: AccountNavigationItem[];
+  loadState: NavigationOrderLoadState;
+  onNavigationOrderChange: (order: AccountNavigationItem[]) => void;
+  onRetry: () => void;
+  onShowToast: ShowToast;
+}) {
+  const [draftOrder, setDraftOrder] = useState([...navigationOrder]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const navigationItemById = new Map(
+    [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin].map(
+      (item) => [item.id, item],
+    ),
+  );
+
+  useEffect(() => {
+    if (loadState.status === "ready") {
+      setDraftOrder([...navigationOrder]);
+    }
+  }, [loadState.status, navigationOrder]);
+
+  function moveItem(index: number, offset: -1 | 1) {
+    setError("");
+    setDraftOrder((current) => {
+      const targetIndex = index + offset;
+      if (targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    setIsSaving(true);
+    setError("");
+    const result = await saveNavigationOrder(draftOrder);
+    setIsSaving(false);
+
+    if (result.status === "error") {
+      setError(result.message);
+      return;
+    }
+
+    setDraftOrder(result.navigationOrder);
+    onNavigationOrderChange(result.navigationOrder);
+    onShowToast(
+      "Порядок вкладок сохранён",
+      "Левая панель обновлена для всех пользователей.",
+      "success",
+    );
+  }
+
+  return (
+    <section
+      aria-label="Порядок вкладок"
+      className="admin-workspace admin-navigation-order-workspace"
+    >
+      <header className="section-heading">
+        <div>
+          <p className="eyebrow">Администрирование</p>
+          <h2>Вкладки</h2>
+          <p>
+            Настройте общий порядок вкладок в левой панели. Пользователь увидит
+            только доступные ему вкладки, но в указанной здесь последовательности.
+          </p>
+        </div>
+      </header>
+
+      {loadState.status === "loading" ? (
+        <LoadingIndicator label="Загружаем порядок вкладок…" variant="inline" />
+      ) : loadState.status === "error" ? (
+        <div className="empty-state">
+          <p>{loadState.message}</p>
+          <button className="secondary-button" type="button" onClick={onRetry}>
+            Повторить
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="admin-navigation-order-list">
+            {draftOrder.map((id, index) => {
+              const item = navigationItemById.get(id);
+              if (item === undefined) return null;
+              return (
+                <div className="admin-navigation-order-row" key={id}>
+                  <span className="admin-navigation-order-index">{index + 1}</span>
+                  <span className="admin-navigation-order-copy">
+                    <strong>{item.label}</strong>
+                    <small>
+                      {id.startsWith("admin.") ? "Административная" : "Рабочая"}
+                      {" · "}
+                      {item.description}
+                    </small>
+                  </span>
+                  <span className="admin-position-order-actions">
+                    <button
+                      aria-label={`Переместить ${item.label} выше`}
+                      className="secondary-button"
+                      disabled={isSaving || index === 0}
+                      type="button"
+                      onClick={() => moveItem(index, -1)}
+                    >
+                      Выше
+                    </button>
+                    <button
+                      aria-label={`Переместить ${item.label} ниже`}
+                      className="secondary-button"
+                      disabled={isSaving || index === draftOrder.length - 1}
+                      type="button"
+                      onClick={() => moveItem(index, 1)}
+                    >
+                      Ниже
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="admin-navigation-order-footer">
+            <button
+              className="primary-button"
+              disabled={isSaving}
+              type="button"
+              onClick={() => void handleSave()}
+            >
+              {isSaving ? "Сохраняем…" : "Сохранить порядок"}
+            </button>
+            {error.length > 0 ? (
+              <p className="form-status is-error">{error}</p>
+            ) : null}
+          </div>
+        </>
+      )}
+    </section>
+  );
 }
 
 const adminAuditPageLimit = 50;
@@ -7711,17 +8030,13 @@ const adminAuditCategoryOptions: readonly {
   { id: "navigation", label: "Просмотры" },
 ];
 
-function UserActionsPreviewNotice() {
-  return (
-    <section className="admin-workspace" aria-label="Действия пользователей">
-      <p className="dispatcher-status-line">
-        Отчёт доступен после входа в учётную запись руководителя.
-      </p>
-    </section>
-  );
-}
-
-function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
+function UserActionsWorkspace({
+  profile,
+  organizationOnly = false,
+}: {
+  profile: ServerUserProfile;
+  organizationOnly?: boolean;
+}) {
   const canViewPlatformAudit = hasCapability(profile, "platform.view_audit");
   const canViewAudit =
     canViewPlatformAudit ||
@@ -7767,6 +8082,7 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
       category: selectedCategory === "all" ? undefined : selectedCategory,
       limit: adminAuditPageLimit,
       offset,
+      organizationOnly,
       showTechnicalDetails: canViewPlatformAudit,
       signal: controller.signal,
     }).then((result) => {
@@ -7785,6 +8101,7 @@ function UserActionsWorkspace({ profile }: { profile: ServerUserProfile }) {
   }, [
     canViewAudit,
     canViewPlatformAudit,
+    organizationOnly,
     selectedAccountId,
     selectedCategory,
     offset,
@@ -8045,11 +8362,15 @@ function formatAuditEventCount(value: number) {
   return `${value} ${suffix}`;
 }
 
+type AdminAccountPreviewSection = "types" | "accounts" | "navigation";
+
 function AdminAccountPreviewWorkspace({
   onSelectAccountView,
 }: {
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
+  const [activeSection, setActiveSection] =
+    useState<AdminAccountPreviewSection>("types");
   const [accountsState, setAccountsState] = useState<AdminAccountsLoadState>({
     status: "loading",
     message: "Загружаем учётные записи.",
@@ -8080,59 +8401,134 @@ function AdminAccountPreviewWorkspace({
       : [];
 
   return (
-    <section className="admin-workspace" aria-label="Просмотр аккаунта">
-      <div className="admin-account-preview-group">
-        <h3>Типы аккаунтов</h3>
-        {positionsState.status === "loading" ? (
-          <LoadingIndicator label={positionsState.message} variant="panel" />
-        ) : null}
-        {positionsState.status === "error" ? (
-          <p className="dispatcher-status-line">{positionsState.message}</p>
-        ) : null}
-        <div className="admin-account-switcher" aria-label="Типы аккаунтов">
-          {accountTypePreviews.map((account) => (
-            <AdminAccountPreviewButton
-              account={account}
-              isTypePreview
-              key={account.accessId}
-              onSelectAccountView={onSelectAccountView}
-            />
-          ))}
-        </div>
+    <section className="admin-workspace" aria-label="Предпросмотр">
+      <div
+        className="admin-accounts-tabs"
+        role="tablist"
+        aria-label="Разделы предпросмотра"
+      >
+        <button
+          id="admin-preview-tab-types"
+          className={activeSection === "types" ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "types"}
+          aria-controls="admin-preview-panel-types"
+          onClick={() => setActiveSection("types")}
+        >
+          Типы аккаунтов
+        </button>
+        <button
+          id="admin-preview-tab-accounts"
+          className={activeSection === "accounts" ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "accounts"}
+          aria-controls="admin-preview-panel-accounts"
+          onClick={() => setActiveSection("accounts")}
+        >
+          Созданные аккаунты
+        </button>
+        <button
+          id="admin-preview-tab-navigation"
+          className={activeSection === "navigation" ? "is-active" : undefined}
+          type="button"
+          role="tab"
+          aria-selected={activeSection === "navigation"}
+          aria-controls="admin-preview-panel-navigation"
+          onClick={() => setActiveSection("navigation")}
+        >
+          Вкладки
+        </button>
       </div>
 
-      <div className="admin-account-preview-group">
-        <h3>Созданные аккаунты</h3>
-        {accountsState.status === "loading" ? (
-          <LoadingIndicator label={accountsState.message} variant="panel" />
-        ) : null}
-        {accountsState.status === "error" ? (
-          <p className="dispatcher-status-line">{accountsState.message}</p>
-        ) : null}
-        {accountsState.status === "ready" && accounts.length === 0 ? (
-          <p className="dispatcher-status-line">Созданных аккаунтов пока нет.</p>
-        ) : null}
-        <div className="admin-account-switcher" aria-label="Созданные аккаунты">
-          {accounts.map((account) => (
-            <AdminAccountPreviewButton
-              account={account}
-              isTypePreview={false}
-              key={account.accessId}
-              onSelectAccountView={onSelectAccountView}
-            />
-          ))}
+      {activeSection === "types" ? (
+        <div
+          id="admin-preview-panel-types"
+          className="admin-accounts-panel"
+          role="tabpanel"
+          aria-labelledby="admin-preview-tab-types"
+        >
+          {positionsState.status === "loading" ? (
+            <LoadingIndicator label={positionsState.message} variant="panel" />
+          ) : null}
+          {positionsState.status === "error" ? (
+            <p className="dispatcher-status-line">{positionsState.message}</p>
+          ) : null}
+          <div className="admin-account-switcher" aria-label="Типы аккаунтов">
+            {accountTypePreviews.map((account) => (
+              <AdminAccountPreviewButton
+                account={account}
+                isTypePreview
+                key={account.accessId}
+                onSelectAccountView={onSelectAccountView}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {activeSection === "accounts" ? (
+        <div
+          id="admin-preview-panel-accounts"
+          className="admin-accounts-panel"
+          role="tabpanel"
+          aria-labelledby="admin-preview-tab-accounts"
+        >
+          {accountsState.status === "loading" ? (
+            <LoadingIndicator label={accountsState.message} variant="panel" />
+          ) : null}
+          {accountsState.status === "error" ? (
+            <p className="dispatcher-status-line">{accountsState.message}</p>
+          ) : null}
+          {accountsState.status === "ready" && accounts.length === 0 ? (
+            <p className="dispatcher-status-line">Созданных аккаунтов пока нет.</p>
+          ) : null}
+          <div className="admin-account-switcher" aria-label="Созданные аккаунты">
+            {accounts.map((account) => (
+              <AdminAccountPreviewButton
+                account={account}
+                isTypePreview={false}
+                key={account.accessId}
+                onSelectAccountView={onSelectAccountView}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {activeSection === "navigation" ? (
+        <div
+          id="admin-preview-panel-navigation"
+          className="admin-accounts-panel"
+          role="tabpanel"
+          aria-labelledby="admin-preview-tab-navigation"
+        >
+          <div className="admin-account-switcher" aria-label="Вкладки">
+            {nonAdminNavigationItems.map((navigationItem) => (
+              <AdminAccountPreviewButton
+                account={buildAdminPreviewAccountForNavigationItem(navigationItem)}
+                description={navigationItem.description}
+                isTypePreview
+                key={navigationItem.id}
+                onSelectAccountView={onSelectAccountView}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
 
 function AdminAccountPreviewButton({
   account,
+  description,
   isTypePreview,
   onSelectAccountView,
 }: {
   account: AdminAccountSummary;
+  description?: string;
   isTypePreview: boolean;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
@@ -8155,6 +8551,7 @@ function AdminAccountPreviewButton({
       }}
     >
       <span>{account.positionDisplayName}</span>
+      {description !== undefined ? <small>{description}</small> : null}
       {!isTypePreview ? <strong>{account.userDisplayName}</strong> : null}
       {isTypePreview ? (
         !hasBusinessNavigation ? <small>Без превью</small> : null
@@ -9574,7 +9971,6 @@ type AdminPositionFormState = {
   displayName: string;
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
-  showAdminNavigation: boolean;
 };
 
 const emptyAdminPositionForm: AdminPositionFormState = {
@@ -9589,18 +9985,9 @@ const emptyAdminPositionForm: AdminPositionFormState = {
     )
     .map(({ id }) => id),
   boardAssignmentAccess: "view",
-  showAdminNavigation: false,
 };
 
 const positionOrderAutosaveDelayMs = 5_000;
-
-function isAdminNavigationItemId(itemId: AccountNavigationItem) {
-  return navigationItemsByAccountType.admin.some((item) => item.id === itemId);
-}
-
-function hasAdminPositionNavigation(position: AdminPositionSummary) {
-  return position.navigationItems.some(isAdminNavigationItemId);
-}
 
 const adminAccountPositionOptions: AccountPosition[] = [
   "administrator",
@@ -9692,6 +10079,7 @@ function buildAdminPreviewAccountForPosition(
     userDisplayName: "Типовой кабинет",
     userStatus: "active",
     isProtected: false,
+    isProtectedByAdminRights: false,
     accessDisplayName: `Превью: ${label}`,
     accountType,
     position,
@@ -9718,6 +10106,7 @@ function buildAdminPreviewAccountForDefinition(
     userDisplayName: position.displayName,
     userStatus: "active",
     isProtected: false,
+    isProtectedByAdminRights: false,
     accessDisplayName: `Превью: ${position.displayName}`,
     accountType: position.accountType,
     position: position.id,
@@ -9728,6 +10117,31 @@ function buildAdminPreviewAccountForDefinition(
     capabilities: [...position.capabilities],
     navigationItems: [...position.navigationItems],
     createdAt: position.createdAt,
+  };
+}
+
+function buildAdminPreviewAccountForNavigationItem(
+  navigationItem: NavigationItem,
+): AdminAccountSummary {
+  const isDispatcherForm = navigationItem.id === "business.dispatcher_form";
+  const accountType = isDispatcherForm ? "dispatcher" : "business_owner";
+
+  return {
+    accessId: `admin-preview-navigation-${navigationItem.id}`,
+    userId: `admin-preview-navigation-user-${navigationItem.id}`,
+    login: "Предпросмотр вкладки",
+    userDisplayName: navigationItem.label,
+    userStatus: "active",
+    isProtected: false,
+    isProtectedByAdminRights: false,
+    accessDisplayName: `Предпросмотр: ${navigationItem.label}`,
+    accountType,
+    position: accountType,
+    positionDisplayName: navigationItem.label,
+    scope: { kind: "organization" },
+    capabilities: readAdminPreviewCapabilities([navigationItem.id]),
+    navigationItems: [navigationItem.id],
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -9780,6 +10194,16 @@ function AdminAccountsWorkspace({
   );
   const [protectingUserId, setProtectingUserId] = useState<string>();
   const [protectingPositionId, setProtectingPositionId] = useState<string>();
+  const [isPositionNavigationAccessModalOpen, setIsPositionNavigationAccessModalOpen] =
+    useState(false);
+  const [selectedPositionNavigationItem, setSelectedPositionNavigationItem] =
+    useState<AccountNavigationItem>(
+      nonAdminNavigationItems[0]?.id ?? "business.overview",
+    );
+  const [positionNavigationAccessStatus, setPositionNavigationAccessStatus] =
+    useState("");
+  const [isSavingPositionNavigationAccess, setIsSavingPositionNavigationAccess] =
+    useState(false);
   const [updatingPositionAccessId, setUpdatingPositionAccessId] = useState<
     string | undefined
   >(undefined);
@@ -9918,12 +10342,31 @@ function AdminAccountsWorkspace({
     };
   }, [passwordResetForm?.login, resettingLogin]);
 
+  useEffect(() => {
+    if (!isPositionNavigationAccessModalOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !isSavingPositionNavigationAccess) {
+        event.preventDefault();
+        setIsPositionNavigationAccessModalOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [
+    isPositionNavigationAccessModalOpen,
+    isSavingPositionNavigationAccess,
+  ]);
+
   function openCreateModal() {
     const firstPosition = positionsState.status === "ready"
       ? positionsState.positions.find(
           (position) =>
             positionsState.canAssignAdminNavigation ||
-            !hasAdminPositionNavigation(position),
+            !position.hasAdminRights,
         )
       : undefined;
     setForm((current) => ({
@@ -9938,7 +10381,7 @@ function AdminAccountsWorkspace({
     if (
       positionOrderDraft !== undefined ||
       isSavingPositionOrder ||
-      (position?.isAdminProtected === true && !canManageProtectedPositions)
+      (position?.hasAdminRights === true && !canManageProtectedPositions)
     ) {
       return;
     }
@@ -9952,13 +10395,9 @@ function AdminAccountsWorkspace({
           id: position.id,
           displayName: position.displayName,
           navigationItems: position.navigationItems.filter((id) =>
-              [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin]
-                .some((item) => item.id === id),
-            ),
-          boardAssignmentAccess: position.boardAssignmentAccess,
-          showAdminNavigation: position.navigationItems.some(
-            isAdminNavigationItemId,
+            nonAdminNavigationItems.some((item) => item.id === id),
           ),
+          boardAssignmentAccess: position.boardAssignmentAccess,
         });
     setPositionFormStatus("");
     setIsPositionModalOpen(true);
@@ -9966,9 +10405,16 @@ function AdminAccountsWorkspace({
 
   async function handlePositionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const editedPosition =
+      positionForm.id !== undefined && positionsState.status === "ready"
+        ? positionsState.positions.find(
+            (position) => position.id === positionForm.id,
+          )
+        : undefined;
     if (
       positionForm.displayName.trim().length === 0 ||
-      positionForm.navigationItems.length === 0
+      (positionForm.navigationItems.length === 0 &&
+        editedPosition?.hasAdminRights !== true)
     ) {
       setPositionFormStatus("Укажите название и выберите хотя бы одну вкладку.");
       return;
@@ -10000,7 +10446,7 @@ function AdminAccountsWorkspace({
   async function handleDeletePosition(position: AdminPositionSummary) {
     if (
       !canDeleteAdminPosition(position) ||
-      (position.isAdminProtected && !canManageProtectedPositions) ||
+      (position.hasAdminRights && !canManageProtectedPositions) ||
       deletingPositionId !== undefined ||
       positionOrderDraft !== undefined ||
       isSavingPositionOrder
@@ -10048,7 +10494,7 @@ function AdminAccountsWorkspace({
     ];
     if (
       !canManageProtectedPositions &&
-      movedPositions.some((position) => position?.isAdminProtected === true)
+      movedPositions.some((position) => position?.hasAdminRights === true)
     ) {
       return;
     }
@@ -10115,13 +10561,54 @@ function AdminAccountsWorkspace({
       return;
     }
     onShowToast(
-      "Защита изменена",
+      "Права админа изменены",
       isProtected
-        ? `Должность «${position.displayName}» защищена.`
-        : `Защита должности «${position.displayName}» отключена.`,
+        ? `Для должности «${position.displayName}» включены права админа.`
+        : `Для должности «${position.displayName}» отключены права админа.`,
       "success",
     );
     setRefreshVersion((version) => version + 1);
+  }
+
+  async function handleSetPositionNavigationAccess(
+    positionIds: AccountPosition[],
+    enabled: boolean,
+  ) {
+    if (
+      !canAssignAdminNavigation ||
+      isSavingPositionNavigationAccess ||
+      positionIds.length === 0
+    ) {
+      return;
+    }
+
+    setIsSavingPositionNavigationAccess(true);
+    setPositionNavigationAccessStatus("");
+    const result = await setAdminPositionNavigationAccess({
+      navigationItem: selectedPositionNavigationItem,
+      positionIds,
+      enabled,
+    });
+    setIsSavingPositionNavigationAccess(false);
+    if (result.status !== "ready") {
+      setPositionNavigationAccessStatus(result.message);
+      return;
+    }
+
+    setPositionsState(result);
+    const navigationLabel = formatNavigationItemLabel(
+      nonAdminNavigationItems.find(
+        (item) => item.id === selectedPositionNavigationItem,
+      ) ?? nonAdminNavigationItems[0],
+    );
+    setPositionNavigationAccessStatus(
+      `${enabled ? "Включён" : "Отключён"} доступ к вкладке «${navigationLabel}».`,
+    );
+    onShowToast(
+      "Доступ изменён",
+      `${enabled ? "Включён" : "Отключён"} доступ к вкладке «${navigationLabel}».`,
+      "success",
+    );
   }
 
   function closeCreateModal() {
@@ -10199,11 +10686,17 @@ function AdminAccountsWorkspace({
       : undefined;
     if (
       selectedPosition !== undefined &&
-      hasAdminPositionNavigation(selectedPosition) &&
+      selectedPosition.hasAdminRights &&
       !canAssignAdminNavigation
     ) {
       setFormStatus(
-        "Должность с административными вкладками может назначать только аккаунт admin.",
+        "Должность с правами админа может назначать только исходный аккаунт admin.",
+      );
+      return;
+    }
+    if (selectedPosition?.accountType === "admin") {
+      setFormStatus(
+        "Системная должность администратора закреплена за исходным аккаунтом admin.",
       );
       return;
     }
@@ -10369,11 +10862,20 @@ function AdminAccountsWorkspace({
       : undefined;
     if (
       selectedPosition !== undefined &&
-      hasAdminPositionNavigation(selectedPosition) &&
+      selectedPosition.hasAdminRights &&
       !canAssignAdminNavigation
     ) {
       setWorkspaceStatus(
-        "Должность с административными вкладками может назначать только аккаунт admin.",
+        "Должность с правами админа может назначать только исходный аккаунт admin.",
+      );
+      return;
+    }
+    if (
+      selectedPosition?.accountType === "admin" &&
+      account.login.trim().toLocaleLowerCase("en-US") !== "admin"
+    ) {
+      setWorkspaceStatus(
+        "Системная должность администратора закреплена за исходным аккаунтом admin.",
       );
       return;
     }
@@ -10446,6 +10948,33 @@ function AdminAccountsWorkspace({
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
   const displayedPositions = positionOrderDraft ??
     (positionsState.status === "ready" ? positionsState.positions : []);
+  const positionById = new Map(
+    displayedPositions.map((position) => [position.id, position]),
+  );
+  const navigationAccessAccounts = accounts.filter(
+    (account) => {
+      const position = positionById.get(account.position);
+      return position !== undefined && position.accountType !== "admin";
+    },
+  );
+  const navigationAccessPositionIds = Array.from(new Set(
+    navigationAccessAccounts.map((account) => account.position),
+  ));
+  const removableNavigationAccessPositionIds = navigationAccessPositionIds.filter(
+    (positionId) => {
+      const position = positionById.get(positionId);
+      if (
+        position === undefined ||
+        !position.navigationItems.includes(selectedPositionNavigationItem)
+      ) {
+        return false;
+      }
+      const workingNavigationCount = countWorkingNavigationItems(
+        position.navigationItems,
+      );
+      return position.hasAdminRights || workingNavigationCount > 1;
+    },
+  );
 
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
@@ -10501,7 +11030,7 @@ function AdminAccountsWorkspace({
                   !positionsState.positions.some(
                     (position) =>
                       positionsState.canAssignAdminNavigation ||
-                      !hasAdminPositionNavigation(position),
+                      !position.hasAdminRights,
                   )
                 }
                 onClick={openCreateModal}
@@ -10552,9 +11081,11 @@ function AdminAccountsWorkspace({
                       : undefined;
                   const isSelectedPositionRestricted =
                     positionsState.status === "ready" &&
-                    !positionsState.canAssignAdminNavigation &&
                     selectedPositionDefinition !== undefined &&
-                    hasAdminPositionNavigation(selectedPositionDefinition);
+                    ((!positionsState.canAssignAdminNavigation &&
+                      selectedPositionDefinition.hasAdminRights) ||
+                      (selectedPositionDefinition.accountType === "admin" &&
+                        !isOriginalAdmin));
                   const isPositionChangeDisabled =
                     !canManageAccess ||
                     isCurrentAccount ||
@@ -10620,8 +11151,10 @@ function AdminAccountsWorkspace({
                                 key={position.id}
                                 value={position.id}
                                 disabled={
-                                  !canAssignAdminNavigation &&
-                                  hasAdminPositionNavigation(position)
+                                  (!canAssignAdminNavigation &&
+                                    position.hasAdminRights) ||
+                                  (position.accountType === "admin" &&
+                                    !isOriginalAdmin)
                                 }
                               >
                                 {position.displayName}
@@ -10655,6 +11188,8 @@ function AdminAccountsWorkspace({
                           title={
                             isOriginalAdmin
                               ? "Защиту исходного аккаунта admin нельзя отключить."
+                              : account.isProtectedByAdminRights
+                                ? "Аккаунт защищён автоматически правами админа его должности."
                               : !canManageProtectedAccounts
                                 ? "Защиту может изменять только исходный аккаунт admin."
                                 : undefined
@@ -10667,6 +11202,7 @@ function AdminAccountsWorkspace({
                             disabled={
                               !canManageProtectedAccounts ||
                               isOriginalAdmin ||
+                              account.isProtectedByAdminRights ||
                               protectingUserId !== undefined
                             }
                             onChange={(event) => {
@@ -10804,6 +11340,24 @@ function AdminAccountsWorkspace({
             </p>
           </div>
           <div className="admin-position-order-actions">
+            {canAssignAdminNavigation ? (
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={
+                  positionsState.status !== "ready" ||
+                  accountsState.status !== "ready" ||
+                  positionOrderDraft !== undefined ||
+                  isSavingPositionOrder
+                }
+                onClick={() => {
+                  setPositionNavigationAccessStatus("");
+                  setIsPositionNavigationAccessModalOpen(true);
+                }}
+              >
+                Доступ по вкладке
+              </button>
+            ) : null}
             <button
               className="primary-button"
               type="button"
@@ -10839,7 +11393,7 @@ function AdminAccountsWorkspace({
                 <tr>
                   <th>Порядок</th>
                   <th>Должность</th>
-                  <th>Защита</th>
+                  <th>Права админа</th>
                   <th>Вкладки слева</th>
                   <th>Аккаунты</th>
                   <th />
@@ -10848,18 +11402,23 @@ function AdminAccountsWorkspace({
               <tbody>
                 {displayedPositions.map((position, index) => {
                   const isProtectedMutationRestricted =
-                    position.isAdminProtected &&
+                    position.hasAdminRights &&
                     !canManageProtectedPositions;
+                  const canDisableAdminRights = position.navigationItems.some(
+                    (item) => nonAdminNavigationItems.some(
+                      (workingItem) => workingItem.id === item,
+                    ),
+                  );
                   const previousPosition = displayedPositions[index - 1];
                   const nextPosition = displayedPositions[index + 1];
                   const isMoveUpProtected =
                     !canManageProtectedPositions &&
-                    (position.isAdminProtected ||
-                      previousPosition?.isAdminProtected === true);
+                    (position.hasAdminRights ||
+                      previousPosition?.hasAdminRights === true);
                   const isMoveDownProtected =
                     !canManageProtectedPositions &&
-                    (position.isAdminProtected ||
-                      nextPosition?.isAdminProtected === true);
+                    (position.hasAdminRights ||
+                      nextPosition?.hasAdminRights === true);
                   return (
                   <tr key={position.id}>
                     <td>
@@ -10907,19 +11466,23 @@ function AdminAccountsWorkspace({
                         className="admin-account-protection-control"
                         title={
                           position.accountType === "admin"
-                            ? "Защиту должности администратора нельзя отключить."
+                            ? "Права админа для системной должности нельзя отключить."
+                            : position.hasAdminRights && !canDisableAdminRights
+                              ? "Перед отключением прав админа добавьте должности рабочую вкладку."
                             : !canManageProtectedPositions
-                              ? "Защиту может изменять только исходный аккаунт admin."
+                              ? "Права админа может изменять только главный аккаунт admin."
                               : undefined
                         }
                       >
                         <input
-                          aria-label={`Защитить должность ${position.displayName}`}
+                          aria-label={`Права админа для должности ${position.displayName}`}
                           type="checkbox"
-                          checked={position.isAdminProtected}
+                          checked={position.hasAdminRights}
                           disabled={
                             !canManageProtectedPositions ||
                             position.accountType === "admin" ||
+                            (position.hasAdminRights &&
+                              !canDisableAdminRights) ||
                             protectingPositionId !== undefined
                           }
                           onChange={(event) => {
@@ -10933,9 +11496,9 @@ function AdminAccountsWorkspace({
                         <span>
                           {protectingPositionId === position.id
                             ? "Сохраняем…"
-                            : position.isAdminProtected
-                              ? "Защищена"
-                              : "Обычная"}
+                            : position.hasAdminRights
+                              ? "Включены"
+                              : "Нет"}
                         </span>
                       </label>
                     </td>
@@ -10966,7 +11529,7 @@ function AdminAccountsWorkspace({
                             position.accountType === "admin"
                               ? "Должность администратора удалить нельзя."
                               : isProtectedMutationRestricted
-                                ? "Защищённую должность может удалить только исходный аккаунт admin."
+                                ? "Должность с правами админа может удалить только главный аккаунт admin."
                               : position.usageCount > 0
                                 ? "Сначала назначьте этим аккаунтам другую должность."
                                 : undefined
@@ -11119,8 +11682,9 @@ function AdminAccountsWorkspace({
                       key={position.id}
                       value={position.id}
                       disabled={
-                        !canAssignAdminNavigation &&
-                        hasAdminPositionNavigation(position)
+                        position.accountType === "admin" ||
+                        (!canAssignAdminNavigation &&
+                          position.hasAdminRights)
                       }
                     >
                       {position.displayName}
@@ -11167,44 +11731,9 @@ function AdminAccountsWorkspace({
         }}>
           <section aria-labelledby="admin-position-title" aria-modal="true" className="admin-account-modal" role="dialog" onKeyDown={keepFocusInsideDialog}>
             <div className="admin-account-modal-header">
-              <div className="admin-position-modal-heading">
-                <h3 id="admin-position-title">{positionForm.id === undefined ? "Новая должность" : "Настройка должности"}</h3>
-                <label
-                  className="admin-position-admin-toggle"
-                  title={
-                    positionsState.canAssignAdminNavigation
-                      ? undefined
-                      : "Административные вкладки может назначать только аккаунт admin."
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    checked={positionForm.showAdminNavigation}
-                    disabled={isSubmitting || !positionsState.canAssignAdminNavigation}
-                    onChange={(event) => {
-                      const isChecked = event.currentTarget.checked;
-                      setPositionForm((current) => ({
-                        ...current,
-                        showAdminNavigation: isChecked,
-                        navigationItems: isChecked
-                          ? current.navigationItems
-                          : current.navigationItems.filter(
-                              (itemId) => !isAdminNavigationItemId(itemId),
-                            ),
-                      }));
-                    }}
-                  />
-                  <span>Админ</span>
-                </label>
-              </div>
+              <h3 id="admin-position-title">{positionForm.id === undefined ? "Новая должность" : "Настройка должности"}</h3>
               <button className="secondary-button" type="button" disabled={isSubmitting} onClick={() => setIsPositionModalOpen(false)}>Закрыть</button>
             </div>
-            {!positionsState.canAssignAdminNavigation &&
-            !positionForm.showAdminNavigation ? (
-              <p className="dispatcher-status-line">
-                Административные вкладки может назначать только аккаунт admin.
-              </p>
-            ) : null}
             <form className="data-entry-form admin-accounts-form" onSubmit={handlePositionSubmit}>
               <label>
                 <span>Название должности</span>
@@ -11269,45 +11798,6 @@ function AdminAccountsWorkspace({
                   ))}
                 </div>
               </fieldset>
-              {positionForm.showAdminNavigation ? (
-                <fieldset className="admin-account-navigation-fieldset">
-                  <legend>Административные вкладки</legend>
-                  {!positionsState.canAssignAdminNavigation ? (
-                    <p className="dispatcher-status-line">
-                      Административные вкладки может назначать только аккаунт admin.
-                    </p>
-                  ) : null}
-                  <div className="admin-account-navigation-grid">
-                    {navigationItemsByAccountType.admin.map((item) => (
-                      <label
-                        key={item.id}
-                        className="admin-account-navigation-option"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={positionForm.navigationItems.includes(item.id)}
-                          disabled={isSubmitting || !positionsState.canAssignAdminNavigation}
-                          onChange={(event) => {
-                            const isChecked = event.currentTarget.checked;
-                            setPositionForm((current) => ({
-                              ...current,
-                              navigationItems: isChecked
-                                ? Array.from(new Set([
-                                    ...current.navigationItems,
-                                    item.id,
-                                  ]))
-                                : current.navigationItems.filter(
-                                    (itemId) => itemId !== item.id,
-                                  ),
-                            }));
-                          }}
-                        />
-                        <span>{formatNavigationItemLabel(item)}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              ) : null}
               <div className="form-actions">
                 <button className="primary-button" type="submit" disabled={isSubmitting}>
                   {isSubmitting ? (
@@ -11321,6 +11811,179 @@ function AdminAccountsWorkspace({
                 {positionFormStatus ? <p className="form-status" role="status">{positionFormStatus}</p> : null}
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {isPositionNavigationAccessModalOpen &&
+      positionsState.status === "ready" &&
+      accountsState.status === "ready" &&
+      canAssignAdminNavigation ? (
+        <div
+          className="admin-db-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              !isSavingPositionNavigationAccess
+            ) {
+              setIsPositionNavigationAccessModalOpen(false);
+            }
+          }}
+        >
+          <section
+            aria-labelledby="admin-position-navigation-access-title"
+            aria-modal="true"
+            className="admin-account-modal admin-position-navigation-access-modal"
+            id="admin-position-navigation-access-dialog"
+            role="dialog"
+            onKeyDown={keepFocusInsideDialog}
+          >
+            <div className="admin-account-modal-header">
+              <h3 id="admin-position-navigation-access-title">
+                Доступ к вкладке
+              </h3>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={isSavingPositionNavigationAccess}
+                onClick={() => setIsPositionNavigationAccessModalOpen(false)}
+              >
+                Закрыть
+              </button>
+            </div>
+            <p className="admin-position-navigation-access-copy">
+              Доступ хранится в должности. Поэтому изменение одного аккаунта
+              применяется ко всем аккаунтам с той же должностью.
+            </p>
+            <div className="admin-position-navigation-access-toolbar">
+              <label>
+                <span>Рабочая вкладка</span>
+                <select
+                  value={selectedPositionNavigationItem}
+                  disabled={isSavingPositionNavigationAccess}
+                  onChange={(event) => {
+                    const navigationItem = event.currentTarget
+                      .value as AccountNavigationItem;
+                    setSelectedPositionNavigationItem(navigationItem);
+                    setPositionNavigationAccessStatus("");
+                  }}
+                >
+                  {nonAdminNavigationItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {formatNavigationItemLabel(item)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="admin-position-navigation-access-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={
+                    isSavingPositionNavigationAccess ||
+                    navigationAccessPositionIds.length === 0
+                  }
+                  onClick={() => void handleSetPositionNavigationAccess(
+                    navigationAccessPositionIds,
+                    true,
+                  )}
+                >
+                  Вкл. все
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={
+                    isSavingPositionNavigationAccess ||
+                    removableNavigationAccessPositionIds.length === 0
+                  }
+                  onClick={() => void handleSetPositionNavigationAccess(
+                    removableNavigationAccessPositionIds,
+                    false,
+                  )}
+                >
+                  Выкл. все
+                </button>
+              </div>
+            </div>
+            <p className="admin-position-navigation-access-hint">
+              Последнюю рабочую вкладку должности без прав админа отключить нельзя.
+            </p>
+            <div className="admin-db-table-scroll admin-position-navigation-access-table-scroll">
+              <table className="admin-db-data-table admin-position-navigation-access-table">
+                <thead>
+                  <tr>
+                    <th>Должность</th>
+                    <th>Аккаунт</th>
+                    <th>Доступ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {navigationAccessAccounts.map((account) => {
+                    const position = positionById.get(account.position);
+                    const hasAccess = position?.navigationItems.includes(
+                      selectedPositionNavigationItem,
+                    ) === true;
+                    const workingNavigationCount = position === undefined
+                      ? 0
+                      : countWorkingNavigationItems(position.navigationItems);
+                    const cannotDisableLastNavigation =
+                      hasAccess &&
+                      position?.hasAdminRights !== true &&
+                      workingNavigationCount <= 1;
+                    return (
+                      <tr key={account.accessId}>
+                        <td>{account.positionDisplayName}</td>
+                        <td>
+                          <strong>{account.userDisplayName}</strong>
+                          <span className="admin-position-navigation-access-login">
+                            {account.login}
+                          </span>
+                        </td>
+                        <td>
+                          <label
+                            className="admin-account-protection-control"
+                            title={cannotDisableLastNavigation
+                              ? "У должности должна остаться хотя бы одна рабочая вкладка."
+                              : undefined}
+                          >
+                            <input
+                              aria-label={`Доступ к вкладке для ${account.login}`}
+                              type="checkbox"
+                              checked={hasAccess}
+                              disabled={
+                                isSavingPositionNavigationAccess ||
+                                position === undefined ||
+                                cannotDisableLastNavigation
+                              }
+                              onChange={(event) => {
+                                const enabled = event.currentTarget.checked;
+                                void handleSetPositionNavigationAccess(
+                                  [account.position],
+                                  enabled,
+                                );
+                              }}
+                            />
+                            <span>{hasAccess ? "Вкл." : "Выкл."}</span>
+                          </label>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {navigationAccessAccounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={3}>Рабочих аккаунтов пока нет.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            {positionNavigationAccessStatus.length > 0 ? (
+              <p className="form-status" role="status">
+                {positionNavigationAccessStatus}
+              </p>
+            ) : null}
           </section>
         </div>
       ) : null}
@@ -11641,12 +12304,13 @@ async function copyTextToClipboard(value: string) {
   return didCopy;
 }
 
-function buildAdminPreviewProfile(
+export function buildAdminPreviewProfile(
   account: AdminAccountSummary,
 ): ServerUserProfile {
   const scope = account.scope;
-  const businessCapabilities = account.capabilities.filter((capability) =>
-    capability.startsWith("business."),
+  const businessCapabilities = readAdminPreviewCapabilities(
+    account.navigationItems,
+    account.capabilities,
   );
   const businessNavigationItems = account.navigationItems.filter((item) =>
     item.startsWith("business."),
@@ -11669,6 +12333,21 @@ function buildAdminPreviewProfile(
     },
     receivedAt: new Date().toISOString(),
   };
+}
+
+function readAdminPreviewCapabilities(
+  navigationItems: readonly AccountNavigationItem[],
+  accountCapabilityFilter?: readonly AccountCapability[],
+) {
+  const allowedCapabilities = new Set(
+    navigationItems.flatMap(
+      (navigationItem) =>
+        adminPreviewReadCapabilitiesByNavigationItem[navigationItem] ?? [],
+    ),
+  );
+  const capabilities = accountCapabilityFilter ?? Array.from(allowedCapabilities);
+
+  return capabilities.filter((capability) => allowedCapabilities.has(capability));
 }
 
 function formatTableRowCount(rowCount: number | null) {

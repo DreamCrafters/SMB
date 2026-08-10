@@ -105,14 +105,20 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
   admin: [
     {
       id: "admin.account_preview",
-      label: "Просмотр аккаунта",
-      description: "Режимы рабочих кабинетов",
+      label: "Предпросмотр",
+      description: "Аккаунты и рабочие вкладки",
       state: "active",
     },
     {
       id: "admin.accounts",
       label: "Учётные записи",
       description: "Логины, пароли и создание доступов",
+      state: "pending",
+    },
+    {
+      id: "admin.navigation",
+      label: "Вкладки",
+      description: "Порядок вкладок в левой панели",
       state: "pending",
     },
     {
@@ -204,4 +210,9 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
 export const nonAdminNavigationItems: NavigationItem[] = [
   ...navigationItemsByAccountType.business_owner,
   ...navigationItemsByAccountType.dispatcher,
+];
+
+export const defaultNavigationOrder: AccountNavigationItem[] = [
+  ...nonAdminNavigationItems.map(({ id }) => id),
+  ...navigationItemsByAccountType.admin.map(({ id }) => id),
 ];

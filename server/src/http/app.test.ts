@@ -10,6 +10,7 @@ import type {
 } from "../domain/auth.js";
 import { defaultCapabilitiesByAccountType } from "../domain/auth.js";
 import { resolveCapabilitiesForPosition } from "../domain/accountAccessConfiguration.js";
+import { CanonicalAdminMutationRequiredError } from "../domain/adminAccountProtection.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
 import {
@@ -75,6 +76,8 @@ import type {
   BoardAssignmentsRepository,
 } from "../repositories/boardAssignmentsRepository.js";
 import type { NotificationSettingsRepository } from "../repositories/notificationSettingsRepository.js";
+import type { NavigationOrderRepository } from "../repositories/navigationOrderRepository.js";
+import { defaultNavigationOrder } from "../domain/navigationOrder.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
 import { createApiServer } from "./app.js";
@@ -3651,6 +3654,14 @@ test("admin audit API returns a per-account report limited by the server", async
         offset: 50,
       });
       assert.equal(isRecord(await response.json()), true);
+
+      const previewResponse = await fetch(
+        `${baseUrl}/api/admin/audit-events?scope=organization`,
+        { headers: { "X-SMB-Dev-Session": adminSessionId } },
+      );
+
+      assert.equal(previewResponse.status, 200);
+      assert.deepEqual(receivedFilters, { organizationOnly: true });
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,
@@ -4537,6 +4548,7 @@ const adminAccount = {
   userDisplayName: "Диспетчер Один",
   userStatus: "active" as const,
   isProtected: false,
+  isProtectedByAdminRights: false,
   accessDisplayName: "Диспетчер Один access",
   accountType: "dispatcher" as AccountType,
   position: "dispatcher" as const,
@@ -4620,6 +4632,9 @@ const accounts: AccountsRepository = {
       displayName: "Должность",
       previousIsProtected: !isProtected,
     };
+  },
+  async setPositionNavigationAccess({ navigationItem, enabled }) {
+    return { navigationItem, enabled, positions: [] };
   },
 };
 
@@ -5144,6 +5159,281 @@ test("admin positions order API rejects duplicate ids before writing", async () 
   assert.equal(didWrite, false);
 });
 
+test("only original admin can change a working tab for multiple positions", async () => {
+  const changes: Array<
+    Parameters<AccountsRepository["setPositionNavigationAccess"]>[0]
+  > = [];
+  const actors: Array<
+    Parameters<AccountsRepository["setPositionNavigationAccess"]>[1]
+  > = [];
+  let shouldDeadlock = true;
+  let transactionRuns = 0;
+  const auditActions: string[] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setPositionNavigationAccess(input, actor) {
+      actors.push(actor);
+      if (shouldDeadlock) {
+        shouldDeadlock = false;
+        throw Object.assign(new Error("deadlock"), {
+          code: "ER_LOCK_DEADLOCK",
+        });
+      }
+      changes.push(input);
+      return {
+        navigationItem: input.navigationItem,
+        enabled: input.enabled,
+        positions: [
+          { id: "business_owner", displayName: "Владелец бизнеса" },
+          { id: "dispatcher", displayName: "Диспетчер" },
+        ],
+      };
+    },
+  };
+  const auditRepository: AuditRepository = {
+    async record(event) { auditActions.push(event.action); },
+    async listReport() { throw new Error("not used"); },
+  };
+  const retryingTransaction: DatabaseTransactionRunner = {
+    async run(operation) {
+      transactionRuns += 1;
+      return operation();
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(
+      `${baseUrl}/api/admin/positions/navigation-access`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          navigationItem: "business.settings",
+          positionIds: ["business_owner", "dispatcher"],
+          enabled: true,
+        }),
+      },
+    );
+    const payload = await response.json() as {
+      canAssignAdminNavigation?: boolean;
+    };
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.canAssignAdminNavigation, true);
+
+    const invalidPayloads = [
+      {
+        navigationItem: "business.settings",
+        positionIds: ["business_owner"],
+        enabled: true,
+        unexpected: true,
+      },
+      {
+        navigationItem: "admin.database",
+        positionIds: ["business_owner"],
+        enabled: true,
+      },
+      {
+        navigationItem: "business.settings",
+        positionIds: ["business_owner", "business_owner"],
+        enabled: true,
+      },
+      {
+        navigationItem: "business.settings",
+        positionIds: ["business_owner"],
+        enabled: "true",
+      },
+    ];
+    for (const invalidPayload of invalidPayloads) {
+      const invalidResponse = await fetch(
+        `${baseUrl}/api/admin/positions/navigation-access`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify(invalidPayload),
+        },
+      );
+      assert.equal(invalidResponse.status, 400);
+    }
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository, undefined, auditRepository, retryingTransaction);
+
+  const delegatedProfile = buildProductionProfile("business_owner");
+  delegatedProfile.activeAccess.navigationItems = ["admin.accounts"];
+  delegatedProfile.activeAccess.capabilities = [
+    "platform.manage_users",
+    "platform.manage_access",
+  ];
+  const delegatedRepository: AccountsRepository = {
+    ...repository,
+    async listAccounts() {
+      return [{
+        ...adminAccount,
+        accessId: delegatedProfile.activeAccess.accountId,
+        userId: delegatedProfile.userId,
+        login: "accounts-manager",
+        accountType: delegatedProfile.accountType,
+        position: "accounts-manager",
+        capabilities: delegatedProfile.activeAccess.capabilities,
+        navigationItems: delegatedProfile.activeAccess.navigationItems,
+      }];
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/admin/positions/navigation-access`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `${productionConfig.session.cookieName}=prod-session`,
+        },
+        body: JSON.stringify({
+          navigationItem: "business.settings",
+          positionIds: ["business_owner"],
+          enabled: false,
+        }),
+      },
+    );
+
+    assert.equal(response.status, 403);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, buildAuthService({ profile: delegatedProfile }), delegatedRepository);
+
+  assert.deepEqual(changes, [{
+    navigationItem: "business.settings",
+    positionIds: ["business_owner", "dispatcher"],
+    enabled: true,
+  }]);
+  assert.deepEqual(actors, [
+    {
+      userId: "dev-user-admin",
+      accessId: "dev-access-admin",
+      devAccessEnabled: true,
+    },
+    {
+      userId: "dev-user-admin",
+      accessId: "dev-access-admin",
+      devAccessEnabled: true,
+    },
+  ]);
+  assert.equal(transactionRuns, 2);
+  assert.equal(
+    auditActions.includes("admin.position_navigation_access_update"),
+    true,
+  );
+});
+
+test("working-tab mutation returns 403 when original admin status changes under lock", async () => {
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setPositionNavigationAccess() {
+      throw new CanonicalAdminMutationRequiredError();
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const response = await fetch(
+      `${baseUrl}/api/admin/positions/navigation-access`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify({
+          navigationItem: "business.settings",
+          positionIds: ["business_owner"],
+          enabled: true,
+        }),
+      },
+    );
+
+    assert.equal(response.status, 403);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});
+
+test("navigation order API stores a complete catalog and rejects unauthorized or stale writes", async () => {
+  let storedOrder = [...defaultNavigationOrder];
+  const writes: string[][] = [];
+  const auditActions: string[] = [];
+  const navigationOrder: NavigationOrderRepository = {
+    async read() {
+      return [...storedOrder];
+    },
+    async set(order) {
+      const previous = [...storedOrder];
+      storedOrder = [...order];
+      writes.push([...order]);
+      return { previous, updated: [...order] };
+    },
+  };
+  const audit: AuditRepository = {
+    async record(event) {
+      auditActions.push(event.action);
+    },
+    async listReport() {
+      throw new Error("Audit report is not used by this test.");
+    },
+  };
+
+  await withNavigationApiServer(async (baseUrl) => {
+    const adminSessionId = await createDevSession(baseUrl, "admin");
+    const headers = {
+      "Content-Type": "application/json",
+      "X-SMB-Dev-Session": adminSessionId,
+    };
+    const requestedOrder = [...defaultNavigationOrder];
+    const databaseIndex = requestedOrder.indexOf("admin.database");
+    requestedOrder.splice(databaseIndex, 1);
+    requestedOrder.splice(databaseIndex - 1, 0, "admin.database");
+
+    const readResponse = await fetch(`${baseUrl}/api/navigation-order`, {
+      headers,
+    });
+    const saveResponse = await fetch(`${baseUrl}/api/admin/navigation-order`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ navigationOrder: requestedOrder }),
+    });
+    const invalidResponse = await fetch(`${baseUrl}/api/admin/navigation-order`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ navigationOrder: requestedOrder.slice(1) }),
+    });
+    const businessSessionId = await createDevSession(baseUrl, "business_owner");
+    const forbiddenResponse = await fetch(`${baseUrl}/api/admin/navigation-order`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-SMB-Dev-Session": businessSessionId,
+      },
+      body: JSON.stringify({ navigationOrder: requestedOrder }),
+    });
+
+    assert.equal(readResponse.status, 200);
+    assert.deepEqual(await readResponse.json(), {
+      navigationOrder: defaultNavigationOrder,
+    });
+    assert.equal(saveResponse.status, 200);
+    assert.deepEqual(await saveResponse.json(), {
+      navigationOrder: requestedOrder,
+    });
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(forbiddenResponse.status, 403);
+  }, navigationOrder, audit);
+
+  assert.deepEqual(writes, [storedOrder]);
+  assert.ok(auditActions.includes("admin.navigation_order_update"));
+});
+
 test("admin positions API stores the selected board assignment access variant", async () => {
   const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
@@ -5229,7 +5519,7 @@ test("admin positions API requires a tab and rejects the removed base cabinet fi
   assert.equal(created.length, 0);
 });
 
-test("primary admin can add admin tabs to a unified position", async () => {
+test("primary admin cannot assign root admin panels directly to a custom position", async () => {
   const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
     ...accounts,
@@ -5272,27 +5562,14 @@ test("primary admin can add admin tabs to a unified position", async () => {
     });
 
     assert.equal(businessResponse.status, 201);
-    assert.equal(adminResponse.status, 201);
+    assert.equal(adminResponse.status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 
-  assert.deepEqual(created[1], {
-    displayName: "Руководитель с админской БД",
-    navigationItems: [
-      "business.overview",
-      "admin.database",
-      "business.settings",
-    ],
-    capabilities: [
-      "business.view_all_statistics",
-      "business.view_notifications",
-      "business.view_dispatcher_feed",
-      "platform.manage_analytics_database",
-      "business.manage_notification_settings",
-    ],
-  });
+  assert.equal(created.length, 1);
+  assert.equal(created[0]?.navigationItems.includes("admin.database"), false);
 });
 
-test("production account with canonical admin login can assign admin tabs", async () => {
+test("production account with canonical admin login cannot assign root panels to a custom position", async () => {
   const profile = buildProductionProfile("admin");
   const actorAccount = {
     ...adminAccount,
@@ -5351,16 +5628,13 @@ test("production account with canonical admin login can assign admin tabs", asyn
         : undefined,
       true,
     );
-    assert.equal(createResponse.status, 201);
+    assert.equal(createResponse.status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, authService, repository);
 
-  assert.deepEqual(created[0]?.navigationItems, [
-    "business.overview",
-    "admin.database",
-  ]);
+  assert.equal(created.length, 0);
 });
 
-test("delegated account manager cannot change admin tabs on a position", async () => {
+test("delegated account manager changes working tabs but cannot add root admin panels", async () => {
   const profile = buildProductionProfile("business_owner");
   profile.activeAccess.navigationItems = ["admin.accounts"];
   profile.activeAccess.capabilities = [
@@ -5380,17 +5654,13 @@ test("delegated account manager cannot change admin tabs on a position", async (
   };
   const existingPosition = {
     id: "position-hybrid",
-    displayName: "Руководитель с БД",
+    displayName: "Руководитель",
     accountType: "business_owner" as const,
-    navigationItems: [
-      "business.overview" as const,
-      "admin.database" as const,
-    ],
+    navigationItems: ["business.overview" as const],
     capabilities: [
       "business.view_all_statistics" as const,
       "business.view_notifications" as const,
       "business.view_dispatcher_feed" as const,
-      "platform.manage_analytics_database" as const,
     ],
     boardAssignmentAccess: "none" as const,
     isProtected: false,
@@ -5422,29 +5692,28 @@ test("delegated account manager cannot change admin tabs on a position", async (
       headers,
     });
     const listPayload = await listResponse.json();
-    const unchangedAdminResponse = await fetch(
+    const workingTabsResponse = await fetch(
       `${baseUrl}/api/admin/positions/${existingPosition.id}`,
       {
         method: "PATCH",
         headers,
         body: JSON.stringify({
-          displayName: "Руководитель с БД и диспетчерской",
+          displayName: "Руководитель с диспетчерской",
           navigationItems: [
             "business.overview",
             "business.dispatcher",
-            "admin.database",
           ],
         }),
       },
     );
-    const removedAdminResponse = await fetch(
+    const rootPanelResponse = await fetch(
       `${baseUrl}/api/admin/positions/${existingPosition.id}`,
       {
         method: "PATCH",
         headers,
         body: JSON.stringify({
           displayName: existingPosition.displayName,
-          navigationItems: ["business.overview"],
+          navigationItems: ["business.overview", "admin.database"],
         }),
       },
     );
@@ -5454,15 +5723,14 @@ test("delegated account manager cannot change admin tabs on a position", async (
       isRecord(listPayload) ? listPayload.canAssignAdminNavigation : undefined,
       false,
     );
-    assert.equal(unchangedAdminResponse.status, 200);
-    assert.equal(removedAdminResponse.status, 403);
+    assert.equal(workingTabsResponse.status, 200);
+    assert.equal(rootPanelResponse.status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, authService, repository);
 
   assert.equal(updates.length, 1);
   assert.deepEqual(updates[0]?.navigationItems, [
     "business.overview",
     "business.dispatcher",
-    "admin.database",
   ]);
 });
 
@@ -5492,7 +5760,7 @@ test("delegated account manager cannot mutate or unprotect a protected position"
     capabilities: ["business.view_all_statistics" as const],
     boardAssignmentAccess: "none" as const,
     isProtected: false,
-    isAdminProtected: true,
+    hasAdminRights: true,
     usageCount: 0,
     createdAt: "2026-08-07T00:00:00.000Z",
   };
@@ -5562,7 +5830,7 @@ test("delegated account manager cannot mutate or unprotect a protected position"
   assert.equal(mutationCount, 0);
 });
 
-test("delegated account manager cannot assign a position with admin tabs", async () => {
+test("delegated account manager cannot assign a position with admin rights", async () => {
   const profile = buildProductionProfile("business_owner");
   profile.activeAccess.navigationItems = ["admin.accounts"];
   profile.activeAccess.capabilities = [
@@ -5588,20 +5856,22 @@ test("delegated account manager cannot assign a position with admin tabs", async
   };
   const privilegedPosition = {
     id: "position-hybrid",
-    displayName: "Руководитель с БД",
+    displayName: "Руководитель с правами админа",
     accountType: "business_owner" as const,
     navigationItems: [
       "business.overview" as const,
-      "admin.database" as const,
+      "admin.accounts" as const,
     ],
     capabilities: [
       "business.view_all_statistics" as const,
       "business.view_notifications" as const,
       "business.view_dispatcher_feed" as const,
-      "platform.manage_analytics_database" as const,
+      "platform.manage_users" as const,
+      "platform.manage_access" as const,
     ],
     boardAssignmentAccess: "none" as const,
     isProtected: false,
+    hasAdminRights: true,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
   };
@@ -5658,7 +5928,7 @@ test("delegated account manager cannot assign a position with admin tabs", async
   assert.equal(positionChangeCount, 0);
 });
 
-test("original admin updates a protected non-admin position without changing its technical type", async () => {
+test("original admin can keep an admin-rights position without working tabs", async () => {
   let updateInput: Parameters<AccountsRepository["updatePosition"]>[0] | undefined;
   let allowedProtectedMutation = false;
   const existingPosition = {
@@ -5669,7 +5939,7 @@ test("original admin updates a protected non-admin position without changing its
     capabilities: ["business.submit_dispatcher_forms" as const],
     boardAssignmentAccess: "none" as const,
     isProtected: true,
-    isAdminProtected: true,
+    hasAdminRights: true,
     usageCount: 2,
     createdAt: "2026-07-12T00:00:00.000Z",
   };
@@ -5690,25 +5960,19 @@ test("original admin updates a protected non-admin position without changing its
       headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
       body: JSON.stringify({
         displayName: "Диспетчер смены",
-        navigationItems: ["business.overview", "business.dispatcher_form"],
+        navigationItems: [],
       }),
     });
 
     assert.equal(response.status, 200);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 
-  assert.deepEqual(updateInput?.navigationItems, ["business.overview", "business.dispatcher_form"]);
-  assert.deepEqual(updateInput?.capabilities, [
-    "business.view_all_statistics",
-    "business.view_notifications",
-    "business.view_dispatcher_feed",
-    "business.submit_dispatcher_forms",
-    "business.review_refractory_reports",
-  ]);
+  assert.deepEqual(updateInput?.navigationItems, []);
+  assert.deepEqual(updateInput?.capabilities, []);
   assert.equal(allowedProtectedMutation, true);
 });
 
-test("original admin can protect a selected position", async () => {
+test("original admin can enable admin rights for a selected position", async () => {
   const position = {
     id: "position-selected",
     displayName: "Выбранная должность",
@@ -5717,7 +5981,7 @@ test("original admin can protect a selected position", async () => {
     capabilities: ["business.view_all_statistics" as const],
     boardAssignmentAccess: "none" as const,
     isProtected: false,
-    isAdminProtected: true,
+    hasAdminRights: false,
     usageCount: 0,
     createdAt: "2026-08-07T00:00:00.000Z",
   };
@@ -5773,15 +6037,15 @@ test("original admin can protect a selected position", async () => {
     recorded
       .filter((event) => event.category === "administration")
       .map((event) => event.action),
-    ["admin.position_protection_enable"],
+    ["admin.position_admin_rights_enable"],
   );
   const protectionAudit = recorded.find(
-    (event) => event.action === "admin.position_protection_enable",
+    (event) => event.action === "admin.position_admin_rights_enable",
   );
   assert.deepEqual(protectionAudit?.details, [
     { label: "Должность", value: position.displayName },
-    { label: "Прежняя защита", value: "Отключена" },
-    { label: "Новая защита", value: "Включена" },
+    { label: "Прежние права админа", value: "Отключены" },
+    { label: "Новые права админа", value: "Включены" },
   ]);
 });
 
@@ -10509,7 +10773,7 @@ test("board assignment completion history returns immutable accepted snapshots",
   }
 });
 
-test("notification settings API returns login reminders and persists server-owned channel choices", async () => {
+test("notification settings API returns login reminders and persists server-owned notification choices", async () => {
   const profile = buildProductionProfile("business_owner");
   profile.userId = "director-user";
   profile.activeAccess.position = "general_director";
@@ -10549,7 +10813,7 @@ test("notification settings API returns login reminders and persists server-owne
     async readUserSettings() {
       return userSettings;
     },
-    async setAdminChannels(input) {
+    async setAdminPermission(input) {
       adminUpdates.push(input);
       return true;
     },
@@ -10754,19 +11018,19 @@ test("notification settings API returns login reminders and persists server-owne
       {
         method: "PATCH",
         headers,
-        body: JSON.stringify({ emailEnabled: false, maxEnabled: true }),
+        body: JSON.stringify({ adminEnabled: true }),
       },
     );
     assert.equal(adminPatchResponse.status, 200);
     assert.deepEqual(adminUpdates, [{
       userId: profile.userId,
       type: "board_assignments",
-      emailEnabled: false,
-      maxEnabled: true,
+      adminEnabled: true,
       allowProtectedAccountMutation: false,
     }]);
     assert.ok(auditDetailValues.includes("Поручения Совета директоров"));
     assert.ok(auditDetailValues.includes(profile.displayName));
+    assert.ok(auditDetailValues.includes("Включён"));
     assert.equal(auditDetailValues.includes("board_assignments"), false);
     assert.equal(auditDetailValues.includes(profile.userId), false);
   } finally {
@@ -10852,6 +11116,37 @@ async function withApiServer(
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
 
+  const address = server.address() as AddressInfo;
+
+  try {
+    await callback(`http://127.0.0.1:${address.port}`);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+}
+
+async function withNavigationApiServer(
+  callback: (baseUrl: string) => Promise<void>,
+  navigationOrder: NavigationOrderRepository,
+  audit: AuditRepository,
+) {
+  const server = createApiServer({
+    config,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    productionBrands: passthroughProductionBrands,
+    navigationOrder,
+    audit,
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
   const address = server.address() as AddressInfo;
 
   try {

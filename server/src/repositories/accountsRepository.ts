@@ -2,15 +2,24 @@ import { randomUUID } from "node:crypto";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import { resolveAccountProvisioningScope } from "../domain/accountProvisioning.js";
-import { assertProtectedAccountMutationAllowed } from "../domain/adminAccountProtection.js";
+import {
+  CanonicalAdminMutationRequiredError,
+  assertProtectedAccountMutationAllowed,
+  isCanonicalAdminLogin,
+} from "../domain/adminAccountProtection.js";
 import {
   assertAdministratorPositionProtectionAllowed,
   assertProtectedPositionMutationAllowed,
+  PositionAdminRightsRemovalRequiresNavigationError,
+  PositionNavigationRemovalRequiresNavigationError,
 } from "../domain/adminPositionProtection.js";
 import {
   defaultPositionByAccountType,
   navigationItemsByAccountType,
+  nonAdminNavigationItems,
   readBoardAssignmentAccess,
+  resolveCapabilitiesForPosition,
+  resolveNavigationForPosition,
   type BoardAssignmentAccess,
 } from "../domain/accountAccessConfiguration.js";
 import {
@@ -32,6 +41,7 @@ export type AdminAccountSummary = {
   maxUserId?: string;
   userStatus: AdminUserStatus;
   isProtected: boolean;
+  isProtectedByAdminRights: boolean;
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
@@ -50,7 +60,7 @@ export type AdminPositionSummary = {
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
   isProtected: boolean;
-  isAdminProtected?: boolean;
+  hasAdminRights?: boolean;
   usageCount: number;
   createdAt: string;
 };
@@ -71,6 +81,24 @@ export type UpdatePositionInput = {
 export type SetPositionProtectedInput = {
   id: string;
   isProtected: boolean;
+};
+
+export type SetPositionNavigationAccessInput = {
+  navigationItem: AccountNavigationItem;
+  positionIds: string[];
+  enabled: boolean;
+};
+
+export type PositionNavigationAccessActor = {
+  userId: string;
+  accessId: string;
+  devAccessEnabled: boolean;
+};
+
+export type PositionNavigationAccessChange = {
+  navigationItem: AccountNavigationItem;
+  enabled: boolean;
+  positions: Array<{ id: string; displayName: string }>;
 };
 
 export type PositionProtection = SetPositionProtectedInput & {
@@ -135,7 +163,10 @@ export type DeletePositionResult = "deleted" | "not_found" | "protected" | "in_u
 
 export type AccountsRepository = {
   listAccounts: () => Promise<AdminAccountSummary[]>;
-  createAccount: (input: CreateAccountInput) => Promise<AdminAccountSummary>;
+  createAccount: (
+    input: CreateAccountInput,
+    allowProtected?: boolean,
+  ) => Promise<AdminAccountSummary>;
   resetPassword: (
     input: ResetPasswordInput,
     allowProtected?: boolean,
@@ -172,6 +203,10 @@ export type AccountsRepository = {
   setPositionProtected: (
     input: SetPositionProtectedInput,
   ) => Promise<PositionProtection | undefined>;
+  setPositionNavigationAccess: (
+    input: SetPositionNavigationAccessInput,
+    actor: PositionNavigationAccessActor,
+  ) => Promise<PositionNavigationAccessChange | undefined>;
 };
 
 export class AccountLoginAlreadyExistsError extends Error {
@@ -188,6 +223,13 @@ export class ArchivedAccountLoginStatusError extends Error {
   }
 }
 
+export class SystemAdministratorPositionAssignmentError extends Error {
+  constructor() {
+    super("Системная должность администратора доступна только исходному аккаунту admin.");
+    this.name = "SystemAdministratorPositionAssignmentError";
+  }
+}
+
 type AccountsRepositoryOptions = {
   createId?: () => string;
 };
@@ -201,6 +243,7 @@ type AccountRow = RowDataPacket & {
   max_user_id: string | null;
   user_status: string;
   is_protected: number | boolean;
+  is_protected_by_admin_rights: number | boolean;
   access_display_name: string;
   account_type: string;
   position_code: string;
@@ -226,6 +269,7 @@ type PositionRow = RowDataPacket & {
 type AccountPositionAssignmentRow = RowDataPacket & {
   access_id: string;
   user_id: string;
+  login: string;
 };
 
 type DeletePositionRow = RowDataPacket & {
@@ -239,6 +283,10 @@ type PositionOrderRow = RowDataPacket & {
   is_admin_protected: number | boolean;
 };
 
+type AdminRightsAccessRow = RowDataPacket & {
+  is_admin_protected: number | boolean;
+};
+
 type IdRow = RowDataPacket & {
   id: string;
 };
@@ -247,6 +295,8 @@ type PositionProtectionRow = RowDataPacket & {
   id: string;
   display_name: string;
   account_type: string;
+  navigation_items: unknown;
+  capabilities: unknown;
   is_admin_protected: number | boolean;
 };
 
@@ -255,9 +305,30 @@ type UserStatusRow = RowDataPacket & {
   is_admin_protected: number | boolean;
 };
 
+type CanonicalAdminMutationActorRow = RowDataPacket & {
+  login: string;
+  status: string;
+};
+
 type UserMutationRow = UserStatusRow & {
   id: string;
 };
+
+const adminRightsAccessProtectionExpression = `
+  exists (
+    select 1
+    from account_accesses protected_accesses
+    join account_positions protected_positions
+      on protected_positions.id = protected_accesses.position_code
+    where protected_accesses.user_id = users.id
+      and protected_accesses.is_active = 1
+      and protected_positions.is_admin_protected = 1
+  )
+`;
+
+const effectiveAccountProtectionExpression = `
+  greatest(users.is_admin_protected, ${adminRightsAccessProtectionExpression})
+`;
 
 const accountRowSelect = `
   select
@@ -268,7 +339,8 @@ const accountRowSelect = `
     users.email,
     users.max_user_id,
     users.status as user_status,
-    users.is_admin_protected as is_protected,
+    ${effectiveAccountProtectionExpression} as is_protected,
+    ${adminRightsAccessProtectionExpression} as is_protected_by_admin_rights,
     accesses.display_name as access_display_name,
     positions.account_type,
     accesses.position_code,
@@ -280,6 +352,10 @@ const accountRowSelect = `
   from account_accesses as accesses
   join app_users as users on users.id = accesses.user_id
   join account_positions as positions on positions.id = accesses.position_code
+`;
+
+const effectiveAccountProtectionSelect = `
+  ${effectiveAccountProtectionExpression} as is_admin_protected
 `;
 
 export function createAccountsRepository(
@@ -333,7 +409,7 @@ export function createAccountsRepository(
         input.navigationItems,
       ),
       isProtected: false,
-      isAdminProtected: false,
+      hasAdminRights: false,
       usageCount: 0,
       createdAt: new Date().toISOString(),
     };
@@ -366,11 +442,39 @@ export function createAccountsRepository(
           current.is_admin_protected === 1,
         allowProtected,
       });
+      const hasAdminRights =
+        current.is_admin_protected === true ||
+        current.is_admin_protected === 1;
+      const boardAssignmentAccess = readBoardAssignmentAccess(
+        input.capabilities,
+        input.navigationItems,
+      );
+      const navigationItems = resolveNavigationForPosition(
+        input.navigationItems,
+        hasAdminRights,
+      );
+      const capabilities = resolveCapabilitiesForPosition(
+        input.id,
+        navigationItems,
+        boardAssignmentAccess,
+        hasAdminRights,
+      );
       await connection.query(
         `update account_positions
          set display_name = ?, navigation_items = ?, capabilities = ?
          where id = ?`,
-        [input.displayName, JSON.stringify(input.navigationItems), JSON.stringify(input.capabilities), input.id],
+        [
+          input.displayName,
+          JSON.stringify(navigationItems),
+          JSON.stringify(capabilities),
+          input.id,
+        ],
+      );
+      await connection.query(
+        `update account_accesses accesses
+         set accesses.navigation_items = ?, accesses.capabilities = ?
+         where accesses.position_code = ?`,
+        [JSON.stringify(navigationItems), JSON.stringify(capabilities), input.id],
       );
       await connection.query(
         `delete sessions from auth_sessions sessions
@@ -382,11 +486,11 @@ export function createAccountsRepository(
       return {
         ...mapPositionRow(current),
         displayName: input.displayName,
-        navigationItems: input.navigationItems,
-        capabilities: input.capabilities,
+        navigationItems,
+        capabilities,
         boardAssignmentAccess: readBoardAssignmentAccess(
-          input.capabilities,
-          input.navigationItems,
+          capabilities,
+          navigationItems,
         ),
       };
     } catch (error) {
@@ -512,7 +616,8 @@ export function createAccountsRepository(
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<PositionProtectionRow[]>(
-        `select id, display_name, account_type, is_admin_protected
+        `select id, display_name, account_type, navigation_items,
+          capabilities, is_admin_protected
          from account_positions
          where id = ?
          limit 1
@@ -528,9 +633,59 @@ export function createAccountsRepository(
         accountType: position.account_type,
         isProtected: input.isProtected,
       });
+      const accountType = position.account_type as AccountType;
+      const storedNavigationItems = readNavigationItems(
+        position.navigation_items,
+        accountType,
+      );
+      const storedCapabilities = readCapabilities(position.capabilities);
+      if (
+        accountType !== "admin" &&
+        !input.isProtected &&
+        resolveNavigationForPosition(storedNavigationItems, false).length === 0
+      ) {
+        throw new PositionAdminRightsRemovalRequiresNavigationError();
+      }
+      const boardAssignmentAccess = readBoardAssignmentAccess(
+        storedCapabilities,
+        storedNavigationItems,
+      );
+      const navigationItems = accountType === "admin"
+        ? storedNavigationItems
+        : resolveNavigationForPosition(
+            storedNavigationItems,
+            input.isProtected,
+          );
+      const capabilities = accountType === "admin"
+        ? storedCapabilities
+        : resolveCapabilitiesForPosition(
+            position.id,
+            navigationItems,
+            boardAssignmentAccess,
+            input.isProtected,
+          );
       await connection.query(
-        "update account_positions set is_admin_protected = ? where id = ?",
-        [input.isProtected ? 1 : 0, input.id],
+        `update account_positions
+         set is_admin_protected = ?, navigation_items = ?, capabilities = ?
+         where id = ?`,
+        [
+          input.isProtected ? 1 : 0,
+          JSON.stringify(navigationItems),
+          JSON.stringify(capabilities),
+          input.id,
+        ],
+      );
+      await connection.query(
+        `update account_accesses accesses
+         set accesses.navigation_items = ?, accesses.capabilities = ?
+         where accesses.position_code = ?`,
+        [JSON.stringify(navigationItems), JSON.stringify(capabilities), input.id],
+      );
+      await connection.query(
+        `delete sessions from auth_sessions sessions
+         join account_accesses accesses on accesses.user_id = sessions.user_id
+         where accesses.position_code = ?`,
+        [input.id],
       );
       await connection.commit();
       return {
@@ -547,7 +702,155 @@ export function createAccountsRepository(
       connection.release();
     }
   }
-  async function createAccount(input: CreateAccountInput) {
+
+  async function setPositionNavigationAccess({
+    navigationItem,
+    positionIds,
+    enabled,
+  }: SetPositionNavigationAccessInput, actor: PositionNavigationAccessActor) {
+    if (
+      positionIds.length === 0 ||
+      new Set(positionIds).size !== positionIds.length ||
+      !nonAdminNavigationItems.includes(navigationItem)
+    ) {
+      return undefined;
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const isSyntheticDevAdmin =
+        actor.devAccessEnabled &&
+        actor.userId === "dev-user-admin" &&
+        actor.accessId === "dev-access-admin";
+      if (!isSyntheticDevAdmin) {
+        const [actorRows] = await connection.query<
+          CanonicalAdminMutationActorRow[]
+        >(
+          `select login, status
+           from app_users
+           where id = ?
+           limit 1
+           for update`,
+          [actor.userId],
+        );
+        const storedActor = actorRows[0];
+        if (
+          storedActor === undefined ||
+          storedActor.status !== "active" ||
+          !isCanonicalAdminLogin(storedActor.login)
+        ) {
+          throw new CanonicalAdminMutationRequiredError();
+        }
+      }
+      const placeholders = positionIds.map(() => "?").join(", ");
+      const [rows] = await connection.query<PositionRow[]>(
+        `select positions.id, positions.display_name, positions.account_type,
+          positions.navigation_items, positions.capabilities,
+          positions.is_protected, positions.is_admin_protected,
+          positions.created_at,
+          (select count(*) from account_accesses accesses
+            where accesses.position_code = positions.id) as usage_count
+         from account_positions positions
+         where positions.id in (${placeholders})
+         order by positions.id
+         for update`,
+        positionIds,
+      );
+      if (
+        rows.length !== positionIds.length ||
+        rows.some((row) => row.account_type === "admin")
+      ) {
+        await connection.rollback();
+        return undefined;
+      }
+
+      const changedPositions: PositionNavigationAccessChange["positions"] = [];
+      for (const row of rows) {
+        const accountType = row.account_type as AccountType;
+        const currentNavigationItems = readNavigationItems(
+          row.navigation_items,
+          accountType,
+        );
+        const hasAdminRights =
+          row.is_admin_protected === true || row.is_admin_protected === 1;
+        const workingNavigationItems = resolveNavigationForPosition(
+          currentNavigationItems,
+          false,
+        );
+        const nextWorkingNavigationItems = enabled
+          ? Array.from(new Set([...workingNavigationItems, navigationItem]))
+          : workingNavigationItems.filter((item) => item !== navigationItem);
+
+        if (nextWorkingNavigationItems.length === 0 && !hasAdminRights) {
+          throw new PositionNavigationRemovalRequiresNavigationError();
+        }
+
+        const navigationItems = resolveNavigationForPosition(
+          nextWorkingNavigationItems,
+          hasAdminRights,
+        );
+        if (
+          navigationItems.length === currentNavigationItems.length &&
+          navigationItems.every((item, index) => item === currentNavigationItems[index])
+        ) {
+          continue;
+        }
+        const capabilities = resolveCapabilitiesForPosition(
+          row.id,
+          navigationItems,
+          readBoardAssignmentAccess(
+            readCapabilities(row.capabilities),
+            currentNavigationItems,
+          ),
+          hasAdminRights,
+        );
+        await connection.query(
+          `update account_positions
+           set navigation_items = ?, capabilities = ?
+           where id = ?`,
+          [
+            JSON.stringify(navigationItems),
+            JSON.stringify(capabilities),
+            row.id,
+          ],
+        );
+        await connection.query(
+          `update account_accesses accesses
+           set accesses.navigation_items = ?, accesses.capabilities = ?
+           where accesses.position_code = ?`,
+          [
+            JSON.stringify(navigationItems),
+            JSON.stringify(capabilities),
+            row.id,
+          ],
+        );
+        await connection.query(
+          `delete sessions from auth_sessions sessions
+           join account_accesses accesses on accesses.user_id = sessions.user_id
+           where accesses.position_code = ?`,
+          [row.id],
+        );
+        changedPositions.push({ id: row.id, displayName: row.display_name });
+      }
+
+      await connection.commit();
+      return {
+        navigationItem,
+        enabled,
+        positions: changedPositions,
+      } satisfies PositionNavigationAccessChange;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+  async function createAccount(
+    input: CreateAccountInput,
+    allowProtected = false,
+  ) {
     const connection = await pool.getConnection();
 
     try {
@@ -560,12 +863,40 @@ export function createAccountsRepository(
         throw new AccountLoginAlreadyExistsError();
       }
 
-      const resolvedNavigationItems =
-        input.navigationItems ?? navigationItemsByAccountType[input.accountType];
-      const resolvedCapabilities = input.capabilities;
+      const positionId =
+        input.position ?? defaultPositionByAccountType[input.accountType];
+      const [positionRows] = await connection.query<PositionRow[]>(
+        `select positions.id, positions.display_name, positions.account_type,
+          positions.navigation_items, positions.capabilities,
+          positions.is_protected, positions.is_admin_protected,
+          positions.created_at,
+          (select count(*) from account_accesses accesses
+            where accesses.position_code = positions.id) as usage_count
+         from account_positions positions
+         where positions.id = ?
+         limit 1 for update`,
+        [positionId],
+      );
+      const targetPositionRow = positionRows[0];
+      if (targetPositionRow === undefined) {
+        throw new Error("Выбранная должность не найдена.");
+      }
+      assertProtectedPositionMutationAllowed({
+        isProtected:
+          targetPositionRow.is_admin_protected === true ||
+          targetPositionRow.is_admin_protected === 1,
+        allowProtected: allowProtected || isCanonicalAdminLogin(input.login),
+      });
+      const targetPosition = mapPositionRow(targetPositionRow);
+      if (
+        targetPosition.accountType === "admin" &&
+        !isCanonicalAdminLogin(input.login)
+      ) {
+        throw new SystemAdministratorPositionAssignmentError();
+      }
 
       const scope = resolveAccountProvisioningScope({
-        accountType: input.accountType,
+        accountType: targetPosition.accountType,
       });
 
       const userId = createId();
@@ -622,12 +953,12 @@ export function createAccountsRepository(
         [
           accessId,
           userId,
-          input.accountType,
-          input.position ?? defaultPositionByAccountType[input.accountType],
+          targetPosition.accountType,
+          targetPosition.id,
           input.accessDisplayName ?? `${input.displayName} access`,
           scope.scopeKind,
-          JSON.stringify(resolvedCapabilities),
-          JSON.stringify(resolvedNavigationItems),
+          JSON.stringify(targetPosition.capabilities),
+          JSON.stringify(targetPosition.navigationItems),
         ],
       );
 
@@ -657,8 +988,10 @@ export function createAccountsRepository(
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<UserMutationRow[]>(
-        `select id, status, is_admin_protected
-         from app_users where login = ? limit 1 for update`,
+        `select users.id, users.status, ${effectiveAccountProtectionSelect}
+         from app_users users
+         where users.login = ?
+         limit 1 for update`,
         [login],
       );
       const user = rows[0];
@@ -668,8 +1001,11 @@ export function createAccountsRepository(
         return false;
       }
       assertProtectedAccountMutationAllowed({
-        isProtected:
+        isProtected: await readEffectiveAccountProtectionForUpdate(
+          connection,
+          user.id,
           user.is_admin_protected === true || user.is_admin_protected === 1,
+        ),
         allowProtected,
       });
 
@@ -700,9 +1036,9 @@ export function createAccountsRepository(
 
       const [rows] = await connection.query<UserStatusRow[]>(
         `
-          select status, is_admin_protected
-          from app_users
-          where id = ?
+          select users.status, ${effectiveAccountProtectionSelect}
+          from app_users users
+          where users.id = ?
           limit 1
           for update
         `,
@@ -723,9 +1059,12 @@ export function createAccountsRepository(
         throw new Error("Stored user status is not supported.");
       }
       assertProtectedAccountMutationAllowed({
-        isProtected:
+        isProtected: await readEffectiveAccountProtectionForUpdate(
+          connection,
+          userId,
           rows[0]?.is_admin_protected === true ||
-          rows[0]?.is_admin_protected === 1,
+            rows[0]?.is_admin_protected === 1,
+        ),
         allowProtected,
       });
 
@@ -795,8 +1134,10 @@ export function createAccountsRepository(
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<UserStatusRow[]>(
-        `select status, is_admin_protected
-         from app_users where id = ? limit 1 for update`,
+        `select users.status, ${effectiveAccountProtectionSelect}
+         from app_users users
+         where users.id = ?
+         limit 1 for update`,
         [userId],
       );
       const currentStatus = rows[0]?.status;
@@ -805,9 +1146,12 @@ export function createAccountsRepository(
         return false;
       }
       assertProtectedAccountMutationAllowed({
-        isProtected:
+        isProtected: await readEffectiveAccountProtectionForUpdate(
+          connection,
+          userId,
           rows[0]?.is_admin_protected === true ||
-          rows[0]?.is_admin_protected === 1,
+            rows[0]?.is_admin_protected === 1,
+        ),
         allowProtected,
       });
 
@@ -877,8 +1221,9 @@ export function createAccountsRepository(
       const [accessRows] = await connection.query<
         AccountPositionAssignmentRow[]
       >(
-        `select accesses.id as access_id, accesses.user_id
+        `select accesses.id as access_id, accesses.user_id, users.login
          from account_accesses accesses
+         join app_users users on users.id = accesses.user_id
          where accesses.id = ? and accesses.is_active = 1
          limit 1 for update`,
         [accessId],
@@ -891,8 +1236,10 @@ export function createAccountsRepository(
       }
 
       const [userRows] = await connection.query<UserStatusRow[]>(
-        `select status, is_admin_protected
-         from app_users where id = ? limit 1 for update`,
+        `select users.status, ${effectiveAccountProtectionSelect}
+         from app_users users
+         where users.id = ?
+         limit 1 for update`,
         [existing.user_id],
       );
       if (userRows[0] === undefined || userRows[0].status === "archived") {
@@ -900,9 +1247,12 @@ export function createAccountsRepository(
         return undefined;
       }
       assertProtectedAccountMutationAllowed({
-        isProtected:
+        isProtected: await readEffectiveAccountProtectionForUpdate(
+          connection,
+          existing.user_id,
           userRows[0].is_admin_protected === true ||
-          userRows[0].is_admin_protected === 1,
+            userRows[0].is_admin_protected === 1,
+        ),
         allowProtected,
       });
 
@@ -920,7 +1270,8 @@ export function createAccountsRepository(
       const [positionRows] = await connection.query<PositionRow[]>(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
-          positions.is_protected, positions.created_at,
+          positions.is_protected, positions.is_admin_protected,
+          positions.created_at,
           (select count(*) from account_accesses accesses
             where accesses.position_code = positions.id) as usage_count
          from account_positions positions
@@ -933,6 +1284,18 @@ export function createAccountsRepository(
       if (targetPositionRow === undefined) {
         await connection.rollback();
         return undefined;
+      }
+      assertProtectedPositionMutationAllowed({
+        isProtected:
+          targetPositionRow.is_admin_protected === true ||
+          targetPositionRow.is_admin_protected === 1,
+        allowProtected,
+      });
+      if (
+        targetPositionRow.account_type === "admin" &&
+        !isCanonicalAdminLogin(existing.login)
+      ) {
+        throw new SystemAdministratorPositionAssignmentError();
       }
 
       const targetPosition = mapPositionRow(targetPositionRow);
@@ -1006,7 +1369,31 @@ export function createAccountsRepository(
     deletePosition,
     setPositionOrder,
     setPositionProtected,
+    setPositionNavigationAccess,
   };
+}
+
+async function readEffectiveAccountProtectionForUpdate(
+  connection: PoolConnection,
+  userId: string,
+  isExplicitlyProtected: boolean,
+) {
+  const [rows] = await connection.query<AdminRightsAccessRow[]>(
+    `select protected_positions.is_admin_protected
+     from account_accesses protected_accesses
+     join account_positions protected_positions
+       on protected_positions.id = protected_accesses.position_code
+     where protected_accesses.user_id = ?
+       and protected_accesses.is_active = 1
+     order by protected_accesses.id, protected_positions.id
+     for update`,
+    [userId],
+  );
+
+  return isExplicitlyProtected || rows.some(
+    (row) =>
+      row.is_admin_protected === true || row.is_admin_protected === 1,
+  );
 }
 
 async function readUserIdByLoginInTransaction(
@@ -1031,6 +1418,9 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     ...optionalText("maxUserId", row.max_user_id),
     userStatus: readAdminUserStatus(row.user_status),
     isProtected: row.is_protected === true || row.is_protected === 1,
+    isProtectedByAdminRights:
+      row.is_protected_by_admin_rights === true ||
+      row.is_protected_by_admin_rights === 1,
     accessDisplayName: row.access_display_name,
     accountType: row.account_type as AccountType,
     position: readPosition(row.position_code, row.account_type as AccountType),
@@ -1057,7 +1447,7 @@ function mapPositionRow(row: PositionRow): AdminPositionSummary {
       navigationItems,
     ),
     isProtected: row.is_protected === true || row.is_protected === 1,
-    isAdminProtected:
+    hasAdminRights:
       row.is_admin_protected === true || row.is_admin_protected === 1,
     usageCount: Number(row.usage_count ?? 0),
     createdAt: toDate(row.created_at).toISOString(),

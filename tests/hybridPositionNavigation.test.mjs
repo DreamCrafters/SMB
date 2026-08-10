@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
+import { defaultNavigationOrder } from "../.test-build/src/content.js";
 
 const DOM_GLOBAL_NAMES = [
   "document",
@@ -50,6 +51,10 @@ test("hybrid position switches between business and admin navigation", async () 
   try {
     globalThis.fetch = async (input) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
+
+      if (url.pathname === "/api/navigation-order") {
+        return jsonResponse({ navigationOrder: defaultNavigationOrder });
+      }
 
       if (url.pathname === "/api/access/profile") {
         return jsonResponse({ profile: buildHybridPositionProfile() });

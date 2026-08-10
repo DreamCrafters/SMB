@@ -55,8 +55,9 @@ export type AuditScreen = {
 };
 
 const navigationScreens: readonly AuditScreen[] = [
-  { id: "admin.account_preview", title: "Просмотр аккаунта" },
+  { id: "admin.account_preview", title: "Предпросмотр" },
   { id: "admin.accounts", title: "Учётные записи" },
+  { id: "admin.navigation", title: "Вкладки" },
   { id: "admin.database", title: "БД" },
   { id: "admin.user_actions", title: "Действия пользователей" },
   { id: "business.overview", title: "Обзор" },

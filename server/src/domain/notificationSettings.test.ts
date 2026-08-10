@@ -30,11 +30,10 @@ test("notification catalog follows the administrator and user rows from List9", 
 
 test("notification setting requests accept only the supported boolean fields", () => {
   assert.deepEqual(validateAdminNotificationSettingRequest({
-    emailEnabled: true,
-    maxEnabled: false,
+    adminEnabled: true,
   }), {
     ok: true,
-    value: { emailEnabled: true, maxEnabled: false },
+    value: { adminEnabled: true },
   });
   assert.deepEqual(validateOwnNotificationSettingRequest({
     emailEnabled: true,
@@ -45,7 +44,8 @@ test("notification setting requests accept only the supported boolean fields", (
   });
 
   assert.equal(validateAdminNotificationSettingRequest({
-    adminEnabled: true,
+    emailEnabled: true,
+    maxEnabled: false,
   }).ok, false);
   assert.equal(validateOwnNotificationSettingRequest({
     emailEnabled: true,

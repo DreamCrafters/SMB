@@ -28,9 +28,7 @@ test("notification workspaces expose the List9 matrix and exact MAX onboarding",
 
   assert.match(workspace, />Администраторам</u);
   assert.match(workspace, />Рассылка</u);
-  assert.doesNotMatch(workspace, />Включить</u);
-  assert.match(workspace, />Почта</u);
-  assert.match(workspace, />MAX</u);
+  assert.match(workspace, />Вкл\.<\/th>/u);
   assert.match(workspace, />емейл</u);
   assert.match(workspace, />Макс</u);
   assert.match(workspace, /<th scope="col">Должность<\/th>/u);
@@ -42,7 +40,7 @@ test("notification workspaces expose the List9 matrix and exact MAX onboarding",
   assert.match(workspace, /!canManageProtectedAccounts/u);
   assert.match(
     workspace,
-    /async function saveChannels[\s\S]*?setStatus\(""\);[\s\S]*?setSavingKey\(key\)/u,
+    /async function savePermission[\s\S]*?setStatus\(""\);[\s\S]*?setSavingKey\(key\)/u,
   );
   assert.match(
     workspace,
@@ -61,7 +59,7 @@ test("notification workspaces expose the List9 matrix and exact MAX onboarding",
   );
 });
 
-test("administrator selects a notification user by the whole row and saves both channels", async () => {
+test("administrator selects a notification user by the whole row and enables the setting", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -88,8 +86,8 @@ test("administrator selects a notification user by the whole row and saves both 
     settings: [{
       type: "board_assignments",
       label: "Поручения Совета директоров",
-      adminEnabled: true,
-      emailEnabled: true,
+      adminEnabled: false,
+      emailEnabled: false,
       maxEnabled: false,
     }],
   };
@@ -113,7 +111,6 @@ test("administrator selects a notification user by the whole row and saves both 
             settings: [{
               ...user.settings[0],
               ...savedChannels,
-              adminEnabled: true,
             }],
           },
         });
@@ -153,24 +150,100 @@ test("administrator selects a notification user by the whole row and saves both 
       ),
       (header) => header.textContent?.trim(),
     );
-    assert.deepEqual(channelHeaders, ["Рассылка", "Почта", "MAX"]);
-    const emailToggle = rootElement.querySelector(
-      'input[aria-label="Почта: Поручения Совета директоров"]',
+    assert.deepEqual(channelHeaders, ["Рассылка", "Вкл."]);
+    const permissionToggle = rootElement.querySelector(
+      'input[aria-label="Включить: Поручения Совета директоров"]',
     );
-    const maxToggle = rootElement.querySelector(
-      'input[aria-label="MAX: Поручения Совета директоров"]',
-    );
-    assert.ok(emailToggle);
-    assert.ok(maxToggle);
-    assert.equal(emailToggle.checked, true);
-    assert.equal(maxToggle.checked, false);
+    assert.ok(permissionToggle);
+    assert.equal(permissionToggle.checked, false);
 
-    await React.act(async () => maxToggle.click());
+    await React.act(async () => permissionToggle.click());
     await waitFor(React, () => savedChannels !== undefined);
     assert.deepEqual(savedChannels, {
-      emailEnabled: true,
-      maxEnabled: true,
+      adminEnabled: true,
     });
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+test("user sees only notification types enabled by an administrator", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      if (
+        url.pathname === "/api/notification-settings" &&
+        (init.method ?? "GET") === "GET"
+      ) {
+        return jsonResponse({
+          settings: {
+            userId: "director-user",
+            displayName: "Фридман Е.М.",
+            position: "general_director",
+            positionDisplayName: "Генеральный директор",
+            isProtected: false,
+            email: "director@example.com",
+            maxUserId: "101",
+            settings: [
+              {
+                type: "board_assignments",
+                label: "Поручения Совета директоров",
+                adminEnabled: true,
+                emailEnabled: false,
+                maxEnabled: false,
+              },
+              {
+                type: "incidents",
+                label: "Инциденты",
+                adminEnabled: false,
+                emailEnabled: false,
+                maxEnabled: false,
+              },
+            ],
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${init.method ?? "GET"} ${url.pathname}`);
+    };
+
+    const { NotificationSettingsWorkspace } = await vite.ssrLoadModule(
+      "/src/NotificationSettings.tsx",
+    );
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    await React.act(async () => {
+      root.render(React.createElement(NotificationSettingsWorkspace, {
+        isAdminPreviewMode: false,
+        onShowToast() {},
+      }));
+    });
+    await waitFor(
+      React,
+      () => rootElement.querySelector(".notification-settings-table") !== null,
+    );
+
+    assert.match(rootElement.textContent, /Поручения Совета директоров/u);
+    assert.doesNotMatch(rootElement.textContent, /Инциденты/u);
 
     await React.act(async () => root.unmount());
   } finally {

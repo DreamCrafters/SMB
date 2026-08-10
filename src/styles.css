@@ -2611,6 +2611,95 @@ p {
   font-size: 12px;
 }
 
+.admin-navigation-order-workspace {
+  max-width: 980px;
+}
+
+.admin-navigation-order-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.admin-navigation-order-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: var(--density-2);
+  align-items: center;
+  min-height: 68px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-navigation-order-row:last-child {
+  border-bottom: 0;
+}
+
+.admin-navigation-order-index {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.admin-navigation-order-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-navigation-order-copy strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.admin-navigation-order-copy small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-navigation-order-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: center;
+}
+
+.rail-navigation-status {
+  display: grid;
+  gap: 10px;
+  padding: 14px 10px;
+  color: rgba(246, 249, 247, 0.82);
+}
+
+.rail-navigation-status small {
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.rail-navigation-retry {
+  min-height: 36px;
+  border: 1px solid rgba(246, 249, 247, 0.35);
+  border-radius: 7px;
+  color: var(--surface-raised);
+  background: transparent;
+  font-weight: 850;
+}
+
+@media (max-width: 680px) {
+  .admin-navigation-order-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .admin-navigation-order-row .admin-position-order-actions {
+    grid-column: 2;
+  }
+}
+
 .admin-accounts-table th,
 .admin-accounts-table td {
   white-space: nowrap;
@@ -2689,8 +2778,7 @@ p {
   font-size: 18px;
 }
 
-.admin-position-modal-heading,
-.admin-position-admin-toggle {
+.admin-position-modal-heading {
   display: flex;
   gap: var(--density-2);
   align-items: center;
@@ -2698,27 +2786,6 @@ p {
 
 .admin-position-modal-heading {
   flex-wrap: wrap;
-}
-
-.admin-position-admin-toggle {
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  color: var(--ink);
-  background: var(--surface-subtle);
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.admin-position-admin-toggle input {
-  width: 17px;
-  height: 17px;
-  margin: 0;
-}
-
-.admin-position-admin-toggle input:disabled + span {
-  color: var(--muted);
 }
 
 .admin-account-password-reset-copy,
@@ -2731,6 +2798,71 @@ p {
 .admin-account-password-reset-copy strong {
   color: var(--ink);
   font-weight: 900;
+}
+
+.admin-position-navigation-access-modal {
+  width: min(100%, 880px);
+}
+
+.admin-position-navigation-access-copy,
+.admin-position-navigation-access-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.admin-position-navigation-access-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: var(--density-3);
+  align-items: end;
+}
+
+.admin-position-navigation-access-toolbar > label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-position-navigation-access-toolbar select {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  font: inherit;
+  text-transform: none;
+}
+
+.admin-position-navigation-access-actions {
+  display: flex;
+  gap: var(--density-2);
+}
+
+.admin-position-navigation-access-table-scroll {
+  max-height: min(52vh, 520px);
+}
+
+.admin-position-navigation-access-table th,
+.admin-position-navigation-access-table td {
+  vertical-align: middle;
+}
+
+.admin-position-navigation-access-table td:nth-child(2) {
+  min-width: 220px;
+}
+
+.admin-position-navigation-access-login {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .admin-account-password-reset-hint {
@@ -4015,6 +4147,12 @@ p {
 
   .admin-account-modal {
     padding: var(--density-4);
+  }
+
+  .admin-position-navigation-access-toolbar,
+  .admin-position-navigation-access-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 }
 
