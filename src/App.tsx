@@ -514,6 +514,23 @@ const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
 const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
 const isProductionApp = isProductionAppEnv();
 const isLocalTestFallbackEnabled = !isProductionApp;
+function buildVisibleNavigationItems(
+  allowedNavigationItems: readonly AccountNavigationItem[],
+  navigationOrder: readonly AccountNavigationItem[],
+): NavigationItem[] {
+  const orderById = new Map(
+    navigationOrder.map((item, index) => [item, index]),
+  );
+
+  return [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin]
+    .filter((item) => allowedNavigationItems.includes(item.id))
+    .sort(
+      (left, right) =>
+        (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (orderById.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+}
+
 function buildNavigationItems(
   profile: ServerUserProfile,
   businessTab: BusinessTab,
@@ -521,19 +538,10 @@ function buildNavigationItems(
   workspaceKind: WorkspaceKind,
   navigationOrder: readonly AccountNavigationItem[],
 ): NavigationItem[] {
-  const orderById = new Map(
-    navigationOrder.map((item, index) => [item, index]),
+  const navigationItems = buildVisibleNavigationItems(
+    profile.activeAccess.navigationItems,
+    navigationOrder,
   );
-  const navigationItems = [
-    ...nonAdminNavigationItems,
-    ...navigationItemsByAccountType.admin,
-  ]
-    .filter((item) => profile.activeAccess.navigationItems.includes(item.id))
-    .sort(
-      (left, right) =>
-        (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-        (orderById.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-    );
   const effectiveWorkspaceKind = resolveAllowedWorkspaceKind(
     workspaceKind,
     profile.activeAccess.navigationItems,
@@ -693,6 +701,8 @@ export default function App() {
   const [isWelcomePending, setIsWelcomePending] = useState(false);
   const [dispatcherIncidentLoginPrompt, setDispatcherIncidentLoginPrompt] =
     useState<DispatcherIncidentLoginPromptState>("idle");
+  const [isFirstNavigationPending, setIsFirstNavigationPending] =
+    useState(true);
   const [requestedDispatcherFormId, setRequestedDispatcherFormId] =
     useState<DispatcherFormId>();
   const [isMobileNavigation, setIsMobileNavigation] = useState(() =>
@@ -1247,6 +1257,46 @@ export default function App() {
 
   useEffect(() => {
     if (
+      !isFirstNavigationPending ||
+      accessProfile.status !== "ready" ||
+      navigationOrderLoadState.status === "loading"
+    ) {
+      return;
+    }
+
+    setIsFirstNavigationPending(false);
+    const [firstItem] = buildVisibleNavigationItems(
+      accessProfile.profile.activeAccess.navigationItems,
+      navigationOrder,
+    );
+
+    if (firstItem === undefined) {
+      return;
+    }
+
+    const firstBusinessTab = getBusinessTabForNavigationItem(firstItem);
+
+    if (firstBusinessTab !== undefined) {
+      setWorkspaceKind("business");
+      setOwnerTab(firstBusinessTab);
+      return;
+    }
+
+    const firstAdminTab = getAdminTabForNavigationItem(firstItem);
+
+    if (firstAdminTab !== undefined) {
+      setWorkspaceKind("admin");
+      setAdminTab(firstAdminTab);
+    }
+  }, [
+    accessProfile,
+    isFirstNavigationPending,
+    navigationOrder,
+    navigationOrderLoadState.status,
+  ]);
+
+  useEffect(() => {
+    if (
       dispatcherIncidentLoginPrompt !== "pending" ||
       accessProfile.status !== "ready"
     ) {
@@ -1262,10 +1312,16 @@ export default function App() {
       return;
     }
 
-    if (dispatcherFeed.status === "ready") {
-      setDispatcherIncidentLoginPrompt("open");
+    if (dispatcherFeed.status !== "ready") {
+      return;
     }
-  }, [accessProfile, dispatcherFeed.status, dispatcherIncidentLoginPrompt]);
+
+    const hasOpenWork =
+      dispatcherFeed.openIncidents.length > 0 ||
+      buildOpenVisitorOptions(dispatcherFeed.submissions).length > 0;
+
+    setDispatcherIncidentLoginPrompt(hasOpenWork ? "open" : "idle");
+  }, [accessProfile, dispatcherFeed, dispatcherIncidentLoginPrompt]);
 
   useEffect(() => {
     if (accessProfile.status !== "ready") {
@@ -1465,6 +1521,7 @@ export default function App() {
   ) {
     if (result.status === "ready") {
       setIsWelcomePending(action === "login");
+      setIsFirstNavigationPending(true);
       setDispatcherIncidentLoginPrompt(
         action === "login" ? "pending" : "idle",
       );
@@ -1507,6 +1564,7 @@ export default function App() {
   }
 
   function handleOwnerTabNavigation(tab: BusinessTab) {
+    setIsFirstNavigationPending(false);
     setWorkspaceKind("business");
     setOwnerTab(tab);
     if (tab === "dispatcher") {
@@ -1531,6 +1589,7 @@ export default function App() {
   }
 
   function handleAdminTabNavigation(tab: AdminTab) {
+    setIsFirstNavigationPending(false);
     setWorkspaceKind("admin");
     setAdminTab(tab);
     setWorkspaceNavigationVersion((version) => version + 1);
@@ -1539,6 +1598,12 @@ export default function App() {
   function handleOpenIncidentClosingFromLoginPrompt() {
     setDispatcherIncidentLoginPrompt("idle");
     setRequestedDispatcherFormId("incident_close");
+    handleOwnerTabNavigation("dispatcher_form");
+  }
+
+  function handleOpenVisitorExitFromLoginPrompt() {
+    setDispatcherIncidentLoginPrompt("idle");
+    setRequestedDispatcherFormId("visitor_exit");
     handleOwnerTabNavigation("dispatcher_form");
   }
 
@@ -1847,10 +1912,14 @@ export default function App() {
 
       {dispatcherIncidentLoginPrompt === "open" &&
       dispatcherFeed.status === "ready" ? (
-        <DispatcherIncidentLoginPrompt
+        <DispatcherLoginPrompt
           openIncidentCount={dispatcherFeed.openIncidents.length}
+          openVisitorCount={
+            buildOpenVisitorOptions(dispatcherFeed.submissions).length
+          }
           onContinue={() => setDispatcherIncidentLoginPrompt("idle")}
           onOpenIncidentClosing={handleOpenIncidentClosingFromLoginPrompt}
+          onOpenVisitorExit={handleOpenVisitorExitFromLoginPrompt}
         />
       ) : null}
 
@@ -2192,14 +2261,18 @@ function AuthScreen({
   );
 }
 
-function DispatcherIncidentLoginPrompt({
+function DispatcherLoginPrompt({
   openIncidentCount,
+  openVisitorCount,
   onContinue,
   onOpenIncidentClosing,
+  onOpenVisitorExit,
 }: {
   openIncidentCount: number;
+  openVisitorCount: number;
   onContinue: () => void;
   onOpenIncidentClosing: () => void;
+  onOpenVisitorExit: () => void;
 }) {
   return (
     <div
@@ -2212,27 +2285,43 @@ function DispatcherIncidentLoginPrompt({
       }}
     >
       <section
-        aria-labelledby="dispatcher-incident-login-title"
+        aria-labelledby="dispatcher-login-prompt-title"
         aria-modal="true"
-        className="admin-db-editor admin-db-clear-dialog dispatcher-incident-login-dialog"
+        className="admin-db-editor admin-db-clear-dialog dispatcher-login-prompt-dialog"
         role="dialog"
       >
         <div className="admin-db-clear-copy">
-          <span>Инциденты</span>
-          <strong id="dispatcher-incident-login-title">
-            Незакрытых инцидентов: {openIncidentCount}
-          </strong>
-          <p>Вы можете сразу перейти к их закрытию или продолжить работу.</p>
+          <span>Диспетчерская</span>
+          <strong id="dispatcher-login-prompt-title">Требуют внимания</strong>
+          {openIncidentCount > 0 ? (
+            <p>Незакрытых инцидентов: {openIncidentCount}</p>
+          ) : null}
+          {openVisitorCount > 0 ? (
+            <p>Посетителей без отметки выхода: {openVisitorCount}</p>
+          ) : null}
+          <p>Вы можете сразу перейти к ним или продолжить работу.</p>
         </div>
-        <div className="admin-db-actions dispatcher-incident-login-actions">
-          <button
-            autoFocus
-            className="primary-button"
-            type="button"
-            onClick={onOpenIncidentClosing}
-          >
-            Перейти к закрытию инцидентов
-          </button>
+        <div className="admin-db-actions dispatcher-login-prompt-actions">
+          {openIncidentCount > 0 ? (
+            <button
+              autoFocus
+              className="primary-button"
+              type="button"
+              onClick={onOpenIncidentClosing}
+            >
+              Перейти к закрытию инцидентов
+            </button>
+          ) : null}
+          {openVisitorCount > 0 ? (
+            <button
+              autoFocus={openIncidentCount === 0}
+              className="primary-button"
+              type="button"
+              onClick={onOpenVisitorExit}
+            >
+              Перейти к отметке выхода
+            </button>
+          ) : null}
           <button
             className="secondary-button"
             type="button"
@@ -5500,11 +5589,7 @@ function DispatcherVisitorExitFormBody({
   });
   const submissions =
     visitorFeed.status === "ready" ? visitorFeed.submissions : [];
-  const todayDate = getTodayDateValue();
-  const openVisitors = buildOpenVisitorOptions(
-    submissions,
-    todayDate,
-  );
+  const openVisitors = buildOpenVisitorOptions(submissions);
   const isLocalVisitorFeed =
     visitorFeed.status === "ready" && visitorFeed.source === "local_test";
 
@@ -5562,7 +5647,7 @@ function DispatcherVisitorExitFormBody({
           >
             <option value="">
               {openVisitors.length === 0
-                ? "Сегодня нет вошедших посетителей"
+                ? "Нет посетителей без отметки выхода"
                 : "Выберите посетителя"}
             </option>
             {openVisitors.map((visitor) => (

@@ -59,6 +59,7 @@ export const auditEventActions = [
   "admin.account_password_reset",
   "admin.account_position_update",
   "admin.account_notification_contacts_update",
+  "admin.account_notification_channels_update",
   "admin.position_notification_permission_update",
   "account.notification_settings_update",
   "admin.position_create",

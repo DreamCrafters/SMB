@@ -22,7 +22,6 @@ type OpenVisitorEntry = {
 export function applyVisitorStateRules(
   value: ValidatedDispatcherSubmissionDraft,
   history: DispatcherSubmission[],
-  today: Date = new Date(),
 ): VisitorStateValidationResult {
   if (value.draft.formId !== "visitor" && value.draft.formId !== "visitor_exit") {
     return {
@@ -52,17 +51,14 @@ export function applyVisitorStateRules(
   }
 
   const visitorEntryId = value.draft.payload.visitorEntryId;
-  const todayDate = formatDateValueFromDate(today);
   const openVisitor = openVisitors.find(
-    (entry) =>
-      entry.submission.id === visitorEntryId &&
-      readVisitorEntryDate(entry.submission) === todayDate,
+    (entry) => entry.submission.id === visitorEntryId,
   );
 
   if (openVisitor === undefined) {
     return {
       ok: false,
-      errors: ["visitor exit requires an open visitor entry from today."],
+      errors: ["visitor exit requires an open visitor entry."],
     };
   }
 
@@ -135,40 +131,6 @@ function buildVisitorKey(payload: DispatcherSubmissionPayload) {
   return [payload.fio, payload.organization]
     .map((value) => value?.trim().toLocaleLowerCase("ru-RU") ?? "")
     .join("|");
-}
-
-function readVisitorEntryDate(submission: DispatcherSubmission) {
-  return (
-    readPayloadDate(submission.payload.entryAt) ??
-    readPayloadDate(submission.receivedAt)
-  );
-}
-
-function readPayloadDate(value: string | undefined) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const scriptMatch = /^(\d{2})\.(\d{2})\.(\d{4})/.exec(value);
-
-  if (scriptMatch !== null) {
-    return `${scriptMatch[3]}-${scriptMatch[2]}-${scriptMatch[1]}`;
-  }
-
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-
-  if (isoMatch !== null) {
-    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-  }
-
-  return undefined;
-}
-
-function formatDateValueFromDate(value: Date) {
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(
-    2,
-    "0",
-  )}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 function compareSubmissionsAscending(

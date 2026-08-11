@@ -36,12 +36,19 @@ export type PositionNotificationPermission = {
   adminEnabled: boolean;
 };
 
+export type PositionNotificationChannel = {
+  type: NotificationType;
+  emailEnabled: boolean;
+  maxEnabled: boolean;
+};
+
 export type PositionNotificationAccount = {
   userId: string;
   displayName: string;
   login: string;
   email?: string;
   maxUserId?: string;
+  channels: PositionNotificationChannel[];
 };
 
 export type PositionNotificationSettings = {
@@ -68,7 +75,7 @@ export type NotificationSettingsRepository = {
     type: NotificationType;
     adminEnabled: boolean;
   }) => Promise<PositionNotificationSettings | undefined>;
-  setOwnChannels: (input: {
+  setUserChannels: (input: {
     userId: string;
     type: NotificationType;
     emailEnabled: boolean;
@@ -144,6 +151,13 @@ type PositionPermissionRow = RowDataPacket & {
 
 type UserPositionRow = RowDataPacket & {
   position_code: string;
+};
+
+type UserChannelRow = RowDataPacket & {
+  user_id: string;
+  notification_type: string;
+  email_enabled: number | boolean;
+  max_enabled: number | boolean;
 };
 
 type ContactRow = RowDataPacket & {
@@ -248,22 +262,49 @@ export function createNotificationSettingsRepository(
     `, position === undefined ? [] : [position]);
     const accountsByPosition = new Map<string, PositionNotificationAccount[]>();
     const seenUsers = new Set<string>();
+    const channelsByUser = await readChannelsByUser();
 
     for (const row of rows) {
       if (seenUsers.has(row.user_id)) continue;
       seenUsers.add(row.user_id);
       const accounts = accountsByPosition.get(row.position_code) ?? [];
+      const storedChannels = channelsByUser.get(row.user_id);
       accounts.push({
         userId: row.user_id,
         displayName: row.display_name,
         login: row.login,
         ...optionalContact("email", row.email),
         ...optionalContact("maxUserId", row.max_user_id),
+        channels: notificationTypes.map(({ id }) => {
+          const stored = storedChannels?.get(id);
+
+          return {
+            type: id,
+            emailEnabled: readBoolean(stored?.email_enabled),
+            maxEnabled: readBoolean(stored?.max_enabled),
+          };
+        }),
       });
       accountsByPosition.set(row.position_code, accounts);
     }
 
     return accountsByPosition;
+  }
+
+  async function readChannelsByUser() {
+    const [rows] = await pool.query<UserChannelRow[]>(`
+      select user_id, notification_type, email_enabled, max_enabled
+      from user_notification_settings
+    `);
+    const channelsByUser = new Map<string, Map<string, UserChannelRow>>();
+
+    for (const row of rows) {
+      const channels = channelsByUser.get(row.user_id) ?? new Map();
+      channels.set(row.notification_type, row);
+      channelsByUser.set(row.user_id, channels);
+    }
+
+    return channelsByUser;
   }
 
   async function readPermissionsByPosition(position?: AccountPosition) {
@@ -397,7 +438,7 @@ export function createNotificationSettingsRepository(
     return readPositionSettings(position);
   }
 
-  async function setOwnChannels({
+  async function setUserChannels({
     userId,
     type,
     emailEnabled,
@@ -548,7 +589,7 @@ export function createNotificationSettingsRepository(
     listPositions,
     readUserSettings,
     setPositionPermission,
-    setOwnChannels,
+    setUserChannels,
     updateContacts,
     listDeliveryRecipients,
     claimLoginDelivery,

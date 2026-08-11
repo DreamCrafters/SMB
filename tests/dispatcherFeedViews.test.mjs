@@ -827,7 +827,7 @@ test("buildVisitorVisitRows supports ranges and an empty all-time range", () => 
   assert.equal(buildVisitorVisitRows(submissions, {}).length, 3);
 });
 
-test("visitor open options can be limited to entries from one day", () => {
+test("visitor open options keep entries from earlier days until they exit", () => {
   const submissions = [
     buildSubmission("visit-today", "visitor", {
       fio: "Сегодняшний посетитель",
@@ -837,13 +837,20 @@ test("visitor open options can be limited to entries from one day", () => {
       fio: "Вчерашний посетитель",
       entryAt: "03.07.2026 16:40",
     }),
+    buildSubmission("visit-closed", "visitor", {
+      fio: "Вышедший посетитель",
+      entryAt: "02.07.2026 08:00",
+    }),
+    buildSubmission("visit-closed-exit", "visitor_exit", {
+      visitorEntryId: "visit-closed",
+      fio: "Вышедший посетитель",
+      exitAt: "02.07.2026 17:00",
+    }),
   ];
 
   assert.deepEqual(
-    buildOpenVisitorOptions(submissions, "2026-07-04").map(
-      (visitor) => visitor.fio,
-    ),
-    ["Сегодняшний посетитель"],
+    buildOpenVisitorOptions(submissions).map((visitor) => visitor.fio),
+    ["Сегодняшний посетитель", "Вчерашний посетитель"],
   );
 });
 

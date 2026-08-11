@@ -551,7 +551,7 @@ test("visitor state rules close a legacy entry when its exit link is stale", () 
   }
 });
 
-test("visitor state rules allow exit only for entries from today", () => {
+test("visitor state rules allow exit for an earlier-day entry", () => {
   const result = validateDispatcherSubmissionDraft({
     formId: "visitor_exit",
     payload: {
@@ -562,31 +562,36 @@ test("visitor state rules allow exit only for entries from today", () => {
   assert.equal(result.ok, true);
 
   if (result.ok) {
-    const yesterdayResult = applyVisitorStateRules(
-      result.value,
-      [
-        buildDispatcherSubmission("visitor-entry-id", "visitor", {
-          fio: "Visitor Name",
-          organization: "External Org",
-          entryAt: "17.06.2026 10:30",
-        }),
-      ],
-      new Date("2026-06-18T12:00:00.000Z"),
-    );
-    const todayResult = applyVisitorStateRules(
-      result.value,
-      [
-        buildDispatcherSubmission("visitor-entry-id", "visitor", {
-          fio: "Visitor Name",
-          organization: "External Org",
-          entryAt: "18.06.2026 10:30",
-        }),
-      ],
-      new Date("2026-06-18T12:00:00.000Z"),
-    );
+    const yesterdayResult = applyVisitorStateRules(result.value, [
+      buildDispatcherSubmission("visitor-entry-id", "visitor", {
+        fio: "Visitor Name",
+        organization: "External Org",
+        entryAt: "17.06.2026 10:30",
+      }),
+    ]);
+    const closedResult = applyVisitorStateRules(result.value, [
+      buildDispatcherSubmission("visitor-entry-id", "visitor", {
+        fio: "Visitor Name",
+        organization: "External Org",
+        entryAt: "17.06.2026 10:30",
+      }),
+      buildDispatcherSubmission("visitor-exit-id", "visitor_exit", {
+        visitorEntryId: "visitor-entry-id",
+        fio: "Visitor Name",
+        organization: "External Org",
+        exitAt: "17.06.2026 18:00",
+      }),
+    ]);
 
-    assert.equal(yesterdayResult.ok, false);
-    assert.equal(todayResult.ok, true);
+    assert.equal(yesterdayResult.ok, true);
+    if (yesterdayResult.ok) {
+      assert.equal(yesterdayResult.value.draft.payload.fio, "Visitor Name");
+      assert.equal(
+        yesterdayResult.value.draft.payload.entryAt,
+        "17.06.2026 10:30",
+      );
+    }
+    assert.equal(closedResult.ok, false);
   }
 });
 

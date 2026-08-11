@@ -3,6 +3,7 @@ import type {
   NotificationSetting,
   NotificationType,
   PositionNotificationAccount,
+  PositionNotificationPermission,
   PositionNotificationSettings,
   UserNotificationSettings,
 } from "./contracts/notificationSettings";
@@ -11,6 +12,7 @@ import type { ShowToast } from "./services/toastStack";
 import {
   requestAdminNotificationSettings,
   requestOwnNotificationSettings,
+  updateAdminNotificationChannels,
   updateAdminNotificationPermission,
   updateAdminNotificationContacts,
   updateOwnNotificationSetting,
@@ -269,6 +271,35 @@ export function AdminNotificationSettingsWorkspace({
     );
   }
 
+  async function saveChannels(
+    account: PositionNotificationAccount,
+    type: NotificationType,
+    channel: NotificationChannel,
+    checked: boolean,
+  ) {
+    const current = account.channels.find((item) => item.type === type);
+    if (current === undefined) return;
+
+    setStatus("");
+    setSavingKey(`${account.userId}:${type}`);
+    const result = await updateAdminNotificationChannels(
+      account.userId,
+      type,
+      changeNotificationChannel(current, channel, checked),
+    );
+    setSavingKey(undefined);
+    if (result.status !== "ready") {
+      setStatus(result.message);
+      return;
+    }
+    replacePositions(result.positions);
+    onShowToast(
+      "Каналы обновлены",
+      `Способы получения рассылки «${account.displayName}» обновлены.`,
+      "success",
+    );
+  }
+
   async function saveContacts(account: PositionNotificationAccount) {
     const draft = contacts[account.userId] ?? emptyContactDraft;
     setStatus("");
@@ -413,6 +444,14 @@ export function AdminNotificationSettingsWorkspace({
                       />
                     </label>
                     <button className="secondary-button" type="button" disabled={savingKey !== undefined} onClick={() => void saveContacts(account)}>Сохранить контакты</button>
+                    <AccountNotificationChannels
+                      account={account}
+                      permissions={selected.permissions}
+                      isSaving={savingKey !== undefined}
+                      onChange={(type, channel, checked) => {
+                        void saveChannels(account, type, channel, checked);
+                      }}
+                    />
                   </div>
                 );
               })}
@@ -421,6 +460,97 @@ export function AdminNotificationSettingsWorkspace({
         </div>
       )}
     </section>
+  );
+}
+
+function AccountNotificationChannels({
+  account,
+  permissions,
+  isSaving,
+  onChange,
+}: {
+  account: PositionNotificationAccount;
+  permissions: readonly PositionNotificationPermission[];
+  isSaving: boolean;
+  onChange: (
+    type: NotificationType,
+    channel: NotificationChannel,
+    checked: boolean,
+  ) => void;
+}) {
+  const enabledPermissions = permissions.filter(
+    (permission) => permission.adminEnabled,
+  );
+  const channelByType = new Map(
+    account.channels.map((channel) => [channel.type, channel]),
+  );
+
+  if (enabledPermissions.length === 0) {
+    return (
+      <p className="notification-admin-account-note">
+        Разрешите должности рассылку, чтобы выбрать способы её получения.
+      </p>
+    );
+  }
+
+  return (
+    <div className="notification-settings-table-scroll notification-admin-account-channels">
+      <table className="notification-settings-table">
+        <caption>Способы получения</caption>
+        <thead>
+          <tr>
+            <th scope="col">Рассылка</th>
+            <th scope="col">емейл</th>
+            <th scope="col">Макс</th>
+          </tr>
+        </thead>
+        <tbody>
+          {enabledPermissions.map((permission) => {
+            const channel = channelByType.get(permission.type);
+
+            return (
+              <tr key={permission.type}>
+                <th scope="row">{permission.label}</th>
+                <td>
+                  <input
+                    aria-label={`Email ${account.login}: ${permission.label}`}
+                    checked={channel?.emailEnabled === true}
+                    disabled={isSaving || account.email === undefined}
+                    type="checkbox"
+                    onChange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      onChange(permission.type, "email", checked);
+                    }}
+                  />
+                </td>
+                <td>
+                  <input
+                    aria-label={`MAX ${account.login}: ${permission.label}`}
+                    checked={channel?.maxEnabled === true}
+                    disabled={isSaving || account.maxUserId === undefined}
+                    type="checkbox"
+                    onChange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      onChange(permission.type, "max", checked);
+                    }}
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {account.email === undefined ? (
+        <p className="notification-admin-account-note">
+          Сохраните Email, чтобы включить этот канал.
+        </p>
+      ) : null}
+      {account.maxUserId === undefined ? (
+        <p className="notification-admin-account-note">
+          Сохраните MAX, чтобы включить этот канал.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

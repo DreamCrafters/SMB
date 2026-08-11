@@ -10823,6 +10823,11 @@ test("notification settings API returns login reminders and persists server-owne
       login: "director",
       email: "director@example.com",
       maxUserId: "101",
+      channels: [{
+        type: setting.type,
+        emailEnabled: setting.emailEnabled,
+        maxEnabled: setting.maxEnabled,
+      }],
     }],
   };
   let hasClaimedLoginDelivery = false;
@@ -10837,7 +10842,7 @@ test("notification settings API returns login reminders and persists server-owne
       adminUpdates.push(input);
       return positionSettings;
     },
-    async setOwnChannels(input) {
+    async setUserChannels(input) {
       ownUpdates.push(input);
     },
     async updateContacts() {
@@ -11064,6 +11069,25 @@ test("notification settings API returns login reminders and persists server-owne
     );
     assert.equal(legacyUserPatchResponse.status, 404);
     assert.equal(adminUpdates.length, 1);
+
+    const adminChannelsResponse = await fetch(
+      `${baseUrl}/api/admin/notification-settings/accounts/${profile.userId}/channels/board_assignments`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ emailEnabled: true, maxEnabled: false }),
+      },
+    );
+    assert.equal(adminChannelsResponse.status, 200);
+    assert.deepEqual(ownUpdates.at(-1), {
+      userId: profile.userId,
+      type: "board_assignments",
+      emailEnabled: true,
+      maxEnabled: false,
+    });
+    assert.ok(
+      auditActions.includes("admin.account_notification_channels_update"),
+    );
     assert.ok(auditDetailValues.includes("Поручения Совета директоров"));
     assert.ok(auditDetailValues.includes("Генеральный директор"));
     assert.ok(auditDetailValues.includes("Включён"));

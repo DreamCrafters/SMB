@@ -72,7 +72,7 @@ test("notification settings repository expands missing rows from the server cata
   });
 });
 
-test("personal channels follow the permission of the account position", async () => {
+test("account channels follow the permission of the account position", async () => {
   const permissionRows = [
     [] as unknown[],
     [{ admin_enabled: 1 }],
@@ -109,7 +109,7 @@ test("personal channels follow the permission of the account position", async ()
   const repository = createNotificationSettingsRepository(pool);
 
   await assert.rejects(
-    repository.setOwnChannels({
+    repository.setUserChannels({
       userId: "general-director-user",
       type: "board_assignments",
       emailEnabled: true,
@@ -120,7 +120,7 @@ test("personal channels follow the permission of the account position", async ()
 
   currentPermission = 1;
   await assert.rejects(
-    repository.setOwnChannels({
+    repository.setUserChannels({
       userId: "general-director-user",
       type: "board_assignments",
       emailEnabled: true,
@@ -226,6 +226,9 @@ test("position permission is stored once and resets personal channels of its acc
           admin_enabled: 1,
         }], []];
       }
+      if (sql.includes("from user_notification_settings")) {
+        return [[], []];
+      }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   } as unknown as DatabasePool;
@@ -289,6 +292,14 @@ test("position notification list groups accounts and enabled types by position",
           admin_enabled: 1,
         }], []];
       }
+      if (sql.includes("from user_notification_settings")) {
+        return [[{
+          user_id: "accountant-user",
+          notification_type: "incidents",
+          email_enabled: 1,
+          max_enabled: 0,
+        }], []];
+      }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   } as unknown as DatabasePool;
@@ -300,12 +311,22 @@ test("position notification list groups accounts and enabled types by position",
     "chief-accountant",
     "delegated_administrator",
   ]);
-  assert.deepEqual(positions[0]?.accounts, [{
-    userId: "accountant-user",
-    displayName: "Бухгалтер Один",
-    login: "accountant",
-    email: "accountant@example.com",
-  }]);
+  assert.equal(positions[0]?.accounts.length, 1);
+  assert.equal(positions[0]?.accounts[0]?.userId, "accountant-user");
+  assert.equal(positions[0]?.accounts[0]?.email, "accountant@example.com");
+  assert.equal(positions[0]?.accounts[0]?.channels.length, 10);
+  assert.deepEqual(
+    positions[0]?.accounts[0]?.channels.find(
+      ({ type }) => type === "incidents",
+    ),
+    { type: "incidents", emailEnabled: true, maxEnabled: false },
+  );
+  assert.deepEqual(
+    positions[0]?.accounts[0]?.channels.find(
+      ({ type }) => type === "visitors",
+    ),
+    { type: "visitors", emailEnabled: false, maxEnabled: false },
+  );
   assert.equal(positions[0]?.permissions.length, 10);
   assert.equal(
     positions[0]?.permissions.find(({ type }) => type === "incidents")
@@ -403,6 +424,9 @@ test("notification changes ignore account and position protection", async () => 
         return [[], []];
       }
       if (sql.includes("from position_notification_permissions")) {
+        return [[], []];
+      }
+      if (sql.includes("from user_notification_settings")) {
         return [[], []];
       }
       throw new Error(`Unexpected SQL: ${sql}`);

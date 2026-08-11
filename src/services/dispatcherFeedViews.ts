@@ -1083,9 +1083,8 @@ export function buildVisitorVisitRows(
 
 export function buildOpenVisitorOptions(
   submissions: DispatcherSubmission[],
-  entryDate?: string,
 ): OpenVisitorOption[] {
-  return buildOpenVisitorEntries(submissions, entryDate)
+  return buildOpenVisitorEntries(submissions)
     .map(({ submission }) => ({
       entryId: submission.id,
       label: formatOpenVisitorLabel(submission.payload),
@@ -1169,20 +1168,18 @@ export function findOpenVisitorByEntryPayload(
 export function findOpenVisitorByEntryId(
   submissions: DispatcherSubmission[],
   visitorEntryId: string | undefined,
-  entryDate?: string,
 ) {
   if (visitorEntryId === undefined || visitorEntryId.trim().length === 0) {
     return undefined;
   }
 
-  return buildOpenVisitorEntries(submissions, entryDate).find(
+  return buildOpenVisitorEntries(submissions).find(
     (entry) => entry.submission.id === visitorEntryId,
   );
 }
 
 function buildOpenVisitorEntries(
   submissions: DispatcherSubmission[],
-  entryDate?: string,
 ): OpenVisitorEntry[] {
   const openEntries: OpenVisitorEntry[] = [];
 
@@ -1191,13 +1188,6 @@ function buildOpenVisitorEntries(
     .sort(compareSubmissionsAscending)) {
     if (submission.formId === "visitor") {
       const visitorEntryAt = submission.payload.entryAt ?? submission.receivedAt;
-
-      if (
-        entryDate !== undefined &&
-        readPayloadDate(visitorEntryAt) !== entryDate
-      ) {
-        continue;
-      }
 
       openEntries.push({
         submission,

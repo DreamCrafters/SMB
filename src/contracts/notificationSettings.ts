@@ -40,12 +40,19 @@ export type PositionNotificationPermission = {
   adminEnabled: boolean;
 };
 
+export type PositionNotificationChannel = {
+  type: NotificationType;
+  emailEnabled: boolean;
+  maxEnabled: boolean;
+};
+
 export type PositionNotificationAccount = {
   userId: string;
   displayName: string;
   login: string;
   email?: string;
   maxUserId?: string;
+  channels: PositionNotificationChannel[];
 };
 
 export type PositionNotificationSettings = {

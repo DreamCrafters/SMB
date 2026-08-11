@@ -4,6 +4,7 @@ import {
   type NotificationSetting,
   type NotificationType,
   type PositionNotificationAccount,
+  type PositionNotificationChannel,
   type PositionNotificationPermission,
   type PositionNotificationSettings,
   type UserNotificationSettings,
@@ -76,9 +77,23 @@ export function updateAdminNotificationContacts(
   options: RequestOptions = {},
 ) {
   return requestPositionSettings(
-    `/api/admin/notification-settings/${encodeURIComponent(userId)}/contacts`,
+    `/api/admin/notification-settings/accounts/${encodeURIComponent(userId)}/contacts`,
     "PATCH",
     { email, maxUserId },
+    options,
+  );
+}
+
+export function updateAdminNotificationChannels(
+  userId: string,
+  type: NotificationType,
+  value: { emailEnabled: boolean; maxEnabled: boolean },
+  options: RequestOptions = {},
+) {
+  return requestPositionSettings(
+    `/api/admin/notification-settings/accounts/${encodeURIComponent(userId)}/channels/${encodeURIComponent(type)}`,
+    "PATCH",
+    value,
     options,
   );
 }
@@ -211,7 +226,19 @@ function isPositionNotificationAccount(
     typeof value.displayName === "string" &&
     typeof value.login === "string" &&
     (value.email === undefined || typeof value.email === "string") &&
-    (value.maxUserId === undefined || typeof value.maxUserId === "string");
+    (value.maxUserId === undefined || typeof value.maxUserId === "string") &&
+    Array.isArray(value.channels) &&
+    value.channels.every(isPositionNotificationChannel);
+}
+
+function isPositionNotificationChannel(
+  value: unknown,
+): value is PositionNotificationChannel {
+  return isRecord(value) &&
+    typeof value.type === "string" &&
+    notificationTypes.includes(value.type as NotificationType) &&
+    typeof value.emailEnabled === "boolean" &&
+    typeof value.maxEnabled === "boolean";
 }
 
 function isNotificationSetting(value: unknown): value is NotificationSetting {

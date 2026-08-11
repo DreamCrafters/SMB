@@ -45,6 +45,11 @@ const positionSettings = {
     login: "director",
     email: "director@example.com",
     maxUserId: "101",
+    channels: [{
+      type: "board_assignments",
+      emailEnabled: true,
+      maxEnabled: false,
+    }],
   }],
 };
 
@@ -108,7 +113,7 @@ test("notification service writes only server-owned setting fields", async () =>
   ]);
   assert.deepEqual(calls.slice(1).map(({ url }) => url), [
     "/api/admin/notification-settings/positions/general_director/board_assignments",
-    "/api/admin/notification-settings/user-1/contacts",
+    "/api/admin/notification-settings/accounts/user-1/contacts",
   ]);
 });
 

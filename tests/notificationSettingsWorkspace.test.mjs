@@ -27,6 +27,9 @@ test("notification workspaces expose the position matrix and exact MAX onboardin
   const styles = await readFile(new URL("src/styles.css", projectRoot), "utf8");
 
   assert.match(workspace, />Разрешено должности</u);
+  assert.match(workspace, />Способы получения</u);
+  assert.match(workspace, /account\.email === undefined/u);
+  assert.match(workspace, /account\.maxUserId === undefined/u);
   assert.match(workspace, />Рассылка</u);
   assert.match(workspace, />Вкл\.<\/th>/u);
   assert.match(workspace, />емейл</u);
@@ -77,6 +80,7 @@ test("administrator selects a notification position by the whole row and enables
     server: { middlewareMode: true },
   });
   let savedChannels;
+  let savedChannelValue;
   const position = {
     position: "general_director",
     positionDisplayName: "Генеральный директор",
@@ -91,6 +95,11 @@ test("administrator selects a notification position by the whole row and enables
       login: "director",
       email: "director@example.com",
       maxUserId: "101",
+      channels: [{
+        type: "board_assignments",
+        emailEnabled: false,
+        maxEnabled: false,
+      }],
     }],
   };
 
@@ -113,6 +122,26 @@ test("administrator selects a notification position by the whole row and enables
             permissions: [{
               ...position.permissions[0],
               ...savedChannels,
+            }],
+          }],
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/admin/notification-settings/accounts/director-user/channels/board_assignments" &&
+        method === "PATCH"
+      ) {
+        savedChannelValue = JSON.parse(String(init.body));
+        return jsonResponse({
+          positions: [{
+            ...position,
+            permissions: [{ ...position.permissions[0], adminEnabled: true }],
+            accounts: [{
+              ...position.accounts[0],
+              channels: [{
+                type: "board_assignments",
+                ...savedChannelValue,
+              }],
             }],
           }],
         });
@@ -173,6 +202,25 @@ test("administrator selects a notification position by the whole row and enables
     );
     assert.ok(contactInput);
     assert.equal(contactInput.value, "director@example.com");
+
+    const accountEmailChannel = rootElement.querySelector(
+      'input[aria-label="Email director: Поручения Совета директоров"]',
+    );
+    const accountMaxChannel = rootElement.querySelector(
+      'input[aria-label="MAX director: Поручения Совета директоров"]',
+    );
+    assert.ok(accountEmailChannel);
+    assert.ok(accountMaxChannel);
+    assert.equal(accountEmailChannel.checked, false);
+    assert.equal(accountEmailChannel.disabled, false);
+
+    await React.act(async () => accountEmailChannel.click());
+    await waitFor(React, () => savedChannelValue !== undefined);
+    assert.deepEqual(savedChannelValue, {
+      emailEnabled: true,
+      maxEnabled: false,
+    });
+    await waitFor(React, () => accountEmailChannel.checked === true);
 
     await React.act(async () => root.unmount());
   } finally {

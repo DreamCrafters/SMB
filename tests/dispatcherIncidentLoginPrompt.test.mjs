@@ -18,7 +18,7 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("dispatcher login reports open incidents and can open the closing form", async () => {
+test("dispatcher login reports open incidents and visitors without an exit", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -100,6 +100,19 @@ test("dispatcher login reports open incidents and can open the closing form", as
                 },
               ],
             },
+            {
+              id: "visitor_exit",
+              title: "Выход посетителя",
+              sheetName: "Посетители",
+              fields: [
+                {
+                  name: "visitorEntryId",
+                  label: "Посетитель",
+                  type: "text",
+                  required: true,
+                },
+              ],
+            },
           ],
         });
       }
@@ -128,19 +141,28 @@ test("dispatcher login reports open incidents and can open the closing form", as
     await login(React, dom.window, rootElement);
     await waitFor(
       React,
-      () => rootElement.querySelector('[aria-labelledby="dispatcher-incident-login-title"]'),
+      () => rootElement.querySelector('[aria-labelledby="dispatcher-login-prompt-title"]'),
     );
 
     const firstDialog = rootElement.querySelector('[role="dialog"]');
     assert.ok(firstDialog);
     assert.match(firstDialog.textContent, /Незакрытых инцидентов: 2/u);
+    assert.match(
+      firstDialog.textContent,
+      /Посетителей без отметки выхода: 1/u,
+    );
     const continueButton = findButton(firstDialog, "Продолжить работу");
     const openClosingButton = findButton(
       firstDialog,
       "Перейти к закрытию инцидентов",
     );
+    const openVisitorExitButton = findButton(
+      firstDialog,
+      "Перейти к отметке выхода",
+    );
     assert.ok(continueButton);
     assert.ok(openClosingButton);
+    assert.ok(openVisitorExitButton);
 
     await React.act(async () => {
       firstDialog.dispatchEvent(
@@ -163,7 +185,7 @@ test("dispatcher login reports open incidents and can open the closing form", as
     await login(React, dom.window, rootElement);
     await waitFor(
       React,
-      () => rootElement.querySelector('[aria-labelledby="dispatcher-incident-login-title"]'),
+      () => rootElement.querySelector('[aria-labelledby="dispatcher-login-prompt-title"]'),
     );
     const secondDialog = rootElement.querySelector('[role="dialog"]');
     assert.ok(secondDialog);
@@ -185,7 +207,7 @@ test("dispatcher login reports open incidents and can open the closing form", as
     await login(React, dom.window, rootElement);
     await waitFor(
       React,
-      () => rootElement.querySelector('[aria-labelledby="dispatcher-incident-login-title"]'),
+      () => rootElement.querySelector('[aria-labelledby="dispatcher-login-prompt-title"]'),
     );
     const thirdDialog = rootElement.querySelector('[role="dialog"]');
     assert.ok(thirdDialog);
@@ -207,6 +229,41 @@ test("dispatcher login reports open incidents and can open the closing form", as
       rootElement.querySelector(".incident-close-choice")?.textContent ?? "",
       /Выберите инцидент/u,
     );
+
+    const logoutAfterIncident = findButton(rootElement, "Выйти из аккаунта");
+    assert.ok(logoutAfterIncident);
+    await React.act(async () => logoutAfterIncident.click());
+    await waitFor(React, () => rootElement.querySelector(".auth-login-form"));
+
+    await login(React, dom.window, rootElement);
+    await waitFor(
+      React,
+      () => rootElement.querySelector('[aria-labelledby="dispatcher-login-prompt-title"]'),
+    );
+    const visitorDialog = rootElement.querySelector('[role="dialog"]');
+    assert.ok(visitorDialog);
+    const openVisitorExit = findButton(
+      visitorDialog,
+      "Перейти к отметке выхода",
+    );
+    assert.ok(openVisitorExit);
+
+    await React.act(async () => openVisitorExit.click());
+    await waitFor(
+      React,
+      () =>
+        rootElement.querySelector(".dispatcher-form-toolbar strong")?.textContent ===
+        "Выход посетителя",
+    );
+    await waitFor(
+      React,
+      () => rootElement.querySelector('select[name="visitorEntryId"]') !== null,
+    );
+    const visitorSelect = rootElement.querySelector(
+      'select[name="visitorEntryId"]',
+    );
+    assert.equal(visitorSelect.disabled, false);
+    assert.match(visitorSelect.textContent ?? "", /Петров Пётр/u);
 
     await React.act(async () => root.unmount());
   } finally {
@@ -287,7 +344,24 @@ function buildDispatcherProfile() {
 
 function buildDispatcherFeedResponse() {
   return {
-    submissions: [],
+    submissions: [
+      {
+        id: "visitor-entry-1",
+        formId: "visitor",
+        formTitle: "Вход посетителя",
+        payload: {
+          fio: "Петров Пётр",
+          organization: "Подрядчик",
+          whom: "Фридману",
+          entryAt: "02.08.2026 09:00",
+        },
+        summary: "Петров Пётр",
+        status: "accepted",
+        submittedByAccountId: "dispatcher-access",
+        submittedAt: "2026-08-02T06:00:00.000Z",
+        receivedAt: "2026-08-02T06:00:00.000Z",
+      },
+    ],
     productionReportTables: {
       forming: [],
       sorting: [],
@@ -317,7 +391,10 @@ function buildDispatcherFeedResponse() {
     ],
     bankContents: [],
     receivedAt: "2026-08-03T09:05:00.000Z",
-    summary: { total: 0, byForm: [] },
+    summary: {
+      total: 1,
+      byForm: [{ formId: "visitor", formTitle: "Вход посетителя", count: 1 }],
+    },
   };
 }
 

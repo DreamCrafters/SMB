@@ -3548,15 +3548,15 @@ p {
   width: min(100%, 560px);
 }
 
-.dispatcher-incident-login-dialog {
+.dispatcher-login-prompt-dialog {
   width: min(100%, 620px);
 }
 
-.dispatcher-incident-login-actions {
+.dispatcher-login-prompt-actions {
   gap: var(--density-2);
 }
 
-.dispatcher-incident-login-actions button {
+.dispatcher-login-prompt-actions button {
   flex: 1 1 220px;
 }
 
@@ -4134,7 +4134,7 @@ p {
   .admin-production-snapshot-heading,
   .admin-db-import-heading,
   .admin-db-import-confirm,
-  .dispatcher-incident-login-actions,
+  .dispatcher-login-prompt-actions,
   .incident-close-selected {
     display: grid;
   }
@@ -4346,6 +4346,17 @@ p {
 }
 
 .notification-admin-contacts-title span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.notification-admin-account-channels {
+  grid-column: 1 / -1;
+}
+
+.notification-admin-account-note {
+  grid-column: 1 / -1;
+  margin: 0;
   color: var(--muted);
   font-size: 0.85rem;
 }

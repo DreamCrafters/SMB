@@ -136,6 +136,95 @@ test("hybrid position switches between business and admin navigation", async () 
   }
 });
 
+test("login opens the first tab of the server-owned navigation order", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  dom.window.matchMedia = () => ({
+    matches: false,
+    media: "",
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent() {
+      return false;
+    },
+  });
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  // Администратор поставил `БД` перед `Обзором`, поэтому вход должен
+  // открывать её, а не первую вкладку жёстко заданного каталога.
+  const navigationOrder = [
+    "admin.database",
+    ...defaultNavigationOrder.filter((item) => item !== "admin.database"),
+  ];
+
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+
+      if (url.pathname === "/api/navigation-order") {
+        return jsonResponse({ navigationOrder });
+      }
+      if (url.pathname === "/api/access/profile") {
+        return jsonResponse({ profile: buildHybridPositionProfile() });
+      }
+      if (url.pathname === "/api/admin/database") {
+        return jsonResponse({ tables: [] });
+      }
+
+      return jsonResponse({});
+    };
+
+    const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+
+    await React.act(async () => {
+      root.render(React.createElement(App));
+    });
+    await waitFor(React, () => readNavigationButtons(rootElement).length === 2);
+    await waitFor(
+      React,
+      () => rootElement.querySelector('section[aria-label="БД"]') !== null,
+    );
+
+    assert.deepEqual(
+      readNavigationButtons(rootElement).map(
+        (button) => button.querySelector("span")?.textContent,
+      ),
+      ["БД", "Обзор"],
+    );
+    assert.equal(rootElement.querySelector('section[aria-label="Обзор"]'), null);
+    assertSingleActiveNavigation(rootElement, "БД");
+
+    await React.act(async () => root.unmount());
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousRemoteApiUrl === undefined) {
+      delete process.env.VITE_SMB_REMOTE_API_URL;
+    } else {
+      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+    }
+    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
 function readNavigationButtons(rootElement) {
   return Array.from(rootElement.querySelectorAll(".primary-nav .nav-item"));
 }

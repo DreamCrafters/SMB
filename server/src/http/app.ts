@@ -1494,7 +1494,7 @@ async function handleNotificationSettingsRequest({
       await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
-        mutate: () => notificationSettings.setOwnChannels({
+        mutate: () => notificationSettings.setUserChannels({
           userId: access.profile.userId,
           type,
           ...validation.value,
@@ -1551,7 +1551,7 @@ async function handleNotificationSettingsRequest({
   }
 
   const contactsMatch =
-    /^\/api\/admin\/notification-settings\/([^/]+)\/contacts$/u.exec(
+    /^\/api\/admin\/notification-settings\/accounts\/([^/]+)\/contacts$/u.exec(
       url.pathname,
     );
   if (contactsMatch !== null) {
@@ -1685,6 +1685,94 @@ async function handleNotificationSettingsRequest({
       });
       return;
     }
+    sendJson(res, 200, {
+      positions: await notificationSettings.listPositions(),
+    });
+    return;
+  }
+
+  const adminChannelsMatch =
+    /^\/api\/admin\/notification-settings\/accounts\/([^/]+)\/channels\/([^/]+)$/u
+      .exec(url.pathname);
+  if (adminChannelsMatch !== null) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для изменения каналов используется PATCH.",
+        },
+      });
+      return;
+    }
+    const userId = decodeURIComponent(adminChannelsMatch[1] ?? "");
+    const type = decodeURIComponent(adminChannelsMatch[2] ?? "");
+    if (!isNotificationType(type)) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Рассылка не найдена." },
+      });
+      return;
+    }
+    const validation = validateOwnNotificationSettingRequest(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: validation.errors.join(" ") },
+      });
+      return;
+    }
+    const targetSettings = await notificationSettings.readUserSettings(userId);
+    if (targetSettings === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Учётная запись не найдена." },
+      });
+      return;
+    }
+    const notificationLabel = readNotificationTypeLabel(type);
+
+    try {
+      await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => notificationSettings.setUserChannels({
+          userId,
+          type,
+          ...validation.value,
+        }),
+        buildEvent: () => ({
+          actor: buildAuditActor(access.profile),
+          category: "administration",
+          action: "admin.account_notification_channels_update",
+          summary: `Изменены каналы рассылки учётной записи «${targetSettings.displayName}»`,
+          details: [
+            { label: "Пользователь", value: targetSettings.displayName },
+            { label: "Рассылка", value: notificationLabel },
+            {
+              label: "Email",
+              value: validation.value.emailEnabled ? "Включён" : "Выключен",
+            },
+            {
+              label: "MAX",
+              value: validation.value.maxEnabled ? "Включён" : "Выключен",
+            },
+          ],
+          targetType: "user_account",
+          targetId: userId,
+        }),
+      });
+    } catch (error) {
+      if (
+        error instanceof NotificationPermissionDisabledError ||
+        error instanceof NotificationChannelUnavailableError
+      ) {
+        sendJson(res, 409, {
+          error: { code: "invalid_response", message: error.message },
+        });
+        return;
+      }
+      throw error;
+    }
+
     sendJson(res, 200, {
       positions: await notificationSettings.listPositions(),
     });

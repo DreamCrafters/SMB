@@ -87,6 +87,11 @@ test("delegated account manager cannot change protected account controls", async
               login: account.login,
               email: "protected@example.com",
               maxUserId: "101",
+              channels: [{
+                type: "board_assignments",
+                emailEnabled: true,
+                maxEnabled: true,
+              }],
             }],
           }],
         });
@@ -200,7 +205,7 @@ test("delegated account manager cannot change protected account controls", async
     // Настройки уведомлений намеренно вне защиты: делегированный
     // администратор меняет их и у защищённого аккаунта.
     const contactInputs = rootElement.querySelectorAll(
-      ".notification-admin-contacts input",
+      ".notification-admin-contacts > label input",
     );
     assert.equal(contactInputs.length, 2);
     assert.equal(contactInputs[0].value, "protected@example.com");
@@ -208,10 +213,16 @@ test("delegated account manager cannot change protected account controls", async
     assert.equal(contactInputs[0].disabled, false);
     assert.equal(contactInputs[1].disabled, false);
     const permissionInputs = rootElement.querySelectorAll(
-      ".notification-settings-table input[type=\"checkbox\"]",
+      ".notification-admin-detail > .notification-settings-table-scroll input[type=\"checkbox\"]",
     );
     assert.equal(permissionInputs.length, 1);
     assert.equal(permissionInputs[0].disabled, false);
+    const channelInputs = rootElement.querySelectorAll(
+      ".notification-admin-account-channels input[type=\"checkbox\"]",
+    );
+    assert.equal(channelInputs.length, 2);
+    assert.equal(channelInputs[0].disabled, false);
+    assert.equal(channelInputs[1].disabled, false);
 
     await React.act(async () => root.unmount());
   } finally {
