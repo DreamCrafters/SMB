@@ -165,8 +165,6 @@ import {
 } from "../domain/adminAccountProtection.js";
 import {
   AdministratorPositionProtectionError,
-  PositionAdminRightsRemovalRequiresNavigationError,
-  PositionNavigationRemovalRequiresNavigationError,
   ProtectedPositionMutationError,
 } from "../domain/adminPositionProtection.js";
 import {
@@ -8075,10 +8073,7 @@ async function handleAdminAccountsRequest({
         isProtected: protection.isProtected,
       });
     } catch (error) {
-      if (
-        error instanceof AdministratorPositionProtectionError ||
-        error instanceof PositionAdminRightsRemovalRequiresNavigationError
-      ) {
+      if (error instanceof AdministratorPositionProtectionError) {
         sendJson(res, 409, {
           error: { code: "invalid_response", message: error.message },
         });
@@ -8594,12 +8589,6 @@ async function handleAdminAccountsRequest({
         });
         return;
       }
-      if (error instanceof PositionNavigationRemovalRequiresNavigationError) {
-        sendJson(res, 409, {
-          error: { code: "invalid_response", message: error.message },
-        });
-        return;
-      }
       throw error;
     }
     return;
@@ -8671,10 +8660,7 @@ async function handleAdminAccountsRequest({
       sendJson(res, 200, { ok: true });
       return;
     }
-    const validation = validateUpdatePositionRequest(
-      await readJsonBody(req),
-      existing.hasAdminRights,
-    );
+    const validation = validateUpdatePositionRequest(await readJsonBody(req));
     if (!validation.ok) {
       sendJson(res, 400, { error: { code: "invalid_response", message: validation.errors.join(" ") } });
       return;
@@ -9049,10 +9035,7 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
   };
 }
 
-function validateCreatePositionRequest(
-  input: unknown,
-  allowEmptyNavigationItems = false,
-):
+function validateCreatePositionRequest(input: unknown):
   | { ok: true; value: {
       displayName: string;
       navigationItems: AccountNavigationItem[];
@@ -9091,12 +9074,10 @@ function validateCreatePositionRequest(
     errors.push("Укажите название должности.");
   }
   if (
-    (requestedNavigationItems.length === 0 && !allowEmptyNavigationItems) ||
     !requestedNavigationItems.every(isAccountNavigationItem) ||
-    (requestedNavigationItems.length > 0 &&
-      !validatePositionNavigationItems(navigationItems))
+    !validatePositionNavigationItems(navigationItems)
   ) {
-    errors.push("Выберите хотя бы одну доступную вкладку.");
+    errors.push("Выберите только доступные рабочие вкладки.");
   }
   if (!isBoardAssignmentAccess(boardAssignmentAccess)) {
     errors.push("Выберите поддерживаемый вариант доступа к поручениям.");
@@ -9185,16 +9166,10 @@ function sendProtectedPositionMutationDenied(res: ServerResponse) {
   });
 }
 
-function validateUpdatePositionRequest(
-  input: unknown,
-  allowEmptyNavigationItems = false,
-):
+function validateUpdatePositionRequest(input: unknown):
   | { ok: true; value: { displayName: string; navigationItems: AccountNavigationItem[]; capabilities: AccountCapability[] } }
   | { ok: false; errors: string[] } {
-  const validation = validateCreatePositionRequest(
-    input,
-    allowEmptyNavigationItems,
-  );
+  const validation = validateCreatePositionRequest(input);
   if (!validation.ok) {
     return validation;
   }

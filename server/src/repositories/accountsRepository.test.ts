@@ -6,8 +6,6 @@ import {
   ProtectedAccountMutationError,
 } from "../domain/adminAccountProtection.js";
 import {
-  PositionAdminRightsRemovalRequiresNavigationError,
-  PositionNavigationRemovalRequiresNavigationError,
   ProtectedPositionMutationError,
 } from "../domain/adminPositionProtection.js";
 import {
@@ -288,26 +286,28 @@ test("setPositionNavigationAccess atomically updates selected working tabs and l
   );
 });
 
-test("setPositionNavigationAccess keeps the last working tab of an ordinary position", async () => {
-  let didUpdate = false;
-  let didRollback = false;
+test("setPositionNavigationAccess clears the last working tab of an ordinary position", async () => {
+  const updates: unknown[][] = [];
+  let didCommit = false;
   const connection = {
     async beginTransaction() {},
-    async commit() {},
-    async rollback() { didRollback = true; },
+    async commit() { didCommit = true; },
+    async rollback() {},
     release() {},
-    async query(sql: string) {
+    async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       if (normalized.startsWith("select login, status from app_users")) {
         return [[{ login: "admin", status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
-          id: "position-only-overview",
-          display_name: "Наблюдатель",
+          id: "position-only-settings",
+          display_name: "Главный бухгалтер",
           account_type: "business_owner",
-          navigation_items: JSON.stringify(["business.overview"]),
-          capabilities: JSON.stringify(["business.view_all_statistics"]),
+          navigation_items: JSON.stringify(["business.settings"]),
+          capabilities: JSON.stringify([
+            "business.manage_notification_settings",
+          ]),
           is_protected: 0,
           is_admin_protected: 0,
           created_at: "2026-08-10T00:00:00.000Z",
@@ -315,7 +315,7 @@ test("setPositionNavigationAccess keeps the last working tab of an ordinary posi
         }], []];
       }
       if (normalized.startsWith("update account_positions")) {
-        didUpdate = true;
+        updates.push(params ?? []);
       }
       return [[], []];
     },
@@ -324,21 +324,26 @@ test("setPositionNavigationAccess keeps the last working tab of an ordinary posi
     async getConnection() { return connection; },
   } as unknown as DatabasePool;
 
-  await assert.rejects(
-    createAccountsRepository(pool).setPositionNavigationAccess({
-      navigationItem: "business.overview",
-      positionIds: ["position-only-overview"],
+  const change = await createAccountsRepository(pool)
+    .setPositionNavigationAccess({
+      navigationItem: "business.settings",
+      positionIds: ["position-only-settings"],
       enabled: false,
     }, {
       userId: "root-admin-user",
       accessId: "root-admin-access",
       devAccessEnabled: false,
-    }),
-    PositionNavigationRemovalRequiresNavigationError,
-  );
+    });
 
-  assert.equal(didUpdate, false);
-  assert.equal(didRollback, true);
+  assert.deepEqual(change?.positions, [
+    { id: "position-only-settings", displayName: "Главный бухгалтер" },
+  ]);
+  assert.deepEqual(updates, [[
+    JSON.stringify([]),
+    JSON.stringify([]),
+    "position-only-settings",
+  ]]);
+  assert.equal(didCommit, true);
 });
 
 test("setPositionNavigationAccess lets synthetic dev admin clear an admin-rights position", async () => {
@@ -592,14 +597,14 @@ test("setPositionProtected keeps root panels for the system administrator", asyn
   );
 });
 
-test("setPositionProtected keeps admin rights until a working tab is selected", async () => {
-  let didUpdate = false;
+test("setPositionProtected removes admin rights from a position without working tabs", async () => {
+  const updates: unknown[][] = [];
   const connection = {
     async beginTransaction() {},
     async commit() {},
     async rollback() {},
     release() {},
-    async query(sql: string) {
+    async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       if (normalized.startsWith("select id, display_name, account_type, navigation_items")) {
         return [[{
@@ -615,7 +620,7 @@ test("setPositionProtected keeps admin rights until a working tab is selected", 
         }], []];
       }
       if (normalized.startsWith("update account_positions")) {
-        didUpdate = true;
+        updates.push(params ?? []);
       }
       return [[], []];
     },
@@ -624,14 +629,18 @@ test("setPositionProtected keeps admin rights until a working tab is selected", 
     async getConnection() { return connection; },
   } as unknown as DatabasePool;
 
-  await assert.rejects(
-    createAccountsRepository(pool).setPositionProtected({
-      id: "delegated_administrator",
-      isProtected: false,
-    }),
-    PositionAdminRightsRemovalRequiresNavigationError,
-  );
-  assert.equal(didUpdate, false);
+  const result = await createAccountsRepository(pool).setPositionProtected({
+    id: "delegated_administrator",
+    isProtected: false,
+  });
+
+  assert.equal(result?.previousIsProtected, true);
+  assert.deepEqual(updates, [[
+    0,
+    JSON.stringify([]),
+    JSON.stringify([]),
+    "delegated_administrator",
+  ]]);
 });
 
 test("createPosition appends a new position after the current order", async () => {

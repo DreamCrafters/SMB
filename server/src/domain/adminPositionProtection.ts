@@ -14,22 +14,6 @@ export class AdministratorPositionProtectionError extends Error {
   }
 }
 
-export class PositionAdminRightsRemovalRequiresNavigationError extends Error {
-  constructor() {
-    super(
-      "Перед отключением прав админа выберите для должности хотя бы одну рабочую вкладку.",
-    );
-    this.name = "PositionAdminRightsRemovalRequiresNavigationError";
-  }
-}
-
-export class PositionNavigationRemovalRequiresNavigationError extends Error {
-  constructor() {
-    super("У должности должна остаться хотя бы одна рабочая вкладка.");
-    this.name = "PositionNavigationRemovalRequiresNavigationError";
-  }
-}
-
 export function assertProtectedPositionMutationAllowed({
   isProtected,
   allowProtected,

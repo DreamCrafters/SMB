@@ -514,17 +514,6 @@ const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
 const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
 const isProductionApp = isProductionAppEnv();
 const isLocalTestFallbackEnabled = !isProductionApp;
-const workingNavigationItemIds = new Set(
-  nonAdminNavigationItems.map((item) => item.id),
-);
-
-function countWorkingNavigationItems(
-  navigationItems: readonly AccountNavigationItem[],
-) {
-  return navigationItems.filter((item) => workingNavigationItemIds.has(item))
-    .length;
-}
-
 function buildNavigationItems(
   profile: ServerUserProfile,
   businessTab: BusinessTab,
@@ -10405,18 +10394,8 @@ function AdminAccountsWorkspace({
 
   async function handlePositionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const editedPosition =
-      positionForm.id !== undefined && positionsState.status === "ready"
-        ? positionsState.positions.find(
-            (position) => position.id === positionForm.id,
-          )
-        : undefined;
-    if (
-      positionForm.displayName.trim().length === 0 ||
-      (positionForm.navigationItems.length === 0 &&
-        editedPosition?.hasAdminRights !== true)
-    ) {
-      setPositionFormStatus("Укажите название и выберите хотя бы одну вкладку.");
+    if (positionForm.displayName.trim().length === 0) {
+      setPositionFormStatus("Укажите название должности.");
       return;
     }
     setIsSubmitting(true);
@@ -10961,19 +10940,9 @@ function AdminAccountsWorkspace({
     navigationAccessAccounts.map((account) => account.position),
   ));
   const removableNavigationAccessPositionIds = navigationAccessPositionIds.filter(
-    (positionId) => {
-      const position = positionById.get(positionId);
-      if (
-        position === undefined ||
-        !position.navigationItems.includes(selectedPositionNavigationItem)
-      ) {
-        return false;
-      }
-      const workingNavigationCount = countWorkingNavigationItems(
-        position.navigationItems,
-      );
-      return position.hasAdminRights || workingNavigationCount > 1;
-    },
+    (positionId) => positionById
+      .get(positionId)
+      ?.navigationItems.includes(selectedPositionNavigationItem) === true,
   );
 
   return (
@@ -11404,11 +11373,6 @@ function AdminAccountsWorkspace({
                   const isProtectedMutationRestricted =
                     position.hasAdminRights &&
                     !canManageProtectedPositions;
-                  const canDisableAdminRights = position.navigationItems.some(
-                    (item) => nonAdminNavigationItems.some(
-                      (workingItem) => workingItem.id === item,
-                    ),
-                  );
                   const previousPosition = displayedPositions[index - 1];
                   const nextPosition = displayedPositions[index + 1];
                   const isMoveUpProtected =
@@ -11467,8 +11431,6 @@ function AdminAccountsWorkspace({
                         title={
                           position.accountType === "admin"
                             ? "Права админа для системной должности нельзя отключить."
-                            : position.hasAdminRights && !canDisableAdminRights
-                              ? "Перед отключением прав админа добавьте должности рабочую вкладку."
                             : !canManageProtectedPositions
                               ? "Права админа может изменять только главный аккаунт admin."
                               : undefined
@@ -11481,8 +11443,6 @@ function AdminAccountsWorkspace({
                           disabled={
                             !canManageProtectedPositions ||
                             position.accountType === "admin" ||
-                            (position.hasAdminRights &&
-                              !canDisableAdminRights) ||
                             protectingPositionId !== undefined
                           }
                           onChange={(event) => {
@@ -11908,7 +11868,8 @@ function AdminAccountsWorkspace({
               </div>
             </div>
             <p className="admin-position-navigation-access-hint">
-              Последнюю рабочую вкладку должности без прав админа отключить нельзя.
+              Должность можно оставить без рабочих вкладок: её аккаунты сохранят
+              вход, но увидят пустую рабочую область.
             </p>
             <div className="admin-db-table-scroll admin-position-navigation-access-table-scroll">
               <table className="admin-db-data-table admin-position-navigation-access-table">
@@ -11925,13 +11886,6 @@ function AdminAccountsWorkspace({
                     const hasAccess = position?.navigationItems.includes(
                       selectedPositionNavigationItem,
                     ) === true;
-                    const workingNavigationCount = position === undefined
-                      ? 0
-                      : countWorkingNavigationItems(position.navigationItems);
-                    const cannotDisableLastNavigation =
-                      hasAccess &&
-                      position?.hasAdminRights !== true &&
-                      workingNavigationCount <= 1;
                     return (
                       <tr key={account.accessId}>
                         <td>{account.positionDisplayName}</td>
@@ -11942,20 +11896,14 @@ function AdminAccountsWorkspace({
                           </span>
                         </td>
                         <td>
-                          <label
-                            className="admin-account-protection-control"
-                            title={cannotDisableLastNavigation
-                              ? "У должности должна остаться хотя бы одна рабочая вкладка."
-                              : undefined}
-                          >
+                          <label className="admin-account-protection-control">
                             <input
                               aria-label={`Доступ к вкладке для ${account.login}`}
                               type="checkbox"
                               checked={hasAccess}
                               disabled={
                                 isSavingPositionNavigationAccess ||
-                                position === undefined ||
-                                cannotDisableLastNavigation
+                                position === undefined
                               }
                               onChange={(event) => {
                                 const enabled = event.currentTarget.checked;

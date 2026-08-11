@@ -44,11 +44,8 @@ test("position form edits working tabs while admin rights are managed separately
   assert.equal(appSource.includes("Административные вкладки"), false);
   assert.match(appSource, /<th>Права админа<\/th>/u);
   assert.match(appSource, /aria-label=\{`Права админа для должности/u);
-  assert.match(
-    appSource,
-    /positionForm\.navigationItems\.length === 0 &&\s*editedPosition\?\.hasAdminRights !== true/u,
-  );
-  assert.match(
+  assert.doesNotMatch(appSource, /positionForm\.navigationItems\.length === 0/u);
+  assert.doesNotMatch(
     appSource,
     /Перед отключением прав админа добавьте должности рабочую вкладку/u,
   );

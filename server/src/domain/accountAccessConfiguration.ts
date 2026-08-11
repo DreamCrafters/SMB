@@ -230,5 +230,5 @@ export function validatePositionNavigationItems(
 ) {
   const allowed = new Set(nonAdminNavigationItems);
 
-  return navigationItems.length > 0 && navigationItems.every((item) => allowed.has(item));
+  return navigationItems.every((item) => allowed.has(item));
 }

@@ -36,7 +36,7 @@ test("positions accept only working navigation selected by an administrator", ()
     ]),
     false,
   );
-  assert.equal(validatePositionNavigationItems([]), false);
+  assert.equal(validatePositionNavigationItems([]), true);
   assert.equal(
     validatePositionNavigationItems([
       "business.overview",

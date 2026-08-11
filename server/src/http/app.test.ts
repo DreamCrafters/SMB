@@ -5488,7 +5488,7 @@ test("admin positions API stores the selected board assignment access variant", 
   ]);
 });
 
-test("admin positions API requires a tab and rejects the removed base cabinet field", async () => {
+test("admin positions API allows an empty tab set and rejects the removed base cabinet field", async () => {
   const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
     ...accounts,
@@ -5512,11 +5512,15 @@ test("admin positions API requires a tab and rejects the removed base cabinet fi
       body: JSON.stringify({ displayName: "Работник с обзором", accountType: "worker", navigationItems: ["business.overview"] }),
     });
 
-    assert.equal(emptyResponse.status, 400);
+    assert.equal(emptyResponse.status, 201);
     assert.equal(legacyBaseResponse.status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 
-  assert.equal(created.length, 0);
+  assert.deepEqual(created, [{
+    displayName: "Работник склада",
+    navigationItems: [],
+    capabilities: [],
+  }]);
 });
 
 test("primary admin cannot assign root admin panels directly to a custom position", async () => {

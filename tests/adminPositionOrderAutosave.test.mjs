@@ -290,11 +290,21 @@ test("original admin manages account access to a selected working tab by positio
       ],
       hasAdminRights: true,
     },
+    {
+      ...buildPosition("chief-accountant", "Главный бухгалтер"),
+      navigationItems: ["business.settings"],
+      capabilities: ["business.manage_notification_settings"],
+    },
   ];
   const accounts = [
     buildAccountForPosition("manager-a", "manager", "Начальник производства"),
     buildAccountForPosition("manager-b", "manager", "Начальник производства"),
     buildAccountForPosition("dispatcher", "dispatcher", "Диспетчер"),
+    buildAccountForPosition(
+      "chief-accountant",
+      "chief-accountant",
+      "Главный бухгалтер",
+    ),
     buildAccountForPosition(
       "delegated-admin",
       "delegated-admin",
@@ -368,7 +378,7 @@ test("original admin manages account access to a selected working tab by positio
     await React.act(async () => findButton(rootElement, "Должности")?.click());
     await waitFor(
       React,
-      () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 3,
+      () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 4,
     );
 
     const openButton = findButton(rootElement, "Доступ по вкладке");
@@ -397,19 +407,34 @@ test("original admin manages account access to a selected working tab by positio
     const delegatedAdmin = dialog.querySelector(
       'input[aria-label="Доступ к вкладке для delegated-admin"]',
     );
+    const chiefAccountant = dialog.querySelector(
+      'input[aria-label="Доступ к вкладке для chief-accountant"]',
+    );
     assert.ok(managerA);
     assert.ok(managerB);
     assert.ok(dispatcher);
     assert.ok(delegatedAdmin);
+    assert.ok(chiefAccountant);
     assert.equal(managerA.checked, false);
     assert.equal(managerB.checked, false);
     assert.equal(dispatcher.checked, true);
     assert.equal(delegatedAdmin.checked, true);
     assert.equal(delegatedAdmin.disabled, false);
+    assert.equal(chiefAccountant.checked, true);
+    assert.equal(chiefAccountant.disabled, false);
 
-    await React.act(async () => managerA.click());
+    await React.act(async () => chiefAccountant.click());
     await waitFor(React, () => changes.length === 1);
     assert.deepEqual(changes[0], {
+      navigationItem: "business.settings",
+      positionIds: ["chief-accountant"],
+      enabled: false,
+    });
+    assert.equal(chiefAccountant.checked, false);
+
+    await React.act(async () => managerA.click());
+    await waitFor(React, () => changes.length === 2);
+    assert.deepEqual(changes[1], {
       navigationItem: "business.settings",
       positionIds: ["manager"],
       enabled: true,
@@ -418,8 +443,8 @@ test("original admin manages account access to a selected working tab by positio
     assert.equal(managerB.checked, true);
 
     await React.act(async () => findButton(dialog, "Выкл. все")?.click());
-    await waitFor(React, () => changes.length === 2);
-    assert.deepEqual(changes[1], {
+    await waitFor(React, () => changes.length === 3);
+    assert.deepEqual(changes[2], {
       navigationItem: "business.settings",
       positionIds: ["manager", "dispatcher", "delegated-admin"],
       enabled: false,
@@ -430,16 +455,22 @@ test("original admin manages account access to a selected working tab by positio
     assert.equal(delegatedAdmin.checked, false);
 
     await React.act(async () => findButton(dialog, "Вкл. все")?.click());
-    await waitFor(React, () => changes.length === 3);
-    assert.deepEqual(changes[2], {
+    await waitFor(React, () => changes.length === 4);
+    assert.deepEqual(changes[3], {
       navigationItem: "business.settings",
-      positionIds: ["manager", "dispatcher", "delegated-admin"],
+      positionIds: [
+        "manager",
+        "dispatcher",
+        "chief-accountant",
+        "delegated-admin",
+      ],
       enabled: true,
     });
     assert.equal(managerA.checked, true);
     assert.equal(managerB.checked, true);
     assert.equal(dispatcher.checked, true);
     assert.equal(delegatedAdmin.checked, true);
+    assert.equal(chiefAccountant.checked, true);
 
     await React.act(async () => root.unmount());
   } finally {

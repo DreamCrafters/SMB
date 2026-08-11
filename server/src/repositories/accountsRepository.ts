@@ -10,8 +10,6 @@ import {
 import {
   assertAdministratorPositionProtectionAllowed,
   assertProtectedPositionMutationAllowed,
-  PositionAdminRightsRemovalRequiresNavigationError,
-  PositionNavigationRemovalRequiresNavigationError,
 } from "../domain/adminPositionProtection.js";
 import {
   defaultPositionByAccountType,
@@ -639,13 +637,6 @@ export function createAccountsRepository(
         accountType,
       );
       const storedCapabilities = readCapabilities(position.capabilities);
-      if (
-        accountType !== "admin" &&
-        !input.isProtected &&
-        resolveNavigationForPosition(storedNavigationItems, false).length === 0
-      ) {
-        throw new PositionAdminRightsRemovalRequiresNavigationError();
-      }
       const boardAssignmentAccess = readBoardAssignmentAccess(
         storedCapabilities,
         storedNavigationItems,
@@ -781,11 +772,6 @@ export function createAccountsRepository(
         const nextWorkingNavigationItems = enabled
           ? Array.from(new Set([...workingNavigationItems, navigationItem]))
           : workingNavigationItems.filter((item) => item !== navigationItem);
-
-        if (nextWorkingNavigationItems.length === 0 && !hasAdminRights) {
-          throw new PositionNavigationRemovalRequiresNavigationError();
-        }
-
         const navigationItems = resolveNavigationForPosition(
           nextWorkingNavigationItems,
           hasAdminRights,
