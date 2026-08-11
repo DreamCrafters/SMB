@@ -2340,9 +2340,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         rawMaterialQualityOptionsRequests === 1 &&
         rawMaterialQualityRequests.length > 0
     );
-    assert.ok(findTabByText(
-      "Качество сырья и соблюдения технологии и качество сырцовой продукции",
-    ));
+    assert.equal(
+      findTabByText(
+        "Качество сырья и соблюдения технологии и качество сырцовой продукции",
+      ),
+      undefined,
+    );
+    assert.ok(findTabByText("Качество сырья и соблюдение технологии"));
+    assert.ok(findTabByText("Качество сырцовой продукции"));
     const rawQualityForm = rootElement.querySelector(
       ".raw-material-quality-form",
     );

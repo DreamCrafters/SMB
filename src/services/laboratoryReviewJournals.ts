@@ -178,7 +178,7 @@ const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
   },
   {
     id: "raw_material_quality",
-    label: "Качество сырья и соблюдения технологии и качество сырцовой продукции",
+    label: "Качество сырья и соблюдение технологии",
     journal: "raw_material_quality",
     section: "all",
     group: "refractory-shop",

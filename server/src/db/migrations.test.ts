@@ -16,6 +16,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "057_notification_permission_user_channels",
   "058_navigation_order",
   "059_position_notification_permissions",
+  "060_refractory_wagon_turnover",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2516,6 +2517,47 @@ test("position notification migration moves permissions from users to positions"
   assert.match(statements[5] ?? "", /update user_notification_settings settings/u);
   assert.match(statements[5] ?? "", /where permissions\.position_code is null/u);
   assert.equal(statements[6], "insert into schema_migrations (id) values (?)");
+});
+
+test("wagon turnover migration adds the new columns to legacy wagon rows", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "060_refractory_wagon_turnover" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 2);
+  assert.match(statements[0] ?? "", /alter table refractory_wagons/u);
+  assert.match(statements[0] ?? "", /press_date date null after product_brand/u);
+  assert.match(statements[0] ?? "", /piece_count int unsigned null/u);
+  assert.match(statements[0] ?? "", /firing_operator varchar\(120\) null/u);
+  assert.match(statements[0] ?? "", /sorter_name varchar\(120\) null/u);
+  assert.match(
+    statements[0] ?? "",
+    /post_firing_condition varchar\(255\) null/u,
+  );
+  assert.match(statements[0] ?? "", /service_approval_date date null/u);
+  assert.equal(statements[1], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

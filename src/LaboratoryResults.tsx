@@ -552,40 +552,24 @@ export function LaboratoryResultsWorkspace({
       ) : null}
 
       {activePanel === "refractory-shop" ? (
-        <>
-          <div
-            className="laboratory-section-tabs laboratory-refractory-shop-tabs"
-            role="tablist"
-            aria-label="Разделы огнеупорного цеха"
-          >
+        <div
+          className="laboratory-section-tabs laboratory-refractory-journal-tabs"
+          role="tablist"
+          aria-label="Журналы контроля качества огнеупорного цеха"
+        >
+          {refractoryShopJournals.map((journal) => (
             <button
-              aria-selected="true"
-              className="is-active"
+              aria-selected={refractoryShopJournal === journal.id}
+              className={refractoryShopJournal === journal.id ? "is-active" : ""}
+              key={journal.id}
               role="tab"
               type="button"
+              onClick={() => setRefractoryShopJournal(journal.id)}
             >
-              Качество сырья и соблюдения технологии и качество сырцовой продукции
+              {journal.label}
             </button>
-          </div>
-          <div
-            className="laboratory-section-tabs laboratory-refractory-journal-tabs"
-            role="tablist"
-            aria-label="Журналы контроля качества огнеупорного цеха"
-          >
-            {refractoryShopJournals.map((journal) => (
-              <button
-                aria-selected={refractoryShopJournal === journal.id}
-                className={refractoryShopJournal === journal.id ? "is-active" : ""}
-                key={journal.id}
-                role="tab"
-                type="button"
-                onClick={() => setRefractoryShopJournal(journal.id)}
-              >
-                {journal.label}
-              </button>
-            ))}
-          </div>
-        </>
+          ))}
+        </div>
       ) : null}
 
       {activePanel === "banks" ? (

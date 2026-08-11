@@ -318,7 +318,9 @@ export function RefractoryShopWorkspace({
                   ? ` Возвращено на доработку: ${returnedCount}.`
                   : ""
               }`}
-              className={reportType === activeType ? "is-active" : undefined}
+              className={!isWagonJournalOpen && reportType === activeType
+                ? "is-active"
+                : undefined}
               type="button"
               key={reportType}
               onClick={() => {
@@ -347,7 +349,7 @@ export function RefractoryShopWorkspace({
           );
         })}
         <button
-          aria-label="Вагоны. Журнал огнеупорного цеха."
+          aria-label="Оборот вагонов. Журнал огнеупорного цеха."
           className={isWagonJournalOpen ? "is-active" : undefined}
           type="button"
           onClick={() => {
@@ -358,7 +360,7 @@ export function RefractoryShopWorkspace({
           }}
         >
           <span className="refractory-report-menu-heading">
-            <span className="refractory-report-label">Вагоны</span>
+            <span className="refractory-report-label">Оборот вагонов</span>
           </span>
           <small>Журнал</small>
         </button>
@@ -1602,7 +1604,7 @@ function FiringForm({
           <p className="form-status">Загружаем вагоны для отчёта.</p>
         ) : wagonLoadState === "error" ? (
           <p className="form-status form-status-error">
-            Не удалось загрузить журнал вагонов. Обновите страницу перед выбором.
+            Не удалось загрузить журнал оборота вагонов. Обновите страницу перед выбором.
           </p>
         ) : null}
         <button

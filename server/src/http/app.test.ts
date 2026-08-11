@@ -52,6 +52,7 @@ import {
   RefractoryWagonNumberAlreadyExistsError,
   type RefractoryWagonsRepository,
 } from "../repositories/refractoryWagonsRepository.js";
+import type { RefractoryWagonRecord } from "../contracts/refractoryWagons.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
@@ -2407,7 +2408,7 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
       assert.deepEqual(await missingWagonResponse.json(), {
         error: {
           code: "invalid_response",
-          message: "Один или несколько выбранных вагонов отсутствуют в журнале вагонов.",
+          message: "Один или несколько выбранных вагонов отсутствуют в журнале оборота вагонов.",
         },
       });
       assert.equal(differentBrandResponse.status, 400);
@@ -2471,11 +2472,17 @@ test("refractory wagon journal creates real wagon options for green product qual
     number: "В-16",
     loadingDate: "2026-08-05",
     productBrand: "ШКУ-32",
+    pressDate: "2026-08-04",
+    pieceCount: 480,
     setter: "Иванов И.И.",
     pressOperator: "Петров П.П.",
     rawControlDate: null,
+    firingOperator: null,
     firingDates: ["2026-08-06"],
+    sorter: null,
     sortingDate: null,
+    postFiringCondition: null,
+    serviceApprovalDate: null,
     createdAt: "2026-08-05T08:00:00.000Z",
   };
   let savedInput: Parameters<RefractoryWagonsRepository["create"]>[0] | undefined;
@@ -2556,8 +2563,14 @@ test("refractory wagon journal creates real wagon options for green product qual
           number: " В-17 ",
           loadingDate: "2026-08-06",
           productBrand: " шку-32 ",
+          pressDate: "2026-08-05",
+          pieceCount: " 512 ",
           setter: " Сидоров С.С. ",
           pressOperator: " Кузнецов К.К. ",
+          firingOperator: " Зайцев З.З. ",
+          sorter: " Орлова О.О. ",
+          postFiringCondition: " Пригоден к эксплуатации ",
+          serviceApprovalDate: "2026-08-14",
         }),
       });
       const correctionResponse = await fetch(
@@ -2569,8 +2582,14 @@ test("refractory wagon journal creates real wagon options for green product qual
             number: "В-16А",
             loadingDate: "2026-08-04",
             productBrand: " шку-32 ",
+            pressDate: null,
+            pieceCount: null,
             setter: " Иванов И.И. ",
             pressOperator: " Петров П.П. ",
+            firingOperator: " Зайцев З.З. ",
+            sorter: null,
+            postFiringCondition: null,
+            serviceApprovalDate: null,
           }),
         },
       );
@@ -2592,8 +2611,17 @@ test("refractory wagon journal creates real wagon options for green product qual
       assert.equal(correctionResponse.status, 200);
       assert.equal(duplicateResponse.status, 409);
       assert.equal(savedInput?.wagon.productBrand, "ШКУ-32");
+      assert.equal(savedInput?.wagon.pressDate, "2026-08-05");
+      assert.equal(savedInput?.wagon.pieceCount, 512);
       assert.equal(savedInput?.wagon.setter, "Сидоров С.С.");
       assert.equal(savedInput?.wagon.pressOperator, "Кузнецов К.К.");
+      assert.equal(savedInput?.wagon.firingOperator, "Зайцев З.З.");
+      assert.equal(savedInput?.wagon.sorter, "Орлова О.О.");
+      assert.equal(
+        savedInput?.wagon.postFiringCondition,
+        "Пригоден к эксплуатации",
+      );
+      assert.equal(savedInput?.wagon.serviceApprovalDate, "2026-08-14");
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(
         savedInput?.submittedByAccountId,
@@ -2608,16 +2636,31 @@ test("refractory wagon journal creates real wagon options for green product qual
         { label: "№ вагона", value: "В-17" },
         { label: "Дата садки", value: "2026-08-06" },
         { label: "Марка", value: "ШКУ-32" },
+        { label: "Дата пресса", value: "2026-08-05" },
+        { label: "Кол-во шт.", value: "512" },
         { label: "Садчик", value: "Сидоров С.С." },
         { label: "Прессовщик", value: "Кузнецов К.К." },
+        { label: "Обжигальщик", value: "Зайцев З.З." },
+        { label: "Сортировщик", value: "Орлова О.О." },
+        {
+          label: "Состояние вагона после обжига",
+          value: "Пригоден к эксплуатации",
+        },
+        { label: "Дата одобрения на продолжение эксплуатации", value: "2026-08-14" },
       ]);
       assert.equal(auditEvents[1]?.action, "refractory_wagon.correct");
       assert.deepEqual(auditEvents[1]?.details, [
         { label: "№ вагона", value: "В-16 → В-16А" },
         { label: "Дата садки", value: "2026-08-05 → 2026-08-04" },
         { label: "Марка", value: "ШКУ-32 → ШКУ-32" },
+        { label: "Дата пресса", value: "2026-08-04 → —" },
+        { label: "Кол-во шт.", value: "480 → —" },
         { label: "Садчик", value: "Иванов И.И. → Иванов И.И." },
         { label: "Прессовщик", value: "Петров П.П. → Петров П.П." },
+        { label: "Обжигальщик", value: "— → Зайцев З.З." },
+        { label: "Сортировщик", value: "— → —" },
+        { label: "Состояние вагона после обжига", value: "— → —" },
+        { label: "Дата одобрения на продолжение эксплуатации", value: "— → —" },
       ]);
     },
     dispatcherSubmissions,
@@ -9546,16 +9589,22 @@ test("refractory reports are submitted and reviewed independently through protec
   let savedLifecycle: Parameters<
     RefractoryWagonsRepository["replaceReportLifecycle"]
   >[0] | undefined;
-  const lifecycleWagonRecord = {
+  const lifecycleWagonRecord: RefractoryWagonRecord = {
     id: "wagon-17",
     number: "В-17",
     loadingDate: "2026-07-19",
     productBrand: "ША",
+    pressDate: null,
+    pieceCount: null,
     setter: "Иванов И.И.",
     pressOperator: "Петров П.П.",
     rawControlDate: "2026-07-19",
+    firingOperator: null,
     firingDates: [],
+    sorter: null,
     sortingDate: null,
+    postFiringCondition: null,
+    serviceApprovalDate: null,
     createdAt: "2026-07-19T08:00:00.000Z",
   };
   const lifecycleWagons: RefractoryWagonsRepository = {

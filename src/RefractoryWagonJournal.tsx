@@ -29,8 +29,14 @@ export function RefractoryWagonJournal({
   const [number, setNumber] = useState("");
   const [loadingDate, setLoadingDate] = useState(defaultLoadingDate);
   const [productBrand, setProductBrand] = useState("");
+  const [pressDate, setPressDate] = useState("");
+  const [pieceCount, setPieceCount] = useState("");
   const [setter, setSetter] = useState("");
   const [pressOperator, setPressOperator] = useState("");
+  const [firingOperator, setFiringOperator] = useState("");
+  const [sorter, setSorter] = useState("");
+  const [postFiringCondition, setPostFiringCondition] = useState("");
+  const [serviceApprovalDate, setServiceApprovalDate] = useState("");
   const [message, setMessage] = useState("");
   const [hasError, setHasError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,6 +67,12 @@ export function RefractoryWagonJournal({
           setPressOperator((current) => current === ""
             ? latestWagon?.pressOperator ?? ""
             : current);
+          setFiringOperator((current) => current === ""
+            ? latestWagon?.firingOperator ?? ""
+            : current);
+          setSorter((current) => current === ""
+            ? latestWagon?.sorter ?? ""
+            : current);
         }
         setLoadState("ready");
       } else {
@@ -77,12 +89,26 @@ export function RefractoryWagonJournal({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isSubmitting) return;
+    const pieceCountText = pieceCount.trim();
+    if (pieceCountText.length > 0 && !/^\d+$/u.test(pieceCountText)) {
+      setHasError(true);
+      setMessage("Кол-во шт. указывается целым неотрицательным числом.");
+      return;
+    }
     const submission = {
       number: number.trim(),
       loadingDate,
       productBrand: productBrand.trim(),
+      pressDate: pressDate.length > 0 ? pressDate : null,
+      pieceCount: pieceCountText.length > 0 ? Number(pieceCountText) : null,
       setter: setter.trim() || null,
       pressOperator: pressOperator.trim() || null,
+      firingOperator: firingOperator.trim() || null,
+      sorter: sorter.trim() || null,
+      postFiringCondition: postFiringCondition.trim() || null,
+      serviceApprovalDate: serviceApprovalDate.length > 0
+        ? serviceApprovalDate
+        : null,
     };
     if (
       submission.number.length === 0 ||
@@ -133,8 +159,14 @@ export function RefractoryWagonJournal({
     setNumber(wagon.number);
     setLoadingDate(wagon.loadingDate ?? "");
     setProductBrand(wagon.productBrand ?? "");
+    setPressDate(wagon.pressDate ?? "");
+    setPieceCount(wagon.pieceCount === null ? "" : String(wagon.pieceCount));
     setSetter(wagon.setter ?? "");
     setPressOperator(wagon.pressOperator ?? "");
+    setFiringOperator(wagon.firingOperator ?? "");
+    setSorter(wagon.sorter ?? "");
+    setPostFiringCondition(wagon.postFiringCondition ?? "");
+    setServiceApprovalDate(wagon.serviceApprovalDate ?? "");
     setHasError(false);
     setMessage("");
   }
@@ -144,26 +176,35 @@ export function RefractoryWagonJournal({
     setNumber("");
     setLoadingDate(defaultLoadingDate);
     setProductBrand("");
+    setPressDate("");
+    setPieceCount("");
     setSetter(latestWagon?.setter ?? "");
     setPressOperator(latestWagon?.pressOperator ?? "");
+    setFiringOperator(latestWagon?.firingOperator ?? "");
+    setSorter(latestWagon?.sorter ?? "");
+    setPostFiringCondition("");
+    setServiceApprovalDate("");
   }
 
-  const setterOptions = mergeLaboratoryJournalOptions(
-    [],
-    wagons.flatMap((wagon) => wagon.setter === null ? [] : [wagon.setter]),
+  const setterOptions = collectWagonOptions(wagons, (wagon) => wagon.setter);
+  const pressOperatorOptions = collectWagonOptions(
+    wagons,
+    (wagon) => wagon.pressOperator,
   );
-  const pressOperatorOptions = mergeLaboratoryJournalOptions(
-    [],
-    wagons.flatMap((wagon) =>
-      wagon.pressOperator === null ? [] : [wagon.pressOperator]
-    ),
+  const firingOperatorOptions = collectWagonOptions(
+    wagons,
+    (wagon) => wagon.firingOperator,
   );
+  const sorterOptions = collectWagonOptions(wagons, (wagon) => wagon.sorter);
 
   return (
-    <section className="refractory-wagon-journal" aria-label="Журнал вагонов">
+    <section
+      className="refractory-wagon-journal"
+      aria-label="Журнал оборота вагонов"
+    >
       {isAdminPreviewMode ? (
         <p className="form-status form-status-local">
-          В режиме предпросмотра журнал вагонов не загружается.
+          В режиме предпросмотра журнал оборота вагонов не загружается.
         </p>
       ) : (
         <form className="refractory-wagon-form" onSubmit={handleSubmit}>
@@ -202,6 +243,27 @@ export function RefractoryWagonJournal({
                 />
               </label>
               <label className="refractory-field">
+                <span>Дата пресса</span>
+                <input
+                  name="wagonPressDate"
+                  type="date"
+                  value={pressDate}
+                  onChange={(event) => setPressDate(event.currentTarget.value)}
+                />
+              </label>
+              <label className="refractory-field">
+                <span>Кол-во шт.</span>
+                <input
+                  inputMode="numeric"
+                  min={0}
+                  name="wagonPieceCount"
+                  step={1}
+                  type="number"
+                  value={pieceCount}
+                  onChange={(event) => setPieceCount(event.currentTarget.value)}
+                />
+              </label>
+              <label className="refractory-field">
                 <span>Садчик</span>
                 <input
                   list="refractory-wagon-setter-options"
@@ -219,6 +281,47 @@ export function RefractoryWagonJournal({
                   name="wagonPressOperator"
                   value={pressOperator}
                   onChange={(event) => setPressOperator(event.currentTarget.value)}
+                />
+              </label>
+              <label className="refractory-field">
+                <span>Обжигальщик</span>
+                <input
+                  list="refractory-wagon-firing-operator-options"
+                  maxLength={120}
+                  name="wagonFiringOperator"
+                  value={firingOperator}
+                  onChange={(event) =>
+                    setFiringOperator(event.currentTarget.value)}
+                />
+              </label>
+              <label className="refractory-field">
+                <span>Сортировщик</span>
+                <input
+                  list="refractory-wagon-sorter-options"
+                  maxLength={120}
+                  name="wagonSorter"
+                  value={sorter}
+                  onChange={(event) => setSorter(event.currentTarget.value)}
+                />
+              </label>
+              <label className="refractory-field">
+                <span>Состояние вагона после обжига</span>
+                <input
+                  maxLength={255}
+                  name="wagonPostFiringCondition"
+                  value={postFiringCondition}
+                  onChange={(event) =>
+                    setPostFiringCondition(event.currentTarget.value)}
+                />
+              </label>
+              <label className="refractory-field">
+                <span>Дата одобрения на продолжение эксплуатации</span>
+                <input
+                  name="wagonServiceApprovalDate"
+                  type="date"
+                  value={serviceApprovalDate}
+                  onChange={(event) =>
+                    setServiceApprovalDate(event.currentTarget.value)}
                 />
               </label>
             </div>
@@ -262,11 +365,17 @@ export function RefractoryWagonJournal({
                 <th>№ вагона</th>
                 <th>Дата садки</th>
                 <th>Марка</th>
+                <th>Дата пресса</th>
+                <th>Кол-во шт.</th>
                 <th>Садчик</th>
                 <th>Прессовщик</th>
                 <th>Дата контроля сырца</th>
+                <th>Обжигальщик</th>
                 <th>Даты обжига</th>
+                <th>Сортировщик</th>
                 <th>Дата сортировки</th>
+                <th>Состояние вагона после обжига</th>
+                <th>Дата одобрения на продолжение эксплуатации</th>
               </tr>
             </thead>
             <tbody>
@@ -283,11 +392,17 @@ export function RefractoryWagonJournal({
                   </td>
                   <td>{formatDate(wagon.loadingDate)}</td>
                   <td>{wagon.productBrand ?? "—"}</td>
+                  <td>{formatDate(wagon.pressDate)}</td>
+                  <td>{wagon.pieceCount === null ? "—" : wagon.pieceCount}</td>
                   <td>{wagon.setter ?? "—"}</td>
                   <td>{wagon.pressOperator ?? "—"}</td>
                   <td>{formatDate(wagon.rawControlDate)}</td>
+                  <td>{wagon.firingOperator ?? "—"}</td>
                   <td>{formatDates(wagon.firingDates)}</td>
+                  <td>{wagon.sorter ?? "—"}</td>
                   <td>{formatDate(wagon.sortingDate)}</td>
+                  <td>{wagon.postFiringCondition ?? "—"}</td>
+                  <td>{formatDate(wagon.serviceApprovalDate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -302,7 +417,28 @@ export function RefractoryWagonJournal({
           <option key={value} value={value} />
         ))}
       </datalist>
+      <datalist id="refractory-wagon-firing-operator-options">
+        {firingOperatorOptions.map((value) => (
+          <option key={value} value={value} />
+        ))}
+      </datalist>
+      <datalist id="refractory-wagon-sorter-options">
+        {sorterOptions.map((value) => <option key={value} value={value} />)}
+      </datalist>
     </section>
+  );
+}
+
+function collectWagonOptions(
+  wagons: RefractoryWagonRecord[],
+  read: (wagon: RefractoryWagonRecord) => string | null,
+) {
+  return mergeLaboratoryJournalOptions(
+    [],
+    wagons.flatMap((wagon) => {
+      const value = read(wagon);
+      return value === null ? [] : [value];
+    }),
   );
 }
 

@@ -3347,6 +3347,20 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "060_refractory_wagon_turnover",
+    statements: [
+      `
+      alter table refractory_wagons
+        add column press_date date null after product_brand,
+        add column piece_count int unsigned null after press_date,
+        add column firing_operator varchar(120) null after press_operator,
+        add column sorter_name varchar(120) null after firing_operator,
+        add column post_firing_condition varchar(255) null after sorter_name,
+        add column service_approval_date date null after post_firing_condition;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

@@ -67,9 +67,15 @@ type WagonRow = RowDataPacket & {
   wagon_number: string;
   loading_date: Date | string | null;
   product_brand: string | null;
+  press_date: Date | string | null;
+  piece_count: number | string | null;
   setter_name: string | null;
   press_operator: string | null;
   raw_control_date: Date | string | null;
+  firing_operator: string | null;
+  sorter_name: string | null;
+  post_firing_condition: string | null;
+  service_approval_date: Date | string | null;
   created_at: Date | string;
 };
 
@@ -102,19 +108,31 @@ export function createRefractoryWagonsRepository(
             wagon_number,
             loading_date,
             product_brand,
+            press_date,
+            piece_count,
             setter_name,
             press_operator,
+            firing_operator,
+            sorter_name,
+            post_firing_condition,
+            service_approval_date,
             submitted_by_user_id,
             submitted_by_account_id,
             created_at
-          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             input.wagon.number,
             input.wagon.loadingDate,
             input.wagon.productBrand,
+            input.wagon.pressDate,
+            input.wagon.pieceCount,
             input.wagon.setter,
             input.wagon.pressOperator,
+            input.wagon.firingOperator,
+            input.wagon.sorter,
+            input.wagon.postFiringCondition,
+            input.wagon.serviceApprovalDate,
             input.submittedByUserId,
             input.submittedByAccountId,
             createdAt,
@@ -144,9 +162,15 @@ export function createRefractoryWagonsRepository(
           wagon_number,
           loading_date,
           product_brand,
+          press_date,
+          piece_count,
           setter_name,
           press_operator,
           raw_control_date,
+          firing_operator,
+          sorter_name,
+          post_firing_condition,
+          service_approval_date,
           created_at
         from refractory_wagons
         order by sequence_id desc`,
@@ -251,9 +275,15 @@ export function createRefractoryWagonsRepository(
           wagon_number,
           loading_date,
           product_brand,
+          press_date,
+          piece_count,
           setter_name,
           press_operator,
           raw_control_date,
+          firing_operator,
+          sorter_name,
+          post_firing_condition,
+          service_approval_date,
           created_at
         from refractory_wagons
         where id = ?
@@ -270,14 +300,22 @@ export function createRefractoryWagonsRepository(
         await pool.query(
           `update refractory_wagons
           set wagon_number = ?, loading_date = ?, product_brand = ?,
-            setter_name = ?, press_operator = ?
+            press_date = ?, piece_count = ?, setter_name = ?, press_operator = ?,
+            firing_operator = ?, sorter_name = ?, post_firing_condition = ?,
+            service_approval_date = ?
           where id = ?`,
           [
             input.wagon.number,
             input.wagon.loadingDate,
             input.wagon.productBrand,
+            input.wagon.pressDate,
+            input.wagon.pieceCount,
             input.wagon.setter,
             input.wagon.pressOperator,
+            input.wagon.firingOperator,
+            input.wagon.sorter,
+            input.wagon.postFiringCondition,
+            input.wagon.serviceApprovalDate,
             input.id,
           ],
         );
@@ -329,11 +367,17 @@ function mapWagonRow(
     number: row.wagon_number,
     loadingDate: formatOptionalCalendarDate(row.loading_date),
     productBrand: row.product_brand,
+    pressDate: formatOptionalCalendarDate(row.press_date),
+    pieceCount: readOptionalCount(row.piece_count),
     setter: row.setter_name,
     pressOperator: row.press_operator,
     rawControlDate: formatOptionalCalendarDate(row.raw_control_date),
+    firingOperator: row.firing_operator,
     firingDates: lifecycle?.firingDates ?? [],
+    sorter: row.sorter_name,
     sortingDate: lifecycle?.sortingDate ?? null,
+    postFiringCondition: row.post_firing_condition,
+    serviceApprovalDate: formatOptionalCalendarDate(row.service_approval_date),
     createdAt: row.created_at instanceof Date
       ? row.created_at.toISOString()
       : String(row.created_at),
@@ -370,6 +414,12 @@ async function loadLifecycle(pool: DatabasePool, wagonIds: string[]) {
     lifecycle.set(row.wagon_id, current);
   }
   return lifecycle;
+}
+
+function readOptionalCount(value: number | string | null) {
+  if (value === null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatOptionalCalendarDate(value: Date | string | null) {

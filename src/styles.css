@@ -5572,7 +5572,7 @@ p {
 .laboratory-refractory-journal-tabs {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   max-width: 900px;
-  margin-left: calc(var(--density-4) * 2);
+  margin-left: var(--density-4);
 }
 
 .laboratory-form,

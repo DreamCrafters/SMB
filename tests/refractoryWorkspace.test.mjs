@@ -63,11 +63,17 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         number: "В-16",
         loadingDate: "2026-08-05",
         productBrand: "ШКУ-32",
+        pressDate: "2026-08-04",
+        pieceCount: 480,
         setter: "Иванов И.И.",
         pressOperator: "Петров П.П.",
         rawControlDate: null,
+        firingOperator: "Зайцев З.З.",
         firingDates: ["2026-08-06", "2026-08-06"],
+        sorter: "Орлова О.О.",
         sortingDate: "2026-08-08",
+        postFiringCondition: "Пригоден к эксплуатации",
+        serviceApprovalDate: "2026-08-10",
         createdAt: "2026-08-05T08:00:00.000Z",
       },
     ];
@@ -189,7 +195,12 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         (button) =>
           button.querySelector(".refractory-report-label")?.textContent,
       ),
-      ["ЦОШ", "Сводка по работе оборудования", "Печное отделение", "Вагоны"],
+      [
+        "ЦОШ",
+        "Сводка по работе оборудования",
+        "Печное отделение",
+        "Оборот вагонов",
+      ],
     );
     assert.equal(
       menuButtons[0].querySelector(".refractory-report-return-count"),
@@ -559,10 +570,19 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       null,
     );
 
+    assert.deepEqual(
+      menuButtons.map((button) => button.classList.contains("is-active")),
+      [false, false, true, false],
+    );
     await React.act(async () => menuButtons[3].click());
     await waitFor(
       React,
       () => rootElement.querySelector(".refractory-wagon-journal") !== null,
+    );
+    // Открытый журнал снимает выделение со сменной таблицы, выбранной до него.
+    assert.deepEqual(
+      menuButtons.map((button) => button.classList.contains("is-active")),
+      [false, false, false, true],
     );
     assert.match(rootElement.textContent, /В-16/u);
     const wagonTable = rootElement.querySelector(".refractory-wagon-table");
@@ -575,11 +595,17 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         "№ вагона",
         "Дата садки",
         "Марка",
+        "Дата пресса",
+        "Кол-во шт.",
         "Садчик",
         "Прессовщик",
         "Дата контроля сырца",
+        "Обжигальщик",
         "Даты обжига",
+        "Сортировщик",
         "Дата сортировки",
+        "Состояние вагона после обжига",
+        "Дата одобрения на продолжение эксплуатации",
       ],
     );
     assert.match(wagonTable.textContent, /06\.08\.2026; 06\.08\.2026/u);
@@ -599,15 +625,43 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     const wagonPressOperatorInput = rootElement.querySelector(
       'input[name="wagonPressOperator"]',
     );
+    const wagonPressDateInput = rootElement.querySelector(
+      'input[name="wagonPressDate"]',
+    );
+    const wagonPieceCountInput = rootElement.querySelector(
+      'input[name="wagonPieceCount"]',
+    );
+    const wagonFiringOperatorInput = rootElement.querySelector(
+      'input[name="wagonFiringOperator"]',
+    );
+    const wagonSorterInput = rootElement.querySelector(
+      'input[name="wagonSorter"]',
+    );
+    const wagonPostFiringConditionInput = rootElement.querySelector(
+      'input[name="wagonPostFiringCondition"]',
+    );
+    const wagonServiceApprovalDateInput = rootElement.querySelector(
+      'input[name="wagonServiceApprovalDate"]',
+    );
     assert.ok(wagonNumberInput);
     assert.ok(wagonLoadingDateInput);
     assert.ok(wagonBrandInput);
     assert.ok(wagonSetterInput);
     assert.ok(wagonPressOperatorInput);
+    assert.ok(wagonPressDateInput);
+    assert.ok(wagonPieceCountInput);
+    assert.ok(wagonFiringOperatorInput);
+    assert.ok(wagonSorterInput);
+    assert.ok(wagonPostFiringConditionInput);
+    assert.ok(wagonServiceApprovalDateInput);
     assert.equal(wagonSetterInput.value, "Иванов И.И.");
     assert.equal(wagonPressOperatorInput.value, "Петров П.П.");
+    assert.equal(wagonFiringOperatorInput.value, "Зайцев З.З.");
+    assert.equal(wagonSorterInput.value, "Орлова О.О.");
     assert.ok(wagonSetterInput.getAttribute("list"));
     assert.ok(wagonPressOperatorInput.getAttribute("list"));
+    assert.ok(wagonFiringOperatorInput.getAttribute("list"));
+    assert.ok(wagonSorterInput.getAttribute("list"));
     await React.act(async () => {
       setNativeInputValue(wagonNumberInput, "В-17");
       wagonNumberInput.dispatchEvent(
@@ -629,6 +683,33 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       wagonPressOperatorInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
+      setNativeInputValue(wagonPressDateInput, "2026-08-05");
+      wagonPressDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(wagonPieceCountInput, "512");
+      wagonPieceCountInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(wagonFiringOperatorInput, "Смирнов С.М.");
+      wagonFiringOperatorInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(wagonSorterInput, "Волкова В.В.");
+      wagonSorterInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(
+        wagonPostFiringConditionInput,
+        "Требуется ремонт футеровки",
+      );
+      wagonPostFiringConditionInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+      setNativeInputValue(wagonServiceApprovalDateInput, "2026-08-14");
+      wagonServiceApprovalDateInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
     });
     const addWagonButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-form button"),
@@ -640,11 +721,23 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       number: "В-17",
       loadingDate: "2026-08-06",
       productBrand: "ШКУ-32",
+      pressDate: "2026-08-05",
+      pieceCount: 512,
       setter: "Сидоров С.С.",
       pressOperator: "Кузнецов К.К.",
+      firingOperator: "Смирнов С.М.",
+      sorter: "Волкова В.В.",
+      postFiringCondition: "Требуется ремонт футеровки",
+      serviceApprovalDate: "2026-08-14",
     });
     assert.equal(wagonSetterInput.value, "Сидоров С.С.");
     assert.equal(wagonPressOperatorInput.value, "Кузнецов К.К.");
+    assert.equal(wagonFiringOperatorInput.value, "Смирнов С.М.");
+    assert.equal(wagonSorterInput.value, "Волкова В.В.");
+    assert.equal(wagonPressDateInput.value, "");
+    assert.equal(wagonPieceCountInput.value, "");
+    assert.equal(wagonPostFiringConditionInput.value, "");
+    assert.equal(wagonServiceApprovalDateInput.value, "");
 
     const editWagonButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-edit-link"),
@@ -667,8 +760,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       number: "В-17",
       loadingDate: "2026-08-07",
       productBrand: "ШКУ-32",
+      pressDate: "2026-08-05",
+      pieceCount: 512,
       setter: "Сидоров С.С.",
       pressOperator: "Кузнецов К.К.",
+      firingOperator: "Смирнов С.М.",
+      sorter: "Волкова В.В.",
+      postFiringCondition: "Требуется ремонт футеровки",
+      serviceApprovalDate: "2026-08-14",
     });
 
     await React.act(async () => root.unmount());
@@ -755,11 +854,17 @@ async function runRefractoryWagonSaveRace(responseOrder) {
       number: "В-16",
       loadingDate: "2026-08-05",
       productBrand: "ШКУ-32",
+      pressDate: null,
+      pieceCount: null,
       setter: "Иванов И.И.",
       pressOperator: "Петров П.П.",
       rawControlDate: null,
+      firingOperator: "Зайцев З.З.",
       firingDates: [],
+      sorter: "Орлова О.О.",
       sortingDate: null,
+      postFiringCondition: null,
+      serviceApprovalDate: null,
       createdAt: "2026-08-05T08:00:00.000Z",
     };
     const initialLoadResponse = new Response(
@@ -776,6 +881,8 @@ async function runRefractoryWagonSaveRace(responseOrder) {
       loadingDate: "2026-08-06",
       setter: null,
       pressOperator: null,
+      firingOperator: null,
+      sorter: null,
       createdAt: "2026-08-06T08:30:00.000Z",
     };
     const saveResponse = new Response(JSON.stringify({ wagon: savedWagon }), {
@@ -807,6 +914,14 @@ async function runRefractoryWagonSaveRace(responseOrder) {
     );
     assert.equal(
       rootElement.querySelector('input[name="wagonPressOperator"]').value,
+      "",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="wagonFiringOperator"]').value,
+      "",
+    );
+    assert.equal(
+      rootElement.querySelector('input[name="wagonSorter"]').value,
       "",
     );
     await React.act(async () => root.unmount());

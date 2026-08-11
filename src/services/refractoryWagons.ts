@@ -36,7 +36,7 @@ export async function requestRefractoryWagons(
     !result.payload.wagons.every(isWagonRecord)
   ) {
     return invalidResponse(
-      "Сервер вернул журнал вагонов в неподдерживаемом формате.",
+      "Сервер вернул журнал оборота вагонов в неподдерживаемом формате.",
     );
   }
   return { status: "ready", wagons: result.payload.wagons };
@@ -88,7 +88,7 @@ async function requestJson(
     });
     const payload = await readJson(response);
     if (!response.ok) {
-      return readRemoteError(payload, "Не удалось обработать журнал вагонов.");
+      return readRemoteError(payload, "Не удалось обработать журнал оборота вагонов.");
     }
     return { status: "ready", payload };
   } catch (error) {
@@ -98,7 +98,7 @@ async function requestJson(
     return {
       status: "error",
       code: "network_error",
-      message: describeRemoteNetworkFailure("Не удалось загрузить журнал вагонов.", {
+      message: describeRemoteNetworkFailure("Не удалось загрузить журнал оборота вагонов.", {
         baseUrl,
       }),
     };
@@ -111,17 +111,27 @@ function isWagonRecord(value: unknown): value is RefractoryWagonRecord {
     typeof value.number === "string" &&
     isOptionalString(value.loadingDate) &&
     isOptionalString(value.productBrand) &&
+    isOptionalString(value.pressDate) &&
+    isOptionalNumber(value.pieceCount) &&
     isOptionalString(value.setter) &&
     isOptionalString(value.pressOperator) &&
     isOptionalString(value.rawControlDate) &&
+    isOptionalString(value.firingOperator) &&
     Array.isArray(value.firingDates) &&
     value.firingDates.every((date) => typeof date === "string") &&
+    isOptionalString(value.sorter) &&
     isOptionalString(value.sortingDate) &&
+    isOptionalString(value.postFiringCondition) &&
+    isOptionalString(value.serviceApprovalDate) &&
     typeof value.createdAt === "string";
 }
 
 function isOptionalString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
+}
+
+function isOptionalNumber(value: unknown): value is number | null {
+  return value === null || typeof value === "number";
 }
 
 function readRemoteError(payload: unknown, fallback: string): ErrorResult {

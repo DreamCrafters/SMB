@@ -61,7 +61,10 @@ import {
 import { validateProductBrandSubmission } from "../domain/productBrandJournal.js";
 import { productBrandFields } from "../contracts/productBrands.js";
 import { validateRefractoryWagonSubmission } from "../domain/refractoryWagons.js";
-import type { RefractoryWagonSubmission } from "../contracts/refractoryWagons.js";
+import type {
+  RefractoryWagonRecord,
+  RefractoryWagonSubmission,
+} from "../contracts/refractoryWagons.js";
 import {
   laboratorySections,
   validateLaboratoryResultSubmission,
@@ -5137,7 +5140,7 @@ async function handleRefractoryWagonsRequest({
     sendJson(res, 403, {
       error: {
         code: "access_denied",
-        message: "Журнал вагонов доступен сотруднику огнеупорного цеха.",
+        message: "Журнал оборота вагонов доступен сотруднику огнеупорного цеха.",
       },
     });
     return;
@@ -5146,7 +5149,7 @@ async function handleRefractoryWagonsRequest({
     sendJson(res, 503, {
       error: {
         code: "server_error",
-        message: "Хранилище журнала вагонов не настроено.",
+        message: "Хранилище журнала оборота вагонов не настроено.",
       },
     });
     return;
@@ -5201,28 +5204,7 @@ async function handleRefractoryWagonsRequest({
               category: "data_change",
               action: "refractory_wagon.correct",
               summary: `Исправлен вагон ${result.record.number}`,
-              details: [
-                {
-                  label: "№ вагона",
-                  value: `${result.before.number} → ${result.record.number}`,
-                },
-                {
-                  label: "Дата садки",
-                  value: `${result.before.loadingDate ?? "—"} → ${result.record.loadingDate ?? "—"}`,
-                },
-                {
-                  label: "Марка",
-                  value: `${result.before.productBrand ?? "—"} → ${result.record.productBrand ?? "—"}`,
-                },
-                {
-                  label: "Садчик",
-                  value: `${result.before.setter ?? "—"} → ${result.record.setter ?? "—"}`,
-                },
-                {
-                  label: "Прессовщик",
-                  value: `${result.before.pressOperator ?? "—"} → ${result.record.pressOperator ?? "—"}`,
-                },
-              ],
+              details: buildRefractoryWagonAuditDetails(result.record, result.before),
               targetType: "refractory_wagon",
               targetId: result.record.id,
             },
@@ -5260,7 +5242,7 @@ async function handleRefractoryWagonsRequest({
     sendJson(res, 405, {
       error: {
         code: "access_denied",
-        message: "Для журнала вагонов используются GET и POST.",
+        message: "Для журнала оборота вагонов используются GET и POST.",
       },
     });
     return;
@@ -5298,13 +5280,7 @@ async function handleRefractoryWagonsRequest({
         category: "form_submission",
         action: "refractory_wagon.create",
         summary: `Добавлен вагон ${record.number}`,
-        details: [
-          { label: "№ вагона", value: record.number },
-          { label: "Дата садки", value: record.loadingDate ?? "—" },
-          { label: "Марка", value: record.productBrand ?? "—" },
-          { label: "Садчик", value: record.setter ?? "—" },
-          { label: "Прессовщик", value: record.pressOperator ?? "—" },
-        ],
+        details: buildRefractoryWagonAuditDetails(record),
         targetType: "refractory_wagon",
         targetId: record.id,
       }),
@@ -5322,6 +5298,47 @@ async function handleRefractoryWagonsRequest({
     }
     throw error;
   }
+}
+
+function buildRefractoryWagonAuditDetails(
+  record: RefractoryWagonRecord,
+  before?: RefractoryWagonRecord,
+) {
+  const fields: Array<{
+    label: string;
+    read: (wagon: RefractoryWagonRecord) => string | number | null;
+  }> = [
+    { label: "№ вагона", read: (wagon) => wagon.number },
+    { label: "Дата садки", read: (wagon) => wagon.loadingDate },
+    { label: "Марка", read: (wagon) => wagon.productBrand },
+    { label: "Дата пресса", read: (wagon) => wagon.pressDate },
+    { label: "Кол-во шт.", read: (wagon) => wagon.pieceCount },
+    { label: "Садчик", read: (wagon) => wagon.setter },
+    { label: "Прессовщик", read: (wagon) => wagon.pressOperator },
+    { label: "Обжигальщик", read: (wagon) => wagon.firingOperator },
+    { label: "Сортировщик", read: (wagon) => wagon.sorter },
+    {
+      label: "Состояние вагона после обжига",
+      read: (wagon) => wagon.postFiringCondition,
+    },
+    {
+      label: "Дата одобрения на продолжение эксплуатации",
+      read: (wagon) => wagon.serviceApprovalDate,
+    },
+  ];
+  return fields.map((field) => {
+    const value = readRefractoryWagonAuditValue(field.read(record));
+    return {
+      label: field.label,
+      value: before === undefined
+        ? value
+        : `${readRefractoryWagonAuditValue(field.read(before))} → ${value}`,
+    };
+  });
+}
+
+function readRefractoryWagonAuditValue(value: string | number | null) {
+  return value === null ? "—" : String(value);
 }
 
 async function resolveRefractoryWagonBrand({
@@ -5711,7 +5728,7 @@ async function handleRefractoryReportsRequest({
         sendJson(res, 503, {
           error: {
             code: "server_error",
-            message: "Хранилище журнала вагонов не настроено.",
+            message: "Хранилище журнала оборота вагонов не настроено.",
           },
         });
         return;
@@ -11294,7 +11311,7 @@ function sendLaboratoryGreenProductQualityWagonError(
   sendJson(res, 400, {
     error: {
       code: "invalid_response",
-      message: "Один или несколько выбранных вагонов отсутствуют в журнале вагонов.",
+      message: "Один или несколько выбранных вагонов отсутствуют в журнале оборота вагонов.",
     },
   });
   return true;
