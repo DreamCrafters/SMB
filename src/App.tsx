@@ -11535,7 +11535,6 @@ function AdminAccountsWorkspace({
             role="tabpanel"
           >
             <AdminNotificationSettingsWorkspace
-              canManageProtectedAccounts={canManageProtectedAccounts}
               onShowToast={onShowToast}
             />
           </div>

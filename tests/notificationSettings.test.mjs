@@ -34,7 +34,6 @@ const userSettings = {
 const positionSettings = {
   position: "general_director",
   positionDisplayName: "Генеральный директор",
-  hasAdminRights: false,
   permissions: [{
     type: "board_assignments",
     label: "Поручения Совета директоров",
@@ -44,7 +43,6 @@ const positionSettings = {
     userId: "user-1",
     displayName: "Фридман Е.М.",
     login: "director",
-    isProtected: false,
     email: "director@example.com",
     maxUserId: "101",
   }],

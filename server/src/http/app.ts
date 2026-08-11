@@ -1577,17 +1577,6 @@ async function handleNotificationSettingsRequest({
       });
       return;
     }
-    if (
-      targetAccount.isProtected &&
-      !(await readCanAssignAdminNavigation({
-        profile: access.profile,
-        accounts,
-        devAccessEnabled: config.devAccessEnabled,
-      }))
-    ) {
-      sendProtectedAccountMutationDenied(res);
-      return;
-    }
     const validation = validateNotificationContactsRequest(
       await readJsonBody(req),
     );
@@ -1597,40 +1586,25 @@ async function handleNotificationSettingsRequest({
       });
       return;
     }
-    const allowProtectedAccountMutation = await readCanAssignAdminNavigation({
-      profile: access.profile,
-      accounts,
-      devAccessEnabled: config.devAccessEnabled,
+    const updated = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => notificationSettings.updateContacts({
+        userId,
+        ...validation.value,
+      }),
+      buildEvent: (result) => result
+        ? {
+            actor: buildAuditActor(access.profile),
+            category: "administration",
+            action: "admin.account_notification_contacts_update",
+            summary: `Изменены контакты рассылок учётной записи «${targetAccount.userDisplayName}»`,
+            details: buildAccountAuditDetails(targetAccount),
+            targetType: "user_account",
+            targetId: userId,
+          }
+        : undefined,
     });
-    let updated: boolean;
-    try {
-      updated = await runAuditedMutation({
-        transaction: databaseTransaction,
-        audit,
-        mutate: () => notificationSettings.updateContacts({
-          userId,
-          ...validation.value,
-          allowProtectedAccountMutation,
-        }),
-        buildEvent: (result) => result
-          ? {
-              actor: buildAuditActor(access.profile),
-              category: "administration",
-              action: "admin.account_notification_contacts_update",
-              summary: `Изменены контакты рассылок учётной записи «${targetAccount.userDisplayName}»`,
-              details: buildAccountAuditDetails(targetAccount),
-              targetType: "user_account",
-              targetId: userId,
-            }
-          : undefined,
-      });
-    } catch (error) {
-      if (error instanceof ProtectedAccountMutationError) {
-        sendProtectedAccountMutationDenied(res);
-        return;
-      }
-      throw error;
-    }
     if (!updated) {
       sendJson(res, 404, {
         error: { code: "not_found", message: "Учётная запись не найдена." },
@@ -1675,22 +1649,14 @@ async function handleNotificationSettingsRequest({
       return;
     }
     const notificationLabel = readNotificationTypeLabel(type);
-    const allowProtectedPositionMutation = accounts !== undefined &&
-      await readCanAssignAdminNavigation({
-        profile: access.profile,
-        accounts,
-        devAccessEnabled: config.devAccessEnabled,
-      });
-    let updated: PositionNotificationSettings | undefined;
-    try {
-      updated = await runAuditedMutation({
+    const updated: PositionNotificationSettings | undefined =
+      await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
         mutate: () => notificationSettings.setPositionPermission({
           position,
           type,
           ...validation.value,
-          allowProtectedPositionMutation,
         }),
         buildEvent: (result) => result === undefined
           ? undefined
@@ -1713,13 +1679,6 @@ async function handleNotificationSettingsRequest({
               targetId: position,
             },
       });
-    } catch (error) {
-      if (error instanceof ProtectedPositionMutationError) {
-        sendProtectedPositionMutationDenied(res);
-        return;
-      }
-      throw error;
-    }
     if (updated === undefined) {
       sendJson(res, 404, {
         error: { code: "not_found", message: "Должность не найдена." },

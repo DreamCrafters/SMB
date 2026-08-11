@@ -10812,7 +10812,6 @@ test("notification settings API returns login reminders and persists server-owne
   const positionSettings = {
     position: "general_director" as const,
     positionDisplayName: "Генеральный директор",
-    hasAdminRights: false,
     permissions: [{
       type: setting.type,
       label: setting.label,
@@ -10822,7 +10821,6 @@ test("notification settings API returns login reminders and persists server-owne
       userId: profile.userId,
       displayName: profile.displayName,
       login: "director",
-      isProtected: false,
       email: "director@example.com",
       maxUserId: "101",
     }],
@@ -11055,7 +11053,6 @@ test("notification settings API returns login reminders and persists server-owne
       position: "general_director",
       type: "board_assignments",
       adminEnabled: true,
-      allowProtectedPositionMutation: false,
     }]);
     const legacyUserPatchResponse = await fetch(
       `${baseUrl}/api/admin/notification-settings/${profile.userId}/board_assignments`,

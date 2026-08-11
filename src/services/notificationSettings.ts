@@ -187,7 +187,6 @@ function isPositionNotificationSettings(
   return isRecord(value) &&
     typeof value.position === "string" &&
     typeof value.positionDisplayName === "string" &&
-    typeof value.hasAdminRights === "boolean" &&
     Array.isArray(value.permissions) &&
     value.permissions.every(isPositionNotificationPermission) &&
     Array.isArray(value.accounts) &&
@@ -211,7 +210,6 @@ function isPositionNotificationAccount(
     typeof value.userId === "string" &&
     typeof value.displayName === "string" &&
     typeof value.login === "string" &&
-    typeof value.isProtected === "boolean" &&
     (value.email === undefined || typeof value.email === "string") &&
     (value.maxUserId === undefined || typeof value.maxUserId === "string");
 }

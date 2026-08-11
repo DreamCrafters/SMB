@@ -37,8 +37,9 @@ test("notification workspaces expose the position matrix and exact MAX onboardin
   assert.match(workspace, /!setting\.adminEnabled/u);
   assert.match(workspace, /settings\.email === undefined/u);
   assert.match(workspace, /settings\.maxUserId === undefined/u);
-  assert.match(workspace, /selected\?\.hasAdminRights === true/u);
-  assert.match(workspace, /account\.isProtected &&\s*!canManageProtectedAccounts/u);
+  assert.equal(workspace.includes("canManageProtectedAccounts"), false);
+  assert.equal(workspace.includes("hasAdminRights"), false);
+  assert.equal(workspace.includes("account.isProtected"), false);
   assert.match(
     workspace,
     /async function savePermission[\s\S]*?setStatus\(""\);[\s\S]*?setSavingKey\(`\$\{selected\.position\}:\$\{type\}`\)/u,
@@ -79,7 +80,6 @@ test("administrator selects a notification position by the whole row and enables
   const position = {
     position: "general_director",
     positionDisplayName: "Генеральный директор",
-    hasAdminRights: false,
     permissions: [{
       type: "board_assignments",
       label: "Поручения Совета директоров",
@@ -89,7 +89,6 @@ test("administrator selects a notification position by the whole row and enables
       userId: "director-user",
       displayName: "Фридман Е.М.",
       login: "director",
-      isProtected: false,
       email: "director@example.com",
       maxUserId: "101",
     }],
@@ -128,7 +127,6 @@ test("administrator selects a notification position by the whole row and enables
     const root = createRoot(rootElement);
     await React.act(async () => {
       root.render(React.createElement(AdminNotificationSettingsWorkspace, {
-        canManageProtectedAccounts: true,
         onShowToast() {},
       }));
     });

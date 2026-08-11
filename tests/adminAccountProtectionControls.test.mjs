@@ -76,7 +76,6 @@ test("delegated account manager cannot change protected account controls", async
           positions: [{
             position: account.position,
             positionDisplayName: account.positionDisplayName,
-            hasAdminRights: true,
             permissions: [{
               type: "board_assignments",
               label: "Поручения Совета директоров",
@@ -86,7 +85,6 @@ test("delegated account manager cannot change protected account controls", async
               userId: account.userId,
               displayName: account.userDisplayName,
               login: account.login,
-              isProtected: true,
               email: "protected@example.com",
               maxUserId: "101",
             }],
@@ -199,19 +197,21 @@ test("delegated account manager cannot change protected account controls", async
     await React.act(async () => {
       rootElement.querySelector(".notification-admin-user-row")?.click();
     });
+    // Настройки уведомлений намеренно вне защиты: делегированный
+    // администратор меняет их и у защищённого аккаунта.
     const contactInputs = rootElement.querySelectorAll(
       ".notification-admin-contacts input",
     );
     assert.equal(contactInputs.length, 2);
     assert.equal(contactInputs[0].value, "protected@example.com");
     assert.equal(contactInputs[1].value, "101");
-    assert.equal(contactInputs[0].disabled, true);
-    assert.equal(contactInputs[1].disabled, true);
+    assert.equal(contactInputs[0].disabled, false);
+    assert.equal(contactInputs[1].disabled, false);
     const permissionInputs = rootElement.querySelectorAll(
       ".notification-settings-table input[type=\"checkbox\"]",
     );
     assert.equal(permissionInputs.length, 1);
-    assert.equal(permissionInputs[0].disabled, true);
+    assert.equal(permissionInputs[0].disabled, false);
 
     await React.act(async () => root.unmount());
   } finally {

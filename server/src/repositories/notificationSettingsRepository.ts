@@ -4,8 +4,6 @@ import type {
   RowDataPacket,
 } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
-import { assertProtectedAccountMutationAllowed } from "../domain/adminAccountProtection.js";
-import { assertProtectedPositionMutationAllowed } from "../domain/adminPositionProtection.js";
 import {
   notificationTypes,
   type LoginNotificationDeliveryKey,
@@ -42,7 +40,6 @@ export type PositionNotificationAccount = {
   userId: string;
   displayName: string;
   login: string;
-  isProtected: boolean;
   email?: string;
   maxUserId?: string;
 };
@@ -50,7 +47,6 @@ export type PositionNotificationAccount = {
 export type PositionNotificationSettings = {
   position: AccountPosition;
   positionDisplayName: string;
-  hasAdminRights: boolean;
   permissions: PositionNotificationPermission[];
   accounts: PositionNotificationAccount[];
 };
@@ -71,7 +67,6 @@ export type NotificationSettingsRepository = {
     position: AccountPosition;
     type: NotificationType;
     adminEnabled: boolean;
-    allowProtectedPositionMutation: boolean;
   }) => Promise<PositionNotificationSettings | undefined>;
   setOwnChannels: (input: {
     userId: string;
@@ -83,7 +78,6 @@ export type NotificationSettingsRepository = {
     userId: string;
     email?: string;
     maxUserId?: string;
-    allowProtectedAccountMutation: boolean;
   }) => Promise<boolean>;
   listDeliveryRecipients: (
     type: NotificationType,
@@ -131,7 +125,6 @@ type SettingRow = RowDataPacket & {
 type PositionRow = RowDataPacket & {
   id: string;
   display_name: string;
-  is_admin_protected: number | boolean;
 };
 
 type PositionAccountRow = RowDataPacket & {
@@ -141,7 +134,6 @@ type PositionAccountRow = RowDataPacket & {
   login: string;
   email: string | null;
   max_user_id: string | null;
-  is_admin_protected: number | boolean;
 };
 
 type PositionPermissionRow = RowDataPacket & {
@@ -157,11 +149,6 @@ type UserPositionRow = RowDataPacket & {
 type ContactRow = RowDataPacket & {
   email: string | null;
   max_user_id: string | null;
-  is_admin_protected: number | boolean;
-};
-
-type AdminRightsAccessRow = RowDataPacket & {
-  is_admin_protected: number | boolean;
 };
 
 type AdminPermissionRow = RowDataPacket & {
@@ -169,17 +156,13 @@ type AdminPermissionRow = RowDataPacket & {
 };
 
 const positionSelect = `
-  select positions.id, positions.display_name, positions.is_admin_protected
+  select positions.id, positions.display_name
   from account_positions positions
 `;
 
 const positionAccountSelect = `
   select accesses.position_code, users.id as user_id, users.display_name,
-    users.login, users.email, users.max_user_id,
-    greatest(
-      users.is_admin_protected,
-      positions.is_admin_protected
-    ) as is_admin_protected
+    users.login, users.email, users.max_user_id
   from app_users users
   join account_accesses accesses
     on accesses.user_id = users.id and accesses.is_active = 1
@@ -274,7 +257,6 @@ export function createNotificationSettingsRepository(
         userId: row.user_id,
         displayName: row.display_name,
         login: row.login,
-        isProtected: readBoolean(row.is_admin_protected),
         ...optionalContact("email", row.email),
         ...optionalContact("maxUserId", row.max_user_id),
       });
@@ -310,7 +292,6 @@ export function createNotificationSettingsRepository(
     return {
       position: position.id,
       positionDisplayName: position.display_name,
-      hasAdminRights: readBoolean(position.is_admin_protected),
       permissions: notificationTypes.map(({ id, label }) => ({
         type: id,
         label,
@@ -372,12 +353,10 @@ export function createNotificationSettingsRepository(
     position,
     type,
     adminEnabled,
-    allowProtectedPositionMutation,
   }: {
     position: AccountPosition;
     type: NotificationType;
     adminEnabled: boolean;
-    allowProtectedPositionMutation: boolean;
   }) {
     const connection = await pool.getConnection();
 
@@ -392,10 +371,6 @@ export function createNotificationSettingsRepository(
         await connection.rollback();
         return undefined;
       }
-      assertProtectedPositionMutationAllowed({
-        isProtected: readBoolean(stored.is_admin_protected),
-        allowProtected: allowProtectedPositionMutation,
-      });
       await connection.query(
         `insert into position_notification_permissions (
           position_code, notification_type, admin_enabled
@@ -476,12 +451,10 @@ export function createNotificationSettingsRepository(
     userId,
     email,
     maxUserId,
-    allowProtectedAccountMutation,
   }: {
     userId: string;
     email?: string;
     maxUserId?: string;
-    allowProtectedAccountMutation: boolean;
   }) {
     const connection = await pool.getConnection();
 
@@ -492,10 +465,6 @@ export function createNotificationSettingsRepository(
         await connection.rollback();
         return false;
       }
-      assertProtectedAccountMutationAllowed({
-        isProtected: readBoolean(contact.is_admin_protected),
-        allowProtected: allowProtectedAccountMutation,
-      });
 
       const normalizedEmail = normalizeOptional(email);
       const normalizedMaxUserId = normalizeOptional(maxUserId);
@@ -591,34 +560,14 @@ async function readContactForUpdate(
   userId: string,
 ) {
   const [rows] = await connection.query<ContactRow[]>(
-    `select users.email, users.max_user_id, users.is_admin_protected
+    `select users.email, users.max_user_id
      from app_users users
      where users.id = ? and users.status <> 'archived'
      limit 1 for update`,
     [userId],
   );
-  const contact = rows[0];
-  if (contact === undefined) {
-    return undefined;
-  }
-  const [adminRightsRows] = await connection.query<AdminRightsAccessRow[]>(
-    `select positions.is_admin_protected
-     from account_accesses protected_accesses
-     join account_positions positions
-       on positions.id = protected_accesses.position_code
-     where protected_accesses.user_id = ?
-       and protected_accesses.is_active = 1
-     order by protected_accesses.id, positions.id
-     for update`,
-    [userId],
-  );
 
-  return {
-    ...contact,
-    is_admin_protected:
-      readBoolean(contact.is_admin_protected) ||
-      adminRightsRows.some((row) => readBoolean(row.is_admin_protected)),
-  };
+  return rows[0];
 }
 
 async function readPositionPermissionForUpdate(

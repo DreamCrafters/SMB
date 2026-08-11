@@ -190,10 +190,8 @@ export function NotificationSettingsWorkspace({
 }
 
 export function AdminNotificationSettingsWorkspace({
-  canManageProtectedAccounts,
   onShowToast,
 }: {
-  canManageProtectedAccounts: boolean;
   onShowToast: ShowToast;
 }) {
   const [positions, setPositions] = useState<PositionNotificationSettings[]>([]);
@@ -293,9 +291,6 @@ export function AdminNotificationSettingsWorkspace({
     );
   }
 
-  const selectedPositionIsReadOnly =
-    selected?.hasAdminRights === true && !canManageProtectedAccounts;
-
   return (
     <section className="notification-admin-workspace" aria-label="Уведомления">
       <div className="section-heading notification-admin-heading">
@@ -356,11 +351,6 @@ export function AdminNotificationSettingsWorkspace({
             <p className="dispatcher-status-line">Выберите должность, чтобы настроить её уведомления и контакты сотрудников.</p>
           ) : (
             <div className="notification-admin-detail">
-              {selectedPositionIsReadOnly ? (
-                <p className="admin-accounts-status-message">
-                  Должность с правами админа может изменять только исходный admin.
-                </p>
-              ) : null}
               <div className="notification-settings-table-scroll">
                 <table className="notification-settings-table">
                   <caption>Разрешено должности</caption>
@@ -374,7 +364,7 @@ export function AdminNotificationSettingsWorkspace({
                     {selected.permissions.map((permission) => (
                       <tr key={permission.type}>
                         <th scope="row">{permission.label}</th>
-                        <td><input aria-label={`Включить: ${permission.label}`} type="checkbox" checked={permission.adminEnabled} disabled={savingKey !== undefined || selectedPositionIsReadOnly} onChange={(event) => {
+                        <td><input aria-label={`Включить: ${permission.label}`} type="checkbox" checked={permission.adminEnabled} disabled={savingKey !== undefined} onChange={(event) => {
                           const checked = event.currentTarget.checked;
                           void savePermission(permission.type, checked);
                         }} /></td>
@@ -387,8 +377,6 @@ export function AdminNotificationSettingsWorkspace({
                 <p className="dispatcher-status-line">У должности пока нет учётных записей: разрешения сохранятся и применятся к будущим сотрудникам.</p>
               ) : selected.accounts.map((account) => {
                 const draft = contacts[account.userId] ?? emptyContactDraft;
-                const isReadOnly = account.isProtected &&
-                  !canManageProtectedAccounts;
                 return (
                   <div className="notification-admin-contacts" key={account.userId}>
                     <p className="notification-admin-contacts-title">
@@ -400,7 +388,7 @@ export function AdminNotificationSettingsWorkspace({
                       <input
                         type="email"
                         value={draft.email}
-                        disabled={savingKey !== undefined || isReadOnly}
+                        disabled={savingKey !== undefined}
                         onChange={(event) => {
                           const email = event.currentTarget.value;
                           setContacts((current) => ({
@@ -414,7 +402,7 @@ export function AdminNotificationSettingsWorkspace({
                       <span>MAX</span>
                       <input
                         value={draft.maxUserId}
-                        disabled={savingKey !== undefined || isReadOnly}
+                        disabled={savingKey !== undefined}
                         onChange={(event) => {
                           const maxUserId = event.currentTarget.value;
                           setContacts((current) => ({
@@ -424,7 +412,7 @@ export function AdminNotificationSettingsWorkspace({
                         }}
                       />
                     </label>
-                    <button className="secondary-button" type="button" disabled={savingKey !== undefined || isReadOnly} onClick={() => void saveContacts(account)}>Сохранить контакты</button>
+                    <button className="secondary-button" type="button" disabled={savingKey !== undefined} onClick={() => void saveContacts(account)}>Сохранить контакты</button>
                   </div>
                 );
               })}

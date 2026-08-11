@@ -44,7 +44,6 @@ export type PositionNotificationAccount = {
   userId: string;
   displayName: string;
   login: string;
-  isProtected: boolean;
   email?: string;
   maxUserId?: string;
 };
@@ -52,7 +51,6 @@ export type PositionNotificationAccount = {
 export type PositionNotificationSettings = {
   position: string;
   positionDisplayName: string;
-  hasAdminRights: boolean;
   permissions: PositionNotificationPermission[];
   accounts: PositionNotificationAccount[];
 };
