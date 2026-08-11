@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import { ProtectedAccountMutationError } from "../domain/adminAccountProtection.js";
+import { ProtectedPositionMutationError } from "../domain/adminPositionProtection.js";
 import { boardAssignmentOverdueLoginDeliveryKey } from "../domain/notificationSettings.js";
 import {
   NotificationChannelUnavailableError,
@@ -12,6 +13,7 @@ import {
 const accountRow = {
   user_id: "general-director-user",
   display_name: "Фридман Е.М.",
+  login: "director",
   email: "director@example.com",
   max_user_id: null,
   is_admin_protected: 0,
@@ -30,9 +32,15 @@ test("notification settings repository expands missing rows from the server cata
       if (sql.includes("from user_notification_settings")) {
         return [[{
           notification_type: "board_assignments",
-          admin_enabled: 1,
           email_enabled: 1,
           max_enabled: 0,
+        }], []];
+      }
+      if (sql.includes("from position_notification_permissions")) {
+        return [[{
+          position_code: "general_director",
+          notification_type: "board_assignments",
+          admin_enabled: 1,
         }], []];
       }
       throw new Error(`Unexpected SQL: ${sql}`);
@@ -66,26 +74,31 @@ test("notification settings repository expands missing rows from the server cata
   });
 });
 
-test("own notification channels require administrator permission and stored contacts", async () => {
-  const settingRows = [
-    { admin_enabled: 0 },
-    { admin_enabled: 1 },
+test("personal channels follow the permission of the account position", async () => {
+  const permissionRows = [
+    [] as unknown[],
+    [{ admin_enabled: 1 }],
   ];
-  let currentSetting = 0;
+  let currentPermission = 0;
+  const permissionQueries: unknown[][] = [];
   const connection = {
     async beginTransaction() {},
     async commit() {},
     async rollback() {},
     release() {},
-    async query(sql: string) {
+    async query(sql: string, parameters: unknown[] = []) {
       if (sql.includes("from app_users")) {
         return [[{ email: "director@example.com", max_user_id: null }], []];
       }
       if (sql.includes("from account_accesses protected_accesses")) {
         return [[], []];
       }
-      if (sql.includes("from user_notification_settings")) {
-        return [[settingRows[currentSetting]], []];
+      if (sql.includes("from account_accesses")) {
+        return [[{ position_code: "general_director" }], []];
+      }
+      if (sql.includes("from position_notification_permissions")) {
+        permissionQueries.push(parameters);
+        return [permissionRows[currentPermission], []];
       }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
@@ -107,7 +120,7 @@ test("own notification channels require administrator permission and stored cont
     NotificationPermissionDisabledError,
   );
 
-  currentSetting = 1;
+  currentPermission = 1;
   await assert.rejects(
     repository.setOwnChannels({
       userId: "general-director-user",
@@ -117,13 +130,22 @@ test("own notification channels require administrator permission and stored cont
     }),
     NotificationChannelUnavailableError,
   );
+
+  assert.deepEqual(permissionQueries, [
+    ["general_director", "board_assignments"],
+    ["general_director", "board_assignments"],
+  ]);
 });
 
-test("delivery recipients are server-filtered by account status, permission and selected channel", async () => {
+test("delivery recipients are server-filtered by account status, position permission and selected channel", async () => {
   const pool = {
     async query(sql: string, parameters: unknown[]) {
       assert.match(sql, /users\.status = 'active'/u);
-      assert.match(sql, /settings\.admin_enabled = 1/u);
+      assert.match(sql, /permissions\.admin_enabled = 1/u);
+      assert.match(
+        sql,
+        /join position_notification_permissions permissions\s+on permissions\.position_code = accesses\.position_code/u,
+      );
       assert.deepEqual(parameters, ["board_assignments"]);
       return [[
         {
@@ -165,27 +187,22 @@ test("delivery recipients are server-filtered by account status, permission and 
   );
 });
 
-test("administrative permission starts user channels disabled", async () => {
-  const writes: unknown[][] = [];
+test("position permission is stored once and resets personal channels of its accounts", async () => {
+  const writes: Array<{ sql: string; parameters: unknown[] }> = [];
   const connection = {
     async beginTransaction() {},
     async commit() {},
     async rollback() {},
     release() {},
     async query(sql: string, parameters: unknown[] = []) {
-      if (sql.includes("from app_users")) {
+      if (sql.includes("from account_positions positions")) {
         return [[{
-          email: "director@example.com",
-          max_user_id: "101",
+          id: "chief-accountant",
+          display_name: "Главный бухгалтер",
           is_admin_protected: 0,
         }], []];
       }
-      if (sql.includes("from account_accesses protected_accesses")) {
-        return [[], []];
-      }
-      assert.match(sql, /email_enabled = 0/u);
-      assert.match(sql, /max_enabled = 0/u);
-      writes.push(parameters);
+      writes.push({ sql: sql.replace(/\s+/g, " ").trim(), parameters });
       return [{ affectedRows: 1 }, []];
     },
   };
@@ -193,63 +210,121 @@ test("administrative permission starts user channels disabled", async () => {
     async getConnection() {
       return connection;
     },
+    async query(sql: string) {
+      if (sql.includes("from account_positions positions")) {
+        return [[{
+          id: "chief-accountant",
+          display_name: "Главный бухгалтер",
+          is_admin_protected: 0,
+        }], []];
+      }
+      if (sql.includes("from app_users users")) {
+        return [[], []];
+      }
+      if (sql.includes("from position_notification_permissions")) {
+        return [[{
+          position_code: "chief-accountant",
+          notification_type: "incidents",
+          admin_enabled: 1,
+        }], []];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
   } as unknown as DatabasePool;
-  const repository = createNotificationSettingsRepository(pool);
 
-  await repository.setAdminPermission({
-    userId: "general-director-user",
-    type: "board_assignments",
-    adminEnabled: true,
-    allowProtectedAccountMutation: false,
-  });
-  await repository.setAdminPermission({
-    userId: "general-director-user",
-    type: "board_assignments",
-    adminEnabled: false,
-    allowProtectedAccountMutation: false,
-  });
+  const updated = await createNotificationSettingsRepository(pool)
+    .setPositionPermission({
+      position: "chief-accountant",
+      type: "incidents",
+      adminEnabled: true,
+      allowProtectedPositionMutation: false,
+    });
 
-  assert.deepEqual(writes, [
-    ["general-director-user", "board_assignments", 1],
-    ["general-director-user", "board_assignments", 0],
-  ]);
+  assert.equal(updated?.positionDisplayName, "Главный бухгалтер");
+  assert.equal(
+    updated?.permissions.find(({ type }) => type === "incidents")?.adminEnabled,
+    true,
+  );
+  assert.equal(writes.length, 2);
+  assert.match(
+    writes[0]?.sql ?? "",
+    /insert into position_notification_permissions/u,
+  );
+  assert.deepEqual(writes[0]?.parameters, ["chief-accountant", "incidents", 1]);
+  assert.match(writes[1]?.sql ?? "", /update user_notification_settings/u);
+  assert.match(writes[1]?.sql ?? "", /email_enabled = 0, settings\.max_enabled = 0/u);
+  assert.deepEqual(writes[1]?.parameters, ["chief-accountant", "incidents"]);
 });
 
-test("administrative permission does not require notification contacts", async () => {
-  let writeCount = 0;
-  const connection = {
-    async beginTransaction() {},
-    async commit() {},
-    async rollback() {},
-    release() {},
+test("position notification list groups accounts and enabled types by position", async () => {
+  const pool = {
     async query(sql: string) {
-      if (sql.includes("from app_users")) {
+      if (sql.includes("from account_positions positions")) {
+        return [[
+          { id: "chief-accountant", display_name: "Главный бухгалтер", is_admin_protected: 0 },
+          { id: "delegated_administrator", display_name: "Делегированный администратор сайта", is_admin_protected: 1 },
+        ], []];
+      }
+      if (sql.includes("from app_users users")) {
+        return [[
+          {
+            position_code: "chief-accountant",
+            user_id: "accountant-user",
+            display_name: "Бухгалтер Один",
+            login: "accountant",
+            email: "accountant@example.com",
+            max_user_id: null,
+            is_admin_protected: 0,
+          },
+          {
+            position_code: "chief-accountant",
+            user_id: "accountant-user",
+            display_name: "Бухгалтер Один",
+            login: "accountant",
+            email: "accountant@example.com",
+            max_user_id: null,
+            is_admin_protected: 0,
+          },
+        ], []];
+      }
+      if (sql.includes("from position_notification_permissions")) {
         return [[{
-          email: "director@example.com",
-          max_user_id: null,
-          is_admin_protected: 0,
+          position_code: "chief-accountant",
+          notification_type: "incidents",
+          admin_enabled: 1,
         }], []];
       }
-      if (sql.includes("from account_accesses protected_accesses")) {
-        return [[], []];
-      }
-      writeCount += 1;
-      return [{ affectedRows: 1 }, []];
-    },
-  };
-  const pool = {
-    async getConnection() {
-      return connection;
+      throw new Error(`Unexpected SQL: ${sql}`);
     },
   } as unknown as DatabasePool;
 
-  await createNotificationSettingsRepository(pool).setAdminPermission({
-    userId: "general-director-user",
-    type: "board_assignments",
-    adminEnabled: true,
-    allowProtectedAccountMutation: false,
-  });
-  assert.equal(writeCount, 1);
+  const positions = await createNotificationSettingsRepository(pool)
+    .listPositions();
+
+  assert.deepEqual(positions.map(({ position }) => position), [
+    "chief-accountant",
+    "delegated_administrator",
+  ]);
+  assert.deepEqual(positions[0]?.accounts, [{
+    userId: "accountant-user",
+    displayName: "Бухгалтер Один",
+    login: "accountant",
+    isProtected: false,
+    email: "accountant@example.com",
+  }]);
+  assert.equal(positions[0]?.permissions.length, 10);
+  assert.equal(
+    positions[0]?.permissions.find(({ type }) => type === "incidents")
+      ?.adminEnabled,
+    true,
+  );
+  assert.equal(
+    positions[0]?.permissions.find(({ type }) => type === "visitors")
+      ?.adminEnabled,
+    false,
+  );
+  assert.equal(positions[1]?.hasAdminRights, true);
+  assert.deepEqual(positions[1]?.accounts, []);
 });
 
 test("removing a contact keeps administrator permission and disables only the missing channel", async () => {
@@ -297,16 +372,25 @@ test("removing a contact keeps administrator permission and disables only the mi
   ]);
 });
 
-test("administrative notification changes recheck protected accounts under lock", async () => {
+test("administrative notification changes recheck protected targets under lock", async () => {
   let writeCount = 0;
   const contactReads: string[] = [];
   const adminRightsReads: string[] = [];
+  const positionReads: string[] = [];
   const connection = {
     async beginTransaction() {},
     async commit() {},
     async rollback() {},
     release() {},
     async query(sql: string) {
+      if (sql.includes("from account_positions positions")) {
+        positionReads.push(sql.replace(/\s+/g, " ").trim());
+        return [[{
+          id: "delegated_administrator",
+          display_name: "Делегированный администратор сайта",
+          is_admin_protected: 1,
+        }], []];
+      }
       if (sql.includes("from app_users")) {
         contactReads.push(sql.replace(/\s+/g, " ").trim());
         return [[{
@@ -340,22 +424,27 @@ test("administrative notification changes recheck protected accounts under lock"
     ProtectedAccountMutationError,
   );
   await assert.rejects(
-    repository.setAdminPermission({
-      userId: "protected-user",
+    repository.setPositionPermission({
+      position: "delegated_administrator",
       type: "incidents",
       adminEnabled: true,
-      allowProtectedAccountMutation: false,
+      allowProtectedPositionMutation: false,
     }),
-    ProtectedAccountMutationError,
+    ProtectedPositionMutationError,
   );
   assert.equal(writeCount, 0);
-  assert.equal(contactReads.length, 2);
+  assert.equal(contactReads.length, 1);
   assert.equal(
-    adminRightsReads.length === 2 && adminRightsReads.every((sql) =>
+    adminRightsReads.length === 1 && adminRightsReads.every((sql) =>
       sql.includes("positions.is_admin_protected") &&
       sql.includes("protected_accesses.is_active = 1") &&
       sql.endsWith("for update")
     ),
+    true,
+  );
+  assert.equal(
+    positionReads.length === 1 &&
+      positionReads.every((sql) => sql.endsWith("limit 1 for update")),
     true,
   );
 });

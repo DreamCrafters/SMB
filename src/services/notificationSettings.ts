@@ -3,6 +3,9 @@ import {
   type LoginNotification,
   type NotificationSetting,
   type NotificationType,
+  type PositionNotificationAccount,
+  type PositionNotificationPermission,
+  type PositionNotificationSettings,
   type UserNotificationSettings,
 } from "../contracts/notificationSettings.js";
 import { notificationTones } from "../contracts/notifications.js";
@@ -18,7 +21,7 @@ export type OwnNotificationSettingsResult =
   | { status: "ready"; settings: UserNotificationSettings }
   | ErrorResult;
 export type AdminNotificationSettingsResult =
-  | { status: "ready"; users: UserNotificationSettings[] }
+  | { status: "ready"; positions: PositionNotificationSettings[] }
   | ErrorResult;
 export type LoginNotificationsResult =
   | { status: "ready"; notifications: LoginNotification[] }
@@ -41,31 +44,25 @@ export function updateOwnNotificationSetting(
   );
 }
 
-export async function requestAdminNotificationSettings(
+export function requestAdminNotificationSettings(
   options: RequestOptions = {},
-): Promise<AdminNotificationSettingsResult> {
-  const result = await requestJson(
+) {
+  return requestPositionSettings(
     "/api/admin/notification-settings",
     "GET",
     undefined,
     options,
   );
-
-  return result.ok && isRecord(result.payload) &&
-    Array.isArray(result.payload.users) &&
-    result.payload.users.every(isUserNotificationSettings)
-    ? { status: "ready", users: result.payload.users }
-    : { status: "error", message: result.message ?? "Сервер вернул журнал рассылок в неподдерживаемом формате." };
 }
 
 export function updateAdminNotificationPermission(
-  userId: string,
+  position: string,
   type: NotificationType,
   value: { adminEnabled: boolean },
   options: RequestOptions = {},
 ) {
-  return requestSettings(
-    `/api/admin/notification-settings/${encodeURIComponent(userId)}/${encodeURIComponent(type)}`,
+  return requestPositionSettings(
+    `/api/admin/notification-settings/positions/${encodeURIComponent(position)}/${encodeURIComponent(type)}`,
     "PATCH",
     value,
     options,
@@ -78,7 +75,7 @@ export function updateAdminNotificationContacts(
   maxUserId: string,
   options: RequestOptions = {},
 ) {
-  return requestSettings(
+  return requestPositionSettings(
     `/api/admin/notification-settings/${encodeURIComponent(userId)}/contacts`,
     "PATCH",
     { email, maxUserId },
@@ -115,6 +112,21 @@ async function requestSettings(
     isUserNotificationSettings(result.payload.settings)
     ? { status: "ready", settings: result.payload.settings }
     : { status: "error", message: result.message ?? "Сервер вернул настройки рассылок в неподдерживаемом формате." };
+}
+
+async function requestPositionSettings(
+  path: string,
+  method: "GET" | "PATCH",
+  body: unknown,
+  options: RequestOptions,
+): Promise<AdminNotificationSettingsResult> {
+  const result = await requestJson(path, method, body, options);
+
+  return result.ok && isRecord(result.payload) &&
+    Array.isArray(result.payload.positions) &&
+    result.payload.positions.every(isPositionNotificationSettings)
+    ? { status: "ready", positions: result.payload.positions }
+    : { status: "error", message: result.message ?? "Сервер вернул разрешения рассылок в неподдерживаемом формате." };
 }
 
 async function requestJson(
@@ -167,6 +179,41 @@ function isUserNotificationSettings(value: unknown): value is UserNotificationSe
     (value.maxUserId === undefined || typeof value.maxUserId === "string") &&
     Array.isArray(value.settings) &&
     value.settings.every(isNotificationSetting);
+}
+
+function isPositionNotificationSettings(
+  value: unknown,
+): value is PositionNotificationSettings {
+  return isRecord(value) &&
+    typeof value.position === "string" &&
+    typeof value.positionDisplayName === "string" &&
+    typeof value.hasAdminRights === "boolean" &&
+    Array.isArray(value.permissions) &&
+    value.permissions.every(isPositionNotificationPermission) &&
+    Array.isArray(value.accounts) &&
+    value.accounts.every(isPositionNotificationAccount);
+}
+
+function isPositionNotificationPermission(
+  value: unknown,
+): value is PositionNotificationPermission {
+  return isRecord(value) &&
+    typeof value.type === "string" &&
+    notificationTypes.includes(value.type as NotificationType) &&
+    typeof value.label === "string" &&
+    typeof value.adminEnabled === "boolean";
+}
+
+function isPositionNotificationAccount(
+  value: unknown,
+): value is PositionNotificationAccount {
+  return isRecord(value) &&
+    typeof value.userId === "string" &&
+    typeof value.displayName === "string" &&
+    typeof value.login === "string" &&
+    typeof value.isProtected === "boolean" &&
+    (value.email === undefined || typeof value.email === "string") &&
+    (value.maxUserId === undefined || typeof value.maxUserId === "string");
 }
 
 function isNotificationSetting(value: unknown): value is NotificationSetting {

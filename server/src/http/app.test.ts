@@ -10809,17 +10809,35 @@ test("notification settings API returns login reminders and persists server-owne
   };
   const ownUpdates: unknown[] = [];
   const adminUpdates: unknown[] = [];
+  const positionSettings = {
+    position: "general_director" as const,
+    positionDisplayName: "Генеральный директор",
+    hasAdminRights: false,
+    permissions: [{
+      type: setting.type,
+      label: setting.label,
+      adminEnabled: setting.adminEnabled,
+    }],
+    accounts: [{
+      userId: profile.userId,
+      displayName: profile.displayName,
+      login: "director",
+      isProtected: false,
+      email: "director@example.com",
+      maxUserId: "101",
+    }],
+  };
   let hasClaimedLoginDelivery = false;
   const notificationSettings: NotificationSettingsRepository = {
-    async listUsers() {
-      return [userSettings];
+    async listPositions() {
+      return [positionSettings];
     },
     async readUserSettings() {
       return userSettings;
     },
-    async setAdminPermission(input) {
+    async setPositionPermission(input) {
       adminUpdates.push(input);
-      return true;
+      return positionSettings;
     },
     async setOwnChannels(input) {
       ownUpdates.push(input);
@@ -11017,8 +11035,15 @@ test("notification settings API returns login reminders and persists server-owne
       { headers },
     );
     assert.equal(adminListResponse.status, 200);
+    const adminListPayload = await adminListResponse.json() as {
+      positions: Array<{ position: string }>;
+    };
+    assert.deepEqual(
+      adminListPayload.positions.map(({ position }) => position),
+      ["general_director"],
+    );
     const adminPatchResponse = await fetch(
-      `${baseUrl}/api/admin/notification-settings/${profile.userId}/board_assignments`,
+      `${baseUrl}/api/admin/notification-settings/positions/general_director/board_assignments`,
       {
         method: "PATCH",
         headers,
@@ -11027,13 +11052,23 @@ test("notification settings API returns login reminders and persists server-owne
     );
     assert.equal(adminPatchResponse.status, 200);
     assert.deepEqual(adminUpdates, [{
-      userId: profile.userId,
+      position: "general_director",
       type: "board_assignments",
       adminEnabled: true,
-      allowProtectedAccountMutation: false,
+      allowProtectedPositionMutation: false,
     }]);
+    const legacyUserPatchResponse = await fetch(
+      `${baseUrl}/api/admin/notification-settings/${profile.userId}/board_assignments`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ adminEnabled: true }),
+      },
+    );
+    assert.equal(legacyUserPatchResponse.status, 404);
+    assert.equal(adminUpdates.length, 1);
     assert.ok(auditDetailValues.includes("Поручения Совета директоров"));
-    assert.ok(auditDetailValues.includes(profile.displayName));
+    assert.ok(auditDetailValues.includes("Генеральный директор"));
     assert.ok(auditDetailValues.includes("Включён"));
     assert.equal(auditDetailValues.includes("board_assignments"), false);
     assert.equal(auditDetailValues.includes(profile.userId), false);

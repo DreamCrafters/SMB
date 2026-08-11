@@ -4338,6 +4338,18 @@ p {
   gap: var(--density-1);
 }
 
+.notification-admin-contacts-title {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--density-1);
+  margin: 0;
+}
+
+.notification-admin-contacts-title span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 @media (max-width: 900px) {
   .admin-accounts-tabs,
   .notification-admin-layout,

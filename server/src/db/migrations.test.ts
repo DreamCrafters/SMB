@@ -15,6 +15,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "056_position_admin_rights",
   "057_notification_permission_user_channels",
   "058_navigation_order",
+  "059_position_notification_permissions",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2445,6 +2446,75 @@ test("navigation order migration creates global storage and grants only the syst
   assert.match(statements[3] ?? "", /platform\.manage_navigation_order/u);
   assert.match(statements[4] ?? "", /update account_accesses accesses/u);
   assert.match(statements[5] ?? "", /delete sessions from auth_sessions/u);
+  assert.equal(statements[6], "insert into schema_migrations (id) values (?)");
+});
+
+test("position notification migration moves permissions from users to positions", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "059_position_notification_permissions" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 7);
+  assert.match(
+    statements[0] ?? "",
+    /create table if not exists position_notification_permissions/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /primary key \(position_code, notification_type\)/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /foreign key \(position_code\) references account_positions\(id\) on delete cascade/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /insert into position_notification_permissions/u,
+  );
+  assert.match(statements[1] ?? "", /where settings\.admin_enabled = 1/u);
+  assert.match(
+    statements[1] ?? "",
+    /group by accesses\.position_code, settings\.notification_type/u,
+  );
+  assert.match(
+    statements[2] ?? "",
+    /drop index idx_user_notification_delivery/u,
+  );
+  assert.match(
+    statements[3] ?? "",
+    /alter table user_notification_settings drop column admin_enabled/u,
+  );
+  assert.match(
+    statements[4] ?? "",
+    /add key idx_user_notification_delivery \( notification_type, email_enabled, max_enabled \)/u,
+  );
+  assert.match(statements[5] ?? "", /update user_notification_settings settings/u);
+  assert.match(statements[5] ?? "", /where permissions\.position_code is null/u);
   assert.equal(statements[6], "insert into schema_migrations (id) values (?)");
 });
 

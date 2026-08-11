@@ -19,28 +19,29 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("notification workspaces expose the List9 matrix and exact MAX onboarding", async () => {
+test("notification workspaces expose the position matrix and exact MAX onboarding", async () => {
   const workspace = await readFile(
     new URL("src/NotificationSettings.tsx", projectRoot),
     "utf8",
   );
   const styles = await readFile(new URL("src/styles.css", projectRoot), "utf8");
 
-  assert.match(workspace, />Администраторам</u);
+  assert.match(workspace, />Разрешено должности</u);
   assert.match(workspace, />Рассылка</u);
   assert.match(workspace, />Вкл\.<\/th>/u);
   assert.match(workspace, />емейл</u);
   assert.match(workspace, />Макс</u);
   assert.match(workspace, /<th scope="col">Должность<\/th>/u);
-  assert.match(workspace, /<th scope="col">Имя<\/th>/u);
+  assert.match(workspace, /<th scope="col">Аккаунтов<\/th>/u);
+  assert.equal(workspace.includes('<th scope="col">Имя</th>'), false);
   assert.match(workspace, /!setting\.adminEnabled/u);
   assert.match(workspace, /settings\.email === undefined/u);
   assert.match(workspace, /settings\.maxUserId === undefined/u);
-  assert.match(workspace, /selected\?\.isProtected === true/u);
-  assert.match(workspace, /!canManageProtectedAccounts/u);
+  assert.match(workspace, /selected\?\.hasAdminRights === true/u);
+  assert.match(workspace, /account\.isProtected &&\s*!canManageProtectedAccounts/u);
   assert.match(
     workspace,
-    /async function savePermission[\s\S]*?setStatus\(""\);[\s\S]*?setSavingKey\(key\)/u,
+    /async function savePermission[\s\S]*?setStatus\(""\);[\s\S]*?setSavingKey\(`\$\{selected\.position\}:\$\{type\}`\)/u,
   );
   assert.match(
     workspace,
@@ -59,7 +60,7 @@ test("notification workspaces expose the List9 matrix and exact MAX onboarding",
   );
 });
 
-test("administrator selects a notification user by the whole row and enables the setting", async () => {
+test("administrator selects a notification position by the whole row and enables the setting", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -75,20 +76,22 @@ test("administrator selects a notification user by the whole row and enables the
     server: { middlewareMode: true },
   });
   let savedChannels;
-  const user = {
-    userId: "director-user",
-    displayName: "Фридман Е.М.",
+  const position = {
     position: "general_director",
     positionDisplayName: "Генеральный директор",
-    isProtected: false,
-    email: "director@example.com",
-    maxUserId: "101",
-    settings: [{
+    hasAdminRights: false,
+    permissions: [{
       type: "board_assignments",
       label: "Поручения Совета директоров",
       adminEnabled: false,
-      emailEnabled: false,
-      maxEnabled: false,
+    }],
+    accounts: [{
+      userId: "director-user",
+      displayName: "Фридман Е.М.",
+      login: "director",
+      isProtected: false,
+      email: "director@example.com",
+      maxUserId: "101",
     }],
   };
 
@@ -97,22 +100,22 @@ test("administrator selects a notification user by the whole row and enables the
       const url = new URL(String(input), "http://127.0.0.1:5173/");
       const method = init.method ?? "GET";
       if (url.pathname === "/api/admin/notification-settings" && method === "GET") {
-        return jsonResponse({ users: [user] });
+        return jsonResponse({ positions: [position] });
       }
       if (
         url.pathname ===
-          "/api/admin/notification-settings/director-user/board_assignments" &&
+          "/api/admin/notification-settings/positions/general_director/board_assignments" &&
         method === "PATCH"
       ) {
         savedChannels = JSON.parse(String(init.body));
         return jsonResponse({
-          settings: {
-            ...user,
-            settings: [{
-              ...user.settings[0],
+          positions: [{
+            ...position,
+            permissions: [{
+              ...position.permissions[0],
               ...savedChannels,
             }],
-          },
+          }],
         });
       }
       throw new Error(`Unexpected request: ${method} ${url.pathname}`);
@@ -134,11 +137,15 @@ test("administrator selects a notification user by the whole row and enables the
       () => rootElement.querySelector(".notification-admin-user-table tbody tr") !== null,
     );
 
-    const userRow = rootElement.querySelector(
+    const positionRow = rootElement.querySelector(
       ".notification-admin-user-table tbody tr",
     );
-    assert.ok(userRow);
-    await React.act(async () => userRow.click());
+    assert.ok(positionRow);
+    assert.equal(
+      positionRow.textContent?.includes("Генеральный директор"),
+      true,
+    );
+    await React.act(async () => positionRow.click());
     await waitFor(
       React,
       () => rootElement.querySelector(".notification-admin-detail") !== null,
@@ -162,6 +169,12 @@ test("administrator selects a notification user by the whole row and enables the
     assert.deepEqual(savedChannels, {
       adminEnabled: true,
     });
+    await waitFor(React, () => permissionToggle.checked === true);
+    const contactInput = rootElement.querySelector(
+      ".notification-admin-contacts input[type=\"email\"]",
+    );
+    assert.ok(contactInput);
+    assert.equal(contactInput.value, "director@example.com");
 
     await React.act(async () => root.unmount());
   } finally {

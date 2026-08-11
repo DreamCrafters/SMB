@@ -73,20 +73,22 @@ test("delegated account manager cannot change protected account controls", async
       }
       if (url.pathname === "/api/admin/notification-settings" && method === "GET") {
         return jsonResponse({
-          users: [{
-            userId: account.userId,
-            displayName: account.userDisplayName,
+          positions: [{
             position: account.position,
             positionDisplayName: account.positionDisplayName,
-            isProtected: true,
-            email: "protected@example.com",
-            maxUserId: "101",
-            settings: [{
+            hasAdminRights: true,
+            permissions: [{
               type: "board_assignments",
               label: "Поручения Совета директоров",
               adminEnabled: true,
-              emailEnabled: true,
-              maxEnabled: true,
+            }],
+            accounts: [{
+              userId: account.userId,
+              displayName: account.userDisplayName,
+              login: account.login,
+              isProtected: true,
+              email: "protected@example.com",
+              maxUserId: "101",
             }],
           }],
         });

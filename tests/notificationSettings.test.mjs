@@ -31,13 +31,32 @@ const userSettings = {
   }],
 };
 
-test("notification service reads own and administrator settings", async () => {
+const positionSettings = {
+  position: "general_director",
+  positionDisplayName: "Генеральный директор",
+  hasAdminRights: false,
+  permissions: [{
+    type: "board_assignments",
+    label: "Поручения Совета директоров",
+    adminEnabled: true,
+  }],
+  accounts: [{
+    userId: "user-1",
+    displayName: "Фридман Е.М.",
+    login: "director",
+    isProtected: false,
+    email: "director@example.com",
+    maxUserId: "101",
+  }],
+};
+
+test("notification service reads own settings and administrator position permissions", async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
     return jsonResponse(calls.length === 1
       ? { settings: userSettings }
-      : { users: [userSettings] });
+      : { positions: [positionSettings] });
   };
 
   const own = await requestOwnNotificationSettings({ baseUrl: "http://api.test" });
@@ -45,17 +64,28 @@ test("notification service reads own and administrator settings", async () => {
 
   assert.equal(own.status, "ready");
   assert.equal(admin.status, "ready");
+  assert.deepEqual(admin.positions, [positionSettings]);
   assert.deepEqual(calls.map(({ url }) => url), [
     "http://api.test/api/notification-settings",
     "http://api.test/api/admin/notification-settings",
   ]);
 });
 
+test("notification service rejects an administrator payload keyed by users", async () => {
+  globalThis.fetch = async () => jsonResponse({ users: [userSettings] });
+
+  const admin = await requestAdminNotificationSettings();
+
+  assert.equal(admin.status, "error");
+});
+
 test("notification service writes only server-owned setting fields", async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
-    return jsonResponse({ settings: userSettings });
+    return jsonResponse(calls.length === 1
+      ? { settings: userSettings }
+      : { positions: [positionSettings] });
   };
 
   await updateOwnNotificationSetting("board_assignments", {
@@ -63,7 +93,7 @@ test("notification service writes only server-owned setting fields", async () =>
     maxEnabled: false,
   });
   await updateAdminNotificationPermission(
-    "user-1",
+    "general_director",
     "board_assignments",
     { adminEnabled: true },
   );
@@ -77,6 +107,10 @@ test("notification service writes only server-owned setting fields", async () =>
     { emailEnabled: true, maxEnabled: false },
     { adminEnabled: true },
     { email: "director@example.com", maxUserId: "101" },
+  ]);
+  assert.deepEqual(calls.slice(1).map(({ url }) => url), [
+    "/api/admin/notification-settings/positions/general_director/board_assignments",
+    "/api/admin/notification-settings/user-1/contacts",
   ]);
 });
 

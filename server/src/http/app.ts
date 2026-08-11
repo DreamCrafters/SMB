@@ -293,6 +293,7 @@ import {
   NotificationChannelUnavailableError,
   NotificationPermissionDisabledError,
   type NotificationSettingsRepository,
+  type PositionNotificationSettings,
 } from "../repositories/notificationSettingsRepository.js";
 import type { NavigationOrderRepository } from "../repositories/navigationOrderRepository.js";
 import {
@@ -1545,7 +1546,7 @@ async function handleNotificationSettingsRequest({
       });
       return;
     }
-    sendJson(res, 200, { users: await notificationSettings.listUsers() });
+    sendJson(res, 200, { positions: await notificationSettings.listPositions() });
     return;
   }
 
@@ -1637,13 +1638,13 @@ async function handleNotificationSettingsRequest({
       return;
     }
     sendJson(res, 200, {
-      settings: await notificationSettings.readUserSettings(userId),
+      positions: await notificationSettings.listPositions(),
     });
     return;
   }
 
   const adminSettingMatch =
-    /^\/api\/admin\/notification-settings\/([^/]+)\/([^/]+)$/u.exec(
+    /^\/api\/admin\/notification-settings\/positions\/([^/]+)\/([^/]+)$/u.exec(
       url.pathname,
     );
   if (adminSettingMatch !== null) {
@@ -1656,7 +1657,7 @@ async function handleNotificationSettingsRequest({
       });
       return;
     }
-    const userId = decodeURIComponent(adminSettingMatch[1] ?? "");
+    const position = decodeURIComponent(adminSettingMatch[1] ?? "");
     const type = decodeURIComponent(adminSettingMatch[2] ?? "");
     if (!isNotificationType(type)) {
       sendJson(res, 404, {
@@ -1673,67 +1674,60 @@ async function handleNotificationSettingsRequest({
       });
       return;
     }
-    const targetSettings = await notificationSettings.readUserSettings(userId);
-    if (targetSettings === undefined) {
-      sendJson(res, 404, {
-        error: { code: "not_found", message: "Учётная запись не найдена." },
-      });
-      return;
-    }
     const notificationLabel = readNotificationTypeLabel(type);
-    const allowProtectedAccountMutation = accounts !== undefined &&
+    const allowProtectedPositionMutation = accounts !== undefined &&
       await readCanAssignAdminNavigation({
         profile: access.profile,
         accounts,
         devAccessEnabled: config.devAccessEnabled,
       });
-    let updated: boolean;
+    let updated: PositionNotificationSettings | undefined;
     try {
       updated = await runAuditedMutation({
         transaction: databaseTransaction,
         audit,
-        mutate: () => notificationSettings.setAdminPermission({
-          userId,
+        mutate: () => notificationSettings.setPositionPermission({
+          position,
           type,
           ...validation.value,
-          allowProtectedAccountMutation,
+          allowProtectedPositionMutation,
         }),
-        buildEvent: (result) => result
-          ? {
+        buildEvent: (result) => result === undefined
+          ? undefined
+          : {
               actor: buildAuditActor(access.profile),
               category: "administration",
-              action: "admin.account_notification_permission_update",
-              summary: `Изменено разрешение рассылки для «${targetSettings.displayName}»`,
+              action: "admin.position_notification_permission_update",
+              summary: `Изменено разрешение рассылки для должности «${result.positionDisplayName}»`,
               details: [
-                { label: "Пользователь", value: targetSettings.displayName },
+                { label: "Должность", value: result.positionDisplayName },
                 { label: "Рассылка", value: notificationLabel },
                 {
-                  label: "Доступ пользователю",
+                  label: "Доступ должности",
                   value: validation.value.adminEnabled
                     ? "Включён"
                     : "Выключен",
                 },
               ],
-              targetType: "user_account",
-              targetId: userId,
-            }
-          : undefined,
+              targetType: "account_position",
+              targetId: position,
+            },
       });
     } catch (error) {
-      if (error instanceof ProtectedAccountMutationError) {
-        sendProtectedAccountMutationDenied(res);
+      if (error instanceof ProtectedPositionMutationError) {
+        sendProtectedPositionMutationDenied(res);
         return;
       }
       throw error;
     }
-    if (!updated) {
+    if (updated === undefined) {
       sendJson(res, 404, {
-        error: { code: "not_found", message: "Учётная запись не найдена." },
+        error: { code: "not_found", message: "Должность не найдена." },
       });
       return;
     }
     sendJson(res, 200, {
-      settings: await notificationSettings.readUserSettings(userId),
+      positions: await notificationSettings.listPositions(),
     });
     return;
   }

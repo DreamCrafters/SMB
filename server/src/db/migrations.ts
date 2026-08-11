@@ -3285,6 +3285,68 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "059_position_notification_permissions",
+    statements: [
+      `
+      create table if not exists position_notification_permissions (
+        position_code varchar(120) not null,
+        notification_type varchar(64) not null,
+        admin_enabled tinyint(1) not null default 0,
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        primary key (position_code, notification_type),
+        key idx_position_notification_permission (
+          notification_type,
+          admin_enabled
+        ),
+        constraint fk_position_notification_permissions_position
+          foreign key (position_code) references account_positions(id)
+          on delete cascade
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into position_notification_permissions (
+        position_code, notification_type, admin_enabled
+      )
+      select accesses.position_code, settings.notification_type, 1
+      from user_notification_settings settings
+      join account_accesses accesses
+        on accesses.user_id = settings.user_id and accesses.is_active = 1
+      join account_positions positions on positions.id = accesses.position_code
+      where settings.admin_enabled = 1
+      group by accesses.position_code, settings.notification_type
+      on duplicate key update admin_enabled = 1;
+      `,
+      `
+      alter table user_notification_settings
+        drop index idx_user_notification_delivery;
+      `,
+      `
+      alter table user_notification_settings drop column admin_enabled;
+      `,
+      `
+      alter table user_notification_settings
+        add key idx_user_notification_delivery (
+          notification_type,
+          email_enabled,
+          max_enabled
+        );
+      `,
+      `
+      update user_notification_settings settings
+      join account_accesses accesses
+        on accesses.user_id = settings.user_id and accesses.is_active = 1
+      left join position_notification_permissions permissions
+        on permissions.position_code = accesses.position_code
+        and permissions.notification_type = settings.notification_type
+        and permissions.admin_enabled = 1
+      set settings.email_enabled = 0, settings.max_enabled = 0
+      where permissions.position_code is null
+        and (settings.email_enabled = 1 or settings.max_enabled = 1);
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

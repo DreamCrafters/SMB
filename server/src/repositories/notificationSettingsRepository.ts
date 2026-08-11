@@ -5,6 +5,7 @@ import type {
 } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import { assertProtectedAccountMutationAllowed } from "../domain/adminAccountProtection.js";
+import { assertProtectedPositionMutationAllowed } from "../domain/adminPositionProtection.js";
 import {
   notificationTypes,
   type LoginNotificationDeliveryKey,
@@ -31,6 +32,29 @@ export type UserNotificationSettings = {
   settings: NotificationSetting[];
 };
 
+export type PositionNotificationPermission = {
+  type: NotificationType;
+  label: string;
+  adminEnabled: boolean;
+};
+
+export type PositionNotificationAccount = {
+  userId: string;
+  displayName: string;
+  login: string;
+  isProtected: boolean;
+  email?: string;
+  maxUserId?: string;
+};
+
+export type PositionNotificationSettings = {
+  position: AccountPosition;
+  positionDisplayName: string;
+  hasAdminRights: boolean;
+  permissions: PositionNotificationPermission[];
+  accounts: PositionNotificationAccount[];
+};
+
 export type NotificationDeliveryRecipient = {
   userId: string;
   position: AccountPosition;
@@ -39,16 +63,16 @@ export type NotificationDeliveryRecipient = {
 };
 
 export type NotificationSettingsRepository = {
-  listUsers: () => Promise<UserNotificationSettings[]>;
+  listPositions: () => Promise<PositionNotificationSettings[]>;
   readUserSettings: (
     userId: string,
   ) => Promise<UserNotificationSettings | undefined>;
-  setAdminPermission: (input: {
-    userId: string;
+  setPositionPermission: (input: {
+    position: AccountPosition;
     type: NotificationType;
     adminEnabled: boolean;
-    allowProtectedAccountMutation: boolean;
-  }) => Promise<boolean>;
+    allowProtectedPositionMutation: boolean;
+  }) => Promise<PositionNotificationSettings | undefined>;
   setOwnChannels: (input: {
     userId: string;
     type: NotificationType;
@@ -100,9 +124,34 @@ type UserRow = RowDataPacket & {
 
 type SettingRow = RowDataPacket & {
   notification_type: string;
-  admin_enabled: number | boolean;
   email_enabled: number | boolean;
   max_enabled: number | boolean;
+};
+
+type PositionRow = RowDataPacket & {
+  id: string;
+  display_name: string;
+  is_admin_protected: number | boolean;
+};
+
+type PositionAccountRow = RowDataPacket & {
+  position_code: string;
+  user_id: string;
+  display_name: string;
+  login: string;
+  email: string | null;
+  max_user_id: string | null;
+  is_admin_protected: number | boolean;
+};
+
+type PositionPermissionRow = RowDataPacket & {
+  position_code: string;
+  notification_type: string;
+  admin_enabled: number | boolean;
+};
+
+type UserPositionRow = RowDataPacket & {
+  position_code: string;
 };
 
 type ContactRow = RowDataPacket & {
@@ -118,6 +167,25 @@ type AdminRightsAccessRow = RowDataPacket & {
 type AdminPermissionRow = RowDataPacket & {
   admin_enabled: number | boolean;
 };
+
+const positionSelect = `
+  select positions.id, positions.display_name, positions.is_admin_protected
+  from account_positions positions
+`;
+
+const positionAccountSelect = `
+  select accesses.position_code, users.id as user_id, users.display_name,
+    users.login, users.email, users.max_user_id,
+    greatest(
+      users.is_admin_protected,
+      positions.is_admin_protected
+    ) as is_admin_protected
+  from app_users users
+  join account_accesses accesses
+    on accesses.user_id = users.id and accesses.is_active = 1
+  join account_positions positions on positions.id = accesses.position_code
+  where users.status <> 'archived'
+`;
 
 type DeliveryRecipientRow = RowDataPacket & {
   user_id: string;
@@ -155,15 +223,101 @@ const userSelect = `
 export function createNotificationSettingsRepository(
   pool: DatabasePool,
 ): NotificationSettingsRepository {
-  async function listUsers() {
-    const [rows] = await pool.query<UserRow[]>(`
-      ${userSelect}
-      order by positions.sort_order asc, users.display_name asc,
-        accesses.created_at desc, accesses.id desc
+  async function listPositions() {
+    const [positionRows] = await pool.query<PositionRow[]>(`
+      ${positionSelect}
+      order by positions.sort_order asc, positions.display_name asc
     `);
-    const users = dedupeUsers(rows);
+    const accountsByPosition = await readAccountsByPosition();
+    const permissionsByPosition = await readPermissionsByPosition();
 
-    return Promise.all(users.map((user) => readSettingsForUser(user)));
+    return positionRows.map((position) => buildPositionSettings(
+      position,
+      accountsByPosition.get(position.id) ?? [],
+      permissionsByPosition.get(position.id) ?? new Set<string>(),
+    ));
+  }
+
+  async function readPositionSettings(position: AccountPosition) {
+    const [positionRows] = await pool.query<PositionRow[]>(
+      `${positionSelect} where positions.id = ? limit 1`,
+      [position],
+    );
+    const stored = positionRows[0];
+    if (stored === undefined) {
+      return undefined;
+    }
+    const accountsByPosition = await readAccountsByPosition(position);
+    const permissionsByPosition = await readPermissionsByPosition(position);
+
+    return buildPositionSettings(
+      stored,
+      accountsByPosition.get(position) ?? [],
+      permissionsByPosition.get(position) ?? new Set<string>(),
+    );
+  }
+
+  async function readAccountsByPosition(position?: AccountPosition) {
+    const [rows] = await pool.query<PositionAccountRow[]>(`
+      ${positionAccountSelect}
+      ${position === undefined ? "" : "and accesses.position_code = ?"}
+      order by users.display_name asc, accesses.created_at desc, accesses.id desc
+    `, position === undefined ? [] : [position]);
+    const accountsByPosition = new Map<string, PositionNotificationAccount[]>();
+    const seenUsers = new Set<string>();
+
+    for (const row of rows) {
+      if (seenUsers.has(row.user_id)) continue;
+      seenUsers.add(row.user_id);
+      const accounts = accountsByPosition.get(row.position_code) ?? [];
+      accounts.push({
+        userId: row.user_id,
+        displayName: row.display_name,
+        login: row.login,
+        isProtected: readBoolean(row.is_admin_protected),
+        ...optionalContact("email", row.email),
+        ...optionalContact("maxUserId", row.max_user_id),
+      });
+      accountsByPosition.set(row.position_code, accounts);
+    }
+
+    return accountsByPosition;
+  }
+
+  async function readPermissionsByPosition(position?: AccountPosition) {
+    const [rows] = await pool.query<PositionPermissionRow[]>(`
+      select position_code, notification_type, admin_enabled
+      from position_notification_permissions
+      where admin_enabled = 1
+      ${position === undefined ? "" : "and position_code = ?"}
+    `, position === undefined ? [] : [position]);
+    const permissionsByPosition = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      const types = permissionsByPosition.get(row.position_code) ?? new Set<string>();
+      types.add(row.notification_type);
+      permissionsByPosition.set(row.position_code, types);
+    }
+
+    return permissionsByPosition;
+  }
+
+  function buildPositionSettings(
+    position: PositionRow,
+    accounts: PositionNotificationAccount[],
+    enabledTypes: ReadonlySet<string>,
+  ) {
+    return {
+      position: position.id,
+      positionDisplayName: position.display_name,
+      hasAdminRights: readBoolean(position.is_admin_protected),
+      permissions: notificationTypes.map(({ id, label }) => ({
+        type: id,
+        label,
+        adminEnabled: enabledTypes.has(id),
+      })),
+      accounts,
+    } satisfies PositionNotificationSettings;
   }
 
   async function readUserSettings(userId: string) {
@@ -179,13 +333,18 @@ export function createNotificationSettingsRepository(
 
   async function readSettingsForUser(user: UserRow) {
     const [rows] = await pool.query<SettingRow[]>(`
-      select notification_type, admin_enabled, email_enabled, max_enabled
+      select notification_type, email_enabled, max_enabled
       from user_notification_settings
       where user_id = ?
     `, [user.user_id]);
     const settingByType = new Map(
       rows.map((row) => [row.notification_type, row]),
     );
+    const permissionsByPosition = await readPermissionsByPosition(
+      user.position_code,
+    );
+    const enabledTypes = permissionsByPosition.get(user.position_code) ??
+      new Set<string>();
 
     return {
       userId: user.user_id,
@@ -201,7 +360,7 @@ export function createNotificationSettingsRepository(
         return {
           type: id,
           label,
-          adminEnabled: readBoolean(stored?.admin_enabled),
+          adminEnabled: enabledTypes.has(id),
           emailEnabled: readBoolean(stored?.email_enabled),
           maxEnabled: readBoolean(stored?.max_enabled),
         };
@@ -209,52 +368,58 @@ export function createNotificationSettingsRepository(
     } satisfies UserNotificationSettings;
   }
 
-  async function setAdminPermission({
-    userId,
+  async function setPositionPermission({
+    position,
     type,
     adminEnabled,
-    allowProtectedAccountMutation,
+    allowProtectedPositionMutation,
   }: {
-    userId: string;
+    position: AccountPosition;
     type: NotificationType;
     adminEnabled: boolean;
-    allowProtectedAccountMutation: boolean;
+    allowProtectedPositionMutation: boolean;
   }) {
     const connection = await pool.getConnection();
 
     try {
       await connection.beginTransaction();
-      const account = await readContactForUpdate(connection, userId);
-      if (account === undefined) {
+      const [rows] = await connection.query<PositionRow[]>(
+        `${positionSelect} where positions.id = ? limit 1 for update`,
+        [position],
+      );
+      const stored = rows[0];
+      if (stored === undefined) {
         await connection.rollback();
-        return false;
+        return undefined;
       }
-      assertProtectedAccountMutationAllowed({
-        isProtected: readBoolean(account.is_admin_protected),
-        allowProtected: allowProtectedAccountMutation,
+      assertProtectedPositionMutationAllowed({
+        isProtected: readBoolean(stored.is_admin_protected),
+        allowProtected: allowProtectedPositionMutation,
       });
       await connection.query(
-        `insert into user_notification_settings (
-          user_id, notification_type, admin_enabled, email_enabled, max_enabled
-        ) values (?, ?, ?, 0, 0)
-        on duplicate key update
-          admin_enabled = values(admin_enabled),
-          email_enabled = 0,
-          max_enabled = 0`,
-        [
-          userId,
-          type,
-          adminEnabled ? 1 : 0,
-        ],
+        `insert into position_notification_permissions (
+          position_code, notification_type, admin_enabled
+        ) values (?, ?, ?)
+        on duplicate key update admin_enabled = values(admin_enabled)`,
+        [position, type, adminEnabled ? 1 : 0],
+      );
+      await connection.query(
+        `update user_notification_settings settings
+         join account_accesses accesses
+           on accesses.user_id = settings.user_id and accesses.is_active = 1
+         set settings.email_enabled = 0, settings.max_enabled = 0
+         where accesses.position_code = ? and settings.notification_type = ?`,
+        [position, type],
       );
       await connection.commit();
-      return true;
     } catch (error) {
       await connection.rollback();
       throw error;
     } finally {
       connection.release();
     }
+
+    return readPositionSettings(position);
   }
 
   async function setOwnChannels({
@@ -273,7 +438,11 @@ export function createNotificationSettingsRepository(
     try {
       await connection.beginTransaction();
       const contact = await readContactForUpdate(connection, userId);
-      const permission = await readPermissionForUpdate(connection, userId, type);
+      const permission = await readPositionPermissionForUpdate(
+        connection,
+        userId,
+        type,
+      );
 
       if (!readBoolean(permission?.admin_enabled)) {
         throw new NotificationPermissionDisabledError();
@@ -287,8 +456,8 @@ export function createNotificationSettingsRepository(
 
       await connection.query(
         `insert into user_notification_settings (
-          user_id, notification_type, admin_enabled, email_enabled, max_enabled
-        ) values (?, ?, 1, ?, ?)
+          user_id, notification_type, email_enabled, max_enabled
+        ) values (?, ?, ?, ?)
         on duplicate key update
           email_enabled = values(email_enabled),
           max_enabled = values(max_enabled)`,
@@ -366,8 +535,11 @@ export function createNotificationSettingsRepository(
       join app_users users on users.id = settings.user_id
       join account_accesses accesses
         on accesses.user_id = users.id and accesses.is_active = 1
+      join position_notification_permissions permissions
+        on permissions.position_code = accesses.position_code
+        and permissions.notification_type = settings.notification_type
       where settings.notification_type = ?
-        and settings.admin_enabled = 1
+        and permissions.admin_enabled = 1
         and users.status = 'active'
         and (settings.email_enabled = 1 or settings.max_enabled = 1)`,
       [type],
@@ -404,9 +576,9 @@ export function createNotificationSettingsRepository(
   }
 
   return {
-    listUsers,
+    listPositions,
     readUserSettings,
-    setAdminPermission,
+    setPositionPermission,
     setOwnChannels,
     updateContacts,
     listDeliveryRecipients,
@@ -449,16 +621,27 @@ async function readContactForUpdate(
   };
 }
 
-async function readPermissionForUpdate(
+async function readPositionPermissionForUpdate(
   connection: PoolConnection,
   userId: string,
   type: NotificationType,
 ) {
+  const [positionRows] = await connection.query<UserPositionRow[]>(
+    `select position_code from account_accesses
+     where user_id = ? and is_active = 1
+     order by created_at desc, id desc
+     limit 1`,
+    [userId],
+  );
+  const position = positionRows[0]?.position_code;
+  if (position === undefined) {
+    return undefined;
+  }
   const [rows] = await connection.query<AdminPermissionRow[]>(
-    `select admin_enabled from user_notification_settings
-     where user_id = ? and notification_type = ?
+    `select admin_enabled from position_notification_permissions
+     where position_code = ? and notification_type = ?
      limit 1 for update`,
-    [userId, type],
+    [position, type],
   );
 
   return rows[0];
