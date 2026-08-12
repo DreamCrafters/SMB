@@ -11,8 +11,11 @@ const record = {
   recordDate: "2026-08-05",
   pressNumber: "3" as const,
   productBrand: "ШКУ-32",
+  pressDate: "2026-08-04",
   setter: "Иванов И.И.",
   pressOperator: "Петров П.П.",
+  loadingDate: "2026-08-05",
+  pieceCount: 480,
   wagonIds: ["wagon-2", "wagon-1"],
   lengthFirst: "230,5",
   lengthSecond: "231",
@@ -259,6 +262,8 @@ test("green product quality repository lists people from history and wagons from
             wagon_number: "В-02",
             loading_date: "2026-08-05",
             product_brand: "ШКИ-66",
+            press_date: "2026-08-04",
+            piece_count: 480,
             setter_name: "Сидоров С.С.",
             press_operator: "Кузнецов К.К.",
           },
@@ -267,6 +272,8 @@ test("green product quality repository lists people from history and wagons from
             wagon_number: "В-01",
             loading_date: "2026-08-04",
             product_brand: "ШКУ-32",
+            press_date: null,
+            piece_count: null,
             setter_name: null,
             press_operator: null,
           },
@@ -289,6 +296,8 @@ test("green product quality repository lists people from history and wagons from
         number: "В-02",
         loadingDate: "2026-08-05",
         productBrand: "ШКИ-66",
+        pressDate: "2026-08-04",
+        pieceCount: 480,
         setter: "Сидоров С.С.",
         pressOperator: "Кузнецов К.К.",
       },
@@ -297,6 +306,8 @@ test("green product quality repository lists people from history and wagons from
         number: "В-01",
         loadingDate: "2026-08-04",
         productBrand: "ШКУ-32",
+        pressDate: null,
+        pieceCount: null,
         setter: null,
         pressOperator: null,
       },
@@ -306,6 +317,8 @@ test("green product quality repository lists people from history and wagons from
   assert.match(queries[0] ?? "", /group by press_operator/u);
   assert.match(queries[0] ?? "", /order by option_type asc, last_used_at desc, value asc/u);
   assert.match(queries[1] ?? "", /order by loading_date desc, sequence_id desc/u);
+  // Вагон в ремонте не предлагается лаборанту для новой садки.
+  assert.match(queries[1] ?? "", /post_firing_condition is null or post_firing_condition <> \?/u);
 });
 
 test("green product quality repository corrects a stable row and stores wagon-aware revision snapshots", async () => {
@@ -422,8 +435,11 @@ function buildJournalRow() {
     record_date: record.recordDate,
     press_number: record.pressNumber,
     product_brand: record.productBrand,
+    press_date: record.pressDate,
     setter_name: record.setter,
     press_operator: record.pressOperator,
+    loading_date: record.loadingDate,
+    piece_count: record.pieceCount,
     length_first: record.lengthFirst,
     length_second: record.lengthSecond,
     width_first: record.widthFirst,

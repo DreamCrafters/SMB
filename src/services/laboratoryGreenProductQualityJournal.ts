@@ -193,6 +193,11 @@ function isJournalRecord(value: unknown): value is LaboratoryGreenProductQuality
           fieldValue as (typeof laboratoryGreenProductQualityPressNumberValues)[number],
         );
     }
+    // Поля вагона могут быть пустыми, если цех их ещё не заполнил.
+    if (field.kind === "optional_date") return isOptionalString(fieldValue);
+    if (field.kind === "optional_count") {
+      return fieldValue === null || typeof fieldValue === "number";
+    }
     return typeof fieldValue === "string";
   });
 }
@@ -211,6 +216,8 @@ function isAvailableWagon(
     typeof value.number === "string" &&
     isOptionalString(value.loadingDate) &&
     isOptionalString(value.productBrand) &&
+    isOptionalString(value.pressDate) &&
+    (value.pieceCount === null || typeof value.pieceCount === "number") &&
     isOptionalString(value.setter) &&
     isOptionalString(value.pressOperator);
 }

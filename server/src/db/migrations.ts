@@ -3361,6 +3361,39 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "061_refractory_wagon_inspections",
+    statements: [
+      `
+      create table if not exists refractory_wagon_inspections (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        wagon_id char(36) not null,
+        condition_value varchar(64) not null,
+        approval_date date not null,
+        sorting_date date null,
+        inspected_by_user_id varchar(120) not null,
+        inspected_by_account_id varchar(120) not null,
+        inspected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_refractory_wagon_inspections_id (id),
+        key idx_refractory_wagon_inspections_wagon (wagon_id, sequence_id),
+        constraint chk_refractory_wagon_inspection_condition
+          check (condition_value in ('Можно эксплуатировать', 'В ремонт')),
+        constraint fk_refractory_wagon_inspection_wagon
+          foreign key (wagon_id)
+          references refractory_wagons (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      alter table laboratory_green_product_quality_journal
+        add column press_date date null after product_brand,
+        add column loading_date date null after press_operator,
+        add column piece_count int unsigned null after loading_date;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

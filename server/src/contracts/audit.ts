@@ -29,6 +29,7 @@ export const auditEventActions = [
   "refractory_report.reject",
   "refractory_wagon.create",
   "refractory_wagon.correct",
+  "refractory_wagon.inspect",
   "laboratory_result.submit",
   "laboratory_bank.assign",
   "rotary_kiln_2_firing_record.submit",

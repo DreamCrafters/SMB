@@ -33,10 +33,6 @@ export function RefractoryWagonJournal({
   const [pieceCount, setPieceCount] = useState("");
   const [setter, setSetter] = useState("");
   const [pressOperator, setPressOperator] = useState("");
-  const [firingOperator, setFiringOperator] = useState("");
-  const [sorter, setSorter] = useState("");
-  const [postFiringCondition, setPostFiringCondition] = useState("");
-  const [serviceApprovalDate, setServiceApprovalDate] = useState("");
   const [message, setMessage] = useState("");
   const [hasError, setHasError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,12 +62,6 @@ export function RefractoryWagonJournal({
             : current);
           setPressOperator((current) => current === ""
             ? latestWagon?.pressOperator ?? ""
-            : current);
-          setFiringOperator((current) => current === ""
-            ? latestWagon?.firingOperator ?? ""
-            : current);
-          setSorter((current) => current === ""
-            ? latestWagon?.sorter ?? ""
             : current);
         }
         setLoadState("ready");
@@ -103,12 +93,6 @@ export function RefractoryWagonJournal({
       pieceCount: pieceCountText.length > 0 ? Number(pieceCountText) : null,
       setter: setter.trim() || null,
       pressOperator: pressOperator.trim() || null,
-      firingOperator: firingOperator.trim() || null,
-      sorter: sorter.trim() || null,
-      postFiringCondition: postFiringCondition.trim() || null,
-      serviceApprovalDate: serviceApprovalDate.length > 0
-        ? serviceApprovalDate
-        : null,
     };
     if (
       submission.number.length === 0 ||
@@ -163,10 +147,6 @@ export function RefractoryWagonJournal({
     setPieceCount(wagon.pieceCount === null ? "" : String(wagon.pieceCount));
     setSetter(wagon.setter ?? "");
     setPressOperator(wagon.pressOperator ?? "");
-    setFiringOperator(wagon.firingOperator ?? "");
-    setSorter(wagon.sorter ?? "");
-    setPostFiringCondition(wagon.postFiringCondition ?? "");
-    setServiceApprovalDate(wagon.serviceApprovalDate ?? "");
     setHasError(false);
     setMessage("");
   }
@@ -180,10 +160,6 @@ export function RefractoryWagonJournal({
     setPieceCount("");
     setSetter(latestWagon?.setter ?? "");
     setPressOperator(latestWagon?.pressOperator ?? "");
-    setFiringOperator(latestWagon?.firingOperator ?? "");
-    setSorter(latestWagon?.sorter ?? "");
-    setPostFiringCondition("");
-    setServiceApprovalDate("");
   }
 
   const setterOptions = collectWagonOptions(wagons, (wagon) => wagon.setter);
@@ -191,11 +167,6 @@ export function RefractoryWagonJournal({
     wagons,
     (wagon) => wagon.pressOperator,
   );
-  const firingOperatorOptions = collectWagonOptions(
-    wagons,
-    (wagon) => wagon.firingOperator,
-  );
-  const sorterOptions = collectWagonOptions(wagons, (wagon) => wagon.sorter);
 
   return (
     <section
@@ -283,48 +254,12 @@ export function RefractoryWagonJournal({
                   onChange={(event) => setPressOperator(event.currentTarget.value)}
                 />
               </label>
-              <label className="refractory-field">
-                <span>Обжигальщик</span>
-                <input
-                  list="refractory-wagon-firing-operator-options"
-                  maxLength={120}
-                  name="wagonFiringOperator"
-                  value={firingOperator}
-                  onChange={(event) =>
-                    setFiringOperator(event.currentTarget.value)}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Сортировщик</span>
-                <input
-                  list="refractory-wagon-sorter-options"
-                  maxLength={120}
-                  name="wagonSorter"
-                  value={sorter}
-                  onChange={(event) => setSorter(event.currentTarget.value)}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Состояние вагона после обжига</span>
-                <input
-                  maxLength={255}
-                  name="wagonPostFiringCondition"
-                  value={postFiringCondition}
-                  onChange={(event) =>
-                    setPostFiringCondition(event.currentTarget.value)}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Дата одобрения на продолжение эксплуатации</span>
-                <input
-                  name="wagonServiceApprovalDate"
-                  type="date"
-                  value={serviceApprovalDate}
-                  onChange={(event) =>
-                    setServiceApprovalDate(event.currentTarget.value)}
-                />
-              </label>
             </div>
+            <p className="laboratory-empty-note">
+              Обжигальщик, сортировщик и даты обжига и сортировки приходят из
+              подтверждённого отчёта печного отделения, а состояние вагона и
+              дата одобрения — из журнала осмотра вагонов.
+            </p>
           </fieldset>
           <div className="refractory-form-actions">
             <button className="primary-button" disabled={isSubmitting} type="submit">
@@ -416,14 +351,6 @@ export function RefractoryWagonJournal({
         {pressOperatorOptions.map((value) => (
           <option key={value} value={value} />
         ))}
-      </datalist>
-      <datalist id="refractory-wagon-firing-operator-options">
-        {firingOperatorOptions.map((value) => (
-          <option key={value} value={value} />
-        ))}
-      </datalist>
-      <datalist id="refractory-wagon-sorter-options">
-        {sorterOptions.map((value) => <option key={value} value={value} />)}
       </datalist>
     </section>
   );

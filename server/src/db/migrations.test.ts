@@ -17,6 +17,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "058_navigation_order",
   "059_position_notification_permissions",
   "060_refractory_wagon_turnover",
+  "061_refractory_wagon_inspections",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2558,6 +2559,56 @@ test("wagon turnover migration adds the new columns to legacy wagon rows", async
   );
   assert.match(statements[0] ?? "", /service_approval_date date null/u);
   assert.equal(statements[1], "insert into schema_migrations (id) values (?)");
+});
+
+test("wagon inspection migration stores verdicts and wagon fields of the lab journal", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "061_refractory_wagon_inspections" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 3);
+  assert.match(
+    statements[0] ?? "",
+    /create table if not exists refractory_wagon_inspections/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /check \(condition_value in \('Можно эксплуатировать', 'В ремонт'\)\)/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /foreign key \(wagon_id\) references refractory_wagons \(id\) on delete restrict/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /alter table laboratory_green_product_quality_journal/u,
+  );
+  assert.match(statements[1] ?? "", /press_date date null/u);
+  assert.match(statements[1] ?? "", /loading_date date null/u);
+  assert.match(statements[1] ?? "", /piece_count int unsigned null/u);
+  assert.equal(statements[2], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

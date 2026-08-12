@@ -33,9 +33,41 @@ test("green product quality submission normalizes the complete journal record", 
         productBrand: "ШКУ-32",
         setter: "Иванов И.И.",
         pressOperatorRecommendations: "Проверить давление прессования.",
+        // Поля вагона необязательны и приходят из журнала оборота вагонов.
+        pressDate: null,
+        loadingDate: null,
+        pieceCount: null,
       },
     },
   );
+});
+
+test("green product quality submission keeps the wagon fields nullable but typed", () => {
+  const validation = validateLaboratoryGreenProductQualitySubmission({
+    ...validSubmission,
+    pressDate: "2026-08-04",
+    loadingDate: "2026-08-05",
+    pieceCount: "480",
+  });
+
+  assert.equal(validation.ok, true);
+  if (!validation.ok) return;
+  assert.equal(validation.value.pressDate, "2026-08-04");
+  assert.equal(validation.value.loadingDate, "2026-08-05");
+  assert.equal(validation.value.pieceCount, 480);
+
+  const invalid = validateLaboratoryGreenProductQualitySubmission({
+    ...validSubmission,
+    pressDate: "04.08.2026",
+    pieceCount: "480 шт",
+  });
+
+  assert.equal(invalid.ok, false);
+  if (invalid.ok) return;
+  assert.deepEqual(invalid.errors, [
+    "Проверьте поле «Дата пресса».",
+    "Проверьте поле «Кол-во шт.».",
+  ]);
 });
 
 test("green product quality submission rejects unknown presses, duplicate wagons, and non-numeric measurements", () => {

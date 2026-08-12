@@ -23,6 +23,7 @@ import { createProductionPlansRepository } from "./repositories/productionPlansR
 import { createProductBrandsRepository } from "./repositories/productBrandsRepository.js";
 import { createRefractoryReportsRepository } from "./repositories/refractoryReportsRepository.js";
 import { createRefractoryWagonsRepository } from "./repositories/refractoryWagonsRepository.js";
+import { createRefractoryWagonInspectionsRepository } from "./repositories/refractoryWagonInspectionsRepository.js";
 import { createLaboratoryResultsRepository } from "./repositories/laboratoryResultsRepository.js";
 import { createLaboratoryBankAssignmentsRepository } from "./repositories/laboratoryBankAssignmentsRepository.js";
 import { createRotaryKiln2FiringJournalRepository } from "./repositories/rotaryKiln2FiringJournalRepository.js";
@@ -91,6 +92,7 @@ const server = createApiServer({
   productBrandJournal: productBrands,
   refractoryReports,
   refractoryWagons: createRefractoryWagonsRepository(pool),
+  refractoryWagonInspections: createRefractoryWagonInspectionsRepository(pool),
   laboratoryResults: createLaboratoryResultsRepository(pool),
   laboratoryBankAssignments: createLaboratoryBankAssignmentsRepository(pool),
   rotaryKiln2FiringJournal:

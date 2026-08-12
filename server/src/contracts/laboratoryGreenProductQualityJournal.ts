@@ -21,6 +21,8 @@ export type LaboratoryGreenProductQualityAvailableWagon =
   LaboratoryGreenProductQualityWagonOption & {
     loadingDate: string | null;
     productBrand: string | null;
+    pressDate: string | null;
+    pieceCount: number | null;
     setter: string | null;
     pressOperator: string | null;
   };
@@ -29,8 +31,11 @@ export type LaboratoryGreenProductQualitySubmission = {
   recordDate: string;
   pressNumber: LaboratoryGreenProductQualityPressNumber;
   productBrand: string;
+  pressDate: string | null;
   setter: string;
   pressOperator: string;
+  loadingDate: string | null;
+  pieceCount: number | null;
   wagonIds: string[];
   lengthFirst: string;
   lengthSecond: string;
@@ -74,8 +79,26 @@ export const laboratoryGreenProductQualityFields = [
   { id: "recordDate", label: "Дата", kind: "date", group: "general" },
   { id: "pressNumber", label: "№ пресса", kind: "press", group: "general" },
   { id: "productBrand", label: "Марка изделия", kind: "brand", group: "general" },
+  {
+    id: "pressDate",
+    label: "Дата пресса",
+    kind: "optional_date",
+    group: "general",
+  },
   { id: "setter", label: "Садчик", kind: "option", group: "general" },
   { id: "pressOperator", label: "Прессовщик", kind: "option", group: "general" },
+  {
+    id: "loadingDate",
+    label: "Дата садки",
+    kind: "optional_date",
+    group: "general",
+  },
+  {
+    id: "pieceCount",
+    label: "Кол-во шт.",
+    kind: "optional_count",
+    group: "general",
+  },
   { id: "wagonIds", label: "№№ вагонов", kind: "wagons", group: "general" },
   { id: "lengthFirst", label: "Длина 1", kind: "number", group: "dimensions" },
   { id: "lengthSecond", label: "Длина 2", kind: "number", group: "dimensions" },
@@ -100,6 +123,15 @@ export const laboratoryGreenProductQualityFields = [
 ] as const satisfies readonly {
   id: keyof LaboratoryGreenProductQualitySubmission;
   label: string;
-  kind: "brand" | "date" | "long_text" | "number" | "option" | "press" | "wagons";
+  kind:
+    | "brand"
+    | "date"
+    | "long_text"
+    | "number"
+    | "optional_count"
+    | "optional_date"
+    | "option"
+    | "press"
+    | "wagons";
   group: LaboratoryGreenProductQualityFieldGroup;
 }[];

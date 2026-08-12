@@ -19,6 +19,7 @@ import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
 import { useProductionBrands } from "./useProductionBrands";
 
+/** Форма держит все поля строками и приводит их к контракту при отправке. */
 type FormState = {
   [Field in keyof LaboratoryGreenProductQualitySubmission]:
     LaboratoryGreenProductQualitySubmission[Field] extends string[]
@@ -200,6 +201,18 @@ export function LaboratoryGreenProductQualityJournal({
             latestSelectedWagon?.pressOperator === undefined
           ? {}
           : { pressOperator: latestSelectedWagon.pressOperator }),
+        ...(latestSelectedWagon?.pressDate === null ||
+            latestSelectedWagon?.pressDate === undefined
+          ? {}
+          : { pressDate: latestSelectedWagon.pressDate }),
+        ...(latestSelectedWagon?.loadingDate === null ||
+            latestSelectedWagon?.loadingDate === undefined
+          ? {}
+          : { loadingDate: latestSelectedWagon.loadingDate }),
+        ...(latestSelectedWagon?.pieceCount === null ||
+            latestSelectedWagon?.pieceCount === undefined
+          ? {}
+          : { pieceCount: String(latestSelectedWagon.pieceCount) }),
       };
     });
     setWagonBrandError("");
@@ -256,8 +269,11 @@ export function LaboratoryGreenProductQualityJournal({
       recordDate: record.recordDate,
       pressNumber: record.pressNumber,
       productBrand: record.productBrand,
+      pressDate: record.pressDate ?? "",
       setter: record.setter,
       pressOperator: record.pressOperator,
+      loadingDate: record.loadingDate ?? "",
+      pieceCount: record.pieceCount === null ? "" : String(record.pieceCount),
       wagonIds: record.wagonIds,
       lengthFirst: record.lengthFirst,
       lengthSecond: record.lengthSecond,
@@ -341,6 +357,17 @@ export function LaboratoryGreenProductQualityJournal({
                 onChange={(value) => updateTextField("productBrand", value)}
               />
             </label>
+            <label>
+              <span>Дата пресса</span>
+              <input
+                type="date"
+                value={form.pressDate}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  updateTextField("pressDate", value);
+                }}
+              />
+            </label>
             {renderOptionField(
               "Садчик",
               "setter",
@@ -355,6 +382,31 @@ export function LaboratoryGreenProductQualityJournal({
               options.pressOperators,
               updateTextField,
             )}
+            <label>
+              <span>Дата садки</span>
+              <input
+                type="date"
+                value={form.loadingDate}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  updateTextField("loadingDate", value);
+                }}
+              />
+            </label>
+            <label>
+              <span>Кол-во шт.</span>
+              <input
+                inputMode="numeric"
+                min={0}
+                step={1}
+                type="number"
+                value={form.pieceCount}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  updateTextField("pieceCount", value);
+                }}
+              />
+            </label>
             <div className="laboratory-form-wide green-product-quality-wagons-field">
               <fieldset className="green-product-quality-wagons">
                 <legend>№№ вагонов</legend>
@@ -601,8 +653,11 @@ function createEmptyForm(): FormState {
     recordDate: "",
     pressNumber: "",
     productBrand: "",
+    pressDate: "",
     setter: "",
     pressOperator: "",
+    loadingDate: "",
+    pieceCount: "",
     wagonIds: [],
     lengthFirst: "",
     lengthSecond: "",
@@ -638,8 +693,16 @@ function buildSubmission(
     mechanicalStrength: form.mechanicalStrength.trim(),
     density: form.density.trim(),
     pressOperatorRecommendations: form.pressOperatorRecommendations.trim(),
+    // Поля вагона необязательны: у старых вагонов их могло не быть.
+    pressDate: form.pressDate === "" ? null : form.pressDate,
+    loadingDate: form.loadingDate === "" ? null : form.loadingDate,
+    pieceCount: form.pieceCount.trim() === ""
+      ? null
+      : Number(form.pieceCount.trim()),
   };
   if (
+    (normalized.pieceCount !== null &&
+      !Number.isInteger(normalized.pieceCount)) ||
     normalized.recordDate === "" ||
     normalized.productBrand === "" ||
     normalized.setter === "" ||

@@ -370,9 +370,14 @@ export function LaboratoryGreenProductQualityTable({
           {records.map((record) => (
             <tr key={record.id}>
               {laboratoryGreenProductQualityFields.map((field) => {
-                const value = field.id === "wagonIds"
+                const rawValue = field.id === "wagonIds"
                   ? record.wagons.map((wagon) => wagon.number).join("; ")
                   : record[field.id];
+                const value = rawValue === null
+                  ? "—"
+                  : field.kind === "optional_date"
+                    ? formatLaboratoryDate(String(rawValue))
+                    : rawValue;
                 return (
                   <td key={field.id}>
                     {field.id === "recordDate" && onEditRecord !== undefined

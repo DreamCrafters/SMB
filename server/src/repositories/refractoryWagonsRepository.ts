@@ -47,6 +47,9 @@ export type RefractoryWagonsRepository = {
     firingWagonIds: string[];
     sortingWagonIds: string[];
     wagonProductBrands: Record<string, string>;
+    /** Обжигальщик и сортировщик строки отчёта по каждому вагону. */
+    firingOperators: Record<string, string | null>;
+    sorters: Record<string, string | null>;
   }) => Promise<void>;
   update: (input: {
     id: string;
@@ -112,14 +115,10 @@ export function createRefractoryWagonsRepository(
             piece_count,
             setter_name,
             press_operator,
-            firing_operator,
-            sorter_name,
-            post_firing_condition,
-            service_approval_date,
             submitted_by_user_id,
             submitted_by_account_id,
             created_at
-          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             input.wagon.number,
@@ -129,10 +128,6 @@ export function createRefractoryWagonsRepository(
             input.wagon.pieceCount,
             input.wagon.setter,
             input.wagon.pressOperator,
-            input.wagon.firingOperator,
-            input.wagon.sorter,
-            input.wagon.postFiringCondition,
-            input.wagon.serviceApprovalDate,
             input.submittedByUserId,
             input.submittedByAccountId,
             createdAt,
@@ -149,8 +144,12 @@ export function createRefractoryWagonsRepository(
         id,
         ...input.wagon,
         rawControlDate: null,
+        firingOperator: null,
         firingDates: [],
+        sorter: null,
         sortingDate: null,
+        postFiringCondition: null,
+        serviceApprovalDate: null,
         createdAt,
       };
     },
@@ -266,6 +265,27 @@ export function createRefractoryWagonsRepository(
           input.sourceReportId,
         ]),
       );
+
+      // Обжигальщик и сортировщик приходят из той же строки отчёта, что и даты.
+      for (const wagonId of wagonIds) {
+        const firingOperator = input.firingOperators[wagonId];
+        const sorter = input.sorters[wagonId];
+        if (firingOperator === undefined && sorter === undefined) continue;
+        const assignments: string[] = [];
+        const parameters: unknown[] = [];
+        if (firingOperator !== undefined) {
+          assignments.push("firing_operator = ?");
+          parameters.push(firingOperator);
+        }
+        if (sorter !== undefined) {
+          assignments.push("sorter_name = ?");
+          parameters.push(sorter);
+        }
+        await pool.query(
+          `update refractory_wagons set ${assignments.join(", ")} where id = ?`,
+          [...parameters, wagonId],
+        );
+      }
     },
 
     async update(input) {
@@ -300,9 +320,7 @@ export function createRefractoryWagonsRepository(
         await pool.query(
           `update refractory_wagons
           set wagon_number = ?, loading_date = ?, product_brand = ?,
-            press_date = ?, piece_count = ?, setter_name = ?, press_operator = ?,
-            firing_operator = ?, sorter_name = ?, post_firing_condition = ?,
-            service_approval_date = ?
+            press_date = ?, piece_count = ?, setter_name = ?, press_operator = ?
           where id = ?`,
           [
             input.wagon.number,
@@ -312,10 +330,6 @@ export function createRefractoryWagonsRepository(
             input.wagon.pieceCount,
             input.wagon.setter,
             input.wagon.pressOperator,
-            input.wagon.firingOperator,
-            input.wagon.sorter,
-            input.wagon.postFiringCondition,
-            input.wagon.serviceApprovalDate,
             input.id,
           ],
         );

@@ -47,6 +47,8 @@ import { ProductBrandPicker } from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
 import type { ShowToast } from "./services/toastStack";
 import { useProductionBrands } from "./useProductionBrands";
+import { RefractoryWagonCatalog } from "./RefractoryWagonCatalog";
+import { RefractoryWagonInspectionJournal } from "./RefractoryWagonInspectionJournal";
 import { RefractoryWagonJournal } from "./RefractoryWagonJournal";
 
 const reportTypes: readonly RefractoryReportType[] = [
@@ -54,6 +56,15 @@ const reportTypes: readonly RefractoryReportType[] = [
   "equipment",
   "firing",
 ];
+
+/** Раздел `Вагоны` открывает три журнала одного жизненного цикла вагона. */
+const wagonJournals = [
+  { id: "catalog", label: "Каталог вагонов" },
+  { id: "turnover", label: "Оборот вагонов" },
+  { id: "inspection", label: "Осмотр вагонов" },
+] as const;
+
+type WagonJournalId = (typeof wagonJournals)[number]["id"];
 
 const reportStatusLabels = {
   pending: "Ожидает подтверждения",
@@ -83,7 +94,7 @@ export function RefractoryShopWorkspace({
     initialShift.shiftNumber,
   );
   const [activeType, setActiveType] = useState<RefractoryReportType>("cosh");
-  const [isWagonJournalOpen, setIsWagonJournalOpen] = useState(false);
+  const [wagonJournal, setWagonJournal] = useState<WagonJournalId>();
   const [reports, setReports] = useState<RefractoryReportRevision[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -318,13 +329,13 @@ export function RefractoryShopWorkspace({
                   ? ` Возвращено на доработку: ${returnedCount}.`
                   : ""
               }`}
-              className={!isWagonJournalOpen && reportType === activeType
+              className={wagonJournal === undefined && reportType === activeType
                 ? "is-active"
                 : undefined}
               type="button"
               key={reportType}
               onClick={() => {
-                setIsWagonJournalOpen(false);
+                setWagonJournal(undefined);
                 setActiveType(reportType);
                 setIsCorrectionMode(false);
                 setStatus("");
@@ -349,24 +360,53 @@ export function RefractoryShopWorkspace({
           );
         })}
         <button
-          aria-label="Оборот вагонов. Журнал огнеупорного цеха."
-          className={isWagonJournalOpen ? "is-active" : undefined}
+          aria-label="Вагоны. Журналы огнеупорного цеха."
+          className={wagonJournal === undefined ? undefined : "is-active"}
           type="button"
           onClick={() => {
-            setIsWagonJournalOpen(true);
+            setWagonJournal((current) => current ?? wagonJournals[0].id);
             setIsCorrectionMode(false);
             setStatus("");
             setHasError(false);
           }}
         >
           <span className="refractory-report-menu-heading">
-            <span className="refractory-report-label">Оборот вагонов</span>
+            <span className="refractory-report-label">Вагоны</span>
           </span>
-          <small>Журнал</small>
+          <small>Журналы</small>
         </button>
       </div>
 
-      {isWagonJournalOpen ? (
+      {wagonJournal === undefined ? null : (
+        <div
+          className="refractory-report-menu refractory-wagon-journal-menu"
+          aria-label="Журналы вагонов"
+        >
+          {wagonJournals.map((journal) => (
+            <button
+              className={journal.id === wagonJournal ? "is-active" : undefined}
+              key={journal.id}
+              type="button"
+              onClick={() => setWagonJournal(journal.id)}
+            >
+              <span className="refractory-report-menu-heading">
+                <span className="refractory-report-label">{journal.label}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {wagonJournal === "catalog" ? (
+        <RefractoryWagonCatalog isAdminPreviewMode={isAdminPreviewMode} />
+      ) : wagonJournal === "inspection" ? (
+        <RefractoryWagonInspectionJournal
+          defaultApprovalDate={reportDate}
+          isAdminPreviewMode={isAdminPreviewMode}
+          key={reportDate}
+          onShowToast={onShowToast}
+        />
+      ) : wagonJournal === "turnover" ? (
         <RefractoryWagonJournal
           brandLabels={brandLabels}
           defaultLoadingDate={reportDate}
@@ -1503,7 +1543,9 @@ function FiringForm({
               <tr>
                 <th>Марка изделия</th>
                 <th>Вагоны для обжига</th>
+                <th>Обжигальщик</th>
                 <th>Рассортированные вагоны</th>
+                <th>Сортировщик</th>
                 {firingColumns.map(([, label]) => (
                   <th key={label}>{label}</th>
                 ))}
@@ -1540,11 +1582,31 @@ function FiringForm({
                       />
                     </td>
                     <td>
+                      <input
+                        aria-label={`Обжигальщик, строка ${index + 1}`}
+                        data-refractory-label={`Обжигальщик, строка ${index + 1}`}
+                        list="refractory-firing-operator-options"
+                        maxLength={120}
+                        name={`firing.${index}.firingOperator`}
+                        defaultValue={row?.firingOperator ?? ""}
+                      />
+                    </td>
+                    <td>
                       <FiringWagonMultiSelect
                         ariaLabel={`Рассортированные вагоны, строка ${index + 1}`}
                         name={`firing.${index}.sortingWagons`}
                         options={wagonOptions}
                         saved={row?.sortingWagons}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Сортировщик, строка ${index + 1}`}
+                        data-refractory-label={`Сортировщик, строка ${index + 1}`}
+                        list="refractory-sorter-options"
+                        maxLength={120}
+                        name={`firing.${index}.sorter`}
+                        defaultValue={row?.sorter ?? ""}
                       />
                     </td>
                     {firingColumns.map(([field, label, kind]) => (
@@ -1588,6 +1650,8 @@ function FiringForm({
                 <th>ИТОГО:</th>
                 <td />
                 <td />
+                <td />
+                <td />
                 {firingColumns.map(([field, label]) => (
                   <td className="refractory-calculated" key={field}>
                     <output aria-label={`Итого: ${label}`}>
@@ -1600,6 +1664,14 @@ function FiringForm({
             </tfoot>
           </table>
         </div>
+        <datalist id="refractory-firing-operator-options">
+          {collectWagonCrewOptions(wagonOptions, (wagon) => wagon.firingOperator)
+            .map((value) => <option key={value} value={value} />)}
+        </datalist>
+        <datalist id="refractory-sorter-options">
+          {collectWagonCrewOptions(wagonOptions, (wagon) => wagon.sorter)
+            .map((value) => <option key={value} value={value} />)}
+        </datalist>
         {wagonLoadState === "loading" ? (
           <p className="form-status">Загружаем вагоны для отчёта.</p>
         ) : wagonLoadState === "error" ? (
@@ -2188,6 +2260,17 @@ function buildEquipmentPayload(data: FormData): RefractoryEquipmentPayload {
   return { formedRows, unformedRows };
 }
 
+/** Прошлые бригады подсказываются из уже сохранённых вагонов. */
+function collectWagonCrewOptions(
+  wagons: RefractoryWagonRecord[],
+  read: (wagon: RefractoryWagonRecord) => string | null,
+) {
+  return [...new Set(wagons.flatMap((wagon) => {
+    const value = read(wagon);
+    return value === null ? [] : [value];
+  }))].sort((first, second) => first.localeCompare(second, "ru"));
+}
+
 function buildFiringPayload(data: FormData): RefractoryFiringPayload {
   const rows = Array.from({ length: 50 }, (_, index) =>
     compact({
@@ -2196,10 +2279,12 @@ function buildFiringPayload(data: FormData): RefractoryFiringPayload {
         data,
         `firing.${index}.firingWagons`,
       ),
+      firingOperator: optionalText(data, `firing.${index}.firingOperator`),
       sortingWagons: optionalWagonReferences(
         data,
         `firing.${index}.sortingWagons`,
       ),
+      sorter: optionalText(data, `firing.${index}.sorter`),
       quantityPieces: first(
         optionalNumber(data, `firing.${index}.quantityPieces`),
       ),

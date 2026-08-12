@@ -11,6 +11,7 @@ export type LaboratoryGreenProductQualityValidation =
 const maxShortTextLength = 120;
 const maxRecommendationLength = 2_000;
 const maxWagonCount = 50;
+const maxPieceCount = 1_000_000;
 
 export function validateLaboratoryGreenProductQualitySubmission(
   input: unknown,
@@ -40,19 +41,23 @@ export function validateLaboratoryGreenProductQualitySubmission(
 
     const value = field.kind === "date"
       ? readCalendarDate(input[field.id])
-      : field.kind === "press"
-        ? readOption(
-            input[field.id],
-            laboratoryGreenProductQualityPressNumberValues,
-          )
-        : field.kind === "number"
-          ? readMeasurement(input[field.id])
-          : readText(
-              input[field.id],
-              field.kind === "long_text"
-                ? maxRecommendationLength
-                : maxShortTextLength,
-            );
+      : field.kind === "optional_date"
+        ? readNullableCalendarDate(input[field.id])
+        : field.kind === "optional_count"
+          ? readNullableCount(input[field.id])
+          : field.kind === "press"
+            ? readOption(
+                input[field.id],
+                laboratoryGreenProductQualityPressNumberValues,
+              )
+            : field.kind === "number"
+              ? readMeasurement(input[field.id])
+              : readText(
+                  input[field.id],
+                  field.kind === "long_text"
+                    ? maxRecommendationLength
+                    : maxShortTextLength,
+                );
 
     if (value === undefined) {
       errors.push(`Проверьте поле «${field.label}».`);
@@ -98,6 +103,26 @@ function readOption<const Value extends string>(
   return typeof value === "string" && allowed.includes(value as Value)
     ? value as Value
     : undefined;
+}
+
+/** Поля вагона могут быть пустыми: их заполняет огнеупорный цех при садке. */
+function readNullableCalendarDate(value: unknown) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string" && value.trim().length === 0) return null;
+  return readCalendarDate(value);
+}
+
+function readNullableCount(value: unknown) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    if (normalized.length === 0) return null;
+    return /^\d+$/u.test(normalized) && Number(normalized) <= maxPieceCount
+      ? Number(normalized)
+      : undefined;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value)) return undefined;
+  return value >= 0 && value <= maxPieceCount ? value : undefined;
 }
 
 function readCalendarDate(value: unknown) {

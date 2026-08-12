@@ -139,7 +139,9 @@ export type RefractoryCoshTotals = {
 export type RefractoryFiringRow = {
   productBrand: string;
   firingWagons?: RefractoryFiringWagonReference[];
+  firingOperator?: string;
   sortingWagons?: RefractoryFiringWagonReference[];
+  sorter?: string;
   quantityPieces?: number;
   palletCount?: number;
   goodTonsAverageWeight?: number;
@@ -1127,7 +1129,9 @@ function readFiringRow(
     unexpectedKeys(input, [
       "productBrand",
       "firingWagons",
+      "firingOperator",
       "sortingWagons",
+      "sorter",
       "note",
       ...numberFields,
     ]).length > 0
@@ -1154,6 +1158,9 @@ function readFiringRow(
     errors,
   );
   if (firingWagons !== undefined) row.firingWagons = firingWagons;
+  readOptionalText(input, row, "firingOperator", 120, index, errors, {
+    fieldPath: `firing.${index}.firingOperator`,
+  });
   const sortingWagons = readFiringWagonReferences(
     input.sortingWagons,
     index,
@@ -1162,6 +1169,9 @@ function readFiringRow(
     errors,
   );
   if (sortingWagons !== undefined) row.sortingWagons = sortingWagons;
+  readOptionalText(input, row, "sorter", 120, index, errors, {
+    fieldPath: `firing.${index}.sorter`,
+  });
 
   for (const field of numberFields) {
     readOptionalNumber(input, row, field, index, errors, {

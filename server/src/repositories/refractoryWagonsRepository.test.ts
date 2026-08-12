@@ -7,6 +7,16 @@ import {
   RefractoryWagonNumberAlreadyExistsError,
 } from "./refractoryWagonsRepository.js";
 
+const shopOwnedWagon = {
+  number: "В-17",
+  loadingDate: "2026-08-06",
+  productBrand: "ШКУ-32",
+  pressDate: "2026-08-05",
+  pieceCount: 480,
+  setter: "Иванов И.И.",
+  pressOperator: "Петров П.П.",
+};
+
 test("refractory wagon repository creates and lists server-owned wagon records", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const pool = {
@@ -25,7 +35,7 @@ test("refractory wagon repository creates and lists server-owned wagon records",
           raw_control_date: null,
           firing_operator: "Зайцев З.З.",
           sorter_name: "Орлова О.О.",
-          post_firing_condition: "Пригоден к эксплуатации",
+          post_firing_condition: "Можно эксплуатировать",
           service_approval_date: "2026-08-14",
           created_at: "2026-08-06T08:30:00.000Z",
         }], []];
@@ -50,39 +60,22 @@ test("refractory wagon repository creates and lists server-owned wagon records",
   });
 
   const created = await repository.create({
-    wagon: {
-      number: "В-17",
-      loadingDate: "2026-08-06",
-      productBrand: "ШКУ-32",
-      pressDate: "2026-08-05",
-      pieceCount: 480,
-      setter: "Иванов И.И.",
-      pressOperator: "Петров П.П.",
-      firingOperator: "Зайцев З.З.",
-      sorter: "Орлова О.О.",
-      postFiringCondition: "Пригоден к эксплуатации",
-      serviceApprovalDate: "2026-08-14",
-    },
+    wagon: shopOwnedWagon,
     submittedByUserId: "refractory-user",
     submittedByAccountId: "refractory-account",
   });
 
+  // Производные поля заполняются отчётом печного отделения и осмотром.
   assert.deepEqual(created, {
     id: "wagon-17",
-    number: "В-17",
-    loadingDate: "2026-08-06",
-    productBrand: "ШКУ-32",
-    pressDate: "2026-08-05",
-    pieceCount: 480,
-    setter: "Иванов И.И.",
-    pressOperator: "Петров П.П.",
+    ...shopOwnedWagon,
     rawControlDate: null,
-    firingOperator: "Зайцев З.З.",
+    firingOperator: null,
     firingDates: [],
-    sorter: "Орлова О.О.",
+    sorter: null,
     sortingDate: null,
-    postFiringCondition: "Пригоден к эксплуатации",
-    serviceApprovalDate: "2026-08-14",
+    postFiringCondition: null,
+    serviceApprovalDate: null,
     createdAt: "2026-08-06T08:30:00.000Z",
   });
   assert.match(queries[0]?.sql ?? "", /insert into refractory_wagons/u);
@@ -95,17 +88,16 @@ test("refractory wagon repository creates and lists server-owned wagon records",
     480,
     "Иванов И.И.",
     "Петров П.П.",
-    "Зайцев З.З.",
-    "Орлова О.О.",
-    "Пригоден к эксплуатации",
-    "2026-08-14",
     "refractory-user",
     "refractory-account",
     "2026-08-06T08:30:00.000Z",
   ]);
 
   assert.deepEqual(await repository.list(), [{
-    ...created,
+    id: "wagon-17",
+    ...shopOwnedWagon,
+    rawControlDate: null,
+    firingOperator: "Зайцев З.З.",
     firingDates: [
       "2026-08-07",
       "2026-08-08",
@@ -114,7 +106,11 @@ test("refractory wagon repository creates and lists server-owned wagon records",
       "2026-08-11",
       "2026-08-12",
     ],
+    sorter: "Орлова О.О.",
     sortingDate: "2026-08-12",
+    postFiringCondition: "Можно эксплуатировать",
+    serviceApprovalDate: "2026-08-14",
+    createdAt: "2026-08-06T08:30:00.000Z",
   }]);
   assert.match(queries[1]?.sql ?? "", /order by sequence_id desc/u);
   assert.match(queries[2]?.sql ?? "", /from refractory_wagon_lifecycle_events/u);
@@ -136,19 +132,7 @@ test("refractory wagon repository reports a duplicate wagon number", async () =>
 
   await assert.rejects(
     () => repository.create({
-      wagon: {
-        number: "В-17",
-        loadingDate: "2026-08-06",
-        productBrand: "ШКУ-32",
-        pressDate: null,
-        pieceCount: null,
-        setter: "Иванов И.И.",
-        pressOperator: "Петров П.П.",
-        firingOperator: null,
-        sorter: null,
-        postFiringCondition: null,
-        serviceApprovalDate: null,
-      },
+      wagon: { ...shopOwnedWagon, pressDate: null, pieceCount: null },
       submittedByUserId: "refractory-user",
       submittedByAccountId: "refractory-account",
     }),
@@ -172,7 +156,7 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
           setter_name: "Иванов И.И.",
           press_operator: "Петров П.П.",
           raw_control_date: "2026-08-07",
-          firing_operator: null,
+          firing_operator: "Зайцев З.З.",
           sorter_name: null,
           post_firing_condition: null,
           service_approval_date: null,
@@ -204,10 +188,6 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
       pieceCount: 512,
       setter: "Сидоров С.С.",
       pressOperator: "Кузнецов К.К.",
-      firingOperator: "Зайцев З.З.",
-      sorter: "Орлова О.О.",
-      postFiringCondition: "Требуется ремонт футеровки",
-      serviceApprovalDate: "2026-08-14",
     },
     correctedByUserId: "refractory-user",
     correctedByAccountId: "refractory-account",
@@ -215,7 +195,7 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
   });
 
   assert.equal(correction?.before.number, "В-17");
-  assert.equal(correction?.before.firingOperator, null);
+  // Исправление вагона не трогает производные поля обжига и осмотра.
   assert.deepEqual(correction?.record, {
     id: "wagon-17",
     number: "В-17А",
@@ -228,10 +208,10 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
     rawControlDate: "2026-08-07",
     firingOperator: "Зайцев З.З.",
     firingDates: ["2026-08-08"],
-    sorter: "Орлова О.О.",
+    sorter: null,
     sortingDate: "2026-08-11",
-    postFiringCondition: "Требуется ремонт футеровки",
-    serviceApprovalDate: "2026-08-14",
+    postFiringCondition: null,
+    serviceApprovalDate: null,
     createdAt: "2026-08-06T08:30:00.000Z",
   });
   assert.deepEqual(correction?.before.firingDates, ["2026-08-08"]);
@@ -244,10 +224,6 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
     512,
     "Сидоров С.С.",
     "Кузнецов К.К.",
-    "Зайцев З.З.",
-    "Орлова О.О.",
-    "Требуется ремонт футеровки",
-    "2026-08-14",
     "wagon-17",
   ]);
   assert.match(
@@ -292,6 +268,11 @@ test("refractory wagon repository replaces report-derived firing and sorting eve
       "wagon-17": "ША-22",
       "wagon-18": "ША-22",
     },
+    firingOperators: {
+      "wagon-17": "Зайцев З.З.",
+      "wagon-18": "Зайцев З.З.",
+    },
+    sorters: { "wagon-18": "Орлова О.О." },
   });
 
   assert.deepEqual(queries[0]?.parameters, ["wagon-17", "wagon-18"]);
@@ -303,6 +284,18 @@ test("refractory wagon repository replaces report-derived firing and sorting eve
     "firing", "2026-08-12", 2, "firing", 1, "wagon-18", "2026-08-12", "report-9",
     "firing", "2026-08-12", 2, "sorting", 0, "wagon-18", "2026-08-12", "report-9",
   ]);
+  // Обжигальщик и сортировщик строки отчёта переносятся в затронутые вагоны.
+  assert.match(queries[3]?.sql ?? "", /set firing_operator = \?/u);
+  assert.deepEqual(queries[3]?.parameters, ["Зайцев З.З.", "wagon-17"]);
+  assert.match(
+    queries[4]?.sql ?? "",
+    /set firing_operator = \?, sorter_name = \?/u,
+  );
+  assert.deepEqual(queries[4]?.parameters, [
+    "Зайцев З.З.",
+    "Орлова О.О.",
+    "wagon-18",
+  ]);
 
   await assert.rejects(
     () => repository.replaceReportLifecycle({
@@ -312,6 +305,8 @@ test("refractory wagon repository replaces report-derived firing and sorting eve
       firingWagonIds: ["wagon-17"],
       sortingWagonIds: [],
       wagonProductBrands: { "wagon-17": "Другая марка" },
+      firingOperators: {},
+      sorters: {},
     }),
     RefractoryWagonBrandMismatchError,
   );

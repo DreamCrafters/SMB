@@ -60,8 +60,11 @@ type JournalRow = RowDataPacket & {
   record_date: Date | string;
   press_number: LaboratoryGreenProductQualityPressNumber;
   product_brand: string;
+  press_date: Date | string | null;
   setter_name: string;
   press_operator: string;
+  loading_date: Date | string | null;
+  piece_count: number | string | null;
   length_first: string;
   length_second: string;
   width_first: string;
@@ -96,6 +99,8 @@ type ResolvedWagonRow = WagonRow & {
 type AvailableWagonRow = WagonRow & {
   loading_date: Date | string | null;
   product_brand: string | null;
+  press_date: Date | string | null;
+  piece_count: number | string | null;
   setter_name: string | null;
   press_operator: string | null;
 };
@@ -128,8 +133,11 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           record_date,
           press_number,
           product_brand,
+          press_date,
           setter_name,
           press_operator,
+          loading_date,
+          piece_count,
           length_first,
           length_second,
           width_first,
@@ -143,14 +151,17 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           record.recordDate,
           record.pressNumber,
           record.productBrand,
+          record.pressDate,
           record.setter,
           record.pressOperator,
+          record.loadingDate,
+          record.pieceCount,
           record.lengthFirst,
           record.lengthSecond,
           record.widthFirst,
@@ -228,8 +239,11 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           record_date,
           press_number,
           product_brand,
+          press_date,
           setter_name,
           press_operator,
+          loading_date,
+          piece_count,
           length_first,
           length_second,
           width_first,
@@ -280,16 +294,21 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         ) options
         order by option_type asc, last_used_at desc, value asc`,
       );
+      // Вагон в ремонте недоступен для новой садки, пока осмотр его не вернёт.
       const [wagonRows] = await pool.query<AvailableWagonRow[]>(
         `select
           id,
           wagon_number,
           loading_date,
           product_brand,
+          press_date,
+          piece_count,
           setter_name,
           press_operator
         from refractory_wagons
+        where post_firing_condition is null or post_firing_condition <> ?
         order by loading_date desc, sequence_id desc`,
+        ["В ремонт"],
       );
       return {
         setters: people
@@ -310,8 +329,11 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           record_date,
           press_number,
           product_brand,
+          press_date,
           setter_name,
           press_operator,
+          loading_date,
+          piece_count,
           length_first,
           length_second,
           width_first,
@@ -347,8 +369,11 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           record_date = ?,
           press_number = ?,
           product_brand = ?,
+          press_date = ?,
           setter_name = ?,
           press_operator = ?,
+          loading_date = ?,
+          piece_count = ?,
           length_first = ?,
           length_second = ?,
           width_first = ?,
@@ -364,8 +389,11 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           input.record.recordDate,
           input.record.pressNumber,
           input.record.productBrand,
+          input.record.pressDate,
           input.record.setter,
           input.record.pressOperator,
+          input.record.loadingDate,
+          input.record.pieceCount,
           input.record.lengthFirst,
           input.record.lengthSecond,
           input.record.widthFirst,
@@ -436,8 +464,11 @@ function toSnapshot(
     recordDate: record.recordDate,
     pressNumber: record.pressNumber,
     productBrand: record.productBrand,
+    pressDate: record.pressDate,
     setter: record.setter,
     pressOperator: record.pressOperator,
+    loadingDate: record.loadingDate,
+    pieceCount: record.pieceCount,
     wagonIds: record.wagonIds,
     wagons: record.wagons,
     lengthFirst: record.lengthFirst,
@@ -491,8 +522,11 @@ function mapJournalRow(
     recordDate: formatCalendarDate(row.record_date),
     pressNumber: row.press_number,
     productBrand: row.product_brand,
+    pressDate: formatOptionalCalendarDate(row.press_date),
     setter: row.setter_name,
     pressOperator: row.press_operator,
+    loadingDate: formatOptionalCalendarDate(row.loading_date),
+    pieceCount: readOptionalCount(row.piece_count),
     wagonIds: wagons.map((wagon) => wagon.id),
     wagons,
     lengthFirst: row.length_first,
@@ -521,6 +555,8 @@ function mapAvailableWagon(
       ? null
       : formatCalendarDate(row.loading_date),
     productBrand: row.product_brand,
+    pressDate: formatOptionalCalendarDate(row.press_date),
+    pieceCount: readOptionalCount(row.piece_count),
     setter: row.setter_name,
     pressOperator: row.press_operator,
   };
@@ -529,6 +565,16 @@ function mapAvailableWagon(
 function formatCalendarDate(value: Date | string) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value).slice(0, 10);
+}
+
+function formatOptionalCalendarDate(value: Date | string | null | undefined) {
+  return value === null || value === undefined ? null : formatCalendarDate(value);
+}
+
+function readOptionalCount(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function resolveWagons(

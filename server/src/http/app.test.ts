@@ -53,6 +53,10 @@ import {
   type RefractoryWagonsRepository,
 } from "../repositories/refractoryWagonsRepository.js";
 import type { RefractoryWagonRecord } from "../contracts/refractoryWagons.js";
+import {
+  RefractoryWagonInspectionNotAllowedError,
+  type RefractoryWagonInspectionsRepository,
+} from "../repositories/refractoryWagonInspectionsRepository.js";
 import type { LaboratoryResultsRepository } from "../repositories/laboratoryResultsRepository.js";
 import type { LaboratoryBankAssignmentsRepository } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
@@ -2225,8 +2229,11 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
     recordDate: "2026-08-05",
     pressNumber: "3",
     productBrand: "ШКУ-32",
+    pressDate: "2026-08-04",
     setter: "Иванов И.И.",
     pressOperator: "Петров П.П.",
+    loadingDate: "2026-08-05",
+    pieceCount: 480,
     wagonIds: ["wagon-2", "wagon-1"],
     lengthFirst: "230,5",
     lengthSecond: "231",
@@ -2247,6 +2254,8 @@ test("green product quality journal canonicalizes brands, saves wagon links, cor
     ...wagon,
     loadingDate: `2026-08-0${5 - index}`,
     productBrand: "ШКУ-32",
+    pressDate: `2026-08-0${4 - index}`,
+    pieceCount: 480,
     setter: "Иванов И.И.",
     pressOperator: "Петров П.П.",
   }));
@@ -2506,8 +2515,12 @@ test("refractory wagon journal creates real wagon options for green product qual
         id: "wagon-17",
         ...input.wagon,
         rawControlDate: null,
+        firingOperator: null,
         firingDates: [],
+        sorter: null,
         sortingDate: null,
+        postFiringCondition: null,
+        serviceApprovalDate: null,
         createdAt: "2026-08-06T08:30:00.000Z",
       };
     },
@@ -2567,10 +2580,6 @@ test("refractory wagon journal creates real wagon options for green product qual
           pieceCount: " 512 ",
           setter: " Сидоров С.С. ",
           pressOperator: " Кузнецов К.К. ",
-          firingOperator: " Зайцев З.З. ",
-          sorter: " Орлова О.О. ",
-          postFiringCondition: " Пригоден к эксплуатации ",
-          serviceApprovalDate: "2026-08-14",
         }),
       });
       const correctionResponse = await fetch(
@@ -2586,10 +2595,6 @@ test("refractory wagon journal creates real wagon options for green product qual
             pieceCount: null,
             setter: " Иванов И.И. ",
             pressOperator: " Петров П.П. ",
-            firingOperator: " Зайцев З.З. ",
-            sorter: null,
-            postFiringCondition: null,
-            serviceApprovalDate: null,
           }),
         },
       );
@@ -2615,13 +2620,6 @@ test("refractory wagon journal creates real wagon options for green product qual
       assert.equal(savedInput?.wagon.pieceCount, 512);
       assert.equal(savedInput?.wagon.setter, "Сидоров С.С.");
       assert.equal(savedInput?.wagon.pressOperator, "Кузнецов К.К.");
-      assert.equal(savedInput?.wagon.firingOperator, "Зайцев З.З.");
-      assert.equal(savedInput?.wagon.sorter, "Орлова О.О.");
-      assert.equal(
-        savedInput?.wagon.postFiringCondition,
-        "Пригоден к эксплуатации",
-      );
-      assert.equal(savedInput?.wagon.serviceApprovalDate, "2026-08-14");
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(
         savedInput?.submittedByAccountId,
@@ -2640,13 +2638,6 @@ test("refractory wagon journal creates real wagon options for green product qual
         { label: "Кол-во шт.", value: "512" },
         { label: "Садчик", value: "Сидоров С.С." },
         { label: "Прессовщик", value: "Кузнецов К.К." },
-        { label: "Обжигальщик", value: "Зайцев З.З." },
-        { label: "Сортировщик", value: "Орлова О.О." },
-        {
-          label: "Состояние вагона после обжига",
-          value: "Пригоден к эксплуатации",
-        },
-        { label: "Дата одобрения на продолжение эксплуатации", value: "2026-08-14" },
       ]);
       assert.equal(auditEvents[1]?.action, "refractory_wagon.correct");
       assert.deepEqual(auditEvents[1]?.details, [
@@ -2657,10 +2648,6 @@ test("refractory wagon journal creates real wagon options for green product qual
         { label: "Кол-во шт.", value: "480 → —" },
         { label: "Садчик", value: "Иванов И.И. → Иванов И.И." },
         { label: "Прессовщик", value: "Петров П.П. → Петров П.П." },
-        { label: "Обжигальщик", value: "— → Зайцев З.З." },
-        { label: "Сортировщик", value: "— → —" },
-        { label: "Состояние вагона после обжига", value: "— → —" },
-        { label: "Дата одобрения на продолжение эксплуатации", value: "— → —" },
       ]);
     },
     dispatcherSubmissions,
@@ -2689,6 +2676,137 @@ test("refractory wagon journal creates real wagon options for green product qual
     undefined,
     undefined,
     refractoryWagons,
+  );
+});
+
+test("wagon inspection endpoint writes the verdict with an audit event", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.activeAccess.capabilities = ["business.submit_refractory_reports"];
+  profile.activeAccess.navigationItems = ["business.refractory_shop"];
+  const inspectionRecord = {
+    id: "inspection-1",
+    wagonId: "wagon-16",
+    wagonNumber: "В-16",
+    sortingDate: "2026-08-11",
+    condition: "Можно эксплуатировать" as const,
+    approvalDate: "2026-08-12",
+    inspectedByDisplayName: profile.displayName,
+    createdAt: "2026-08-12T09:00:00.000Z",
+  };
+  let savedInput:
+    | Parameters<RefractoryWagonInspectionsRepository["create"]>[0]
+    | undefined;
+  const refractoryWagonInspections: RefractoryWagonInspectionsRepository = {
+    async list() {
+      return [inspectionRecord];
+    },
+    async create(input) {
+      savedInput = input;
+      if (input.inspection.wagonId === "missing-wagon") return undefined;
+      if (input.inspection.wagonId === "approved-wagon") {
+        throw new RefractoryWagonInspectionNotAllowedError();
+      }
+      return { ...inspectionRecord, condition: input.inspection.condition };
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const audit: AuditRepository = {
+    async record(event) {
+      auditEvents.push(event);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: "smb_session=prod-session",
+  };
+  const inspect = (baseUrl: string, wagonId: string) =>
+    fetch(`${baseUrl}/api/refractory-wagon-inspections`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        wagonId,
+        condition: "Можно эксплуатировать",
+        approvalDate: "2026-08-12",
+      }),
+    });
+
+  await withApiServer(
+    async (baseUrl) => {
+      const listResponse = await fetch(
+        `${baseUrl}/api/refractory-wagon-inspections`,
+        { headers },
+      );
+      const createResponse = await inspect(baseUrl, "wagon-16");
+      const missingResponse = await inspect(baseUrl, "missing-wagon");
+      const notAwaitingResponse = await inspect(baseUrl, "approved-wagon");
+      const invalidResponse = await fetch(
+        `${baseUrl}/api/refractory-wagon-inspections`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            wagonId: "wagon-16",
+            condition: "Требуется ремонт футеровки",
+            approvalDate: "2026-08-12",
+          }),
+        },
+      );
+
+      assert.equal(listResponse.status, 200);
+      assert.deepEqual(await listResponse.json(), {
+        inspections: [inspectionRecord],
+      });
+      assert.equal(createResponse.status, 201);
+      assert.equal(missingResponse.status, 404);
+      assert.equal(notAwaitingResponse.status, 409);
+      assert.equal(invalidResponse.status, 400);
+      assert.equal(savedInput?.inspectedByUserId, profile.userId);
+      assert.equal(savedInput?.inspectedByDisplayName, profile.displayName);
+      assert.equal(auditEvents.length, 1);
+      assert.equal(auditEvents[0]?.action, "refractory_wagon.inspect");
+      assert.deepEqual(auditEvents[0]?.details, [
+        { label: "№ вагона", value: "В-16" },
+        { label: "Дата сортировки", value: "2026-08-11" },
+        {
+          label: "Состояние вагона после обжига",
+          value: "Можно эксплуатировать",
+        },
+        {
+          label: "Дата одобрения на продолжение эксплуатации",
+          value: "2026-08-12",
+        },
+      ]);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    audit,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    refractoryWagonInspections,
   );
 });
 
@@ -9967,6 +10085,8 @@ test("refractory reports are submitted and reviewed independently through protec
         firingWagonIds: ["wagon-17"],
         sortingWagonIds: ["wagon-17"],
         wagonProductBrands: { "wagon-17": "ША" },
+        firingOperators: { "wagon-17": null },
+        sorters: { "wagon-17": null },
       });
       assert.equal(refractoryEmailAttemptCount, 1);
       assert.equal(emailedRefractoryReportId, "refractory-1");
@@ -11181,6 +11301,7 @@ async function withApiServer(
   laboratoryGreenProductQualityJournal?:
     LaboratoryGreenProductQualityJournalRepository,
   refractoryWagons?: RefractoryWagonsRepository,
+  refractoryWagonInspections?: RefractoryWagonInspectionsRepository,
 ) {
   const directTransaction: DatabaseTransactionRunner = {
     async run(operation) {
@@ -11215,6 +11336,7 @@ async function withApiServer(
     laboratoryRawMaterialQualityJournal,
     laboratoryGreenProductQualityJournal,
     refractoryWagons,
+    refractoryWagonInspections,
     bankVolumeReferenceDataSource,
     audit: audit ?? fallbackAudit,
     databaseTransaction: databaseTransaction ?? directTransaction,

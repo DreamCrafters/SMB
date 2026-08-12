@@ -228,8 +228,11 @@ test("laboratory review filters every journal by date and nomenclature", async (
             recordDate: "2026-07-25",
             pressNumber: "3",
             productBrand: "ШКИ-66",
+            pressDate: "2026-07-24",
             setter: "Иванов И.И.",
             pressOperator: "Петров П.П.",
+            loadingDate: "2026-07-25",
+            pieceCount: 480,
             wagonIds: ["wagon-1", "wagon-2"],
             wagons: [
               { id: "wagon-1", number: "В-01" },

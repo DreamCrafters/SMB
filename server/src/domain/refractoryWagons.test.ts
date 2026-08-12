@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateRefractoryWagonSubmission } from "./refractoryWagons.js";
+import {
+  validateRefractoryWagonInspectionSubmission,
+  validateRefractoryWagonSubmission,
+} from "./refractoryWagons.js";
 
-test("refractory wagon submission normalizes the wagon turnover fields", () => {
+test("refractory wagon submission normalizes the fields entered by the shop", () => {
   assert.deepEqual(
     validateRefractoryWagonSubmission({
       number: "  В-17  ",
@@ -12,10 +15,6 @@ test("refractory wagon submission normalizes the wagon turnover fields", () => {
       pieceCount: " 480 ",
       setter: "  Иванов   И.И. ",
       pressOperator: " Петров П.П. ",
-      firingOperator: "  Зайцев   З.З. ",
-      sorter: " Орлова О.О. ",
-      postFiringCondition: "  Пригоден к  эксплуатации ",
-      serviceApprovalDate: "2026-08-14",
     }),
     {
       ok: true,
@@ -27,10 +26,6 @@ test("refractory wagon submission normalizes the wagon turnover fields", () => {
         pieceCount: 480,
         setter: "Иванов И.И.",
         pressOperator: "Петров П.П.",
-        firingOperator: "Зайцев З.З.",
-        sorter: "Орлова О.О.",
-        postFiringCondition: "Пригоден к эксплуатации",
-        serviceApprovalDate: "2026-08-14",
       },
     },
   );
@@ -45,11 +40,7 @@ test("refractory wagon submission rejects missing and invalid fields", () => {
       pressDate: "06.08.2026",
       pieceCount: "480 шт",
       setter: null,
-      pressOperator: "",
-      firingOperator: 17,
-      sorter: null,
-      postFiringCondition: null,
-      serviceApprovalDate: "2026-13-01",
+      pressOperator: 17,
     }),
     {
       ok: false,
@@ -59,8 +50,7 @@ test("refractory wagon submission rejects missing and invalid fields", () => {
         "Проверьте поле «Марка».",
         "Проверьте поле «Дата пресса».",
         "Проверьте поле «Кол-во шт.».",
-        "Проверьте поле «Обжигальщик».",
-        "Проверьте поле «Дата одобрения на продолжение эксплуатации».",
+        "Проверьте поле «Прессовщик».",
       ],
     },
   );
@@ -78,7 +68,7 @@ test("refractory wagon submission rejects a negative piece count", () => {
   );
 });
 
-test("refractory wagon submission keeps the turnover fields optional", () => {
+test("refractory wagon submission keeps the press and crew fields optional", () => {
   assert.deepEqual(
     validateRefractoryWagonSubmission({
       number: "В-17",
@@ -88,7 +78,6 @@ test("refractory wagon submission keeps the turnover fields optional", () => {
       pieceCount: " ",
       setter: " ",
       pressOperator: null,
-      serviceApprovalDate: null,
     }),
     {
       ok: true,
@@ -100,11 +89,40 @@ test("refractory wagon submission keeps the turnover fields optional", () => {
         pieceCount: null,
         setter: null,
         pressOperator: null,
-        firingOperator: null,
-        sorter: null,
-        postFiringCondition: null,
-        serviceApprovalDate: null,
       },
+    },
+  );
+});
+
+test("wagon inspection submission accepts only the two server-owned verdicts", () => {
+  assert.deepEqual(
+    validateRefractoryWagonInspectionSubmission({
+      wagonId: " wagon-17 ",
+      condition: "Можно эксплуатировать",
+      approvalDate: "2026-08-14",
+    }),
+    {
+      ok: true,
+      value: {
+        wagonId: "wagon-17",
+        condition: "Можно эксплуатировать",
+        approvalDate: "2026-08-14",
+      },
+    },
+  );
+  assert.deepEqual(
+    validateRefractoryWagonInspectionSubmission({
+      wagonId: "",
+      condition: "Требуется ремонт футеровки",
+      approvalDate: "14.08.2026",
+    }),
+    {
+      ok: false,
+      errors: [
+        "Выберите вагон для осмотра.",
+        "Проверьте поле «Состояние вагона после обжига».",
+        "Проверьте поле «Дата одобрения на продолжение эксплуатации».",
+      ],
     },
   );
 });

@@ -60,7 +60,10 @@ import {
 } from "../domain/productionPlan.js";
 import { validateProductBrandSubmission } from "../domain/productBrandJournal.js";
 import { productBrandFields } from "../contracts/productBrands.js";
-import { validateRefractoryWagonSubmission } from "../domain/refractoryWagons.js";
+import {
+  validateRefractoryWagonInspectionSubmission,
+  validateRefractoryWagonSubmission,
+} from "../domain/refractoryWagons.js";
 import type {
   RefractoryWagonRecord,
   RefractoryWagonSubmission,
@@ -288,6 +291,10 @@ import {
   type RefractoryWagonsRepository,
 } from "../repositories/refractoryWagonsRepository.js";
 import {
+  RefractoryWagonInspectionNotAllowedError,
+  type RefractoryWagonInspectionsRepository,
+} from "../repositories/refractoryWagonInspectionsRepository.js";
+import {
   BoardAssignmentChangedError,
   type BoardAssignmentFilters,
   type BoardAssignmentsRepository,
@@ -321,6 +328,7 @@ type AppDependencies = {
   productBrandJournal?: ProductBrandsRepository;
   refractoryReports?: RefractoryReportsRepository;
   refractoryWagons?: RefractoryWagonsRepository;
+  refractoryWagonInspections?: RefractoryWagonInspectionsRepository;
   laboratoryReferenceDataSource?: LaboratoryReferenceDataSource;
   laboratoryResults?: LaboratoryResultsRepository;
   laboratoryBankAssignments?: LaboratoryBankAssignmentsRepository;
@@ -418,6 +426,7 @@ export function createApiServer({
   productBrandJournal,
   refractoryReports,
   refractoryWagons,
+  refractoryWagonInspections,
   laboratoryReferenceDataSource = createGoogleSheetsLaboratoryReferenceDataSource(
     config.googleSheetsReference,
   ),
@@ -719,6 +728,20 @@ export function createApiServer({
           audit,
           databaseTransaction,
           now,
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/refractory-wagon-inspections") {
+        await handleRefractoryWagonInspectionsRequest({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          refractoryWagonInspections,
+          audit,
+          databaseTransaction,
         });
         return;
       }
@@ -5315,16 +5338,6 @@ function buildRefractoryWagonAuditDetails(
     { label: "Кол-во шт.", read: (wagon) => wagon.pieceCount },
     { label: "Садчик", read: (wagon) => wagon.setter },
     { label: "Прессовщик", read: (wagon) => wagon.pressOperator },
-    { label: "Обжигальщик", read: (wagon) => wagon.firingOperator },
-    { label: "Сортировщик", read: (wagon) => wagon.sorter },
-    {
-      label: "Состояние вагона после обжига",
-      read: (wagon) => wagon.postFiringCondition,
-    },
-    {
-      label: "Дата одобрения на продолжение эксплуатации",
-      read: (wagon) => wagon.serviceApprovalDate,
-    },
   ];
   return fields.map((field) => {
     const value = readRefractoryWagonAuditValue(field.read(record));
@@ -5339,6 +5352,135 @@ function buildRefractoryWagonAuditDetails(
 
 function readRefractoryWagonAuditValue(value: string | number | null) {
   return value === null ? "—" : String(value);
+}
+
+async function handleRefractoryWagonInspectionsRequest({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  refractoryWagonInspections,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  refractoryWagonInspections: RefractoryWagonInspectionsRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  const access = await requireAuthentication(req, res, {
+    config,
+    devSessions,
+    authService,
+  });
+  if (access === undefined) return;
+
+  if (
+    !hasProfileCapability(
+      access.profile,
+      "business.submit_refractory_reports",
+    )
+  ) {
+    sendJson(res, 403, {
+      error: {
+        code: "access_denied",
+        message: "Журнал осмотра вагонов доступен сотруднику огнеупорного цеха.",
+      },
+    });
+    return;
+  }
+  if (refractoryWagonInspections === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище журнала осмотра вагонов не настроено.",
+      },
+    });
+    return;
+  }
+
+  if (req.method === "GET") {
+    sendJson(res, 200, {
+      inspections: await refractoryWagonInspections.list(),
+    });
+    return;
+  }
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Для журнала осмотра вагонов используются GET и POST.",
+      },
+    });
+    return;
+  }
+
+  const validation = validateRefractoryWagonInspectionSubmission(
+    await readJsonBody(req),
+  );
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message: validation.errors.join(" "),
+      },
+    });
+    return;
+  }
+
+  try {
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => refractoryWagonInspections.create({
+        inspection: validation.value,
+        inspectedByUserId: access.profile.userId,
+        inspectedByAccountId: access.profile.activeAccess.accountId,
+        inspectedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (record) => record === undefined ? undefined : {
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "refractory_wagon.inspect",
+        summary: `Осмотрен вагон ${record.wagonNumber}`,
+        details: [
+          { label: "№ вагона", value: record.wagonNumber },
+          { label: "Дата сортировки", value: record.sortingDate ?? "—" },
+          { label: "Состояние вагона после обжига", value: record.condition },
+          {
+            label: "Дата одобрения на продолжение эксплуатации",
+            value: record.approvalDate,
+          },
+        ],
+        targetType: "refractory_wagon",
+        targetId: record.wagonId,
+      },
+    });
+    if (saved === undefined) {
+      sendJson(res, 404, {
+        error: { code: "not_found", message: "Вагон не найден." },
+      });
+      return;
+    }
+    sendJson(res, 201, { inspection: saved });
+  } catch (error) {
+    if (error instanceof RefractoryWagonInspectionNotAllowedError) {
+      sendJson(res, 409, {
+        error: {
+          code: "invalid_response",
+          message:
+            "Этот вагон сейчас не ждёт осмотра: он ещё не рассортирован или уже одобрен.",
+        },
+      });
+      return;
+    }
+    throw error;
+  }
 }
 
 async function resolveRefractoryWagonBrand({
@@ -5923,9 +6065,11 @@ function readRefractoryReportLifecycleWagonIds(
 ) {
   if (report.reportType !== "firing") {
     return {
-      firingWagonIds: [],
-      sortingWagonIds: [],
-      wagonProductBrands: {},
+      firingWagonIds: [] as string[],
+      sortingWagonIds: [] as string[],
+      wagonProductBrands: {} as Record<string, string>,
+      firingOperators: {} as Record<string, string | null>,
+      sorters: {} as Record<string, string | null>,
     };
   }
   const payload = report.payload as RefractoryFiringPayload;
@@ -5941,7 +6085,25 @@ function readRefractoryReportLifecycleWagonIds(
     sortingWagonIds: payload.rows.flatMap((row) =>
       (row.sortingWagons ?? []).map((wagon) => wagon.id)),
     wagonProductBrands,
+    firingOperators: readRefractoryReportCrew(payload, "firing"),
+    sorters: readRefractoryReportCrew(payload, "sorting"),
   };
+}
+
+/** Обжигальщик и сортировщик строки отчёта по каждому её вагону. */
+function readRefractoryReportCrew(
+  payload: RefractoryFiringPayload,
+  event: "firing" | "sorting",
+) {
+  return Object.fromEntries(
+    payload.rows.flatMap((row) => {
+      const wagons = event === "firing" ? row.firingWagons : row.sortingWagons;
+      const operator = event === "firing" ? row.firingOperator : row.sorter;
+      return (wagons ?? []).map((wagon) =>
+        [wagon.id, operator ?? null] as const
+      );
+    }),
+  );
 }
 
 async function canonicalizeRefractoryReportWagons(
@@ -11289,7 +11451,8 @@ function formatLaboratoryGreenProductQualityAuditValue(
   if (field === "wagonIds") {
     return record.wagons.map((wagon) => wagon.number).join("; ");
   }
-  return record[field];
+  const value = record[field];
+  return value === null ? "—" : String(value);
 }
 
 function sendLaboratoryGreenProductQualityWagonError(
