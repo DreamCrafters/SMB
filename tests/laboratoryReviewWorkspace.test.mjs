@@ -44,6 +44,8 @@ test("laboratory review filters every journal by date and nomenclature", async (
   const sampleRegistrationRequests = [];
   const chemicalAnalysisRequests = [];
   const unshapedProductSampleRequests = [];
+  const formedProductSampleRequests = [];
+  const verificationRequests = [];
   const kilnJournalRequests = [];
   const rawMaterialQualityRequests = [];
   const greenProductQualityRequests = [];
@@ -184,6 +186,31 @@ test("laboratory review filters every journal by date and nomenclature", async (
           }],
         });
       }
+      if (url.pathname === "/api/laboratory/formed-product-sample-journal") {
+        formedProductSampleRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "formed-sample-1",
+            sortingDate: "2026-07-24",
+            sampleCode: "26.19",
+            productBrand: "ШКИ-66",
+            createdAt: "2026-07-24T08:30:00.000Z",
+          }],
+        });
+      }
+      if (url.pathname === "/api/laboratory/verification-journal") {
+        verificationRequests.push(readJournalFilters(url));
+        return jsonResponse({
+          records: [{
+            id: "verification-1",
+            verificationDate: "2026-07-24",
+            productName: "ШКИ-66",
+            samplingLocation: "Склад сырья",
+            sampleCode: "26.19",
+            createdAt: "2026-07-24T08:30:00.000Z",
+          }],
+        });
+      }
       if (url.pathname === "/api/laboratory/raw-material-quality-journal") {
         rawMaterialQualityRequests.push(readJournalFilters(url));
         return jsonResponse({
@@ -290,6 +317,8 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "Журнал химических анализов",
       "Журнал контроля параметров обжига вращающейся печи 2",
       "Пробы неформованной продукции",
+      "Регистрация проб готовой формованной продукции (кирпича)",
+      "Верификации",
       "Журнал контроля качества сырья и соблюдения технологии",
       "Журнал контроля качества сырцовой продукции",
     ]);
@@ -322,6 +351,8 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.equal(sampleRegistrationRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(chemicalAnalysisRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(unshapedProductSampleRequests.at(-1)?.dateFrom, "2026-07-21");
+    assert.equal(formedProductSampleRequests.at(-1)?.dateFrom, "2026-07-21");
+    assert.equal(verificationRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(rawMaterialQualityRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(greenProductQualityRequests.at(-1)?.dateFrom, "2026-07-21");
 
@@ -344,6 +375,16 @@ test("laboratory review filters every journal by date and nomenclature", async (
       dateTo: null,
       name: "ШКИ",
     });
+    assert.deepEqual(formedProductSampleRequests.at(-1), {
+      dateFrom: "2026-07-21",
+      dateTo: null,
+      name: "ШКИ",
+    });
+    assert.deepEqual(verificationRequests.at(-1), {
+      dateFrom: "2026-07-21",
+      dateTo: null,
+      name: "ШКИ",
+    });
     assert.deepEqual(rawMaterialQualityRequests.at(-1), {
       dateFrom: "2026-07-21",
       dateTo: null,
@@ -358,6 +399,8 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "Журнал регистрации отбора проб",
       "Журнал химических анализов",
       "Пробы неформованной продукции",
+      "Регистрация проб готовой формованной продукции (кирпича)",
+      "Верификации",
       "Журнал контроля качества сырья и соблюдения технологии",
       "Журнал контроля качества сырцовой продукции",
     ]);
@@ -464,6 +507,8 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "ОТК",
       "ОЦ (Огнеупорный цех)",
       "Пробы неформованной продукции",
+      "Регистрация проб формованной продукции (кирпича)",
+      "Верификации",
     ]);
     assert.deepEqual(readJournalTitles(container), [
       "Пробы неформованной продукции",

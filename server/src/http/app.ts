@@ -82,11 +82,21 @@ import {
 } from "../domain/laboratorySampleRegistrationJournal.js";
 import {
   buildLaboratorySampleCodeDraft,
+  laboratorySampleRegistrationTransmissionTargets,
+  type LaboratorySampleRegistrationTransmissionTarget,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import {
   buildLaboratoryUnshapedProductSampleCodeDraft,
   laboratoryUnshapedProductSampleSuitabilityLabels,
 } from "../contracts/laboratoryUnshapedProductSampleJournal.js";
+import {
+  validateLaboratoryFormedProductSampleCorrection,
+  validateLaboratoryFormedProductSampleSubmission,
+} from "../domain/laboratoryFormedProductSampleJournal.js";
+import {
+  validateLaboratoryVerificationCorrection,
+  validateLaboratoryVerificationSubmission,
+} from "../domain/laboratoryVerificationJournal.js";
 import type {
   LaboratoryChemicalAnalysisJournalFilters,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
@@ -271,12 +281,17 @@ import type {
   LaboratoryBankAssignmentsRepository,
 } from "../repositories/laboratoryBankAssignmentsRepository.js";
 import type { RotaryKiln2FiringJournalRepository } from "../repositories/rotaryKiln2FiringJournalRepository.js";
-import type { LaboratorySampleRegistrationJournalRepository } from "../repositories/laboratorySampleRegistrationJournalRepository.js";
+import {
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+  type LaboratorySampleRegistrationJournalRepository,
+} from "../repositories/laboratorySampleRegistrationJournalRepository.js";
 import {
   LaboratoryChemicalAnalysisSampleUnavailableError,
   type LaboratoryChemicalAnalysisJournalRepository,
 } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
+import type { LaboratoryFormedProductSampleJournalRepository } from "../repositories/laboratoryFormedProductSampleJournalRepository.js";
+import type { LaboratoryVerificationJournalRepository } from "../repositories/laboratoryVerificationJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import {
   LaboratoryGreenProductQualityWagonBrandMismatchError,
@@ -339,6 +354,9 @@ type AppDependencies = {
     LaboratoryChemicalAnalysisJournalRepository;
   laboratoryUnshapedProductSampleJournal?:
     LaboratoryUnshapedProductSampleJournalRepository;
+  laboratoryFormedProductSampleJournal?:
+    LaboratoryFormedProductSampleJournalRepository;
+  laboratoryVerificationJournal?: LaboratoryVerificationJournalRepository;
   laboratoryRawMaterialQualityJournal?:
     LaboratoryRawMaterialQualityJournalRepository;
   laboratoryGreenProductQualityJournal?:
@@ -377,6 +395,10 @@ const laboratoryChemicalAnalysisRecordPathPattern =
   /^\/api\/laboratory\/chemical-analysis-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryUnshapedProductSampleRecordPathPattern =
   /^\/api\/laboratory\/unshaped-product-sample-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const laboratoryFormedProductSampleRecordPathPattern =
+  /^\/api\/laboratory\/formed-product-sample-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const laboratoryVerificationRecordPathPattern =
+  /^\/api\/laboratory\/verification-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryRawMaterialQualityRecordPathPattern =
   /^\/api\/laboratory\/raw-material-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryGreenProductQualityRecordPathPattern =
@@ -436,6 +458,8 @@ export function createApiServer({
   laboratorySampleRegistrationJournal,
   laboratoryChemicalAnalysisJournal,
   laboratoryUnshapedProductSampleJournal,
+  laboratoryFormedProductSampleJournal,
+  laboratoryVerificationJournal,
   laboratoryRawMaterialQualityJournal,
   laboratoryGreenProductQualityJournal,
   boardAssignments,
@@ -805,6 +829,8 @@ export function createApiServer({
         url.pathname === "/api/laboratory/sample-registration-locations" ||
         url.pathname === "/api/laboratory/sample-registration-journal" ||
         laboratorySampleRegistrationRecordPathPattern.test(url.pathname) ||
+        url.pathname ===
+          "/api/laboratory/sample-registration-pending-transmissions" ||
         url.pathname === "/api/laboratory/chemical-analysis-draft" ||
         url.pathname === "/api/laboratory/chemical-analysis-journal" ||
         url.pathname === laboratoryChemicalAnalysisProtocolPath ||
@@ -812,6 +838,10 @@ export function createApiServer({
         url.pathname === "/api/laboratory/unshaped-product-sample-draft" ||
         url.pathname === "/api/laboratory/unshaped-product-sample-journal" ||
         laboratoryUnshapedProductSampleRecordPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/formed-product-sample-journal" ||
+        laboratoryFormedProductSampleRecordPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/verification-journal" ||
+        laboratoryVerificationRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/raw-material-quality-draft" ||
         url.pathname === "/api/laboratory/raw-material-quality-options" ||
         url.pathname === "/api/laboratory/raw-material-quality-journal" ||
@@ -839,6 +869,8 @@ export function createApiServer({
           laboratorySampleRegistrationJournal,
           laboratoryChemicalAnalysisJournal,
           laboratoryUnshapedProductSampleJournal,
+          laboratoryFormedProductSampleJournal,
+          laboratoryVerificationJournal,
           laboratoryRawMaterialQualityJournal,
           laboratoryGreenProductQualityJournal,
           productionBrands,
@@ -2724,6 +2756,8 @@ async function handleLaboratoryRequest({
   laboratorySampleRegistrationJournal,
   laboratoryChemicalAnalysisJournal,
   laboratoryUnshapedProductSampleJournal,
+  laboratoryFormedProductSampleJournal,
+  laboratoryVerificationJournal,
   laboratoryRawMaterialQualityJournal,
   laboratoryGreenProductQualityJournal,
   productionBrands,
@@ -2750,6 +2784,12 @@ async function handleLaboratoryRequest({
     | undefined;
   laboratoryUnshapedProductSampleJournal:
     | LaboratoryUnshapedProductSampleJournalRepository
+    | undefined;
+  laboratoryFormedProductSampleJournal:
+    | LaboratoryFormedProductSampleJournalRepository
+    | undefined;
+  laboratoryVerificationJournal:
+    | LaboratoryVerificationJournalRepository
     | undefined;
   laboratoryRawMaterialQualityJournal:
     | LaboratoryRawMaterialQualityJournalRepository
@@ -2782,6 +2822,8 @@ async function handleLaboratoryRequest({
     url.pathname === "/api/laboratory/sample-registration-journal" ||
     url.pathname === "/api/laboratory/chemical-analysis-journal" ||
     url.pathname === "/api/laboratory/unshaped-product-sample-journal" ||
+    url.pathname === "/api/laboratory/formed-product-sample-journal" ||
+    url.pathname === "/api/laboratory/verification-journal" ||
     url.pathname === "/api/laboratory/raw-material-quality-journal" ||
     url.pathname === "/api/laboratory/green-product-quality-journal" ||
     url.pathname === laboratoryChemicalAnalysisProtocolPath ||
@@ -3495,6 +3537,61 @@ async function handleLaboratoryRequest({
       laboratorySampleRegistrationJournal.listLaboratoryAssistants(),
     ]);
     sendJson(res, 200, { samplingLocations, laboratoryAssistants });
+    return;
+  }
+
+  if (
+    url.pathname === "/api/laboratory/sample-registration-pending-transmissions"
+  ) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Список проб для трансляции доступен только для заполнения журналов.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для списка проб для трансляции используется GET.",
+        },
+      });
+      return;
+    }
+    if (laboratorySampleRegistrationJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала регистрации отбора проб не настроено.",
+        },
+      });
+      return;
+    }
+
+    const target = readOptionalQueryParam(url, "target");
+    if (
+      target === undefined ||
+      !laboratorySampleRegistrationTransmissionTargets.some(
+        (option) => option.value === target,
+      )
+    ) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Укажите допустимый журнал трансляции.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      options: await laboratorySampleRegistrationJournal.listPendingTransmissions(
+        target as LaboratorySampleRegistrationTransmissionTarget,
+      ),
+    });
     return;
   }
 
@@ -4453,43 +4550,525 @@ async function handleLaboratoryRequest({
     validation.value.productName = productReferences[0]?.label ??
       validation.value.productName;
 
-    const saved = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => laboratoryUnshapedProductSampleJournal.create({
-        record: validation.value,
-        submittedByUserId: access.profile.userId,
-        submittedByAccountId: access.profile.activeAccess.accountId,
-      }),
-      buildEvent: (record) => ({
-        actor: buildAuditActor(access.profile),
-        category: "form_submission",
-        action: "laboratory_unshaped_product_sample.submit",
-        summary: "Добавлена проба неформованной продукции",
-        details: [
-          { label: "Номер пробы", value: record.sampleNumber },
-          { label: "Дата", value: record.sampleDate },
-          { label: "Кто брал пробы", value: record.sampledBy },
-          { label: "№ партии", value: record.batchNumber },
-          { label: "Код пробы", value: record.sampleCode },
-          { label: "Наименование продукции", value: record.productName },
-          { label: "Масса партии", value: record.batchMass },
-          { label: "Влажность", value: record.moisture },
-          { label: "Зерновой состав", value: record.grainComposition },
-          { label: "Огнеупорность", value: record.fireResistance },
-          {
-            label: "Пригодность",
-            value:
-              laboratoryUnshapedProductSampleSuitabilityLabels[record.suitability],
+    let saved;
+    try {
+      saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryUnshapedProductSampleJournal.create({
+          record: validation.value,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_unshaped_product_sample.submit",
+          summary: "Добавлена проба неформованной продукции",
+          details: [
+            { label: "Номер пробы", value: record.sampleNumber },
+            { label: "Дата", value: record.sampleDate },
+            { label: "Кто брал пробы", value: record.sampledBy },
+            { label: "№ партии", value: record.batchNumber },
+            { label: "Код пробы", value: record.sampleCode },
+            { label: "Наименование продукции", value: record.productName },
+            { label: "Масса партии", value: record.batchMass },
+            { label: "Влажность", value: record.moisture },
+            { label: "Зерновой состав", value: record.grainComposition },
+            { label: "Огнеупорность", value: record.fireResistance },
+            {
+              label: "Пригодность",
+              value:
+                laboratoryUnshapedProductSampleSuitabilityLabels[record.suitability],
+            },
+            { label: "Примечание", value: record.notes ?? "—" },
+          ],
+          targetType: "laboratory_unshaped_product_sample",
+          targetId: record.id,
+        }),
+      });
+    } catch (error) {
+      if (error instanceof LaboratorySampleRegistrationTransmissionUnavailableError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Выбранная проба уже использована для трансляции. Обновите список и выберите другую.",
           },
-          { label: "Примечание", value: record.notes ?? "—" },
-        ],
-        targetType: "laboratory_unshaped_product_sample",
-        targetId: record.id,
-      }),
-    });
+        });
+        return;
+      }
+      throw error;
+    }
 
     sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/formed-product-sample-journal") {
+    if (laboratoryFormedProductSampleJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message:
+            "Хранилище журнала регистрации проб формованной продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const dateFrom = readOptionalQueryParam(url, "dateFrom");
+      const dateTo = readOptionalQueryParam(url, "dateTo");
+      const query = readOptionalQueryParam(url, "query");
+      const nameQuery = readOptionalQueryParam(url, "name");
+
+      if (
+        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+        (query !== undefined && query.length > 120) ||
+        (nameQuery !== undefined && nameQuery.length > 120)
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Проверьте фильтры журнала регистрации проб формованной продукции.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        records: await laboratoryFormedProductSampleJournal.list({
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+          ...(nameQuery === undefined ? {} : { nameQuery }),
+        }),
+      });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryFormedProductSampleSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const productReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "productBrand",
+        label: validation.value.productBrand,
+      }],
+      logEvent: "formed_product_sample_brands.database_read_failed",
+    });
+    if (productReferences === undefined) return;
+    validation.value.productBrand = productReferences[0]?.label ??
+      validation.value.productBrand;
+
+    let saved;
+    try {
+      saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryFormedProductSampleJournal.create({
+          record: validation.value,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_formed_product_sample.submit",
+          summary: "Добавлена запись журнала регистрации проб формованной продукции",
+          details: [
+            { label: "Дата сортировки", value: record.sortingDate },
+            { label: "Код пробы", value: record.sampleCode },
+            { label: "Марка изделия", value: record.productBrand },
+          ],
+          targetType: "laboratory_formed_product_sample",
+          targetId: record.id,
+        }),
+      });
+    } catch (error) {
+      if (error instanceof LaboratorySampleRegistrationTransmissionUnavailableError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Выбранная проба уже использована для трансляции. Обновите список и выберите другую.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
+
+    sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  const formedProductSampleRecordMatch =
+    laboratoryFormedProductSampleRecordPathPattern.exec(url.pathname);
+  if (formedProductSampleRecordMatch !== null) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Исправление пробы формованной продукции недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления пробы используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (laboratoryFormedProductSampleJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message:
+            "Хранилище журнала регистрации проб формованной продукции не настроено.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryFormedProductSampleCorrection(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const productReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "productBrand",
+        label: validation.value.productBrand,
+      }],
+      logEvent: "formed_product_sample_correction_brands.database_read_failed",
+    });
+    if (productReferences === undefined) return;
+    validation.value.productBrand = productReferences[0]?.label ??
+      validation.value.productBrand;
+
+    const recordId = formedProductSampleRecordMatch[1];
+    const correction = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratoryFormedProductSampleJournal.update({
+        id: recordId,
+        record: validation.value,
+        correctedByUserId: access.profile.userId,
+        correctedByAccountId: access.profile.activeAccess.accountId,
+        correctedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (result) => result === undefined
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "laboratory_formed_product_sample.correct",
+            summary: "Исправлена проба формованной продукции",
+            details: [
+              {
+                label: "Дата сортировки",
+                value: `${result.before.sortingDate} → ${result.record.sortingDate}`,
+              },
+              {
+                label: "Код пробы",
+                value: `${result.before.sampleCode} → ${result.record.sampleCode}`,
+              },
+              {
+                label: "Марка изделия",
+                value: `${result.before.productBrand} → ${result.record.productBrand}`,
+              },
+            ],
+            targetType: "laboratory_formed_product_sample",
+            targetId: result.record.id,
+          },
+    });
+    if (correction === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Проба формованной продукции не найдена.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { record: correction.record });
+    return;
+  }
+
+  if (url.pathname === "/api/laboratory/verification-journal") {
+    if (laboratoryVerificationJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала верификаций не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      const dateFrom = readOptionalQueryParam(url, "dateFrom");
+      const dateTo = readOptionalQueryParam(url, "dateTo");
+      const query = readOptionalQueryParam(url, "query");
+      const nameQuery = readOptionalQueryParam(url, "name");
+
+      if (
+        (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+        (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+        (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+        (query !== undefined && query.length > 120) ||
+        (nameQuery !== undefined && nameQuery.length > 120)
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Проверьте фильтры журнала верификаций.",
+          },
+        });
+        return;
+      }
+
+      sendJson(res, 200, {
+        records: await laboratoryVerificationJournal.list({
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+          ...(nameQuery === undefined ? {} : { nameQuery }),
+        }),
+      });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для журнала используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryVerificationSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const productReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "productName",
+        label: validation.value.productName,
+      }],
+      logEvent: "verification_brands.database_read_failed",
+    });
+    if (productReferences === undefined) return;
+    validation.value.productName = productReferences[0]?.label ??
+      validation.value.productName;
+
+    let saved;
+    try {
+      saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryVerificationJournal.create({
+          record: validation.value,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "laboratory_verification.submit",
+          summary: "Добавлена запись журнала верификаций",
+          details: [
+            { label: "Дата", value: record.verificationDate },
+            { label: "Наименование продукции", value: record.productName },
+            { label: "Место отбора пробы", value: record.samplingLocation },
+            { label: "Код пробы", value: record.sampleCode },
+          ],
+          targetType: "laboratory_verification",
+          targetId: record.id,
+        }),
+      });
+    } catch (error) {
+      if (error instanceof LaboratorySampleRegistrationTransmissionUnavailableError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Выбранная проба уже использована для трансляции. Обновите список и выберите другую.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
+
+    sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  const verificationRecordMatch = laboratoryVerificationRecordPathPattern.exec(
+    url.pathname,
+  );
+  if (verificationRecordMatch !== null) {
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Исправление верификации недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления верификации используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (laboratoryVerificationJournal === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журнала верификаций не настроено.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateLaboratoryVerificationCorrection(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    const productReferences = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "productName",
+        label: validation.value.productName,
+      }],
+      logEvent: "verification_correction_brands.database_read_failed",
+    });
+    if (productReferences === undefined) return;
+    validation.value.productName = productReferences[0]?.label ??
+      validation.value.productName;
+
+    const recordId = verificationRecordMatch[1];
+    const correction = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => laboratoryVerificationJournal.update({
+        id: recordId,
+        record: validation.value,
+        correctedByUserId: access.profile.userId,
+        correctedByAccountId: access.profile.activeAccess.accountId,
+        correctedByDisplayName: access.profile.displayName,
+      }),
+      buildEvent: (result) => result === undefined
+        ? undefined
+        : {
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "laboratory_verification.correct",
+            summary: "Исправлена запись журнала верификаций",
+            details: [
+              {
+                label: "Дата",
+                value: `${result.before.verificationDate} → ${result.record.verificationDate}`,
+              },
+              {
+                label: "Наименование продукции",
+                value: `${result.before.productName} → ${result.record.productName}`,
+              },
+              {
+                label: "Место отбора пробы",
+                value: `${result.before.samplingLocation} → ${result.record.samplingLocation}`,
+              },
+              {
+                label: "Код пробы",
+                value: `${result.before.sampleCode} → ${result.record.sampleCode}`,
+              },
+            ],
+            targetType: "laboratory_verification",
+            targetId: result.record.id,
+          },
+    });
+    if (correction === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message: "Запись журнала верификаций не найдена.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, { record: correction.record });
     return;
   }
 

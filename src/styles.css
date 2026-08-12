@@ -5623,6 +5623,8 @@ p {
 .sample-registration-journal,
 .chemical-analysis-journal,
 .unshaped-product-sample-journal,
+.formed-product-sample-journal,
+.verification-journal,
 .raw-material-quality-journal,
 .green-product-quality-journal {
   display: grid;
@@ -5632,6 +5634,8 @@ p {
 .sample-registration-journal-form,
 .chemical-analysis-journal-form,
 .unshaped-product-sample-form,
+.formed-product-sample-form,
+.verification-form,
 .raw-material-quality-form,
 .green-product-quality-form {
   display: grid;
@@ -5641,6 +5645,8 @@ p {
 .sample-registration-journal-heading h2,
 .chemical-analysis-journal-heading h2,
 .unshaped-product-sample-form .sample-registration-journal-heading h2,
+.formed-product-sample-form .sample-registration-journal-heading h2,
+.verification-form .sample-registration-journal-heading h2,
 .raw-material-quality-form .sample-registration-journal-heading h2,
 .green-product-quality-form .sample-registration-journal-heading h2 {
   margin: var(--density-1) 0 0;
@@ -5657,6 +5663,32 @@ p {
 .sample-registration-journal-section h3 {
   margin: 0;
   font-size: 16px;
+}
+
+.sample-registration-transmission-picker {
+  display: grid;
+  gap: var(--density-1);
+  max-width: 420px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.sample-registration-transmission-picker select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 9px 11px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  font: inherit;
+  font-weight: 650;
+}
+
+.sample-registration-transmission-picker select:disabled {
+  color: var(--muted);
+  background: var(--surface-subtle);
 }
 
 .chemical-analysis-total-error,

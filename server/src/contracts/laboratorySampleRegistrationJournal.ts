@@ -1,5 +1,30 @@
 import type { LaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 
+export const laboratorySampleRegistrationTransmissionTargets = [
+  {
+    value: "unshaped_product_sample",
+    label: "Регистрация проб готовой неформованной продукции",
+  },
+  {
+    value: "formed_product_sample",
+    label: "Регистрация проб готовой формованной продукции (кирпича)",
+  },
+  {
+    value: "verification",
+    label: "Верификации",
+  },
+] as const;
+
+export type LaboratorySampleRegistrationTransmissionTarget =
+  (typeof laboratorySampleRegistrationTransmissionTargets)[number]["value"];
+
+export const laboratorySampleRegistrationTransmissionTargetLabels = Object
+  .fromEntries(
+    laboratorySampleRegistrationTransmissionTargets.map(
+      ({ value, label }) => [value, label],
+    ),
+  ) as Record<LaboratorySampleRegistrationTransmissionTarget, string>;
+
 export type LaboratorySampleRegistrationJournalSubmission = {
   sampleNumber: string;
   laboratorySampleCode: string;
@@ -9,6 +34,7 @@ export type LaboratorySampleRegistrationJournalSubmission = {
   registrationDate: string;
   samplingLocation: string;
   waterAbsorption?: string;
+  transmitToJournal?: LaboratorySampleRegistrationTransmissionTarget;
 };
 
 export type LaboratorySampleRegistrationCorrection =
@@ -90,12 +116,29 @@ export const laboratorySampleRegistrationFields = [
     section: "registration",
     kind: "text",
   },
+  {
+    id: "transmitToJournal",
+    label: "Трансляция в журнал",
+    section: "registration",
+    kind: "select",
+  },
 ] as const satisfies readonly {
   id: keyof LaboratorySampleRegistrationJournalSubmission;
   label: string;
   section: "registration";
-  kind: "text" | "date";
+  kind: "text" | "date" | "select";
 }[];
+
+export type LaboratorySampleRegistrationTransmissionOption = {
+  id: string;
+  laboratorySampleCode: string;
+  sampleNumber: string;
+  sampleName: string;
+  samplingDate: string;
+  samplingLaboratoryAssistant: string;
+  samplingLocation: string;
+  registrationDate: string;
+};
 
 export type LaboratorySampleRegistrationJournalRecord =
   LaboratorySampleRegistrationJournalSubmission &

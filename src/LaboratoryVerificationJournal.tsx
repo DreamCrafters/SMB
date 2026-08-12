@@ -1,55 +1,45 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import {
-  buildLaboratoryUnshapedProductSampleCodeDraft,
-  laboratoryUnshapedProductSampleFields,
-  laboratoryUnshapedProductSampleSuitabilityLabels,
-  laboratoryUnshapedProductSampleSuitabilityValues,
+  laboratorySampleRegistrationSamplingLocations,
+  laboratoryVerificationFields,
   type LaboratorySampleRegistrationTransmissionOption,
-  type LaboratoryUnshapedProductSampleRecord,
-  type LaboratoryUnshapedProductSampleSubmission,
-  type ServerUserProfile,
+  type LaboratoryVerificationRecord,
+  type LaboratoryVerificationSubmission,
 } from "./contracts";
-import { LaboratoryUnshapedProductSampleTable } from "./LaboratoryJournalTables";
+import { LaboratoryVerificationTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import { SampleRegistrationTransmissionPicker } from "./SampleRegistrationTransmissionPicker";
 import {
-  correctLaboratoryUnshapedProductSampleRecord,
-  requestLaboratoryUnshapedProductSampleDraft,
-  requestLaboratoryUnshapedProductSampleJournal,
-  submitLaboratoryUnshapedProductSampleRecord,
-} from "./services/laboratoryUnshapedProductSampleJournal";
+  correctLaboratoryVerificationRecord,
+  requestLaboratoryVerificationJournal,
+  submitLaboratoryVerificationRecord,
+} from "./services/laboratoryVerificationJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
 import { useProductionBrands } from "./useProductionBrands";
 
 type FormState = Record<
-  Exclude<
-    keyof LaboratoryUnshapedProductSampleSubmission,
-    "sourceSampleRegistrationId"
-  >,
+  Exclude<keyof LaboratoryVerificationSubmission, "sourceSampleRegistrationId">,
   string
 >;
 type HistoryState =
-  | { status: "loading"; records: LaboratoryUnshapedProductSampleRecord[] }
-  | { status: "ready"; records: LaboratoryUnshapedProductSampleRecord[] }
+  | { status: "loading"; records: LaboratoryVerificationRecord[] }
+  | { status: "ready"; records: LaboratoryVerificationRecord[] }
   | {
       status: "error";
       message: string;
-      records: LaboratoryUnshapedProductSampleRecord[];
+      records: LaboratoryVerificationRecord[];
     };
 
-export function LaboratoryUnshapedProductSampleJournal({
-  profile,
+export function LaboratoryVerificationJournal({
   isAdminPreviewMode,
   onShowToast,
 }: {
-  profile: ServerUserProfile;
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [form, setForm] = useState(createEmptyForm);
-  const [chemicalAnalysisNumber, setChemicalAnalysisNumber] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [query, setQuery] = useState("");
@@ -63,59 +53,15 @@ export function LaboratoryUnshapedProductSampleJournal({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [sourceSampleRegistrationId, setSourceSampleRegistrationId] =
     useState<string>();
-  const isSampleCodeAuto = useRef(true);
-  const sampleCodeYear = useRef<number | undefined>(undefined);
   const { labels: productNames, loadState: productNamesLoadState } =
     useProductionBrands();
-
-  useEffect(() => {
-    if (isAdminPreviewMode || editingRecordId !== undefined) return;
-    const controller = new AbortController();
-    requestLaboratoryUnshapedProductSampleDraft({
-      signal: controller.signal,
-    }).then((result) => {
-      if (controller.signal.aborted) return;
-      if (result.status === "ready") {
-        sampleCodeYear.current = result.currentYear;
-        setForm((current) => {
-          const sampleNumber = current.sampleNumber === ""
-            ? result.sampleNumber
-            : current.sampleNumber;
-          return {
-            ...current,
-            sampleNumber,
-            sampleCode: isSampleCodeAuto.current && current.sampleCode === ""
-              ? current.sampleNumber === ""
-                ? result.sampleCode
-                : buildLaboratoryUnshapedProductSampleCodeDraft(
-                    sampleNumber,
-                    result.currentYear,
-                  )
-              : current.sampleCode,
-            sampleDate: current.sampleDate === ""
-              ? result.sampleDate
-              : current.sampleDate,
-            sampledBy: current.sampledBy === ""
-              ? result.sampledBy || profile.displayName
-              : current.sampledBy,
-          };
-        });
-        return;
-      }
-      setFormMessage((current) => current === ""
-        ? readShortUserMessage(
-            result.message,
-            "Не удалось загрузить заготовку пробы.",
-          )
-        : current);
-    });
-    return () => controller.abort();
-  }, [editingRecordId, isAdminPreviewMode, profile.displayName, refreshVersion]);
+  const samplingLocationListId =
+    `verification-sampling-locations-${useId().replaceAll(":", "")}`;
 
   useEffect(() => {
     const controller = new AbortController();
     setHistory((current) => ({ status: "loading", records: current.records }));
-    requestLaboratoryUnshapedProductSampleJournal(
+    requestLaboratoryVerificationJournal(
       {
         ...(dateFrom === "" ? {} : { dateFrom }),
         ...(dateTo === "" ? {} : { dateTo }),
@@ -130,7 +76,7 @@ export function LaboratoryUnshapedProductSampleJournal({
             status: "error",
             message: readShortUserMessage(
               result.message,
-              "Не удалось загрузить журнал проб неформованной продукции.",
+              "Не удалось загрузить журнал верификаций.",
             ),
             records: current.records,
           });
@@ -139,23 +85,7 @@ export function LaboratoryUnshapedProductSampleJournal({
   }, [dateFrom, dateTo, query, refreshVersion]);
 
   function updateField(field: keyof FormState, value: string) {
-    if (field === "sampleCode") isSampleCodeAuto.current = false;
-    setForm((current) => {
-      if (field !== "sampleNumber") return { ...current, [field]: value };
-      const currentYear = sampleCodeYear.current;
-      return {
-        ...current,
-        sampleNumber: value,
-        ...(isSampleCodeAuto.current && currentYear !== undefined
-          ? {
-              sampleCode: buildLaboratoryUnshapedProductSampleCodeDraft(
-                value,
-                currentYear,
-              ),
-            }
-          : {}),
-      };
-    });
+    setForm((current) => ({ ...current, [field]: value }));
     setFormMessage("");
   }
 
@@ -164,24 +94,20 @@ export function LaboratoryUnshapedProductSampleJournal({
   ) {
     setSourceSampleRegistrationId(option?.id);
     if (option === undefined) return;
-    if (option.sampleNumber !== "") isSampleCodeAuto.current = false;
     setForm((current) => ({
       ...current,
-      sampleNumber: current.sampleNumber === ""
-        ? option.sampleNumber
-        : current.sampleNumber,
-      sampleDate: current.sampleDate === ""
+      verificationDate: current.verificationDate === ""
         ? option.samplingDate
-        : current.sampleDate,
-      sampledBy: current.sampledBy === ""
-        ? option.samplingLaboratoryAssistant
-        : current.sampledBy,
-      sampleCode: current.sampleCode === ""
-        ? option.laboratorySampleCode
-        : current.sampleCode,
+        : current.verificationDate,
       productName: current.productName === ""
         ? option.sampleName
         : current.productName,
+      samplingLocation: current.samplingLocation === ""
+        ? option.samplingLocation
+        : current.samplingLocation,
+      sampleCode: current.sampleCode === ""
+        ? option.laboratorySampleCode
+        : current.sampleCode,
     }));
     setFormMessage("");
   }
@@ -199,11 +125,8 @@ export function LaboratoryUnshapedProductSampleJournal({
     setIsSubmitting(true);
     setFormMessage("Сохраняем запись…");
     const result = editingRecordId === undefined
-      ? await submitLaboratoryUnshapedProductSampleRecord(submission)
-      : await correctLaboratoryUnshapedProductSampleRecord(
-          editingRecordId,
-          submission,
-        );
+      ? await submitLaboratoryVerificationRecord(submission)
+      : await correctLaboratoryVerificationRecord(editingRecordId, submission);
     setIsSubmitting(false);
 
     if (result.status === "error") {
@@ -218,88 +141,62 @@ export function LaboratoryUnshapedProductSampleJournal({
     resetForm();
     setRefreshVersion((value) => value + 1);
     onShowToast(
-      wasEditing ? "Проба исправлена" : "Запись сохранена",
-      `${result.record.sampleNumber} · ${result.record.sampleCode}.`,
+      wasEditing ? "Запись исправлена" : "Запись сохранена",
+      `${result.record.sampleCode} · ${result.record.productName}.`,
       "success",
     );
   }
 
-  function editRecord(record: LaboratoryUnshapedProductSampleRecord) {
-    isSampleCodeAuto.current = false;
+  function editRecord(record: LaboratoryVerificationRecord) {
     setEditingRecordId(record.id);
-    setChemicalAnalysisNumber(record.chemicalAnalysisNumber ?? "");
     setForm({
-      sampleNumber: record.sampleNumber,
-      sampleDate: record.sampleDate,
-      sampledBy: record.sampledBy,
-      batchNumber: record.batchNumber,
-      sampleCode: record.sampleCode,
+      verificationDate: record.verificationDate,
       productName: record.productName,
-      batchMass: record.batchMass,
-      moisture: record.moisture,
-      grainComposition: record.grainComposition,
-      fireResistance: record.fireResistance,
-      suitability: record.suitability,
-      notes: record.notes ?? "",
+      samplingLocation: record.samplingLocation,
+      sampleCode: record.sampleCode,
     });
     setFormMessage("");
   }
 
   function resetForm() {
-    isSampleCodeAuto.current = true;
     setEditingRecordId(undefined);
-    setChemicalAnalysisNumber("");
     setSourceSampleRegistrationId(undefined);
     setForm(createEmptyForm());
   }
 
   return (
-    <div className="unshaped-product-sample-journal">
-      <form
-        className="laboratory-form unshaped-product-sample-form"
-        onSubmit={submit}
-      >
+    <div className="verification-journal">
+      <form className="laboratory-form verification-form" onSubmit={submit}>
         <div className="sample-registration-journal-heading">
-          <span className="eyebrow">Лаборатория · ЦЗЛ</span>
-          <h2>Пробы неформованной продукции</h2>
+          <span className="eyebrow">Лаборатория · ОТК</span>
+          <h2>Верификации</h2>
           {editingRecordId === undefined
             ? null
-            : <p>Редактирование пробы {form.sampleCode}</p>}
+            : <p>Редактирование записи {form.sampleCode}</p>}
         </div>
 
         {editingRecordId === undefined
           ? (
               <SampleRegistrationTransmissionPicker
                 disabled={isAdminPreviewMode}
-                target="unshaped_product_sample"
+                target="verification"
                 onSelect={selectTransmission}
               />
             )
           : null}
 
         <section className="sample-registration-journal-section">
-          <h3>Регистрация пробы</h3>
-          <div className="laboratory-form-grid unshaped-product-sample-form-grid">
-            {laboratoryUnshapedProductSampleFields.map((field) => {
-              if (field.id === "chemicalAnalysisNumber") {
-                return (
-                  <label key={field.id}>
-                    <span>{field.label}</span>
-                    <input
-                      disabled
-                      placeholder="Проставится после химанализа"
-                      value={chemicalAnalysisNumber}
-                    />
-                  </label>
-                );
-              }
+          <h3>Регистрация записи</h3>
+          <div className="laboratory-form-grid">
+            {laboratoryVerificationFields.map((field) => {
               if (field.id === "productName") {
                 return (
                   <label key={field.id}>
                     <span>{field.label}</span>
                     <ProductBrandPicker
                       ariaLabel={field.label}
-                      disabled={isAdminPreviewMode || productNamesLoadState.status !== "ready"}
+                      disabled={isAdminPreviewMode ||
+                        productNamesLoadState.status !== "ready"}
                       labels={productNames}
                       name={field.id}
                       value={form.productName}
@@ -308,42 +205,26 @@ export function LaboratoryUnshapedProductSampleJournal({
                   </label>
                 );
               }
-              if (field.id === "suitability") {
+              if (field.id === "samplingLocation") {
                 return (
                   <label key={field.id}>
                     <span>{field.label}</span>
-                    <select
+                    <input
                       required
-                      value={form.suitability}
+                      list={samplingLocationListId}
+                      maxLength={120}
+                      placeholder="Выберите или введите новое место"
+                      value={form.samplingLocation}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
-                        updateField("suitability", value);
-                      }}
-                    >
-                      <option value="">Выберите значение</option>
-                      {laboratoryUnshapedProductSampleSuitabilityValues.map(
-                        (value) => (
-                          <option key={value} value={value}>
-                            {laboratoryUnshapedProductSampleSuitabilityLabels[value]}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                );
-              }
-              if (field.id === "notes") {
-                return (
-                  <label className="laboratory-form-wide" key={field.id}>
-                    <span>{field.label}</span>
-                    <textarea
-                      maxLength={2000}
-                      value={form.notes}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
-                        updateField("notes", value);
+                        updateField("samplingLocation", value);
                       }}
                     />
+                    <datalist id={samplingLocationListId}>
+                      {laboratorySampleRegistrationSamplingLocations.map(
+                        (location) => <option key={location} value={location} />,
+                      )}
+                    </datalist>
                   </label>
                 );
               }
@@ -405,19 +286,22 @@ export function LaboratoryUnshapedProductSampleJournal({
                   Отменить
                 </button>
               )}
+          {isAdminPreviewMode
+            ? <small>В режиме просмотра сохранение отключено.</small>
+            : null}
           {formMessage === ""
             ? null
             : <span className="form-message" role="status">{formMessage}</span>}
         </div>
       </form>
 
-      <section className="laboratory-history unshaped-product-sample-history">
+      <section className="laboratory-history verification-history">
         <div className="laboratory-history-heading">
           <div>
             <span className="eyebrow">История</span>
-            <h2>Пробы неформованной продукции</h2>
+            <h2>Верификации</h2>
           </div>
-          <div className="laboratory-filters unshaped-product-sample-filters">
+          <div className="laboratory-filters verification-filters">
             <label>
               <span>Дата с</span>
               <input type="date" value={dateFrom} onChange={(event) => {
@@ -436,7 +320,7 @@ export function LaboratoryUnshapedProductSampleJournal({
               <span>Поиск</span>
               <input
                 maxLength={120}
-                placeholder="Номер, код, партия или продукция"
+                placeholder="Код пробы, продукция или место"
                 value={query}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
@@ -451,7 +335,7 @@ export function LaboratoryUnshapedProductSampleJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
-        <LaboratoryUnshapedProductSampleTable
+        <LaboratoryVerificationTable
           records={history.records}
           onEditRecord={isAdminPreviewMode ? undefined : editRecord}
         />
@@ -462,61 +346,32 @@ export function LaboratoryUnshapedProductSampleJournal({
 
 function createEmptyForm(): FormState {
   return {
-    sampleNumber: "",
-    sampleDate: "",
-    sampledBy: "",
-    batchNumber: "",
-    sampleCode: "",
+    verificationDate: "",
     productName: "",
-    batchMass: "",
-    moisture: "",
-    grainComposition: "",
-    fireResistance: "",
-    suitability: "",
-    notes: "",
+    samplingLocation: "",
+    sampleCode: "",
   };
 }
 
 function buildFormRecord(
   form: FormState,
   sourceSampleRegistrationId: string | undefined,
-): LaboratoryUnshapedProductSampleSubmission | undefined {
+): LaboratoryVerificationSubmission | undefined {
   const requiredFields = [
-    "sampleNumber",
-    "sampleDate",
-    "sampledBy",
-    "batchNumber",
-    "sampleCode",
+    "verificationDate",
     "productName",
-    "batchMass",
-    "moisture",
-    "grainComposition",
-    "fireResistance",
-    "suitability",
+    "samplingLocation",
+    "sampleCode",
   ] as const;
   if (requiredFields.some((field) => form[field].trim() === "")) {
     return undefined;
   }
-  if (!laboratoryUnshapedProductSampleSuitabilityValues.includes(
-    form.suitability as LaboratoryUnshapedProductSampleSubmission["suitability"],
-  )) {
-    return undefined;
-  }
 
   return {
-    sampleNumber: form.sampleNumber.trim(),
-    sampleDate: form.sampleDate,
-    sampledBy: form.sampledBy.trim(),
-    batchNumber: form.batchNumber.trim(),
-    sampleCode: form.sampleCode.trim(),
+    verificationDate: form.verificationDate,
     productName: form.productName.trim(),
-    batchMass: form.batchMass.trim(),
-    moisture: form.moisture.trim(),
-    grainComposition: form.grainComposition.trim(),
-    fireResistance: form.fireResistance.trim(),
-    suitability:
-      form.suitability as LaboratoryUnshapedProductSampleSubmission["suitability"],
-    ...(form.notes.trim() === "" ? {} : { notes: form.notes.trim() }),
+    samplingLocation: form.samplingLocation.trim(),
+    sampleCode: form.sampleCode.trim(),
     ...(sourceSampleRegistrationId === undefined
       ? {}
       : { sourceSampleRegistrationId }),

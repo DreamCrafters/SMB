@@ -9,6 +9,10 @@ import type {
 } from "../contracts/laboratoryUnshapedProductSampleJournal.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+import {
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+  type ClaimSampleRegistrationTransmission,
+} from "./laboratorySampleRegistrationJournalRepository.js";
 
 type RepositoryFilters = LaboratoryUnshapedProductSampleFilters & {
   limit?: number;
@@ -61,6 +65,7 @@ type JournalRow = RowDataPacket & {
   fire_resistance: string;
   suitability: LaboratoryUnshapedProductSampleSuitability;
   notes: string | null;
+  source_sample_registration_id: string | null;
   created_at: Date | string;
 };
 
@@ -75,6 +80,7 @@ type LastSampledByRow = RowDataPacket & {
 type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
+  claimSampleRegistrationTransmission?: ClaimSampleRegistrationTransmission;
 };
 
 const defaultListLimit = 200;
@@ -85,6 +91,7 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
   {
     createId = randomUUID,
     now = () => new Date(),
+    claimSampleRegistrationTransmission,
   }: RepositoryOptions = {},
 ): LaboratoryUnshapedProductSampleJournalRepository {
   return {
@@ -92,6 +99,17 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
       const id = createId();
       const createdAt = now().toISOString();
       const record = input.record;
+
+      if (record.sourceSampleRegistrationId !== undefined) {
+        const claim = await claimSampleRegistrationTransmission?.({
+          sampleRegistrationId: record.sourceSampleRegistrationId,
+          target: "unshaped_product_sample",
+          targetRecordId: id,
+        });
+        if (claim === undefined || !claim.ok) {
+          throw new LaboratorySampleRegistrationTransmissionUnavailableError();
+        }
+      }
 
       await pool.query(
         `insert into laboratory_unshaped_product_sample_journal (
@@ -109,10 +127,11 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
           fire_resistance,
           suitability,
           notes,
+          source_sample_registration_id,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           record.sampleNumber,
@@ -128,6 +147,7 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
           record.fireResistance,
           record.suitability,
           record.notes ?? null,
+          record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -154,6 +174,7 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
           fire_resistance,
           suitability,
           notes,
+          source_sample_registration_id,
           created_at
         from laboratory_unshaped_product_sample_journal
         where id = ?
@@ -166,11 +187,19 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
 
       const before = mapSnapshot(current);
       const correctedAt = now().toISOString();
+      const { sourceSampleRegistrationId: _ignoredSource, ...correctedInput } =
+        input.record;
       const after: RevisionSnapshot = {
-        ...input.record,
+        ...correctedInput,
         ...(current.chemical_analysis_number === null
           ? {}
           : { chemicalAnalysisNumber: current.chemical_analysis_number }),
+        ...(current.source_sample_registration_id === null
+          ? {}
+          : {
+              sourceSampleRegistrationId:
+                current.source_sample_registration_id,
+            }),
       };
 
       await pool.query(
@@ -359,6 +388,9 @@ function mapSnapshot(row: JournalRow): RevisionSnapshot {
     fireResistance: row.fire_resistance,
     suitability: row.suitability,
     ...(row.notes === null ? {} : { notes: row.notes }),
+    ...(row.source_sample_registration_id === null
+      ? {}
+      : { sourceSampleRegistrationId: row.source_sample_registration_id }),
     ...(row.chemical_analysis_number === null
       ? {}
       : { chemicalAnalysisNumber: row.chemical_analysis_number }),

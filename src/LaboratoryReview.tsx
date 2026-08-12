@@ -4,10 +4,12 @@ import type {
   LaboratoryIndicatorReference,
   LaboratoryResult,
   LaboratoryRawMaterialQualityRecord,
+  LaboratoryFormedProductSampleRecord,
   LaboratoryGreenProductQualityRecord,
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySection,
   LaboratoryUnshapedProductSampleRecord,
+  LaboratoryVerificationRecord,
   RotaryKiln2FiringJournalRecord,
 } from "./contracts";
 import {
@@ -17,6 +19,8 @@ import {
   LaboratoryChemicalAnalysisTable,
   LaboratorySampleRegistrationTable,
   LaboratoryUnshapedProductSampleTable,
+  LaboratoryFormedProductSampleTable,
+  LaboratoryVerificationTable,
   LaboratoryRawMaterialQualityTable,
   LaboratoryGreenProductQualityTable,
   RotaryKiln2FiringTable,
@@ -45,6 +49,8 @@ import {
 import { requestLaboratorySampleRegistrationJournal } from "./services/laboratorySampleRegistrationJournal";
 import { requestRotaryKiln2FiringJournal } from "./services/rotaryKiln2FiringJournal";
 import { requestLaboratoryUnshapedProductSampleJournal } from "./services/laboratoryUnshapedProductSampleJournal";
+import { requestLaboratoryFormedProductSampleJournal } from "./services/laboratoryFormedProductSampleJournal";
+import { requestLaboratoryVerificationJournal } from "./services/laboratoryVerificationJournal";
 import { requestLaboratoryRawMaterialQualityJournal } from "./services/laboratoryRawMaterialQualityJournal";
 import { requestLaboratoryGreenProductQualityJournal } from "./services/laboratoryGreenProductQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
@@ -355,6 +361,10 @@ export function LaboratoryReviewWorkspace({
             <ChemicalAnalysisHistory query={query} />
           ) : journal.id === "unshaped_product_samples" ? (
             <UnshapedProductSampleHistory query={query} />
+          ) : journal.id === "formed_product_samples" ? (
+            <FormedProductSampleHistory query={query} />
+          ) : journal.id === "verifications" ? (
+            <VerificationHistory query={query} />
           ) : journal.id === "raw_material_quality" ? (
             <RawMaterialQualityHistory query={query} />
           ) : journal.id === "green_product_quality" ? (
@@ -577,6 +587,82 @@ function UnshapedProductSampleHistory({ query }: { query: ReviewQuery }) {
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
       <LaboratoryUnshapedProductSampleTable records={state.records} />
+    </>
+  );
+}
+
+function FormedProductSampleHistory({ query }: { query: ReviewQuery }) {
+  const [state, setState] = useState<
+    RecordsState<LaboratoryFormedProductSampleRecord>
+  >({ status: "loading", records: [] });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState((current) => ({ status: "loading", records: current.records }));
+    requestLaboratoryFormedProductSampleJournal(
+      {
+        ...buildJournalDateFilters(query),
+        ...(query.nameQuery === "" ? {} : { nameQuery: query.nameQuery }),
+      },
+      { signal: controller.signal },
+    ).then((result) => {
+      if (controller.signal.aborted) return;
+      setState((current) => result.status === "ready"
+        ? { status: "ready", records: result.records }
+        : {
+            status: "error",
+            message: readShortUserMessage(
+              result.message,
+              "Не удалось загрузить журнал регистрации проб формованной продукции.",
+            ),
+            records: current.records,
+          });
+    });
+    return () => controller.abort();
+  }, [query.dateFrom, query.dateTo, query.nameQuery]);
+
+  return (
+    <>
+      <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
+      <LaboratoryFormedProductSampleTable records={state.records} />
+    </>
+  );
+}
+
+function VerificationHistory({ query }: { query: ReviewQuery }) {
+  const [state, setState] = useState<
+    RecordsState<LaboratoryVerificationRecord>
+  >({ status: "loading", records: [] });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState((current) => ({ status: "loading", records: current.records }));
+    requestLaboratoryVerificationJournal(
+      {
+        ...buildJournalDateFilters(query),
+        ...(query.nameQuery === "" ? {} : { nameQuery: query.nameQuery }),
+      },
+      { signal: controller.signal },
+    ).then((result) => {
+      if (controller.signal.aborted) return;
+      setState((current) => result.status === "ready"
+        ? { status: "ready", records: result.records }
+        : {
+            status: "error",
+            message: readShortUserMessage(
+              result.message,
+              "Не удалось загрузить журнал верификаций.",
+            ),
+            records: current.records,
+          });
+    });
+    return () => controller.abort();
+  }, [query.dateFrom, query.dateTo, query.nameQuery]);
+
+  return (
+    <>
+      <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
+      <LaboratoryVerificationTable records={state.records} />
     </>
   );
 }

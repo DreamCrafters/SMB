@@ -973,6 +973,12 @@ test("laboratory review access reads every journal by name but cannot change lab
     async findOptionById() {
       return undefined;
     },
+    async listPendingTransmissions() {
+      throw new Error("Laboratory review access must not list pending transmissions.");
+    },
+    async claimTransmission() {
+      throw new Error("Laboratory review access must not claim transmissions.");
+    },
   };
   const chemicalAnalysisFilters: Parameters<
     LaboratoryChemicalAnalysisJournalRepository["list"]
@@ -1606,6 +1612,12 @@ test("sample registration journal saves and filters registration records", async
     },
     async findOptionById() {
       return undefined;
+    },
+    async listPendingTransmissions() {
+      return [];
+    },
+    async claimTransmission() {
+      return { ok: true };
     },
   };
   const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
@@ -2869,6 +2881,12 @@ test("chemical analysis journal links available samples from both source journal
     },
     async findOptionById() {
       return undefined;
+    },
+    async listPendingTransmissions() {
+      return [];
+    },
+    async claimTransmission() {
+      throw new Error("not used");
     },
   };
   let savedInput:
@@ -4998,6 +5016,12 @@ test("account preview navigation grants reads without business mutations", async
     },
     async findOptionById() {
       return undefined;
+    },
+    async listPendingTransmissions() {
+      throw new Error("Account preview must not list pending transmissions.");
+    },
+    async claimTransmission() {
+      throw new Error("Account preview must not claim transmissions.");
     },
   };
 

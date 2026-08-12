@@ -3394,6 +3394,129 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "062_sample_registration_transmission",
+    statements: [
+      `
+      alter table laboratory_sample_registration_journal
+        add column transmit_to_journal varchar(64) null,
+        add column transmitted_record_id char(36) null,
+        add constraint chk_laboratory_sample_registration_transmit_target
+          check (
+            transmit_to_journal is null
+            or transmit_to_journal in (
+              'unshaped_product_sample',
+              'formed_product_sample',
+              'verification'
+            )
+          );
+      `,
+      `
+      alter table laboratory_unshaped_product_sample_journal
+        add column source_sample_registration_id char(36) null,
+        add constraint fk_laboratory_unshaped_product_sample_source
+          foreign key (source_sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete set null;
+      `,
+    ],
+  },
+  {
+    id: "063_formed_product_sample_journal",
+    statements: [
+      `
+      create table if not exists laboratory_formed_product_sample_journal (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        sorting_date date not null,
+        sample_code varchar(120) not null,
+        product_brand varchar(120) not null,
+        source_sample_registration_id char(36) null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_laboratory_formed_product_sample_id (id),
+        key idx_laboratory_formed_product_sample_date (
+          sorting_date,
+          sequence_id
+        ),
+        key idx_laboratory_formed_product_sample_code (sample_code),
+        key idx_laboratory_formed_product_sample_brand (product_brand),
+        constraint fk_laboratory_formed_product_sample_source
+          foreign key (source_sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete set null
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_formed_product_sample_revisions (
+        id char(36) not null primary key,
+        formed_product_sample_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_formed_product_sample_revisions_sample (
+          formed_product_sample_id,
+          created_at
+        ),
+        constraint fk_laboratory_formed_product_sample_revision_sample
+          foreign key (formed_product_sample_id)
+          references laboratory_formed_product_sample_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
+  {
+    id: "064_verification_journal",
+    statements: [
+      `
+      create table if not exists laboratory_verification_journal (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        verification_date date not null,
+        product_name varchar(120) not null,
+        sampling_location varchar(120) not null,
+        sample_code varchar(120) not null,
+        source_sample_registration_id char(36) null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_laboratory_verification_id (id),
+        key idx_laboratory_verification_date (verification_date, sequence_id),
+        key idx_laboratory_verification_code (sample_code),
+        key idx_laboratory_verification_product (product_name),
+        constraint fk_laboratory_verification_source
+          foreign key (source_sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete set null
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_verification_revisions (
+        id char(36) not null primary key,
+        verification_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_laboratory_verification_revisions_record (
+          verification_id,
+          created_at
+        ),
+        constraint fk_laboratory_verification_revision_record
+          foreign key (verification_id)
+          references laboratory_verification_journal (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

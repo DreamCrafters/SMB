@@ -1,8 +1,11 @@
 import {
   laboratoryChemicalAnalysisFields,
   laboratorySampleRegistrationFields,
+  laboratorySampleRegistrationTransmissionTargetLabels,
   laboratoryUnshapedProductSampleFields,
   laboratoryUnshapedProductSampleSuitabilityLabels,
+  laboratoryFormedProductSampleFields,
+  laboratoryVerificationFields,
   laboratoryRawMaterialQualityFields,
   laboratoryRawMaterialQualityRecommendationRecipientLabels,
   laboratoryRawMaterialQualityShiftLabels,
@@ -10,8 +13,10 @@ import {
   type LaboratoryChemicalAnalysisJournalRecord,
   type LaboratoryRawMaterialQualityRecord,
   type LaboratoryGreenProductQualityRecord,
+  type LaboratoryFormedProductSampleRecord,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratoryUnshapedProductSampleRecord,
+  type LaboratoryVerificationRecord,
   type RotaryKiln2FiringJournalRecord,
 } from "./contracts";
 import { formatLaboratoryDate } from "./LaboratoryResultsTable";
@@ -97,9 +102,13 @@ export function LaboratorySampleRegistrationTable({
                       )
                     : record[field.id] === undefined
                     ? "—"
-                    : field.kind === "date"
-                      ? formatLaboratoryDate(record[field.id])
-                      : record[field.id]}
+                    : field.id === "transmitToJournal"
+                      ? laboratorySampleRegistrationTransmissionTargetLabels[
+                          record.transmitToJournal!
+                        ]
+                      : field.kind === "date"
+                        ? formatLaboratoryDate(record[field.id])
+                        : record[field.id]}
                 </td>
               ))}
               {laboratoryChemicalAnalysisFields.map((field) => {
@@ -237,6 +246,104 @@ export function LaboratoryUnshapedProductSampleTable({
                   </td>
                 );
               })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function LaboratoryFormedProductSampleTable({
+  records,
+  onEditRecord,
+}: {
+  records: LaboratoryFormedProductSampleRecord[];
+  onEditRecord?: (record: LaboratoryFormedProductSampleRecord) => void;
+}) {
+  if (records.length === 0) {
+    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
+  }
+
+  return (
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
+      <table className="data-table laboratory-results-table formed-product-sample-table">
+        <thead>
+          <tr>
+            {laboratoryFormedProductSampleFields.map((field) => (
+              <th key={field.id}>{field.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record) => (
+            <tr key={record.id}>
+              {laboratoryFormedProductSampleFields.map((field) => (
+                <td key={field.id}>
+                  {field.id === "sampleCode" && onEditRecord !== undefined
+                    ? (
+                        <button
+                          className="board-assignment-link formed-product-sample-edit-link"
+                          type="button"
+                          onClick={() => onEditRecord(record)}
+                        >
+                          {record.sampleCode}
+                        </button>
+                      )
+                    : field.kind === "date"
+                      ? formatLaboratoryDate(record[field.id])
+                      : record[field.id]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function LaboratoryVerificationTable({
+  records,
+  onEditRecord,
+}: {
+  records: LaboratoryVerificationRecord[];
+  onEditRecord?: (record: LaboratoryVerificationRecord) => void;
+}) {
+  if (records.length === 0) {
+    return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
+  }
+
+  return (
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
+      <table className="data-table laboratory-results-table verification-table">
+        <thead>
+          <tr>
+            {laboratoryVerificationFields.map((field) => (
+              <th key={field.id}>{field.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record) => (
+            <tr key={record.id}>
+              {laboratoryVerificationFields.map((field) => (
+                <td key={field.id}>
+                  {field.id === "sampleCode" && onEditRecord !== undefined
+                    ? (
+                        <button
+                          className="board-assignment-link verification-edit-link"
+                          type="button"
+                          onClick={() => onEditRecord(record)}
+                        >
+                          {record.sampleCode}
+                        </button>
+                      )
+                    : field.kind === "date"
+                      ? formatLaboratoryDate(record[field.id])
+                      : record[field.id]}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>

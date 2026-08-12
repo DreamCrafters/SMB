@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import { createLaboratoryUnshapedProductSampleJournalRepository } from "./laboratoryUnshapedProductSampleJournalRepository.js";
+import { LaboratorySampleRegistrationTransmissionUnavailableError } from "./laboratorySampleRegistrationJournalRepository.js";
 
 const record = {
   sampleNumber: "17",
@@ -61,6 +62,7 @@ test("unshaped product sample repository stores the record and session author", 
     "1710 °C",
     "yes",
     "Без замечаний",
+    null,
     "laboratory-user",
     "laboratory-account",
     "2026-08-05T08:30:00.000Z",
@@ -89,6 +91,7 @@ test("unshaped product sample repository filters and maps history", async () => 
         fire_resistance: "1710 °C",
         suitability: "yes",
         notes: "Без замечаний",
+        source_sample_registration_id: null,
         created_at: "2026-08-05T08:30:00.000Z",
       }], []];
     },
@@ -164,6 +167,7 @@ test("unshaped product sample repository corrects a stable row and stores revisi
           fire_resistance: record.fireResistance,
           suitability: record.suitability,
           notes: record.notes,
+          source_sample_registration_id: null,
           created_at: "2026-08-05T08:30:00.000Z",
         }], []];
       }
@@ -216,4 +220,66 @@ test("unshaped product sample repository corrects a stable row and stores revisi
     "Иванова Анна",
     "2026-08-05T09:15:00.000Z",
   ]);
+});
+
+test("unshaped product sample repository claims a pending transmission on create", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const claims: Array<{
+    sampleRegistrationId: string;
+    target: string;
+    targetRecordId: string;
+  }> = [];
+  const repository = createLaboratoryUnshapedProductSampleJournalRepository(pool, {
+    createId: () => "unshaped-sample-2",
+    now: () => new Date("2026-08-05T08:30:00.000Z"),
+    claimSampleRegistrationTransmission: async (input) => {
+      claims.push(input);
+      return { ok: true };
+    },
+  });
+
+  const saved = await repository.create({
+    record: { ...record, sourceSampleRegistrationId: "sample-registration-1" },
+    submittedByUserId: "laboratory-user",
+    submittedByAccountId: "laboratory-account",
+  });
+
+  assert.equal(saved.sourceSampleRegistrationId, "sample-registration-1");
+  assert.deepEqual(claims, [{
+    sampleRegistrationId: "sample-registration-1",
+    target: "unshaped_product_sample",
+    targetRecordId: "unshaped-sample-2",
+  }]);
+  assert.equal(
+    queries[0]?.parameters?.at(-4),
+    "sample-registration-1",
+  );
+});
+
+test("unshaped product sample repository rejects create when the transmission is unavailable", async () => {
+  const pool = {
+    async query() {
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryUnshapedProductSampleJournalRepository(pool, {
+    claimSampleRegistrationTransmission: async () => (
+      { ok: false, reason: "already_claimed" }
+    ),
+  });
+
+  await assert.rejects(
+    () => repository.create({
+      record: { ...record, sourceSampleRegistrationId: "sample-registration-1" },
+      submittedByUserId: "laboratory-user",
+      submittedByAccountId: "laboratory-account",
+    }),
+    LaboratorySampleRegistrationTransmissionUnavailableError,
+  );
 });

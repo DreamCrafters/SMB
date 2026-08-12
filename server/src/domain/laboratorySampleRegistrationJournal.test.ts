@@ -74,6 +74,59 @@ test("sample registration correction accepts a legacy record without water absor
   assert.equal(validation.value.waterAbsorption, undefined);
 });
 
+test("sample registration journal accepts a valid transmission target", () => {
+  const validation = validateLaboratorySampleRegistrationJournalSubmission({
+    sampleNumber: "19",
+    laboratorySampleCode: ".19",
+    samplingDate: "2026-08-05",
+    samplingLaboratoryAssistant: "Иванова А.А.",
+    sampleName: "Шамот",
+    registrationDate: "2026-08-05",
+    samplingLocation: "Склад сырья",
+    transmitToJournal: "verification",
+  });
+
+  assert.equal(validation.ok, true);
+  if (!validation.ok) return;
+  assert.equal(validation.value.transmitToJournal, "verification");
+});
+
+test("sample registration journal accepts an empty transmission target", () => {
+  const validation = validateLaboratorySampleRegistrationJournalSubmission({
+    sampleNumber: "19",
+    laboratorySampleCode: ".19",
+    samplingDate: "2026-08-05",
+    samplingLaboratoryAssistant: "Иванова А.А.",
+    sampleName: "Шамот",
+    registrationDate: "2026-08-05",
+    samplingLocation: "Склад сырья",
+    transmitToJournal: "",
+  });
+
+  assert.equal(validation.ok, true);
+  if (!validation.ok) return;
+  assert.equal(validation.value.transmitToJournal, undefined);
+});
+
+test("sample registration journal rejects an unknown transmission target", () => {
+  const validation = validateLaboratorySampleRegistrationJournalSubmission({
+    sampleNumber: "19",
+    laboratorySampleCode: ".19",
+    samplingDate: "2026-08-05",
+    samplingLaboratoryAssistant: "Иванова А.А.",
+    sampleName: "Шамот",
+    registrationDate: "2026-08-05",
+    samplingLocation: "Склад сырья",
+    transmitToJournal: "unknown_journal",
+  });
+
+  assert.equal(validation.ok, false);
+  if (validation.ok) return;
+  assert.deepEqual(validation.errors, [
+    "Проверьте поле «Трансляция в журнал».",
+  ]);
+});
+
 test("sample registration journal reports invalid and missing fields", () => {
   const validation = validateLaboratorySampleRegistrationJournalSubmission({
     sampleNumber: "",

@@ -67,6 +67,7 @@ test("sample registration repository stores the complete record and session auth
     "2026-07-29",
     "Склад сырья",
     "4,6",
+    null,
     "laboratory-user",
     "laboratory-account",
     "2026-07-30T08:30:00.000Z",
@@ -118,6 +119,7 @@ test("sample registration repository filters history by registration date and se
         registration_date: "2026-07-29",
         sampling_location: "Склад сырья",
         water_absorption: "4,6",
+        transmit_to_journal: null,
         laboratory_analysis_number: "43",
         al2o3: "31,4",
         fe2o3: "2,1",
@@ -193,6 +195,7 @@ test("sample registration repository corrects a stable record and stores a revis
           registration_date: record.registrationDate,
           sampling_location: record.samplingLocation,
           water_absorption: record.waterAbsorption,
+          transmit_to_journal: null,
           created_at: "2026-07-30T08:30:00.000Z",
         }], []];
       }
@@ -265,6 +268,7 @@ test("sample registration correction preserves missing legacy water absorption",
           registration_date: "2026-07-01",
           sampling_location: "Склад сырья",
           water_absorption: null,
+          transmit_to_journal: null,
           created_at: "2026-07-01T08:30:00.000Z",
         }], []];
       }
@@ -323,6 +327,7 @@ test("sample registration repository omits chemistry until an analysis exists", 
         registration_date: "2026-07-30",
         sampling_location: "Склад сырья",
         water_absorption: null,
+        transmit_to_journal: null,
         laboratory_analysis_number: null,
         al2o3: null,
         fe2o3: null,
@@ -463,4 +468,140 @@ test("sample registration repository lists and resolves selectable samples", asy
   assert.deepEqual(queries[0]?.parameters, ["ЛП-2020-001", 50]);
   assert.match(queries[1]?.sql ?? "", /where id = \?/u);
   assert.deepEqual(queries[1]?.parameters, ["sample-registration-1"]);
+});
+
+test("sample registration repository lists pending transmissions for a target journal", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[{
+        id: "sample-registration-1",
+        laboratory_sample_code: "ЛП-2026-017",
+        sample_number: "17-А",
+        sample_name: "Шамот молотый",
+        sampling_date: "2026-07-29",
+        sampling_laboratory_assistant: "Иванова А.А.",
+        sampling_location: "Склад сырья",
+        registration_date: "2026-07-30",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  assert.deepEqual(await repository.listPendingTransmissions("verification"), [
+    {
+      id: "sample-registration-1",
+      laboratorySampleCode: "ЛП-2026-017",
+      sampleNumber: "17-А",
+      sampleName: "Шамот молотый",
+      samplingDate: "2026-07-29",
+      samplingLaboratoryAssistant: "Иванова А.А.",
+      samplingLocation: "Склад сырья",
+      registrationDate: "2026-07-30",
+    },
+  ]);
+  assert.match(
+    queries[0]?.sql ?? "",
+    /where transmit_to_journal = \? and transmitted_record_id is null/u,
+  );
+  assert.deepEqual(queries[0]?.parameters, ["verification", 500]);
+});
+
+test("sample registration repository claims a pending transmission under a row lock", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      if (/select[\s\S]+for update/u.test(sql)) {
+        return [[{
+          transmit_to_journal: "verification",
+          transmitted_record_id: null,
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  const result = await repository.claimTransmission({
+    sampleRegistrationId: "sample-registration-1",
+    target: "verification",
+    targetRecordId: "verification-1",
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.match(queries[0]?.sql ?? "", /for update/u);
+  assert.deepEqual(queries[0]?.parameters, ["sample-registration-1"]);
+  assert.match(
+    queries[1]?.sql ?? "",
+    /update laboratory_sample_registration_journal\s+set transmitted_record_id = \?/u,
+  );
+  assert.deepEqual(queries[1]?.parameters, [
+    "verification-1",
+    "sample-registration-1",
+  ]);
+});
+
+test("sample registration repository rejects claiming an already-claimed transmission", async () => {
+  const pool = {
+    async query(sql: string) {
+      if (/select[\s\S]+for update/u.test(sql)) {
+        return [[{
+          transmit_to_journal: "verification",
+          transmitted_record_id: "verification-existing",
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  const result = await repository.claimTransmission({
+    sampleRegistrationId: "sample-registration-1",
+    target: "verification",
+    targetRecordId: "verification-2",
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "already_claimed" });
+});
+
+test("sample registration repository rejects claiming a transmission for the wrong target", async () => {
+  const pool = {
+    async query(sql: string) {
+      if (/select[\s\S]+for update/u.test(sql)) {
+        return [[{
+          transmit_to_journal: "unshaped_product_sample",
+          transmitted_record_id: null,
+        }], []];
+      }
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  const result = await repository.claimTransmission({
+    sampleRegistrationId: "sample-registration-1",
+    target: "verification",
+    targetRecordId: "verification-3",
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "wrong_target" });
+});
+
+test("sample registration repository rejects claiming a transmission for a missing sample", async () => {
+  const pool = {
+    async query() {
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  const result = await repository.claimTransmission({
+    sampleRegistrationId: "sample-registration-missing",
+    target: "verification",
+    targetRecordId: "verification-4",
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "not_found" });
 });

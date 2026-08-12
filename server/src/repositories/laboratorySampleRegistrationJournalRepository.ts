@@ -5,10 +5,25 @@ import type {
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySampleRegistrationCorrection,
   LaboratorySampleRegistrationJournalSubmission,
+  LaboratorySampleRegistrationTransmissionOption,
+  LaboratorySampleRegistrationTransmissionTarget,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import type { LaboratorySampleRegistrationOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+
+export class LaboratorySampleRegistrationTransmissionUnavailableError
+  extends Error {}
+
+export type LaboratorySampleRegistrationTransmissionClaimResult =
+  | { ok: true }
+  | { ok: false; reason: "not_found" | "wrong_target" | "already_claimed" };
+
+export type ClaimSampleRegistrationTransmission = (input: {
+  sampleRegistrationId: string;
+  target: LaboratorySampleRegistrationTransmissionTarget;
+  targetRecordId: string;
+}) => Promise<LaboratorySampleRegistrationTransmissionClaimResult>;
 
 type RepositoryFilters = LaboratorySampleRegistrationJournalFilters & {
   limit?: number;
@@ -51,6 +66,10 @@ export type LaboratorySampleRegistrationJournalRepository = {
   findOptionById: (
     id: string,
   ) => Promise<LaboratorySampleRegistrationOption | undefined>;
+  listPendingTransmissions: (
+    target: LaboratorySampleRegistrationTransmissionTarget,
+  ) => Promise<LaboratorySampleRegistrationTransmissionOption[]>;
+  claimTransmission: ClaimSampleRegistrationTransmission;
 };
 
 type LaboratorySampleRegistrationJournalRow = RowDataPacket & {
@@ -75,6 +94,7 @@ type LaboratorySampleRegistrationJournalRow = RowDataPacket & {
   chemical_analysis_laboratory_assistant: string | null;
   batch_number: string | null;
   notes: string | null;
+  transmit_to_journal: LaboratorySampleRegistrationTransmissionTarget | null;
   created_at: Date | string;
 };
 
@@ -97,7 +117,24 @@ type LaboratorySampleRegistrationEditableRow = RowDataPacket & {
   registration_date: Date | string;
   sampling_location: string;
   water_absorption: string | null;
+  transmit_to_journal: LaboratorySampleRegistrationTransmissionTarget | null;
   created_at: Date | string;
+};
+
+type LaboratorySampleRegistrationTransmissionOptionRow = RowDataPacket & {
+  id: string;
+  laboratory_sample_code: string;
+  sample_number: string;
+  sample_name: string;
+  sampling_date: Date | string;
+  sampling_laboratory_assistant: string;
+  sampling_location: string;
+  registration_date: Date | string;
+};
+
+type LaboratorySampleRegistrationTransmissionClaimRow = RowDataPacket & {
+  transmit_to_journal: LaboratorySampleRegistrationTransmissionTarget | null;
+  transmitted_record_id: string | null;
 };
 
 type LaboratorySamplingLocationRow = RowDataPacket & {
@@ -144,10 +181,11 @@ export function createLaboratorySampleRegistrationJournalRepository(
           registration_date,
           sampling_location,
           water_absorption,
+          transmit_to_journal,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           record.sampleNumber,
@@ -158,6 +196,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           record.registrationDate,
           record.samplingLocation,
           record.waterAbsorption ?? null,
+          record.transmitToJournal ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -179,6 +218,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           registration_date,
           sampling_location,
           water_absorption,
+          transmit_to_journal,
           created_at
         from laboratory_sample_registration_journal
         where id = ?
@@ -192,11 +232,15 @@ export function createLaboratorySampleRegistrationJournalRepository(
       const before = mapEditableRecord(current);
       const correctedAt = now().toISOString();
       const nextWaterAbsorption = input.record.waterAbsorption ?? null;
+      const nextTransmitToJournal = input.record.transmitToJournal ?? null;
       const correctedRecord: LaboratorySampleRegistrationCorrection = {
         ...input.record,
         ...(nextWaterAbsorption === null
           ? {}
           : { waterAbsorption: nextWaterAbsorption }),
+        ...(nextTransmitToJournal === null
+          ? {}
+          : { transmitToJournal: nextTransmitToJournal }),
       };
       await pool.query(
         `update laboratory_sample_registration_journal
@@ -208,7 +252,8 @@ export function createLaboratorySampleRegistrationJournalRepository(
           sample_name = ?,
           registration_date = ?,
           sampling_location = ?,
-          water_absorption = ?
+          water_absorption = ?,
+          transmit_to_journal = ?
         where id = ?`,
         [
           input.record.sampleNumber,
@@ -219,6 +264,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           input.record.registrationDate,
           input.record.samplingLocation,
           nextWaterAbsorption,
+          nextTransmitToJournal,
           input.id,
         ],
       );
@@ -318,6 +364,7 @@ export function createLaboratorySampleRegistrationJournalRepository(
           registration.registration_date,
           registration.sampling_location,
           registration.water_absorption,
+          registration.transmit_to_journal,
           analysis.laboratory_analysis_number,
           case when analysis.id is null
             then registration.al2o3 else analysis.al2o3 end as al2o3,
@@ -465,6 +512,59 @@ export function createLaboratorySampleRegistrationJournalRepository(
 
       return rows[0] === undefined ? undefined : mapOption(rows[0]);
     },
+
+    async listPendingTransmissions(target) {
+      const [rows] = await pool.query<
+        LaboratorySampleRegistrationTransmissionOptionRow[]
+      >(
+        `select
+          id,
+          laboratory_sample_code,
+          sample_number,
+          sample_name,
+          sampling_date,
+          sampling_laboratory_assistant,
+          sampling_location,
+          registration_date
+        from laboratory_sample_registration_journal
+        where transmit_to_journal = ? and transmitted_record_id is null
+        order by registration_date desc, created_at desc, id desc
+        limit ?`,
+        [target, maxListLimit],
+      );
+
+      return rows.map(mapTransmissionOption);
+    },
+
+    async claimTransmission(input) {
+      const [rows] = await pool.query<
+        LaboratorySampleRegistrationTransmissionClaimRow[]
+      >(
+        `select transmit_to_journal, transmitted_record_id
+        from laboratory_sample_registration_journal
+        where id = ?
+        limit 1
+        for update`,
+        [input.sampleRegistrationId],
+      );
+      const current = rows[0];
+      if (current === undefined) return { ok: false, reason: "not_found" };
+      if (current.transmit_to_journal !== input.target) {
+        return { ok: false, reason: "wrong_target" };
+      }
+      if (current.transmitted_record_id !== null) {
+        return { ok: false, reason: "already_claimed" };
+      }
+
+      await pool.query(
+        `update laboratory_sample_registration_journal
+        set transmitted_record_id = ?
+        where id = ?`,
+        [input.targetRecordId, input.sampleRegistrationId],
+      );
+
+      return { ok: true };
+    },
   };
 }
 
@@ -482,6 +582,9 @@ function mapEditableRecord(
     ...(row.water_absorption === null
       ? {}
       : { waterAbsorption: row.water_absorption }),
+    ...(row.transmit_to_journal === null
+      ? {}
+      : { transmitToJournal: row.transmit_to_journal }),
   };
 }
 
@@ -500,6 +603,9 @@ function mapRecord(
     ...(row.water_absorption === null
       ? {}
       : { waterAbsorption: row.water_absorption }),
+    ...(row.transmit_to_journal === null
+      ? {}
+      : { transmitToJournal: row.transmit_to_journal }),
     ...(row.laboratory_analysis_number === null
       ? {}
       : { laboratoryAnalysisNumber: row.laboratory_analysis_number }),
@@ -536,6 +642,21 @@ function mapOption(
     sampleNumber: row.sample_number,
     sampleName: row.sample_name,
     samplingDate: formatDate(row.sampling_date),
+    registrationDate: formatDate(row.registration_date),
+  };
+}
+
+function mapTransmissionOption(
+  row: LaboratorySampleRegistrationTransmissionOptionRow,
+): LaboratorySampleRegistrationTransmissionOption {
+  return {
+    id: row.id,
+    laboratorySampleCode: row.laboratory_sample_code,
+    sampleNumber: row.sample_number,
+    sampleName: row.sample_name,
+    samplingDate: formatDate(row.sampling_date),
+    samplingLaboratoryAssistant: row.sampling_laboratory_assistant,
+    samplingLocation: row.sampling_location,
     registrationDate: formatDate(row.registration_date),
   };
 }

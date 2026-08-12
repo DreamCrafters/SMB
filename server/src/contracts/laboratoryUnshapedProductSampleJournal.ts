@@ -31,6 +31,7 @@ export type LaboratoryUnshapedProductSampleSubmission = {
   fireResistance: string;
   suitability: LaboratoryUnshapedProductSampleSuitability;
   notes?: string;
+  sourceSampleRegistrationId?: string;
 };
 
 export type LaboratoryUnshapedProductSampleCorrection =

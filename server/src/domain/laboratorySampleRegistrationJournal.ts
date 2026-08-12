@@ -1,8 +1,13 @@
 import {
   laboratorySampleRegistrationFields,
+  laboratorySampleRegistrationTransmissionTargets,
   type LaboratorySampleRegistrationCorrection,
   type LaboratorySampleRegistrationJournalSubmission,
+  type LaboratorySampleRegistrationTransmissionTarget,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
+
+const transmissionTargetValues = laboratorySampleRegistrationTransmissionTargets
+  .map((target) => target.value);
 
 export type LaboratorySampleRegistrationJournalValidation =
   | { ok: true; value: LaboratorySampleRegistrationJournalSubmission }
@@ -42,7 +47,9 @@ function validateLaboratorySampleRegistrationRecord(
   >();
 
   for (const field of laboratorySampleRegistrationFields) {
-    if (field.id === "waterAbsorption") continue;
+    if (field.id === "waterAbsorption" || field.id === "transmitToJournal") {
+      continue;
+    }
     const value = field.kind === "date"
       ? readCalendarDate(input[field.id])
       : readText(input[field.id], maxShortTextLength);
@@ -62,6 +69,22 @@ function validateLaboratorySampleRegistrationRecord(
     errors.push("Проверьте поле «Водопоглощение».");
   }
 
+  let transmitToJournal: LaboratorySampleRegistrationTransmissionTarget |
+    undefined;
+  if (!isMissingOptionalText(input.transmitToJournal)) {
+    if (
+      typeof input.transmitToJournal === "string" &&
+      transmissionTargetValues.includes(
+        input.transmitToJournal as LaboratorySampleRegistrationTransmissionTarget,
+      )
+    ) {
+      transmitToJournal =
+        input.transmitToJournal as LaboratorySampleRegistrationTransmissionTarget;
+    } else {
+      errors.push("Проверьте поле «Трансляция в журнал».");
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -78,6 +101,7 @@ function validateLaboratorySampleRegistrationRecord(
       registrationDate: values.get("registrationDate")!,
       samplingLocation: values.get("samplingLocation")!,
       ...(waterAbsorption === undefined ? {} : { waterAbsorption }),
+      ...(transmitToJournal === undefined ? {} : { transmitToJournal }),
     },
   };
 }

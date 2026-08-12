@@ -3,6 +3,7 @@ import {
   buildLaboratorySampleCodeDraft,
   laboratorySampleRegistrationFields,
   laboratorySampleRegistrationSamplingLocations,
+  laboratorySampleRegistrationTransmissionTargets,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
   type ServerUserProfile,
@@ -318,6 +319,7 @@ export function LaboratorySampleRegistrationJournal({
       registrationDate: record.registrationDate,
       samplingLocation: record.samplingLocation,
       waterAbsorption: record.waterAbsorption ?? "",
+      transmitToJournal: record.transmitToJournal ?? "",
     });
     setFormMessage("");
   }
@@ -350,28 +352,52 @@ export function LaboratorySampleRegistrationJournal({
           <h3>Регистрация отбора</h3>
           <div className="laboratory-form-grid">
             {laboratorySampleRegistrationFields.map((field) => (
-              <JournalInput
-                field={field.id}
-                key={field.id}
-                label={field.label}
-                options={field.id === "samplingLocation"
-                  ? samplingLocationOptions
-                  : field.id === "samplingLaboratoryAssistant"
-                    ? laboratoryAssistantOptions
-                    : undefined}
-                placeholder={field.id === "samplingLocation"
-                  ? "Выберите или введите новое место"
-                  : field.id === "samplingLaboratoryAssistant"
-                    ? "Выберите или введите фамилию"
-                    : undefined}
-                inputMode={field.id === "waterAbsorption"
-                  ? "decimal"
-                  : undefined}
-                required={field.id !== "waterAbsorption"}
-                type={field.kind === "date" ? "date" : "text"}
-                value={form[field.id]}
-                onChange={updateField}
-              />
+              field.id === "transmitToJournal"
+                ? (
+                    <label key={field.id}>
+                      <span>{field.label}</span>
+                      <select
+                        value={form.transmitToJournal}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          updateField("transmitToJournal", value);
+                        }}
+                      >
+                        <option value="">Не транслировать</option>
+                        {laboratorySampleRegistrationTransmissionTargets.map(
+                          (target) => (
+                            <option key={target.value} value={target.value}>
+                              {target.label}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                  )
+                : (
+                    <JournalInput
+                      field={field.id}
+                      key={field.id}
+                      label={field.label}
+                      options={field.id === "samplingLocation"
+                        ? samplingLocationOptions
+                        : field.id === "samplingLaboratoryAssistant"
+                          ? laboratoryAssistantOptions
+                          : undefined}
+                      placeholder={field.id === "samplingLocation"
+                        ? "Выберите или введите новое место"
+                        : field.id === "samplingLaboratoryAssistant"
+                          ? "Выберите или введите фамилию"
+                          : undefined}
+                      inputMode={field.id === "waterAbsorption"
+                        ? "decimal"
+                        : undefined}
+                      required={field.id !== "waterAbsorption"}
+                      type={field.kind === "date" ? "date" : "text"}
+                      value={form[field.id]}
+                      onChange={updateField}
+                    />
+                  )
             ))}
           </div>
         </section>
@@ -526,6 +552,7 @@ function createEmptyForm(
     registrationDate: today,
     samplingLocation,
     waterAbsorption: "",
+    transmitToJournal: "",
   };
 }
 
@@ -536,6 +563,7 @@ function buildFormRecord(
     laboratorySampleRegistrationFields.some(
       (field) =>
         field.id !== "waterAbsorption" &&
+        field.id !== "transmitToJournal" &&
         form[field.id].trim() === "",
     )
   ) {
@@ -543,6 +571,7 @@ function buildFormRecord(
   }
 
   const waterAbsorption = form.waterAbsorption.trim();
+  const transmitToJournal = form.transmitToJournal.trim();
 
   return {
     sampleNumber: form.sampleNumber.trim(),
@@ -553,6 +582,12 @@ function buildFormRecord(
     registrationDate: form.registrationDate,
     samplingLocation: form.samplingLocation.trim(),
     ...(waterAbsorption === "" ? {} : { waterAbsorption }),
+    ...(transmitToJournal === ""
+      ? {}
+      : {
+          transmitToJournal:
+            transmitToJournal as LaboratorySampleRegistrationJournalSubmission["transmitToJournal"],
+        }),
   };
 }
 

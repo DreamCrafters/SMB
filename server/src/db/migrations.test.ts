@@ -18,6 +18,9 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "059_position_notification_permissions",
   "060_refractory_wagon_turnover",
   "061_refractory_wagon_inspections",
+  "062_sample_registration_transmission",
+  "063_formed_product_sample_journal",
+  "064_verification_journal",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2609,6 +2612,82 @@ test("wagon inspection migration stores verdicts and wagon fields of the lab jou
   assert.match(statements[1] ?? "", /loading_date date null/u);
   assert.match(statements[1] ?? "", /piece_count int unsigned null/u);
   assert.equal(statements[2], "insert into schema_migrations (id) values (?)");
+});
+
+test("sample registration transmission migrations add the transmission columns and the two new journals", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const targetIds = new Set([
+    "062_sample_registration_transmission",
+    "063_formed_product_sample_journal",
+    "064_verification_journal",
+  ]);
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [targetIds.has(id) ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 9);
+  assert.match(
+    statements[0] ?? "",
+    /alter table laboratory_sample_registration_journal/u,
+  );
+  assert.match(statements[0] ?? "", /add column transmit_to_journal/u);
+  assert.match(statements[0] ?? "", /add column transmitted_record_id/u);
+  assert.match(
+    statements[0] ?? "",
+    /transmit_to_journal in \(\s*'unshaped_product_sample',\s*'formed_product_sample',\s*'verification'\s*\)/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /alter table laboratory_unshaped_product_sample_journal/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /add column source_sample_registration_id char\(36\) null/u,
+  );
+  assert.equal(statements[2], "insert into schema_migrations (id) values (?)");
+  assert.match(
+    statements[3] ?? "",
+    /create table if not exists laboratory_formed_product_sample_journal/u,
+  );
+  assert.match(
+    statements[3] ?? "",
+    /foreign key \(source_sample_registration_id\)\s+references laboratory_sample_registration_journal \(id\)\s+on delete set null/u,
+  );
+  assert.match(
+    statements[4] ?? "",
+    /create table if not exists laboratory_formed_product_sample_revisions/u,
+  );
+  assert.equal(statements[5], "insert into schema_migrations (id) values (?)");
+  assert.match(
+    statements[6] ?? "",
+    /create table if not exists laboratory_verification_journal/u,
+  );
+  assert.match(
+    statements[7] ?? "",
+    /create table if not exists laboratory_verification_revisions/u,
+  );
+  assert.equal(statements[8], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

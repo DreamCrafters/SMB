@@ -2,6 +2,8 @@ export {
   buildLaboratorySampleCodeDraft,
   laboratorySampleRegistrationFields,
   laboratorySampleRegistrationSamplingLocations,
+  laboratorySampleRegistrationTransmissionTargets,
+  laboratorySampleRegistrationTransmissionTargetLabels,
 } from "../../server/src/contracts/laboratorySampleRegistrationJournal.js";
 export type {
   LaboratorySampleRegistrationCorrection,
@@ -9,4 +11,6 @@ export type {
   LaboratorySampleRegistrationJournalFilters,
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySampleRegistrationJournalSubmission,
+  LaboratorySampleRegistrationTransmissionOption,
+  LaboratorySampleRegistrationTransmissionTarget,
 } from "../../server/src/contracts/laboratorySampleRegistrationJournal.js";

@@ -5,6 +5,8 @@ import {
   type LaboratorySampleRegistrationJournalFilters,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
+  type LaboratorySampleRegistrationTransmissionOption,
+  type LaboratorySampleRegistrationTransmissionTarget,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
 import {
   laboratoryChemicalAnalysisFields,
@@ -20,6 +22,8 @@ const JOURNAL_PATH = "/api/laboratory/sample-registration-journal";
 const DRAFT_PATH = "/api/laboratory/sample-registration-draft";
 const SAMPLING_LOCATIONS_PATH =
   "/api/laboratory/sample-registration-locations";
+const PENDING_TRANSMISSIONS_PATH =
+  "/api/laboratory/sample-registration-pending-transmissions";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 type ErrorResult = {
@@ -48,6 +52,12 @@ export type LaboratorySampleRegistrationJournalSaveResult =
   | {
       status: "ready";
       record: LaboratorySampleRegistrationJournalRecord;
+    }
+  | ErrorResult;
+export type LaboratorySampleRegistrationPendingTransmissionsResult =
+  | {
+      status: "ready";
+      options: LaboratorySampleRegistrationTransmissionOption[];
     }
   | ErrorResult;
 
@@ -139,6 +149,32 @@ export async function requestLaboratorySampleRegistrationDraft(
     currentYear: result.payload.currentYear as number,
     laboratorySampleCode: result.payload.laboratorySampleCode,
   };
+}
+
+export async function requestLaboratorySampleRegistrationPendingTransmissions(
+  target: LaboratorySampleRegistrationTransmissionTarget,
+  options: RequestOptions = {},
+): Promise<LaboratorySampleRegistrationPendingTransmissionsResult> {
+  const params = new URLSearchParams({ target });
+  const result = await requestJson(
+    `${PENDING_TRANSMISSIONS_PATH}?${params.toString()}`,
+    "GET",
+    undefined,
+    options,
+  );
+
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    !Array.isArray(result.payload.options) ||
+    !result.payload.options.every(isTransmissionOption)
+  ) {
+    return invalidResponse(
+      "Сервер вернул список проб для трансляции в неподдерживаемом формате.",
+    );
+  }
+
+  return { status: "ready", options: result.payload.options };
 }
 
 export async function submitLaboratorySampleRegistrationJournalRecord(
@@ -237,15 +273,32 @@ function isJournalRecord(
     typeof value.id === "string" &&
     laboratorySampleRegistrationFields.every(
       (field) => field.id === "waterAbsorption" ||
+        field.id === "transmitToJournal" ||
         typeof value[field.id] === "string",
     ) &&
     (value.waterAbsorption === undefined ||
       typeof value.waterAbsorption === "string") &&
+    (value.transmitToJournal === undefined ||
+      typeof value.transmitToJournal === "string") &&
     laboratoryChemicalAnalysisFields.every(
       (field) => value[field.id] === undefined ||
         typeof value[field.id] === "string",
     ) &&
     typeof value.createdAt === "string";
+}
+
+function isTransmissionOption(
+  value: unknown,
+): value is LaboratorySampleRegistrationTransmissionOption {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.laboratorySampleCode === "string" &&
+    typeof value.sampleNumber === "string" &&
+    typeof value.sampleName === "string" &&
+    typeof value.samplingDate === "string" &&
+    typeof value.samplingLaboratoryAssistant === "string" &&
+    typeof value.samplingLocation === "string" &&
+    typeof value.registrationDate === "string";
 }
 
 function readRemoteError(payload: unknown, fallback: string): ErrorResult {

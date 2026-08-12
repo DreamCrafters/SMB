@@ -18,6 +18,8 @@ export * from "./rotaryKiln2FiringJournal";
 export * from "./laboratorySampleRegistrationJournal";
 export * from "./laboratoryChemicalAnalysisJournal";
 export * from "./laboratoryUnshapedProductSampleJournal";
+export * from "./laboratoryFormedProductSampleJournal";
+export * from "./laboratoryVerificationJournal";
 export * from "./laboratoryRawMaterialQualityJournal";
 export * from "./laboratoryGreenProductQualityJournal";
 export * from "./workflow";

@@ -15,6 +15,8 @@ import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2Firin
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
 import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
 import { LaboratoryUnshapedProductSampleJournal } from "./LaboratoryUnshapedProductSampleJournal";
+import { LaboratoryFormedProductSampleJournal } from "./LaboratoryFormedProductSampleJournal";
+import { LaboratoryVerificationJournal } from "./LaboratoryVerificationJournal";
 import { LaboratoryRawMaterialQualityJournal } from "./LaboratoryRawMaterialQualityJournal";
 import { LaboratoryGreenProductQualityJournal } from "./LaboratoryGreenProductQualityJournal";
 import {
@@ -51,7 +53,10 @@ type CentralLabJournalId =
   | "kiln-journal"
   | "sample-registration"
   | "chemical-analysis";
-type QualityControlJournalId = "unshaped-product-samples";
+type QualityControlJournalId =
+  | "unshaped-product-samples"
+  | "formed-product-samples"
+  | "verifications";
 type RefractoryShopJournalId =
   | "raw-material-quality"
   | "green-product-quality";
@@ -116,6 +121,11 @@ const qualityControlJournals: readonly {
   label: string;
 }[] = [
   { id: "unshaped-product-samples", label: "Пробы неформованной продукции" },
+  {
+    id: "formed-product-samples",
+    label: "Регистрация проб формованной продукции (кирпича)",
+  },
+  { id: "verifications", label: "Верификации" },
 ];
 
 const refractoryShopJournals: readonly {
@@ -612,7 +622,17 @@ export function LaboratoryResultsWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
-        ) : null
+        ) : qualityControlJournal === "formed-product-samples" ? (
+          <LaboratoryFormedProductSampleJournal
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        ) : (
+          <LaboratoryVerificationJournal
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        )
       ) : activePanel === "refractory-shop" ? (
         refractoryShopJournal === "raw-material-quality" ? (
           <LaboratoryRawMaterialQualityJournal

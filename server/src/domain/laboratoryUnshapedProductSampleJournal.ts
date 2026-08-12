@@ -63,6 +63,17 @@ function validateRecord(input: unknown): LaboratoryUnshapedProductSampleValidati
     errors.push("Проверьте поле «Примечание».");
   }
 
+  const sourceSampleRegistrationId = readText(
+    input.sourceSampleRegistrationId,
+    maxShortTextLength,
+  );
+  if (
+    !isMissingOptionalText(input.sourceSampleRegistrationId) &&
+    sourceSampleRegistrationId === undefined
+  ) {
+    errors.push("Проверьте выбранную пробу для трансляции.");
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -80,6 +91,9 @@ function validateRecord(input: unknown): LaboratoryUnshapedProductSampleValidati
       fireResistance: values.get("fireResistance")!,
       suitability: suitability!,
       ...(notes === undefined ? {} : { notes }),
+      ...(sourceSampleRegistrationId === undefined
+        ? {}
+        : { sourceSampleRegistrationId }),
     },
   };
 }

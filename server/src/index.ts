@@ -30,6 +30,8 @@ import { createRotaryKiln2FiringJournalRepository } from "./repositories/rotaryK
 import { createLaboratorySampleRegistrationJournalRepository } from "./repositories/laboratorySampleRegistrationJournalRepository.js";
 import { createLaboratoryChemicalAnalysisJournalRepository } from "./repositories/laboratoryChemicalAnalysisJournalRepository.js";
 import { createLaboratoryUnshapedProductSampleJournalRepository } from "./repositories/laboratoryUnshapedProductSampleJournalRepository.js";
+import { createLaboratoryFormedProductSampleJournalRepository } from "./repositories/laboratoryFormedProductSampleJournalRepository.js";
+import { createLaboratoryVerificationJournalRepository } from "./repositories/laboratoryVerificationJournalRepository.js";
 import { createLaboratoryRawMaterialQualityJournalRepository } from "./repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import { createLaboratoryGreenProductQualityJournalRepository } from "./repositories/laboratoryGreenProductQualityJournalRepository.js";
 import { createBoardAssignmentsRepository } from "./repositories/boardAssignmentsRepository.js";
@@ -66,6 +68,10 @@ const productBrands = createProductBrandsRepository(pool, {
 const refractoryReports = createRefractoryReportsRepository(pool, {
   readProductBrandMergeAliases: () => productBrands.listMergeAliases(),
 });
+const laboratorySampleRegistrationJournal =
+  createLaboratorySampleRegistrationJournalRepository(pool);
+const claimSampleRegistrationTransmission =
+  laboratorySampleRegistrationJournal.claimTransmission;
 
 if (config.runMigrationsOnStart) {
   if (config.productionSnapshot.enabled) {
@@ -97,12 +103,21 @@ const server = createApiServer({
   laboratoryBankAssignments: createLaboratoryBankAssignmentsRepository(pool),
   rotaryKiln2FiringJournal:
     createRotaryKiln2FiringJournalRepository(pool),
-  laboratorySampleRegistrationJournal:
-    createLaboratorySampleRegistrationJournalRepository(pool),
+  laboratorySampleRegistrationJournal,
   laboratoryChemicalAnalysisJournal:
     createLaboratoryChemicalAnalysisJournalRepository(pool),
   laboratoryUnshapedProductSampleJournal:
-    createLaboratoryUnshapedProductSampleJournalRepository(pool),
+    createLaboratoryUnshapedProductSampleJournalRepository(pool, {
+      claimSampleRegistrationTransmission,
+    }),
+  laboratoryFormedProductSampleJournal:
+    createLaboratoryFormedProductSampleJournalRepository(pool, {
+      claimSampleRegistrationTransmission,
+    }),
+  laboratoryVerificationJournal:
+    createLaboratoryVerificationJournalRepository(pool, {
+      claimSampleRegistrationTransmission,
+    }),
   laboratoryRawMaterialQualityJournal:
     createLaboratoryRawMaterialQualityJournalRepository(pool),
   laboratoryGreenProductQualityJournal:
