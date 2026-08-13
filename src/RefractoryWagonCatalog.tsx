@@ -55,7 +55,7 @@ export function RefractoryWagonCatalog({
       ) : sortedWagons.length === 0 ? (
         <p className="laboratory-empty-note">В каталоге пока нет вагонов.</p>
       ) : (
-        <div className="refractory-table-wrap">
+        <div className="refractory-table-wrap refractory-table-wrap-full-height">
           <table className="refractory-input-table refractory-wagon-catalog-table">
             <thead>
               <tr>

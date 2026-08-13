@@ -6649,6 +6649,8 @@ function readRefractoryReportLifecycleWagonIds(
       wagonProductBrands: {} as Record<string, string>,
       firingOperators: {} as Record<string, string | null>,
       sorters: {} as Record<string, string | null>,
+      firingDates: {} as Record<string, string | null>,
+      sortingDates: {} as Record<string, string | null>,
     };
   }
   const payload = report.payload as RefractoryFiringPayload;
@@ -6666,6 +6668,8 @@ function readRefractoryReportLifecycleWagonIds(
     wagonProductBrands,
     firingOperators: readRefractoryReportCrew(payload, "firing"),
     sorters: readRefractoryReportCrew(payload, "sorting"),
+    firingDates: readRefractoryReportDates(payload, "firing"),
+    sortingDates: readRefractoryReportDates(payload, "sorting"),
   };
 }
 
@@ -6681,6 +6685,23 @@ function readRefractoryReportCrew(
       return (wagons ?? []).map((wagon) =>
         [wagon.id, operator ?? null] as const
       );
+    }),
+  );
+}
+
+/**
+ * Дата обжига/сортировки строки отчёта по каждому её вагону; пустое значение
+ * означает, что вагон унаследует общую дату отчёта.
+ */
+function readRefractoryReportDates(
+  payload: RefractoryFiringPayload,
+  event: "firing" | "sorting",
+) {
+  return Object.fromEntries(
+    payload.rows.flatMap((row) => {
+      const wagons = event === "firing" ? row.firingWagons : row.sortingWagons;
+      const date = event === "firing" ? row.firingDate : row.sortingDate;
+      return (wagons ?? []).map((wagon) => [wagon.id, date ?? null] as const);
     }),
   );
 }

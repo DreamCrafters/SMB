@@ -10111,6 +10111,8 @@ test("refractory reports are submitted and reviewed independently through protec
         wagonProductBrands: { "wagon-17": "ША" },
         firingOperators: { "wagon-17": null },
         sorters: { "wagon-17": null },
+        firingDates: { "wagon-17": null },
+        sortingDates: { "wagon-17": null },
       });
       assert.equal(refractoryEmailAttemptCount, 1);
       assert.equal(emailedRefractoryReportId, "refractory-1");

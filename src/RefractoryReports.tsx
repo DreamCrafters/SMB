@@ -51,12 +51,6 @@ import { RefractoryWagonCatalog } from "./RefractoryWagonCatalog";
 import { RefractoryWagonInspectionJournal } from "./RefractoryWagonInspectionJournal";
 import { RefractoryWagonJournal } from "./RefractoryWagonJournal";
 
-const reportTypes: readonly RefractoryReportType[] = [
-  "cosh",
-  "equipment",
-  "firing",
-];
-
 /** Раздел `Вагоны` открывает три журнала одного жизненного цикла вагона. */
 const wagonJournals = [
   { id: "catalog", label: "Каталог вагонов" },
@@ -263,6 +257,46 @@ export function RefractoryShopWorkspace({
     setHasError(false);
   }
 
+  function renderRefractoryReportTypeButton(reportType: RefractoryReportType) {
+    const report = reports.find((item) => item.reportType === reportType);
+    const returnedCount = returnedReportCounts[reportType];
+    const reportStatusLabel = report === undefined
+      ? "Не отправлено"
+      : reportStatusLabels[report.status];
+    return (
+      <button
+        aria-label={`${refractoryReportLabels[reportType]}. ${reportStatusLabel}.${
+          returnedCount > 0
+            ? ` Возвращено на доработку: ${returnedCount}.`
+            : ""
+        }`}
+        className={wagonJournal === undefined && reportType === activeType
+          ? "is-active"
+          : undefined}
+        type="button"
+        onClick={() => {
+          setWagonJournal(undefined);
+          setActiveType(reportType);
+          setIsCorrectionMode(false);
+          setStatus("");
+          setHasError(false);
+        }}
+      >
+        <span className="refractory-report-menu-heading">
+          <span className="refractory-report-label">
+            {refractoryReportLabels[reportType]}
+          </span>
+          {returnedCount > 0 ? (
+            <b className="refractory-report-return-count" aria-hidden="true">
+              {returnedCount}
+            </b>
+          ) : null}
+        </span>
+        <small>{reportStatusLabel}</small>
+      </button>
+    );
+  }
+
   return (
     <section className="refractory-workspace" aria-label="Огнеупорный цех">
       <header className="refractory-header">
@@ -315,50 +349,8 @@ export function RefractoryShopWorkspace({
       ) : null}
 
       <div className="refractory-report-menu" aria-label="Выбор таблицы">
-        {reportTypes.map((reportType) => {
-          const report = reports.find((item) => item.reportType === reportType);
-          const returnedCount = returnedReportCounts[reportType];
-          const reportStatusLabel =
-            report === undefined
-              ? "Не отправлено"
-              : reportStatusLabels[report.status];
-          return (
-            <button
-              aria-label={`${refractoryReportLabels[reportType]}. ${reportStatusLabel}.${
-                returnedCount > 0
-                  ? ` Возвращено на доработку: ${returnedCount}.`
-                  : ""
-              }`}
-              className={wagonJournal === undefined && reportType === activeType
-                ? "is-active"
-                : undefined}
-              type="button"
-              key={reportType}
-              onClick={() => {
-                setWagonJournal(undefined);
-                setActiveType(reportType);
-                setIsCorrectionMode(false);
-                setStatus("");
-                setHasError(false);
-              }}
-            >
-              <span className="refractory-report-menu-heading">
-                <span className="refractory-report-label">
-                  {refractoryReportLabels[reportType]}
-                </span>
-                {returnedCount > 0 ? (
-                  <b
-                    className="refractory-report-return-count"
-                    aria-hidden="true"
-                  >
-                    {returnedCount}
-                  </b>
-                ) : null}
-              </span>
-              <small>{reportStatusLabel}</small>
-            </button>
-          );
-        })}
+        {renderRefractoryReportTypeButton("cosh")}
+        {renderRefractoryReportTypeButton("equipment")}
         <button
           aria-label="Вагоны. Журналы огнеупорного цеха."
           className={wagonJournal === undefined ? undefined : "is-active"}
@@ -375,6 +367,7 @@ export function RefractoryShopWorkspace({
           </span>
           <small>Журналы</small>
         </button>
+        {renderRefractoryReportTypeButton("firing")}
       </div>
 
       {wagonJournal === undefined ? null : (
@@ -453,6 +446,7 @@ export function RefractoryShopWorkspace({
             ) : (
               <FiringForm
                 brandLabels={brandLabels}
+                defaultReportDate={reportDate}
                 loadWagons={!isAdminPreviewMode}
                 payload={
                   activeReport?.reportType === "firing"
@@ -1500,10 +1494,12 @@ function FiringWagonMultiSelect({
 
 function FiringForm({
   brandLabels = [],
+  defaultReportDate = "",
   loadWagons = false,
   payload,
 }: {
   brandLabels?: string[];
+  defaultReportDate?: string;
   loadWagons?: boolean;
   payload?: RefractoryFiringPayload;
 }) {
@@ -1543,8 +1539,10 @@ function FiringForm({
               <tr>
                 <th>Марка изделия</th>
                 <th>Вагоны для обжига</th>
+                <th>Дата обжига</th>
                 <th>Обжигальщик</th>
                 <th>Рассортированные вагоны</th>
+                <th>Дата сортировки</th>
                 <th>Сортировщик</th>
                 {firingColumns.map(([, label]) => (
                   <th key={label}>{label}</th>
@@ -1583,6 +1581,15 @@ function FiringForm({
                     </td>
                     <td>
                       <input
+                        aria-label={`Дата обжига, строка ${index + 1}`}
+                        data-refractory-label={`Дата обжига, строка ${index + 1}`}
+                        name={`firing.${index}.firingDate`}
+                        type="date"
+                        defaultValue={row?.firingDate ?? defaultReportDate}
+                      />
+                    </td>
+                    <td>
+                      <input
                         aria-label={`Обжигальщик, строка ${index + 1}`}
                         data-refractory-label={`Обжигальщик, строка ${index + 1}`}
                         list="refractory-firing-operator-options"
@@ -1597,6 +1604,15 @@ function FiringForm({
                         name={`firing.${index}.sortingWagons`}
                         options={wagonOptions}
                         saved={row?.sortingWagons}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Дата сортировки, строка ${index + 1}`}
+                        data-refractory-label={`Дата сортировки, строка ${index + 1}`}
+                        name={`firing.${index}.sortingDate`}
+                        type="date"
+                        defaultValue={row?.sortingDate ?? defaultReportDate}
                       />
                     </td>
                     <td>
@@ -2279,11 +2295,13 @@ function buildFiringPayload(data: FormData): RefractoryFiringPayload {
         data,
         `firing.${index}.firingWagons`,
       ),
+      firingDate: optionalText(data, `firing.${index}.firingDate`),
       firingOperator: optionalText(data, `firing.${index}.firingOperator`),
       sortingWagons: optionalWagonReferences(
         data,
         `firing.${index}.sortingWagons`,
       ),
+      sortingDate: optionalText(data, `firing.${index}.sortingDate`),
       sorter: optionalText(data, `firing.${index}.sorter`),
       quantityPieces: first(
         optionalNumber(data, `firing.${index}.quantityPieces`),

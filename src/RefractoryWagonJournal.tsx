@@ -293,7 +293,7 @@ export function RefractoryWagonJournal({
       ) : loadState === "ready" && wagons.length === 0 ? (
         <p className="laboratory-empty-note">В журнале пока нет вагонов.</p>
       ) : loadState === "ready" ? (
-        <div className="refractory-table-wrap">
+        <div className="refractory-table-wrap refractory-table-wrap-full-height">
           <table className="refractory-input-table refractory-wagon-table">
             <thead>
               <tr>

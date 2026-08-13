@@ -273,16 +273,19 @@ test("refractory wagon repository replaces report-derived firing and sorting eve
       "wagon-18": "Зайцев З.З.",
     },
     sorters: { "wagon-18": "Орлова О.О." },
+    firingDates: { "wagon-17": "2026-08-11", "wagon-18": null },
+    sortingDates: { "wagon-18": "2026-08-13" },
   });
 
   assert.deepEqual(queries[0]?.parameters, ["wagon-17", "wagon-18"]);
   assert.match(queries[1]?.sql ?? "", /delete from refractory_wagon_lifecycle_events/u);
   assert.deepEqual(queries[1]?.parameters, ["firing", "2026-08-12", 2]);
   assert.match(queries[2]?.sql ?? "", /insert into refractory_wagon_lifecycle_events/u);
+  // Дата вагона 17 указана в строке отчёта, вагон 18 наследует общую дату отчёта.
   assert.deepEqual(queries[2]?.parameters, [
-    "firing", "2026-08-12", 2, "firing", 0, "wagon-17", "2026-08-12", "report-9",
+    "firing", "2026-08-12", 2, "firing", 0, "wagon-17", "2026-08-11", "report-9",
     "firing", "2026-08-12", 2, "firing", 1, "wagon-18", "2026-08-12", "report-9",
-    "firing", "2026-08-12", 2, "sorting", 0, "wagon-18", "2026-08-12", "report-9",
+    "firing", "2026-08-12", 2, "sorting", 0, "wagon-18", "2026-08-13", "report-9",
   ]);
   // Обжигальщик и сортировщик строки отчёта переносятся в затронутые вагоны.
   assert.match(queries[3]?.sql ?? "", /set firing_operator = \?/u);
@@ -307,6 +310,8 @@ test("refractory wagon repository replaces report-derived firing and sorting eve
       wagonProductBrands: { "wagon-17": "Другая марка" },
       firingOperators: {},
       sorters: {},
+      firingDates: {},
+      sortingDates: {},
     }),
     RefractoryWagonBrandMismatchError,
   );

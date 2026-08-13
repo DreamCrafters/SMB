@@ -7417,7 +7417,7 @@ p {
 
 .refractory-report-menu {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 9px;
 }
 
@@ -7626,6 +7626,20 @@ p {
 
 .refractory-input-table-compact {
   min-width: 720px;
+}
+
+.refractory-wagon-catalog-table {
+  min-width: 480px;
+  table-layout: fixed;
+}
+
+.refractory-wagon-catalog-table th:first-child,
+.refractory-wagon-catalog-table th:nth-child(2) {
+  width: 25%;
+}
+
+.refractory-wagon-catalog-table th:last-child {
+  width: 50%;
 }
 
 .refractory-cosh-output {
@@ -7970,7 +7984,7 @@ p {
   }
 
   .refractory-report-menu {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 
   .refractory-mini-row,

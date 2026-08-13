@@ -50,6 +50,9 @@ export type RefractoryWagonsRepository = {
     /** Обжигальщик и сортировщик строки отчёта по каждому вагону. */
     firingOperators: Record<string, string | null>;
     sorters: Record<string, string | null>;
+    /** Дата обжига/сортировки строки отчёта по каждому вагону, если указана. */
+    firingDates: Record<string, string | null>;
+    sortingDates: Record<string, string | null>;
   }) => Promise<void>;
   update: (input: {
     id: string;
@@ -232,11 +235,13 @@ export function createRefractoryWagonsRepository(
           eventType: "firing" as const,
           position,
           wagonId,
+          eventDate: input.firingDates[wagonId] ?? input.reportDate,
         })),
         ...input.sortingWagonIds.map((wagonId, position) => ({
           eventType: "sorting" as const,
           position,
           wagonId,
+          eventDate: input.sortingDates[wagonId] ?? input.reportDate,
         })),
       ];
       if (events.length === 0) return;
@@ -261,7 +266,7 @@ export function createRefractoryWagonsRepository(
           event.eventType,
           event.position,
           event.wagonId,
-          input.reportDate,
+          event.eventDate,
           input.sourceReportId,
         ]),
       );

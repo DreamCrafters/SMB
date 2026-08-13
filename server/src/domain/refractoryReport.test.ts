@@ -118,6 +118,57 @@ test("firing report calculates reject totals from defect kinds", () => {
   });
 });
 
+test("firing report accepts a distinct firing and sorting date per row", () => {
+  const result = validateRefractoryReportSubmission({
+    reportType: "firing",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {
+      rows: [
+        {
+          productBrand: "ШАБ 5",
+          firingWagons: [{ id: "wagon-17" }],
+          firingDate: "2026-07-19",
+          sortingWagons: [{ id: "wagon-18" }],
+          sortingDate: "2026-07-21",
+          quantityPieces: 10,
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value.reportType, "firing");
+  if (result.value.reportType !== "firing") return;
+  assert.equal(result.value.payload.rows[0]?.firingDate, "2026-07-19");
+  assert.equal(result.value.payload.rows[0]?.sortingDate, "2026-07-21");
+});
+
+test("firing report rejects an invalid firing date", () => {
+  const result = validateRefractoryReportSubmission({
+    reportType: "firing",
+    reportDate: "2026-07-20",
+    shiftNumber: 1,
+    payload: {
+      rows: [
+        {
+          productBrand: "ШАБ 5",
+          firingWagons: [{ id: "wagon-17" }],
+          firingDate: "20.07.2026",
+          quantityPieces: 10,
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.deepEqual(result.errors, [
+    "Строка 1, «Дата обжига»: проверьте дату.",
+  ]);
+});
+
 test("firing report rejects the same wagon twice within one event type", () => {
   const result = validateRefractoryReportSubmission({
     reportType: "firing",

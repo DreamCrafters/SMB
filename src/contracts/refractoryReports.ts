@@ -107,8 +107,10 @@ export type RefractoryFiringPayload = {
   rows: Array<{
     productBrand: string;
     firingWagons?: RefractoryFiringWagonReference[];
+    firingDate?: string;
     firingOperator?: string;
     sortingWagons?: RefractoryFiringWagonReference[];
+    sortingDate?: string;
     sorter?: string;
     quantityPieces?: number;
     palletCount?: number;

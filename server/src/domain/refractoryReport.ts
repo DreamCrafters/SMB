@@ -139,8 +139,10 @@ export type RefractoryCoshTotals = {
 export type RefractoryFiringRow = {
   productBrand: string;
   firingWagons?: RefractoryFiringWagonReference[];
+  firingDate?: string;
   firingOperator?: string;
   sortingWagons?: RefractoryFiringWagonReference[];
+  sortingDate?: string;
   sorter?: string;
   quantityPieces?: number;
   palletCount?: number;
@@ -293,6 +295,7 @@ const refractoryFieldLabels: Record<string, string> = {
   calcinationHours: "Время прогонки, час(а)",
   carriageReplacementHours: "Замена вагона",
   electricalRepairHours: "Ремонт по эл. части",
+  firingDate: "Дата обжига",
   furnaceIgnitionTime: "Время розжига печи",
   furnaceStopTime: "Время прекращения работы печи",
   goodTonsAverageWeight: "Годная, т по среднему весу",
@@ -326,6 +329,7 @@ const refractoryFieldLabels: Record<string, string> = {
   shgr2: "ШГР-2, т",
   shki: "ШКИ, т",
   sorterCount: "Присутствуют на смене, сортировщиков",
+  sortingDate: "Дата сортировки",
   totalLoadingBuckets: "Загрузка, всего ковшей",
   workedHours: "Отработано, ч",
   workerAbsenceHours: "Отсутствие рабочего/сменщика",
@@ -1129,8 +1133,10 @@ function readFiringRow(
     unexpectedKeys(input, [
       "productBrand",
       "firingWagons",
+      "firingDate",
       "firingOperator",
       "sortingWagons",
+      "sortingDate",
       "sorter",
       "note",
       ...numberFields,
@@ -1158,6 +1164,9 @@ function readFiringRow(
     errors,
   );
   if (firingWagons !== undefined) row.firingWagons = firingWagons;
+  readOptionalDate(input, row, "firingDate", index, errors, {
+    fieldPath: `firing.${index}.firingDate`,
+  });
   readOptionalText(input, row, "firingOperator", 120, index, errors, {
     fieldPath: `firing.${index}.firingOperator`,
   });
@@ -1169,6 +1178,9 @@ function readFiringRow(
     errors,
   );
   if (sortingWagons !== undefined) row.sortingWagons = sortingWagons;
+  readOptionalDate(input, row, "sortingDate", index, errors, {
+    fieldPath: `firing.${index}.sortingDate`,
+  });
   readOptionalText(input, row, "sorter", 120, index, errors, {
     fieldPath: `firing.${index}.sorter`,
   });
@@ -1337,6 +1349,32 @@ function readOptionalText<Row extends object>(
   }
 
   (output as Record<string, unknown>)[field] = value.trim();
+}
+
+function readOptionalDate<Row extends object>(
+  input: Record<string, unknown>,
+  output: Partial<Row>,
+  field: keyof Row & string,
+  index: number | undefined,
+  errors: RefractoryValidationIssue[],
+  options: { fieldPath?: string; section?: string } = {},
+) {
+  const value = input[field];
+
+  if (value === undefined || value === null || value === "") {
+    return;
+  }
+
+  if (!isCalendarDate(value)) {
+    addValidationIssue(
+      errors,
+      `${formatRefractoryFieldLocation(field, index, options.section)}: проверьте дату.`,
+      options.fieldPath ?? field,
+    );
+    return;
+  }
+
+  (output as Record<string, unknown>)[field] = value;
 }
 
 function readOptionalNumber<Row extends object>(

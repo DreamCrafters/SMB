@@ -226,7 +226,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         (button) =>
           button.querySelector(".refractory-report-label")?.textContent,
       ),
-      ["ЦОШ", "Сводка по работе оборудования", "Печное отделение", "Вагоны"],
+      ["ЦОШ", "Сводка по работе оборудования", "Вагоны", "Печное отделение"],
     );
     assert.equal(
       menuButtons[0].querySelector(".refractory-report-return-count"),
@@ -243,6 +243,10 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     );
     assert.equal(
       menuButtons[2].querySelector(".refractory-report-return-count"),
+      null,
+    );
+    assert.equal(
+      menuButtons[3].querySelector(".refractory-report-return-count"),
       null,
     );
 
@@ -444,7 +448,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.equal(formedBrand.value, "Старая марка");
     assert.equal(rootElement.querySelectorAll("form").length, 1);
 
-    await React.act(async () => menuButtons[2].click());
+    await React.act(async () => menuButtons[3].click());
     const firingTable = rootElement.querySelector(
       ".refractory-input-table-firing",
     );
@@ -461,8 +465,10 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       [
         "Марка изделия",
         "Вагоны для обжига",
+        "Дата обжига",
         "Обжигальщик",
         "Рассортированные вагоны",
+        "Дата сортировки",
         "Сортировщик",
         "Кол-во, шт.",
         "Кол-во, поддонов",
@@ -600,9 +606,9 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
 
     assert.deepEqual(
       menuButtons.map((button) => button.classList.contains("is-active")),
-      [false, false, true, false],
+      [false, false, false, true],
     );
-    await React.act(async () => menuButtons[3].click());
+    await React.act(async () => menuButtons[2].click());
     await waitFor(
       React,
       () => rootElement.querySelector(
@@ -627,6 +633,13 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       Array.from(catalogRow.querySelectorAll("td"), (cell) => cell.textContent),
       ["В-16", "2", "Можно эксплуатировать"],
     );
+    // Стиль таблиц вкладки Вагоны повторяет Печное отделение: без внутренней
+    // вертикальной прокрутки.
+    assert.ok(
+      catalogRow
+        .closest(".refractory-table-wrap")
+        ?.classList.contains("refractory-table-wrap-full-height"),
+    );
     const turnoverButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-journal-menu button"),
     ).find((button) => button.textContent?.includes("Оборот вагонов"));
@@ -639,11 +652,16 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     // Открытый журнал снимает выделение со сменной таблицы, выбранной до него.
     assert.deepEqual(
       menuButtons.map((button) => button.classList.contains("is-active")),
-      [false, false, false, true],
+      [false, false, true, false],
     );
     assert.match(rootElement.textContent, /В-16/u);
     const wagonTable = rootElement.querySelector(".refractory-wagon-table");
     assert.ok(wagonTable);
+    assert.ok(
+      wagonTable
+        .closest(".refractory-table-wrap")
+        ?.classList.contains("refractory-table-wrap-full-height"),
+    );
     assert.deepEqual(
       Array.from(wagonTable.querySelectorAll("thead th"), (cell) =>
         cell.textContent.trim().replace(/\s+/gu, " "),
@@ -855,10 +873,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     });
     // Осмотренный вагон уходит из очереди и попадает в историю осмотров.
     assert.equal(inspectionWagonSelect.options.length, 1);
-    assert.match(
-      rootElement.querySelector(".refractory-wagon-inspection-table")
-        ?.textContent ?? "",
-      /В-16/u,
+    const inspectionTable = rootElement.querySelector(
+      ".refractory-wagon-inspection-table",
+    );
+    assert.match(inspectionTable?.textContent ?? "", /В-16/u);
+    assert.ok(
+      inspectionTable
+        ?.closest(".refractory-table-wrap")
+        ?.classList.contains("refractory-table-wrap-full-height"),
     );
 
     await React.act(async () => root.unmount());
