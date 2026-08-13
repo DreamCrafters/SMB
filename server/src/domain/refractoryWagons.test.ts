@@ -1,9 +1,57 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  validateRefractoryWagonCatalogSubmission,
   validateRefractoryWagonInspectionSubmission,
   validateRefractoryWagonSubmission,
 } from "./refractoryWagons.js";
+
+test("refractory wagon catalog submission registers only the number", () => {
+  assert.deepEqual(
+    validateRefractoryWagonCatalogSubmission({ number: "  В-17  " }),
+    {
+      ok: true,
+      value: {
+        number: "В-17",
+        loadingDate: null,
+        productBrand: null,
+        pressDate: null,
+        pieceCount: null,
+        setter: null,
+        pressOperator: null,
+      },
+    },
+  );
+});
+
+test("refractory wagon catalog submission ignores fields outside the number", () => {
+  assert.deepEqual(
+    validateRefractoryWagonCatalogSubmission({
+      number: "В-17",
+      loadingDate: "2026-08-06",
+      productBrand: "ШКУ-32",
+    }),
+    {
+      ok: true,
+      value: {
+        number: "В-17",
+        loadingDate: null,
+        productBrand: null,
+        pressDate: null,
+        pieceCount: null,
+        setter: null,
+        pressOperator: null,
+      },
+    },
+  );
+});
+
+test("refractory wagon catalog submission rejects a missing number", () => {
+  assert.deepEqual(
+    validateRefractoryWagonCatalogSubmission({ number: "  " }),
+    { ok: false, errors: ["Проверьте поле «№ вагона»."] },
+  );
+});
 
 test("refractory wagon submission normalizes the fields entered by the shop", () => {
   assert.deepEqual(

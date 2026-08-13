@@ -61,6 +61,7 @@ import {
 import { validateProductBrandSubmission } from "../domain/productBrandJournal.js";
 import { productBrandFields } from "../contracts/productBrands.js";
 import {
+  validateRefractoryWagonCatalogSubmission,
   validateRefractoryWagonInspectionSubmission,
   validateRefractoryWagonSubmission,
 } from "../domain/refractoryWagons.js";
@@ -5742,7 +5743,7 @@ async function handleRefractoryWagonsRequest({
     sendJson(res, 403, {
       error: {
         code: "access_denied",
-        message: "Журнал оборота вагонов доступен сотруднику огнеупорного цеха.",
+        message: "Журналы вагонов доступны сотруднику огнеупорного цеха.",
       },
     });
     return;
@@ -5751,7 +5752,7 @@ async function handleRefractoryWagonsRequest({
     sendJson(res, 503, {
       error: {
         code: "server_error",
-        message: "Хранилище журнала оборота вагонов не настроено.",
+        message: "Хранилище журналов вагонов не настроено.",
       },
     });
     return;
@@ -5844,13 +5845,15 @@ async function handleRefractoryWagonsRequest({
     sendJson(res, 405, {
       error: {
         code: "access_denied",
-        message: "Для журнала оборота вагонов используются GET и POST.",
+        message: "Для журналов вагонов используются GET и POST.",
       },
     });
     return;
   }
 
-  const validation = validateRefractoryWagonSubmission(await readJsonBody(req));
+  const validation = validateRefractoryWagonCatalogSubmission(
+    await readJsonBody(req),
+  );
   if (!validation.ok) {
     sendJson(res, 400, {
       error: {
@@ -5861,19 +5864,12 @@ async function handleRefractoryWagonsRequest({
     return;
   }
 
-  const wagon = await resolveRefractoryWagonBrand({
-    res,
-    productionBrands,
-    wagon: validation.value,
-  });
-  if (wagon === undefined) return;
-
   try {
     const saved = await runAuditedMutation({
       transaction: databaseTransaction,
       audit,
       mutate: () => refractoryWagons.create({
-        wagon,
+        wagon: validation.value,
         submittedByUserId: access.profile.userId,
         submittedByAccountId: access.profile.activeAccess.accountId,
       }),
@@ -6062,6 +6058,10 @@ async function handleRefractoryWagonInspectionsRequest({
   }
 }
 
+/**
+ * Марка обязательна только при исправлении в `Обороте вагонов`; `Каталог
+ * вагонов` регистрирует вагон без марки и сюда не попадает.
+ */
 async function resolveRefractoryWagonBrand({
   res,
   productionBrands,
@@ -6069,7 +6069,7 @@ async function resolveRefractoryWagonBrand({
 }: {
   res: ServerResponse;
   productionBrands: ProductionBrandsDataSource;
-  wagon: RefractoryWagonSubmission;
+  wagon: RefractoryWagonSubmission & { productBrand: string };
 }) {
   const references = await resolveProductionBrandReferencesForRequest({
     res,

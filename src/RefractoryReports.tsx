@@ -391,7 +391,10 @@ export function RefractoryShopWorkspace({
       )}
 
       {wagonJournal === "catalog" ? (
-        <RefractoryWagonCatalog isAdminPreviewMode={isAdminPreviewMode} />
+        <RefractoryWagonCatalog
+          isAdminPreviewMode={isAdminPreviewMode}
+          onShowToast={onShowToast}
+        />
       ) : wagonJournal === "inspection" ? (
         <RefractoryWagonInspectionJournal
           defaultApprovalDate={reportDate}

@@ -685,9 +685,94 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     );
     assert.match(wagonTable.textContent, /06\.08\.2026; 06\.08\.2026/u);
     assert.match(wagonTable.textContent, /08\.08\.2026/u);
-    const wagonNumberInput = rootElement.querySelector(
+
+    // № вагона в Обороте вагонов — раскрывающийся список из Каталога вагонов.
+    assert.deepEqual(
+      Array.from(
+        rootElement.querySelector('select[name="wagonNumber"]').options,
+        (option) => option.value,
+      ),
+      ["", "В-16"],
+    );
+    // Обжигальщик, сортировщик, состояние и дата одобрения — производные поля.
+    for (const derivedField of [
+      "wagonFiringOperator",
+      "wagonSorter",
+      "wagonPostFiringCondition",
+      "wagonServiceApprovalDate",
+    ]) {
+      assert.equal(
+        rootElement.querySelector(`input[name="${derivedField}"]`),
+        null,
+      );
+    }
+    assert.ok(
+      rootElement.querySelector('input[name="wagonSetter"]')
+        .getAttribute("list"),
+    );
+    assert.ok(
+      rootElement.querySelector('input[name="wagonPressOperator"]')
+        .getAttribute("list"),
+    );
+    // Пока вагон не выбран, сохранить исправление нельзя.
+    assert.equal(
+      Array.from(
+        rootElement.querySelectorAll(".refractory-wagon-form button"),
+      ).find((button) => button.textContent === "Сохранить исправление")
+        .disabled,
+      true,
+    );
+
+    // Новый номер вагона регистрируется только в Каталоге вагонов.
+    const catalogButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-journal-menu button"),
+    ).find((button) => button.textContent?.includes("Каталог вагонов"));
+    assert.ok(catalogButton);
+    await React.act(async () => catalogButton.click());
+    const catalogNumberInput = rootElement.querySelector(
       'input[name="wagonNumber"]',
     );
+    assert.ok(catalogNumberInput);
+    await React.act(async () => {
+      setNativeInputValue(catalogNumberInput, "В-17");
+      catalogNumberInput.dispatchEvent(
+        new dom.window.Event("input", { bubbles: true }),
+      );
+    });
+    const addWagonButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-form button"),
+    ).find((button) => button.textContent === "Добавить вагон");
+    assert.ok(addWagonButton);
+    await React.act(async () => addWagonButton.click());
+    await waitFor(React, () => rootElement.textContent.includes("В-17"));
+    assert.deepEqual(submittedWagon, {
+      number: "В-17",
+      loadingDate: null,
+      productBrand: null,
+      pressDate: null,
+      pieceCount: null,
+      setter: null,
+      pressOperator: null,
+    });
+
+    // Заполнение оставшихся полей вагона идёт исправлением в Обороте вагонов.
+    // Переход между журналами размонтирует форму, поэтому поля запрашиваются
+    // заново после возврата.
+    await React.act(async () => turnoverButton.click());
+    await waitFor(
+      React,
+      () => rootElement.querySelector('select[name="wagonNumber"]')
+        ?.querySelector('option[value="В-17"]') !== null,
+    );
+    const wagonNumberSelect = rootElement.querySelector(
+      'select[name="wagonNumber"]',
+    );
+    await React.act(async () => {
+      setNativeSelectValue(wagonNumberSelect, "В-17");
+      wagonNumberSelect.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
     const wagonLoadingDateInput = rootElement.querySelector(
       'input[name="wagonLoadingDate"]',
     );
@@ -706,34 +791,13 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     const wagonPieceCountInput = rootElement.querySelector(
       'input[name="wagonPieceCount"]',
     );
-    // Обжигальщик, сортировщик, состояние и дата одобрения — производные поля.
-    for (const derivedField of [
-      "wagonFiringOperator",
-      "wagonSorter",
-      "wagonPostFiringCondition",
-      "wagonServiceApprovalDate",
-    ]) {
-      assert.equal(
-        rootElement.querySelector(`input[name="${derivedField}"]`),
-        null,
-      );
-    }
-    assert.ok(wagonNumberInput);
-    assert.ok(wagonLoadingDateInput);
-    assert.ok(wagonBrandInput);
-    assert.ok(wagonSetterInput);
-    assert.ok(wagonPressOperatorInput);
-    assert.ok(wagonPressDateInput);
-    assert.ok(wagonPieceCountInput);
-    assert.equal(wagonSetterInput.value, "Иванов И.И.");
-    assert.equal(wagonPressOperatorInput.value, "Петров П.П.");
-    assert.ok(wagonSetterInput.getAttribute("list"));
-    assert.ok(wagonPressOperatorInput.getAttribute("list"));
+    assert.equal(wagonLoadingDateInput.value, "");
+    const correctWagonButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-form button"),
+    ).find((button) => button.textContent === "Сохранить исправление");
+    assert.ok(correctWagonButton);
+    assert.equal(correctWagonButton.disabled, false);
     await React.act(async () => {
-      setNativeInputValue(wagonNumberInput, "В-17");
-      wagonNumberInput.dispatchEvent(
-        new dom.window.Event("input", { bubbles: true }),
-      );
       setNativeInputValue(wagonLoadingDateInput, "2026-08-06");
       wagonLoadingDateInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
@@ -759,13 +823,8 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    const addWagonButton = Array.from(
-      rootElement.querySelectorAll(".refractory-wagon-form button"),
-    ).find((button) => button.textContent === "Добавить вагон");
-    assert.ok(addWagonButton);
-    await React.act(async () => addWagonButton.click());
-    await waitFor(React, () => rootElement.textContent.includes("В-17"));
-    assert.deepEqual(submittedWagon, {
+    await React.act(async () => correctWagonButton.click());
+    assert.deepEqual(correctedWagon, {
       number: "В-17",
       loadingDate: "2026-08-06",
       productBrand: "ШКУ-32",
@@ -774,8 +833,10 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       setter: "Сидоров С.С.",
       pressOperator: "Кузнецов К.К.",
     });
-    assert.equal(wagonSetterInput.value, "Сидоров С.С.");
-    assert.equal(wagonPressOperatorInput.value, "Кузнецов К.К.");
+    // Сохранение сбрасывает форму: следующее исправление требует нового выбора.
+    assert.equal(wagonNumberSelect.value, "");
+    assert.equal(wagonSetterInput.value, "");
+    assert.equal(wagonPressOperatorInput.value, "");
     assert.equal(wagonPressDateInput.value, "");
     assert.equal(wagonPieceCountInput.value, "");
 
@@ -784,17 +845,13 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     ).find((button) => button.textContent === "В-17");
     assert.ok(editWagonButton);
     await React.act(async () => editWagonButton.click());
-    assert.equal(wagonNumberInput.value, "В-17");
+    assert.equal(wagonNumberSelect.value, "В-17");
     await React.act(async () => {
       setNativeInputValue(wagonLoadingDateInput, "2026-08-07");
       wagonLoadingDateInput.dispatchEvent(
         new dom.window.Event("input", { bubbles: true }),
       );
     });
-    const correctWagonButton = Array.from(
-      rootElement.querySelectorAll(".refractory-wagon-form button"),
-    ).find((button) => button.textContent === "Сохранить исправление");
-    assert.ok(correctWagonButton);
     await React.act(async () => correctWagonButton.click());
     assert.deepEqual(correctedWagon, {
       number: "В-17",
@@ -932,15 +989,13 @@ async function runRefractoryWagonSaveRace(responseOrder) {
   };
 
   try {
-    const { RefractoryWagonJournal } = await vite.ssrLoadModule(
-      "/src/RefractoryWagonJournal.tsx",
+    const { RefractoryWagonCatalog } = await vite.ssrLoadModule(
+      "/src/RefractoryWagonCatalog.tsx",
     );
     const rootElement = dom.window.document.querySelector("#root");
     const root = createRoot(rootElement);
     await React.act(async () => {
-      root.render(React.createElement(RefractoryWagonJournal, {
-        brandLabels: ["ШКУ-32"],
-        defaultLoadingDate: "2026-08-06",
+      root.render(React.createElement(RefractoryWagonCatalog, {
         isAdminPreviewMode: false,
         onShowToast() {},
       }));
@@ -948,12 +1003,9 @@ async function runRefractoryWagonSaveRace(responseOrder) {
     await waitFor(React, () => typeof resolveInitialLoad === "function");
 
     const numberInput = rootElement.querySelector('input[name="wagonNumber"]');
-    const brandInput = rootElement.querySelector('input[aria-label="Марка вагона"]');
     await React.act(async () => {
       setNativeInputValue(numberInput, "В-17");
       numberInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      setNativeInputValue(brandInput, "ШКУ-32");
-      brandInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
     await React.act(async () => {
       rootElement.querySelector(".refractory-wagon-form").dispatchEvent(
@@ -988,14 +1040,21 @@ async function runRefractoryWagonSaveRace(responseOrder) {
       },
     );
     const savedWagon = {
-      ...loadedWagon,
       id: "wagon-17",
       number: "В-17",
-      loadingDate: "2026-08-06",
+      loadingDate: null,
+      productBrand: null,
+      pressDate: null,
+      pieceCount: null,
       setter: null,
       pressOperator: null,
+      rawControlDate: null,
       firingOperator: null,
+      firingDates: [],
       sorter: null,
+      sortingDate: null,
+      postFiringCondition: null,
+      serviceApprovalDate: null,
       createdAt: "2026-08-06T08:30:00.000Z",
     };
     const saveResponse = new Response(JSON.stringify({ wagon: savedWagon }), {
@@ -1016,18 +1075,15 @@ async function runRefractoryWagonSaveRace(responseOrder) {
       await finishInitialLoad();
     }
 
+    // Ни один из откликов не должен вытеснить вагон, добавленный другим:
+    // оба вагона остаются в каталоге независимо от порядка ответов.
     assert.deepEqual(
-      Array.from(rootElement.querySelectorAll(".refractory-wagon-edit-link"))
-        .map((button) => button.textContent),
-      ["В-17", "В-16"],
-    );
-    assert.equal(
-      rootElement.querySelector('input[name="wagonSetter"]').value,
-      "",
-    );
-    assert.equal(
-      rootElement.querySelector('input[name="wagonPressOperator"]').value,
-      "",
+      Array.from(
+        rootElement.querySelectorAll(
+          ".refractory-wagon-catalog-table tbody tr td:first-child",
+        ),
+      ).map((cell) => cell.textContent),
+      ["В-16", "В-17"],
     );
     await React.act(async () => root.unmount());
   } finally {

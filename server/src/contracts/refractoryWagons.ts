@@ -10,11 +10,15 @@ export const refractoryWagonConditionValues = [
 export type RefractoryWagonCondition =
   (typeof refractoryWagonConditionValues)[number];
 
-/** Поля вагона, которые вводит огнеупорный цех при садке. */
+/**
+ * Поля вагона, которые вводит огнеупорный цех при садке. `Каталог вагонов`
+ * регистрирует новый вагон только по номеру: `loadingDate` и `productBrand`
+ * заполняются позже исправлением в `Обороте вагонов`, где оба обязательны.
+ */
 export type RefractoryWagonSubmission = {
   number: string;
-  loadingDate: string;
-  productBrand: string;
+  loadingDate: string | null;
+  productBrand: string | null;
   pressDate: string | null;
   pieceCount: number | null;
   setter: string | null;

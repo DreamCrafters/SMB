@@ -9,6 +9,20 @@ export type RefractoryWagonValidation =
   | { ok: true; value: RefractoryWagonSubmission }
   | { ok: false; errors: string[] };
 
+/**
+ * Исправление в `Обороте вагонов` всегда требует дату садки и марку, поэтому
+ * его результат сужает их до непустой строки в отличие от общего типа.
+ */
+export type RefractoryWagonCorrectionValidation =
+  | {
+      ok: true;
+      value: RefractoryWagonSubmission & {
+        loadingDate: string;
+        productBrand: string;
+      };
+    }
+  | { ok: false; errors: string[] };
+
 export type RefractoryWagonInspectionValidation =
   | { ok: true; value: RefractoryWagonInspectionSubmission }
   | { ok: false; errors: string[] };
@@ -19,9 +33,39 @@ const maxEmployeeNameLength = 120;
 const maxWagonIdLength = 120;
 const maxPieceCount = 1_000_000;
 
-export function validateRefractoryWagonSubmission(
+/**
+ * `Каталог вагонов` регистрирует новый вагон только по номеру: остальные поля
+ * заполняются позже исправлением в `Обороте вагонов`.
+ */
+export function validateRefractoryWagonCatalogSubmission(
   input: unknown,
 ): RefractoryWagonValidation {
+  if (!isRecord(input)) {
+    return { ok: false, errors: ["Передайте данные вагона."] };
+  }
+
+  const number = readText(input.number, maxWagonNumberLength);
+  if (number === undefined) {
+    return { ok: false, errors: ["Проверьте поле «№ вагона»."] };
+  }
+
+  return {
+    ok: true,
+    value: {
+      number,
+      loadingDate: null,
+      productBrand: null,
+      pressDate: null,
+      pieceCount: null,
+      setter: null,
+      pressOperator: null,
+    },
+  };
+}
+
+export function validateRefractoryWagonSubmission(
+  input: unknown,
+): RefractoryWagonCorrectionValidation {
   if (!isRecord(input)) {
     return { ok: false, errors: ["Передайте данные вагона."] };
   }

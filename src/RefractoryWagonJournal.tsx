@@ -6,7 +6,6 @@ import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
   correctRefractoryWagon,
   requestRefractoryWagons,
-  submitRefractoryWagon,
 } from "./services/refractoryWagons";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
@@ -56,13 +55,6 @@ export function RefractoryWagonJournal({
           });
         } else {
           setWagons(result.wagons);
-          const latestWagon = result.wagons[0];
-          setSetter((current) => current === ""
-            ? latestWagon?.setter ?? ""
-            : current);
-          setPressOperator((current) => current === ""
-            ? latestWagon?.pressOperator ?? ""
-            : current);
         }
         setLoadState("ready");
       } else {
@@ -83,6 +75,11 @@ export function RefractoryWagonJournal({
     if (pieceCountText.length > 0 && !/^\d+$/u.test(pieceCountText)) {
       setHasError(true);
       setMessage("Кол-во шт. указывается целым неотрицательным числом.");
+      return;
+    }
+    if (editingWagonId === undefined) {
+      setHasError(true);
+      setMessage("Выберите вагон из каталога.");
       return;
     }
     const submission = {
@@ -106,9 +103,7 @@ export function RefractoryWagonJournal({
     setIsSubmitting(true);
     setHasError(false);
     setMessage("Сохраняем вагон.");
-    const result = editingWagonId === undefined
-      ? await submitRefractoryWagon(submission)
-      : await correctRefractoryWagon(editingWagonId, submission);
+    const result = await correctRefractoryWagon(editingWagonId, submission);
     setIsSubmitting(false);
     if (result.status === "error") {
       setHasError(true);
@@ -116,24 +111,14 @@ export function RefractoryWagonJournal({
       return;
     }
     hasSuccessfulMutation.current = true;
-    const wasEditing = editingWagonId !== undefined;
-    setWagons((current) => wasEditing
-      ? current.map((wagon) => wagon.id === result.wagon.id
-        ? result.wagon
-        : wagon)
-      : [result.wagon, ...current]);
-    const latestWagon = wasEditing && wagons[0]?.id !== result.wagon.id
-      ? wagons[0]
-      : result.wagon;
-    resetForm(latestWagon);
-    setMessage(wasEditing
-      ? "Исправление вагона сохранено."
-      : "Вагон добавлен в журнал.");
+    setWagons((current) => current.map((wagon) => wagon.id === result.wagon.id
+      ? result.wagon
+      : wagon));
+    resetForm();
+    setMessage("Исправление вагона сохранено.");
     onShowToast(
-      wasEditing ? "Вагон исправлен" : "Вагон добавлен",
-      wasEditing
-        ? `${result.wagon.number} обновлён без изменения внутренней связи.`
-        : `${result.wagon.number} теперь доступен в журнале контроля качества сырца.`,
+      "Вагон исправлен",
+      `${result.wagon.number} обновлён без изменения внутренней связи.`,
       "success",
     );
   }
@@ -151,15 +136,15 @@ export function RefractoryWagonJournal({
     setMessage("");
   }
 
-  function resetForm(latestWagon = wagons[0]) {
+  function resetForm() {
     setEditingWagonId(undefined);
     setNumber("");
     setLoadingDate(defaultLoadingDate);
     setProductBrand("");
     setPressDate("");
     setPieceCount("");
-    setSetter(latestWagon?.setter ?? "");
-    setPressOperator(latestWagon?.pressOperator ?? "");
+    setSetter("");
+    setPressOperator("");
   }
 
   const setterOptions = collectWagonOptions(wagons, (wagon) => wagon.setter);
@@ -167,6 +152,11 @@ export function RefractoryWagonJournal({
     wagons,
     (wagon) => wagon.pressOperator,
   );
+  const sortedWagonNumbers = [...wagons]
+    .sort((first, second) =>
+      first.number.localeCompare(second.number, "ru", { numeric: true })
+    )
+    .map((wagon) => wagon.number);
 
   return (
     <section
@@ -181,17 +171,30 @@ export function RefractoryWagonJournal({
         <form className="refractory-wagon-form" onSubmit={handleSubmit}>
           <fieldset disabled={isSubmitting}>
             <legend>
-              {editingWagonId === undefined ? "Новый вагон" : "Исправление вагона"}
+              {editingWagonId === undefined ? "Выберите вагон" : "Исправление вагона"}
             </legend>
             <div className="refractory-field-grid">
               <label className="refractory-field">
                 <span>№ вагона</span>
-                <input
+                <select
                   name="wagonNumber"
                   required
                   value={number}
-                  onChange={(event) => setNumber(event.currentTarget.value)}
-                />
+                  onChange={(event) => {
+                    const selectedNumber = event.currentTarget.value;
+                    const selectedWagon = wagons.find(
+                      (wagon) => wagon.number === selectedNumber,
+                    );
+                    if (selectedWagon !== undefined) editWagon(selectedWagon);
+                  }}
+                >
+                  <option value="">Выберите вагон из каталога</option>
+                  {sortedWagonNumbers.map((wagonNumber) => (
+                    <option key={wagonNumber} value={wagonNumber}>
+                      {wagonNumber}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="refractory-field">
                 <span>Дата садки</span>
@@ -262,12 +265,12 @@ export function RefractoryWagonJournal({
             </p>
           </fieldset>
           <div className="refractory-form-actions">
-            <button className="primary-button" disabled={isSubmitting} type="submit">
-              {isSubmitting
-                ? "Сохраняем…"
-                : editingWagonId === undefined
-                  ? "Добавить вагон"
-                  : "Сохранить исправление"}
+            <button
+              className="primary-button"
+              disabled={isSubmitting || editingWagonId === undefined}
+              type="submit"
+            >
+              {isSubmitting ? "Сохраняем…" : "Сохранить исправление"}
             </button>
             {editingWagonId === undefined ? null : (
               <button

@@ -2584,15 +2584,7 @@ test("refractory wagon journal creates real wagon options for green product qual
       const createResponse = await fetch(`${baseUrl}/api/refractory-wagons`, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          number: " В-17 ",
-          loadingDate: "2026-08-06",
-          productBrand: " шку-32 ",
-          pressDate: "2026-08-05",
-          pieceCount: " 512 ",
-          setter: " Сидоров С.С. ",
-          pressOperator: " Кузнецов К.К. ",
-        }),
+        body: JSON.stringify({ number: " В-17 " }),
       });
       const correctionResponse = await fetch(
         `${baseUrl}/api/refractory-wagons/wagon-16`,
@@ -2613,13 +2605,7 @@ test("refractory wagon journal creates real wagon options for green product qual
       const duplicateResponse = await fetch(`${baseUrl}/api/refractory-wagons`, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          number: "В-16",
-          loadingDate: "2026-08-06",
-          productBrand: "ШКУ-32",
-          setter: "Иванов И.И.",
-          pressOperator: "Петров П.П.",
-        }),
+        body: JSON.stringify({ number: "В-16" }),
       });
 
       assert.equal(listResponse.status, 200);
@@ -2627,11 +2613,15 @@ test("refractory wagon journal creates real wagon options for green product qual
       assert.equal(createResponse.status, 201);
       assert.equal(correctionResponse.status, 200);
       assert.equal(duplicateResponse.status, 409);
-      assert.equal(savedInput?.wagon.productBrand, "ШКУ-32");
-      assert.equal(savedInput?.wagon.pressDate, "2026-08-05");
-      assert.equal(savedInput?.wagon.pieceCount, 512);
-      assert.equal(savedInput?.wagon.setter, "Сидоров С.С.");
-      assert.equal(savedInput?.wagon.pressOperator, "Кузнецов К.К.");
+      // Каталог вагонов регистрирует только номер; остальные поля заполняет
+      // журнал "Оборот вагонов" исправлением.
+      assert.equal(savedInput?.wagon.number, "В-17");
+      assert.equal(savedInput?.wagon.loadingDate, null);
+      assert.equal(savedInput?.wagon.productBrand, null);
+      assert.equal(savedInput?.wagon.pressDate, null);
+      assert.equal(savedInput?.wagon.pieceCount, null);
+      assert.equal(savedInput?.wagon.setter, null);
+      assert.equal(savedInput?.wagon.pressOperator, null);
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(
         savedInput?.submittedByAccountId,
@@ -2644,12 +2634,12 @@ test("refractory wagon journal creates real wagon options for green product qual
       assert.equal(auditEvents[0]?.action, "refractory_wagon.create");
       assert.deepEqual(auditEvents[0]?.details, [
         { label: "№ вагона", value: "В-17" },
-        { label: "Дата садки", value: "2026-08-06" },
-        { label: "Марка", value: "ШКУ-32" },
-        { label: "Дата пресса", value: "2026-08-05" },
-        { label: "Кол-во шт.", value: "512" },
-        { label: "Садчик", value: "Сидоров С.С." },
-        { label: "Прессовщик", value: "Кузнецов К.К." },
+        { label: "Дата садки", value: "—" },
+        { label: "Марка", value: "—" },
+        { label: "Дата пресса", value: "—" },
+        { label: "Кол-во шт.", value: "—" },
+        { label: "Садчик", value: "—" },
+        { label: "Прессовщик", value: "—" },
       ]);
       assert.equal(auditEvents[1]?.action, "refractory_wagon.correct");
       assert.deepEqual(auditEvents[1]?.details, [
