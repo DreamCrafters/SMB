@@ -111,9 +111,15 @@ import {
 import { validateLaboratoryRawMaterialQualitySubmission } from "../domain/laboratoryRawMaterialQualityJournal.js";
 import { validateLaboratoryGreenProductQualitySubmission } from "../domain/laboratoryGreenProductQualityJournal.js";
 import {
-  laboratoryRawMaterialQualityFields,
+  laboratoryClayMeasurementFields,
+  laboratoryRawMaterialQualityGeneralFields,
   laboratoryRawMaterialQualityRecommendationRecipientLabels,
   laboratoryRawMaterialQualityShiftLabels,
+  laboratoryRawMaterialQualitySummaryFields,
+  laboratoryRunnerMeasurementFields,
+  laboratorySlipMeasurementFields,
+  laboratoryTemperMeasurementFields,
+  type LaboratoryRawMaterialQualityRecommendationRecipient,
   type LaboratoryRawMaterialQualitySubmission,
 } from "../contracts/laboratoryRawMaterialQualityJournal.js";
 import {
@@ -3929,11 +3935,10 @@ async function handleLaboratoryRequest({
             category: "data_change",
             action: "laboratory_raw_material_quality.correct",
             summary: "Исправлена запись журнала качества сырья",
-            details: laboratoryRawMaterialQualityFields.map((field) => ({
-              label: field.label,
-              value:
-                `${formatLaboratoryRawMaterialQualityAuditValue(result.before, field.id)} → ${formatLaboratoryRawMaterialQualityAuditValue(result.record, field.id)}`,
-            })),
+            details: buildLaboratoryRawMaterialQualityCorrectionAuditDetails(
+              result.before,
+              result.record,
+            ),
             targetType: "laboratory_raw_material_quality",
             targetId: result.record.id,
           },
@@ -4032,10 +4037,7 @@ async function handleLaboratoryRequest({
         category: "form_submission",
         action: "laboratory_raw_material_quality.submit",
         summary: "Добавлена запись журнала качества сырья",
-        details: laboratoryRawMaterialQualityFields.map((field) => ({
-          label: field.label,
-          value: formatLaboratoryRawMaterialQualityAuditValue(record, field.id),
-        })),
+        details: buildLaboratoryRawMaterialQualityAuditDetails(record),
         targetType: "laboratory_raw_material_quality",
         targetId: record.id,
       }),
@@ -12005,19 +12007,102 @@ function formatProductBrandAuditValue(value: string) {
   return value === "" ? "—" : value;
 }
 
-function formatLaboratoryRawMaterialQualityAuditValue(
+function buildLaboratoryRawMaterialQualityAuditDetails(
   record: LaboratoryRawMaterialQualitySubmission,
-  field: keyof LaboratoryRawMaterialQualitySubmission,
 ) {
-  if (field === "shift") {
-    return laboratoryRawMaterialQualityShiftLabels[record.shift];
-  }
+  return [
+    ...laboratoryRawMaterialQualityGeneralFields.map((field) => ({
+      label: field.label,
+      value: field.id === "shift"
+        ? laboratoryRawMaterialQualityShiftLabels[record.shift]
+        : record[field.id],
+    })),
+    {
+      label: "Контроль качества глины",
+      value: formatMeasurementRowsSummary(
+        record.clayMeasurements,
+        laboratoryClayMeasurementFields,
+        "Замер",
+      ),
+    },
+    {
+      label: "Отощитель",
+      value: formatMeasurementRowsSummary(
+        record.temperMeasurements,
+        laboratoryTemperMeasurementFields,
+        "Замер",
+      ),
+    },
+    {
+      label: "Шликер",
+      value: formatMeasurementRowsSummary(
+        record.slipMeasurements,
+        laboratorySlipMeasurementFields,
+        "Замер",
+      ),
+    },
+    {
+      label: "Бегуны",
+      value: formatMeasurementRowsSummary(
+        record.runnerMeasurements,
+        laboratoryRunnerMeasurementFields,
+        "Бегунок",
+      ),
+    },
+    ...laboratoryRawMaterialQualitySummaryFields.map((field) => ({
+      label: field.label,
+      value: formatLaboratoryRawMaterialQualitySummaryValue(record, field.id),
+    })),
+  ];
+}
+
+function buildLaboratoryRawMaterialQualityCorrectionAuditDetails(
+  before: LaboratoryRawMaterialQualitySubmission,
+  after: LaboratoryRawMaterialQualitySubmission,
+) {
+  const beforeDetails = buildLaboratoryRawMaterialQualityAuditDetails(before);
+  const afterDetails = buildLaboratoryRawMaterialQualityAuditDetails(after);
+  return beforeDetails.map((detail, index) => ({
+    label: detail.label,
+    value: `${detail.value} → ${afterDetails[index]?.value}`,
+  }));
+}
+
+function formatLaboratoryRawMaterialQualitySummaryValue(
+  record: LaboratoryRawMaterialQualitySubmission,
+  field: "elutriationCoefficient" | "recommendationRecipient" | "recommendationText",
+) {
   if (field === "recommendationRecipient") {
-    return laboratoryRawMaterialQualityRecommendationRecipientLabels[
-      record.recommendationRecipient
-    ];
+    return record.recommendationRecipient === null
+      ? "—"
+      : laboratoryRawMaterialQualityRecommendationRecipientLabels[
+          record.recommendationRecipient
+        ];
   }
-  return record[field];
+  const value = record[field];
+  return value === null || value === "" ? "—" : value;
+}
+
+function formatMeasurementRowsSummary<Row extends Record<string, unknown>>(
+  rows: readonly Row[],
+  rowFields: readonly { id: keyof Row; label: string; kind: string }[],
+  rowLabel: string,
+): string {
+  if (rows.length === 0) return "—";
+  return rows
+    .map((row, index) => {
+      const parts = rowFields.map((field) => {
+        const value = row[field.id];
+        const formatted = field.kind === "checkbox"
+          ? (value === true ? "да" : "нет")
+          : (value === null || value === undefined || value === ""
+              ? "—"
+              : String(value));
+        return `${field.label}: ${formatted}`;
+      });
+      return `${rowLabel} ${index + 1} (${parts.join(", ")})`;
+    })
+    .join("; ");
 }
 
 async function resolveLaboratoryGreenProductQualityBrand({

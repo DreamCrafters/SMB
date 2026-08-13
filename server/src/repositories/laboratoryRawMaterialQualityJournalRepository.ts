@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type {
-  LaboratoryRawMaterialQualityDisintegrator,
   LaboratoryRawMaterialQualityFilters,
   LaboratoryRawMaterialQualityOptions,
-  LaboratoryRawMaterialQualityRecord,
   LaboratoryRawMaterialQualityRecommendationRecipient,
+  LaboratoryRawMaterialQualityRecord,
   LaboratoryRawMaterialQualityShift,
   LaboratoryRawMaterialQualitySubmission,
 } from "../contracts/laboratoryRawMaterialQualityJournal.js";
@@ -46,40 +45,23 @@ type JournalRow = RowDataPacket & {
   laboratory_assistant: string;
   shift_supervisor: string;
   shift_code: LaboratoryRawMaterialQualityShift;
-  clay_brand: string;
-  clay_moisture: string;
-  clay_grain_composition: string;
-  disintegrator_number: LaboratoryRawMaterialQualityDisintegrator;
-  temper_moisture: string;
-  temper_grain_composition: string;
-  temper_sieve_residue_1: string;
-  temper_sieve_residue_2: string;
-  temper_sieve_residue_3: string;
-  temper_sieve_pass_05: string;
-  temper_brand: string;
-  temper_bulk_density: string;
-  slip_mixer_number: string;
-  slip_temperature: string;
-  slip_density: string;
-  runner_number: string;
-  charge_chamotte_percentage: string;
-  charge_clay_percentage: string;
-  charge_residue_0063: string;
-  charge_moisture: string;
-  elutriation_coefficient: string;
-  recommendation_recipient: LaboratoryRawMaterialQualityRecommendationRecipient;
-  recommendation_text: string;
+  clay_measurements: unknown;
+  temper_measurements: unknown;
+  slip_measurements: unknown;
+  runner_measurements: unknown;
+  elutriation_coefficient: string | null;
+  recommendation_recipient: LaboratoryRawMaterialQualityRecommendationRecipient | null;
+  recommendation_text: string | null;
   created_at: Date | string;
 };
 
+type BrandRow = RowDataPacket & {
+  clay_measurements: unknown;
+  temper_measurements: unknown;
+};
+
 type OptionRow = RowDataPacket & {
-  option_type:
-    | "laboratory_assistant"
-    | "shift_supervisor"
-    | "clay_brand"
-    | "temper_brand"
-    | "slip_mixer_number"
-    | "runner_number";
+  option_type: "laboratory_assistant" | "shift_supervisor";
   value: string;
 };
 
@@ -90,6 +72,22 @@ type RepositoryOptions = {
 
 const defaultListLimit = 200;
 const maxListLimit = 500;
+
+const journalColumns = `
+  id,
+  record_date,
+  laboratory_assistant,
+  shift_supervisor,
+  shift_code,
+  clay_measurements,
+  temper_measurements,
+  slip_measurements,
+  runner_measurements,
+  elutriation_coefficient,
+  recommendation_recipient,
+  recommendation_text,
+  created_at
+`;
 
 export function createLaboratoryRawMaterialQualityJournalRepository(
   pool: DatabasePool,
@@ -111,62 +109,20 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
           laboratory_assistant,
           shift_supervisor,
           shift_code,
-          clay_brand,
-          clay_moisture,
-          clay_grain_composition,
-          disintegrator_number,
-          temper_moisture,
-          temper_grain_composition,
-          temper_sieve_residue_1,
-          temper_sieve_residue_2,
-          temper_sieve_residue_3,
-          temper_sieve_pass_05,
-          temper_brand,
-          temper_bulk_density,
-          slip_mixer_number,
-          slip_temperature,
-          slip_density,
-          runner_number,
-          charge_chamotte_percentage,
-          charge_clay_percentage,
-          charge_residue_0063,
-          charge_moisture,
+          clay_measurements,
+          temper_measurements,
+          slip_measurements,
+          runner_measurements,
           elutriation_coefficient,
           recommendation_recipient,
           recommendation_text,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
-          record.recordDate,
-          record.laboratoryAssistant,
-          record.shiftSupervisor,
-          record.shift,
-          record.clayBrand,
-          record.clayMoisture,
-          record.clayGrainComposition,
-          record.disintegratorNumber,
-          record.temperMoisture,
-          record.temperGrainComposition,
-          record.temperSieveResidue1,
-          record.temperSieveResidue2,
-          record.temperSieveResidue3,
-          record.temperSievePass05,
-          record.temperBrand,
-          record.temperBulkDensity,
-          record.slipMixerNumber,
-          record.slipTemperature,
-          record.slipDensity,
-          record.runnerNumber,
-          record.chargeChamottePercentage,
-          record.chargeClayPercentage,
-          record.chargeResidue0063,
-          record.chargeMoisture,
-          record.elutriationCoefficient,
-          record.recommendationRecipient,
-          record.recommendationText,
+          ...readSubmissionValues(record),
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -197,28 +153,13 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
             case shift_code
               when 'day' then '8:00-20:00'
               when 'night' then '20:00-8:00'
+              when 'day_short' then '08:00-17:00'
               else shift_code
             end,
-            clay_brand,
-            clay_moisture,
-            clay_grain_composition,
-            disintegrator_number,
-            temper_moisture,
-            temper_grain_composition,
-            temper_sieve_residue_1,
-            temper_sieve_residue_2,
-            temper_sieve_residue_3,
-            temper_sieve_pass_05,
-            temper_brand,
-            temper_bulk_density,
-            slip_mixer_number,
-            slip_temperature,
-            slip_density,
-            runner_number,
-            charge_chamotte_percentage,
-            charge_clay_percentage,
-            charge_residue_0063,
-            charge_moisture,
+            clay_measurements,
+            temper_measurements,
+            slip_measurements,
+            runner_measurements,
             elutriation_coefficient,
             case recommendation_recipient
               when 'dryer_operator' then 'Сушильщик'
@@ -234,7 +175,7 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
         parameters.push(filters.query);
       }
       if (filters.nameQuery !== undefined) {
-        clauses.push("(clay_brand like ? or temper_brand like ?)");
+        clauses.push("(clay_measurements like ? or temper_measurements like ?)");
         const pattern = `%${escapeLikePattern(filters.nameQuery)}%`;
         parameters.push(pattern, pattern);
       }
@@ -245,36 +186,7 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
       );
       const where = clauses.length === 0 ? "" : `where ${clauses.join(" and ")}`;
       const [rows] = await pool.query<JournalRow[]>(
-        `select
-          id,
-          record_date,
-          laboratory_assistant,
-          shift_supervisor,
-          shift_code,
-          clay_brand,
-          clay_moisture,
-          clay_grain_composition,
-          disintegrator_number,
-          temper_moisture,
-          temper_grain_composition,
-          temper_sieve_residue_1,
-          temper_sieve_residue_2,
-          temper_sieve_residue_3,
-          temper_sieve_pass_05,
-          temper_brand,
-          temper_bulk_density,
-          slip_mixer_number,
-          slip_temperature,
-          slip_density,
-          runner_number,
-          charge_chamotte_percentage,
-          charge_clay_percentage,
-          charge_residue_0063,
-          charge_moisture,
-          elutriation_coefficient,
-          recommendation_recipient,
-          recommendation_text,
-          created_at
+        `select ${journalColumns}
         from laboratory_raw_material_quality_journal
         ${where}
         order by record_date desc, sequence_id desc
@@ -302,80 +214,27 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
             max(created_at) as last_used_at
           from laboratory_raw_material_quality_journal
           group by shift_supervisor
-          union all
-          select
-            'clay_brand' as option_type,
-            clay_brand as value,
-            max(created_at) as last_used_at
-          from laboratory_raw_material_quality_journal
-          group by clay_brand
-          union all
-          select
-            'temper_brand' as option_type,
-            temper_brand as value,
-            max(created_at) as last_used_at
-          from laboratory_raw_material_quality_journal
-          group by temper_brand
-          union all
-          select
-            'slip_mixer_number' as option_type,
-            slip_mixer_number as value,
-            max(created_at) as last_used_at
-          from laboratory_raw_material_quality_journal
-          group by slip_mixer_number
-          union all
-          select
-            'runner_number' as option_type,
-            runner_number as value,
-            max(created_at) as last_used_at
-          from laboratory_raw_material_quality_journal
-          group by runner_number
         ) as journal_options
         order by option_type asc, last_used_at desc, value asc`,
+      );
+
+      const [brandRows] = await pool.query<BrandRow[]>(
+        `select clay_measurements, temper_measurements
+        from laboratory_raw_material_quality_journal
+        order by created_at desc`,
       );
 
       return {
         laboratoryAssistants: readOptions(rows, "laboratory_assistant"),
         shiftSupervisors: readOptions(rows, "shift_supervisor"),
-        clayBrands: readOptions(rows, "clay_brand"),
-        temperBrands: readOptions(rows, "temper_brand"),
-        slipMixerNumbers: readOptions(rows, "slip_mixer_number"),
-        runnerNumbers: readOptions(rows, "runner_number"),
+        clayBrands: collectUniqueBrands(brandRows, "clay_measurements", "clayBrand"),
+        temperBrands: collectUniqueBrands(brandRows, "temper_measurements", "temperBrand"),
       };
     },
 
     async update(input) {
       const [rows] = await pool.query<JournalRow[]>(
-        `select
-          id,
-          record_date,
-          laboratory_assistant,
-          shift_supervisor,
-          shift_code,
-          clay_brand,
-          clay_moisture,
-          clay_grain_composition,
-          disintegrator_number,
-          temper_moisture,
-          temper_grain_composition,
-          temper_sieve_residue_1,
-          temper_sieve_residue_2,
-          temper_sieve_residue_3,
-          temper_sieve_pass_05,
-          temper_brand,
-          temper_bulk_density,
-          slip_mixer_number,
-          slip_temperature,
-          slip_density,
-          runner_number,
-          charge_chamotte_percentage,
-          charge_clay_percentage,
-          charge_residue_0063,
-          charge_moisture,
-          elutriation_coefficient,
-          recommendation_recipient,
-          recommendation_text,
-          created_at
+        `select ${journalColumns}
         from laboratory_raw_material_quality_journal
         where id = ?
         limit 1
@@ -395,26 +254,10 @@ export function createLaboratoryRawMaterialQualityJournalRepository(
           laboratory_assistant = ?,
           shift_supervisor = ?,
           shift_code = ?,
-          clay_brand = ?,
-          clay_moisture = ?,
-          clay_grain_composition = ?,
-          disintegrator_number = ?,
-          temper_moisture = ?,
-          temper_grain_composition = ?,
-          temper_sieve_residue_1 = ?,
-          temper_sieve_residue_2 = ?,
-          temper_sieve_residue_3 = ?,
-          temper_sieve_pass_05 = ?,
-          temper_brand = ?,
-          temper_bulk_density = ?,
-          slip_mixer_number = ?,
-          slip_temperature = ?,
-          slip_density = ?,
-          runner_number = ?,
-          charge_chamotte_percentage = ?,
-          charge_clay_percentage = ?,
-          charge_residue_0063 = ?,
-          charge_moisture = ?,
+          clay_measurements = ?,
+          temper_measurements = ?,
+          slip_measurements = ?,
+          runner_measurements = ?,
           elutriation_coefficient = ?,
           recommendation_recipient = ?,
           recommendation_text = ?
@@ -462,6 +305,27 @@ function readOptions(rows: OptionRow[], type: OptionRow["option_type"]) {
     .map((row) => row.value);
 }
 
+function collectUniqueBrands(
+  rows: BrandRow[],
+  column: "clay_measurements" | "temper_measurements",
+  brandField: "clayBrand" | "temperBrand",
+): string[] {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const row of rows) {
+    const measurements = readJson(row[column]);
+    if (!Array.isArray(measurements)) continue;
+    for (const measurement of measurements) {
+      const brand = isRecord(measurement) ? measurement[brandField] : undefined;
+      if (typeof brand === "string" && brand.length > 0 && !seen.has(brand)) {
+        seen.add(brand);
+        values.push(brand);
+      }
+    }
+  }
+  return values;
+}
+
 function mapRecord(row: JournalRow): LaboratoryRawMaterialQualityRecord {
   return {
     id: row.id,
@@ -478,26 +342,14 @@ function mapSubmission(
     laboratoryAssistant: row.laboratory_assistant,
     shiftSupervisor: row.shift_supervisor,
     shift: row.shift_code,
-    clayBrand: row.clay_brand,
-    clayMoisture: row.clay_moisture,
-    clayGrainComposition: row.clay_grain_composition,
-    disintegratorNumber: row.disintegrator_number,
-    temperMoisture: row.temper_moisture,
-    temperGrainComposition: row.temper_grain_composition,
-    temperSieveResidue1: row.temper_sieve_residue_1,
-    temperSieveResidue2: row.temper_sieve_residue_2,
-    temperSieveResidue3: row.temper_sieve_residue_3,
-    temperSievePass05: row.temper_sieve_pass_05,
-    temperBrand: row.temper_brand,
-    temperBulkDensity: row.temper_bulk_density,
-    slipMixerNumber: row.slip_mixer_number,
-    slipTemperature: row.slip_temperature,
-    slipDensity: row.slip_density,
-    runnerNumber: row.runner_number,
-    chargeChamottePercentage: row.charge_chamotte_percentage,
-    chargeClayPercentage: row.charge_clay_percentage,
-    chargeResidue0063: row.charge_residue_0063,
-    chargeMoisture: row.charge_moisture,
+    clayMeasurements: readJson(row.clay_measurements) as
+      LaboratoryRawMaterialQualitySubmission["clayMeasurements"],
+    temperMeasurements: readJson(row.temper_measurements) as
+      LaboratoryRawMaterialQualitySubmission["temperMeasurements"],
+    slipMeasurements: readJson(row.slip_measurements) as
+      LaboratoryRawMaterialQualitySubmission["slipMeasurements"],
+    runnerMeasurements: readJson(row.runner_measurements) as
+      LaboratoryRawMaterialQualitySubmission["runnerMeasurements"],
     elutriationCoefficient: row.elutriation_coefficient,
     recommendationRecipient: row.recommendation_recipient,
     recommendationText: row.recommendation_text,
@@ -510,30 +362,23 @@ function readSubmissionValues(record: LaboratoryRawMaterialQualitySubmission) {
     record.laboratoryAssistant,
     record.shiftSupervisor,
     record.shift,
-    record.clayBrand,
-    record.clayMoisture,
-    record.clayGrainComposition,
-    record.disintegratorNumber,
-    record.temperMoisture,
-    record.temperGrainComposition,
-    record.temperSieveResidue1,
-    record.temperSieveResidue2,
-    record.temperSieveResidue3,
-    record.temperSievePass05,
-    record.temperBrand,
-    record.temperBulkDensity,
-    record.slipMixerNumber,
-    record.slipTemperature,
-    record.slipDensity,
-    record.runnerNumber,
-    record.chargeChamottePercentage,
-    record.chargeClayPercentage,
-    record.chargeResidue0063,
-    record.chargeMoisture,
+    JSON.stringify(record.clayMeasurements),
+    JSON.stringify(record.temperMeasurements),
+    JSON.stringify(record.slipMeasurements),
+    JSON.stringify(record.runnerMeasurements),
     record.elutriationCoefficient,
     record.recommendationRecipient,
     record.recommendationText,
   ];
+}
+
+function readJson(value: unknown): unknown[] {
+  if (typeof value === "string") return JSON.parse(value) as unknown[];
+  return Array.isArray(value) ? value : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function formatDate(value: Date | string) {

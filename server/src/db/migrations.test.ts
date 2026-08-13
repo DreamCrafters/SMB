@@ -21,6 +21,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "062_sample_registration_transmission",
   "063_formed_product_sample_journal",
   "064_verification_journal",
+  "065_laboratory_raw_material_quality_measurement_tables",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2686,6 +2687,71 @@ test("sample registration transmission migrations add the transmission columns a
   assert.match(
     statements[7] ?? "",
     /create table if not exists laboratory_verification_revisions/u,
+  );
+  assert.equal(statements[8], "insert into schema_migrations (id) values (?)");
+});
+
+test("raw material quality measurement tables migration adds json rows and backfills them", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "065_laboratory_raw_material_quality_measurement_tables"
+            ? []
+            : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 9);
+  assert.match(statements[0] ?? "", /add column clay_measurements json null/u);
+  assert.match(statements[0] ?? "", /add column temper_measurements json null/u);
+  assert.match(statements[0] ?? "", /add column slip_measurements json null/u);
+  assert.match(statements[0] ?? "", /add column runner_measurements json null/u);
+  assert.match(statements[1] ?? "", /set clay_measurements = json_array/u);
+  assert.match(statements[1] ?? "", /'clayBrand', clay_brand/u);
+  assert.match(statements[2] ?? "", /set temper_measurements = json_array/u);
+  assert.match(statements[2] ?? "", /'sieveResidue1', temper_sieve_residue_1/u);
+  assert.match(statements[3] ?? "", /set slip_measurements = json_array/u);
+  assert.match(statements[3] ?? "", /'mixerNumber', slip_mixer_number/u);
+  assert.match(statements[4] ?? "", /set runner_measurements = json_array/u);
+  assert.match(statements[4] ?? "", /'isReserve', false/u);
+  assert.match(statements[5] ?? "", /modify column clay_brand varchar\(120\) null/u);
+  assert.match(
+    statements[5] ?? "",
+    /modify column recommendation_text text null/u,
+  );
+  assert.match(
+    statements[6] ?? "",
+    /drop constraint chk_laboratory_raw_material_quality_shift/u,
+  );
+  assert.match(
+    statements[7] ?? "",
+    /add constraint chk_laboratory_raw_material_quality_shift/u,
+  );
+  assert.match(
+    statements[7] ?? "",
+    /check \(shift_code in \('day', 'night', 'day_short'\)\)/u,
   );
   assert.equal(statements[8], "insert into schema_migrations (id) values (?)");
 });

@@ -10,26 +10,40 @@ const record = {
   laboratoryAssistant: "Иванова А.А.",
   shiftSupervisor: "Петров П.П.",
   shift: "day" as const,
-  clayBrand: "Глина ГИМ-2",
-  clayMoisture: "6,8",
-  clayGrainComposition: "0–3 мм",
-  disintegratorNumber: "2" as const,
-  temperMoisture: "1,2",
-  temperGrainComposition: "0–5 мм",
-  temperSieveResidue1: "4,1",
-  temperSieveResidue2: "2,3",
-  temperSieveResidue3: "0,8",
-  temperSievePass05: "91,2",
-  temperBrand: "Шамот ШКИ-66",
-  temperBulkDensity: "1,16",
-  slipMixerNumber: "3",
-  slipTemperature: "42 °C",
-  slipDensity: "1,52",
-  runnerNumber: "4",
-  chargeChamottePercentage: "72",
-  chargeClayPercentage: "28",
-  chargeResidue0063: "3,4",
-  chargeMoisture: "5,9",
+  clayMeasurements: [
+    {
+      measurementNumber: 1,
+      clayBrand: "Глина ГИМ-2",
+      disintegratorNumber: "2" as const,
+      moisture: "6,8",
+      sieveResidue3: "0,4",
+      sievePass05: "98,1",
+    },
+  ],
+  temperMeasurements: [
+    {
+      measurementNumber: 1,
+      temperBrand: "Шамот ШКИ-66",
+      ballMillNumber: "3" as const,
+      sieveResidue3: "0,8",
+      sieveResidue2: "2,3",
+      sieveResidue1: "4,1",
+      sievePass05: "91,2",
+    },
+  ],
+  slipMeasurements: [
+    { measurementNumber: 1, mixerNumber: "3" as const, temperature: "42 °C", density: "1,52" },
+  ],
+  runnerMeasurements: [
+    {
+      runnerNumber: "4" as const,
+      chamottePercentage: "72",
+      clayPercentage: "28",
+      residue0063: "3,4",
+      moisture: "5,9",
+      isReserve: false,
+    },
+  ],
   elutriationCoefficient: "0,84",
   recommendationRecipient: "runner_operator" as const,
   recommendationText: "Скорректировать влажность шихты.",
@@ -65,7 +79,17 @@ test("raw material quality repository stores every section with the session auth
   );
   assert.deepEqual(queries[0]?.parameters, [
     "raw-material-quality-1",
-    ...Object.values(record),
+    record.recordDate,
+    record.laboratoryAssistant,
+    record.shiftSupervisor,
+    record.shift,
+    JSON.stringify(record.clayMeasurements),
+    JSON.stringify(record.temperMeasurements),
+    JSON.stringify(record.slipMeasurements),
+    JSON.stringify(record.runnerMeasurements),
+    record.elutriationCoefficient,
+    record.recommendationRecipient,
+    record.recommendationText,
     "laboratory-user",
     "laboratory-account",
     "2026-08-05T08:30:00.000Z",
@@ -79,37 +103,7 @@ test("raw material quality repository filters and maps the complete journal", as
     async query(sql: string, parameters?: unknown[]) {
       querySql = sql;
       queryParameters = parameters ?? [];
-      return [[{
-        id: "raw-material-quality-1",
-        record_date: record.recordDate,
-        laboratory_assistant: record.laboratoryAssistant,
-        shift_supervisor: record.shiftSupervisor,
-        shift_code: record.shift,
-        clay_brand: record.clayBrand,
-        clay_moisture: record.clayMoisture,
-        clay_grain_composition: record.clayGrainComposition,
-        disintegrator_number: record.disintegratorNumber,
-        temper_moisture: record.temperMoisture,
-        temper_grain_composition: record.temperGrainComposition,
-        temper_sieve_residue_1: record.temperSieveResidue1,
-        temper_sieve_residue_2: record.temperSieveResidue2,
-        temper_sieve_residue_3: record.temperSieveResidue3,
-        temper_sieve_pass_05: record.temperSievePass05,
-        temper_brand: record.temperBrand,
-        temper_bulk_density: record.temperBulkDensity,
-        slip_mixer_number: record.slipMixerNumber,
-        slip_temperature: record.slipTemperature,
-        slip_density: record.slipDensity,
-        runner_number: record.runnerNumber,
-        charge_chamotte_percentage: record.chargeChamottePercentage,
-        charge_clay_percentage: record.chargeClayPercentage,
-        charge_residue_0063: record.chargeResidue0063,
-        charge_moisture: record.chargeMoisture,
-        elutriation_coefficient: record.elutriationCoefficient,
-        recommendation_recipient: record.recommendationRecipient,
-        recommendation_text: record.recommendationText,
-        created_at: "2026-08-05T08:30:00.000Z",
-      }], []];
+      return [[buildJournalRow()], []];
     },
   } as unknown as DatabasePool;
   const repository = createLaboratoryRawMaterialQualityJournalRepository(pool);
@@ -127,9 +121,11 @@ test("raw material quality repository filters and maps the complete journal", as
   assert.match(querySql, /record_date >= \?/u);
   assert.match(querySql, /record_date <= \?/u);
   assert.match(querySql, /instr\(/u);
+  assert.match(querySql, /clay_measurements/u);
+  assert.match(querySql, /temper_measurements/u);
   assert.match(
     querySql,
-    /\(clay_brand like \? or temper_brand like \?\)/u,
+    /\(clay_measurements like \? or temper_measurements like \?\)/u,
   );
   assert.match(querySql, /order by record_date desc, sequence_id desc/u);
   assert.deepEqual(queryParameters, [
@@ -142,18 +138,29 @@ test("raw material quality repository filters and maps the complete journal", as
   ]);
 });
 
-test("raw material quality repository lists editable options from full history", async () => {
-  let querySql = "";
+test("raw material quality repository lists lab/supervisor options and unique brands from history", async () => {
+  const queries: Array<{ sql: string }> = [];
   const pool = {
     async query(sql: string) {
-      querySql = sql;
+      queries.push({ sql });
+      if (sql.includes("union all")) {
+        return [[
+          { option_type: "laboratory_assistant", value: "Иванова А.А." },
+          { option_type: "shift_supervisor", value: "Петров П.П." },
+        ], []];
+      }
       return [[
-        { option_type: "laboratory_assistant", value: "Иванова А.А." },
-        { option_type: "shift_supervisor", value: "Петров П.П." },
-        { option_type: "clay_brand", value: "Глина ГИМ-2" },
-        { option_type: "temper_brand", value: "Шамот ШКИ-66" },
-        { option_type: "slip_mixer_number", value: "3" },
-        { option_type: "runner_number", value: "4" },
+        {
+          clay_measurements: JSON.stringify([
+            { clayBrand: "Глина ГИМ-2" },
+            { clayBrand: "Глина ПГА" },
+          ]),
+          temper_measurements: JSON.stringify([{ temperBrand: "Шамот ШКИ-66" }]),
+        },
+        {
+          clay_measurements: JSON.stringify([{ clayBrand: "Глина ГИМ-2" }]),
+          temper_measurements: JSON.stringify([{ temperBrand: null }]),
+        },
       ], []];
     },
   } as unknown as DatabasePool;
@@ -162,18 +169,13 @@ test("raw material quality repository lists editable options from full history",
   assert.deepEqual(await repository.listOptions(), {
     laboratoryAssistants: ["Иванова А.А."],
     shiftSupervisors: ["Петров П.П."],
-    clayBrands: ["Глина ГИМ-2"],
+    clayBrands: ["Глина ГИМ-2", "Глина ПГА"],
     temperBrands: ["Шамот ШКИ-66"],
-    slipMixerNumbers: ["3"],
-    runnerNumbers: ["4"],
   });
-  assert.match(querySql, /group by laboratory_assistant/u);
-  assert.match(querySql, /group by shift_supervisor/u);
-  assert.match(querySql, /group by clay_brand/u);
-  assert.match(querySql, /group by temper_brand/u);
-  assert.match(querySql, /group by slip_mixer_number/u);
-  assert.match(querySql, /group by runner_number/u);
-  assert.match(querySql, /order by option_type asc, last_used_at desc, value asc/u);
+  assert.match(queries[0]?.sql ?? "", /group by laboratory_assistant/u);
+  assert.match(queries[0]?.sql ?? "", /group by shift_supervisor/u);
+  assert.match(queries[1]?.sql ?? "", /select clay_measurements, temper_measurements/u);
+  assert.match(queries[1]?.sql ?? "", /order by created_at desc/u);
 });
 
 test("raw material quality repository corrects a stable row and stores a revision", async () => {
@@ -193,7 +195,9 @@ test("raw material quality repository corrects a stable row and stores a revisio
   });
   const corrected = {
     ...record,
-    clayMoisture: "7,0",
+    clayMeasurements: [
+      { ...record.clayMeasurements[0], moisture: "7,0" },
+    ],
     recommendationText: "Снизить влажность глины.",
   };
 
@@ -219,7 +223,17 @@ test("raw material quality repository corrects a stable row and stores a revisio
     /update laboratory_raw_material_quality_journal/u,
   );
   assert.deepEqual(queries[1]?.parameters, [
-    ...Object.values(corrected),
+    corrected.recordDate,
+    corrected.laboratoryAssistant,
+    corrected.shiftSupervisor,
+    corrected.shift,
+    JSON.stringify(corrected.clayMeasurements),
+    JSON.stringify(corrected.temperMeasurements),
+    JSON.stringify(corrected.slipMeasurements),
+    JSON.stringify(corrected.runnerMeasurements),
+    corrected.elutriationCoefficient,
+    corrected.recommendationRecipient,
+    corrected.recommendationText,
     "raw-material-quality-1",
   ]);
   assert.match(
@@ -245,26 +259,10 @@ function buildJournalRow() {
     laboratory_assistant: record.laboratoryAssistant,
     shift_supervisor: record.shiftSupervisor,
     shift_code: record.shift,
-    clay_brand: record.clayBrand,
-    clay_moisture: record.clayMoisture,
-    clay_grain_composition: record.clayGrainComposition,
-    disintegrator_number: record.disintegratorNumber,
-    temper_moisture: record.temperMoisture,
-    temper_grain_composition: record.temperGrainComposition,
-    temper_sieve_residue_1: record.temperSieveResidue1,
-    temper_sieve_residue_2: record.temperSieveResidue2,
-    temper_sieve_residue_3: record.temperSieveResidue3,
-    temper_sieve_pass_05: record.temperSievePass05,
-    temper_brand: record.temperBrand,
-    temper_bulk_density: record.temperBulkDensity,
-    slip_mixer_number: record.slipMixerNumber,
-    slip_temperature: record.slipTemperature,
-    slip_density: record.slipDensity,
-    runner_number: record.runnerNumber,
-    charge_chamotte_percentage: record.chargeChamottePercentage,
-    charge_clay_percentage: record.chargeClayPercentage,
-    charge_residue_0063: record.chargeResidue0063,
-    charge_moisture: record.chargeMoisture,
+    clay_measurements: JSON.stringify(record.clayMeasurements),
+    temper_measurements: JSON.stringify(record.temperMeasurements),
+    slip_measurements: JSON.stringify(record.slipMeasurements),
+    runner_measurements: JSON.stringify(record.runnerMeasurements),
     elutriation_coefficient: record.elutriationCoefficient,
     recommendation_recipient: record.recommendationRecipient,
     recommendation_text: record.recommendationText,

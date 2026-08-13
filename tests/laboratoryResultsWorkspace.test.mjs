@@ -102,26 +102,40 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     laboratoryAssistant: "Иванова А.А.",
     shiftSupervisor: "Петров П.П.",
     shift: "day",
-    clayBrand: "Глина ДН-2",
-    clayMoisture: "8,4",
-    clayGrainComposition: "0–2 мм",
-    disintegratorNumber: "1",
-    temperMoisture: "1,2",
-    temperGrainComposition: "0–3 мм",
-    temperSieveResidue1: "0,1",
-    temperSieveResidue2: "0,3",
-    temperSieveResidue3: "0,5",
-    temperSievePass05: "12,6",
-    temperBrand: "Шамот ШКИ-44",
-    temperBulkDensity: "1,18",
-    slipMixerNumber: "3",
-    slipTemperature: "28",
-    slipDensity: "1,64",
-    runnerNumber: "2",
-    chargeChamottePercentage: "70",
-    chargeClayPercentage: "30",
-    chargeResidue0063: "4,1",
-    chargeMoisture: "6,8",
+    clayMeasurements: [
+      {
+        measurementNumber: 1,
+        clayBrand: "Глина ДН-2",
+        disintegratorNumber: "1",
+        moisture: "8,4",
+        sieveResidue3: "0,2",
+        sievePass05: "97,5",
+      },
+    ],
+    temperMeasurements: [
+      {
+        measurementNumber: 1,
+        temperBrand: "Шамот ШКИ-44",
+        ballMillNumber: "2",
+        sieveResidue3: "0,5",
+        sieveResidue2: "0,3",
+        sieveResidue1: "0,1",
+        sievePass05: "12,6",
+      },
+    ],
+    slipMeasurements: [
+      { measurementNumber: 1, mixerNumber: "3", temperature: "28", density: "1,64" },
+    ],
+    runnerMeasurements: [
+      {
+        runnerNumber: "2",
+        chamottePercentage: "70",
+        clayPercentage: "30",
+        residue0063: "4,1",
+        moisture: "6,8",
+        isReserve: false,
+      },
+    ],
     elutriationCoefficient: "0,83",
     recommendationRecipient: "batch_operator",
     recommendationText: "Снизить подачу глины.",
@@ -804,8 +818,6 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             shiftSupervisors: ["Петров П.П."],
             clayBrands: ["Глина ДН-2"],
             temperBrands: ["Шамот ШКИ-44"],
-            slipMixerNumbers: ["3"],
-            runnerNumbers: ["2"],
           },
         });
       }
@@ -2361,9 +2373,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ".raw-material-quality-form",
     );
     assert.ok(rawQualityForm);
-    const runnersSection = Array.from(
-      rawQualityForm.querySelectorAll(".sample-registration-journal-section"),
-    ).find((section) => section.querySelector(":scope > h3")?.textContent === "Бегуны");
+    const runnersSection = findJournalSection(rawQualityForm, "Бегуны");
     assert.equal(
       runnersSection?.querySelector(".raw-material-quality-subsection h4")
         ?.textContent,
@@ -2371,18 +2381,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     const rawQualityHeadings = Array.from(
       rootElement.querySelectorAll(".raw-material-quality-table th"),
-    );
-    assert.equal(
-      rawQualityHeadings.find((heading) => heading.textContent === "Бегуны")
-        ?.colSpan,
-      8,
-    );
-    assert.equal(
-      rawQualityHeadings.find(
-        (heading) => heading.textContent === "Состав шихты",
-      )?.colSpan,
-      7,
-    );
+    ).map((heading) => heading.textContent);
+    assert.deepEqual(rawQualityHeadings, [
+      "Дата", "Лаборант", "Мастер смены", "Смена", "Замеры",
+    ]);
     assert.equal(
       findControlByLabel(rawQualityForm, "Дата").value,
       "2026-08-05",
@@ -2396,29 +2398,19 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ["Иванова А.А."],
     );
 
+    const claySection = findJournalSection(rawQualityForm, "Контроль качества глины");
+    const temperSection = findJournalSection(rawQualityForm, "Отощитель");
+    const slipSection = findJournalSection(rawQualityForm, "Шликер");
+    await React.act(async () => {
+      for (const section of [claySection, temperSection, slipSection, runnersSection]) {
+        section.querySelector(".raw-material-quality-add-row").click();
+      }
+    });
+
     await React.act(async () => {
       for (const [label, value] of Object.entries({
         "Лаборант": "Новая Н.Н.",
         "Мастер смены": "Петров П.П.",
-        "Марка глины": "Глина ДН-2",
-        "Влажность глины": "8,4",
-        "Зерновой состав глины": "0–2 мм",
-        "Влажность отощителя": "1,2",
-        "Зерновой состав отощителя": "0–3 мм",
-        "Остаток на сите № 1": "0,1",
-        "Остаток на сите № 2": "0,3",
-        "Остаток на сите № 3": "0,5",
-        "Проход ч/з 0,5": "12,6",
-        "Марка отощителя": "Шамот ШКИ-44",
-        "Насыпной вес": "1,18",
-        "№ мешалки": "3",
-        "Температура шликера": "28",
-        "Плотность, гр/см³": "1,64",
-        "№ бегунов": "2",
-        "% шамота": "70",
-        "% глины": "30",
-        "Остаток 0,063": "4,1",
-        "Влажность шихты": "6,8",
         "Коэффициент отмучивания": "0,83",
         "Текст рекомендации": "Снизить подачу глины.",
       })) {
@@ -2426,24 +2418,67 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         setNativeInputValue(input, value);
         input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
       }
-      for (const [label, value] of [
-        ["Смена", "day"],
-        ["Дезинтегратор №", "1"],
-        ["Адрес рекомендации", "batch_operator"],
-      ]) {
+      for (const [label, value] of [["Смена", "day"], ["Адрес рекомендации", "batch_operator"]]) {
         const select = findControlByLabel(rawQualityForm, label, "select");
         setNativeInputValue(select, value);
         select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
       }
+
+      for (const [label, value] of Object.entries({
+        "Марка глины": "Глина ДН-2",
+        "Влажность": "8,4",
+        "Остаток на сите № 3": "0,2",
+        "Остаток на сите № 0,5": "97,5",
+      })) {
+        fillControlByLabel(claySection, label, value);
+      }
+      fillControlByLabel(claySection, "Дезинтегратор №", "1", "select");
+
+      fillControlByLabel(temperSection, "Марка отощителя", "Шамот ШКИ-44");
+      fillControlByLabel(temperSection, "Остаток на сите № 3", "0,5");
+      fillControlByLabel(temperSection, "Остаток на сите № 2", "0,3");
+      fillControlByLabel(temperSection, "Остаток на сите № 1", "0,1");
+      fillControlByLabel(temperSection, "Остаток на сите № 0,5", "12,6");
+      fillControlByLabel(temperSection, "Шаровая", "2", "select");
+
+      fillControlByLabel(slipSection, "Температура шликера", "28");
+      fillControlByLabel(slipSection, "Плотность, гр/см³", "1,64");
+      fillControlByLabel(slipSection, "№ мешалки", "3", "select");
+
+      fillControlByLabel(runnersSection, "% шамота", "70");
+      fillControlByLabel(runnersSection, "% глины", "30");
+      fillControlByLabel(runnersSection, "Остаток 0,063", "4,1");
+      fillControlByLabel(runnersSection, "Влажность", "6,8");
+      fillControlByLabel(runnersSection, "№ бегунов", "2", "select");
+
       rawQualityForm.dispatchEvent(
         new dom.window.Event("submit", { bubbles: true, cancelable: true }),
       );
     });
     await waitFor(React, () => rawMaterialQualitySubmissions.length === 1);
-    assert.equal(rawMaterialQualitySubmissions[0].recordDate, "2026-08-05");
-    assert.equal(rawMaterialQualitySubmissions[0].laboratoryAssistant, "Новая Н.Н.");
-    assert.equal(rawMaterialQualitySubmissions[0].recommendationRecipient, "batch_operator");
-    assert.equal(rawMaterialQualitySubmissions[0].recommendationText, "Снизить подачу глины.");
+    const rawQualitySubmission = rawMaterialQualitySubmissions[0];
+    assert.equal(rawQualitySubmission.recordDate, "2026-08-05");
+    assert.equal(rawQualitySubmission.laboratoryAssistant, "Новая Н.Н.");
+    assert.equal(rawQualitySubmission.recommendationRecipient, "batch_operator");
+    assert.equal(rawQualitySubmission.recommendationText, "Снизить подачу глины.");
+    assert.equal(rawQualitySubmission.clayMeasurements.length, 1);
+    assert.equal(rawQualitySubmission.clayMeasurements[0].clayBrand, "Глина ДН-2");
+    assert.equal(rawQualitySubmission.clayMeasurements[0].disintegratorNumber, "1");
+    assert.equal(rawQualitySubmission.temperMeasurements[0].ballMillNumber, "2");
+    assert.equal(rawQualitySubmission.slipMeasurements[0].mixerNumber, "3");
+    // Ввод данных в строку бегунка автоматически снимает флажок «Резерв».
+    assert.equal(rawQualitySubmission.runnerMeasurements[0].runnerNumber, "2");
+    assert.equal(rawQualitySubmission.runnerMeasurements[0].isReserve, false);
+
+    const rawQualityExpandToggle = rootElement.querySelector(
+      ".raw-material-quality-expand-toggle",
+    );
+    assert.ok(rawQualityExpandToggle);
+    await React.act(async () => rawQualityExpandToggle.click());
+    assert.match(
+      rootElement.querySelector(".raw-material-quality-expanded")?.textContent ?? "",
+      /Глина ДН-2/u,
+    );
 
     const rawQualityEditButton = rootElement.querySelector(
       ".raw-material-quality-edit-link",
@@ -2451,7 +2486,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.ok(rawQualityEditButton);
     await React.act(async () => rawQualityEditButton.click());
     assert.equal(
-      findControlByLabel(rawQualityForm, "Марка глины").value,
+      claySection.querySelector('[aria-label="Марка глины"]').value,
       "Глина ДН-2",
     );
     await React.act(async () => {
@@ -2764,6 +2799,23 @@ function findControlByLabel(root, labelText, selector = "input, textarea") {
   const input = label?.querySelector(selector);
   assert.ok(input, `Expected input labelled ${labelText}`);
   return input;
+}
+
+function findJournalSection(form, heading) {
+  const section = Array.from(
+    form.querySelectorAll(".sample-registration-journal-section"),
+  ).find((item) => item.querySelector(":scope > h3")?.textContent === heading);
+  assert.ok(section, `Expected journal section titled ${heading}`);
+  return section;
+}
+
+function fillControlByLabel(section, ariaLabel, value, controlKind = "input") {
+  const control = section.querySelector(`[aria-label="${ariaLabel}"]`);
+  assert.ok(control, `Expected control labelled ${ariaLabel} inside the section`);
+  setNativeInputValue(control, value);
+  control.dispatchEvent(
+    new Event(controlKind === "select" ? "change" : "input", { bubbles: true }),
+  );
 }
 
 function setNativeInputValue(input, value) {

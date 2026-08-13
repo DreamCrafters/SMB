@@ -220,26 +220,34 @@ test("laboratory review filters every journal by date and nomenclature", async (
             laboratoryAssistant: "Иванова А.А.",
             shiftSupervisor: "Петров П.П.",
             shift: "day",
-            clayBrand: "Глина ДН-2",
-            clayMoisture: "8,4",
-            clayGrainComposition: "0–2 мм",
-            disintegratorNumber: "1",
-            temperMoisture: "1,2",
-            temperGrainComposition: "0–3 мм",
-            temperSieveResidue1: "0,1",
-            temperSieveResidue2: "0,3",
-            temperSieveResidue3: "0,5",
-            temperSievePass05: "12,6",
-            temperBrand: "Шамот ШКИ-44",
-            temperBulkDensity: "1,18",
-            slipMixerNumber: "3",
-            slipTemperature: "28",
-            slipDensity: "1,64",
-            runnerNumber: "2",
-            chargeChamottePercentage: "70",
-            chargeClayPercentage: "30",
-            chargeResidue0063: "4,1",
-            chargeMoisture: "6,8",
+            clayMeasurements: [{
+              measurementNumber: 1,
+              clayBrand: "Глина ДН-2",
+              disintegratorNumber: "1",
+              moisture: "8,4",
+              sieveResidue3: "0,2",
+              sievePass05: "97,5",
+            }],
+            temperMeasurements: [{
+              measurementNumber: 1,
+              temperBrand: "Шамот ШКИ-44",
+              ballMillNumber: "2",
+              sieveResidue3: "0,5",
+              sieveResidue2: "0,3",
+              sieveResidue1: "0,1",
+              sievePass05: "12,6",
+            }],
+            slipMeasurements: [
+              { measurementNumber: 1, mixerNumber: "3", temperature: "28", density: "1,64" },
+            ],
+            runnerMeasurements: [{
+              runnerNumber: "2",
+              chamottePercentage: "70",
+              clayPercentage: "30",
+              residue0063: "4,1",
+              moisture: "6,8",
+              isReserve: false,
+            }],
             elutriationCoefficient: "0,83",
             recommendationRecipient: "batch_operator",
             recommendationText: "Снизить подачу глины.",
@@ -528,6 +536,9 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.deepEqual(readJournalTitles(container), [
       "Журнал контроля качества сырья и соблюдения технологии",
     ]);
+    await React.act(async () => {
+      container.querySelector(".raw-material-quality-expand-toggle")?.click();
+    });
     assert.match(container.textContent, /Шамот ШКИ-44/u);
     assert.equal(container.querySelector("form"), null);
     assert.ok(findButtonByText(container, "Качество сырцовой продукции"));

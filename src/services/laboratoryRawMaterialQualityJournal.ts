@@ -1,12 +1,17 @@
 import {
+  laboratoryRawMaterialQualityBallMillValues,
   laboratoryRawMaterialQualityDisintegratorValues,
-  laboratoryRawMaterialQualityFields,
   laboratoryRawMaterialQualityRecommendationRecipientValues,
   laboratoryRawMaterialQualityShiftValues,
+  laboratoryRawMaterialQualitySixSlotValues,
+  type LaboratoryClayMeasurementRow,
   type LaboratoryRawMaterialQualityFilters,
   type LaboratoryRawMaterialQualityOptions,
   type LaboratoryRawMaterialQualityRecord,
   type LaboratoryRawMaterialQualitySubmission,
+  type LaboratoryRunnerMeasurementRow,
+  type LaboratorySlipMeasurementRow,
+  type LaboratoryTemperMeasurementRow,
 } from "../contracts/laboratoryRawMaterialQualityJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -88,8 +93,6 @@ export async function requestLaboratoryRawMaterialQualityOptions(
     "shiftSupervisors",
     "clayBrands",
     "temperBrands",
-    "slipMixerNumbers",
-    "runnerNumbers",
   ] as const;
   const optionPayload = isRecord(result.payload) &&
       isRecord(result.payload.options)
@@ -179,28 +182,86 @@ function isJournalRecord(value: unknown): value is LaboratoryRawMaterialQualityR
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.createdAt !== "string") {
     return false;
   }
-  return laboratoryRawMaterialQualityFields.every((field) => {
-    const fieldValue = value[field.id];
-    if (field.id === "shift") {
-      return typeof fieldValue === "string" &&
-        laboratoryRawMaterialQualityShiftValues.includes(
-          fieldValue as (typeof laboratoryRawMaterialQualityShiftValues)[number],
-        );
-    }
-    if (field.id === "disintegratorNumber") {
-      return typeof fieldValue === "string" &&
-        laboratoryRawMaterialQualityDisintegratorValues.includes(
-          fieldValue as (typeof laboratoryRawMaterialQualityDisintegratorValues)[number],
-        );
-    }
-    if (field.id === "recommendationRecipient") {
-      return typeof fieldValue === "string" &&
-        laboratoryRawMaterialQualityRecommendationRecipientValues.includes(
-          fieldValue as (typeof laboratoryRawMaterialQualityRecommendationRecipientValues)[number],
-        );
-    }
-    return typeof fieldValue === "string";
-  });
+  return (
+    typeof value.recordDate === "string" &&
+    typeof value.laboratoryAssistant === "string" &&
+    typeof value.shiftSupervisor === "string" &&
+    typeof value.shift === "string" &&
+    laboratoryRawMaterialQualityShiftValues.includes(
+      value.shift as (typeof laboratoryRawMaterialQualityShiftValues)[number],
+    ) &&
+    isMeasurementArray(value.clayMeasurements, isClayMeasurementRow) &&
+    isMeasurementArray(value.temperMeasurements, isTemperMeasurementRow) &&
+    isMeasurementArray(value.slipMeasurements, isSlipMeasurementRow) &&
+    isMeasurementArray(value.runnerMeasurements, isRunnerMeasurementRow) &&
+    isNullableString(value.elutriationCoefficient) &&
+    isNullableOption(
+      value.recommendationRecipient,
+      laboratoryRawMaterialQualityRecommendationRecipientValues,
+    ) &&
+    isNullableString(value.recommendationText)
+  );
+}
+
+function isMeasurementArray<Row>(
+  value: unknown,
+  isRow: (row: unknown) => row is Row,
+): value is Row[] {
+  return Array.isArray(value) && value.every(isRow);
+}
+
+function isClayMeasurementRow(value: unknown): value is LaboratoryClayMeasurementRow {
+  return isRecord(value) &&
+    typeof value.measurementNumber === "number" &&
+    isNullableString(value.clayBrand) &&
+    isNullableOption(
+      value.disintegratorNumber,
+      laboratoryRawMaterialQualityDisintegratorValues,
+    ) &&
+    isNullableString(value.moisture) &&
+    isNullableString(value.sieveResidue3) &&
+    isNullableString(value.sievePass05);
+}
+
+function isTemperMeasurementRow(value: unknown): value is LaboratoryTemperMeasurementRow {
+  return isRecord(value) &&
+    typeof value.measurementNumber === "number" &&
+    isNullableString(value.temperBrand) &&
+    isNullableOption(value.ballMillNumber, laboratoryRawMaterialQualityBallMillValues) &&
+    isNullableString(value.sieveResidue3) &&
+    isNullableString(value.sieveResidue2) &&
+    isNullableString(value.sieveResidue1) &&
+    isNullableString(value.sievePass05);
+}
+
+function isSlipMeasurementRow(value: unknown): value is LaboratorySlipMeasurementRow {
+  return isRecord(value) &&
+    typeof value.measurementNumber === "number" &&
+    isNullableOption(value.mixerNumber, laboratoryRawMaterialQualitySixSlotValues) &&
+    isNullableString(value.temperature) &&
+    isNullableString(value.density);
+}
+
+function isRunnerMeasurementRow(value: unknown): value is LaboratoryRunnerMeasurementRow {
+  return isRecord(value) &&
+    isNullableOption(value.runnerNumber, laboratoryRawMaterialQualitySixSlotValues) &&
+    isNullableString(value.chamottePercentage) &&
+    isNullableString(value.clayPercentage) &&
+    isNullableString(value.residue0063) &&
+    isNullableString(value.moisture) &&
+    typeof value.isReserve === "boolean";
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function isNullableOption<const Value extends string>(
+  value: unknown,
+  allowed: readonly Value[],
+): value is Value | null {
+  return value === null ||
+    (typeof value === "string" && allowed.includes(value as Value));
 }
 
 function readRemoteError(payload: unknown, fallback: string): ErrorResult {

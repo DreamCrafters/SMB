@@ -3517,6 +3517,100 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "065_laboratory_raw_material_quality_measurement_tables",
+    statements: [
+      `
+      alter table laboratory_raw_material_quality_journal
+        add column clay_measurements json null,
+        add column temper_measurements json null,
+        add column slip_measurements json null,
+        add column runner_measurements json null;
+      `,
+      `
+      update laboratory_raw_material_quality_journal
+      set clay_measurements = json_array(json_object(
+        'measurementNumber', 1,
+        'clayBrand', clay_brand,
+        'disintegratorNumber', disintegrator_number,
+        'moisture', clay_moisture,
+        'sieveResidue3', null,
+        'sievePass05', null
+      ))
+      where clay_measurements is null;
+      `,
+      `
+      update laboratory_raw_material_quality_journal
+      set temper_measurements = json_array(json_object(
+        'measurementNumber', 1,
+        'temperBrand', temper_brand,
+        'ballMillNumber', null,
+        'sieveResidue3', temper_sieve_residue_3,
+        'sieveResidue2', temper_sieve_residue_2,
+        'sieveResidue1', temper_sieve_residue_1,
+        'sievePass05', temper_sieve_pass_05
+      ))
+      where temper_measurements is null;
+      `,
+      `
+      update laboratory_raw_material_quality_journal
+      set slip_measurements = json_array(json_object(
+        'measurementNumber', 1,
+        'mixerNumber', slip_mixer_number,
+        'temperature', slip_temperature,
+        'density', slip_density
+      ))
+      where slip_measurements is null;
+      `,
+      `
+      update laboratory_raw_material_quality_journal
+      set runner_measurements = json_array(json_object(
+        'runnerNumber', runner_number,
+        'chamottePercentage', charge_chamotte_percentage,
+        'clayPercentage', charge_clay_percentage,
+        'residue0063', charge_residue_0063,
+        'moisture', charge_moisture,
+        'isReserve', false
+      ))
+      where runner_measurements is null;
+      `,
+      `
+      alter table laboratory_raw_material_quality_journal
+        modify column clay_brand varchar(120) null,
+        modify column clay_moisture varchar(120) null,
+        modify column clay_grain_composition varchar(120) null,
+        modify column disintegrator_number varchar(20) null,
+        modify column temper_moisture varchar(120) null,
+        modify column temper_grain_composition varchar(120) null,
+        modify column temper_sieve_residue_1 varchar(120) null,
+        modify column temper_sieve_residue_2 varchar(120) null,
+        modify column temper_sieve_residue_3 varchar(120) null,
+        modify column temper_sieve_pass_05 varchar(120) null,
+        modify column temper_brand varchar(120) null,
+        modify column temper_bulk_density varchar(120) null,
+        modify column slip_mixer_number varchar(120) null,
+        modify column slip_temperature varchar(120) null,
+        modify column slip_density varchar(120) null,
+        modify column runner_number varchar(120) null,
+        modify column charge_chamotte_percentage varchar(120) null,
+        modify column charge_clay_percentage varchar(120) null,
+        modify column charge_residue_0063 varchar(120) null,
+        modify column charge_moisture varchar(120) null,
+        modify column elutriation_coefficient varchar(120) null,
+        modify column recommendation_recipient varchar(40) null,
+        modify column recommendation_text text null;
+      `,
+      `
+      alter table laboratory_raw_material_quality_journal
+        drop constraint chk_laboratory_raw_material_quality_shift;
+      `,
+      `
+      alter table laboratory_raw_material_quality_journal
+        add constraint chk_laboratory_raw_material_quality_shift
+          check (shift_code in ('day', 'night', 'day_short'));
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

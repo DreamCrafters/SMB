@@ -1,3 +1,4 @@
+import { Fragment, useState } from "react";
 import {
   laboratoryChemicalAnalysisFields,
   laboratorySampleRegistrationFields,
@@ -6,9 +7,13 @@ import {
   laboratoryUnshapedProductSampleSuitabilityLabels,
   laboratoryFormedProductSampleFields,
   laboratoryVerificationFields,
-  laboratoryRawMaterialQualityFields,
+  laboratoryClayMeasurementFields,
   laboratoryRawMaterialQualityRecommendationRecipientLabels,
   laboratoryRawMaterialQualityShiftLabels,
+  laboratoryRawMaterialQualitySummaryFields,
+  laboratoryRunnerMeasurementFields,
+  laboratorySlipMeasurementFields,
+  laboratoryTemperMeasurementFields,
   laboratoryGreenProductQualityFields,
   type LaboratoryChemicalAnalysisJournalRecord,
   type LaboratoryRawMaterialQualityRecord,
@@ -359,6 +364,8 @@ export function LaboratoryRawMaterialQualityTable({
   records: LaboratoryRawMaterialQualityRecord[];
   onEditRecord?: (record: LaboratoryRawMaterialQualityRecord) => void;
 }) {
+  const [expandedRecordId, setExpandedRecordId] = useState<string>();
+
   if (records.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
@@ -368,69 +375,148 @@ export function LaboratoryRawMaterialQualityTable({
       <table className="data-table laboratory-results-table raw-material-quality-table">
         <thead>
           <tr>
-            <th rowSpan={3}>Дата</th>
-            <th rowSpan={3}>Лаборант</th>
-            <th rowSpan={3}>Мастер смены</th>
-            <th rowSpan={3}>Смена</th>
-            <th colSpan={4}>Контроль качества глины</th>
-            <th colSpan={8}>Отощитель</th>
-            <th colSpan={3}>Шликер</th>
-            <th colSpan={8}>Бегуны</th>
-          </tr>
-          <tr>
-            {laboratoryRawMaterialQualityFields
-              .filter((field) => field.group === "clay")
-              .map((field) => <th key={field.id} rowSpan={2}>{field.label}</th>)}
-            {laboratoryRawMaterialQualityFields
-              .filter((field) => field.group === "temper")
-              .map((field) => <th key={field.id} rowSpan={2}>{field.label}</th>)}
-            {laboratoryRawMaterialQualityFields
-              .filter((field) => field.group === "slip")
-              .map((field) => <th key={field.id} rowSpan={2}>{field.label}</th>)}
-            <th rowSpan={2}>№ бегунов</th>
-            <th colSpan={7}>Состав шихты</th>
-          </tr>
-          <tr>
-            {laboratoryRawMaterialQualityFields
-              .filter((field) => field.group === "charge")
-              .map((field) => <th key={field.id}>{field.label}</th>)}
+            <th>Дата</th>
+            <th>Лаборант</th>
+            <th>Мастер смены</th>
+            <th>Смена</th>
+            <th>Замеры</th>
           </tr>
         </thead>
         <tbody>
-          {records.map((record) => (
-            <tr key={record.id}>
-              {laboratoryRawMaterialQualityFields.map((field) => {
-                const value = record[field.id];
-                return (
-                  <td key={field.id}>
-                    {field.id === "recordDate" && onEditRecord !== undefined
-                      ? (
-                          <button
-                            className="board-assignment-link raw-material-quality-edit-link"
-                            type="button"
-                            onClick={() => onEditRecord(record)}
-                          >
-                            {formatLaboratoryDate(record.recordDate)}
-                          </button>
-                        )
-                      : field.id === "recordDate"
-                        ? formatLaboratoryDate(record.recordDate)
-                        : field.id === "shift"
-                          ? laboratoryRawMaterialQualityShiftLabels[record.shift]
-                          : field.id === "recommendationRecipient"
-                            ? laboratoryRawMaterialQualityRecommendationRecipientLabels[
-                                record.recommendationRecipient
-                              ]
-                            : value}
+          {records.map((record) => {
+            const isExpanded = expandedRecordId === record.id;
+            return (
+              <Fragment key={record.id}>
+                <tr>
+                  <td>
+                    {onEditRecord !== undefined ? (
+                      <button
+                        className="board-assignment-link raw-material-quality-edit-link"
+                        type="button"
+                        onClick={() => onEditRecord(record)}
+                      >
+                        {formatLaboratoryDate(record.recordDate)}
+                      </button>
+                    ) : formatLaboratoryDate(record.recordDate)}
                   </td>
-                );
-              })}
-            </tr>
-          ))}
+                  <td>{record.laboratoryAssistant}</td>
+                  <td>{record.shiftSupervisor}</td>
+                  <td>{laboratoryRawMaterialQualityShiftLabels[record.shift]}</td>
+                  <td>
+                    <button
+                      aria-expanded={isExpanded}
+                      className="raw-material-quality-expand-toggle"
+                      type="button"
+                      onClick={() => setExpandedRecordId(isExpanded ? undefined : record.id)}
+                    >
+                      {isExpanded ? "Свернуть" : "Показать"}
+                    </button>
+                  </td>
+                </tr>
+                {isExpanded ? (
+                  <tr className="raw-material-quality-expanded-row">
+                    <td colSpan={5}>
+                      <div className="raw-material-quality-expanded">
+                        <RawMaterialQualityMeasurementSection
+                          title="Контроль качества глины"
+                          rows={record.clayMeasurements}
+                          fields={laboratoryClayMeasurementFields}
+                          hasCounter
+                        />
+                        <RawMaterialQualityMeasurementSection
+                          title="Отощитель"
+                          rows={record.temperMeasurements}
+                          fields={laboratoryTemperMeasurementFields}
+                          hasCounter
+                        />
+                        <RawMaterialQualityMeasurementSection
+                          title="Шликер"
+                          rows={record.slipMeasurements}
+                          fields={laboratorySlipMeasurementFields}
+                          hasCounter
+                        />
+                        <RawMaterialQualityMeasurementSection
+                          title="Бегуны"
+                          rows={record.runnerMeasurements}
+                          fields={laboratoryRunnerMeasurementFields}
+                          hasCounter={false}
+                        />
+                        <div className="raw-material-quality-summary-readout">
+                          <h4>Состав шихты</h4>
+                          {laboratoryRawMaterialQualitySummaryFields.map((field) => (
+                            <p key={field.id}>
+                              <strong>{field.label}:</strong>{" "}
+                              {field.id === "recommendationRecipient"
+                                ? (record.recommendationRecipient === null
+                                    ? "—"
+                                    : laboratoryRawMaterialQualityRecommendationRecipientLabels[
+                                        record.recommendationRecipient
+                                      ])
+                                : (record[field.id] ?? "—")}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
+}
+
+function RawMaterialQualityMeasurementSection<
+  Field extends { id: string; label: string; kind: string },
+>({
+  title,
+  rows,
+  fields,
+  hasCounter,
+}: {
+  title: string;
+  rows: ReadonlyArray<Record<string, unknown>>;
+  fields: readonly Field[];
+  hasCounter: boolean;
+}) {
+  return (
+    <div className="raw-material-quality-expanded-section">
+      <h4>{title}</h4>
+      {rows.length === 0 ? (
+        <p className="laboratory-empty-note">Замеров нет.</p>
+      ) : (
+        <table className="data-table raw-material-quality-expanded-table">
+          <thead>
+            <tr>
+              {hasCounter ? <th>№ Замера</th> : null}
+              {fields.map((field) => <th key={field.id}>{field.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                {hasCounter ? <td>{index + 1}</td> : null}
+                {fields.map((field) => (
+                  <td key={field.id}>
+                    {formatRawMaterialQualityMeasurementValue(field.kind, row[field.id])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function formatRawMaterialQualityMeasurementValue(kind: string, value: unknown) {
+  if (kind === "checkbox") return value === true ? "да" : "нет";
+  if (value === null || value === undefined || value === "") return "—";
+  return String(value);
 }
 
 export function LaboratoryGreenProductQualityTable({
