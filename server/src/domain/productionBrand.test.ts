@@ -72,19 +72,21 @@ test("merging a product brand combines duplicate COSH output rows", () => {
   });
 });
 
-test("merging a product brand rewrites every firing report row without combining distinct wagons", () => {
+test("merging a product brand rewrites every firing report wagon reference without combining distinct wagons", () => {
+  // Марка теперь живёт внутри каждой ссылки на вагон (задача 88), а не в
+  // самой строке; общий рекурсивный обход должен найти её и там.
   const result = mergeRefractoryReportBrandReferences("firing", {
     rows: [
-      { productBrand: "Дубликат", firingWagons: [{ id: "wagon-1" }] },
-      { productBrand: "Основная марка", firingWagons: [{ id: "wagon-2" }] },
+      { sortingWagons: [{ id: "wagon-1", productBrand: "Дубликат" }] },
+      { sortingWagons: [{ id: "wagon-2", productBrand: "Основная марка" }] },
     ],
   }, "Дубликат", "Основная марка");
 
   assert.equal(result.changed, true);
   assert.deepEqual(result.payload, {
     rows: [
-      { productBrand: "Основная марка", firingWagons: [{ id: "wagon-1" }] },
-      { productBrand: "Основная марка", firingWagons: [{ id: "wagon-2" }] },
+      { sortingWagons: [{ id: "wagon-1", productBrand: "Основная марка" }] },
+      { sortingWagons: [{ id: "wagon-2", productBrand: "Основная марка" }] },
     ],
   });
 });

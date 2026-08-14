@@ -175,7 +175,7 @@ function buildFiringPayloadLines(payload: RefractoryFiringPayload) {
     "Выпуск обожжённых огнеупоров",
     ...payload.rows.map((row, index) =>
       [
-        `${index + 1}. ${row.productBrand}`,
+        `${index + 1}. ${formatValue(row.sortingWagons?.[0]?.productBrand)}`,
         `кол-во, шт. ${formatValue(row.quantityPieces)}`,
         `кол-во, поддонов ${formatValue(row.palletCount)}`,
         `годная, т по среднему весу ${formatValue(row.goodTonsAverageWeight)}`,

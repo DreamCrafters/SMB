@@ -698,7 +698,7 @@ test("createMaxNotificationService sends an approved OC table to its MAX recipie
   );
   assert.match(
     JSON.parse(sent[0]?.body ?? "{}").text,
-    /^\[SMB Monitor\] Таблица ОЦ подтверждена\nТаблица: Печное отделение/mu,
+    /^\[SMB Monitor\] Таблица ОЦ подтверждена\nТаблица: Обжиг\/Сортировка/mu,
   );
   assert.match(JSON.parse(sent[0]?.body ?? "{}").text, /Брак всего, шт: 2/u);
   assert.match(
@@ -776,7 +776,11 @@ test("createMaxNotificationService splits a large OC table without dropping its 
         ...baseReport.payload,
         rows: Array.from({ length: 4 }, (_, index) => ({
           ...baseReport.payload.rows[0]!,
-          productBrand: `ША-${index + 1}`,
+          sortingWagons: [{
+            id: `wagon-${index + 1}`,
+            number: `В-${index + 1}`,
+            productBrand: `ША-${index + 1}`,
+          }],
           note: `${index + 1}-${"Д".repeat(1_500)}`,
         })),
       },
@@ -818,7 +822,7 @@ function buildApprovedRefractoryReport() {
     revisionNumber: 1,
     payload: {
       rows: [{
-        productBrand: "ША",
+        sortingWagons: [{ id: "wagon-1", number: "В-1", productBrand: "ША" }],
         quantityPieces: 100,
         palletCount: 5,
         goodTonsAverageWeight: 10.5,

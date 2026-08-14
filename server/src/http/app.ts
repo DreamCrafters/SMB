@@ -123,7 +123,9 @@ import {
   type LaboratoryRawMaterialQualitySubmission,
 } from "../contracts/laboratoryRawMaterialQualityJournal.js";
 import {
-  laboratoryGreenProductQualityFields,
+  laboratoryGreenProductQualityGeneralFields,
+  laboratoryGreenProductQualityMeasurementFields,
+  laboratoryGreenProductQualitySummaryFields,
   type LaboratoryGreenProductQualityRecord,
   type LaboratoryGreenProductQualitySubmission,
 } from "../contracts/laboratoryGreenProductQualityJournal.js";
@@ -4184,11 +4186,10 @@ async function handleLaboratoryRequest({
               category: "data_change",
               action: "laboratory_green_product_quality.correct",
               summary: "Исправлена запись журнала качества сырцовой продукции",
-              details: laboratoryGreenProductQualityFields.map((field) => ({
-                label: field.label,
-                value:
-                  `${formatLaboratoryGreenProductQualityAuditValue(result.before, field.id)} → ${formatLaboratoryGreenProductQualityAuditValue(result.record, field.id)}`,
-              })),
+              details: buildLaboratoryGreenProductQualityCorrectionAuditDetails(
+                result.before,
+                result.record,
+              ),
               targetType: "laboratory_green_product_quality",
               targetId: result.record.id,
             },
@@ -4297,10 +4298,7 @@ async function handleLaboratoryRequest({
           category: "form_submission",
           action: "laboratory_green_product_quality.submit",
           summary: "Добавлена запись журнала качества сырцовой продукции",
-          details: laboratoryGreenProductQualityFields.map((field) => ({
-            label: field.label,
-            value: formatLaboratoryGreenProductQualityAuditValue(record, field.id),
-          })),
+          details: buildLaboratoryGreenProductQualityAuditDetails(record),
           targetType: "laboratory_green_product_quality",
           targetId: record.id,
         }),
@@ -6030,7 +6028,7 @@ async function handleRefractoryWagonInspectionsRequest({
           { label: "Дата сортировки", value: record.sortingDate ?? "—" },
           { label: "Состояние вагона после обжига", value: record.condition },
           {
-            label: "Дата одобрения на продолжение эксплуатации",
+            label: "Дата осмотра",
             value: record.approvalDate,
           },
         ],
@@ -6576,10 +6574,9 @@ function readRefractoryReportBrandReferences(
   }
 
   if (report.reportType === "firing") {
-    return report.payload.rows.map((row, index) => ({
-      fieldName: `rows.${index}.productBrand`,
-      label: row.productBrand,
-    }));
+    // Марка изделия больше не вводится вручную (задача 88) — она приходит с
+    // самого вагона и разрешать её через номенклатуру не нужно.
+    return [];
   }
 
   return [
@@ -6617,14 +6614,6 @@ function applyRefractoryReportBrandResolution(
     return;
   }
 
-  if (report.reportType === "firing") {
-    for (const [index, row] of report.payload.rows.entries()) {
-      row.productBrand = labelByField.get(`rows.${index}.productBrand`) ??
-        row.productBrand;
-    }
-    return;
-  }
-
   if (report.reportType === "equipment") {
     for (const [index, row] of report.payload.formedRows.entries()) {
       if (row.productBrand !== undefined) {
@@ -6655,18 +6644,18 @@ function readRefractoryReportLifecycleWagonIds(
       sortingDates: {} as Record<string, string | null>,
     };
   }
+  // Обжиг и сортировка используют один и тот же выбор вагонов (задача 88):
+  // отдельной колонки «Вагоны для обжига» больше нет.
   const payload = report.payload as RefractoryFiringPayload;
+  const wagonIds = payload.rows.flatMap((row) =>
+    (row.sortingWagons ?? []).map((wagon) => wagon.id));
   const wagonProductBrands = Object.fromEntries(
-    payload.rows.flatMap((row) => [
-      ...(row.firingWagons ?? []),
-      ...(row.sortingWagons ?? []),
-    ].map((wagon) => [wagon.id, row.productBrand])),
+    payload.rows.flatMap((row) => (row.sortingWagons ?? [])
+      .map((wagon) => [wagon.id, wagon.productBrand ?? ""])),
   );
   return {
-    firingWagonIds: payload.rows.flatMap((row) =>
-      (row.firingWagons ?? []).map((wagon) => wagon.id)),
-    sortingWagonIds: payload.rows.flatMap((row) =>
-      (row.sortingWagons ?? []).map((wagon) => wagon.id)),
+    firingWagonIds: wagonIds,
+    sortingWagonIds: wagonIds,
     wagonProductBrands,
     firingOperators: readRefractoryReportCrew(payload, "firing"),
     sorters: readRefractoryReportCrew(payload, "sorting"),
@@ -6682,9 +6671,8 @@ function readRefractoryReportCrew(
 ) {
   return Object.fromEntries(
     payload.rows.flatMap((row) => {
-      const wagons = event === "firing" ? row.firingWagons : row.sortingWagons;
       const operator = event === "firing" ? row.firingOperator : row.sorter;
-      return (wagons ?? []).map((wagon) =>
+      return (row.sortingWagons ?? []).map((wagon) =>
         [wagon.id, operator ?? null] as const
       );
     }),
@@ -6701,9 +6689,10 @@ function readRefractoryReportDates(
 ) {
   return Object.fromEntries(
     payload.rows.flatMap((row) => {
-      const wagons = event === "firing" ? row.firingWagons : row.sortingWagons;
       const date = event === "firing" ? row.firingDate : row.sortingDate;
-      return (wagons ?? []).map((wagon) => [wagon.id, date ?? null] as const);
+      return (row.sortingWagons ?? []).map((wagon) =>
+        [wagon.id, date ?? null] as const
+      );
     }),
   );
 }
@@ -6713,30 +6702,29 @@ async function canonicalizeRefractoryReportWagons(
   refractoryWagons: RefractoryWagonsRepository,
 ) {
   const lifecycle = readRefractoryReportLifecycleWagonIds(report);
-  const wagonIds = [...new Set([
-    ...lifecycle.firingWagonIds,
-    ...lifecycle.sortingWagonIds,
-  ])];
+  const wagonIds = [...new Set(lifecycle.sortingWagonIds)];
   const records = await refractoryWagons.findByIds(wagonIds);
   const recordById = new Map(records.map((record) => [record.id, record]));
   if (records.length !== wagonIds.length) {
     return "Один из выбранных вагонов не найден в журнале.";
   }
 
+  // Марка изделия больше не вводится вручную (задача 88) — вагоны одной
+  // строки должны сами совпадать по марке, а не сверяться с чужим значением.
   for (const row of report.payload.rows) {
-    const references = [
-      ...(row.firingWagons ?? []),
-      ...(row.sortingWagons ?? []),
-    ];
-    for (const reference of references) {
+    let rowBrand: string | null | undefined;
+    for (const reference of row.sortingWagons ?? []) {
       const record = recordById.get(reference.id);
       if (record === undefined) {
         return "Один из выбранных вагонов не найден в журнале.";
       }
-      if (record.productBrand !== row.productBrand) {
-        return `Марка вагона ${record.number} не совпадает с маркой строки «${row.productBrand}».`;
+      if (rowBrand === undefined) {
+        rowBrand = record.productBrand;
+      } else if (record.productBrand !== rowBrand) {
+        return `Марка вагона ${record.number} отличается от марки других вагонов этой строки.`;
       }
       reference.number = record.number;
+      reference.productBrand = record.productBrand ?? undefined;
     }
   }
   return undefined;
@@ -12125,6 +12113,43 @@ async function resolveLaboratoryGreenProductQualityBrand({
     ...record,
     productBrand: references[0]?.label ?? record.productBrand,
   };
+}
+
+function buildLaboratoryGreenProductQualityAuditDetails(
+  record:
+    | LaboratoryGreenProductQualityRecord
+    | LaboratoryGreenProductQualitySnapshot,
+) {
+  return [
+    ...laboratoryGreenProductQualityGeneralFields.map((field) => ({
+      label: field.label,
+      value: formatLaboratoryGreenProductQualityAuditValue(record, field.id),
+    })),
+    {
+      label: "Линейные размеры и показатели качества",
+      value: formatMeasurementRowsSummary(
+        record.measurements,
+        laboratoryGreenProductQualityMeasurementFields,
+        "Замер",
+      ),
+    },
+    ...laboratoryGreenProductQualitySummaryFields.map((field) => ({
+      label: field.label,
+      value: formatLaboratoryGreenProductQualityAuditValue(record, field.id),
+    })),
+  ];
+}
+
+function buildLaboratoryGreenProductQualityCorrectionAuditDetails(
+  before: LaboratoryGreenProductQualitySnapshot,
+  after: LaboratoryGreenProductQualitySnapshot,
+) {
+  const beforeDetails = buildLaboratoryGreenProductQualityAuditDetails(before);
+  const afterDetails = buildLaboratoryGreenProductQualityAuditDetails(after);
+  return beforeDetails.map((detail, index) => ({
+    label: detail.label,
+    value: `${detail.value} → ${afterDetails[index]?.value}`,
+  }));
 }
 
 function formatLaboratoryGreenProductQualityAuditValue(

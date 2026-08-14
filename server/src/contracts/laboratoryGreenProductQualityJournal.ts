@@ -27,6 +27,19 @@ export type LaboratoryGreenProductQualityAvailableWagon =
     pressOperator: string | null;
   };
 
+export type LaboratoryGreenProductQualityMeasurement = {
+  measurementNumber: number;
+  lengthFirst: string;
+  lengthSecond: string;
+  widthFirst: string;
+  widthSecond: string;
+  heightFirst: string;
+  heightSecond: string;
+  weight: string;
+  mechanicalStrength: string;
+  density: string;
+};
+
 export type LaboratoryGreenProductQualitySubmission = {
   recordDate: string;
   pressNumber: LaboratoryGreenProductQualityPressNumber;
@@ -37,15 +50,7 @@ export type LaboratoryGreenProductQualitySubmission = {
   loadingDate: string | null;
   pieceCount: number | null;
   wagonIds: string[];
-  lengthFirst: string;
-  lengthSecond: string;
-  widthFirst: string;
-  widthSecond: string;
-  heightFirst: string;
-  heightSecond: string;
-  weight: string;
-  mechanicalStrength: string;
-  density: string;
+  measurements: LaboratoryGreenProductQualityMeasurement[];
   pressOperatorRecommendations: string;
 };
 
@@ -70,68 +75,68 @@ export type LaboratoryGreenProductQualityOptions = {
   wagons: LaboratoryGreenProductQualityAvailableWagon[];
 };
 
-export type LaboratoryGreenProductQualityFieldGroup =
-  | "general"
-  | "dimensions"
-  | "measurements";
-
-export const laboratoryGreenProductQualityFields = [
-  { id: "recordDate", label: "Дата", kind: "date", group: "general" },
-  { id: "pressNumber", label: "№ пресса", kind: "press", group: "general" },
-  { id: "productBrand", label: "Марка изделия", kind: "brand", group: "general" },
-  {
-    id: "pressDate",
-    label: "Дата пресса",
-    kind: "optional_date",
-    group: "general",
-  },
-  { id: "setter", label: "Садчик", kind: "option", group: "general" },
-  { id: "pressOperator", label: "Прессовщик", kind: "option", group: "general" },
-  {
-    id: "loadingDate",
-    label: "Дата садки",
-    kind: "optional_date",
-    group: "general",
-  },
-  {
-    id: "pieceCount",
-    label: "Кол-во шт.",
-    kind: "optional_count",
-    group: "general",
-  },
-  { id: "wagonIds", label: "№№ вагонов", kind: "wagons", group: "general" },
-  { id: "lengthFirst", label: "Длина 1", kind: "number", group: "dimensions" },
-  { id: "lengthSecond", label: "Длина 2", kind: "number", group: "dimensions" },
-  { id: "widthFirst", label: "Ширина 1", kind: "number", group: "dimensions" },
-  { id: "widthSecond", label: "Ширина 2", kind: "number", group: "dimensions" },
-  { id: "heightFirst", label: "Высота 1", kind: "number", group: "dimensions" },
-  { id: "heightSecond", label: "Высота 2", kind: "number", group: "dimensions" },
-  { id: "weight", label: "Вес", kind: "number", group: "measurements" },
-  {
-    id: "mechanicalStrength",
-    label: "Механическая прочность",
-    kind: "number",
-    group: "measurements",
-  },
-  { id: "density", label: "Плотность", kind: "number", group: "measurements" },
-  {
-    id: "pressOperatorRecommendations",
-    label: "Рекомендации прессовщику",
-    kind: "long_text",
-    group: "measurements",
-  },
+export const laboratoryGreenProductQualityGeneralFields = [
+  { id: "recordDate", label: "Дата", kind: "date" },
+  { id: "pressNumber", label: "№ пресса", kind: "press" },
+  { id: "productBrand", label: "Марка изделия", kind: "brand" },
+  { id: "pressDate", label: "Дата пресса", kind: "optional_date" },
+  { id: "setter", label: "Садчик", kind: "option" },
+  { id: "pressOperator", label: "Прессовщик", kind: "option" },
+  { id: "loadingDate", label: "Дата садки", kind: "optional_date" },
+  { id: "pieceCount", label: "Кол-во шт.", kind: "optional_count" },
+  { id: "wagonIds", label: "№№ вагонов", kind: "wagons" },
 ] as const satisfies readonly {
-  id: keyof LaboratoryGreenProductQualitySubmission;
+  id:
+    | "recordDate"
+    | "pressNumber"
+    | "productBrand"
+    | "pressDate"
+    | "setter"
+    | "pressOperator"
+    | "loadingDate"
+    | "pieceCount"
+    | "wagonIds";
   label: string;
   kind:
     | "brand"
     | "date"
-    | "long_text"
-    | "number"
     | "optional_count"
     | "optional_date"
     | "option"
     | "press"
     | "wagons";
-  group: LaboratoryGreenProductQualityFieldGroup;
+}[];
+
+/**
+ * Линейные размеры и показатели качества объединены во внутреннюю таблицу
+ * замеров (задача 86): строк может быть несколько, `measurementNumber`
+ * считается сервером по позиции в массиве.
+ */
+export const laboratoryGreenProductQualityMeasurementFields = [
+  { id: "lengthFirst", label: "Длина 1", kind: "number" },
+  { id: "lengthSecond", label: "Длина 2", kind: "number" },
+  { id: "widthFirst", label: "Ширина 1", kind: "number" },
+  { id: "widthSecond", label: "Ширина 2", kind: "number" },
+  { id: "heightFirst", label: "Высота 1", kind: "number" },
+  { id: "heightSecond", label: "Высота 2", kind: "number" },
+  { id: "weight", label: "Вес", kind: "number" },
+  { id: "mechanicalStrength", label: "Механическая прочность", kind: "number" },
+  { id: "density", label: "Плотность", kind: "number" },
+] as const satisfies readonly {
+  id: keyof Omit<LaboratoryGreenProductQualityMeasurement, "measurementNumber">;
+  label: string;
+  kind: "number";
+}[];
+
+/** Рекомендации прессовщику относятся ко всей записи, не к строке замера. */
+export const laboratoryGreenProductQualitySummaryFields = [
+  {
+    id: "pressOperatorRecommendations",
+    label: "Рекомендации прессовщику",
+    kind: "long_text",
+  },
+] as const satisfies readonly {
+  id: "pressOperatorRecommendations";
+  label: string;
+  kind: "long_text";
 }[];

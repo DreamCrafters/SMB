@@ -7,7 +7,7 @@ export type RefractoryReportStatus = "pending" | "rejected" | "approved";
 export const refractoryReportLabels: Record<RefractoryReportType, string> = {
   cosh: "ЦОШ",
   equipment: "Сводка по работе оборудования",
-  firing: "Печное отделение",
+  firing: "Обжиг/Сортировка",
 };
 
 export const refractoryEquipmentNames = [
@@ -136,12 +136,14 @@ export type RefractoryCoshTotals = {
   jarMaterialMassTons?: number;
 };
 
+/**
+ * Вагоны для обжига и сортировки — один и тот же выбор в `sortingWagons`;
+ * отдельной колонки `Вагоны для обжига` больше нет (задача 88).
+ */
 export type RefractoryFiringRow = {
-  productBrand: string;
-  firingWagons?: RefractoryFiringWagonReference[];
+  sortingWagons: RefractoryFiringWagonReference[];
   firingDate?: string;
   firingOperator?: string;
-  sortingWagons?: RefractoryFiringWagonReference[];
   sortingDate?: string;
   sorter?: string;
   quantityPieces?: number;
@@ -156,9 +158,14 @@ export type RefractoryFiringRow = {
   rejectTotalPieces: number;
 };
 
+/**
+ * `productBrand` заполняется сервером из марки самого вагона (задача 88) —
+ * клиент его не отправляет, только читает в истории и уведомлениях.
+ */
 export type RefractoryFiringWagonReference = {
   id: string;
   number?: string;
+  productBrand?: string;
 };
 
 export type RefractoryFiringPayload = {
@@ -1068,8 +1075,7 @@ function validateFiringPayload(
     const value = readFiringRow(row, index, errors);
     return value === undefined ? [] : [value];
   });
-  validateUniqueFiringWagons(rows, "firingWagons", "обжига", errors);
-  validateUniqueFiringWagons(rows, "sortingWagons", "сортировки", errors);
+  validateUniqueFiringWagons(rows, errors);
   const payload: Partial<RefractoryFiringPayload> & {
     rows: RefractoryFiringRow[];
   } = { rows };
@@ -1131,11 +1137,9 @@ function readFiringRow(
 
   if (
     unexpectedKeys(input, [
-      "productBrand",
-      "firingWagons",
+      "sortingWagons",
       "firingDate",
       "firingOperator",
-      "sortingWagons",
       "sortingDate",
       "sorter",
       "note",
@@ -1150,34 +1154,21 @@ function readFiringRow(
   }
 
   const row: Partial<RefractoryFiringRow> = {};
-  readOptionalText(input, row, "productBrand", 120, index, errors, {
-    fieldPath: `firing.${index}.productBrand`,
-  });
   readOptionalText(input, row, "note", 2_000, index, errors, {
     fieldPath: `firing.${index}.note`,
   });
-  const firingWagons = readFiringWagonReferences(
-    input.firingWagons,
+  const sortingWagons = readFiringWagonReferences(
+    input.sortingWagons,
     index,
-    "firingWagons",
-    "обжига",
     errors,
   );
-  if (firingWagons !== undefined) row.firingWagons = firingWagons;
+  if (sortingWagons !== undefined) row.sortingWagons = sortingWagons;
   readOptionalDate(input, row, "firingDate", index, errors, {
     fieldPath: `firing.${index}.firingDate`,
   });
   readOptionalText(input, row, "firingOperator", 120, index, errors, {
     fieldPath: `firing.${index}.firingOperator`,
   });
-  const sortingWagons = readFiringWagonReferences(
-    input.sortingWagons,
-    index,
-    "sortingWagons",
-    "сортировки",
-    errors,
-  );
-  if (sortingWagons !== undefined) row.sortingWagons = sortingWagons;
   readOptionalDate(input, row, "sortingDate", index, errors, {
     fieldPath: `firing.${index}.sortingDate`,
   });
@@ -1199,11 +1190,11 @@ function readFiringRow(
     return undefined;
   }
 
-  if (row.productBrand === undefined) {
+  if (row.sortingWagons === undefined || row.sortingWagons.length === 0) {
     addValidationIssue(
       errors,
-      `Строка печного отделения ${index + 1}: укажите марку изделия.`,
-      `firing.${index}.productBrand`,
+      `Строка печного отделения ${index + 1}: выберите вагоны.`,
+      `firing.${index}.sortingWagons`,
     );
     return undefined;
   }
@@ -1221,16 +1212,14 @@ function readFiringRow(
 function readFiringWagonReferences(
   input: unknown,
   rowIndex: number,
-  field: "firingWagons" | "sortingWagons",
-  eventLabel: string,
   errors: RefractoryValidationIssue[],
 ) {
   if (input === undefined) return undefined;
   if (!Array.isArray(input) || input.length > 50) {
     addValidationIssue(
       errors,
-      `Строка печного отделения ${rowIndex + 1}: проверьте вагоны для ${eventLabel}.`,
-      `firing.${rowIndex}.${field}`,
+      `Строка печного отделения ${rowIndex + 1}: проверьте вагоны.`,
+      `firing.${rowIndex}.sortingWagons`,
     );
     return undefined;
   }
@@ -1243,8 +1232,8 @@ function readFiringWagonReferences(
     ) {
       addValidationIssue(
         errors,
-        `Строка печного отделения ${rowIndex + 1}: проверьте вагоны для ${eventLabel}.`,
-        `firing.${rowIndex}.${field}`,
+        `Строка печного отделения ${rowIndex + 1}: проверьте вагоны.`,
+        `firing.${rowIndex}.sortingWagons`,
       );
       return undefined;
     }
@@ -1255,8 +1244,8 @@ function readFiringWagonReferences(
     if (id === undefined || (value.number !== undefined && number === undefined)) {
       addValidationIssue(
         errors,
-        `Строка печного отделения ${rowIndex + 1}: проверьте вагоны для ${eventLabel}.`,
-        `firing.${rowIndex}.${field}`,
+        `Строка печного отделения ${rowIndex + 1}: проверьте вагоны.`,
+        `firing.${rowIndex}.sortingWagons`,
       );
       return undefined;
     }
@@ -1267,18 +1256,16 @@ function readFiringWagonReferences(
 
 function validateUniqueFiringWagons(
   rows: RefractoryFiringRow[],
-  field: "firingWagons" | "sortingWagons",
-  eventLabel: string,
   errors: RefractoryValidationIssue[],
 ) {
   const seen = new Set<string>();
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    for (const wagon of rows[rowIndex]?.[field] ?? []) {
+    for (const wagon of rows[rowIndex]?.sortingWagons ?? []) {
       if (seen.has(wagon.id)) {
         addValidationIssue(
           errors,
-          `Вагон для ${eventLabel} выбран в таблице повторно.`,
-          `firing.${rowIndex}.${field}`,
+          "Вагон выбран в таблице повторно.",
+          `firing.${rowIndex}.sortingWagons`,
         );
         return;
       }

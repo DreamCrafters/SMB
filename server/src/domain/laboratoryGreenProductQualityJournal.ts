@@ -1,6 +1,8 @@
 import {
-  laboratoryGreenProductQualityFields,
+  laboratoryGreenProductQualityGeneralFields,
+  laboratoryGreenProductQualityMeasurementFields,
   laboratoryGreenProductQualityPressNumberValues,
+  type LaboratoryGreenProductQualityMeasurement,
   type LaboratoryGreenProductQualitySubmission,
 } from "../contracts/laboratoryGreenProductQualityJournal.js";
 
@@ -26,7 +28,7 @@ export function validateLaboratoryGreenProductQualitySubmission(
   const errors: string[] = [];
   const normalized: Record<string, unknown> = {};
 
-  for (const field of laboratoryGreenProductQualityFields) {
+  for (const field of laboratoryGreenProductQualityGeneralFields) {
     if (field.kind === "wagons") {
       const wagonIds = readWagonIds(input[field.id]);
       if (wagonIds === undefined) {
@@ -50,14 +52,7 @@ export function validateLaboratoryGreenProductQualitySubmission(
                 input[field.id],
                 laboratoryGreenProductQualityPressNumberValues,
               )
-            : field.kind === "number"
-              ? readMeasurement(input[field.id])
-              : readText(
-                  input[field.id],
-                  field.kind === "long_text"
-                    ? maxRecommendationLength
-                    : maxShortTextLength,
-                );
+            : readText(input[field.id], maxShortTextLength);
 
     if (value === undefined) {
       errors.push(`Проверьте поле «${field.label}».`);
@@ -66,12 +61,59 @@ export function validateLaboratoryGreenProductQualitySubmission(
     }
   }
 
+  const measurements = readMeasurementRows(input.measurements);
+  if (measurements === undefined) {
+    errors.push("Проверьте таблицу линейных размеров и показателей качества.");
+  } else {
+    normalized.measurements = measurements;
+  }
+
+  const recommendations = readText(
+    input.pressOperatorRecommendations,
+    maxRecommendationLength,
+  );
+  if (recommendations === undefined) {
+    errors.push("Проверьте поле «Рекомендации прессовщику».");
+  } else {
+    normalized.pressOperatorRecommendations = recommendations;
+  }
+
   return errors.length === 0
     ? {
         ok: true,
         value: normalized as LaboratoryGreenProductQualitySubmission,
       }
     : { ok: false, errors };
+}
+
+function readMeasurementRows(
+  value: unknown,
+): LaboratoryGreenProductQualityMeasurement[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const rows: LaboratoryGreenProductQualityMeasurement[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const row = readMeasurementRow(value[index], index);
+    if (row === undefined) return undefined;
+    rows.push(row);
+  }
+  return rows;
+}
+
+function readMeasurementRow(
+  row: unknown,
+  index: number,
+): LaboratoryGreenProductQualityMeasurement | undefined {
+  if (!isRecord(row)) return undefined;
+  const values: Record<string, string> = {};
+  for (const field of laboratoryGreenProductQualityMeasurementFields) {
+    const value = readMeasurement(row[field.id]);
+    if (value === undefined) return undefined;
+    values[field.id] = value;
+  }
+  return {
+    measurementNumber: index + 1,
+    ...values,
+  } as LaboratoryGreenProductQualityMeasurement;
 }
 
 function readWagonIds(value: unknown) {

@@ -1,5 +1,6 @@
 import {
-  laboratoryGreenProductQualityFields,
+  laboratoryGreenProductQualityGeneralFields,
+  laboratoryGreenProductQualityMeasurementFields,
   laboratoryGreenProductQualityPressNumberValues,
   type LaboratoryGreenProductQualityFilters,
   type LaboratoryGreenProductQualityAvailableWagon,
@@ -178,13 +179,16 @@ function isJournalRecord(value: unknown): value is LaboratoryGreenProductQuality
     !isRecord(value) ||
     typeof value.id !== "string" ||
     typeof value.createdAt !== "string" ||
+    typeof value.pressOperatorRecommendations !== "string" ||
     !isStringArray(value.wagonIds) ||
     !Array.isArray(value.wagons) ||
-    !value.wagons.every(isWagonOption)
+    !value.wagons.every(isWagonOption) ||
+    !Array.isArray(value.measurements) ||
+    !value.measurements.every(isMeasurementRow)
   ) {
     return false;
   }
-  return laboratoryGreenProductQualityFields.every((field) => {
+  return laboratoryGreenProductQualityGeneralFields.every((field) => {
     const fieldValue = value[field.id];
     if (field.id === "wagonIds") return isStringArray(fieldValue);
     if (field.id === "pressNumber") {
@@ -200,6 +204,14 @@ function isJournalRecord(value: unknown): value is LaboratoryGreenProductQuality
     }
     return typeof fieldValue === "string";
   });
+}
+
+function isMeasurementRow(value: unknown) {
+  return isRecord(value) &&
+    typeof value.measurementNumber === "number" &&
+    laboratoryGreenProductQualityMeasurementFields.every(
+      (field) => typeof value[field.id] === "string",
+    );
 }
 
 function isWagonOption(value: unknown): value is LaboratoryGreenProductQualityWagonOption {

@@ -14,7 +14,9 @@ import {
   laboratoryRunnerMeasurementFields,
   laboratorySlipMeasurementFields,
   laboratoryTemperMeasurementFields,
-  laboratoryGreenProductQualityFields,
+  laboratoryGreenProductQualityGeneralFields,
+  laboratoryGreenProductQualityMeasurementFields,
+  laboratoryGreenProductQualitySummaryFields,
   type LaboratoryChemicalAnalysisJournalRecord,
   type LaboratoryRawMaterialQualityRecord,
   type LaboratoryGreenProductQualityRecord,
@@ -417,25 +419,25 @@ export function LaboratoryRawMaterialQualityTable({
                   <tr className="raw-material-quality-expanded-row">
                     <td colSpan={5}>
                       <div className="raw-material-quality-expanded">
-                        <RawMaterialQualityMeasurementSection
+                        <LaboratoryMeasurementTableSection
                           title="Контроль качества глины"
                           rows={record.clayMeasurements}
                           fields={laboratoryClayMeasurementFields}
                           hasCounter
                         />
-                        <RawMaterialQualityMeasurementSection
+                        <LaboratoryMeasurementTableSection
                           title="Отощитель"
                           rows={record.temperMeasurements}
                           fields={laboratoryTemperMeasurementFields}
                           hasCounter
                         />
-                        <RawMaterialQualityMeasurementSection
+                        <LaboratoryMeasurementTableSection
                           title="Шликер"
                           rows={record.slipMeasurements}
                           fields={laboratorySlipMeasurementFields}
                           hasCounter
                         />
-                        <RawMaterialQualityMeasurementSection
+                        <LaboratoryMeasurementTableSection
                           title="Бегуны"
                           rows={record.runnerMeasurements}
                           fields={laboratoryRunnerMeasurementFields}
@@ -469,7 +471,8 @@ export function LaboratoryRawMaterialQualityTable({
   );
 }
 
-function RawMaterialQualityMeasurementSection<
+/** Общая таблица замеров: используется журналами сырья и сырцовой продукции. */
+function LaboratoryMeasurementTableSection<
   Field extends { id: string; label: string; kind: string },
 >({
   title,
@@ -501,7 +504,7 @@ function RawMaterialQualityMeasurementSection<
                 {hasCounter ? <td>{index + 1}</td> : null}
                 {fields.map((field) => (
                   <td key={field.id}>
-                    {formatRawMaterialQualityMeasurementValue(field.kind, row[field.id])}
+                    {formatLaboratoryMeasurementValue(field.kind, row[field.id])}
                   </td>
                 ))}
               </tr>
@@ -513,7 +516,7 @@ function RawMaterialQualityMeasurementSection<
   );
 }
 
-function formatRawMaterialQualityMeasurementValue(kind: string, value: unknown) {
+function formatLaboratoryMeasurementValue(kind: string, value: unknown) {
   if (kind === "checkbox") return value === true ? "да" : "нет";
   if (value === null || value === undefined || value === "") return "—";
   return String(value);
@@ -526,71 +529,92 @@ export function LaboratoryGreenProductQualityTable({
   records: LaboratoryGreenProductQualityRecord[];
   onEditRecord?: (record: LaboratoryGreenProductQualityRecord) => void;
 }) {
+  const [expandedRecordId, setExpandedRecordId] = useState<string>();
+
   if (records.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
-
-  const generalFields = laboratoryGreenProductQualityFields.filter(
-    (field) => field.group === "general",
-  );
-  const dimensionFields = laboratoryGreenProductQualityFields.filter(
-    (field) => field.group === "dimensions",
-  );
-  const measurementFields = laboratoryGreenProductQualityFields.filter(
-    (field) => field.group === "measurements",
-  );
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table green-product-quality-table">
         <thead>
           <tr>
-            {generalFields.map((field) => (
-              <th key={field.id} rowSpan={2}>{field.label}</th>
-            ))}
-            <th colSpan={dimensionFields.length}>Линейные размеры</th>
-            {measurementFields.map((field) => (
-              <th key={field.id} rowSpan={2}>{field.label}</th>
-            ))}
-          </tr>
-          <tr>
-            {dimensionFields.map((field) => (
+            {laboratoryGreenProductQualityGeneralFields.map((field) => (
               <th key={field.id}>{field.label}</th>
             ))}
+            <th>Замеры</th>
           </tr>
         </thead>
         <tbody>
-          {records.map((record) => (
-            <tr key={record.id}>
-              {laboratoryGreenProductQualityFields.map((field) => {
-                const rawValue = field.id === "wagonIds"
-                  ? record.wagons.map((wagon) => wagon.number).join("; ")
-                  : record[field.id];
-                const value = rawValue === null
-                  ? "—"
-                  : field.kind === "optional_date"
-                    ? formatLaboratoryDate(String(rawValue))
-                    : rawValue;
-                return (
-                  <td key={field.id}>
-                    {field.id === "recordDate" && onEditRecord !== undefined
-                      ? (
-                          <button
-                            className="board-assignment-link green-product-quality-edit-link"
-                            type="button"
-                            onClick={() => onEditRecord(record)}
-                          >
-                            {formatLaboratoryDate(record.recordDate)}
-                          </button>
-                        )
-                      : field.id === "recordDate"
-                        ? formatLaboratoryDate(record.recordDate)
-                        : value}
+          {records.map((record) => {
+            const isExpanded = expandedRecordId === record.id;
+            return (
+              <Fragment key={record.id}>
+                <tr>
+                  {laboratoryGreenProductQualityGeneralFields.map((field) => {
+                    const rawValue = field.id === "wagonIds"
+                      ? record.wagons.map((wagon) => wagon.number).join("; ")
+                      : record[field.id];
+                    const value = rawValue === null
+                      ? "—"
+                      : field.kind === "optional_date"
+                        ? formatLaboratoryDate(String(rawValue))
+                        : rawValue;
+                    return (
+                      <td key={field.id}>
+                        {field.id === "recordDate" && onEditRecord !== undefined
+                          ? (
+                              <button
+                                className="board-assignment-link green-product-quality-edit-link"
+                                type="button"
+                                onClick={() => onEditRecord(record)}
+                              >
+                                {formatLaboratoryDate(record.recordDate)}
+                              </button>
+                            )
+                          : field.id === "recordDate"
+                            ? formatLaboratoryDate(record.recordDate)
+                            : value}
+                      </td>
+                    );
+                  })}
+                  <td>
+                    <button
+                      aria-expanded={isExpanded}
+                      className="raw-material-quality-expand-toggle"
+                      type="button"
+                      onClick={() => setExpandedRecordId(isExpanded ? undefined : record.id)}
+                    >
+                      {isExpanded ? "Свернуть" : "Показать"}
+                    </button>
                   </td>
-                );
-              })}
-            </tr>
-          ))}
+                </tr>
+                {isExpanded ? (
+                  <tr className="raw-material-quality-expanded-row">
+                    <td colSpan={laboratoryGreenProductQualityGeneralFields.length + 1}>
+                      <div className="raw-material-quality-expanded">
+                        <LaboratoryMeasurementTableSection
+                          title="Линейные размеры и показатели качества"
+                          rows={record.measurements}
+                          fields={laboratoryGreenProductQualityMeasurementFields}
+                          hasCounter
+                        />
+                        <div className="raw-material-quality-summary-readout">
+                          {laboratoryGreenProductQualitySummaryFields.map((field) => (
+                            <p key={field.id}>
+                              <strong>{field.label}:</strong>{" "}
+                              {record[field.id] === "" ? "—" : record[field.id]}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>

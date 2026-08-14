@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
+  laboratoryGreenProductQualityMeasurementFields,
   laboratoryGreenProductQualityPressNumberValues,
+  type LaboratoryGreenProductQualityMeasurement,
   type LaboratoryGreenProductQualityOptions,
   type LaboratoryGreenProductQualityRecord,
   type LaboratoryGreenProductQualitySubmission,
@@ -19,13 +21,34 @@ import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
 import { useProductionBrands } from "./useProductionBrands";
 
-/** Форма держит все поля строками и приводит их к контракту при отправке. */
-type FormState = {
-  [Field in keyof LaboratoryGreenProductQualitySubmission]:
-    LaboratoryGreenProductQualitySubmission[Field] extends string[]
-      ? string[]
-      : string;
+type GeneralFormState = {
+  recordDate: string;
+  pressNumber: string;
+  productBrand: string;
+  pressDate: string;
+  setter: string;
+  pressOperator: string;
+  loadingDate: string;
+  pieceCount: string;
+  wagonIds: string[];
 };
+
+/** Строка таблицы замеров; `mirrorSecond` — UI-состояние, в контракт не входит. */
+type MeasurementRowState = {
+  lengthFirst: string;
+  lengthSecond: string;
+  widthFirst: string;
+  widthSecond: string;
+  heightFirst: string;
+  heightSecond: string;
+  weight: string;
+  mechanicalStrength: string;
+  density: string;
+  mirrorSecond: { length: boolean; width: boolean; height: boolean };
+};
+
+type MeasurementField = Exclude<keyof MeasurementRowState, "mirrorSecond">;
+
 type HistoryState =
   | { status: "loading"; records: LaboratoryGreenProductQualityRecord[] }
   | { status: "ready"; records: LaboratoryGreenProductQualityRecord[] }
@@ -42,17 +65,18 @@ const emptyOptions: LaboratoryGreenProductQualityOptions = {
 };
 
 const dimensionPairs = [
-  { label: "Длина", first: "lengthFirst", second: "lengthSecond" },
-  { label: "Ширина", first: "widthFirst", second: "widthSecond" },
-  { label: "Высота", first: "heightFirst", second: "heightSecond" },
-] as const;
+  { key: "length", label: "Длина", first: "lengthFirst", second: "lengthSecond" },
+  { key: "width", label: "Ширина", first: "widthFirst", second: "widthSecond" },
+  { key: "height", label: "Высота", first: "heightFirst", second: "heightSecond" },
+] as const satisfies readonly {
+  key: "height" | "length" | "width";
+  label: string;
+  first: MeasurementField;
+  second: MeasurementField;
+}[];
 
 const wagonBrandMismatchMessage =
   "Выбраны вагоны с разными марками, выберите с одинаковыми.";
-
-type DimensionFirstField = (typeof dimensionPairs)[number]["first"];
-type DimensionSecondField = (typeof dimensionPairs)[number]["second"];
-type TextField = Exclude<keyof FormState, "wagonIds">;
 
 export function LaboratoryGreenProductQualityJournal({
   isAdminPreviewMode,
@@ -61,7 +85,11 @@ export function LaboratoryGreenProductQualityJournal({
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
-  const [form, setForm] = useState<FormState>(createEmptyForm);
+  const [general, setGeneral] = useState<GeneralFormState>(createEmptyGeneralForm);
+  const [measurementRows, setMeasurementRows] = useState<MeasurementRowState[]>([
+    createEmptyMeasurementRow(),
+  ]);
+  const [recommendations, setRecommendations] = useState("");
   const [options, setOptions] = useState(emptyOptions);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -75,11 +103,6 @@ export function LaboratoryGreenProductQualityJournal({
   const [wagonBrandError, setWagonBrandError] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const mirroredSecondFields = useRef<Record<DimensionSecondField, boolean>>({
-    lengthSecond: true,
-    widthSecond: true,
-    heightSecond: true,
-  });
   const { labels: productBrands, loadState: productBrandsLoadState } =
     useProductionBrands();
 
@@ -90,7 +113,7 @@ export function LaboratoryGreenProductQualityJournal({
       .then((result) => {
         if (controller.signal.aborted) return;
         if (result.status === "ready") {
-          setForm((current) => current.recordDate === ""
+          setGeneral((current) => current.recordDate === ""
             ? { ...current, recordDate: result.recordDate }
             : current);
           return;
@@ -142,25 +165,57 @@ export function LaboratoryGreenProductQualityJournal({
     return () => controller.abort();
   }, [dateFrom, dateTo, query, refreshVersion]);
 
-  function updateTextField(field: TextField, value: string) {
-    const pair = dimensionPairs.find((item) => item.first === field);
-    setForm((current) => pair !== undefined &&
-        mirroredSecondFields.current[pair.second]
-      ? { ...current, [field]: value, [pair.second]: value }
-      : { ...current, [field]: value });
+  function updateGeneral(field: keyof Omit<GeneralFormState, "wagonIds">, value: string) {
+    setGeneral((current) => ({ ...current, [field]: value }));
     setFormMessage("");
   }
 
-  function updateSecondDimension(field: DimensionSecondField, value: string) {
-    mirroredSecondFields.current[field] = false;
-    setForm((current) => ({ ...current, [field]: value }));
+  function updateMeasurementField(
+    index: number,
+    field: MeasurementField,
+    value: string,
+  ) {
+    setMeasurementRows((current) => current.map((row, rowIndex) => {
+      if (rowIndex !== index) return row;
+      const pair = dimensionPairs.find((item) => item.first === field);
+      return pair !== undefined && row.mirrorSecond[pair.key]
+        ? { ...row, [field]: value, [pair.second]: value }
+        : { ...row, [field]: value };
+    }));
     setFormMessage("");
+  }
+
+  function updateMeasurementSecondDimension(
+    index: number,
+    field: MeasurementField,
+    value: string,
+  ) {
+    setMeasurementRows((current) => current.map((row, rowIndex) => {
+      if (rowIndex !== index) return row;
+      const pair = dimensionPairs.find((item) => item.second === field);
+      return {
+        ...row,
+        [field]: value,
+        mirrorSecond: pair === undefined
+          ? row.mirrorSecond
+          : { ...row.mirrorSecond, [pair.key]: false },
+      };
+    }));
+    setFormMessage("");
+  }
+
+  function addMeasurementRow() {
+    setMeasurementRows((current) => [...current, createEmptyMeasurementRow()]);
+  }
+
+  function removeMeasurementRow(index: number) {
+    setMeasurementRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
   }
 
   function toggleWagon(id: string, checked: boolean) {
     if (checked) {
       const selectedWagons = options.wagons.filter((wagon) =>
-        form.wagonIds.includes(wagon.id) || wagon.id === id
+        general.wagonIds.includes(wagon.id) || wagon.id === id
       );
       const selectedBrands = new Set(
         selectedWagons
@@ -173,7 +228,7 @@ export function LaboratoryGreenProductQualityJournal({
       }
     }
 
-    setForm((current) => {
+    setGeneral((current) => {
       const wagonIds = checked
         ? [...current.wagonIds, id]
         : current.wagonIds.filter((wagonId) => wagonId !== id);
@@ -222,9 +277,12 @@ export function LaboratoryGreenProductQualityJournal({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isAdminPreviewMode) return;
-    const submission = buildSubmission(form);
+    const submission = buildSubmission({ general, measurementRows, recommendations });
     if (submission === undefined) {
-      setFormMessage("Заполните все поля и выберите хотя бы один вагон.");
+      setFormMessage(
+        "Заполните общие сведения, выберите хотя бы один вагон и заполните " +
+          "хотя бы одну строку замеров целиком.",
+      );
       return;
     }
 
@@ -265,7 +323,7 @@ export function LaboratoryGreenProductQualityJournal({
 
   function editRecord(record: LaboratoryGreenProductQualityRecord) {
     setEditingRecordId(record.id);
-    setForm({
+    setGeneral({
       recordDate: record.recordDate,
       pressNumber: record.pressNumber,
       productBrand: record.productBrand,
@@ -275,34 +333,23 @@ export function LaboratoryGreenProductQualityJournal({
       loadingDate: record.loadingDate ?? "",
       pieceCount: record.pieceCount === null ? "" : String(record.pieceCount),
       wagonIds: record.wagonIds,
-      lengthFirst: record.lengthFirst,
-      lengthSecond: record.lengthSecond,
-      widthFirst: record.widthFirst,
-      widthSecond: record.widthSecond,
-      heightFirst: record.heightFirst,
-      heightSecond: record.heightSecond,
-      weight: record.weight,
-      mechanicalStrength: record.mechanicalStrength,
-      density: record.density,
-      pressOperatorRecommendations: record.pressOperatorRecommendations,
     });
-    for (const pair of dimensionPairs) {
-      mirroredSecondFields.current[pair.second] =
-        record[pair.first] === record[pair.second];
-    }
+    setMeasurementRows(
+      record.measurements.length === 0
+        ? [createEmptyMeasurementRow()]
+        : record.measurements.map(measurementRowFromRecord),
+    );
+    setRecommendations(record.pressOperatorRecommendations);
     setWagonBrandError("");
     setFormMessage("");
   }
 
   function resetForm() {
     setEditingRecordId(undefined);
-    setForm(createEmptyForm());
+    setGeneral(createEmptyGeneralForm());
+    setMeasurementRows([createEmptyMeasurementRow()]);
+    setRecommendations("");
     setWagonBrandError("");
-    mirroredSecondFields.current = {
-      lengthSecond: true,
-      widthSecond: true,
-      heightSecond: true,
-    };
   }
 
   return (
@@ -313,7 +360,7 @@ export function LaboratoryGreenProductQualityJournal({
           <h2>Журнал контроля качества сырцовой продукции</h2>
           {editingRecordId === undefined
             ? null
-            : <p>{`Редактирование записи от ${form.recordDate}`}</p>}
+            : <p>{`Редактирование записи от ${general.recordDate}`}</p>}
         </div>
 
         <section className="sample-registration-journal-section">
@@ -324,10 +371,10 @@ export function LaboratoryGreenProductQualityJournal({
               <input
                 required
                 type="date"
-                value={form.recordDate}
+                value={general.recordDate}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  updateTextField("recordDate", value);
+                  updateGeneral("recordDate", value);
                 }}
               />
             </label>
@@ -335,10 +382,10 @@ export function LaboratoryGreenProductQualityJournal({
               <span>№ пресса</span>
               <select
                 required
-                value={form.pressNumber}
+                value={general.pressNumber}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  updateTextField("pressNumber", value);
+                  updateGeneral("pressNumber", value);
                 }}
               >
                 <option value="">Выберите пресс</option>
@@ -353,43 +400,41 @@ export function LaboratoryGreenProductQualityJournal({
                 ariaLabel="Марка изделия"
                 labels={productBrands}
                 name="productBrand"
-                value={form.productBrand}
-                onChange={(value) => updateTextField("productBrand", value)}
+                value={general.productBrand}
+                onChange={(value) => updateGeneral("productBrand", value)}
               />
             </label>
             <label>
               <span>Дата пресса</span>
               <input
                 type="date"
-                value={form.pressDate}
+                value={general.pressDate}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  updateTextField("pressDate", value);
+                  updateGeneral("pressDate", value);
                 }}
               />
             </label>
             {renderOptionField(
               "Садчик",
               "setter",
-              form.setter,
-              options.setters,
-              updateTextField,
+              general.setter,
+              updateGeneral,
             )}
             {renderOptionField(
               "Прессовщик",
               "pressOperator",
-              form.pressOperator,
-              options.pressOperators,
-              updateTextField,
+              general.pressOperator,
+              updateGeneral,
             )}
             <label>
               <span>Дата садки</span>
               <input
                 type="date"
-                value={form.loadingDate}
+                value={general.loadingDate}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  updateTextField("loadingDate", value);
+                  updateGeneral("loadingDate", value);
                 }}
               />
             </label>
@@ -400,10 +445,10 @@ export function LaboratoryGreenProductQualityJournal({
                 min={0}
                 step={1}
                 type="number"
-                value={form.pieceCount}
+                value={general.pieceCount}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  updateTextField("pieceCount", value);
+                  updateGeneral("pieceCount", value);
                 }}
               />
             </label>
@@ -419,7 +464,7 @@ export function LaboratoryGreenProductQualityJournal({
                     {options.wagons.map((wagon) => (
                       <label key={wagon.id}>
                         <input
-                          checked={form.wagonIds.includes(wagon.id)}
+                          checked={general.wagonIds.includes(wagon.id)}
                           type="checkbox"
                           value={wagon.id}
                           onChange={(event) => {
@@ -431,11 +476,11 @@ export function LaboratoryGreenProductQualityJournal({
                       </label>
                     ))}
                   </div>
-                )}
-                {form.wagonIds.length > 0 ? (
+                ) }
+                {general.wagonIds.length > 0 ? (
                   <p className="green-product-quality-wagon-summary">
                     {options.wagons
-                      .filter((wagon) => form.wagonIds.includes(wagon.id))
+                      .filter((wagon) => general.wagonIds.includes(wagon.id))
                       .map((wagon) => wagon.number)
                       .join("; ")}
                   </p>
@@ -454,50 +499,83 @@ export function LaboratoryGreenProductQualityJournal({
         </section>
 
         <section className="sample-registration-journal-section">
-          <h3>Линейные размеры</h3>
-          <div className="green-product-quality-dimensions">
-            {dimensionPairs.map((pair) => (
-              <div className="green-product-quality-dimension-pair" key={pair.label}>
-                <h4>{pair.label}</h4>
-                <div className="laboratory-form-grid">
-                  {renderMeasurementField(
-                    `${pair.label} 1`,
-                    pair.first,
-                    form[pair.first],
-                    updateTextField,
-                  )}
-                  {renderMeasurementField(
-                    `${pair.label} 2`,
-                    pair.second,
-                    form[pair.second],
-                    updateSecondDimension,
-                  )}
-                </div>
-              </div>
-            ))}
+          <h3>Линейные размеры и показатели качества</h3>
+          <div className="refractory-table-wrap refractory-table-wrap-full-height raw-material-quality-table-wrap">
+            <table className="refractory-input-table raw-material-quality-measurement-table">
+              <thead>
+                <tr>
+                  <th>№ Замера</th>
+                  {laboratoryGreenProductQualityMeasurementFields.map((field) => (
+                    <th key={field.id}>{field.label}</th>
+                  ))}
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {measurementRows.map((row, index) => (
+                  <tr key={index}>
+                    <td>{index + 1}</td>
+                    {laboratoryGreenProductQualityMeasurementFields.map((field) => {
+                      const pair = dimensionPairs.find((item) => item.second === field.id);
+                      return (
+                        <td key={field.id}>
+                          <input
+                            aria-label={`${field.label}, строка ${index + 1}`}
+                            disabled={isSubmitting}
+                            inputMode="decimal"
+                            maxLength={40}
+                            value={row[field.id]}
+                            onChange={(event) => {
+                              const value = event.currentTarget.value;
+                              if (pair === undefined) {
+                                updateMeasurementField(index, field.id, value);
+                              } else {
+                                updateMeasurementSecondDimension(index, field.id, value);
+                              }
+                            }}
+                          />
+                        </td>
+                      );
+                    })}
+                    <td>
+                      <button
+                        aria-label="Удалить строку"
+                        className="raw-material-quality-row-remove"
+                        disabled={isSubmitting}
+                        type="button"
+                        onClick={() => removeMeasurementRow(index)}
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+          <button
+            className="secondary-button raw-material-quality-add-row"
+            disabled={isSubmitting}
+            type="button"
+            onClick={addMeasurementRow}
+          >
+            Добавить строку
+          </button>
         </section>
 
         <section className="sample-registration-journal-section">
-          <h3>Показатели качества</h3>
+          <h3>Рекомендации прессовщику</h3>
           <div className="laboratory-form-grid green-product-quality-form-grid">
-            {renderMeasurementField("Вес", "weight", form.weight, updateTextField)}
-            {renderMeasurementField(
-              "Механическая прочность",
-              "mechanicalStrength",
-              form.mechanicalStrength,
-              updateTextField,
-            )}
-            {renderMeasurementField("Плотность", "density", form.density, updateTextField)}
             <label className="laboratory-form-wide">
               <span>Рекомендации прессовщику</span>
               <textarea
                 required
                 maxLength={2000}
-                value={form.pressOperatorRecommendations}
+                value={recommendations}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  updateTextField("pressOperatorRecommendations", value);
+                  setRecommendations(value);
+                  setFormMessage("");
                 }}
               />
             </label>
@@ -602,8 +680,7 @@ function renderOptionField(
   label: string,
   field: "setter" | "pressOperator",
   value: string,
-  options: string[],
-  update: (field: TextField, value: string) => void,
+  update: (field: "setter" | "pressOperator", value: string) => void,
 ) {
   const listId = field === "setter"
     ? "green-product-quality-setter-options"
@@ -625,30 +702,7 @@ function renderOptionField(
   );
 }
 
-function renderMeasurementField<Field extends TextField>(
-  label: string,
-  field: Field,
-  value: string,
-  update: (field: Field, value: string) => void,
-) {
-  return (
-    <label key={field}>
-      <span>{label}</span>
-      <input
-        required
-        inputMode="decimal"
-        maxLength={40}
-        value={value}
-        onChange={(event) => {
-          const nextValue = event.currentTarget.value;
-          update(field, nextValue);
-        }}
-      />
-    </label>
-  );
-}
-
-function createEmptyForm(): FormState {
+function createEmptyGeneralForm(): GeneralFormState {
   return {
     recordDate: "",
     pressNumber: "",
@@ -659,6 +713,11 @@ function createEmptyForm(): FormState {
     loadingDate: "",
     pieceCount: "",
     wagonIds: [],
+  };
+}
+
+function createEmptyMeasurementRow(): MeasurementRowState {
+  return {
     lengthFirst: "",
     lengthSecond: "",
     widthFirst: "",
@@ -668,65 +727,109 @@ function createEmptyForm(): FormState {
     weight: "",
     mechanicalStrength: "",
     density: "",
-    pressOperatorRecommendations: "",
+    mirrorSecond: { length: true, width: true, height: true },
   };
 }
 
-function buildSubmission(
-  form: FormState,
-): LaboratoryGreenProductQualitySubmission | undefined {
-  const normalized = {
-    ...form,
-    recordDate: form.recordDate.trim(),
-    pressNumber: form.pressNumber.trim(),
-    productBrand: form.productBrand.trim(),
-    setter: form.setter.trim(),
-    pressOperator: form.pressOperator.trim(),
-    wagonIds: [...new Set(form.wagonIds)],
-    lengthFirst: form.lengthFirst.trim(),
-    lengthSecond: form.lengthSecond.trim(),
-    widthFirst: form.widthFirst.trim(),
-    widthSecond: form.widthSecond.trim(),
-    heightFirst: form.heightFirst.trim(),
-    heightSecond: form.heightSecond.trim(),
-    weight: form.weight.trim(),
-    mechanicalStrength: form.mechanicalStrength.trim(),
-    density: form.density.trim(),
-    pressOperatorRecommendations: form.pressOperatorRecommendations.trim(),
-    // Поля вагона необязательны: у старых вагонов их могло не быть.
-    pressDate: form.pressDate === "" ? null : form.pressDate,
-    loadingDate: form.loadingDate === "" ? null : form.loadingDate,
-    pieceCount: form.pieceCount.trim() === ""
-      ? null
-      : Number(form.pieceCount.trim()),
+/** У сохранённой строки пары размеров уже различимы, поэтому зеркалим их,
+ * только если первое и второе значение и так совпадают. */
+function measurementRowFromRecord(
+  measurement: LaboratoryGreenProductQualityMeasurement,
+): MeasurementRowState {
+  const mirrorSecond = Object.fromEntries(
+    dimensionPairs.map((pair) => [
+      pair.key,
+      measurement[pair.first] === measurement[pair.second],
+    ]),
+  ) as MeasurementRowState["mirrorSecond"];
+  return {
+    lengthFirst: measurement.lengthFirst,
+    lengthSecond: measurement.lengthSecond,
+    widthFirst: measurement.widthFirst,
+    widthSecond: measurement.widthSecond,
+    heightFirst: measurement.heightFirst,
+    heightSecond: measurement.heightSecond,
+    weight: measurement.weight,
+    mechanicalStrength: measurement.mechanicalStrength,
+    density: measurement.density,
+    mirrorSecond,
   };
+}
+
+function isMeasurementRowEmpty(row: MeasurementRowState) {
+  return laboratoryGreenProductQualityMeasurementFields.every(
+    (field) => row[field.id].trim() === "",
+  );
+}
+
+function buildSubmission({
+  general,
+  measurementRows,
+  recommendations,
+}: {
+  general: GeneralFormState;
+  measurementRows: MeasurementRowState[];
+  recommendations: string;
+}): LaboratoryGreenProductQualitySubmission | undefined {
+  const recordDate = general.recordDate.trim();
+  const pressNumber = general.pressNumber.trim();
+  const productBrand = general.productBrand.trim();
+  const setter = general.setter.trim();
+  const pressOperator = general.pressOperator.trim();
+  const wagonIds = [...new Set(general.wagonIds)];
+  const pressOperatorRecommendations = recommendations.trim();
+  const pieceCountText = general.pieceCount.trim();
+  const pieceCount = pieceCountText === "" ? null : Number(pieceCountText);
+
+  const measurements = measurementRows
+    .filter((row) => !isMeasurementRowEmpty(row))
+    .map((row, index) => ({
+      measurementNumber: index + 1,
+      lengthFirst: row.lengthFirst.trim(),
+      lengthSecond: row.lengthSecond.trim(),
+      widthFirst: row.widthFirst.trim(),
+      widthSecond: row.widthSecond.trim(),
+      heightFirst: row.heightFirst.trim(),
+      heightSecond: row.heightSecond.trim(),
+      weight: row.weight.trim(),
+      mechanicalStrength: row.mechanicalStrength.trim(),
+      density: row.density.trim(),
+    }));
+
   if (
-    (normalized.pieceCount !== null &&
-      !Number.isInteger(normalized.pieceCount)) ||
-    normalized.recordDate === "" ||
-    normalized.productBrand === "" ||
-    normalized.setter === "" ||
-    normalized.pressOperator === "" ||
-    normalized.pressOperatorRecommendations === "" ||
-    normalized.wagonIds.length === 0 ||
+    recordDate === "" ||
+    productBrand === "" ||
+    setter === "" ||
+    pressOperator === "" ||
+    pressOperatorRecommendations === "" ||
+    wagonIds.length === 0 ||
+    measurements.length === 0 ||
+    (pieceCount !== null && !Number.isInteger(pieceCount)) ||
     !laboratoryGreenProductQualityPressNumberValues.includes(
-      normalized.pressNumber as LaboratoryGreenProductQualitySubmission["pressNumber"],
+      pressNumber as LaboratoryGreenProductQualitySubmission["pressNumber"],
     ) ||
-    [
-      normalized.lengthFirst,
-      normalized.lengthSecond,
-      normalized.widthFirst,
-      normalized.widthSecond,
-      normalized.heightFirst,
-      normalized.heightSecond,
-      normalized.weight,
-      normalized.mechanicalStrength,
-      normalized.density,
-    ].some((value) => !/^\d+(?:[.,]\d+)?$/u.test(value))
+    measurements.some((row) =>
+      laboratoryGreenProductQualityMeasurementFields.some(
+        (field) => !/^\d+(?:[.,]\d+)?$/u.test(row[field.id]),
+      )
+    )
   ) {
     return undefined;
   }
-  return normalized as LaboratoryGreenProductQualitySubmission;
+
+  return {
+    recordDate,
+    pressNumber: pressNumber as LaboratoryGreenProductQualitySubmission["pressNumber"],
+    productBrand,
+    pressDate: general.pressDate === "" ? null : general.pressDate,
+    setter,
+    pressOperator,
+    loadingDate: general.loadingDate === "" ? null : general.loadingDate,
+    pieceCount,
+    wagonIds,
+    measurements,
+    pressOperatorRecommendations,
+  };
 }
 
 function addOption(values: string[], value: string) {

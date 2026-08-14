@@ -6,7 +6,7 @@ export type RefractoryReportStatus = "pending" | "rejected" | "approved";
 export const refractoryReportLabels: Record<RefractoryReportType, string> = {
   cosh: "ЦОШ",
   equipment: "Сводка по работе оборудования",
-  firing: "Печное отделение",
+  firing: "Обжиг/Сортировка",
 };
 
 export const refractoryEquipmentNames = [
@@ -105,11 +105,9 @@ export type RefractoryEquipmentPayload = {
 
 export type RefractoryFiringPayload = {
   rows: Array<{
-    productBrand: string;
-    firingWagons?: RefractoryFiringWagonReference[];
+    sortingWagons?: RefractoryFiringWagonReference[];
     firingDate?: string;
     firingOperator?: string;
-    sortingWagons?: RefractoryFiringWagonReference[];
     sortingDate?: string;
     sorter?: string;
     quantityPieces?: number;
@@ -128,9 +126,14 @@ export type RefractoryFiringPayload = {
   planFailureReason?: string;
 };
 
+/**
+ * `productBrand` заполняет сервер маркой самого вагона (задача 88) — только
+ * для чтения на клиенте.
+ */
 export type RefractoryFiringWagonReference = {
   id: string;
   number?: string;
+  productBrand?: string;
 };
 
 export type RefractoryReportSubmission =

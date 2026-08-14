@@ -3653,6 +3653,43 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "067_laboratory_green_product_quality_measurement_table",
+    statements: [
+      `
+      alter table laboratory_green_product_quality_journal
+        add column measurements json null;
+      `,
+      `
+      update laboratory_green_product_quality_journal
+      set measurements = json_array(json_object(
+        'measurementNumber', 1,
+        'lengthFirst', length_first,
+        'lengthSecond', length_second,
+        'widthFirst', width_first,
+        'widthSecond', width_second,
+        'heightFirst', height_first,
+        'heightSecond', height_second,
+        'weight', weight_value,
+        'mechanicalStrength', mechanical_strength,
+        'density', density_value
+      ))
+      where measurements is null;
+      `,
+      `
+      alter table laboratory_green_product_quality_journal
+        modify column length_first varchar(40) null,
+        modify column length_second varchar(40) null,
+        modify column width_first varchar(40) null,
+        modify column width_second varchar(40) null,
+        modify column height_first varchar(40) null,
+        modify column height_second varchar(40) null,
+        modify column weight_value varchar(40) null,
+        modify column mechanical_strength varchar(40) null,
+        modify column density_value varchar(40) null;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

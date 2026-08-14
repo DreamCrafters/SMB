@@ -120,7 +120,7 @@ export function validateRefractoryWagonInspectionSubmission(
     errors.push("Проверьте поле «Состояние вагона после обжига».");
   }
   if (approvalDate === undefined) {
-    errors.push("Проверьте поле «Дата одобрения на продолжение эксплуатации».");
+    errors.push("Проверьте поле «Дата осмотра».");
   }
 
   return errors.length > 0

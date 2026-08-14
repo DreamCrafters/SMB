@@ -65,15 +65,7 @@ type JournalRow = RowDataPacket & {
   press_operator: string;
   loading_date: Date | string | null;
   piece_count: number | string | null;
-  length_first: string;
-  length_second: string;
-  width_first: string;
-  width_second: string;
-  height_first: string;
-  height_second: string;
-  weight_value: string;
-  mechanical_strength: string;
-  density_value: string;
+  measurements: unknown;
   press_operator_recommendations: string;
   created_at: Date | string;
 };
@@ -138,20 +130,12 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           press_operator,
           loading_date,
           piece_count,
-          length_first,
-          length_second,
-          width_first,
-          width_second,
-          height_first,
-          height_second,
-          weight_value,
-          mechanical_strength,
-          density_value,
+          measurements,
           press_operator_recommendations,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           record.recordDate,
@@ -162,15 +146,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           record.pressOperator,
           record.loadingDate,
           record.pieceCount,
-          record.lengthFirst,
-          record.lengthSecond,
-          record.widthFirst,
-          record.widthSecond,
-          record.heightFirst,
-          record.heightSecond,
-          record.weight,
-          record.mechanicalStrength,
-          record.density,
+          JSON.stringify(record.measurements),
           record.pressOperatorRecommendations,
           input.submittedByUserId,
           input.submittedByAccountId,
@@ -202,15 +178,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
             product_brand,
             setter_name,
             press_operator,
-            length_first,
-            length_second,
-            width_first,
-            width_second,
-            height_first,
-            height_second,
-            weight_value,
-            mechanical_strength,
-            density_value,
+            measurements,
             press_operator_recommendations,
             (
               select group_concat(wagon.wagon_number order by link.position separator ' ')
@@ -244,15 +212,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           press_operator,
           loading_date,
           piece_count,
-          length_first,
-          length_second,
-          width_first,
-          width_second,
-          height_first,
-          height_second,
-          weight_value,
-          mechanical_strength,
-          density_value,
+          measurements,
           press_operator_recommendations,
           created_at
         from laboratory_green_product_quality_journal
@@ -342,15 +302,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           press_operator,
           loading_date,
           piece_count,
-          length_first,
-          length_second,
-          width_first,
-          width_second,
-          height_first,
-          height_second,
-          weight_value,
-          mechanical_strength,
-          density_value,
+          measurements,
           press_operator_recommendations,
           created_at
         from laboratory_green_product_quality_journal
@@ -382,15 +334,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           press_operator = ?,
           loading_date = ?,
           piece_count = ?,
-          length_first = ?,
-          length_second = ?,
-          width_first = ?,
-          width_second = ?,
-          height_first = ?,
-          height_second = ?,
-          weight_value = ?,
-          mechanical_strength = ?,
-          density_value = ?,
+          measurements = ?,
           press_operator_recommendations = ?
         where id = ?`,
         [
@@ -402,15 +346,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           input.record.pressOperator,
           input.record.loadingDate,
           input.record.pieceCount,
-          input.record.lengthFirst,
-          input.record.lengthSecond,
-          input.record.widthFirst,
-          input.record.widthSecond,
-          input.record.heightFirst,
-          input.record.heightSecond,
-          input.record.weight,
-          input.record.mechanicalStrength,
-          input.record.density,
+          JSON.stringify(input.record.measurements),
           input.record.pressOperatorRecommendations,
           input.id,
         ],
@@ -479,15 +415,7 @@ function toSnapshot(
     pieceCount: record.pieceCount,
     wagonIds: record.wagonIds,
     wagons: record.wagons,
-    lengthFirst: record.lengthFirst,
-    lengthSecond: record.lengthSecond,
-    widthFirst: record.widthFirst,
-    widthSecond: record.widthSecond,
-    heightFirst: record.heightFirst,
-    heightSecond: record.heightSecond,
-    weight: record.weight,
-    mechanicalStrength: record.mechanicalStrength,
-    density: record.density,
+    measurements: record.measurements,
     pressOperatorRecommendations: record.pressOperatorRecommendations,
   };
 }
@@ -537,15 +465,8 @@ function mapJournalRow(
     pieceCount: readOptionalCount(row.piece_count),
     wagonIds: wagons.map((wagon) => wagon.id),
     wagons,
-    lengthFirst: row.length_first,
-    lengthSecond: row.length_second,
-    widthFirst: row.width_first,
-    widthSecond: row.width_second,
-    heightFirst: row.height_first,
-    heightSecond: row.height_second,
-    weight: row.weight_value,
-    mechanicalStrength: row.mechanical_strength,
-    density: row.density_value,
+    measurements: readJson(row.measurements) as
+      LaboratoryGreenProductQualityRecord["measurements"],
     pressOperatorRecommendations: row.press_operator_recommendations,
     createdAt: row.created_at instanceof Date
       ? row.created_at.toISOString()
@@ -583,6 +504,11 @@ function readOptionalCount(value: number | string | null | undefined) {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readJson(value: unknown): unknown[] {
+  if (typeof value === "string") return JSON.parse(value) as unknown[];
+  return Array.isArray(value) ? value : [];
 }
 
 async function resolveWagons(

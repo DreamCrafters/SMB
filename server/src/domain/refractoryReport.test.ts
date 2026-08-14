@@ -70,8 +70,6 @@ test("firing report calculates reject totals from defect kinds", () => {
     payload: {
       rows: [
         {
-          productBrand: "ШАБ 5",
-          firingWagons: [{ id: "wagon-17" }],
           sortingWagons: [{ id: "wagon-17" }],
           quantityPieces: 14400,
           palletCount: 40,
@@ -83,7 +81,7 @@ test("firing report calculates reject totals from defect kinds", () => {
           rejectChipsPieces: 160,
         },
         {
-          productBrand: "ША-22",
+          sortingWagons: [{ id: "wagon-18" }],
           quantityPieces: 100,
           palletCount: 1,
           rejectUnderburnPieces: 2,
@@ -102,7 +100,7 @@ test("firing report calculates reject totals from defect kinds", () => {
   if (result.value.reportType !== "firing") return;
 
   assert.equal(result.value.payload.rows[0]?.rejectTotalPieces, 260);
-  assert.deepEqual(result.value.payload.rows[0]?.firingWagons, [
+  assert.deepEqual(result.value.payload.rows[0]?.sortingWagons, [
     { id: "wagon-17" },
   ]);
   assert.deepEqual(result.value.totals, {
@@ -126,10 +124,8 @@ test("firing report accepts a distinct firing and sorting date per row", () => {
     payload: {
       rows: [
         {
-          productBrand: "ШАБ 5",
-          firingWagons: [{ id: "wagon-17" }],
+          sortingWagons: [{ id: "wagon-17" }],
           firingDate: "2026-07-19",
-          sortingWagons: [{ id: "wagon-18" }],
           sortingDate: "2026-07-21",
           quantityPieces: 10,
         },
@@ -153,8 +149,7 @@ test("firing report rejects an invalid firing date", () => {
     payload: {
       rows: [
         {
-          productBrand: "ШАБ 5",
-          firingWagons: [{ id: "wagon-17" }],
+          sortingWagons: [{ id: "wagon-17" }],
           firingDate: "20.07.2026",
           quantityPieces: 10,
         },
@@ -169,7 +164,7 @@ test("firing report rejects an invalid firing date", () => {
   ]);
 });
 
-test("firing report rejects the same wagon twice within one event type", () => {
+test("firing report rejects the same wagon twice across rows", () => {
   const result = validateRefractoryReportSubmission({
     reportType: "firing",
     reportDate: "2026-07-20",
@@ -177,13 +172,11 @@ test("firing report rejects the same wagon twice within one event type", () => {
     payload: {
       rows: [
         {
-          productBrand: "ШАБ 5",
-          firingWagons: [{ id: "wagon-17" }],
+          sortingWagons: [{ id: "wagon-17" }],
           quantityPieces: 10,
         },
         {
-          productBrand: "ШАБ 5",
-          firingWagons: [{ id: "wagon-17" }],
+          sortingWagons: [{ id: "wagon-17" }],
           quantityPieces: 12,
         },
       ],
@@ -193,7 +186,7 @@ test("firing report rejects the same wagon twice within one event type", () => {
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.deepEqual(result.errors, [
-    "Вагон для обжига выбран в таблице повторно.",
+    "Вагон выбран в таблице повторно.",
   ]);
 });
 
@@ -306,7 +299,7 @@ test("report validation rejects negative values and empty reports", () => {
     reportDate: "2026-07-20",
     shiftNumber: 1,
     payload: {
-      rows: [{ productBrand: "ША", quantityPieces: -1 }],
+      rows: [{ sortingWagons: [{ id: "wagon-17" }], quantityPieces: -1 }],
     },
   });
   const empty = validateRefractoryReportSubmission({
@@ -375,7 +368,7 @@ test("scalar and section validation errors keep their visible context", () => {
     reportDate: "2026-07-20",
     shiftNumber: 1,
     payload: {
-      rows: [{ productBrand: "ША", goodTonsWeighed: 12.3456 }],
+      rows: [{ goodTonsWeighed: 12.3456 }],
     },
   });
 

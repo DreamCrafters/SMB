@@ -192,15 +192,20 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     wagons: greenProductQualityWagons.filter((wagon) =>
       ["wagon-2", "wagon-3"].includes(wagon.id)
     ),
-    lengthFirst: "230",
-    lengthSecond: "231",
-    widthFirst: "114",
-    widthSecond: "114",
-    heightFirst: "64",
-    heightSecond: "64",
-    weight: "3,4",
-    mechanicalStrength: "42,5",
-    density: "2,11",
+    measurements: [
+      {
+        measurementNumber: 1,
+        lengthFirst: "230",
+        lengthSecond: "231",
+        widthFirst: "114",
+        widthSecond: "114",
+        heightFirst: "64",
+        heightSecond: "64",
+        weight: "3,4",
+        mechanicalStrength: "42,5",
+        density: "2,11",
+      },
+    ],
     pressOperatorRecommendations: "Проверить давление прессования.",
     createdAt: "2026-08-04T09:30:00.000Z",
   };
@@ -2539,17 +2544,21 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         "Марка изделия": "ШКИ-66",
         "Садчик": "Новый Н.Н.",
         "Прессовщик": "Петров П.П.",
-        "Длина 1": "230",
-        "Ширина 1": "114",
-        "Высота 1": "64",
-        "Вес": "3,4",
-        "Механическая прочность": "42,5",
-        "Плотность": "2,11",
         "Рекомендации прессовщику": "Проверить давление прессования.",
       })) {
         const input = findControlByLabel(greenQualityForm, label);
         setNativeInputValue(input, value);
         input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+      for (const [label, value] of Object.entries({
+        "Длина 1, строка 1": "230",
+        "Ширина 1, строка 1": "114",
+        "Высота 1, строка 1": "64",
+        "Вес, строка 1": "3,4",
+        "Механическая прочность, строка 1": "42,5",
+        "Плотность, строка 1": "2,11",
+      })) {
+        fillControlByLabel(greenQualityForm, label, value);
       }
       const press = findControlByLabel(greenQualityForm, "№ пресса", "select");
       setNativeInputValue(press, "3");
@@ -2616,20 +2625,18 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       findControlByLabel(greenQualityForm, "Прессовщик").value,
       "Прессовщик с вагона",
     );
-    assert.equal(findControlByLabel(greenQualityForm, "Длина 2").value, "230");
+    assert.equal(
+      greenQualityForm.querySelector('[aria-label="Длина 2, строка 1"]').value,
+      "230",
+    );
     await React.act(async () => {
-      const secondLength = findControlByLabel(greenQualityForm, "Длина 2");
-      setNativeInputValue(secondLength, "231");
-      secondLength.dispatchEvent(
-        new dom.window.Event("input", { bubbles: true }),
-      );
-      const firstLength = findControlByLabel(greenQualityForm, "Длина 1");
-      setNativeInputValue(firstLength, "232");
-      firstLength.dispatchEvent(
-        new dom.window.Event("input", { bubbles: true }),
-      );
+      fillControlByLabel(greenQualityForm, "Длина 2, строка 1", "231");
+      fillControlByLabel(greenQualityForm, "Длина 1, строка 1", "232");
     });
-    assert.equal(findControlByLabel(greenQualityForm, "Длина 2").value, "231");
+    assert.equal(
+      greenQualityForm.querySelector('[aria-label="Длина 2, строка 1"]').value,
+      "231",
+    );
     await React.act(async () => {
       greenQualityForm.dispatchEvent(
         new dom.window.Event("submit", { bubbles: true, cancelable: true }),
@@ -2640,8 +2647,14 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       "wagon-2",
       "wagon-3",
     ]);
-    assert.equal(greenProductQualitySubmissions[0].lengthFirst, "232");
-    assert.equal(greenProductQualitySubmissions[0].lengthSecond, "231");
+    assert.equal(
+      greenProductQualitySubmissions[0].measurements[0].lengthFirst,
+      "232",
+    );
+    assert.equal(
+      greenProductQualitySubmissions[0].measurements[0].lengthSecond,
+      "231",
+    );
     assert.equal(
       greenProductQualitySubmissions[0].setter,
       "Садчик с вагона",
@@ -2652,16 +2665,24 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     const greenQualityHeadings = Array.from(
       rootElement.querySelectorAll(".green-product-quality-table th"),
-    );
-    assert.equal(
-      greenQualityHeadings.find(
-        (heading) => heading.textContent === "Линейные размеры",
-      )?.colSpan,
-      6,
-    );
+    ).map((heading) => heading.textContent);
+    assert.ok(greenQualityHeadings.includes("Замеры"));
     assert.match(
       rootElement.querySelector(".green-product-quality-table").textContent,
       /В-02; В-03/u,
+    );
+    const greenQualityExpandToggle = rootElement.querySelector(
+      ".green-product-quality-table .raw-material-quality-expand-toggle",
+    );
+    assert.ok(greenQualityExpandToggle);
+    await React.act(async () => greenQualityExpandToggle.click());
+    assert.match(
+      rootElement.querySelector(".green-product-quality-table").textContent,
+      /Длина 1/u,
+    );
+    assert.match(
+      rootElement.querySelector(".green-product-quality-table").textContent,
+      /Проверить давление прессования\./u,
     );
     const greenQualityEditButton = rootElement.querySelector(
       ".green-product-quality-edit-link",

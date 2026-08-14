@@ -11,15 +11,20 @@ const validSubmission = {
   setter: "  Иванов   И.И. ",
   pressOperator: "Петров П.П.",
   wagonIds: ["wagon-1", "wagon-2"],
-  lengthFirst: "230,5",
-  lengthSecond: "231",
-  widthFirst: "114",
-  widthSecond: "114",
-  heightFirst: "64",
-  heightSecond: "63,8",
-  weight: "3,4",
-  mechanicalStrength: "42.5",
-  density: "2,11",
+  measurements: [
+    {
+      measurementNumber: 1,
+      lengthFirst: "230,5",
+      lengthSecond: "231",
+      widthFirst: "114",
+      widthSecond: "114",
+      heightFirst: "64",
+      heightSecond: "63,8",
+      weight: "3,4",
+      mechanicalStrength: "42.5",
+      density: "2,11",
+    },
+  ],
   pressOperatorRecommendations: "  Проверить   давление прессования. ",
 };
 
@@ -75,7 +80,7 @@ test("green product quality submission rejects unknown presses, duplicate wagons
     ...validSubmission,
     pressNumber: "9",
     wagonIds: ["wagon-1", "wagon-1"],
-    heightSecond: "63 мм",
+    measurements: [{ ...validSubmission.measurements[0], heightSecond: "63 мм" }],
   });
 
   assert.equal(validation.ok, false);
@@ -83,6 +88,6 @@ test("green product quality submission rejects unknown presses, duplicate wagons
   assert.deepEqual(validation.errors, [
     "Проверьте поле «№ пресса».",
     "Выберите вагоны без повторов.",
-    "Проверьте поле «Высота 2».",
+    "Проверьте таблицу линейных размеров и показателей качества.",
   ]);
 });

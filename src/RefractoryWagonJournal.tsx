@@ -176,7 +176,7 @@ export function RefractoryWagonJournal({
         <form className="refractory-wagon-form" onSubmit={handleSubmit}>
           <fieldset disabled={isSubmitting}>
             <legend>
-              {editingWagonId === undefined ? "Выберите вагон" : "Исправление вагона"}
+              {editingWagonId === undefined ? "Садка на вагоны" : "Исправление вагона"}
             </legend>
             <div className="refractory-field-grid">
               <label className="refractory-field">
@@ -318,7 +318,7 @@ export function RefractoryWagonJournal({
                 <th>Сортировщик</th>
                 <th>Дата сортировки</th>
                 <th>Состояние вагона после обжига</th>
-                <th>Дата одобрения на продолжение эксплуатации</th>
+                <th>Дата осмотра</th>
               </tr>
             </thead>
             <tbody>

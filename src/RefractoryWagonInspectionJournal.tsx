@@ -165,7 +165,7 @@ export function RefractoryWagonInspectionJournal({
                 </select>
               </label>
               <label className="refractory-field">
-                <span>Дата одобрения на продолжение эксплуатации</span>
+                <span>Дата осмотра</span>
                 <input
                   name="inspectionApprovalDate"
                   required
@@ -214,7 +214,7 @@ export function RefractoryWagonInspectionJournal({
                     <th>Номер вагона</th>
                     <th>Дата сортировки</th>
                     <th>Состояние вагона после обжига</th>
-                    <th>Дата одобрения на продолжение эксплуатации</th>
+                    <th>Дата осмотра</th>
                     <th>Осмотр провёл</th>
                   </tr>
                 </thead>

@@ -293,10 +293,10 @@ test("buildRefractoryReportEmail sends an approved OC table with all entered fie
   assert.deepEqual(message, {
     from: "noreply@example.com",
     to: ["oc@example.com"],
-    subject: "[SMB Monitor] Таблица ОЦ подтверждена: Печное отделение",
+    subject: "[SMB Monitor] Таблица ОЦ подтверждена: Обжиг/Сортировка",
     text: [
       "Таблица ОЦ подтверждена",
-      "Таблица: Печное отделение",
+      "Таблица: Обжиг/Сортировка",
       "Дата смены: 20.07.2026",
       "Смена: 2 (20:00–08:00)",
       "Ревизия: 1",
@@ -335,7 +335,7 @@ test("buildRefractoryReviewRequestEmail notifies dispatchers about a pending OC 
   assert.deepEqual(message?.to, ["dispatcher@example.com"]);
   assert.equal(
     message?.subject,
-    "[SMB Monitor] Таблица ОЦ ожидает подтверждения: Печное отделение",
+    "[SMB Monitor] Таблица ОЦ ожидает подтверждения: Обжиг/Сортировка",
   );
   assert.match(message?.text ?? "", /^Новая таблица ОЦ ожидает подтверждения/mu);
   assert.match(message?.text ?? "", /Дата смены: 20\.07\.2026/u);
@@ -631,7 +631,7 @@ function buildApprovedRefractoryReport() {
     revisionNumber: 1,
     payload: {
       rows: [{
-        productBrand: "ША",
+        sortingWagons: [{ id: "wagon-1", number: "В-1", productBrand: "ША" }],
         quantityPieces: 100,
         palletCount: 5,
         goodTonsAverageWeight: 10.5,

@@ -17,15 +17,20 @@ const record = {
   loadingDate: "2026-08-05",
   pieceCount: 480,
   wagonIds: ["wagon-2", "wagon-1"],
-  lengthFirst: "230,5",
-  lengthSecond: "231",
-  widthFirst: "114",
-  widthSecond: "114",
-  heightFirst: "64",
-  heightSecond: "63,8",
-  weight: "3,4",
-  mechanicalStrength: "42.5",
-  density: "2,11",
+  measurements: [
+    {
+      measurementNumber: 1,
+      lengthFirst: "230,5",
+      lengthSecond: "231",
+      widthFirst: "114",
+      widthSecond: "114",
+      heightFirst: "64",
+      heightSecond: "63,8",
+      weight: "3,4",
+      mechanicalStrength: "42.5",
+      density: "2,11",
+    },
+  ],
   pressOperatorRecommendations: "Проверить давление прессования.",
 };
 
@@ -329,7 +334,7 @@ test("green product quality repository corrects a stable row and stores wagon-aw
   const corrected = {
     ...record,
     wagonIds: ["wagon-3"],
-    lengthSecond: "232",
+    measurements: [{ ...record.measurements[0]!, lengthSecond: "232" }],
     pressOperatorRecommendations: "Снизить давление прессования.",
   };
   const pool = {
@@ -443,15 +448,7 @@ function buildJournalRow() {
     press_operator: record.pressOperator,
     loading_date: record.loadingDate,
     piece_count: record.pieceCount,
-    length_first: record.lengthFirst,
-    length_second: record.lengthSecond,
-    width_first: record.widthFirst,
-    width_second: record.widthSecond,
-    height_first: record.heightFirst,
-    height_second: record.heightSecond,
-    weight_value: record.weight,
-    mechanical_strength: record.mechanicalStrength,
-    density_value: record.density,
+    measurements: record.measurements,
     press_operator_recommendations: record.pressOperatorRecommendations,
     created_at: "2026-08-05T08:30:00.000Z",
   };

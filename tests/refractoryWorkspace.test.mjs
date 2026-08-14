@@ -226,7 +226,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         (button) =>
           button.querySelector(".refractory-report-label")?.textContent,
       ),
-      ["ЦОШ", "Сводка по работе оборудования", "Вагоны", "Печное отделение"],
+      ["ЦОШ", "Сводка по работе оборудования", "Вагоны"],
     );
     assert.equal(
       menuButtons[0].querySelector(".refractory-report-return-count"),
@@ -243,10 +243,6 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     );
     assert.equal(
       menuButtons[2].querySelector(".refractory-report-return-count"),
-      null,
-    );
-    assert.equal(
-      menuButtons[3].querySelector(".refractory-report-return-count"),
       null,
     );
 
@@ -448,7 +444,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.equal(formedBrand.value, "Старая марка");
     assert.equal(rootElement.querySelectorAll("form").length, 1);
 
-    await React.act(async () => menuButtons[3].click());
+    // «Обжиг/Сортировка» больше не отдельная кнопка сверху — она внутри
+    // раздела «Вагоны», между «Оборот вагонов» и «Осмотр вагонов».
+    await React.act(async () => menuButtons[2].click());
+    const firingMenuButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-journal-menu button"),
+    ).find((button) => button.textContent?.includes("Обжиг/Сортировка"));
+    assert.ok(firingMenuButton);
+    await React.act(async () => firingMenuButton.click());
     const firingTable = rootElement.querySelector(
       ".refractory-input-table-firing",
     );
@@ -463,8 +466,6 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         cell.textContent.trim().replace(/\s+/gu, " "),
       ),
       [
-        "Марка изделия",
-        "Вагоны для обжига",
         "Дата обжига",
         "Обжигальщик",
         "Рассортированные вагоны",
@@ -532,39 +533,17 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       )?.textContent,
       "10",
     );
-    assert.deepEqual(
-      readBrandOptions(
-        rootElement.querySelector(
-          'input[aria-label="Марка изделия, строка 1"]',
-        ),
-        rootElement,
-      ),
-      ["ША-22", "Смесь МК", "Гранулы 0-5"],
-    );
-    const firingWagonsSelect = rootElement.querySelector(
-      'select[aria-label="Вагоны для обжига, строка 1"]',
-    );
+    // Марка изделия и вагоны для обжига больше не отдельные поля (задача 88):
+    // марка приходит с вагона, а обжиг и сортировка используют один выбор.
     const sortingWagonsSelect = rootElement.querySelector(
       'select[aria-label="Рассортированные вагоны, строка 1"]',
     );
     await waitFor(
       React,
-      () => firingWagonsSelect?.querySelector('option[value="wagon-16"]') !== null,
+      () => sortingWagonsSelect?.querySelector('option[value="wagon-16"]') !== null,
     );
-    assert.ok(firingWagonsSelect);
     assert.ok(sortingWagonsSelect);
-    const firingBrandInput = rootElement.querySelector(
-      'input[aria-label="Марка изделия, строка 1"]',
-    );
     await React.act(async () => {
-      setNativeInputValue(firingBrandInput, "ШКУ-32");
-      firingBrandInput.dispatchEvent(
-        new dom.window.Event("input", { bubbles: true }),
-      );
-      firingWagonsSelect.querySelector('option[value="wagon-16"]').selected = true;
-      firingWagonsSelect.dispatchEvent(
-        new dom.window.Event("change", { bubbles: true }),
-      );
       sortingWagonsSelect.querySelector('option[value="wagon-16"]').selected = true;
       sortingWagonsSelect.dispatchEvent(
         new dom.window.Event("change", { bubbles: true }),
@@ -575,9 +554,6 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     ).find((button) => button.textContent === "Отправить диспетчеру");
     assert.ok(submitFiringButton);
     await React.act(async () => submitFiringButton.click());
-    assert.deepEqual(submittedReport.payload.rows[0].firingWagons, [
-      { id: "wagon-16" },
-    ]);
     assert.deepEqual(submittedReport.payload.rows[0].sortingWagons, [
       { id: "wagon-16" },
     ]);
@@ -604,11 +580,18 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       null,
     );
 
+    // «Обжиг/Сортировка» живёт внутри раздела «Вагоны», поэтому активной
+    // остаётся сама кнопка «Вагоны», а не отдельная сменная таблица.
     assert.deepEqual(
       menuButtons.map((button) => button.classList.contains("is-active")),
-      [false, false, false, true],
+      [false, false, true],
     );
-    await React.act(async () => menuButtons[2].click());
+    assert.ok(firingMenuButton.classList.contains("is-active"));
+    const catalogMenuButton = Array.from(
+      rootElement.querySelectorAll(".refractory-wagon-journal-menu button"),
+    ).find((button) => button.textContent?.includes("Каталог вагонов"));
+    assert.ok(catalogMenuButton);
+    await React.act(async () => catalogMenuButton.click());
     await waitFor(
       React,
       () => rootElement.querySelector(
@@ -623,7 +606,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     );
     assert.deepEqual(
       wagonJournalButtons,
-      ["Каталог вагонов", "Оборот вагонов", "Осмотр вагонов"],
+      ["Каталог вагонов", "Оборот вагонов", "Обжиг/Сортировка", "Осмотр вагонов"],
     );
     const catalogRow = rootElement.querySelector(
       ".refractory-wagon-catalog-table tbody tr",
@@ -633,7 +616,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       Array.from(catalogRow.querySelectorAll("td"), (cell) => cell.textContent),
       ["В-16", "2", "Можно эксплуатировать"],
     );
-    // Стиль таблиц вкладки Вагоны повторяет Печное отделение: без внутренней
+    // Стиль таблиц вкладки Вагоны повторяет Обжиг/Сортировка: без внутренней
     // вертикальной прокрутки.
     assert.ok(
       catalogRow
@@ -652,7 +635,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     // Открытый журнал снимает выделение со сменной таблицы, выбранной до него.
     assert.deepEqual(
       menuButtons.map((button) => button.classList.contains("is-active")),
-      [false, false, true, false],
+      [false, false, true],
     );
     assert.match(rootElement.textContent, /В-16/u);
     const wagonTable = rootElement.querySelector(".refractory-wagon-table");
@@ -680,7 +663,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         "Сортировщик",
         "Дата сортировки",
         "Состояние вагона после обжига",
-        "Дата одобрения на продолжение эксплуатации",
+        "Дата осмотра",
       ],
     );
     assert.match(wagonTable.textContent, /06\.08\.2026; 06\.08\.2026/u);

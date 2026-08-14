@@ -23,6 +23,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "064_verification_journal",
   "065_laboratory_raw_material_quality_measurement_tables",
   "066_refractory_wagon_turnover_cycles",
+  "067_laboratory_green_product_quality_measurement_table",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2822,6 +2823,48 @@ test("wagon turnover cycles migration splits the catalog from per-cycle rows", a
     /foreign key \(catalog_wagon_id\) references refractory_wagon_catalog \(id\)/u,
   );
   assert.equal(statements[5], "insert into schema_migrations (id) values (?)");
+});
+
+test("green product quality measurement table migration adds json rows and backfills them", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "067_laboratory_green_product_quality_measurement_table"
+            ? []
+            : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 4);
+  assert.match(statements[0] ?? "", /add column measurements json null/u);
+  assert.match(statements[1] ?? "", /set measurements = json_array/u);
+  assert.match(statements[1] ?? "", /'lengthFirst', length_first/u);
+  assert.match(statements[1] ?? "", /'density', density_value/u);
+  assert.match(statements[2] ?? "", /modify column length_first varchar\(40\) null/u);
+  assert.match(statements[2] ?? "", /modify column density_value varchar\(40\) null/u);
+  assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {
