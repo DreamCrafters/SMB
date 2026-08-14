@@ -163,13 +163,6 @@ const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
     group: "root",
   },
   {
-    id: "sample_registration",
-    label: "Регистрация проб",
-    journal: "sample_registration",
-    section: "all",
-    group: "central-lab",
-  },
-  {
     id: "chemical_analysis",
     label: "Химические анализы",
     journal: "chemical_analysis",
@@ -201,6 +194,13 @@ const allLaboratoryReviewViews: readonly LaboratoryReviewView[] = [
     id: "verifications",
     label: "Верификации",
     journal: "verifications",
+    section: "all",
+    group: "quality-control",
+  },
+  {
+    id: "sample_registration",
+    label: "Регистрация проб",
+    journal: "sample_registration",
     section: "all",
     group: "quality-control",
   },

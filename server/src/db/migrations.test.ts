@@ -25,6 +25,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "066_refractory_wagon_turnover_cycles",
   "067_laboratory_green_product_quality_measurement_table",
   "068_overview_visitors_capability",
+  "069_formed_product_sample_wagon_fields",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2916,6 +2917,78 @@ test("overview visitors capability migration grants it alongside dispatcher feed
   );
   assert.match(statements[2] ?? "", /delete sessions/u);
   assert.match(statements[2] ?? "", /from auth_sessions sessions/u);
+  assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
+});
+
+test("formed product sample wagon fields migration drops the sample code and transmission target", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "069_formed_product_sample_wagon_fields" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 4);
+  assert.match(
+    statements[0] ?? "",
+    /drop foreign key fk_laboratory_formed_product_sample_source/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /drop key idx_laboratory_formed_product_sample_code/u,
+  );
+  assert.match(statements[0] ?? "", /drop column sample_code/u);
+  assert.match(
+    statements[0] ?? "",
+    /drop column source_sample_registration_id/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /add column wagon_number varchar\(120\) null after sorting_date/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /add column molding_date date null after product_brand/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /update laboratory_sample_registration_journal/u,
+  );
+  assert.match(statements[1] ?? "", /set transmit_to_journal = null/u);
+  assert.match(
+    statements[1] ?? "",
+    /where transmit_to_journal = 'formed_product_sample'/u,
+  );
+  assert.match(
+    statements[2] ?? "",
+    /drop check chk_laboratory_sample_registration_transmit_target/u,
+  );
+  assert.match(
+    statements[2] ?? "",
+    /transmit_to_journal in \( 'unshaped_product_sample', 'verification' \)/u,
+  );
   assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
 });
 

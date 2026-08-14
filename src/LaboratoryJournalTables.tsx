@@ -285,23 +285,28 @@ export function LaboratoryFormedProductSampleTable({
         <tbody>
           {records.map((record) => (
             <tr key={record.id}>
-              {laboratoryFormedProductSampleFields.map((field) => (
-                <td key={field.id}>
-                  {field.id === "sampleCode" && onEditRecord !== undefined
-                    ? (
-                        <button
-                          className="board-assignment-link formed-product-sample-edit-link"
-                          type="button"
-                          onClick={() => onEditRecord(record)}
-                        >
-                          {record.sampleCode}
-                        </button>
-                      )
-                    : field.kind === "date"
-                      ? formatLaboratoryDate(record[field.id])
-                      : record[field.id]}
-                </td>
-              ))}
+              {laboratoryFormedProductSampleFields.map((field) => {
+                const value = record[field.id];
+                return (
+                  <td key={field.id}>
+                    {field.id === "wagonNumber" && onEditRecord !== undefined
+                      ? (
+                          <button
+                            className="board-assignment-link formed-product-sample-edit-link"
+                            type="button"
+                            onClick={() => onEditRecord(record)}
+                          >
+                            {value ?? "—"}
+                          </button>
+                        )
+                      : value === null
+                        ? "—"
+                        : field.kind === "date"
+                          ? formatLaboratoryDate(value)
+                          : value}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>

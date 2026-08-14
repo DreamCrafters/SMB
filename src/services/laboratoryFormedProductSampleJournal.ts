@@ -1,9 +1,8 @@
-import {
-  laboratoryFormedProductSampleFields,
-  type LaboratoryFormedProductSampleCorrection,
-  type LaboratoryFormedProductSampleFilters,
-  type LaboratoryFormedProductSampleRecord,
-  type LaboratoryFormedProductSampleSubmission,
+import type {
+  LaboratoryFormedProductSampleCorrection,
+  LaboratoryFormedProductSampleFilters,
+  LaboratoryFormedProductSampleRecord,
+  LaboratoryFormedProductSampleSubmission,
 } from "../contracts/laboratoryFormedProductSampleJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -13,6 +12,8 @@ import {
 } from "./remoteServer.js";
 
 const JOURNAL_PATH = "/api/laboratory/formed-product-sample-journal";
+const WAGON_LOOKUP_PATH =
+  "/api/laboratory/formed-product-sample-wagon-lookup";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 type ErrorResult = {
@@ -27,6 +28,40 @@ export type LaboratoryFormedProductSampleListResult =
 export type LaboratoryFormedProductSampleSaveResult =
   | { status: "ready"; record: LaboratoryFormedProductSampleRecord }
   | ErrorResult;
+export type LaboratoryFormedProductSampleWagonLookupResult =
+  | { status: "ready"; productBrand: string; moldingDate: string }
+  | ErrorResult;
+
+export async function requestLaboratoryFormedProductSampleWagonLookup(
+  wagonNumber: string,
+  sortingDate: string,
+  options: RequestOptions = {},
+): Promise<LaboratoryFormedProductSampleWagonLookupResult> {
+  const params = new URLSearchParams({ wagonNumber, sortingDate });
+  const result = await requestJson(
+    `${WAGON_LOOKUP_PATH}?${params.toString()}`,
+    "GET",
+    undefined,
+    options,
+  );
+
+  if (result.status === "error") return result;
+  if (
+    !isRecord(result.payload) ||
+    typeof result.payload.productBrand !== "string" ||
+    typeof result.payload.moldingDate !== "string"
+  ) {
+    return invalidResponse(
+      "Сервер вернул марку и дату формовки вагона в неподдерживаемом формате.",
+    );
+  }
+
+  return {
+    status: "ready",
+    productBrand: result.payload.productBrand,
+    moldingDate: result.payload.moldingDate,
+  };
+}
 
 export async function requestLaboratoryFormedProductSampleJournal(
   filters: LaboratoryFormedProductSampleFilters = {},
@@ -140,9 +175,10 @@ function isJournalRecord(
 ): value is LaboratoryFormedProductSampleRecord {
   return isRecord(value) &&
     typeof value.id === "string" &&
-    laboratoryFormedProductSampleFields.every(
-      (field) => typeof value[field.id] === "string",
-    ) &&
+    typeof value.sortingDate === "string" &&
+    (value.wagonNumber === null || typeof value.wagonNumber === "string") &&
+    typeof value.productBrand === "string" &&
+    (value.moldingDate === null || typeof value.moldingDate === "string") &&
     typeof value.createdAt === "string";
 }
 

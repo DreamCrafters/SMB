@@ -51,9 +51,9 @@ type LaboratoryWorkspacePanel =
   | "refractory-shop";
 type CentralLabJournalId =
   | "kiln-journal"
-  | "sample-registration"
   | "chemical-analysis";
 type QualityControlJournalId =
+  | "sample-registration"
   | "unshaped-product-samples"
   | "formed-product-samples"
   | "verifications";
@@ -112,7 +112,6 @@ const centralLabJournals: readonly {
   label: string;
 }[] = [
   { id: "kiln-journal", label: "Журнал печи 2" },
-  { id: "sample-registration", label: "Регистрация проб" },
   { id: "chemical-analysis", label: "Химические анализы" },
 ];
 
@@ -120,6 +119,7 @@ const qualityControlJournals: readonly {
   id: QualityControlJournalId;
   label: string;
 }[] = [
+  { id: "sample-registration", label: "Регистрация проб" },
   { id: "unshaped-product-samples", label: "Пробы неформованной продукции" },
   {
     id: "formed-product-samples",
@@ -602,12 +602,6 @@ export function LaboratoryResultsWorkspace({
             isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
-        ) : centralLabJournal === "sample-registration" ? (
-          <LaboratorySampleRegistrationJournal
-            profile={profile}
-            isAdminPreviewMode={isAdminPreviewMode}
-            onShowToast={onShowToast}
-          />
         ) : (
           <LaboratoryChemicalAnalysisJournal
             profile={profile}
@@ -616,7 +610,13 @@ export function LaboratoryResultsWorkspace({
           />
         )
       ) : activePanel === "quality-control" ? (
-        qualityControlJournal === "unshaped-product-samples" ? (
+        qualityControlJournal === "sample-registration" ? (
+          <LaboratorySampleRegistrationJournal
+            profile={profile}
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        ) : qualityControlJournal === "unshaped-product-samples" ? (
           <LaboratoryUnshapedProductSampleJournal
             profile={profile}
             isAdminPreviewMode={isAdminPreviewMode}

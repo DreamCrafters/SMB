@@ -44,6 +44,7 @@ function validateRecord(
   >();
 
   for (const field of laboratoryFormedProductSampleFields) {
+    if (!field.editable) continue;
     const value = field.kind === "date"
       ? readCalendarDate(input[field.id])
       : readText(input[field.id], maxShortTextLength);
@@ -54,17 +55,6 @@ function validateRecord(
     }
   }
 
-  const sourceSampleRegistrationId = readText(
-    input.sourceSampleRegistrationId,
-    maxShortTextLength,
-  );
-  if (
-    !isMissingOptionalText(input.sourceSampleRegistrationId) &&
-    sourceSampleRegistrationId === undefined
-  ) {
-    errors.push("Проверьте выбранную пробу для трансляции.");
-  }
-
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -73,18 +63,9 @@ function validateRecord(
     ok: true,
     value: {
       sortingDate: values.get("sortingDate")!,
-      sampleCode: values.get("sampleCode")!,
-      productBrand: values.get("productBrand")!,
-      ...(sourceSampleRegistrationId === undefined
-        ? {}
-        : { sourceSampleRegistrationId }),
+      wagonNumber: values.get("wagonNumber")!,
     },
   };
-}
-
-function isMissingOptionalText(value: unknown) {
-  return value === undefined || value === null ||
-    (typeof value === "string" && value.trim() === "");
 }
 
 function readCalendarDate(value: unknown) {

@@ -32,6 +32,13 @@ export type RefractoryWagonReference = Pick<
   "id" | "number" | "productBrand"
 >;
 
+/** Марка и дата формовки гарантированно заполнены — запрос фильтрует null. */
+export type RefractoryWagonSortingReference = {
+  number: string;
+  productBrand: string;
+  pressDate: string;
+};
+
 export type RefractoryWagonsRepository = {
   create: (input: {
     wagon: RefractoryWagonSubmission;
@@ -40,6 +47,15 @@ export type RefractoryWagonsRepository = {
   }) => Promise<RefractoryWagonRecord>;
   list: () => Promise<RefractoryWagonRecord[]>;
   findByIds: (ids: string[]) => Promise<RefractoryWagonReference[]>;
+  /**
+   * Задача 79: журнал проб формованной продукции подтягивает марку и дату
+   * формовки по номеру вагона и дате сортировки того же цикла, а не по
+   * вводимому вручную значению.
+   */
+  findBySortingDate: (input: {
+    number: string;
+    sortingDate: string;
+  }) => Promise<RefractoryWagonSortingReference | undefined>;
   replaceReportLifecycle: (input: {
     sourceReportId: string;
     reportDate: string;
@@ -220,6 +236,31 @@ export function createRefractoryWagonsRepository(
         number: row.wagon_number,
         productBrand: row.product_brand,
       }));
+    },
+
+    async findBySortingDate({ number, sortingDate }) {
+      const [rows] = await pool.query<Array<
+        RowDataPacket & { product_brand: string; press_date: Date | string }
+      >>(
+        `select rw.product_brand, rw.press_date
+        from refractory_wagons rw
+        join refractory_wagon_lifecycle_events sorting
+          on sorting.wagon_id = rw.id and sorting.event_type = 'sorting'
+        where rw.wagon_number = ?
+          and sorting.event_date = ?
+          and rw.product_brand is not null
+          and rw.press_date is not null
+        order by rw.sequence_id desc
+        limit 1`,
+        [number, sortingDate],
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return {
+        number,
+        productBrand: row.product_brand,
+        pressDate: formatOptionalCalendarDate(row.press_date)!,
+      };
     },
 
     async replaceReportLifecycle(input) {

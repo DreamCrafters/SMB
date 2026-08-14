@@ -26,12 +26,12 @@ test("the root row keeps separate CZL, quality control, and refractory groups", 
     ]),
     [
       ["all", "all", "all", "root"],
-      ["sample_registration", "sample_registration", "all", "central-lab"],
       ["chemical_analysis", "chemical_analysis", "all", "central-lab"],
       ["rotary_kiln_2", "rotary_kiln_2", "all", "central-lab"],
       ["unshaped_product_samples", "unshaped_product_samples", "all", "quality-control"],
       ["formed_product_samples", "formed_product_samples", "all", "quality-control"],
       ["verifications", "verifications", "all", "quality-control"],
+      ["sample_registration", "sample_registration", "all", "quality-control"],
       ["raw_material_quality", "raw_material_quality", "all", "refractory-shop"],
       ["green_product_quality", "green_product_quality", "all", "refractory-shop"],
     ],
@@ -43,14 +43,18 @@ test("the root row keeps separate CZL, quality control, and refractory groups", 
   assert.deepEqual(
     laboratoryReviewCentralLabViews.map((view) => view.id),
     [
-      "sample_registration",
       "chemical_analysis",
       "rotary_kiln_2",
     ],
   );
   assert.deepEqual(
     laboratoryReviewQualityControlViews.map((view) => view.id),
-    ["unshaped_product_samples", "formed_product_samples", "verifications"],
+    [
+      "unshaped_product_samples",
+      "formed_product_samples",
+      "verifications",
+      "sample_registration",
+    ],
   );
   assert.deepEqual(
     laboratoryReviewRefractoryShopViews.map((view) => view.id),

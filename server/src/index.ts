@@ -68,6 +68,7 @@ const productBrands = createProductBrandsRepository(pool, {
 const refractoryReports = createRefractoryReportsRepository(pool, {
   readProductBrandMergeAliases: () => productBrands.listMergeAliases(),
 });
+const refractoryWagons = createRefractoryWagonsRepository(pool);
 const laboratorySampleRegistrationJournal =
   createLaboratorySampleRegistrationJournalRepository(pool);
 const claimSampleRegistrationTransmission =
@@ -97,7 +98,7 @@ const server = createApiServer({
   productionBrands: productBrands,
   productBrandJournal: productBrands,
   refractoryReports,
-  refractoryWagons: createRefractoryWagonsRepository(pool),
+  refractoryWagons,
   refractoryWagonInspections: createRefractoryWagonInspectionsRepository(pool),
   laboratoryResults: createLaboratoryResultsRepository(pool),
   laboratoryBankAssignments: createLaboratoryBankAssignmentsRepository(pool),
@@ -112,7 +113,7 @@ const server = createApiServer({
     }),
   laboratoryFormedProductSampleJournal:
     createLaboratoryFormedProductSampleJournalRepository(pool, {
-      claimSampleRegistrationTransmission,
+      refractoryWagons,
     }),
   laboratoryVerificationJournal:
     createLaboratoryVerificationJournalRepository(pool, {

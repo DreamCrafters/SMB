@@ -299,7 +299,10 @@ import {
   type LaboratoryChemicalAnalysisJournalRepository,
 } from "../repositories/laboratoryChemicalAnalysisJournalRepository.js";
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
-import type { LaboratoryFormedProductSampleJournalRepository } from "../repositories/laboratoryFormedProductSampleJournalRepository.js";
+import {
+  LaboratoryFormedProductSampleWagonNotFoundError,
+  type LaboratoryFormedProductSampleJournalRepository,
+} from "../repositories/laboratoryFormedProductSampleJournalRepository.js";
 import type { LaboratoryVerificationJournalRepository } from "../repositories/laboratoryVerificationJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import {
@@ -849,6 +852,8 @@ export function createApiServer({
         laboratoryUnshapedProductSampleRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/formed-product-sample-journal" ||
         laboratoryFormedProductSampleRecordPathPattern.test(url.pathname) ||
+        url.pathname ===
+          "/api/laboratory/formed-product-sample-wagon-lookup" ||
         url.pathname === "/api/laboratory/verification-journal" ||
         laboratoryVerificationRecordPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/raw-material-quality-draft" ||
@@ -884,6 +889,7 @@ export function createApiServer({
           laboratoryGreenProductQualityJournal,
           productionBrands,
           productBrandJournal,
+          refractoryWagons,
           audit,
           databaseTransaction,
           now,
@@ -2771,6 +2777,7 @@ async function handleLaboratoryRequest({
   laboratoryGreenProductQualityJournal,
   productionBrands,
   productBrandJournal,
+  refractoryWagons,
   audit,
   databaseTransaction,
   now,
@@ -2800,6 +2807,7 @@ async function handleLaboratoryRequest({
   laboratoryVerificationJournal:
     | LaboratoryVerificationJournalRepository
     | undefined;
+  refractoryWagons: RefractoryWagonsRepository | undefined;
   laboratoryRawMaterialQualityJournal:
     | LaboratoryRawMaterialQualityJournalRepository
     | undefined;
@@ -4606,6 +4614,74 @@ async function handleLaboratoryRequest({
     return;
   }
 
+  if (url.pathname === "/api/laboratory/formed-product-sample-wagon-lookup") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для поиска вагона используется GET.",
+        },
+      });
+      return;
+    }
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Поиск вагона доступен сотруднику лаборатории.",
+        },
+      });
+      return;
+    }
+    if (refractoryWagons === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище журналов вагонов не настроено.",
+        },
+      });
+      return;
+    }
+
+    const wagonNumber = readOptionalQueryParam(url, "wagonNumber");
+    const sortingDate = readOptionalQueryParam(url, "sortingDate");
+    if (
+      wagonNumber === undefined ||
+      wagonNumber.trim() === "" ||
+      sortingDate === undefined ||
+      !isCalendarDateQueryValue(sortingDate)
+    ) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Укажите номер вагона и дату сортировки.",
+        },
+      });
+      return;
+    }
+
+    const wagon = await refractoryWagons.findBySortingDate({
+      number: wagonNumber.trim(),
+      sortingDate,
+    });
+    if (wagon === undefined) {
+      sendJson(res, 404, {
+        error: {
+          code: "not_found",
+          message:
+            "Вагон с таким номером и датой сортировки не найден в Журнале вагонов.",
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      productBrand: wagon.productBrand,
+      moldingDate: wagon.pressDate,
+    });
+    return;
+  }
+
   if (url.pathname === "/api/laboratory/formed-product-sample-journal") {
     if (laboratoryFormedProductSampleJournal === undefined) {
       sendJson(res, 503, {
@@ -4675,19 +4751,6 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const productReferences = await resolveProductionBrandReferencesForRequest({
-      res,
-      productionBrands,
-      references: [{
-        fieldName: "productBrand",
-        label: validation.value.productBrand,
-      }],
-      logEvent: "formed_product_sample_brands.database_read_failed",
-    });
-    if (productReferences === undefined) return;
-    validation.value.productBrand = productReferences[0]?.label ??
-      validation.value.productBrand;
-
     let saved;
     try {
       saved = await runAuditedMutation({
@@ -4705,20 +4768,21 @@ async function handleLaboratoryRequest({
           summary: "Добавлена запись журнала регистрации проб формованной продукции",
           details: [
             { label: "Дата сортировки", value: record.sortingDate },
-            { label: "Код пробы", value: record.sampleCode },
+            { label: "№ вагона", value: record.wagonNumber ?? "—" },
             { label: "Марка изделия", value: record.productBrand },
+            { label: "Дата формовки", value: record.moldingDate ?? "—" },
           ],
           targetType: "laboratory_formed_product_sample",
           targetId: record.id,
         }),
       });
     } catch (error) {
-      if (error instanceof LaboratorySampleRegistrationTransmissionUnavailableError) {
-        sendJson(res, 409, {
+      if (error instanceof LaboratoryFormedProductSampleWagonNotFoundError) {
+        sendJson(res, 400, {
           error: {
             code: "invalid_response",
             message:
-              "Выбранная проба уже использована для трансляции. Обновите список и выберите другую.",
+              "Вагон с таким номером и датой сортировки не найден в Журнале вагонов.",
           },
         });
         return;
@@ -4775,55 +4839,63 @@ async function handleLaboratoryRequest({
       return;
     }
 
-    const productReferences = await resolveProductionBrandReferencesForRequest({
-      res,
-      productionBrands,
-      references: [{
-        fieldName: "productBrand",
-        label: validation.value.productBrand,
-      }],
-      logEvent: "formed_product_sample_correction_brands.database_read_failed",
-    });
-    if (productReferences === undefined) return;
-    validation.value.productBrand = productReferences[0]?.label ??
-      validation.value.productBrand;
-
     const recordId = formedProductSampleRecordMatch[1];
-    const correction = await runAuditedMutation({
-      transaction: databaseTransaction,
-      audit,
-      mutate: () => laboratoryFormedProductSampleJournal.update({
-        id: recordId,
-        record: validation.value,
-        correctedByUserId: access.profile.userId,
-        correctedByAccountId: access.profile.activeAccess.accountId,
-        correctedByDisplayName: access.profile.displayName,
-      }),
-      buildEvent: (result) => result === undefined
-        ? undefined
-        : {
-            actor: buildAuditActor(access.profile),
-            category: "data_change",
-            action: "laboratory_formed_product_sample.correct",
-            summary: "Исправлена проба формованной продукции",
-            details: [
-              {
-                label: "Дата сортировки",
-                value: `${result.before.sortingDate} → ${result.record.sortingDate}`,
-              },
-              {
-                label: "Код пробы",
-                value: `${result.before.sampleCode} → ${result.record.sampleCode}`,
-              },
-              {
-                label: "Марка изделия",
-                value: `${result.before.productBrand} → ${result.record.productBrand}`,
-              },
-            ],
-            targetType: "laboratory_formed_product_sample",
-            targetId: result.record.id,
+    let correction;
+    try {
+      correction = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => laboratoryFormedProductSampleJournal.update({
+          id: recordId,
+          record: validation.value,
+          correctedByUserId: access.profile.userId,
+          correctedByAccountId: access.profile.activeAccess.accountId,
+          correctedByDisplayName: access.profile.displayName,
+        }),
+        buildEvent: (result) => result === undefined
+          ? undefined
+          : {
+              actor: buildAuditActor(access.profile),
+              category: "data_change",
+              action: "laboratory_formed_product_sample.correct",
+              summary: "Исправлена проба формованной продукции",
+              details: [
+                {
+                  label: "Дата сортировки",
+                  value: `${result.before.sortingDate} → ${result.record.sortingDate}`,
+                },
+                {
+                  label: "№ вагона",
+                  value:
+                    `${result.before.wagonNumber ?? "—"} → ${result.record.wagonNumber ?? "—"}`,
+                },
+                {
+                  label: "Марка изделия",
+                  value: `${result.before.productBrand} → ${result.record.productBrand}`,
+                },
+                {
+                  label: "Дата формовки",
+                  value:
+                    `${result.before.moldingDate ?? "—"} → ${result.record.moldingDate ?? "—"}`,
+                },
+              ],
+              targetType: "laboratory_formed_product_sample",
+              targetId: result.record.id,
+            },
+      });
+    } catch (error) {
+      if (error instanceof LaboratoryFormedProductSampleWagonNotFoundError) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Вагон с таким номером и датой сортировки не найден в Журнале вагонов.",
           },
-    });
+        });
+        return;
+      }
+      throw error;
+    }
     if (correction === undefined) {
       sendJson(res, 404, {
         error: {

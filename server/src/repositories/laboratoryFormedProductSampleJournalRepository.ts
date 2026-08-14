@@ -8,22 +8,30 @@ import type {
 } from "../contracts/laboratoryFormedProductSampleJournal.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
-import {
-  LaboratorySampleRegistrationTransmissionUnavailableError,
-  type ClaimSampleRegistrationTransmission,
-} from "./laboratorySampleRegistrationJournalRepository.js";
+import type { RefractoryWagonsRepository } from "./refractoryWagonsRepository.js";
+
+export class LaboratoryFormedProductSampleWagonNotFoundError extends Error {
+  constructor() {
+    super(
+      "A refractory wagon was not found for the given number and sorting date.",
+    );
+    this.name = "LaboratoryFormedProductSampleWagonNotFoundError";
+  }
+}
 
 type RepositoryFilters = LaboratoryFormedProductSampleFilters & {
   limit?: number;
 };
 
-type CreatedRecord = LaboratoryFormedProductSampleSubmission & {
-  id: string;
-  createdAt: string;
-};
+type CreatedRecord = LaboratoryFormedProductSampleRecord;
+
+type FormedProductSampleSnapshot = Omit<
+  LaboratoryFormedProductSampleRecord,
+  "id" | "createdAt"
+>;
 
 export type LaboratoryFormedProductSampleCorrectionResult = {
-  before: LaboratoryFormedProductSampleCorrection;
+  before: FormedProductSampleSnapshot;
   record: LaboratoryFormedProductSampleRecord;
 };
 
@@ -48,16 +56,16 @@ export type LaboratoryFormedProductSampleJournalRepository = {
 type JournalRow = RowDataPacket & {
   id: string;
   sorting_date: Date | string;
-  sample_code: string;
+  wagon_number: string | null;
   product_brand: string;
-  source_sample_registration_id: string | null;
+  molding_date: Date | string | null;
   created_at: Date | string;
 };
 
 type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
-  claimSampleRegistrationTransmission?: ClaimSampleRegistrationTransmission;
+  refractoryWagons: RefractoryWagonsRepository;
 };
 
 const defaultListLimit = 200;
@@ -65,53 +73,56 @@ const maxListLimit = 500;
 
 export function createLaboratoryFormedProductSampleJournalRepository(
   pool: DatabasePool,
-  {
-    createId = randomUUID,
-    now = () => new Date(),
-    claimSampleRegistrationTransmission,
-  }: RepositoryOptions = {},
+  { createId = randomUUID, now = () => new Date(), refractoryWagons }:
+    RepositoryOptions,
 ): LaboratoryFormedProductSampleJournalRepository {
+  async function resolveWagon(record: LaboratoryFormedProductSampleSubmission) {
+    const wagon = await refractoryWagons.findBySortingDate({
+      number: record.wagonNumber,
+      sortingDate: record.sortingDate,
+    });
+    if (wagon === undefined) {
+      throw new LaboratoryFormedProductSampleWagonNotFoundError();
+    }
+    return { productBrand: wagon.productBrand, moldingDate: wagon.pressDate };
+  }
+
   return {
     async create(input) {
+      const { productBrand, moldingDate } = await resolveWagon(input.record);
       const id = createId();
       const createdAt = now().toISOString();
-      const record = input.record;
-
-      if (record.sourceSampleRegistrationId !== undefined) {
-        const claim = await claimSampleRegistrationTransmission?.({
-          sampleRegistrationId: record.sourceSampleRegistrationId,
-          target: "formed_product_sample",
-          targetRecordId: id,
-        });
-        if (claim === undefined || !claim.ok) {
-          throw new LaboratorySampleRegistrationTransmissionUnavailableError();
-        }
-      }
 
       await pool.query(
         `insert into laboratory_formed_product_sample_journal (
           id,
           sorting_date,
-          sample_code,
+          wagon_number,
           product_brand,
-          source_sample_registration_id,
+          molding_date,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
         ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
-          record.sortingDate,
-          record.sampleCode,
-          record.productBrand,
-          record.sourceSampleRegistrationId ?? null,
+          input.record.sortingDate,
+          input.record.wagonNumber,
+          productBrand,
+          moldingDate,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
         ],
       );
 
-      return { id, ...record, createdAt };
+      return {
+        id,
+        ...input.record,
+        productBrand,
+        moldingDate,
+        createdAt,
+      };
     },
 
     async update(input) {
@@ -119,9 +130,9 @@ export function createLaboratoryFormedProductSampleJournalRepository(
         `select
           id,
           sorting_date,
-          sample_code,
+          wagon_number,
           product_brand,
-          source_sample_registration_id,
+          molding_date,
           created_at
         from laboratory_formed_product_sample_journal
         where id = ?
@@ -133,24 +144,26 @@ export function createLaboratoryFormedProductSampleJournalRepository(
       if (current === undefined) return undefined;
 
       const before = mapSnapshot(current);
+      const { productBrand, moldingDate } = await resolveWagon(input.record);
       const correctedAt = now().toISOString();
       const after: LaboratoryFormedProductSampleCorrection = {
         sortingDate: input.record.sortingDate,
-        sampleCode: input.record.sampleCode,
-        productBrand: input.record.productBrand,
+        wagonNumber: input.record.wagonNumber,
       };
 
       await pool.query(
         `update laboratory_formed_product_sample_journal
         set
           sorting_date = ?,
-          sample_code = ?,
-          product_brand = ?
+          wagon_number = ?,
+          product_brand = ?,
+          molding_date = ?
         where id = ?`,
         [
           input.record.sortingDate,
-          input.record.sampleCode,
-          input.record.productBrand,
+          input.record.wagonNumber,
+          productBrand,
+          moldingDate,
           input.id,
         ],
       );
@@ -169,7 +182,7 @@ export function createLaboratoryFormedProductSampleJournalRepository(
           createId(),
           input.id,
           JSON.stringify(before),
-          JSON.stringify(after),
+          JSON.stringify({ ...after, productBrand, moldingDate }),
           input.correctedByUserId,
           input.correctedByAccountId,
           input.correctedByDisplayName,
@@ -182,12 +195,8 @@ export function createLaboratoryFormedProductSampleJournalRepository(
         record: {
           id: input.id,
           ...after,
-          ...(current.source_sample_registration_id === null
-            ? {}
-            : {
-                sourceSampleRegistrationId:
-                  current.source_sample_registration_id,
-              }),
+          productBrand,
+          moldingDate,
           createdAt: new Date(current.created_at).toISOString(),
         },
       };
@@ -207,7 +216,7 @@ export function createLaboratoryFormedProductSampleJournalRepository(
       }
       if (filters.query !== undefined) {
         clauses.push(`instr(
-          concat_ws(' ', sample_code, product_brand),
+          concat_ws(' ', wagon_number, product_brand),
           ?
         ) > 0`);
         parameters.push(filters.query);
@@ -226,9 +235,9 @@ export function createLaboratoryFormedProductSampleJournalRepository(
         `select
           id,
           sorting_date,
-          sample_code,
+          wagon_number,
           product_brand,
-          source_sample_registration_id,
+          molding_date,
           created_at
         from laboratory_formed_product_sample_journal
         ${where}
@@ -244,11 +253,12 @@ export function createLaboratoryFormedProductSampleJournalRepository(
 
 function mapSnapshot(
   row: JournalRow,
-): LaboratoryFormedProductSampleCorrection {
+): FormedProductSampleSnapshot {
   return {
     sortingDate: formatDate(row.sorting_date),
-    sampleCode: row.sample_code,
+    wagonNumber: row.wagon_number,
     productBrand: row.product_brand,
+    moldingDate: formatOptionalDate(row.molding_date),
   };
 }
 
@@ -256,9 +266,6 @@ function mapRecord(row: JournalRow): LaboratoryFormedProductSampleRecord {
   return {
     id: row.id,
     ...mapSnapshot(row),
-    ...(row.source_sample_registration_id === null
-      ? {}
-      : { sourceSampleRegistrationId: row.source_sample_registration_id }),
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -267,4 +274,8 @@ function formatDate(value: Date | string) {
   return typeof value === "string"
     ? value.slice(0, 10)
     : value.toISOString().slice(0, 10);
+}
+
+function formatOptionalDate(value: Date | string | null) {
+  return value === null ? null : formatDate(value);
 }

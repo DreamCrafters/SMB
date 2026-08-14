@@ -2534,6 +2534,9 @@ test("refractory wagon journal creates real wagon options for green product qual
         .filter((wagon) => ids.includes(wagon.id))
         .map(({ id, number, productBrand }) => ({ id, number, productBrand }));
     },
+    async findBySortingDate() {
+      return undefined;
+    },
     async replaceReportLifecycle() {},
     async create(input) {
       if (input.wagon.number === "В-16") {
@@ -9777,6 +9780,9 @@ test("refractory reports are submitted and reviewed independently through protec
           number: wagon.number,
           productBrand: wagon.productBrand,
         }));
+    },
+    async findBySortingDate() {
+      return undefined;
     },
     async replaceReportLifecycle(input) {
       savedLifecycle = input;

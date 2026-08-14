@@ -2,29 +2,19 @@ import { useEffect, useState, type FormEvent } from "react";
 import {
   laboratoryFormedProductSampleFields,
   type LaboratoryFormedProductSampleRecord,
-  type LaboratoryFormedProductSampleSubmission,
-  type LaboratorySampleRegistrationTransmissionOption,
 } from "./contracts";
 import { LaboratoryFormedProductSampleTable } from "./LaboratoryJournalTables";
 import { LoadingIndicator } from "./LoadingIndicator";
-import { ProductBrandPicker } from "./ProductBrandPicker";
-import { SampleRegistrationTransmissionPicker } from "./SampleRegistrationTransmissionPicker";
 import {
   correctLaboratoryFormedProductSampleRecord,
   requestLaboratoryFormedProductSampleJournal,
+  requestLaboratoryFormedProductSampleWagonLookup,
   submitLaboratoryFormedProductSampleRecord,
 } from "./services/laboratoryFormedProductSampleJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
-import { useProductionBrands } from "./useProductionBrands";
 
-type FormState = Record<
-  Exclude<
-    keyof LaboratoryFormedProductSampleSubmission,
-    "sourceSampleRegistrationId"
-  >,
-  string
->;
+type FormState = { sortingDate: string; wagonNumber: string };
 type HistoryState =
   | { status: "loading"; records: LaboratoryFormedProductSampleRecord[] }
   | { status: "ready"; records: LaboratoryFormedProductSampleRecord[] }
@@ -33,6 +23,11 @@ type HistoryState =
       message: string;
       records: LaboratoryFormedProductSampleRecord[];
     };
+type WagonLookupState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; productBrand: string; moldingDate: string }
+  | { status: "error"; message: string };
 
 export function LaboratoryFormedProductSampleJournal({
   isAdminPreviewMode,
@@ -53,10 +48,9 @@ export function LaboratoryFormedProductSampleJournal({
   const [formMessage, setFormMessage] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const [sourceSampleRegistrationId, setSourceSampleRegistrationId] =
-    useState<string>();
-  const { labels: productBrands, loadState: productBrandsLoadState } =
-    useProductionBrands();
+  const [wagonLookup, setWagonLookup] = useState<WagonLookupState>({
+    status: "idle",
+  });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -84,25 +78,40 @@ export function LaboratoryFormedProductSampleJournal({
     return () => controller.abort();
   }, [dateFrom, dateTo, query, refreshVersion]);
 
+  useEffect(() => {
+    const wagonNumber = form.wagonNumber.trim();
+    const sortingDate = form.sortingDate;
+    if (wagonNumber === "" || sortingDate === "") {
+      setWagonLookup({ status: "idle" });
+      return;
+    }
+    const controller = new AbortController();
+    setWagonLookup({ status: "loading" });
+    requestLaboratoryFormedProductSampleWagonLookup(
+      wagonNumber,
+      sortingDate,
+      { signal: controller.signal },
+    ).then((result) => {
+      if (controller.signal.aborted) return;
+      setWagonLookup(result.status === "ready"
+        ? {
+            status: "ready",
+            productBrand: result.productBrand,
+            moldingDate: result.moldingDate,
+          }
+        : {
+            status: "error",
+            message: readShortUserMessage(
+              result.message,
+              "Вагон с таким номером и датой сортировки не найден.",
+            ),
+          });
+    });
+    return () => controller.abort();
+  }, [form.wagonNumber, form.sortingDate]);
+
   function updateField(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
-    setFormMessage("");
-  }
-
-  function selectTransmission(
-    option: LaboratorySampleRegistrationTransmissionOption | undefined,
-  ) {
-    setSourceSampleRegistrationId(option?.id);
-    if (option === undefined) return;
-    setForm((current) => ({
-      ...current,
-      sampleCode: current.sampleCode === ""
-        ? option.laboratorySampleCode
-        : current.sampleCode,
-      productBrand: current.productBrand === ""
-        ? option.sampleName
-        : current.productBrand,
-    }));
     setFormMessage("");
   }
 
@@ -110,8 +119,8 @@ export function LaboratoryFormedProductSampleJournal({
     event.preventDefault();
     if (isAdminPreviewMode) return;
 
-    const submission = buildFormRecord(form, sourceSampleRegistrationId);
-    if (submission === undefined) {
+    const submission = buildFormRecord(form);
+    if (submission === undefined || wagonLookup.status !== "ready") {
       setFormMessage("Заполните все обязательные поля.");
       return;
     }
@@ -139,7 +148,7 @@ export function LaboratoryFormedProductSampleJournal({
     setRefreshVersion((value) => value + 1);
     onShowToast(
       wasEditing ? "Проба исправлена" : "Запись сохранена",
-      `${result.record.sampleCode} · ${result.record.productBrand}.`,
+      `${result.record.wagonNumber ?? "—"} · ${result.record.productBrand}.`,
       "success",
     );
   }
@@ -148,15 +157,13 @@ export function LaboratoryFormedProductSampleJournal({
     setEditingRecordId(record.id);
     setForm({
       sortingDate: record.sortingDate,
-      sampleCode: record.sampleCode,
-      productBrand: record.productBrand,
+      wagonNumber: record.wagonNumber ?? "",
     });
     setFormMessage("");
   }
 
   function resetForm() {
     setEditingRecordId(undefined);
-    setSourceSampleRegistrationId(undefined);
     setForm(createEmptyForm());
   }
 
@@ -171,39 +178,14 @@ export function LaboratoryFormedProductSampleJournal({
           <h2>Регистрация проб готовой формованной продукции (кирпича)</h2>
           {editingRecordId === undefined
             ? null
-            : <p>Редактирование пробы {form.sampleCode}</p>}
+            : <p>Редактирование пробы {form.wagonNumber}</p>}
         </div>
-
-        {editingRecordId === undefined
-          ? (
-              <SampleRegistrationTransmissionPicker
-                disabled={isAdminPreviewMode}
-                target="formed_product_sample"
-                onSelect={selectTransmission}
-              />
-            )
-          : null}
 
         <section className="sample-registration-journal-section">
           <h3>Регистрация пробы</h3>
           <div className="laboratory-form-grid">
             {laboratoryFormedProductSampleFields.map((field) => {
-              if (field.id === "productBrand") {
-                return (
-                  <label key={field.id}>
-                    <span>{field.label}</span>
-                    <ProductBrandPicker
-                      ariaLabel={field.label}
-                      disabled={isAdminPreviewMode ||
-                        productBrandsLoadState.status !== "ready"}
-                      labels={productBrands}
-                      name={field.id}
-                      value={form.productBrand}
-                      onChange={(value) => updateField("productBrand", value)}
-                    />
-                  </label>
-                );
-              }
+              if (!field.editable) return null;
               return (
                 <label key={field.id}>
                   <span>{field.label}</span>
@@ -211,23 +193,45 @@ export function LaboratoryFormedProductSampleJournal({
                     required
                     maxLength={field.kind === "text" ? 120 : undefined}
                     type={field.kind === "date" ? "date" : "text"}
-                    value={form[field.id]}
+                    value={form[field.id as keyof FormState]}
                     onChange={(event) => {
                       const value = event.currentTarget.value;
-                      updateField(field.id, value);
+                      updateField(field.id as keyof FormState, value);
                     }}
                   />
                 </label>
               );
             })}
+            <label>
+              <span>Марка изделия</span>
+              <input
+                disabled
+                placeholder="Определится по вагону и дате сортировки"
+                value={wagonLookup.status === "ready"
+                  ? wagonLookup.productBrand
+                  : ""}
+              />
+            </label>
+            <label>
+              <span>Дата формовки</span>
+              <input
+                disabled
+                placeholder="Определится по вагону и дате сортировки"
+                value={wagonLookup.status === "ready"
+                  ? wagonLookup.moldingDate
+                  : ""}
+              />
+            </label>
           </div>
-          {productBrandsLoadState.status === "error"
-            ? (
-                <p className="form-message is-error" role="alert">
-                  {productBrandsLoadState.message}
-                </p>
-              )
-            : null}
+          {wagonLookup.status === "loading"
+            ? <LoadingIndicator label="Ищем вагон…" variant="inline" />
+            : wagonLookup.status === "error"
+              ? (
+                  <p className="form-message is-error" role="alert">
+                    {wagonLookup.message}
+                  </p>
+                )
+              : null}
         </section>
 
         <div className="laboratory-form-actions">
@@ -236,7 +240,7 @@ export function LaboratoryFormedProductSampleJournal({
             disabled={
               isAdminPreviewMode ||
               isSubmitting ||
-              productBrandsLoadState.status !== "ready"
+              wagonLookup.status !== "ready"
             }
             type="submit"
           >
@@ -296,7 +300,7 @@ export function LaboratoryFormedProductSampleJournal({
               <span>Поиск</span>
               <input
                 maxLength={120}
-                placeholder="Код пробы или марка"
+                placeholder="Номер вагона или марка"
                 value={query}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
@@ -323,26 +327,14 @@ export function LaboratoryFormedProductSampleJournal({
 function createEmptyForm(): FormState {
   return {
     sortingDate: "",
-    sampleCode: "",
-    productBrand: "",
+    wagonNumber: "",
   };
 }
 
-function buildFormRecord(
-  form: FormState,
-  sourceSampleRegistrationId: string | undefined,
-): LaboratoryFormedProductSampleSubmission | undefined {
-  const requiredFields = ["sortingDate", "sampleCode", "productBrand"] as const;
-  if (requiredFields.some((field) => form[field].trim() === "")) {
-    return undefined;
-  }
+function buildFormRecord(form: FormState) {
+  const sortingDate = form.sortingDate;
+  const wagonNumber = form.wagonNumber.trim();
+  if (sortingDate === "" || wagonNumber === "") return undefined;
 
-  return {
-    sortingDate: form.sortingDate,
-    sampleCode: form.sampleCode.trim(),
-    productBrand: form.productBrand.trim(),
-    ...(sourceSampleRegistrationId === undefined
-      ? {}
-      : { sourceSampleRegistrationId }),
-  };
+  return { sortingDate, wagonNumber };
 }

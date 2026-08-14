@@ -192,8 +192,9 @@ test("laboratory review filters every journal by date and nomenclature", async (
           records: [{
             id: "formed-sample-1",
             sortingDate: "2026-07-24",
-            sampleCode: "26.19",
+            wagonNumber: "214",
             productBrand: "ШКИ-66",
+            moldingDate: "2026-07-20",
             createdAt: "2026-07-24T08:30:00.000Z",
           }],
         });
@@ -473,7 +474,6 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "ЦЗЛ (Центральная заводская лаборатория)",
       "ОТК",
       "ОЦ (Огнеупорный цех)",
-      "Регистрация проб",
       "Химические анализы",
       "Журнал печи 2",
     ]);
@@ -522,6 +522,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
       "Пробы неформованной продукции",
       "Регистрация проб формованной продукции (кирпича)",
       "Верификации",
+      "Регистрация проб",
     ]);
     assert.deepEqual(readJournalTitles(container), [
       "Пробы неформованной продукции",

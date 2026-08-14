@@ -1123,7 +1123,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
 
     const kilnJournalTab = findTabByText("Журнал печи 2");
     assert.ok(kilnJournalTab);
-    assert.ok(findTabByText("Регистрация проб"));
+    assert.equal(findTabByText("Регистрация проб"), undefined);
     assert.ok(findTabByText("Химические анализы"));
     assert.equal(findTabByText("Пробы неформованной продукции"), undefined);
     await React.act(async () => kilnJournalTab.click());
@@ -1446,6 +1446,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       kilnJournalRequests.some((request) => request.query === "Петров")
     );
 
+    await React.act(async () => qualityControlTab.click());
     const sampleRegistrationTab = Array.from(
       rootElement.querySelectorAll("button"),
     ).find(
@@ -1700,6 +1701,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
         samplingLocationInput.value === "Пункт контроля № 2"
     );
 
+    await React.act(async () => centralLabTab.click());
     const chemicalAnalysisTab = Array.from(
       rootElement.querySelectorAll("button"),
     ).find(
@@ -2216,6 +2218,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.match(protocolPreview.location.href, /^blob:/u);
 
     await React.act(async () => qualityControlTab.click());
+    assert.ok(findTabByText("Регистрация проб"));
     const unshapedSamplesTab = Array.from(
       rootElement.querySelectorAll("button"),
     ).find(
@@ -2716,11 +2719,11 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     sampleRegistrationLocationsDelay = new Promise((resolve) => {
       resolveStaleSamplingLocations = resolve;
     });
-    const centralLaboratoryTab = Array.from(
+    const reopenedQualityControlTab = Array.from(
       rootElement.querySelectorAll("button"),
-    ).find((button) => button.textContent?.trim().startsWith("ЦЗЛ"));
-    assert.ok(centralLaboratoryTab);
-    await React.act(async () => centralLaboratoryTab.click());
+    ).find((button) => button.textContent?.trim() === "ОТК");
+    assert.ok(reopenedQualityControlTab);
+    await React.act(async () => reopenedQualityControlTab.click());
     const reopenedSampleRegistrationTab = Array.from(
       rootElement.querySelectorAll("button"),
     ).find((button) => button.textContent?.trim() === "Регистрация проб");
@@ -2743,7 +2746,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       reopenedSampleRegistrationForm,
       "Место отбора пробы",
     );
-    await waitFor(React, () => sampleRegistrationLocationRequests === 3);
+    await waitFor(React, () => sampleRegistrationLocationRequests === 4);
     assert.equal(reopenedSamplingLocationInput.value, "");
     await waitFor(React, () =>
       findControlByLabel(reopenedSampleRegistrationForm, "№ пробы").value ===
