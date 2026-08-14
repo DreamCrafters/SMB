@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { RefractoryWagonRecord } from "./contracts/refractoryWagons";
+import {
+  selectLatestWagonCycles,
+  type RefractoryWagonRecord,
+} from "./contracts/refractoryWagons";
 import { mergeLaboratoryJournalOptions } from "./laboratoryJournalOptions";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ProductBrandPicker } from "./ProductBrandPicker";
@@ -152,11 +155,13 @@ export function RefractoryWagonJournal({
     wagons,
     (wagon) => wagon.pressOperator,
   );
-  const sortedWagonNumbers = [...wagons]
+  // Один номер вагона теперь может встречаться в нескольких строках истории
+  // (по одной на цикл), поэтому список для выбора берёт только текущий цикл.
+  const sortedWagonNumbers = selectLatestWagonCycles(wagons)
+    .map((wagon) => wagon.number)
     .sort((first, second) =>
-      first.number.localeCompare(second.number, "ru", { numeric: true })
-    )
-    .map((wagon) => wagon.number);
+      first.localeCompare(second, "ru", { numeric: true })
+    );
 
   return (
     <section

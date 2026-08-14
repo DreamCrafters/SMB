@@ -3611,6 +3611,48 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "066_refractory_wagon_turnover_cycles",
+    statements: [
+      `
+      create table if not exists refractory_wagon_catalog (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        wagon_number varchar(120) not null,
+        submitted_by_user_id varchar(120) null,
+        submitted_by_account_id varchar(120) null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_refractory_wagon_catalog_id (id),
+        unique key uq_refractory_wagon_catalog_number (wagon_number)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      insert into refractory_wagon_catalog (
+        id, wagon_number, submitted_by_user_id, submitted_by_account_id, created_at
+      )
+      select id, wagon_number, submitted_by_user_id, submitted_by_account_id, created_at
+      from refractory_wagons;
+      `,
+      `
+      alter table refractory_wagons
+        add column catalog_wagon_id char(36) null after id;
+      `,
+      `
+      update refractory_wagons set catalog_wagon_id = id
+      where catalog_wagon_id is null;
+      `,
+      `
+      alter table refractory_wagons
+        modify column catalog_wagon_id char(36) not null,
+        drop index uq_refractory_wagons_number,
+        add key idx_refractory_wagons_number (wagon_number, sequence_id),
+        add key idx_refractory_wagons_catalog_wagon (catalog_wagon_id),
+        add constraint fk_refractory_wagons_catalog_wagon
+          foreign key (catalog_wagon_id) references refractory_wagon_catalog (id)
+            on delete restrict;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

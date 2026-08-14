@@ -37,6 +37,7 @@ type InspectionRow = RowDataPacket & {
 
 type WagonStateRow = RowDataPacket & {
   id: string;
+  catalog_wagon_id: string;
   wagon_number: string;
   post_firing_condition: string | null;
   service_approval_date: Date | string | null;
@@ -80,7 +81,8 @@ export function createRefractoryWagonInspectionsRepository(
 
     async create(input) {
       const [wagonRows] = await pool.query<WagonStateRow[]>(
-        `select id, wagon_number, post_firing_condition, service_approval_date
+        `select id, catalog_wagon_id, wagon_number, post_firing_condition,
+          service_approval_date
         from refractory_wagons
         where id = ?
         limit 1
@@ -146,6 +148,30 @@ export function createRefractoryWagonInspectionsRepository(
           input.inspection.wagonId,
         ],
       );
+
+      // Одобренный вагон сразу готов к новому циклу: заводим для него пустую
+      // строку в «Обороте вагонов», а не переиспользуем старую (её садка,
+      // марка и прочие поля остаются историей завершённого цикла).
+      if (input.inspection.condition === "Можно эксплуатировать") {
+        await pool.query(
+          `insert into refractory_wagons (
+            id,
+            catalog_wagon_id,
+            wagon_number,
+            submitted_by_user_id,
+            submitted_by_account_id,
+            created_at
+          ) values (?, ?, ?, ?, ?, ?)`,
+          [
+            createId(),
+            wagon.catalog_wagon_id,
+            wagon.wagon_number,
+            input.inspectedByUserId,
+            input.inspectedByAccountId,
+            createdAt,
+          ],
+        );
+      }
 
       return {
         id,

@@ -10,6 +10,7 @@ import {
   type RefractoryReportSubmission,
   type RefractoryReportType,
   type RefractoryShiftNumber,
+  selectLatestWagonCycles,
   type RefractoryWagonRecord,
   type ServerUserProfile,
 } from "./contracts";
@@ -1524,7 +1525,9 @@ function FiringForm({
     requestRefractoryWagons({ signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
-        setWagonOptions(result.wagons);
+        // Один номер вагона может встречаться в нескольких циклах истории;
+        // для обжига/сортировки предлагаем только текущий.
+        setWagonOptions(selectLatestWagonCycles(result.wagons));
         setWagonLoadState("ready");
       } else {
         setWagonLoadState("error");

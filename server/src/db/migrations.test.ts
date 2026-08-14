@@ -22,6 +22,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "063_formed_product_sample_journal",
   "064_verification_journal",
   "065_laboratory_raw_material_quality_measurement_tables",
+  "066_refractory_wagon_turnover_cycles",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2754,6 +2755,73 @@ test("raw material quality measurement tables migration adds json rows and backf
     /check \(shift_code in \('day', 'night', 'day_short'\)\)/u,
   );
   assert.equal(statements[8], "insert into schema_migrations (id) values (?)");
+});
+
+test("wagon turnover cycles migration splits the catalog from per-cycle rows", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "066_refractory_wagon_turnover_cycles" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 6);
+  assert.match(
+    statements[0] ?? "",
+    /create table if not exists refractory_wagon_catalog/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /unique key uq_refractory_wagon_catalog_number \(wagon_number\)/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /insert into refractory_wagon_catalog/u,
+  );
+  assert.match(statements[1] ?? "", /from refractory_wagons/u);
+  assert.match(
+    statements[2] ?? "",
+    /add column catalog_wagon_id char\(36\) null after id/u,
+  );
+  assert.match(
+    statements[3] ?? "",
+    /update refractory_wagons set catalog_wagon_id = id/u,
+  );
+  assert.match(
+    statements[4] ?? "",
+    /drop index uq_refractory_wagons_number/u,
+  );
+  assert.match(
+    statements[4] ?? "",
+    /add key idx_refractory_wagons_number \(wagon_number, sequence_id\)/u,
+  );
+  assert.match(
+    statements[4] ?? "",
+    /foreign key \(catalog_wagon_id\) references refractory_wagon_catalog \(id\)/u,
+  );
+  assert.equal(statements[5], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

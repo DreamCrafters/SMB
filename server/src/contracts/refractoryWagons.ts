@@ -86,3 +86,23 @@ export function isRefractoryWagonAvailableForLoading(
 ) {
   return wagon.postFiringCondition !== "В ремонт";
 }
+
+/**
+ * Одобренный вагон сразу заводит новую пустую строку в `Обороте вагонов`, а
+ * старая остаётся историей завершённого цикла — поэтому один номер вагона
+ * может быть представлен несколькими записями. Список от сервера уже
+ * отсортирован по убыванию `sequence_id`, значит первая встреченная запись
+ * номера и есть его текущий цикл.
+ */
+export function selectLatestWagonCycles(
+  wagons: readonly RefractoryWagonRecord[],
+): RefractoryWagonRecord[] {
+  const seenNumbers = new Set<string>();
+  const latestCycles: RefractoryWagonRecord[] = [];
+  for (const wagon of wagons) {
+    if (seenNumbers.has(wagon.number)) continue;
+    seenNumbers.add(wagon.number);
+    latestCycles.push(wagon);
+  }
+  return latestCycles;
+}

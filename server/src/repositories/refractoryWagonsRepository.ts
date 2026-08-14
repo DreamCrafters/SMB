@@ -70,6 +70,7 @@ export type RefractoryWagonCorrectionResult = {
 
 type WagonRow = RowDataPacket & {
   id: string;
+  catalog_wagon_id?: string;
   wagon_number: string;
   loading_date: Date | string | null;
   product_brand: string | null;
@@ -105,32 +106,21 @@ export function createRefractoryWagonsRepository(
 ): RefractoryWagonsRepository {
   return {
     async create(input) {
+      const catalogId = createId();
       const id = createId();
       const createdAt = now().toISOString();
       try {
         await pool.query(
-          `insert into refractory_wagons (
+          `insert into refractory_wagon_catalog (
             id,
             wagon_number,
-            loading_date,
-            product_brand,
-            press_date,
-            piece_count,
-            setter_name,
-            press_operator,
             submitted_by_user_id,
             submitted_by_account_id,
             created_at
-          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) values (?, ?, ?, ?, ?)`,
           [
-            id,
+            catalogId,
             input.wagon.number,
-            input.wagon.loadingDate,
-            input.wagon.productBrand,
-            input.wagon.pressDate,
-            input.wagon.pieceCount,
-            input.wagon.setter,
-            input.wagon.pressOperator,
             input.submittedByUserId,
             input.submittedByAccountId,
             createdAt,
@@ -142,6 +132,40 @@ export function createRefractoryWagonsRepository(
         }
         throw error;
       }
+
+      // Первый цикл нового физического вагона: та же запись, что и раньше,
+      // плюс ссылка на каталожную запись, которая единственная держит
+      // уникальность номера.
+      await pool.query(
+        `insert into refractory_wagons (
+          id,
+          catalog_wagon_id,
+          wagon_number,
+          loading_date,
+          product_brand,
+          press_date,
+          piece_count,
+          setter_name,
+          press_operator,
+          submitted_by_user_id,
+          submitted_by_account_id,
+          created_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          catalogId,
+          input.wagon.number,
+          input.wagon.loadingDate,
+          input.wagon.productBrand,
+          input.wagon.pressDate,
+          input.wagon.pieceCount,
+          input.wagon.setter,
+          input.wagon.pressOperator,
+          input.submittedByUserId,
+          input.submittedByAccountId,
+          createdAt,
+        ],
+      );
 
       return {
         id,
@@ -297,6 +321,7 @@ export function createRefractoryWagonsRepository(
       const [rows] = await pool.query<WagonRow[]>(
         `select
           id,
+          catalog_wagon_id,
           wagon_number,
           loading_date,
           product_brand,
@@ -322,6 +347,14 @@ export function createRefractoryWagonsRepository(
       const lifecycle = await loadLifecycle(pool, [input.id]);
       const before = mapWagonRow(row, lifecycle.get(input.id));
       try {
+        // Уникальность номера держит только каталог, поэтому переименование
+        // проверяем и фиксируем там же, до правки самого цикла.
+        if (input.wagon.number !== row.wagon_number) {
+          await pool.query(
+            `update refractory_wagon_catalog set wagon_number = ? where id = ?`,
+            [input.wagon.number, row.catalog_wagon_id],
+          );
+        }
         await pool.query(
           `update refractory_wagons
           set wagon_number = ?, loading_date = ?, product_brand = ?,

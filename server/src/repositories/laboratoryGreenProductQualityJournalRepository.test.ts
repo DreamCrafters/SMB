@@ -316,7 +316,10 @@ test("green product quality repository lists people from history and wagons from
   assert.match(queries[0] ?? "", /group by setter_name/u);
   assert.match(queries[0] ?? "", /group by press_operator/u);
   assert.match(queries[0] ?? "", /order by option_type asc, last_used_at desc, value asc/u);
-  assert.match(queries[1] ?? "", /order by loading_date desc, sequence_id desc/u);
+  assert.match(
+    queries[1] ?? "",
+    /order by loading_date desc, wagon\.sequence_id desc/u,
+  );
   // Вагон в ремонте не предлагается лаборанту для новой садки.
   assert.match(queries[1] ?? "", /post_firing_condition is null or post_firing_condition <> \?/u);
 });

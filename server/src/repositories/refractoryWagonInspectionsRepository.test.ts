@@ -20,7 +20,12 @@ function buildPool(
       if (/from refractory_wagons/u.test(sql)) {
         return [wagon === undefined
           ? []
-          : [{ id: "wagon-17", wagon_number: "В-17", ...wagon }], []];
+          : [{
+              id: "wagon-17",
+              catalog_wagon_id: "catalog-17",
+              wagon_number: "В-17",
+              ...wagon,
+            }], []];
       }
       if (/from refractory_wagon_lifecycle_events/u.test(sql)) {
         return [[{ sorting_date: sortingDate }], []];
@@ -78,6 +83,41 @@ test("wagon inspection stores the verdict and writes it into the wagon", async (
     "2026-08-12",
     "wagon-17",
   ]);
+  // Одобренный вагон сразу получает пустую строку нового цикла в обороте.
+  assert.match(queries[4]?.sql ?? "", /insert into refractory_wagons/u);
+  assert.deepEqual(queries[4]?.parameters, [
+    "inspection-1",
+    "catalog-17",
+    "В-17",
+    "refractory-user",
+    "refractory-account",
+    "2026-08-12T09:00:00.000Z",
+  ]);
+});
+
+test("wagon inspection sent to repair does not start a new turnover cycle", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = buildPool(
+    { post_firing_condition: null, service_approval_date: null },
+    "2026-08-11",
+    queries,
+  );
+  const repository = createRefractoryWagonInspectionsRepository(pool, {
+    createId: () => "inspection-1",
+    now: () => new Date("2026-08-12T09:00:00.000Z"),
+  });
+
+  await repository.create({
+    inspection: {
+      wagonId: "wagon-17",
+      condition: "В ремонт",
+      approvalDate: "2026-08-12",
+    },
+    ...inspectedBy,
+  });
+
+  assert.equal(queries.length, 4);
+  assert.match(queries[3]?.sql ?? "", /update refractory_wagons/u);
 });
 
 test("wagon inspection reopens after a new sorting and returns a repaired wagon", async () => {

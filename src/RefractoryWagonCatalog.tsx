@@ -97,7 +97,7 @@ export function RefractoryWagonCatalog({
     );
   }
 
-  const sortedWagons = [...wagons].sort((first, second) =>
+  const sortedWagons = summarizeWagonsByNumber(wagons).sort((first, second) =>
     first.number.localeCompare(second.number, "ru", { numeric: true })
   );
 
@@ -158,10 +158,10 @@ export function RefractoryWagonCatalog({
             </thead>
             <tbody>
               {sortedWagons.map((wagon) => (
-                <tr key={wagon.id}>
+                <tr key={wagon.number}>
                   <td>{wagon.number}</td>
-                  <td>{wagon.firingDates.length}</td>
-                  <td>{wagon.postFiringCondition ?? "—"}</td>
+                  <td>{wagon.firingCount}</td>
+                  <td>{wagon.currentCondition ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -170,4 +170,37 @@ export function RefractoryWagonCatalog({
       )}
     </section>
   );
+}
+
+type WagonCatalogSummary = {
+  number: string;
+  firingCount: number;
+  currentCondition: string | null;
+};
+
+/**
+ * Одобренный вагон заводит новую пустую строку в `Обороте вагонов`, поэтому
+ * список записей содержит несколько циклов на один физический номер.
+ * Каталог сворачивает их в одну строку на номер: счётчик обжига суммирует
+ * все циклы, а текущее состояние берёт самый новый (записи от сервера
+ * упорядочены по убыванию `sequence_id`, значит первая встреченная запись
+ * номера и есть его текущий цикл).
+ */
+function summarizeWagonsByNumber(
+  wagons: RefractoryWagonRecord[],
+): WagonCatalogSummary[] {
+  const summaryByNumber = new Map<string, WagonCatalogSummary>();
+  for (const wagon of wagons) {
+    const existing = summaryByNumber.get(wagon.number);
+    if (existing === undefined) {
+      summaryByNumber.set(wagon.number, {
+        number: wagon.number,
+        firingCount: wagon.firingDates.length,
+        currentCondition: wagon.postFiringCondition,
+      });
+    } else {
+      existing.firingCount += wagon.firingDates.length;
+    }
+  }
+  return [...summaryByNumber.values()];
 }

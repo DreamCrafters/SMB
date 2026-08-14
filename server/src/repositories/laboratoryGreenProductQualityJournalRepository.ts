@@ -294,20 +294,28 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         ) options
         order by option_type asc, last_used_at desc, value asc`,
       );
-      // Вагон в ремонте недоступен для новой садки, пока осмотр его не вернёт.
+      // Каждый вагон может пройти несколько циклов «Оборота»; для новой садки
+      // доступен только последний из них, и то если он не в ремонте.
       const [wagonRows] = await pool.query<AvailableWagonRow[]>(
         `select
-          id,
-          wagon_number,
+          wagon.id,
+          wagon.wagon_number,
           loading_date,
           product_brand,
           press_date,
           piece_count,
           setter_name,
           press_operator
-        from refractory_wagons
+        from refractory_wagons wagon
+        inner join (
+          select wagon_number, max(sequence_id) as sequence_id
+          from refractory_wagons
+          group by wagon_number
+        ) latest_cycle
+          on latest_cycle.wagon_number = wagon.wagon_number
+          and latest_cycle.sequence_id = wagon.sequence_id
         where post_firing_condition is null or post_firing_condition <> ?
-        order by loading_date desc, sequence_id desc`,
+        order by loading_date desc, wagon.sequence_id desc`,
         ["В ремонт"],
       );
       return {

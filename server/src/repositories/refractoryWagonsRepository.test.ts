@@ -78,8 +78,17 @@ test("refractory wagon repository creates and lists server-owned wagon records",
     serviceApprovalDate: null,
     createdAt: "2026-08-06T08:30:00.000Z",
   });
-  assert.match(queries[0]?.sql ?? "", /insert into refractory_wagons/u);
+  assert.match(queries[0]?.sql ?? "", /insert into refractory_wagon_catalog/u);
   assert.deepEqual(queries[0]?.parameters, [
+    "wagon-17",
+    "В-17",
+    "refractory-user",
+    "refractory-account",
+    "2026-08-06T08:30:00.000Z",
+  ]);
+  assert.match(queries[1]?.sql ?? "", /insert into refractory_wagons/u);
+  assert.deepEqual(queries[1]?.parameters, [
+    "wagon-17",
     "wagon-17",
     "В-17",
     "2026-08-06",
@@ -112,14 +121,14 @@ test("refractory wagon repository creates and lists server-owned wagon records",
     serviceApprovalDate: "2026-08-14",
     createdAt: "2026-08-06T08:30:00.000Z",
   }]);
-  assert.match(queries[1]?.sql ?? "", /order by sequence_id desc/u);
-  assert.match(queries[2]?.sql ?? "", /from refractory_wagon_lifecycle_events/u);
+  assert.match(queries[2]?.sql ?? "", /order by sequence_id desc/u);
+  assert.match(queries[3]?.sql ?? "", /from refractory_wagon_lifecycle_events/u);
   assert.deepEqual(await repository.findByIds(["wagon-17"]), [{
     id: "wagon-17",
     number: "В-17",
     productBrand: "ШКУ-32",
   }]);
-  assert.match(queries[3]?.sql ?? "", /where id in \(\?\)/u);
+  assert.match(queries[4]?.sql ?? "", /where id in \(\?\)/u);
 });
 
 test("refractory wagon repository reports a duplicate wagon number", async () => {
@@ -148,6 +157,7 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
       if (/from refractory_wagons[\s\S]+for update/u.test(sql)) {
         return [[{
           id: "wagon-17",
+          catalog_wagon_id: "catalog-17",
           wagon_number: "В-17",
           loading_date: "2026-08-06",
           product_brand: "ШКУ-32",
@@ -215,8 +225,11 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
     createdAt: "2026-08-06T08:30:00.000Z",
   });
   assert.deepEqual(correction?.before.firingDates, ["2026-08-08"]);
-  assert.match(queries[2]?.sql ?? "", /update refractory_wagons/u);
-  assert.deepEqual(queries[2]?.parameters, [
+  // Переименование сначала фиксируется в каталоге — там живёт уникальность.
+  assert.match(queries[2]?.sql ?? "", /update refractory_wagon_catalog/u);
+  assert.deepEqual(queries[2]?.parameters, ["В-17А", "catalog-17"]);
+  assert.match(queries[3]?.sql ?? "", /update refractory_wagons/u);
+  assert.deepEqual(queries[3]?.parameters, [
     "В-17А",
     "2026-08-05",
     "ША-22",
@@ -227,14 +240,14 @@ test("refractory wagon repository corrects a wagon and stores an immutable revis
     "wagon-17",
   ]);
   assert.match(
-    queries[3]?.sql ?? "",
+    queries[4]?.sql ?? "",
     /insert into refractory_wagon_revisions/u,
   );
-  assert.deepEqual(queries[3]?.parameters?.slice(0, 2), [
+  assert.deepEqual(queries[4]?.parameters?.slice(0, 2), [
     "revision-1",
     "wagon-17",
   ]);
-  assert.deepEqual(queries[3]?.parameters?.slice(4), [
+  assert.deepEqual(queries[4]?.parameters?.slice(4), [
     "refractory-user",
     "refractory-account",
     "Мастер ОЦ",
