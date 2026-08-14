@@ -180,6 +180,7 @@ test("delegated account manager edits only working tabs of ordinary positions", 
         "business.settings",
       ],
       boardAssignmentAccess: "none",
+      showOverviewVisitors: true,
     });
 
     const createPositionButton = Array.from(
@@ -253,6 +254,7 @@ function buildHybridPosition() {
       "platform.manage_analytics_database",
     ],
     boardAssignmentAccess: "none",
+    showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
     usageCount: 1,

@@ -24,6 +24,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "065_laboratory_raw_material_quality_measurement_tables",
   "066_refractory_wagon_turnover_cycles",
   "067_laboratory_green_product_quality_measurement_table",
+  "068_overview_visitors_capability",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -2864,6 +2865,57 @@ test("green product quality measurement table migration adds json rows and backf
   assert.match(statements[1] ?? "", /'density', density_value/u);
   assert.match(statements[2] ?? "", /modify column length_first varchar\(40\) null/u);
   assert.match(statements[2] ?? "", /modify column density_value varchar\(40\) null/u);
+  assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
+});
+
+test("overview visitors capability migration grants it alongside dispatcher feed and syncs accesses", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "068_overview_visitors_capability" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 4);
+  assert.match(statements[0] ?? "", /update account_positions/u);
+  assert.match(
+    statements[0] ?? "",
+    /json_array_append\( capabilities, '\$', 'business\.view_overview_visitors' \)/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /where json_contains\(capabilities, json_quote\('business\.view_dispatcher_feed'\)\)/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /and not json_contains\( capabilities, json_quote\('business\.view_overview_visitors'\) \)/u,
+  );
+  assert.match(statements[1] ?? "", /update account_accesses accesses/u);
+  assert.match(
+    statements[1] ?? "",
+    /set accesses\.capabilities = positions\.capabilities/u,
+  );
+  assert.match(statements[2] ?? "", /delete sessions/u);
+  assert.match(statements[2] ?? "", /from auth_sessions sessions/u);
   assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
 });
 

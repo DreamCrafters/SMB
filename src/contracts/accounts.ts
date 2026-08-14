@@ -63,6 +63,7 @@ export const accountCapabilities = [
   "business.execute_board_assignments",
   "business.review_board_assignments",
   "business.manage_notification_settings",
+  "business.view_overview_visitors",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];

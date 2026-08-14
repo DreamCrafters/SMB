@@ -9860,7 +9860,8 @@ function validateCreatePositionRequest(input: unknown):
     (key) =>
       key !== "displayName" &&
       key !== "navigationItems" &&
-      key !== "boardAssignmentAccess",
+      key !== "boardAssignmentAccess" &&
+      key !== "showOverviewVisitors",
   );
   const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
   const requestedNavigationItems = Array.isArray(input.navigationItems)
@@ -9875,6 +9876,9 @@ function validateCreatePositionRequest(input: unknown):
       ? "view"
       : "none"
     : input.boardAssignmentAccess;
+  const showOverviewVisitors = input.showOverviewVisitors === undefined
+    ? true
+    : input.showOverviewVisitors;
   const errors: string[] = [];
 
   if (unknownFields.length > 0) {
@@ -9898,6 +9902,9 @@ function validateCreatePositionRequest(input: unknown):
       "Вариант доступа к поручениям не соответствует выбранным вкладкам.",
     );
   }
+  if (typeof showOverviewVisitors !== "boolean") {
+    errors.push("Проверьте настройку блока «Посетители» в Обзоре.");
+  }
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -9917,6 +9924,8 @@ function validateCreatePositionRequest(input: unknown):
         "position-custom",
         navigationItems,
         validatedBoardAssignmentAccess,
+        false,
+        showOverviewVisitors === true,
       ),
     },
   };

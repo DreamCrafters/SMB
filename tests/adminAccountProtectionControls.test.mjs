@@ -286,6 +286,7 @@ function buildPosition() {
     navigationItems: ["admin.accounts"],
     capabilities: ["platform.manage_users", "platform.manage_access"],
     boardAssignmentAccess: "none",
+    showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,

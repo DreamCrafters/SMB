@@ -58,6 +58,7 @@ export type AdminPositionSummary = {
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights: boolean;
   usageCount: number;
@@ -74,6 +75,7 @@ export type SaveAdminPositionRequest = {
   displayName: string;
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  showOverviewVisitors: boolean;
 };
 export type SaveAdminPositionResponse = { position: AdminPositionSummary };
 

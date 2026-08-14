@@ -3690,6 +3690,38 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "068_overview_visitors_capability",
+    statements: [
+      `
+      update account_positions
+      set capabilities = json_array_append(
+        capabilities, '$', 'business.view_overview_visitors'
+      )
+      where json_contains(capabilities, json_quote('business.view_dispatcher_feed'))
+        and not json_contains(
+          capabilities, json_quote('business.view_overview_visitors')
+        );
+      `,
+      `
+      update account_accesses accesses
+      join account_positions positions on positions.id = accesses.position_code
+      set accesses.capabilities = positions.capabilities
+      where json_contains(
+        positions.capabilities, json_quote('business.view_overview_visitors')
+      );
+      `,
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      join account_positions positions on positions.id = accesses.position_code
+      where json_contains(
+        positions.capabilities, json_quote('business.view_overview_visitors')
+      );
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

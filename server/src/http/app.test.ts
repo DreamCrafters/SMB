@@ -4781,7 +4781,7 @@ const accounts: AccountsRepository = {
         accountType: "dispatcher",
         navigationItems: ["business.dispatcher", "business.dispatcher_form"],
         capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none",
+        boardAssignmentAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -4792,7 +4792,7 @@ const accounts: AccountsRepository = {
         accountType: "business_owner",
         navigationItems: ["business.overview", "business.dispatcher"],
         capabilities: ["business.view_all_statistics", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none",
+        boardAssignmentAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 0,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -4800,10 +4800,10 @@ const accounts: AccountsRepository = {
     ];
   },
   async createPosition(input) {
-    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async updatePosition(input) {
-    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async deletePosition() {
     return "deleted";
@@ -5250,7 +5250,7 @@ test("admin positions API creates a position with tabs from the unified workspac
     ...accounts,
     async createPosition(input) {
       createdInput = input;
-      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -5636,7 +5636,7 @@ test("admin positions API stores the selected board assignment access variant", 
         id: "position-board-reviewer",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "review",
+        boardAssignmentAccess: "review", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-27T00:00:00.000Z",
@@ -5656,7 +5656,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Проверяющий поручений",
         navigationItems: ["business.board_assignments"],
-        boardAssignmentAccess: "review",
+        boardAssignmentAccess: "review", showOverviewVisitors: true,
       }),
     });
     const invalidResponse = await fetch(`${baseUrl}/api/admin/positions`, {
@@ -5665,7 +5665,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Несогласованная должность",
         navigationItems: ["business.overview"],
-        boardAssignmentAccess: "execute",
+        boardAssignmentAccess: "execute", showOverviewVisitors: true,
       }),
     });
 
@@ -5686,7 +5686,7 @@ test("admin positions API allows an empty tab set and rejects the removed base c
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -5721,7 +5721,7 @@ test("primary admin cannot assign root admin panels directly to a custom positio
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -5790,7 +5790,7 @@ test("production account with canonical admin login cannot assign root panels to
         id: "position-production-hybrid",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "none",
+        boardAssignmentAccess: "none", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -5858,7 +5858,7 @@ test("delegated account manager changes working tabs but cannot add root admin p
       "business.view_notifications" as const,
       "business.view_dispatcher_feed" as const,
     ],
-    boardAssignmentAccess: "none" as const,
+    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -5954,7 +5954,7 @@ test("delegated account manager cannot mutate or unprotect a protected position"
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const,
+    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -6065,7 +6065,7 @@ test("delegated account manager cannot assign a position with admin rights", asy
       "platform.manage_users" as const,
       "platform.manage_access" as const,
     ],
-    boardAssignmentAccess: "none" as const,
+    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -6133,7 +6133,7 @@ test("original admin can keep an admin-rights position without working tabs", as
     accountType: "dispatcher" as const,
     navigationItems: ["business.dispatcher_form" as const],
     capabilities: ["business.submit_dispatcher_forms" as const],
-    boardAssignmentAccess: "none" as const,
+    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     hasAdminRights: true,
     usageCount: 2,
@@ -6175,7 +6175,7 @@ test("original admin can enable admin rights for a selected position", async () 
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const,
+    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
     usageCount: 0,
@@ -6257,7 +6257,7 @@ test("admin positions API keeps the administrator outside the unified workspace"
         accountType: "admin",
         navigationItems: ["admin.accounts"],
         capabilities: ["platform.manage_users", "platform.manage_access"],
-        boardAssignmentAccess: "none",
+        boardAssignmentAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -6307,7 +6307,7 @@ test("admin positions API deletes only an unused position", async () => {
     accountType: "worker" as const,
     navigationItems: [],
     capabilities: [],
-    boardAssignmentAccess: "none" as const,
+    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -6349,7 +6349,7 @@ test("admin positions API deletes an unused laboratory system position", async (
     accountType: "business_owner" as const,
     navigationItems: ["business.laboratory_results" as const],
     capabilities: ["business.manage_laboratory_results" as const],
-    boardAssignmentAccess: "none" as const,
+    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -6382,7 +6382,7 @@ test("admin positions API deletes an unused program-created non-admin position",
       "business.view_board_assignments" as const,
       "business.review_board_assignments" as const,
     ],
-    boardAssignmentAccess: "review" as const,
+    boardAssignmentAccess: "review" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",

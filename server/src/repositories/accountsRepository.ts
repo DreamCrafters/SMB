@@ -16,6 +16,7 @@ import {
   navigationItemsByAccountType,
   nonAdminNavigationItems,
   readBoardAssignmentAccess,
+  readOverviewVisitorsAccess,
   resolveCapabilitiesForPosition,
   resolveNavigationForPosition,
   type BoardAssignmentAccess,
@@ -57,6 +58,7 @@ export type AdminPositionSummary = {
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights?: boolean;
   usageCount: number;
@@ -406,6 +408,7 @@ export function createAccountsRepository(
         input.capabilities,
         input.navigationItems,
       ),
+      showOverviewVisitors: readOverviewVisitorsAccess(input.capabilities),
       isProtected: false,
       hasAdminRights: false,
       usageCount: 0,
@@ -447,6 +450,9 @@ export function createAccountsRepository(
         input.capabilities,
         input.navigationItems,
       );
+      const showOverviewVisitors = readOverviewVisitorsAccess(
+        input.capabilities,
+      );
       const navigationItems = resolveNavigationForPosition(
         input.navigationItems,
         hasAdminRights,
@@ -456,6 +462,7 @@ export function createAccountsRepository(
         navigationItems,
         boardAssignmentAccess,
         hasAdminRights,
+        showOverviewVisitors,
       );
       await connection.query(
         `update account_positions
@@ -490,6 +497,7 @@ export function createAccountsRepository(
           capabilities,
           navigationItems,
         ),
+        showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
       };
     } catch (error) {
       await connection.rollback();
@@ -641,6 +649,9 @@ export function createAccountsRepository(
         storedCapabilities,
         storedNavigationItems,
       );
+      const showOverviewVisitors = readOverviewVisitorsAccess(
+        storedCapabilities,
+      );
       const navigationItems = accountType === "admin"
         ? storedNavigationItems
         : resolveNavigationForPosition(
@@ -654,6 +665,7 @@ export function createAccountsRepository(
             navigationItems,
             boardAssignmentAccess,
             input.isProtected,
+            showOverviewVisitors,
           );
       await connection.query(
         `update account_positions
@@ -782,14 +794,13 @@ export function createAccountsRepository(
         ) {
           continue;
         }
+        const storedCapabilities = readCapabilities(row.capabilities);
         const capabilities = resolveCapabilitiesForPosition(
           row.id,
           navigationItems,
-          readBoardAssignmentAccess(
-            readCapabilities(row.capabilities),
-            currentNavigationItems,
-          ),
+          readBoardAssignmentAccess(storedCapabilities, currentNavigationItems),
           hasAdminRights,
+          readOverviewVisitorsAccess(storedCapabilities),
         );
         await connection.query(
           `update account_positions
@@ -1432,6 +1443,7 @@ function mapPositionRow(row: PositionRow): AdminPositionSummary {
       capabilities,
       navigationItems,
     ),
+    showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
     isProtected: row.is_protected === true || row.is_protected === 1,
     hasAdminRights:
       row.is_admin_protected === true || row.is_admin_protected === 1,

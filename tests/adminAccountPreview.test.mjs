@@ -233,6 +233,7 @@ function buildPosition() {
     navigationItems: ["business.work"],
     capabilities: ["business.view_own_statistics"],
     boardAssignmentAccess: "none",
+    showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
     usageCount: 1,

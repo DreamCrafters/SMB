@@ -554,6 +554,7 @@ function buildPosition(id, displayName) {
     navigationItems: ["business.overview"],
     capabilities: ["business.view_all_statistics"],
     boardAssignmentAccess: "none",
+    showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
     usageCount: 0,

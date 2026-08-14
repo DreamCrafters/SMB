@@ -116,6 +116,7 @@ export function resolveCapabilitiesForPosition(
   navigationItems: AccountNavigationItem[],
   boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
   hasAdminRights = false,
+  showOverviewVisitors = true,
 ) {
   const resolvedNavigationItems =
     position === defaultPositionByAccountType.admin
@@ -125,23 +126,38 @@ export function resolveCapabilitiesForPosition(
     resolvedNavigationItems,
   );
 
-  if (!resolvedNavigationItems.includes("business.board_assignments")) {
-    return capabilities;
-  }
-
   const boardCapabilities: AccountCapability[] =
-    boardAssignmentAccess === "execute"
-      ? ["business.execute_board_assignments"]
-      : boardAssignmentAccess === "review"
-        ? [
-            "business.create_board_assignments",
-            "business.review_board_assignments",
-          ]
-        : boardAssignmentAccess === "create"
-          ? ["business.create_board_assignments"]
-          : [];
+    !resolvedNavigationItems.includes("business.board_assignments")
+      ? []
+      : boardAssignmentAccess === "execute"
+        ? ["business.execute_board_assignments"]
+        : boardAssignmentAccess === "review"
+          ? [
+              "business.create_board_assignments",
+              "business.review_board_assignments",
+            ]
+          : boardAssignmentAccess === "create"
+            ? ["business.create_board_assignments"]
+            : [];
 
-  return Array.from(new Set([...capabilities, ...boardCapabilities]));
+  const overviewVisitorsCapabilities: AccountCapability[] =
+    showOverviewVisitors &&
+      resolvedNavigationItems.includes("business.overview")
+      ? ["business.view_overview_visitors"]
+      : [];
+
+  return Array.from(new Set([
+    ...capabilities,
+    ...boardCapabilities,
+    ...overviewVisitorsCapabilities,
+  ]));
+}
+
+/** Отдельный тумблер блока «Посетители» в Обзоре, поверх авто-вывода из вкладок. */
+export function readOverviewVisitorsAccess(
+  capabilities: AccountCapability[],
+) {
+  return capabilities.includes("business.view_overview_visitors");
 }
 
 export function resolveNavigationForPosition(

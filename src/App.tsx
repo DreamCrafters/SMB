@@ -705,6 +705,8 @@ export default function App() {
     useState(true);
   const [requestedDispatcherFormId, setRequestedDispatcherFormId] =
     useState<DispatcherFormId>();
+  const [requestedLaboratoryReviewDateFrom, setRequestedLaboratoryReviewDateFrom] =
+    useState<string>();
   const [isMobileNavigation, setIsMobileNavigation] = useState(() =>
     window.matchMedia(mobileNavigationMediaQuery).matches,
   );
@@ -1595,6 +1597,55 @@ export default function App() {
     setWorkspaceNavigationVersion((version) => version + 1);
   }
 
+  /** Обзор → блок «Диспетчерской»: переключает раздел и фильтр одной операцией. */
+  function navigateOverviewToDispatcherGroup(
+    group: DispatcherFeedGroup,
+    navigateTab: (tab: BusinessTab) => void,
+    changeFilters: (patch: Partial<DispatcherFeedFilterState>) => void,
+  ) {
+    navigateTab("dispatcher");
+    const range = buildDispatcherFeedDateRange("current_month");
+    changeFilters({
+      group,
+      period: "current_month",
+      dateFrom: range.dateFrom ?? "",
+      dateTo: range.dateTo ?? "",
+      incidentView: "period",
+    });
+  }
+
+  function handleOverviewDispatcherNavigate(group: DispatcherFeedGroup) {
+    navigateOverviewToDispatcherGroup(
+      group,
+      handleOwnerTabNavigation,
+      handleDispatcherFeedFiltersChange,
+    );
+  }
+
+  function handleAdminViewedOverviewDispatcherNavigate(
+    group: DispatcherFeedGroup,
+  ) {
+    navigateOverviewToDispatcherGroup(
+      group,
+      handleAdminViewedOwnerTabNavigation,
+      handleAdminViewedDispatcherFeedFiltersChange,
+    );
+  }
+
+  function handleOverviewLaboratoryNavigate() {
+    setRequestedLaboratoryReviewDateFrom(
+      buildDispatcherFeedDateRange("current_month").dateFrom,
+    );
+    handleOwnerTabNavigation("laboratory_review");
+  }
+
+  function handleAdminViewedOverviewLaboratoryNavigate() {
+    setRequestedLaboratoryReviewDateFrom(
+      buildDispatcherFeedDateRange("current_month").dateFrom,
+    );
+    handleAdminViewedOwnerTabNavigation("laboratory_review");
+  }
+
   function handleOpenIncidentClosingFromLoginPrompt() {
     setDispatcherIncidentLoginPrompt("idle");
     setRequestedDispatcherFormId("incident_close");
@@ -1980,6 +2031,17 @@ export default function App() {
           }
           onRequestedDispatcherFormHandled={() =>
             setRequestedDispatcherFormId(undefined)
+          }
+          requestedLaboratoryReviewDateFrom={requestedLaboratoryReviewDateFrom}
+          onOverviewNavigateToDispatcherGroup={
+            viewedProfile === undefined
+              ? handleOverviewDispatcherNavigate
+              : handleAdminViewedOverviewDispatcherNavigate
+          }
+          onOverviewNavigateToLaboratoryReview={
+            viewedProfile === undefined
+              ? handleOverviewLaboratoryNavigate
+              : handleAdminViewedOverviewLaboratoryNavigate
           }
         />
       </section>
@@ -2776,6 +2838,9 @@ function RoleWorkspace({
   onRefractoryReportResolved,
   requestedDispatcherFormId,
   onRequestedDispatcherFormHandled,
+  requestedLaboratoryReviewDateFrom,
+  onOverviewNavigateToDispatcherGroup,
+  onOverviewNavigateToLaboratoryReview,
 }: {
   profile: ServerUserProfile;
   isAdminPreviewMode: boolean;
@@ -2807,6 +2872,9 @@ function RoleWorkspace({
   onRefractoryReportResolved: (reportId: string) => void;
   requestedDispatcherFormId?: DispatcherFormId;
   onRequestedDispatcherFormHandled: () => void;
+  requestedLaboratoryReviewDateFrom?: string;
+  onOverviewNavigateToDispatcherGroup: (group: DispatcherFeedGroup) => void;
+  onOverviewNavigateToLaboratoryReview: () => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
     ownerTab,
@@ -2875,6 +2943,7 @@ function RoleWorkspace({
       <LaboratoryReviewWorkspace
         isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
+        initialDateFrom={requestedLaboratoryReviewDateFrom}
       />
     );
   }
@@ -2938,6 +3007,12 @@ function RoleWorkspace({
       dispatcherForms={dispatcherForms}
       dispatcherFeedFilters={dispatcherFeedFilters}
       onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
+      onNavigateToDispatcherGroup={onOverviewNavigateToDispatcherGroup}
+      onNavigateToLaboratoryReview={onOverviewNavigateToLaboratoryReview}
+      canViewVisitors={hasCapability(
+        profile,
+        "business.view_overview_visitors",
+      )}
     />
   );
 }
@@ -2949,6 +3024,9 @@ function OwnerWorkspace({
   dispatcherForms,
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
+  onNavigateToDispatcherGroup,
+  onNavigateToLaboratoryReview,
+  canViewVisitors,
 }: {
   activeTab: Extract<BusinessTab, "overview" | "dispatcher">;
   dispatcherFeed: DispatcherFeedLoadState;
@@ -2958,6 +3036,9 @@ function OwnerWorkspace({
   onDispatcherFeedFiltersChange: (
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
+  onNavigateToDispatcherGroup: (group: DispatcherFeedGroup) => void;
+  onNavigateToLaboratoryReview: () => void;
+  canViewVisitors: boolean;
 }) {
   if (activeTab === "overview") {
     const dispatcherOverview = buildOwnerDispatcherOverview(
@@ -2972,6 +3053,9 @@ function OwnerWorkspace({
         businessOverview={businessOverview}
         dispatcherFeed={dispatcherFeed}
         dispatcherOverview={dispatcherOverview}
+        onNavigateToDispatcherGroup={onNavigateToDispatcherGroup}
+        onNavigateToLaboratoryReview={onNavigateToLaboratoryReview}
+        canViewVisitors={canViewVisitors}
       />
     );
   }
@@ -2990,10 +3074,16 @@ export function OwnerOverviewPanel({
   businessOverview,
   dispatcherFeed,
   dispatcherOverview,
+  onNavigateToDispatcherGroup,
+  onNavigateToLaboratoryReview,
+  canViewVisitors,
 }: {
   businessOverview: BusinessOverviewLoadState;
   dispatcherFeed: DispatcherFeedLoadState;
   dispatcherOverview: OwnerDispatcherOverview;
+  onNavigateToDispatcherGroup?: (group: DispatcherFeedGroup) => void;
+  onNavigateToLaboratoryReview?: () => void;
+  canViewVisitors?: boolean;
 }) {
   const isLocalTestMode =
     dispatcherFeed.status === "ready" && dispatcherFeed.source === "local_test";
@@ -3056,34 +3146,27 @@ export function OwnerOverviewPanel({
         dispatcherFeed.status === "ready"
       ) ? (
         <div className="owner-overview-stack">
+          {dispatcherFeed.status === "ready" ? (
+            <>
+              <OwnerProductionOverviewBlock
+                overview={dispatcherOverview}
+                onNavigate={onNavigateToDispatcherGroup === undefined
+                  ? undefined
+                  : () => onNavigateToDispatcherGroup("production")}
+              />
+              <OwnerEquipmentOverviewBlock
+                overview={dispatcherOverview}
+                onNavigate={onNavigateToDispatcherGroup === undefined
+                  ? undefined
+                  : () => onNavigateToDispatcherGroup("equipment")}
+              />
+            </>
+          ) : null}
           {businessOverview.status === "ready" ? (
             <>
               <OwnerOverviewMetrics
-                title="Инциденты"
-                metrics={[
-                  {
-                    label: "Всего за месяц",
-                    value: businessOverview.overview.incidents.monthTotal,
-                  },
-                  {
-                    label: "Закрыто из них",
-                    value: businessOverview.overview.incidents.monthClosed,
-                  },
-                  {
-                    label: "Сегодня",
-                    value: businessOverview.overview.incidents.todayTotal,
-                  },
-                  {
-                    label: "Не закрыто сейчас",
-                    value: businessOverview.overview.incidents.openNow,
-                    tone: businessOverview.overview.incidents.openNow > 0
-                      ? "attention"
-                      : undefined,
-                  },
-                ]}
-              />
-              <OwnerOverviewMetrics
                 title="Лаборатория"
+                onNavigate={onNavigateToLaboratoryReview}
                 metrics={[
                   {
                     label: "Отобранных проб за месяц",
@@ -3117,14 +3200,42 @@ export function OwnerOverviewPanel({
                   },
                 ]}
               />
+              <OwnerOverviewMetrics
+                title="Инциденты"
+                onNavigate={onNavigateToDispatcherGroup === undefined
+                  ? undefined
+                  : () => onNavigateToDispatcherGroup("incidents")}
+                metrics={[
+                  {
+                    label: "Всего за месяц",
+                    value: businessOverview.overview.incidents.monthTotal,
+                  },
+                  {
+                    label: "Закрыто из них",
+                    value: businessOverview.overview.incidents.monthClosed,
+                  },
+                  {
+                    label: "Сегодня",
+                    value: businessOverview.overview.incidents.todayTotal,
+                  },
+                  {
+                    label: "Не закрыто сейчас",
+                    value: businessOverview.overview.incidents.openNow,
+                    tone: businessOverview.overview.incidents.openNow > 0
+                      ? "attention"
+                      : undefined,
+                  },
+                ]}
+              />
             </>
           ) : null}
-          {dispatcherFeed.status === "ready" ? (
-            <>
-              <OwnerEquipmentOverviewBlock overview={dispatcherOverview} />
-              <OwnerProductionOverviewBlock overview={dispatcherOverview} />
-              <OwnerVisitorsOverviewBlock overview={dispatcherOverview} />
-            </>
+          {dispatcherFeed.status === "ready" && canViewVisitors !== false ? (
+            <OwnerVisitorsOverviewBlock
+              overview={dispatcherOverview}
+              onNavigate={onNavigateToDispatcherGroup === undefined
+                ? undefined
+                : () => onNavigateToDispatcherGroup("visitors")}
+            />
           ) : null}
         </div>
       ) : null}
@@ -3137,6 +3248,7 @@ function OwnerOverviewMetrics({
   headingMeta,
   metrics,
   note,
+  onNavigate,
 }: {
   title: string;
   headingMeta?: {
@@ -3149,9 +3261,27 @@ function OwnerOverviewMetrics({
     tone?: "attention";
   }>;
   note?: string;
+  onNavigate?: () => void;
 }) {
   return (
-    <section className="owner-overview-block" aria-label={title}>
+    <section
+      className={`owner-overview-block${
+        onNavigate === undefined ? "" : " owner-overview-block-clickable"
+      }`}
+      aria-label={title}
+      {...(onNavigate === undefined
+        ? {}
+        : {
+            role: "button",
+            tabIndex: 0,
+            onClick: onNavigate,
+            onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onNavigate();
+            },
+          })}
+    >
       <div className="owner-overview-block-header">
         <h3>{title}</h3>
         {headingMeta === undefined ? null : (
@@ -3195,8 +3325,10 @@ function OwnerOverviewMetrics({
 
 function OwnerEquipmentOverviewBlock({
   overview,
+  onNavigate,
 }: {
   overview: OwnerDispatcherOverview;
+  onNavigate?: () => void;
 }) {
   const equipment = overview.equipment;
 
@@ -3221,18 +3353,22 @@ function OwnerEquipmentOverviewBlock({
           ? "Отчётов пока нет."
           : `Обновлено: ${formatDateTime(equipment.updatedAt)}`
       }
+      onNavigate={onNavigate}
     />
   );
 }
 
 function OwnerProductionOverviewBlock({
   overview,
+  onNavigate,
 }: {
   overview: OwnerDispatcherOverview;
+  onNavigate?: () => void;
 }) {
   return (
     <OwnerOverviewMetrics
       title="Выработка"
+      onNavigate={onNavigate}
       metrics={[
         {
           label: "Отформовано с начала месяца, т",
@@ -3286,8 +3422,10 @@ function OwnerProductionOverviewBlock({
 
 function OwnerVisitorsOverviewBlock({
   overview,
+  onNavigate,
 }: {
   overview: OwnerDispatcherOverview;
+  onNavigate?: () => void;
 }) {
   const visitors = overview.visitors;
   const visitorHosts =
@@ -3298,6 +3436,7 @@ function OwnerVisitorsOverviewBlock({
   return (
     <OwnerOverviewMetrics
       title="Посетители"
+      onNavigate={onNavigate}
       headingMeta={{
         label: "Последний день посещений",
         value:
@@ -10045,6 +10184,7 @@ type AdminPositionFormState = {
   displayName: string;
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  showOverviewVisitors: boolean;
 };
 
 const emptyAdminPositionForm: AdminPositionFormState = {
@@ -10059,6 +10199,7 @@ const emptyAdminPositionForm: AdminPositionFormState = {
     )
     .map(({ id }) => id),
   boardAssignmentAccess: "view",
+  showOverviewVisitors: true,
 };
 
 const positionOrderAutosaveDelayMs = 5_000;
@@ -10472,6 +10613,7 @@ function AdminAccountsWorkspace({
             nonAdminNavigationItems.some((item) => item.id === id),
           ),
           boardAssignmentAccess: position.boardAssignmentAccess,
+          showOverviewVisitors: position.showOverviewVisitors,
         });
     setPositionFormStatus("");
     setIsPositionModalOpen(true);
@@ -10488,6 +10630,7 @@ function AdminAccountsWorkspace({
       displayName: positionForm.displayName.trim(),
       navigationItems: positionForm.navigationItems,
       boardAssignmentAccess: positionForm.boardAssignmentAccess,
+      showOverviewVisitors: positionForm.showOverviewVisitors,
     };
     const result = positionForm.id === undefined
       ? await createAdminPosition(value)
@@ -11840,6 +11983,21 @@ function AdminAccountsWorkspace({
                       <span>{option.label}</span>
                     </label>
                   ))}
+                  <label className="admin-account-navigation-option">
+                    <input
+                      type="checkbox"
+                      disabled={isSubmitting}
+                      checked={positionForm.showOverviewVisitors}
+                      onChange={(event) => {
+                        const isChecked = event.currentTarget.checked;
+                        setPositionForm((current) => ({
+                          ...current,
+                          showOverviewVisitors: isChecked,
+                        }));
+                      }}
+                    />
+                    <span>Показывать блок «Посетители» в Обзоре</span>
+                  </label>
                 </div>
               </fieldset>
               <div className="form-actions">

@@ -66,6 +66,7 @@ export const accountCapabilities = [
   "business.execute_board_assignments",
   "business.review_board_assignments",
   "business.manage_notification_settings",
+  "business.view_overview_visitors",
 ] as const;
 
 export type AccountCapability = (typeof accountCapabilities)[number];
@@ -148,6 +149,7 @@ export const defaultCapabilitiesByAccountType: Record<
     "business.manage_laboratory_results",
     "business.view_laboratory_results",
     "business.view_board_assignments",
+    "business.view_overview_visitors",
   ],
   business_owner: [
     "business.view_all_statistics",
@@ -155,12 +157,14 @@ export const defaultCapabilitiesByAccountType: Record<
     "business.view_dispatcher_feed",
     "business.submit_forms",
     "business.view_own_submissions",
+    "business.view_overview_visitors",
   ],
   worker: [],
   dispatcher: [
     "business.submit_dispatcher_forms",
     "business.view_dispatcher_feed",
     "business.review_refractory_reports",
+    "business.view_overview_visitors",
   ],
 };
 

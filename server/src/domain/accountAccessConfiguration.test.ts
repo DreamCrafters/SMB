@@ -91,6 +91,7 @@ test("position admin rights grant account management without root admin panels",
       "business.view_dispatcher_feed",
       "platform.manage_users",
       "platform.manage_access",
+      "business.view_overview_visitors",
     ],
   );
   assert.deepEqual(

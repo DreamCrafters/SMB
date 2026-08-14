@@ -83,15 +83,20 @@ const isResultsJournalVisible = laboratoryReviewJournals.some(
 export function LaboratoryReviewWorkspace({
   isAdminPreviewMode,
   onShowToast,
+  initialDateFrom,
 }: {
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
+  /** Обзор передаёт 1-е число месяца при переходе по клику на блок «Лаборатория». */
+  initialDateFrom?: string;
 }) {
   const [view, setView] = useState<LaboratoryReviewView>(
     laboratoryReviewViews[0],
   );
-  const [isDateFilterEnabled, setIsDateFilterEnabled] = useState(false);
-  const [dateFrom, setDateFrom] = useState("");
+  const [isDateFilterEnabled, setIsDateFilterEnabled] = useState(
+    () => initialDateFrom !== undefined,
+  );
+  const [dateFrom, setDateFrom] = useState(() => initialDateFrom ?? "");
   const [dateTo, setDateTo] = useState("");
   const [isNameFilterEnabled, setIsNameFilterEnabled] = useState(false);
   const [nameQuery, setNameQuery] = useState("");

@@ -874,6 +874,7 @@ function isAdminPositionSummary(value: unknown): value is AdminPositionSummary {
     boardAssignmentAccessLevels.includes(
       value.boardAssignmentAccess as (typeof boardAssignmentAccessLevels)[number],
     ) &&
+    typeof value.showOverviewVisitors === "boolean" &&
     typeof value.isProtected === "boolean" &&
     typeof value.hasAdminRights === "boolean" &&
     typeof value.usageCount === "number" &&
