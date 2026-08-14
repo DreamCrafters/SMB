@@ -3727,13 +3727,16 @@ const migrations: Migration[] = [
     statements: [
       `
       alter table laboratory_formed_product_sample_journal
-        drop foreign key fk_laboratory_formed_product_sample_source,
-        drop key idx_laboratory_formed_product_sample_code,
-        drop column sample_code,
-        drop column source_sample_registration_id,
-        add column wagon_number varchar(120) null after sorting_date,
-        add column molding_date date null after product_brand,
-        add key idx_laboratory_formed_product_sample_wagon (wagon_number);
+        drop foreign key if exists fk_laboratory_formed_product_sample_source,
+        drop key if exists idx_laboratory_formed_product_sample_code,
+        drop column if exists sample_code,
+        drop column if exists source_sample_registration_id,
+        add column if not exists wagon_number varchar(120) null
+          after sorting_date,
+        add column if not exists molding_date date null after product_brand,
+        add key if not exists idx_laboratory_formed_product_sample_wagon (
+          wagon_number
+        );
       `,
       `
       update laboratory_sample_registration_journal
@@ -3742,7 +3745,8 @@ const migrations: Migration[] = [
       `,
       `
       alter table laboratory_sample_registration_journal
-        drop constraint chk_laboratory_sample_registration_transmit_target;
+        drop constraint if exists
+          chk_laboratory_sample_registration_transmit_target;
       `,
       `
       alter table laboratory_sample_registration_journal

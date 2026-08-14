@@ -2953,24 +2953,28 @@ test("formed product sample wagon fields migration drops the sample code and tra
   assert.equal(statements.length, 5);
   assert.match(
     statements[0] ?? "",
-    /drop foreign key fk_laboratory_formed_product_sample_source/u,
+    /drop foreign key if exists fk_laboratory_formed_product_sample_source/u,
   );
   assert.match(
     statements[0] ?? "",
-    /drop key idx_laboratory_formed_product_sample_code/u,
+    /drop key if exists idx_laboratory_formed_product_sample_code/u,
   );
-  assert.match(statements[0] ?? "", /drop column sample_code/u);
+  assert.match(statements[0] ?? "", /drop column if exists sample_code/u);
   assert.match(
     statements[0] ?? "",
-    /drop column source_sample_registration_id/u,
-  );
-  assert.match(
-    statements[0] ?? "",
-    /add column wagon_number varchar\(120\) null after sorting_date/u,
+    /drop column if exists source_sample_registration_id/u,
   );
   assert.match(
     statements[0] ?? "",
-    /add column molding_date date null after product_brand/u,
+    /add column if not exists wagon_number varchar\(120\) null after sorting_date/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /add column if not exists molding_date date null after product_brand/u,
+  );
+  assert.match(
+    statements[0] ?? "",
+    /add key if not exists idx_laboratory_formed_product_sample_wagon \( wagon_number \)/u,
   );
   assert.match(
     statements[1] ?? "",
@@ -2983,7 +2987,7 @@ test("formed product sample wagon fields migration drops the sample code and tra
   );
   assert.match(
     statements[2] ?? "",
-    /drop constraint chk_laboratory_sample_registration_transmit_target/u,
+    /drop constraint if exists chk_laboratory_sample_registration_transmit_target/u,
   );
   assert.match(
     statements[3] ?? "",
