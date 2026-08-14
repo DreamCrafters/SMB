@@ -2950,7 +2950,7 @@ test("formed product sample wagon fields migration drops the sample code and tra
 
   await runMigrations(pool);
 
-  assert.equal(statements.length, 4);
+  assert.equal(statements.length, 5);
   assert.match(
     statements[0] ?? "",
     /drop foreign key fk_laboratory_formed_product_sample_source/u,
@@ -2983,13 +2983,17 @@ test("formed product sample wagon fields migration drops the sample code and tra
   );
   assert.match(
     statements[2] ?? "",
-    /drop check chk_laboratory_sample_registration_transmit_target/u,
+    /drop constraint chk_laboratory_sample_registration_transmit_target/u,
   );
   assert.match(
-    statements[2] ?? "",
+    statements[3] ?? "",
+    /add constraint chk_laboratory_sample_registration_transmit_target/u,
+  );
+  assert.match(
+    statements[3] ?? "",
     /transmit_to_journal in \( 'unshaped_product_sample', 'verification' \)/u,
   );
-  assert.equal(statements[3], "insert into schema_migrations (id) values (?)");
+  assert.equal(statements[4], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

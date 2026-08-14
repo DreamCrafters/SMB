@@ -3742,7 +3742,10 @@ const migrations: Migration[] = [
       `,
       `
       alter table laboratory_sample_registration_journal
-        drop check chk_laboratory_sample_registration_transmit_target,
+        drop constraint chk_laboratory_sample_registration_transmit_target;
+      `,
+      `
+      alter table laboratory_sample_registration_journal
         add constraint chk_laboratory_sample_registration_transmit_target
           check (
             transmit_to_journal is null
