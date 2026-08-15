@@ -1,27 +1,40 @@
 /**
- * Задача 79: марка и дата формовки больше не вводятся вручную — сервер
- * подтягивает их из Журнала вагонов (`refractory_wagons`) по номеру вагона и
- * дате сортировки, как и марку в отчётах печного отделения (задача 88).
+ * Задача 79 добавила вагонный путь: марка и дата формовки подтягиваются из
+ * Журнала вагонов (`refractory_wagons`) по номеру вагона и дате сортировки,
+ * как и марка в отчётах печного отделения (задача 88). Доработка задачи 64
+ * вернула второй, независимый путь — трансляцию из Регистрации проб: код
+ * пробы и марка изделия приходят предзаполнением из
+ * `SampleRegistrationTransmissionPicker`, дата формовки в этом случае
+ * неизвестна. Ровно один путь на запись: `wagonNumber` — вагонный (марка и
+ * дата формовки резолвятся сервером, `sampleCode` игнорируется), либо
+ * `sampleCode`+`productBrand` — трансляция (`moldingDate` остаётся `null`).
  */
 export type LaboratoryFormedProductSampleSubmission = {
   sortingDate: string;
-  wagonNumber: string;
+  wagonNumber?: string;
+  sampleCode?: string;
+  productBrand?: string;
+  sourceSampleRegistrationId?: string;
 };
 
 export type LaboratoryFormedProductSampleCorrection =
   LaboratoryFormedProductSampleSubmission;
 
 /**
- * `wagonNumber`/`moldingDate` могут отсутствовать только у записей,
- * сохранённых до этой задачи: номер вагона и дата формовки не вводились,
- * `productBrand` тогда заполнялся вручную и остаётся заполненным.
+ * `wagonNumber`/`sampleCode` — взаимоисключающие провенансы записи, `null`
+ * означает «эта проба пришла не отсюда». `moldingDate` есть только у
+ * вагонного пути. У записей, сохранённых до задачи 79, `wagonNumber` и
+ * `moldingDate` тоже `null` (номер вагона и дата формовки не вводились,
+ * `productBrand` был заполнен вручную).
  */
 export type LaboratoryFormedProductSampleRecord = {
   id: string;
   sortingDate: string;
   wagonNumber: string | null;
+  sampleCode: string | null;
   productBrand: string;
   moldingDate: string | null;
+  sourceSampleRegistrationId?: string;
   createdAt: string;
 };
 
@@ -36,11 +49,12 @@ export type LaboratoryFormedProductSampleFilters = {
 export const laboratoryFormedProductSampleFields = [
   { id: "sortingDate", label: "Дата сортировки", kind: "date", editable: true },
   { id: "wagonNumber", label: "№ вагона", kind: "text", editable: true },
+  { id: "sampleCode", label: "Код пробы", kind: "text", editable: true },
   {
     id: "productBrand",
     label: "Марка изделия",
     kind: "text",
-    editable: false,
+    editable: true,
   },
   {
     id: "moldingDate",

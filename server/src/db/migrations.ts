@@ -3761,6 +3761,46 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "070_formed_product_sample_registration_link",
+    statements: [
+      `
+      alter table laboratory_formed_product_sample_journal
+        add column if not exists sample_code varchar(120) null
+          after wagon_number,
+        add column if not exists source_sample_registration_id char(36) null
+          after molding_date;
+      `,
+      `
+      alter table laboratory_formed_product_sample_journal
+        drop foreign key if exists fk_laboratory_formed_product_sample_source;
+      `,
+      `
+      alter table laboratory_formed_product_sample_journal
+        add constraint fk_laboratory_formed_product_sample_source
+          foreign key (source_sample_registration_id)
+          references laboratory_sample_registration_journal (id)
+          on delete set null;
+      `,
+      `
+      alter table laboratory_sample_registration_journal
+        drop constraint if exists
+          chk_laboratory_sample_registration_transmit_target;
+      `,
+      `
+      alter table laboratory_sample_registration_journal
+        add constraint chk_laboratory_sample_registration_transmit_target
+          check (
+            transmit_to_journal is null
+            or transmit_to_journal in (
+              'unshaped_product_sample',
+              'formed_product_sample',
+              'verification'
+            )
+          );
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

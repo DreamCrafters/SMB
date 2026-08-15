@@ -9,6 +9,10 @@ import type {
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
 import type { RefractoryWagonsRepository } from "./refractoryWagonsRepository.js";
+import {
+  LaboratorySampleRegistrationTransmissionUnavailableError,
+  type ClaimSampleRegistrationTransmission,
+} from "./laboratorySampleRegistrationJournalRepository.js";
 
 export class LaboratoryFormedProductSampleWagonNotFoundError extends Error {
   constructor() {
@@ -57,8 +61,10 @@ type JournalRow = RowDataPacket & {
   id: string;
   sorting_date: Date | string;
   wagon_number: string | null;
+  sample_code: string | null;
   product_brand: string;
   molding_date: Date | string | null;
+  source_sample_registration_id: string | null;
   created_at: Date | string;
 };
 
@@ -66,6 +72,7 @@ type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
   refractoryWagons: RefractoryWagonsRepository;
+  claimSampleRegistrationTransmission?: ClaimSampleRegistrationTransmission;
 };
 
 const defaultListLimit = 200;
@@ -73,13 +80,17 @@ const maxListLimit = 500;
 
 export function createLaboratoryFormedProductSampleJournalRepository(
   pool: DatabasePool,
-  { createId = randomUUID, now = () => new Date(), refractoryWagons }:
-    RepositoryOptions,
+  {
+    createId = randomUUID,
+    now = () => new Date(),
+    refractoryWagons,
+    claimSampleRegistrationTransmission,
+  }: RepositoryOptions,
 ): LaboratoryFormedProductSampleJournalRepository {
-  async function resolveWagon(record: LaboratoryFormedProductSampleSubmission) {
+  async function resolveWagon(wagonNumber: string, sortingDate: string) {
     const wagon = await refractoryWagons.findBySortingDate({
-      number: record.wagonNumber,
-      sortingDate: record.sortingDate,
+      number: wagonNumber,
+      sortingDate,
     });
     if (wagon === undefined) {
       throw new LaboratoryFormedProductSampleWagonNotFoundError();
@@ -89,27 +100,86 @@ export function createLaboratoryFormedProductSampleJournalRepository(
 
   return {
     async create(input) {
-      const { productBrand, moldingDate } = await resolveWagon(input.record);
       const id = createId();
       const createdAt = now().toISOString();
+      const record = input.record;
+
+      if (record.wagonNumber !== undefined) {
+        const { productBrand, moldingDate } = await resolveWagon(
+          record.wagonNumber,
+          record.sortingDate,
+        );
+
+        await pool.query(
+          `insert into laboratory_formed_product_sample_journal (
+            id,
+            sorting_date,
+            wagon_number,
+            sample_code,
+            product_brand,
+            molding_date,
+            source_sample_registration_id,
+            submitted_by_user_id,
+            submitted_by_account_id,
+            created_at
+          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            record.sortingDate,
+            record.wagonNumber,
+            null,
+            productBrand,
+            moldingDate,
+            null,
+            input.submittedByUserId,
+            input.submittedByAccountId,
+            createdAt,
+          ],
+        );
+
+        return {
+          id,
+          sortingDate: record.sortingDate,
+          wagonNumber: record.wagonNumber,
+          sampleCode: null,
+          productBrand,
+          moldingDate,
+          createdAt,
+        };
+      }
+
+      if (record.sourceSampleRegistrationId !== undefined) {
+        const claim = await claimSampleRegistrationTransmission?.({
+          sampleRegistrationId: record.sourceSampleRegistrationId,
+          target: "formed_product_sample",
+          targetRecordId: id,
+        });
+        if (claim === undefined || !claim.ok) {
+          throw new LaboratorySampleRegistrationTransmissionUnavailableError();
+        }
+      }
 
       await pool.query(
         `insert into laboratory_formed_product_sample_journal (
           id,
           sorting_date,
           wagon_number,
+          sample_code,
           product_brand,
           molding_date,
+          source_sample_registration_id,
           submitted_by_user_id,
           submitted_by_account_id,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
-          input.record.sortingDate,
-          input.record.wagonNumber,
-          productBrand,
-          moldingDate,
+          record.sortingDate,
+          null,
+          record.sampleCode,
+          record.productBrand,
+          null,
+          record.sourceSampleRegistrationId ?? null,
           input.submittedByUserId,
           input.submittedByAccountId,
           createdAt,
@@ -118,9 +188,14 @@ export function createLaboratoryFormedProductSampleJournalRepository(
 
       return {
         id,
-        ...input.record,
-        productBrand,
-        moldingDate,
+        sortingDate: record.sortingDate,
+        wagonNumber: null,
+        sampleCode: record.sampleCode!,
+        productBrand: record.productBrand!,
+        moldingDate: null,
+        ...(record.sourceSampleRegistrationId === undefined
+          ? {}
+          : { sourceSampleRegistrationId: record.sourceSampleRegistrationId }),
         createdAt,
       };
     },
@@ -131,8 +206,10 @@ export function createLaboratoryFormedProductSampleJournalRepository(
           id,
           sorting_date,
           wagon_number,
+          sample_code,
           product_brand,
           molding_date,
+          source_sample_registration_id,
           created_at
         from laboratory_formed_product_sample_journal
         where id = ?
@@ -144,24 +221,49 @@ export function createLaboratoryFormedProductSampleJournalRepository(
       if (current === undefined) return undefined;
 
       const before = mapSnapshot(current);
-      const { productBrand, moldingDate } = await resolveWagon(input.record);
       const correctedAt = now().toISOString();
-      const after: LaboratoryFormedProductSampleCorrection = {
-        sortingDate: input.record.sortingDate,
-        wagonNumber: input.record.wagonNumber,
-      };
+      const record = input.record;
+
+      let after: LaboratoryFormedProductSampleCorrection;
+      let productBrand: string;
+      let moldingDate: string | null;
+      let sampleCode: string | null;
+      let wagonNumber: string | null;
+      if (record.wagonNumber !== undefined) {
+        const resolved = await resolveWagon(
+          record.wagonNumber,
+          record.sortingDate,
+        );
+        after = { sortingDate: record.sortingDate, wagonNumber: record.wagonNumber };
+        productBrand = resolved.productBrand;
+        moldingDate = resolved.moldingDate;
+        sampleCode = null;
+        wagonNumber = record.wagonNumber;
+      } else {
+        after = {
+          sortingDate: record.sortingDate,
+          sampleCode: record.sampleCode,
+          productBrand: record.productBrand,
+        };
+        productBrand = record.productBrand!;
+        moldingDate = null;
+        sampleCode = record.sampleCode ?? null;
+        wagonNumber = null;
+      }
 
       await pool.query(
         `update laboratory_formed_product_sample_journal
         set
           sorting_date = ?,
           wagon_number = ?,
+          sample_code = ?,
           product_brand = ?,
           molding_date = ?
         where id = ?`,
         [
-          input.record.sortingDate,
-          input.record.wagonNumber,
+          record.sortingDate,
+          wagonNumber,
+          sampleCode,
           productBrand,
           moldingDate,
           input.id,
@@ -194,9 +296,17 @@ export function createLaboratoryFormedProductSampleJournalRepository(
         before,
         record: {
           id: input.id,
-          ...after,
+          sortingDate: record.sortingDate,
+          wagonNumber,
+          sampleCode,
           productBrand,
           moldingDate,
+          ...(current.source_sample_registration_id === null
+            ? {}
+            : {
+                sourceSampleRegistrationId:
+                  current.source_sample_registration_id,
+              }),
           createdAt: new Date(current.created_at).toISOString(),
         },
       };
@@ -216,7 +326,7 @@ export function createLaboratoryFormedProductSampleJournalRepository(
       }
       if (filters.query !== undefined) {
         clauses.push(`instr(
-          concat_ws(' ', wagon_number, product_brand),
+          concat_ws(' ', wagon_number, sample_code, product_brand),
           ?
         ) > 0`);
         parameters.push(filters.query);
@@ -236,8 +346,10 @@ export function createLaboratoryFormedProductSampleJournalRepository(
           id,
           sorting_date,
           wagon_number,
+          sample_code,
           product_brand,
           molding_date,
+          source_sample_registration_id,
           created_at
         from laboratory_formed_product_sample_journal
         ${where}
@@ -257,8 +369,12 @@ function mapSnapshot(
   return {
     sortingDate: formatDate(row.sorting_date),
     wagonNumber: row.wagon_number,
+    sampleCode: row.sample_code,
     productBrand: row.product_brand,
     moldingDate: formatOptionalDate(row.molding_date),
+    ...(row.source_sample_registration_id === null
+      ? {}
+      : { sourceSampleRegistrationId: row.source_sample_registration_id }),
   };
 }
 

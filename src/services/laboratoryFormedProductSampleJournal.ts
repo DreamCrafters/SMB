@@ -177,8 +177,11 @@ function isJournalRecord(
     typeof value.id === "string" &&
     typeof value.sortingDate === "string" &&
     (value.wagonNumber === null || typeof value.wagonNumber === "string") &&
+    (value.sampleCode === null || typeof value.sampleCode === "string") &&
     typeof value.productBrand === "string" &&
     (value.moldingDate === null || typeof value.moldingDate === "string") &&
+    (value.sourceSampleRegistrationId === undefined ||
+      typeof value.sourceSampleRegistrationId === "string") &&
     typeof value.createdAt === "string";
 }
 

@@ -114,6 +114,7 @@ const server = createApiServer({
   laboratoryFormedProductSampleJournal:
     createLaboratoryFormedProductSampleJournalRepository(pool, {
       refractoryWagons,
+      claimSampleRegistrationTransmission,
     }),
   laboratoryVerificationJournal:
     createLaboratoryVerificationJournalRepository(pool, {

@@ -1,7 +1,6 @@
-import {
-  laboratoryFormedProductSampleFields,
-  type LaboratoryFormedProductSampleCorrection,
-  type LaboratoryFormedProductSampleSubmission,
+import type {
+  LaboratoryFormedProductSampleCorrection,
+  LaboratoryFormedProductSampleSubmission,
 } from "../contracts/laboratoryFormedProductSampleJournal.js";
 
 export type LaboratoryFormedProductSampleValidation =
@@ -25,6 +24,15 @@ export function validateLaboratoryFormedProductSampleCorrection(
   return validateRecord(input);
 }
 
+/**
+ * Ровно два взаимоисключающих пути (см. контракт): вагонный — только
+ * `wagonNumber`, марка и дата формовки резолвятся сервером из вагона;
+ * трансляция из Регистрации проб — `sampleCode` и `productBrand` приходят от
+ * клиента, `moldingDate` недоступна. Какое поле прислали, то и определяет
+ * путь — `sourceSampleRegistrationId` при исправлении клиент не пересылает
+ * (репозиторий сохраняет исходную привязку), поэтому ветвление держится на
+ * `wagonNumber`, а не на нём.
+ */
 function validateRecord(
   input: unknown,
 ): LaboratoryFormedProductSampleCorrectionValidation {
@@ -38,21 +46,36 @@ function validateRecord(
   }
 
   const errors: string[] = [];
-  const values = new Map<
-    keyof LaboratoryFormedProductSampleCorrection,
-    string
-  >();
+  const sortingDate = readCalendarDate(input.sortingDate);
+  if (sortingDate === undefined) {
+    errors.push("Проверьте поле «Дата сортировки».");
+  }
 
-  for (const field of laboratoryFormedProductSampleFields) {
-    if (!field.editable) continue;
-    const value = field.kind === "date"
-      ? readCalendarDate(input[field.id])
-      : readText(input[field.id], maxShortTextLength);
-    if (value === undefined) {
-      errors.push(`Проверьте поле «${field.label}».`);
-    } else {
-      values.set(field.id, value);
-    }
+  const wagonNumber = readText(input.wagonNumber, maxShortTextLength);
+  if (wagonNumber !== undefined) {
+    if (errors.length > 0) return { ok: false, errors };
+    return {
+      ok: true,
+      value: { sortingDate: sortingDate!, wagonNumber },
+    };
+  }
+
+  const sampleCode = readText(input.sampleCode, maxShortTextLength);
+  const productBrand = readText(input.productBrand, maxShortTextLength);
+  if (sampleCode === undefined) errors.push("Проверьте поле «Код пробы».");
+  if (productBrand === undefined) {
+    errors.push("Проверьте поле «Марка изделия».");
+  }
+
+  const sourceSampleRegistrationId = readText(
+    input.sourceSampleRegistrationId,
+    maxShortTextLength,
+  );
+  if (
+    !isMissingOptionalText(input.sourceSampleRegistrationId) &&
+    sourceSampleRegistrationId === undefined
+  ) {
+    errors.push("Проверьте выбранную пробу для трансляции.");
   }
 
   if (errors.length > 0) {
@@ -62,10 +85,19 @@ function validateRecord(
   return {
     ok: true,
     value: {
-      sortingDate: values.get("sortingDate")!,
-      wagonNumber: values.get("wagonNumber")!,
+      sortingDate: sortingDate!,
+      sampleCode: sampleCode!,
+      productBrand: productBrand!,
+      ...(sourceSampleRegistrationId === undefined
+        ? {}
+        : { sourceSampleRegistrationId }),
     },
   };
+}
+
+function isMissingOptionalText(value: unknown) {
+  return value === undefined || value === null ||
+    (typeof value === "string" && value.trim() === "");
 }
 
 function readCalendarDate(value: unknown) {

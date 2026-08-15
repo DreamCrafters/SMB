@@ -93,7 +93,13 @@ export function LaboratorySampleRegistrationTable({
         </thead>
         <tbody>
           {records.map((record) => (
-            <tr key={record.id}>
+            <tr
+              className={record.laboratoryAnalysisNumber === undefined ||
+                  record.laboratoryAnalysisNumber === ""
+                ? undefined
+                : "sample-registration-row-has-chemical-analysis"}
+              key={record.id}
+            >
               {laboratorySampleRegistrationFields.map((field) => (
                 <td key={field.id}>
                   {field.id === "laboratorySampleCode" &&
@@ -283,32 +289,37 @@ export function LaboratoryFormedProductSampleTable({
           </tr>
         </thead>
         <tbody>
-          {records.map((record) => (
-            <tr key={record.id}>
-              {laboratoryFormedProductSampleFields.map((field) => {
-                const value = record[field.id];
-                return (
-                  <td key={field.id}>
-                    {field.id === "wagonNumber" && onEditRecord !== undefined
-                      ? (
-                          <button
-                            className="board-assignment-link formed-product-sample-edit-link"
-                            type="button"
-                            onClick={() => onEditRecord(record)}
-                          >
-                            {value ?? "—"}
-                          </button>
-                        )
-                      : value === null
-                        ? "—"
-                        : field.kind === "date"
-                          ? formatLaboratoryDate(value)
-                          : value}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {records.map((record) => {
+            const editLinkField = record.wagonNumber !== null
+              ? "wagonNumber"
+              : "sampleCode";
+            return (
+              <tr key={record.id}>
+                {laboratoryFormedProductSampleFields.map((field) => {
+                  const value = record[field.id];
+                  return (
+                    <td key={field.id}>
+                      {field.id === editLinkField && onEditRecord !== undefined
+                        ? (
+                            <button
+                              className="board-assignment-link formed-product-sample-edit-link"
+                              type="button"
+                              onClick={() => onEditRecord(record)}
+                            >
+                              {value ?? "—"}
+                            </button>
+                          )
+                        : value === null
+                          ? "—"
+                          : field.kind === "date"
+                            ? formatLaboratoryDate(value)
+                            : value}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

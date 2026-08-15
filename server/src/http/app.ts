@@ -4769,6 +4769,7 @@ async function handleLaboratoryRequest({
           details: [
             { label: "Дата сортировки", value: record.sortingDate },
             { label: "№ вагона", value: record.wagonNumber ?? "—" },
+            { label: "Код пробы", value: record.sampleCode ?? "—" },
             { label: "Марка изделия", value: record.productBrand },
             { label: "Дата формовки", value: record.moldingDate ?? "—" },
           ],
@@ -4783,6 +4784,16 @@ async function handleLaboratoryRequest({
             code: "invalid_response",
             message:
               "Вагон с таким номером и датой сортировки не найден в Журнале вагонов.",
+          },
+        });
+        return;
+      }
+      if (error instanceof LaboratorySampleRegistrationTransmissionUnavailableError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message:
+              "Выбранная проба уже использована для трансляции. Обновите список и выберите другую.",
           },
         });
         return;
@@ -4868,6 +4879,11 @@ async function handleLaboratoryRequest({
                   label: "№ вагона",
                   value:
                     `${result.before.wagonNumber ?? "—"} → ${result.record.wagonNumber ?? "—"}`,
+                },
+                {
+                  label: "Код пробы",
+                  value:
+                    `${result.before.sampleCode ?? "—"} → ${result.record.sampleCode ?? "—"}`,
                 },
                 {
                   label: "Марка изделия",

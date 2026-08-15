@@ -1,14 +1,21 @@
 import type { LaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 
 /**
- * Задача 79: цель `formed_product_sample` убрана — этот журнал больше не
- * привязан к пробе из Регистрации проб, марка и дата формовки подтягиваются
- * из Журнала вагонов по номеру вагона и дате сортировки.
+ * Доработка задачи 64 вернула `formed_product_sample`: журнал `Регистрация
+ * проб готовой формованной продукции (кирпича)` снова принимает пробу из
+ * Регистрации проб (код пробы и марка изделия предзаполняются через
+ * `SampleRegistrationTransmissionPicker`), рядом с независимым вагонным
+ * подтягиванием марки и даты формовки из задачи 79 — обе провенансы
+ * сосуществуют в одной форме.
  */
 export const laboratorySampleRegistrationTransmissionTargets = [
   {
     value: "unshaped_product_sample",
     label: "Регистрация проб готовой неформованной продукции",
+  },
+  {
+    value: "formed_product_sample",
+    label: "Регистрация проб готовой формованной продукции (кирпича)",
   },
   {
     value: "verification",

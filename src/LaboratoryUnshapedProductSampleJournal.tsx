@@ -281,6 +281,18 @@ export function LaboratoryUnshapedProductSampleJournal({
           <h3>Регистрация пробы</h3>
           <div className="laboratory-form-grid unshaped-product-sample-form-grid">
             {laboratoryUnshapedProductSampleFields.map((field) => {
+              if (field.id === "sampleNumber") {
+                return (
+                  <label key={field.id}>
+                    <span>{field.label}</span>
+                    <input
+                      disabled
+                      placeholder="Присваивается в Регистрации проб"
+                      value={form.sampleNumber}
+                    />
+                  </label>
+                );
+              }
               if (field.id === "chemicalAnalysisNumber") {
                 return (
                   <label key={field.id}>

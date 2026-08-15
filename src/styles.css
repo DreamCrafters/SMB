@@ -5557,10 +5557,27 @@ p {
   margin-left: var(--density-4);
 }
 
+/**
+ * Задача 64 (доработка): "Регистрация проб" — длинная кнопка сверху,
+ * остальные три — в ряд под ней. Grid без явных строк: первая кнопка
+ * растягивается на все 3 колонки (auto-flow переносит её на отдельную
+ * строку), а сама строка "растёт" по высоте самой длинной подписи
+ * (кирпич), поэтому все три кнопки становятся одинаково высокими.
+ */
 .laboratory-quality-control-tabs {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   max-width: 720px;
   margin-left: var(--density-4);
+}
+
+.laboratory-quality-control-tabs button:first-child {
+  grid-column: 1 / -1;
+}
+
+.laboratory-quality-control-tabs button {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
 }
 
 .laboratory-refractory-shop-tabs {
@@ -5763,8 +5780,17 @@ p {
   font-size: 14px;
 }
 
+/**
+ * Задача 64 (доработка): узкие колонки — заголовки переносятся на 2 строки
+ * вместо того, чтобы растягивать колонку под самое длинное название целиком.
+ */
 .sample-registration-journal-table {
-  min-width: 2800px;
+  min-width: 2100px;
+}
+
+.sample-registration-journal-table th {
+  max-width: 150px;
+  white-space: normal;
 }
 
 .chemical-analysis-journal-table {
@@ -5799,6 +5825,10 @@ p {
 
 .unshaped-product-sample-suitability-yes > td {
   background: var(--emerald-soft);
+}
+
+.sample-registration-row-has-chemical-analysis > td {
+  background: var(--blue-gray-soft);
 }
 
 .sample-registration-journal-table th:last-child,

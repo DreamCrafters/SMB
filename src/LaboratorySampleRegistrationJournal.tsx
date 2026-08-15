@@ -357,13 +357,14 @@ export function LaboratorySampleRegistrationJournal({
                     <label key={field.id}>
                       <span>{field.label}</span>
                       <select
+                        required
                         value={form.transmitToJournal}
                         onChange={(event) => {
                           const value = event.currentTarget.value;
                           updateField("transmitToJournal", value);
                         }}
                       >
-                        <option value="">Не транслировать</option>
+                        <option disabled value="">Выберите журнал</option>
                         {laboratorySampleRegistrationTransmissionTargets.map(
                           (target) => (
                             <option key={target.value} value={target.value}>
