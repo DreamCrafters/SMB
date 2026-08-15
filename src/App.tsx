@@ -3066,6 +3066,7 @@ function OwnerWorkspace({
       dispatcherForms={dispatcherForms}
       filters={dispatcherFeedFilters}
       onFiltersChange={onDispatcherFeedFiltersChange}
+      canViewVisitors={canViewVisitors}
     />
   );
 }
@@ -6866,12 +6867,26 @@ export function DispatcherFeedPanel({
   dispatcherForms,
   filters,
   onFiltersChange,
+  canViewVisitors,
 }: {
   dispatcherFeed: DispatcherFeedLoadState;
   dispatcherForms: DispatcherFormsLoadState;
   filters: DispatcherFeedFilterState;
   onFiltersChange: (patch: Partial<DispatcherFeedFilterState>) => void;
+  canViewVisitors?: boolean;
 }) {
+  /**
+   * Доработка задачи 77: тумблер «Посетители» скрывает раздел и в самой
+   * `Диспетчерской`, а не только блок в `Обзоре` — иначе должность без
+   * посетителей (начальник производства) всё равно видела бы их данные,
+   * как только получала вкладку `Диспетчерская`. Проп необязательный и
+   * скрывает раздел только при явном `false`: рабочее место диспетчера
+   * (`business.dispatcher_form`) само вносит визиты и капабилити
+   * `business.view_overview_visitors` не имеет.
+   */
+  const showVisitors = canViewVisitors !== false;
+  const activeGroup: DispatcherFeedGroup =
+    filters.group === "visitors" && !showVisitors ? "production" : filters.group;
   const submissions =
     dispatcherFeed.status === "ready" ? dispatcherFeed.submissions : [];
   const isLocalTestMode =
@@ -6881,7 +6896,7 @@ export function DispatcherFeedPanel({
     dateTo: filters.dateTo.length > 0 ? filters.dateTo : undefined,
   };
   const showAllOpenIncidents =
-    filters.group === "incidents" && filters.incidentView === "all_open";
+    activeGroup === "incidents" && filters.incidentView === "all_open";
   const equipmentRows = buildEquipmentSummaryRows(submissions, selectedDateRange);
   const productionTables = filterProductionReportTables(
     dispatcherFeed.status === "ready"
@@ -6906,11 +6921,11 @@ export function DispatcherFeedPanel({
       ? dispatcherForms.forms.find((form) => form.id === "production")
       : undefined;
   const visibleRowCount =
-    filters.group === "equipment"
+    activeGroup === "equipment"
       ? equipmentRows.length
-      : filters.group === "incidents"
+      : activeGroup === "incidents"
         ? incidentRows.length
-        : filters.group === "visitors"
+        : activeGroup === "visitors"
           ? visitorRows.length
           : undefined;
 
@@ -6933,14 +6948,14 @@ export function DispatcherFeedPanel({
             ["production", "Выработка"],
             ["equipment", "Оборудование"],
             ["incidents", "Инциденты"],
-            ["visitors", "Посетители"],
+            ...(showVisitors ? [["visitors", "Посетители"]] : []),
           ].map(([group, label]) => (
             <button
               className={`dispatcher-feed-group-button ${
-                filters.group === group ? "is-active" : ""
+                activeGroup === group ? "is-active" : ""
               }`}
               type="button"
-              aria-pressed={filters.group === group}
+              aria-pressed={activeGroup === group}
               key={group}
               onClick={() =>
                 onFiltersChange({ group: group as DispatcherFeedGroup })
@@ -6953,7 +6968,7 @@ export function DispatcherFeedPanel({
         <div className="dispatcher-period-picker">
           <div
             className={`dispatcher-period-buttons ${
-              filters.group === "incidents"
+              activeGroup === "incidents"
                 ? "dispatcher-period-buttons-incidents"
                 : ""
             }`}
@@ -6976,7 +6991,7 @@ export function DispatcherFeedPanel({
                 {option.label}
               </button>
             ))}
-            {filters.group === "incidents" ? (
+            {activeGroup === "incidents" ? (
               <button
                 className={`dispatcher-period-button ${
                   showAllOpenIncidents ? "is-active" : ""
@@ -7022,7 +7037,7 @@ export function DispatcherFeedPanel({
       </div>
       {dispatcherFeed.status === "ready" ? (
         <div className="dispatcher-summary-strip" aria-label="Сводка регистраций">
-          {filters.group === "production" ? null : (
+          {activeGroup === "production" ? null : (
             <span>Строк в таблице: {visibleRowCount}</span>
           )}
           <span>Обновлено: {formatDateTime(dispatcherFeed.receivedAt)}</span>
@@ -7033,7 +7048,7 @@ export function DispatcherFeedPanel({
       ) : null}
       {dispatcherFeed.status === "ready" &&
       dispatcherForms.status === "loading" &&
-      filters.group === "production" ? (
+      activeGroup === "production" ? (
         <LoadingIndicator label={dispatcherForms.message} variant="inline" />
       ) : null}
       {dispatcherForms.status === "error" ? (
@@ -7057,7 +7072,7 @@ export function DispatcherFeedPanel({
           )}
         </p>
       ) : null}
-      {dispatcherFeed.status === "ready" && filters.group === "production" ? (
+      {dispatcherFeed.status === "ready" && activeGroup === "production" ? (
         <ProductionReportSummaryTable
           form={productionForm}
           tables={productionTables}
@@ -7066,20 +7081,20 @@ export function DispatcherFeedPanel({
           submissions={submissions}
         />
       ) : null}
-      {dispatcherFeed.status === "ready" && filters.group === "equipment" ? (
+      {dispatcherFeed.status === "ready" && activeGroup === "equipment" ? (
         <EquipmentSummaryTable
           range={selectedDateRange}
           rows={equipmentRows}
           submissions={submissions}
         />
       ) : null}
-      {dispatcherFeed.status === "ready" && filters.group === "incidents" ? (
+      {dispatcherFeed.status === "ready" && activeGroup === "incidents" ? (
         <IncidentSummaryTable
           rows={incidentRows}
           showAllOpen={showAllOpenIncidents}
         />
       ) : null}
-      {dispatcherFeed.status === "ready" && filters.group === "visitors" ? (
+      {dispatcherFeed.status === "ready" && activeGroup === "visitors" ? (
         <VisitorSummaryTable rows={visitorRows} />
       ) : null}
     </section>
@@ -11996,7 +12011,9 @@ function AdminAccountsWorkspace({
                         }));
                       }}
                     />
-                    <span>Показывать блок «Посетители» в Обзоре</span>
+                    <span>
+                      Показывать «Посетители» в Обзоре и Диспетчерской
+                    </span>
                   </label>
                 </div>
               </fieldset>
