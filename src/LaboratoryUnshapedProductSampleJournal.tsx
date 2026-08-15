@@ -167,18 +167,21 @@ export function LaboratoryUnshapedProductSampleJournal({
     if (option.sampleNumber !== "") isSampleCodeAuto.current = false;
     setForm((current) => ({
       ...current,
-      sampleNumber: current.sampleNumber === ""
-        ? option.sampleNumber
-        : current.sampleNumber,
+      /**
+       * Доработка задачи 64: номер и код пробы приходят из выбранной
+       * трансляции всегда, а не только когда поле ещё пустое — черновик
+       * следующего номера уже успевает заполнить оба поля при монтировании
+       * формы, до того как лаборант откроет пикер, поэтому условная
+       * подстановка ни разу не срабатывала.
+       */
+      sampleNumber: option.sampleNumber,
+      sampleCode: option.laboratorySampleCode,
       sampleDate: current.sampleDate === ""
         ? option.samplingDate
         : current.sampleDate,
       sampledBy: current.sampledBy === ""
         ? option.samplingLaboratoryAssistant
         : current.sampledBy,
-      sampleCode: current.sampleCode === ""
-        ? option.laboratorySampleCode
-        : current.sampleCode,
       productName: current.productName === ""
         ? option.sampleName
         : current.productName,
