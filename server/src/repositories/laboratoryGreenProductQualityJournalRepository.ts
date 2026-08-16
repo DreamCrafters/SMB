@@ -9,6 +9,10 @@ import type {
   LaboratoryGreenProductQualitySubmission,
   LaboratoryGreenProductQualityWagonOption,
 } from "../contracts/laboratoryGreenProductQualityJournal.js";
+import {
+  isRefractoryWagonAvailableForRawControl,
+  isRefractoryWagonLoadingComplete,
+} from "../contracts/refractoryWagons.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
 
@@ -16,6 +20,18 @@ export class LaboratoryGreenProductQualityWagonUnavailableError extends Error {
   constructor() {
     super("One or more refractory wagons are unavailable.");
     this.name = "LaboratoryGreenProductQualityWagonUnavailableError";
+  }
+}
+
+/**
+ * Задача 91: контроль сырца идёт после садки, поэтому сервер повторно
+ * проверяет её полноту и не полагается на отфильтрованный список формы.
+ */
+export class LaboratoryGreenProductQualityWagonLoadingIncompleteError
+  extends Error {
+  constructor() {
+    super("One or more refractory wagons have an incomplete loading stage.");
+    this.name = "LaboratoryGreenProductQualityWagonLoadingIncompleteError";
   }
 }
 
@@ -84,7 +100,7 @@ type WagonRow = RowDataPacket & {
   wagon_number: string;
 };
 
-type ResolvedWagonRow = WagonRow & {
+type ResolvedWagonRow = WagonRow & LoadingStageRow & {
   product_brand: string | null;
 };
 
@@ -93,6 +109,15 @@ type AvailableWagonRow = WagonRow & {
   product_brand: string | null;
   press_date: Date | string | null;
   piece_count: number | string | null;
+  setter_name: string | null;
+  press_operator: string | null;
+  raw_control_date: Date | string | null;
+  post_firing_condition: string | null;
+};
+
+type LoadingStageRow = {
+  loading_date: Date | string | null;
+  press_date: Date | string | null;
   setter_name: string | null;
   press_operator: string | null;
 };
@@ -117,7 +142,9 @@ export function createLaboratoryGreenProductQualityJournalRepository(
       const id = createId();
       const createdAt = now().toISOString();
       const record = input.record;
-      const wagons = await resolveWagons(pool, record.wagonIds);
+      const wagons = await resolveWagons(pool, record.wagonIds, {
+        requireLoadingStage: true,
+      });
 
       await pool.query(
         `insert into laboratory_green_product_quality_journal (
@@ -254,8 +281,8 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         ) options
         order by option_type asc, last_used_at desc, value asc`,
       );
-      // Каждый вагон может пройти несколько циклов «Оборота»; для новой садки
-      // доступен только последний из них, и то если он не в ремонте.
+      // Каждый вагон может пройти несколько циклов «Оборота»; контроль сырца
+      // видит только последний цикл, и то на своём этапе конвейера (задача 91).
       const [wagonRows] = await pool.query<AvailableWagonRow[]>(
         `select
           wagon.id,
@@ -265,7 +292,9 @@ export function createLaboratoryGreenProductQualityJournalRepository(
           press_date,
           piece_count,
           setter_name,
-          press_operator
+          press_operator,
+          raw_control_date,
+          post_firing_condition
         from refractory_wagons wagon
         inner join (
           select wagon_number, max(sequence_id) as sequence_id
@@ -274,9 +303,7 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         ) latest_cycle
           on latest_cycle.wagon_number = wagon.wagon_number
           and latest_cycle.sequence_id = wagon.sequence_id
-        where post_firing_condition is null or post_firing_condition <> ?
         order by loading_date desc, wagon.sequence_id desc`,
-        ["В ремонт"],
       );
       return {
         setters: people
@@ -285,7 +312,10 @@ export function createLaboratoryGreenProductQualityJournalRepository(
         pressOperators: people
           .filter((row) => row.option_type === "press_operator")
           .map((row) => row.value),
-        wagons: wagonRows.map(mapAvailableWagon),
+        wagons: wagonRows
+          .filter((row) =>
+            isRefractoryWagonAvailableForRawControl(readWagonStage(row)))
+          .map(mapAvailableWagon),
       };
     },
 
@@ -474,6 +504,23 @@ function mapJournalRow(
   };
 }
 
+function readLoadingStage(row: LoadingStageRow) {
+  return {
+    loadingDate: formatOptionalCalendarDate(row.loading_date),
+    pressDate: formatOptionalCalendarDate(row.press_date),
+    setter: row.setter_name,
+    pressOperator: row.press_operator,
+  };
+}
+
+function readWagonStage(row: AvailableWagonRow) {
+  return {
+    ...readLoadingStage(row),
+    rawControlDate: formatOptionalCalendarDate(row.raw_control_date),
+    postFiringCondition: row.post_firing_condition,
+  };
+}
+
 function mapAvailableWagon(
   row: AvailableWagonRow,
 ): LaboratoryGreenProductQualityAvailableWagon {
@@ -514,10 +561,12 @@ function readJson(value: unknown): unknown[] {
 async function resolveWagons(
   pool: DatabasePool,
   wagonIds: string[],
+  { requireLoadingStage = false }: { requireLoadingStage?: boolean } = {},
 ): Promise<LaboratoryGreenProductQualityWagonOption[]> {
   const placeholders = wagonIds.map(() => "?").join(", ");
   const [rows] = await pool.query<ResolvedWagonRow[]>(
-    `select id, wagon_number, product_brand
+    `select id, wagon_number, product_brand, loading_date, press_date,
+      setter_name, press_operator
       from refractory_wagons
       where id in (${placeholders})
       for update`,
@@ -529,6 +578,14 @@ async function resolveWagons(
   ]));
   if (wagonById.size !== wagonIds.length) {
     throw new LaboratoryGreenProductQualityWagonUnavailableError();
+  }
+  // Исправление уже сохранённой записи этап садки не перепроверяет: она давно
+  // пройдена, а её поля мог изменить более поздний `Оборот вагонов`.
+  if (
+    requireLoadingStage &&
+    rows.some((row) => !isRefractoryWagonLoadingComplete(readLoadingStage(row)))
+  ) {
+    throw new LaboratoryGreenProductQualityWagonLoadingIncompleteError();
   }
   const productBrands = new Set(
     rows

@@ -10,6 +10,8 @@ function buildPool(
   wagon: {
     post_firing_condition: string | null;
     service_approval_date: string | null;
+    firing_operator?: string | null;
+    sorter_name?: string | null;
   } | undefined,
   sortingDate: string | null,
   queries: Array<{ sql: string; parameters?: unknown[] }> = [],
@@ -24,11 +26,17 @@ function buildPool(
               id: "wagon-17",
               catalog_wagon_id: "catalog-17",
               wagon_number: "В-17",
+              firing_operator: "Зайцев З.З.",
+              sorter_name: "Орлова О.О.",
               ...wagon,
             }], []];
       }
       if (/from refractory_wagon_lifecycle_events/u.test(sql)) {
-        return [[{ sorting_date: sortingDate }], []];
+        // Задача 91: осмотру нужен весь этап обжига, а не только сортировка.
+        return [sortingDate === null ? [] : [
+          { event_type: "firing", last_event_date: sortingDate },
+          { event_type: "sorting", last_event_date: sortingDate },
+        ], []];
       }
       return [[], []];
     },
@@ -188,6 +196,29 @@ test("wagon inspection rejects wagons that are not awaiting it", async () => {
   );
   await assert.rejects(
     () => alreadyApproved.create({
+      inspection: {
+        wagonId: "wagon-17",
+        condition: "Можно эксплуатировать",
+        approvalDate: "2026-08-12",
+      },
+      ...inspectedBy,
+    }),
+    RefractoryWagonInspectionNotAllowedError,
+  );
+
+  // Задача 91: рассортированный вагон без обжигальщика этап ещё не закрыл.
+  const incompleteFiring = createRefractoryWagonInspectionsRepository(
+    buildPool(
+      {
+        post_firing_condition: null,
+        service_approval_date: null,
+        firing_operator: null,
+      },
+      "2026-08-11",
+    ),
+  );
+  await assert.rejects(
+    () => incompleteFiring.create({
       inspection: {
         wagonId: "wagon-17",
         condition: "Можно эксплуатировать",

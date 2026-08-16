@@ -10,6 +10,7 @@ import {
   type RefractoryReportSubmission,
   type RefractoryReportType,
   type RefractoryShiftNumber,
+  isRefractoryWagonAvailableForFiring,
   selectLatestWagonCycles,
   type RefractoryWagonRecord,
   type ServerUserProfile,
@@ -1519,7 +1520,7 @@ function FiringForm({
   const [summary, setSummary] = useState(() =>
     summarizeFiringRows(payload?.rows ?? []),
   );
-  const [wagonOptions, setWagonOptions] = useState<RefractoryWagonRecord[]>([]);
+  const [wagons, setWagons] = useState<RefractoryWagonRecord[]>([]);
   const [wagonLoadState, setWagonLoadState] = useState<
     "idle" | "loading" | "ready" | "error"
   >(loadWagons ? "loading" : "idle");
@@ -1531,9 +1532,7 @@ function FiringForm({
     requestRefractoryWagons({ signal: controller.signal }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.status === "ready") {
-        // Один номер вагона может встречаться в нескольких циклах истории;
-        // для обжига/сортировки предлагаем только текущий.
-        setWagonOptions(selectLatestWagonCycles(result.wagons));
+        setWagons(result.wagons);
         setWagonLoadState("ready");
       } else {
         setWagonLoadState("error");
@@ -1541,6 +1540,13 @@ function FiringForm({
     });
     return () => controller.abort();
   }, [loadWagons]);
+
+  // Один номер вагона может встречаться в нескольких циклах истории; для
+  // обжига/сортировки предлагаем текущий цикл, и только после контроля сырца
+  // (задача 91). Подсказки бригад берём из всей истории, а не из этого списка:
+  // вагон на своём этапе обжигальщика и сортировщика ещё не знает.
+  const firingWagonOptions = selectLatestWagonCycles(wagons)
+    .filter(isRefractoryWagonAvailableForFiring);
 
   return (
     <div className="refractory-form-sections">
@@ -1594,7 +1600,7 @@ function FiringForm({
                       <FiringWagonMultiSelect
                         ariaLabel={`Рассортированные вагоны, строка ${index + 1}`}
                         name={`firing.${index}.sortingWagons`}
-                        options={wagonOptions}
+                        options={firingWagonOptions}
                         saved={row?.sortingWagons}
                       />
                     </td>
@@ -1673,11 +1679,11 @@ function FiringForm({
           </table>
         </div>
         <datalist id="refractory-firing-operator-options">
-          {collectWagonCrewOptions(wagonOptions, (wagon) => wagon.firingOperator)
+          {collectWagonCrewOptions(wagons, (wagon) => wagon.firingOperator)
             .map((value) => <option key={value} value={value} />)}
         </datalist>
         <datalist id="refractory-sorter-options">
-          {collectWagonCrewOptions(wagonOptions, (wagon) => wagon.sorter)
+          {collectWagonCrewOptions(wagons, (wagon) => wagon.sorter)
             .map((value) => <option key={value} value={value} />)}
         </datalist>
         {wagonLoadState === "loading" ? (
@@ -1685,6 +1691,11 @@ function FiringForm({
         ) : wagonLoadState === "error" ? (
           <p className="form-status form-status-error">
             Не удалось загрузить журнал оборота вагонов. Обновите страницу перед выбором.
+          </p>
+        ) : wagonLoadState === "ready" && firingWagonOptions.length === 0 ? (
+          <p className="form-status">
+            Нет вагонов, готовых к обжигу: вагон попадает в список после
+            контроля сырца в лаборатории.
           </p>
         ) : null}
         <button

@@ -307,6 +307,7 @@ import type { LaboratoryVerificationJournalRepository } from "../repositories/la
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import {
   LaboratoryGreenProductQualityWagonBrandMismatchError,
+  LaboratoryGreenProductQualityWagonLoadingIncompleteError,
   LaboratoryGreenProductQualityWagonUnavailableError,
   type LaboratoryGreenProductQualitySnapshot,
   type LaboratoryGreenProductQualityJournalRepository,
@@ -12271,6 +12272,16 @@ function sendLaboratoryGreenProductQualityWagonError(
       error: {
         code: "invalid_response",
         message: "Выбраны вагоны с разными марками, выберите с одинаковыми.",
+      },
+    });
+    return true;
+  }
+  if (error instanceof LaboratoryGreenProductQualityWagonLoadingIncompleteError) {
+    sendJson(res, 400, {
+      error: {
+        code: "invalid_response",
+        message:
+          "У выбранного вагона не заполнена садка: укажите дату садки, садчика, дату пресса и прессовщика в журнале «Оборот вагонов».",
       },
     });
     return true;

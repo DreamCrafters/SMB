@@ -457,7 +457,9 @@ export function LaboratoryGreenProductQualityJournal({
                 <legend>№№ вагонов</legend>
                 {options.wagons.length === 0 ? (
                   <p className="laboratory-empty-note">
-                    Вагоны появятся после добавления записей в журнале оборота вагонов.
+                    Вагон появится здесь после садки: в журнале оборота вагонов
+                    должны быть заполнены дата садки, садчик, дата пресса и
+                    прессовщик.
                   </p>
                 ) : (
                   <div className="green-product-quality-wagon-options">

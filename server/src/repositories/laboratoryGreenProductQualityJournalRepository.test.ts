@@ -4,8 +4,17 @@ import type { DatabasePool } from "../db/pool.js";
 import {
   createLaboratoryGreenProductQualityJournalRepository,
   LaboratoryGreenProductQualityWagonBrandMismatchError,
+  LaboratoryGreenProductQualityWagonLoadingIncompleteError,
   LaboratoryGreenProductQualityWagonUnavailableError,
 } from "./laboratoryGreenProductQualityJournalRepository.js";
+
+/** Садка вагона заполнена: без неё контроль сырца задачей 91 закрыт. */
+const loadedWagonStage = {
+  loading_date: "2026-08-05",
+  press_date: "2026-08-04",
+  setter_name: "Иванов И.И.",
+  press_operator: "Петров П.П.",
+};
 
 const record = {
   recordDate: "2026-08-05",
@@ -45,11 +54,13 @@ test("green product quality repository stores canonical wagon links with the jou
             id: "wagon-1",
             wagon_number: "В-01",
             product_brand: " шку-32 ",
+            ...loadedWagonStage,
           },
           {
             id: "wagon-2",
             wagon_number: "В-02",
             product_brand: "ШКУ-32",
+            ...loadedWagonStage,
           },
         ], []];
       }
@@ -138,11 +149,13 @@ test("green product quality repository rejects wagons with different product bra
           id: "wagon-1",
           wagon_number: "В-01",
           product_brand: "ШКУ-32",
+          ...loadedWagonStage,
         },
         {
           id: "wagon-2",
           wagon_number: "В-02",
           product_brand: "ШКИ-66",
+          ...loadedWagonStage,
         },
       ], []];
     },
@@ -173,11 +186,13 @@ test("green product quality repository accepts a legacy wagon without a product 
             id: "wagon-1",
             wagon_number: "В-01",
             product_brand: null,
+            ...loadedWagonStage,
           },
           {
             id: "wagon-2",
             wagon_number: "В-02",
             product_brand: "ШКУ-32",
+            ...loadedWagonStage,
           },
         ], []];
       }
@@ -199,6 +214,44 @@ test("green product quality repository accepts a legacy wagon without a product 
     { id: "wagon-2", number: "В-02" },
     { id: "wagon-1", number: "В-01" },
   ]);
+  assert.match(queries[0]?.sql ?? "", /for update/u);
+});
+
+test("green product quality repository rejects a wagon with an incomplete loading stage", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[
+        {
+          id: "wagon-1",
+          wagon_number: "В-01",
+          product_brand: "ШКУ-32",
+          ...loadedWagonStage,
+        },
+        {
+          id: "wagon-2",
+          wagon_number: "В-02",
+          product_brand: "ШКУ-32",
+          ...loadedWagonStage,
+          press_operator: "   ",
+        },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratoryGreenProductQualityJournalRepository(pool);
+
+  // Отфильтрованный список формы не считается доказательством: сервер сам
+  // проверяет предыдущий этап под блокировкой строк (задача 91).
+  await assert.rejects(
+    () => repository.create({
+      record,
+      submittedByUserId: "laboratory-user",
+      submittedByAccountId: "laboratory-account",
+    }),
+    LaboratoryGreenProductQualityWagonLoadingIncompleteError,
+  );
+  assert.equal(queries.length, 1);
   assert.match(queries[0]?.sql ?? "", /for update/u);
 });
 
@@ -271,6 +324,8 @@ test("green product quality repository lists people from history and wagons from
             piece_count: 480,
             setter_name: "Сидоров С.С.",
             press_operator: "Кузнецов К.К.",
+            raw_control_date: null,
+            post_firing_condition: null,
           },
           {
             id: "wagon-1",
@@ -281,6 +336,32 @@ test("green product quality repository lists people from history and wagons from
             piece_count: null,
             setter_name: null,
             press_operator: null,
+            raw_control_date: null,
+            post_firing_condition: null,
+          },
+          {
+            id: "wagon-3",
+            wagon_number: "В-03",
+            loading_date: "2026-08-03",
+            product_brand: "ШКУ-32",
+            press_date: "2026-08-02",
+            piece_count: 480,
+            setter_name: "Сидоров С.С.",
+            press_operator: "Кузнецов К.К.",
+            raw_control_date: "2026-08-04",
+            post_firing_condition: null,
+          },
+          {
+            id: "wagon-4",
+            wagon_number: "В-04",
+            loading_date: "2026-08-02",
+            product_brand: "ШКУ-32",
+            press_date: "2026-08-01",
+            piece_count: 480,
+            setter_name: "Сидоров С.С.",
+            press_operator: "Кузнецов К.К.",
+            raw_control_date: null,
+            post_firing_condition: "В ремонт",
           },
         ], []];
       }
@@ -292,6 +373,9 @@ test("green product quality repository lists people from history and wagons from
   } as unknown as DatabasePool;
   const repository = createLaboratoryGreenProductQualityJournalRepository(pool);
 
+  // Задача 91: этап контроля сырца видит только вагон с полностью заполненной
+  // садкой, который ещё не проверен. В-01 без садчика и даты пресса, В-03 уже
+  // прошёл контроль, В-04 в ремонте — ни один в список не попадает.
   assert.deepEqual(await repository.listOptions(), {
     setters: ["Иванов И.И."],
     pressOperators: ["Петров П.П."],
@@ -306,16 +390,6 @@ test("green product quality repository lists people from history and wagons from
         setter: "Сидоров С.С.",
         pressOperator: "Кузнецов К.К.",
       },
-      {
-        id: "wagon-1",
-        number: "В-01",
-        loadingDate: "2026-08-04",
-        productBrand: "ШКУ-32",
-        pressDate: null,
-        pieceCount: null,
-        setter: null,
-        pressOperator: null,
-      },
     ],
   });
   assert.match(queries[0] ?? "", /group by setter_name/u);
@@ -325,8 +399,6 @@ test("green product quality repository lists people from history and wagons from
     queries[1] ?? "",
     /order by loading_date desc, wagon\.sequence_id desc/u,
   );
-  // Вагон в ремонте не предлагается лаборанту для новой садки.
-  assert.match(queries[1] ?? "", /post_firing_condition is null or post_firing_condition <> \?/u);
 });
 
 test("green product quality repository corrects a stable row and stores wagon-aware revision snapshots", async () => {

@@ -39,11 +39,16 @@ type WagonStateRow = RowDataPacket & {
   id: string;
   catalog_wagon_id: string;
   wagon_number: string;
+  firing_operator: string | null;
+  sorter_name: string | null;
   post_firing_condition: string | null;
   service_approval_date: Date | string | null;
 };
 
-type SortingDateRow = RowDataPacket & { sorting_date: Date | string | null };
+type LifecycleSummaryRow = RowDataPacket & {
+  event_type: "firing" | "sorting";
+  last_event_date: Date | string | null;
+};
 
 type RepositoryOptions = {
   createId?: () => string;
@@ -81,8 +86,8 @@ export function createRefractoryWagonInspectionsRepository(
 
     async create(input) {
       const [wagonRows] = await pool.query<WagonStateRow[]>(
-        `select id, catalog_wagon_id, wagon_number, post_firing_condition,
-          service_approval_date
+        `select id, catalog_wagon_id, wagon_number, firing_operator, sorter_name,
+          post_firing_condition, service_approval_date
         from refractory_wagons
         where id = ?
         limit 1
@@ -92,20 +97,29 @@ export function createRefractoryWagonInspectionsRepository(
       const wagon = wagonRows[0];
       if (wagon === undefined) return undefined;
 
-      const [sortingRows] = await pool.query<SortingDateRow[]>(
-        `select max(event_date) as sorting_date
+      // Задача 91: осмотр открыт только после полностью заполненного этапа
+      // обжига и сортировки, поэтому нужны обе даты жизненного цикла.
+      const [lifecycleRows] = await pool.query<LifecycleSummaryRow[]>(
+        `select event_type, max(event_date) as last_event_date
         from refractory_wagon_lifecycle_events
-        where wagon_id = ? and event_type = 'sorting'`,
+        where wagon_id = ?
+        group by event_type`,
         [input.inspection.wagonId],
       );
-      const sortingDate = formatOptionalCalendarDate(
-        sortingRows[0]?.sorting_date ?? null,
-      );
+      const lastEventDates = new Map(lifecycleRows.map((row) => [
+        row.event_type,
+        formatOptionalCalendarDate(row.last_event_date),
+      ]));
+      const firingDate = lastEventDates.get("firing") ?? null;
+      const sortingDate = lastEventDates.get("sorting") ?? null;
       const isAwaitingInspection = isRefractoryWagonAwaitingInspection({
         postFiringCondition: wagon.post_firing_condition,
         serviceApprovalDate: formatOptionalCalendarDate(
           wagon.service_approval_date,
         ),
+        firingOperator: wagon.firing_operator,
+        firingDates: firingDate === null ? [] : [firingDate],
+        sorter: wagon.sorter_name,
         sortingDate,
       });
       if (!isAwaitingInspection) {

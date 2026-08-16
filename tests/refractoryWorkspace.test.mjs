@@ -67,7 +67,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         pieceCount: 480,
         setter: "Иванов И.И.",
         pressOperator: "Петров П.П.",
-        rawControlDate: null,
+        rawControlDate: "2026-08-05",
         firingOperator: "Зайцев З.З.",
         firingDates: ["2026-08-06", "2026-08-06"],
         sorter: "Орлова О.О.",
@@ -75,6 +75,26 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
         postFiringCondition: "Можно эксплуатировать",
         serviceApprovalDate: "2026-08-07",
         createdAt: "2026-08-05T08:00:00.000Z",
+      },
+      // Задача 91: обжиг и сортировка видят только вагон, прошедший контроль
+      // сырца и ещё не обожжённый, — В-16 свой цикл уже отработал.
+      {
+        id: "wagon-18",
+        number: "В-18",
+        loadingDate: "2026-08-05",
+        productBrand: "ШКУ-32",
+        pressDate: "2026-08-04",
+        pieceCount: 480,
+        setter: "Иванов И.И.",
+        pressOperator: "Петров П.П.",
+        rawControlDate: "2026-08-06",
+        firingOperator: null,
+        firingDates: [],
+        sorter: null,
+        sortingDate: null,
+        postFiringCondition: null,
+        serviceApprovalDate: null,
+        createdAt: "2026-08-05T08:10:00.000Z",
       },
     ];
     let submittedWagon;
@@ -540,11 +560,16 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     );
     await waitFor(
       React,
-      () => sortingWagonsSelect?.querySelector('option[value="wagon-16"]') !== null,
+      () => sortingWagonsSelect?.querySelector('option[value="wagon-18"]') !== null,
     );
     assert.ok(sortingWagonsSelect);
+    // Отработавший цикл В-16 в список этапа не попадает.
+    assert.equal(
+      sortingWagonsSelect.querySelector('option[value="wagon-16"]'),
+      null,
+    );
     await React.act(async () => {
-      sortingWagonsSelect.querySelector('option[value="wagon-16"]').selected = true;
+      sortingWagonsSelect.querySelector('option[value="wagon-18"]').selected = true;
       sortingWagonsSelect.dispatchEvent(
         new dom.window.Event("change", { bubbles: true }),
       );
@@ -555,7 +580,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.ok(submitFiringButton);
     await React.act(async () => submitFiringButton.click());
     assert.deepEqual(submittedReport.payload.rows[0].sortingWagons, [
-      { id: "wagon-16" },
+      { id: "wagon-18" },
     ]);
 
     const reportDateInput = rootElement.querySelector('input[type="date"]');
@@ -669,13 +694,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.match(wagonTable.textContent, /06\.08\.2026; 06\.08\.2026/u);
     assert.match(wagonTable.textContent, /08\.08\.2026/u);
 
-    // № вагона в Обороте вагонов — раскрывающийся список из Каталога вагонов.
+    // № вагона в Обороте вагонов — список первого этапа конвейера: годные
+    // вагоны без садки. У В-16 и В-18 садка заполнена, поэтому список пуст.
     assert.deepEqual(
       Array.from(
         rootElement.querySelector('select[name="wagonNumber"]').options,
         (option) => option.value,
       ),
-      ["", "В-16"],
+      [""],
     );
     // Обжигальщик, сортировщик, состояние и дата одобрения — производные поля.
     for (const derivedField of [
@@ -697,11 +723,11 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       rootElement.querySelector('input[name="wagonPressOperator"]')
         .getAttribute("list"),
     );
-    // Пока вагон не выбран, сохранить исправление нельзя.
+    // Пока вагон не выбран, сохранять нечего.
     assert.equal(
       Array.from(
         rootElement.querySelectorAll(".refractory-wagon-form button"),
-      ).find((button) => button.textContent === "Сохранить исправление")
+      ).find((button) => button.textContent === "Сохранить садку")
         .disabled,
       true,
     );
@@ -775,9 +801,10 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       'input[name="wagonPieceCount"]',
     );
     assert.equal(wagonLoadingDateInput.value, "");
+    // Вагон без садки открывает первый этап, а не исправление.
     const correctWagonButton = Array.from(
       rootElement.querySelectorAll(".refractory-wagon-form button"),
-    ).find((button) => button.textContent === "Сохранить исправление");
+    ).find((button) => button.textContent === "Сохранить садку");
     assert.ok(correctWagonButton);
     assert.equal(correctWagonButton.disabled, false);
     await React.act(async () => {
@@ -828,7 +855,10 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     ).find((button) => button.textContent === "В-17");
     assert.ok(editWagonButton);
     await React.act(async () => editWagonButton.click());
+    // Заполненный вагон ушёл из списка садки, но его номер остаётся видимым в
+    // поле, а форма переключается на исправление.
     assert.equal(wagonNumberSelect.value, "В-17");
+    assert.equal(correctWagonButton.textContent, "Сохранить исправление");
     await React.act(async () => {
       setNativeInputValue(wagonLoadingDateInput, "2026-08-07");
       wagonLoadingDateInput.dispatchEvent(

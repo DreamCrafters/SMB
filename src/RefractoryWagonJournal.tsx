@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
+  isRefractoryWagonAvailableForLoading,
+  isRefractoryWagonLoadingComplete,
   selectLatestWagonCycles,
   type RefractoryWagonRecord,
 } from "./contracts/refractoryWagons";
@@ -39,6 +41,9 @@ export function RefractoryWagonJournal({
   const [hasError, setHasError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingWagonId, setEditingWagonId] = useState<string>();
+  // Задача 91: в форме два входа — садка вагона из списка первого этапа и
+  // исправление уже заполненной записи кликом по номеру в таблице.
+  const [isLoadingStage, setIsLoadingStage] = useState(false);
   const hasSuccessfulMutation = useRef(false);
 
   useEffect(() => {
@@ -114,13 +119,16 @@ export function RefractoryWagonJournal({
       return;
     }
     hasSuccessfulMutation.current = true;
+    const wasCorrection = isCorrection;
     setWagons((current) => current.map((wagon) => wagon.id === result.wagon.id
       ? result.wagon
       : wagon));
     resetForm();
-    setMessage("Исправление вагона сохранено.");
+    setMessage(wasCorrection
+      ? "Исправление вагона сохранено."
+      : "Садка вагона сохранена.");
     onShowToast(
-      "Вагон исправлен",
+      wasCorrection ? "Вагон исправлен" : "Садка сохранена",
       `${result.wagon.number} обновлён без изменения внутренней связи.`,
       "success",
     );
@@ -128,6 +136,7 @@ export function RefractoryWagonJournal({
 
   function editWagon(wagon: RefractoryWagonRecord) {
     setEditingWagonId(wagon.id);
+    setIsLoadingStage(!isRefractoryWagonLoadingComplete(wagon));
     setNumber(wagon.number);
     setLoadingDate(wagon.loadingDate ?? "");
     setProductBrand(wagon.productBrand ?? "");
@@ -141,6 +150,7 @@ export function RefractoryWagonJournal({
 
   function resetForm() {
     setEditingWagonId(undefined);
+    setIsLoadingStage(false);
     setNumber("");
     setLoadingDate(defaultLoadingDate);
     setProductBrand("");
@@ -157,11 +167,22 @@ export function RefractoryWagonJournal({
   );
   // Один номер вагона теперь может встречаться в нескольких строках истории
   // (по одной на цикл), поэтому список для выбора берёт только текущий цикл.
-  const sortedWagonNumbers = selectLatestWagonCycles(wagons)
-    .map((wagon) => wagon.number)
-    .sort((first, second) =>
-      first.localeCompare(second, "ru", { numeric: true })
-    );
+  // Первый этап конвейера видит из них годные вагоны без садки (задача 91);
+  // исправление любой другой строки открывается кликом по номеру в таблице.
+  const loadingStageNumbers = selectLatestWagonCycles(wagons)
+    .filter(isRefractoryWagonAvailableForLoading)
+    .map((wagon) => wagon.number);
+  // Исправляемая строка может относиться к давно пройденному циклу, но её
+  // номер обязан остаться видимым в поле, иначе выбор выглядит потерянным.
+  const sortedWagonNumbers = [
+    ...new Set(number === "" ? loadingStageNumbers : [
+      ...loadingStageNumbers,
+      number,
+    ]),
+  ].sort((first, second) =>
+    first.localeCompare(second, "ru", { numeric: true })
+  );
+  const isCorrection = editingWagonId !== undefined && !isLoadingStage;
 
   return (
     <section
@@ -176,7 +197,7 @@ export function RefractoryWagonJournal({
         <form className="refractory-wagon-form" onSubmit={handleSubmit}>
           <fieldset disabled={isSubmitting}>
             <legend>
-              {editingWagonId === undefined ? "Садка на вагоны" : "Исправление вагона"}
+              {isCorrection ? "Исправление вагона" : "Садка на вагоны"}
             </legend>
             <div className="refractory-field-grid">
               <label className="refractory-field">
@@ -193,7 +214,7 @@ export function RefractoryWagonJournal({
                     if (selectedWagon !== undefined) editWagon(selectedWagon);
                   }}
                 >
-                  <option value="">Выберите вагон из каталога</option>
+                  <option value="">Выберите вагон под садку</option>
                   {sortedWagonNumbers.map((wagonNumber) => (
                     <option key={wagonNumber} value={wagonNumber}>
                       {wagonNumber}
@@ -264,6 +285,12 @@ export function RefractoryWagonJournal({
               </label>
             </div>
             <p className="laboratory-empty-note">
+              В списке — годные вагоны, ожидающие садки. Вагон уходит на
+              контроль сырца только после того, как заполнены дата садки,
+              садчик, дата пресса и прессовщик; исправить уже заполненную
+              запись можно кликом по номеру в таблице ниже.
+            </p>
+            <p className="laboratory-empty-note">
               Обжигальщик, сортировщик и даты обжига и сортировки приходят из
               подтверждённого отчёта печного отделения, а состояние вагона и
               дата одобрения — из журнала осмотра вагонов.
@@ -275,7 +302,11 @@ export function RefractoryWagonJournal({
               disabled={isSubmitting || editingWagonId === undefined}
               type="submit"
             >
-              {isSubmitting ? "Сохраняем…" : "Сохранить исправление"}
+              {isSubmitting
+                ? "Сохраняем…"
+                : isCorrection
+                  ? "Сохранить исправление"
+                  : "Сохранить садку"}
             </button>
             {editingWagonId === undefined ? null : (
               <button
