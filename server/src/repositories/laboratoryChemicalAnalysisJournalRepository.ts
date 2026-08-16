@@ -467,6 +467,16 @@ export function createLaboratoryChemicalAnalysisJournalRepository(
           on unshaped.id = analysis.unshaped_product_sample_id
         ${where}
         order by
+          case
+            when trim(coalesce(registration.sample_number, unshaped.sample_number))
+              regexp '^[0-9]+'
+              then cast(
+                trim(coalesce(registration.sample_number, unshaped.sample_number))
+                as unsigned
+              )
+            else null
+          end desc,
+          coalesce(registration.sample_number, unshaped.sample_number) desc,
           coalesce(
             analysis.chemical_analysis_date,
             date(analysis.created_at)

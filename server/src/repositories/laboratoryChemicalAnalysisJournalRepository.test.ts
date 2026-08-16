@@ -342,6 +342,14 @@ test("chemical analysis repository lists linked samples with filters", async () 
     querySql,
     /coalesce\(registration\.sample_name, unshaped\.product_name\) like \?/u,
   );
+  assert.match(
+    querySql,
+    /order by\s+case\s+when trim\(coalesce\(registration\.sample_number, unshaped\.sample_number\)\)\s+regexp '\^\[0-9\]\+'/u,
+  );
+  assert.match(
+    querySql,
+    /coalesce\(registration\.sample_number, unshaped\.sample_number\) desc/u,
+  );
   assert.deepEqual(queryParameters, [
     "2026-07-01",
     "2026-07-31",
