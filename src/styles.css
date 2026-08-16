@@ -7515,20 +7515,25 @@ p {
   background: var(--surface-subtle);
 }
 
+/**
+ * Задача 90 (доработка): разделы огнеупорного цеха не помещались в один
+ * экран по ширине — кнопки сужены по колонке, высоте и внутренним отступам,
+ * чтобы ряд из четырёх журналов «Вагонов» вставал без переноса.
+ */
 .refractory-report-menu {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 8px;
 }
 
 .refractory-report-menu button {
   display: grid;
-  min-height: 76px;
+  min-height: 60px;
   align-content: center;
-  gap: 5px;
+  gap: 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius-large);
-  padding: 12px 16px;
+  padding: 9px 12px;
   color: var(--ink);
   background: var(--surface);
   font: inherit;
@@ -7555,8 +7560,9 @@ p {
 }
 
 .refractory-report-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 900;
+  line-height: 1.25;
 }
 
 .refractory-report-return-count {
@@ -7742,6 +7748,35 @@ p {
   width: 50%;
 }
 
+/**
+ * Задача 90 (доработка): в `Осмотре вагонов` всего 5 колонок, но таблица
+ * наследовала от `.refractory-input-table` общий `min-width: 1900px` от
+ * широких сменных отчётов и потому всегда уезжала в горизонтальную
+ * прокрутку. Сужаем по образцу `Каталога вагонов` — фиксированная раскладка
+ * и доли колонок вместо растягивания под самое длинное название.
+ */
+.refractory-wagon-inspection-table {
+  min-width: 640px;
+  table-layout: fixed;
+}
+
+.refractory-wagon-inspection-table th:first-child {
+  width: 14%;
+}
+
+.refractory-wagon-inspection-table th:nth-child(2),
+.refractory-wagon-inspection-table th:nth-child(4) {
+  width: 17%;
+}
+
+.refractory-wagon-inspection-table th:nth-child(3) {
+  width: 27%;
+}
+
+.refractory-wagon-inspection-table th:last-child {
+  width: 25%;
+}
+
 .refractory-cosh-output {
   display: grid;
   gap: 8px;
@@ -7808,6 +7843,32 @@ p {
 
 .refractory-input-table th:first-child {
   min-width: 170px;
+}
+
+/**
+ * Задача 90 (доработка): журналы `Вагонов` не помещались в экран по ширине.
+ * Держали её не собственные `min-width` таблиц, а общие поколоночные
+ * минимумы выше (170px у первой колонки и 96px у остальных): на 14 колонках
+ * `Оборота вагонов` это давало пол в ~1420px. Ослабляем минимумы именно для
+ * этих двух таблиц — заголовки в них и так переносятся, а длинные значения
+ * (`Даты обжига` — несколько дат через `;`) рвём по любому месту, чтобы
+ * содержимое не растянуло колонку обратно. Правила стоят ниже общих
+ * намеренно: специфичность у них одинаковая, и выше по файлу они бы
+ * проиграли.
+ */
+.refractory-wagon-table thead th,
+.refractory-wagon-inspection-table thead th {
+  min-width: 68px;
+}
+
+.refractory-wagon-table th:first-child,
+.refractory-wagon-inspection-table th:first-child {
+  min-width: 92px;
+}
+
+.refractory-wagon-table td,
+.refractory-wagon-inspection-table td {
+  overflow-wrap: anywhere;
 }
 
 .refractory-input-table-equipment th,
