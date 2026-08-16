@@ -10,7 +10,14 @@ import {
   productionCategoryLabels,
   type ProductionCategory,
 } from "../domain/productionPlan.js";
+import type { BankNumber } from "../domain/bankMeasurement.js";
 import type { SmbAppEnv } from "../config/env.js";
+
+/** Задача 93: марка, назначенная банке на момент отправки уведомления. */
+export type DispatcherNotificationBankContent = {
+  bankNumber: BankNumber;
+  materialLabel: string;
+};
 
 export type NotificationRecipientGroups = {
   incidentAndEquipment: string[];
@@ -130,6 +137,7 @@ export function buildEquipmentReportNotificationSubject(
 
 export function buildDispatcherNotificationText(
   submission: DispatcherSubmission,
+  bankContents?: readonly DispatcherNotificationBankContent[],
 ) {
   if (submission.formId === "incident") {
     return buildIncidentOpeningNotificationText(submission);
@@ -151,11 +159,23 @@ export function buildDispatcherNotificationText(
     return buildVisitorExitNotificationText(submission);
   }
 
+  const bankContentByNumber = bankContents === undefined
+    ? undefined
+    : new Map(
+        bankContents.map((content) =>
+          [content.bankNumber, content.materialLabel] as const
+        ),
+      );
   const form = getDispatcherFormDefinition(submission.formId);
   const payloadLines = Object.entries(submission.payload).map(([key, value]) => {
     const field = form?.fields.find((item) => item.name === key);
+    const label = readProductionNotificationFieldLabel(field, key);
 
-    return `${readProductionNotificationFieldLabel(field, key)}: ${value}`;
+    return `${
+      bankContentByNumber === undefined
+        ? label
+        : spliceJarBankContent(label, bankContentByNumber)
+    }: ${value}`;
   });
 
   return [
@@ -418,6 +438,22 @@ function readProductionNotificationFieldLabel(
     match[2] === "Brand" ? "Марка изделия" : "Факт по марке";
 
   return `${productionCategoryLabels[category]} — ${fieldLabel} ${match[3]}`;
+}
+
+/** Задача 93: вставляет содержимое банки сразу после «Замеры банок — Банка N». */
+function spliceJarBankContent(
+  label: string,
+  bankContentByNumber: Map<BankNumber, string>,
+) {
+  return label.replace(
+    /^Замеры банок — Банка (\d+)/u,
+    (match, bankNumberText: string) => {
+      const content = bankContentByNumber.get(Number(bankNumberText) as BankNumber) ??
+        "Не назначено";
+
+      return `${match} (${content})`;
+    },
+  );
 }
 
 function readDispatcherSubmissionStatusLabel(

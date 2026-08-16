@@ -9,6 +9,7 @@ import {
   appendNotificationEnvironmentNote,
   readEquipmentReportNotificationRecipients,
   readDispatcherNotificationRecipients,
+  type DispatcherNotificationBankContent,
   type EquipmentReportNotificationStatus,
   testNotificationNote,
 } from "./dispatcherNotifications.js";
@@ -28,6 +29,7 @@ export type MaxNotificationService = {
   sendDispatcherSubmissionNotification: (
     submission: DispatcherSubmission,
     recipients: MaxNotificationRecipients,
+    bankContents?: readonly DispatcherNotificationBankContent[],
   ) => Promise<void>;
   sendEquipmentReportNotification: (
     submissions: readonly DispatcherSubmission[],
@@ -135,7 +137,11 @@ export function createMaxNotificationService(
         logContext,
       );
     },
-    async sendDispatcherSubmissionNotification(submission, recipients) {
+    async sendDispatcherSubmissionNotification(
+      submission,
+      recipients,
+      bankContents,
+    ) {
       const logContext = { formId: submission.formId };
       const userIds = readMaxDeliveryTargets(
         readDispatcherNotificationRecipients(submission, recipients),
@@ -155,7 +161,7 @@ export function createMaxNotificationService(
       const text = buildMaxMessageText(
         withMaxSubjectPrefix(
           config.subjectPrefix,
-          buildDispatcherNotificationText(submission),
+          buildDispatcherNotificationText(submission, bankContents),
         ),
         appEnv,
       );

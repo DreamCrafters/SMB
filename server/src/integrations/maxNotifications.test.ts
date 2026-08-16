@@ -178,6 +178,43 @@ test("createMaxNotificationService sends production reports to equipment recipie
   );
 });
 
+test("createMaxNotificationService splices assigned bank content into jar labels", async () => {
+  const sent: { url: string; body: string }[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(input, init) {
+        sent.push({ url: String(input), body: String(init?.body) });
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+  const submission = buildSubmission("production", {
+    jarStart1: "45",
+    jarStart2: "12",
+  });
+  submission.formTitle = "Выработка";
+
+  await service.sendDispatcherSubmissionNotification(submission, recipients, [
+    { bankNumber: 1, materialLabel: "ША-22" },
+  ]);
+
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Замеры банок — Банка 1 \(ША-22\), начало дня, по замерам: 45/u,
+  );
+  assert.match(
+    JSON.parse(sent[0]?.body ?? "{}").text,
+    /Замеры банок — Банка 2 \(Не назначено\), начало дня, по замерам: 12/u,
+  );
+});
+
 test("createMaxNotificationService marks every test-site message at the end", async () => {
   const sentBodies: string[] = [];
   const service = createMaxNotificationService(

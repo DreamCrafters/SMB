@@ -243,6 +243,7 @@ import {
   createMaxNotificationService,
   type MaxNotificationService,
 } from "../integrations/maxNotifications.js";
+import type { DispatcherNotificationBankContent } from "../integrations/dispatcherNotifications.js";
 import {
   renderLaboratoryChemicalAnalysisProtocolPdf,
   renderLaboratoryProtocolPdf,
@@ -1287,6 +1288,7 @@ export function createApiServer({
             notificationSettings,
             emailNotificationService,
             maxNotificationService,
+            laboratoryBankAssignments,
           );
 
           sendJson(res, 201, { submission });
@@ -10890,6 +10892,7 @@ async function notifyDispatcherSubmission(
   notificationSettings: NotificationSettingsRepository | undefined,
   emailNotificationService: EmailNotificationService,
   maxNotificationService: MaxNotificationService,
+  laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined,
 ) {
   if (submission.formId === "equipment") {
     return;
@@ -10906,16 +10909,22 @@ async function notifyDispatcherSubmission(
     const referenceData = recipients === undefined
       ? await referenceDataSource.read()
       : undefined;
+    const bankContents =
+      submission.formId === "production" && laboratoryBankAssignments !== undefined
+        ? toDispatcherBankContents(await laboratoryBankAssignments.listCurrent())
+        : undefined;
 
     await notifyByEmail(
       emailNotificationService,
       submission,
       recipients?.email ?? referenceData!.notificationRecipients,
+      bankContents,
     );
     await notifyByMax(
       maxNotificationService,
       submission,
       recipients?.max ?? referenceData!.maxNotificationRecipients,
+      bankContents,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.reference_data_failed", error);
@@ -11094,11 +11103,13 @@ async function notifyByEmail(
   recipients: Parameters<
     EmailNotificationService["sendDispatcherSubmissionNotification"]
   >[1],
+  bankContents?: readonly DispatcherNotificationBankContent[],
 ) {
   try {
     await emailNotificationService.sendDispatcherSubmissionNotification(
       submission,
       recipients,
+      bankContents,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.email_send_failed", error);
@@ -11130,11 +11141,13 @@ async function notifyByMax(
   recipients: Parameters<
     MaxNotificationService["sendDispatcherSubmissionNotification"]
   >[1],
+  bankContents?: readonly DispatcherNotificationBankContent[],
 ) {
   try {
     await maxNotificationService.sendDispatcherSubmissionNotification(
       submission,
       recipients,
+      bankContents,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.max_send_failed", error);

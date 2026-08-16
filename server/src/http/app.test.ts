@@ -31,6 +31,7 @@ import type {
 import type { ProductionBrandsDataSource } from "../domain/productionBrandsDataSource.js";
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import type { MaxNotificationService } from "../integrations/maxNotifications.js";
+import { buildDispatcherNotificationText } from "../integrations/dispatcherNotifications.js";
 import type { DispatcherSpreadsheetImportService } from "../integrations/dispatcherSpreadsheetImport.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { ProductBrandsRepository } from "../repositories/productBrandsRepository.js";
@@ -3429,6 +3430,91 @@ test("production submission replaces client bank values with approved COSH measu
     passthroughProductionBrands,
     undefined,
     refractoryReports,
+  );
+});
+
+test("production submission notifications receive current bank contents for the message", async () => {
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() {
+      throw new Error("Assignments are not created through the dispatcher endpoint.");
+    },
+    async listCurrent() {
+      return [buildLaboratoryBankAssignment(1, "ША-22", 1.16)];
+    },
+    async listHistory() {
+      throw new Error("Dispatcher notifications must not expose assignment history.");
+    },
+  };
+  let emailText: string | undefined;
+  let maxText: string | undefined;
+  const emailNotificationService: EmailNotificationService = {
+    async sendDispatcherSubmissionNotification(submission, _recipients, bankContents) {
+      emailText = buildDispatcherNotificationText(submission, bankContents);
+    },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
+    },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
+    },
+  };
+  const maxNotificationService: MaxNotificationService = {
+    async sendDispatcherSubmissionNotification(submission, _recipients, bankContents) {
+      maxText = buildDispatcherNotificationText(submission, bankContents);
+    },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
+    },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          formId: "production",
+          payload: {
+            reportDate: "2026-07-23",
+            jarShipmentStart1: "45",
+            jarShipmentStart2: "12",
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      for (const text of [emailText, maxText]) {
+        assert.match(
+          text ?? "",
+          /Замеры банок — Банка 1 \(ША-22\), начало дня, по отгрузкам: 45/u,
+        );
+        assert.match(
+          text ?? "",
+          /Замеры банок — Банка 2 \(Не назначено\), начало дня, по отгрузкам: 12/u,
+        );
+      }
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    emailNotificationService,
+    maxNotificationService,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    emptyRefractoryReports,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
   );
 });
 

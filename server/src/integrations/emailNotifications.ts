@@ -10,6 +10,7 @@ import {
   appendNotificationEnvironmentNote,
   readEquipmentReportNotificationRecipients,
   readDispatcherNotificationRecipients,
+  type DispatcherNotificationBankContent,
   type EquipmentReportNotificationStatus,
 } from "./dispatcherNotifications.js";
 import type { NotificationRecipients } from "./googleSheetsReference.js";
@@ -38,6 +39,7 @@ export type EmailNotificationService = {
   sendDispatcherSubmissionNotification: (
     submission: DispatcherSubmission,
     recipients: NotificationRecipients,
+    bankContents?: readonly DispatcherNotificationBankContent[],
   ) => Promise<void>;
   sendEquipmentReportNotification: (
     submissions: readonly DispatcherSubmission[],
@@ -96,13 +98,18 @@ export function createEmailNotificationService(
         text: appendNotificationEnvironmentNote(text, appEnv),
       });
     },
-    async sendDispatcherSubmissionNotification(submission, recipients) {
+    async sendDispatcherSubmissionNotification(
+      submission,
+      recipients,
+      bankContents,
+    ) {
       const message = buildDispatcherSubmissionEmail(
         submission,
         recipients,
         config.from,
         config.subjectPrefix,
         appEnv,
+        bankContents,
       );
 
       if (message === undefined) {
@@ -215,6 +222,7 @@ export function buildDispatcherSubmissionEmail(
   from: string,
   subjectPrefix = "НМОУ Вектор",
   appEnv: SmbAppEnv = "production",
+  bankContents?: readonly DispatcherNotificationBankContent[],
 ): EmailMessage | undefined {
   const to = readDispatcherNotificationRecipients(submission, recipients);
 
@@ -227,7 +235,7 @@ export function buildDispatcherSubmissionEmail(
     to,
     subject: buildDispatcherNotificationSubject(submission, subjectPrefix),
     text: appendNotificationEnvironmentNote(
-      buildDispatcherNotificationText(submission),
+      buildDispatcherNotificationText(submission, bankContents),
       appEnv,
     ),
   };

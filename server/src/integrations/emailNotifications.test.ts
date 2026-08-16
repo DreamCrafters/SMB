@@ -102,6 +102,56 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
   );
 });
 
+test("buildDispatcherSubmissionEmail splices assigned bank content after the bank number", () => {
+  const submission = buildSubmission("production", {
+    jarStart1: "45",
+    jarStart2: "12",
+    jarStart3: "8",
+  });
+  submission.formTitle = "Выработка";
+
+  const message = buildDispatcherSubmissionEmail(
+    submission,
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+    "production",
+    [
+      { bankNumber: 1, materialLabel: "ША-22" },
+      { bankNumber: 3, materialLabel: "ШКИ-66" },
+    ],
+  );
+
+  assert.match(
+    message?.text ?? "",
+    /Замеры банок — Банка 1 \(ША-22\), начало дня, по замерам: 45/u,
+  );
+  assert.match(
+    message?.text ?? "",
+    /Замеры банок — Банка 2 \(Не назначено\), начало дня, по замерам: 12/u,
+  );
+  assert.match(
+    message?.text ?? "",
+    /Замеры банок — Банка 3 \(ШКИ-66\), начало дня, по замерам: 8/u,
+  );
+});
+
+test("buildDispatcherSubmissionEmail leaves jar labels untouched without bank contents", () => {
+  const submission = buildSubmission("production", { jarStart1: "45" });
+  submission.formTitle = "Выработка";
+
+  const message = buildDispatcherSubmissionEmail(
+    submission,
+    recipients,
+    "noreply@example.com",
+  );
+
+  assert.match(
+    message?.text ?? "",
+    /Замеры банок — Банка 1, начало дня, по замерам: 45/u,
+  );
+});
+
 test("buildDispatcherSubmissionEmail adds mechanical recipients for mechanical incidents", () => {
   const message = buildDispatcherSubmissionEmail(
     buildSubmission("incident", {
