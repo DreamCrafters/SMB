@@ -535,6 +535,9 @@ test("production dashboard totals follow the selected jars and granulation table
                 start: 120,
                 end: 100,
                 consumption: 20,
+                shipmentStart: 118.5,
+                shipmentEnd: 94,
+                shipmentConsumption: 24.5,
               },
               {
                 reportId: "production-jars",
@@ -544,6 +547,9 @@ test("production dashboard totals follow the selected jars and granulation table
                 start: 80,
                 end: 60,
                 consumption: 20,
+                shipmentStart: 70,
+                shipmentEnd: 55,
+                shipmentConsumption: 15,
               },
             ],
             granulation: [
@@ -578,6 +584,9 @@ test("production dashboard totals follow the selected jars and granulation table
               start: 200,
               end: 160,
               consumption: 40,
+              shipmentStart: 188.5,
+              shipmentEnd: 149,
+              shipmentConsumption: 39.5,
             },
             granulation: {
               rowCount: 2,
@@ -604,7 +613,17 @@ test("production dashboard totals follow the selected jars and granulation table
         ?.textContent,
       "Строк в таблице: 2",
     );
-    assert.deepEqual(readTotals(), ["Итого:", "—", "—", "200", "160", "40"]);
+    assert.deepEqual(readTotals(), [
+      "Итого:",
+      "—",
+      "—",
+      "200",
+      "188,5",
+      "160",
+      "149",
+      "40",
+      "39,5",
+    ]);
 
     const granulationButton = [...dom.window.document.querySelectorAll(
       '[aria-label="Таблицы выработки"] button',
@@ -676,6 +695,9 @@ test("jar dashboard table shows the current bank content next to the number", as
                 start: 120,
                 end: 100,
                 consumption: 20,
+                shipmentStart: 118.5,
+                shipmentEnd: 94,
+                shipmentConsumption: 24.5,
               },
               {
                 reportId: "production-today",
@@ -696,6 +718,9 @@ test("jar dashboard table shows the current bank content next to the number", as
               start: 200,
               end: 160,
               consumption: 40,
+              shipmentStart: 118.5,
+              shipmentEnd: 94,
+              shipmentConsumption: 24.5,
             },
           },
         }),
@@ -722,12 +747,23 @@ test("jar dashboard table shows the current bank content next to the number", as
       "Дата",
       "Банка",
       "Содержимое",
-      "Начало дня",
-      "Конец дня",
-      "Расход",
+      "Начало по замерам",
+      "Начало по отгрузкам",
+      "Конец по замерам",
+      "Конец по отгрузкам",
+      "Расход по замерам",
+      "Расход по отгрузкам",
     ]);
     assert.equal(firstRow[1], "1");
     assert.equal(firstRow[2], "ШКИ");
+    assert.deepEqual(firstRow.slice(3), [
+      "120",
+      "118,5",
+      "100",
+      "94",
+      "20",
+      "24,5",
+    ]);
     assert.equal(secondRow[1], "2");
     assert.equal(secondRow[2], "Не назначено");
 

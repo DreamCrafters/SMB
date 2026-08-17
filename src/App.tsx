@@ -7531,16 +7531,22 @@ function ProductionJarDashboardTable({
             <td>—</td>
             <td>—</td>
             <td>{formatOptionalNumber(totals.start)}</td>
+            <td>{formatOptionalNumber(totals.shipmentStart)}</td>
             <td>{formatOptionalNumber(totals.end)}</td>
+            <td>{formatOptionalNumber(totals.shipmentEnd)}</td>
             <td>{formatOptionalNumber(totals.consumption)}</td>
+            <td>{formatOptionalNumber(totals.shipmentConsumption)}</td>
           </tr>
           <tr className="production-dashboard-headings-row">
             <th scope="col">Дата</th>
             <th scope="col">Банка</th>
             <th scope="col">Содержимое</th>
-            <th scope="col">Начало дня</th>
-            <th scope="col">Конец дня</th>
-            <th scope="col">Расход</th>
+            <th scope="col">Начало по замерам</th>
+            <th scope="col">Начало по отгрузкам</th>
+            <th scope="col">Конец по замерам</th>
+            <th scope="col">Конец по отгрузкам</th>
+            <th scope="col">Расход по замерам</th>
+            <th scope="col">Расход по отгрузкам</th>
           </tr>
         </thead>
         <tbody>
@@ -7558,8 +7564,11 @@ function ProductionJarDashboardTable({
                 {materialByBankNumber.get(row.jarNumber) ?? "Не назначено"}
               </td>
               <td>{formatOptionalNumber(row.start)}</td>
+              <td>{formatOptionalNumber(row.shipmentStart)}</td>
               <td>{formatOptionalNumber(row.end)}</td>
+              <td>{formatOptionalNumber(row.shipmentEnd)}</td>
               <td>{formatOptionalNumber(row.consumption)}</td>
+              <td>{formatOptionalNumber(row.shipmentConsumption)}</td>
             </tr>
           ))}
         </tbody>

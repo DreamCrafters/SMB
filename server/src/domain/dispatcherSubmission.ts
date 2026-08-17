@@ -194,8 +194,15 @@ function readDispatcherSubmissionIdentity(
     return readDedupeIdentity(payload.reportDate, payload.equipment);
   }
 
-  if (formId === "incident" || formId === "incident_close") {
+  if (formId === "incident") {
     return readDedupeIdentity(payload.incidentNumber);
+  }
+
+  if (formId === "incident_close") {
+    return readDedupeIdentity(
+      payload.incidentNumber,
+      payload.closureDateTime,
+    );
   }
 
   if (formId === "visitor") {

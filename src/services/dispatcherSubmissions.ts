@@ -1791,7 +1791,10 @@ function isProductionReportTables(value: unknown): value is ProductionReportTabl
         typeof row.jarNumber === "number" &&
         isOptionalNumber(row.start) &&
         isOptionalNumber(row.end) &&
-        isOptionalNumber(row.consumption),
+        isOptionalNumber(row.consumption) &&
+        isOptionalNumber(row.shipmentStart) &&
+        isOptionalNumber(row.shipmentEnd) &&
+        isOptionalNumber(row.shipmentConsumption),
     ) &&
     Array.isArray(value.granulation) &&
     value.granulation.every(
@@ -1837,7 +1840,10 @@ function isProductionJarMeasurementTotals(value: unknown) {
     isProductionTotalsBase(value) &&
     isOptionalNumber(value.start) &&
     isOptionalNumber(value.end) &&
-    isOptionalNumber(value.consumption)
+    isOptionalNumber(value.consumption) &&
+    isOptionalNumber(value.shipmentStart) &&
+    isOptionalNumber(value.shipmentEnd) &&
+    isOptionalNumber(value.shipmentConsumption)
   );
 }
 

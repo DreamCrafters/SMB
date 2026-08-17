@@ -473,6 +473,29 @@ test("buildDispatcherSubmissionDedupeKey normalizes incident identity", () => {
   assert.match(first ?? "", /^dispatcher:incident:[a-f0-9]{64}$/u);
 });
 
+test("incident closure dedupe keeps a later corrective closure distinct", () => {
+  const staleClosure = buildDispatcherSubmissionDedupeKey({
+    formId: "incident_close",
+    payload: {
+      incidentNumber: "INC-2026-10",
+      closureDateTime: "10.06.2026 09:00",
+    },
+  });
+  const correctiveClosure = buildDispatcherSubmissionDedupeKey({
+    formId: "incident_close",
+    payload: {
+      incidentNumber: "INC-2026-10",
+      closureDateTime: "17.08.2026 14:30",
+    },
+  });
+
+  assert.notEqual(staleClosure, correctiveClosure);
+  assert.match(
+    correctiveClosure ?? "",
+    /^dispatcher:incident_close:[a-f0-9]{64}$/u,
+  );
+});
+
 test("validateDispatcherSubmissionDraft stamps visitor exit time", () => {
   const result = validateDispatcherSubmissionDraft({
     formId: "visitor_exit",

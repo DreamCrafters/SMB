@@ -572,6 +572,40 @@ test("buildProductionReportTables calculates jar consumption and granulation mon
   ]);
 });
 
+test("buildProductionReportTables keeps jar history from shipment-based values", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("production-august-5", "production", {
+      reportDate: "05.08.2026",
+      jarShipmentStart1: "118.5",
+      jarShipmentEnd1: "94",
+    }),
+  ], {});
+
+  assert.deepEqual(tables.jars, [
+    {
+      reportId: "production-august-5",
+      reportDate: "2026-08-05",
+      jarNumber: 1,
+      start: undefined,
+      end: undefined,
+      consumption: undefined,
+      shipmentStart: 118.5,
+      shipmentEnd: 94,
+      shipmentConsumption: 24.5,
+      receivedAt: "2026-07-04T00:00:00.000Z",
+    },
+  ]);
+  assert.deepEqual(buildLocalProductionReportTableTotals(tables, {}).jars, {
+    rowCount: 1,
+    start: undefined,
+    end: undefined,
+    consumption: undefined,
+    shipmentStart: 118.5,
+    shipmentEnd: 94,
+    shipmentConsumption: 24.5,
+  });
+});
+
 test("buildIncidentSummaryRows keeps incidents not closed before range start", () => {
   const rows = buildIncidentSummaryRows(
     [

@@ -535,12 +535,24 @@ function buildLocalJarMeasurementTotals(
   const consumption = sumOptionalProductionNumbers(
     rows.map((row) => row.consumption),
   );
+  const shipmentStart = sumOptionalProductionNumbers(
+    rows.map((row) => row.shipmentStart),
+  );
+  const shipmentEnd = sumOptionalProductionNumbers(
+    rows.map((row) => row.shipmentEnd),
+  );
+  const shipmentConsumption = sumOptionalProductionNumbers(
+    rows.map((row) => row.shipmentConsumption),
+  );
 
   return {
     rowCount: rows.length,
     start,
     end,
     consumption,
+    ...(shipmentStart === undefined ? {} : { shipmentStart }),
+    ...(shipmentEnd === undefined ? {} : { shipmentEnd }),
+    ...(shipmentConsumption === undefined ? {} : { shipmentConsumption }),
   };
 }
 
@@ -835,8 +847,19 @@ function buildProductionJarMeasurementRows(
     return [1, 2, 3].flatMap((jarNumber) => {
       const start = readNumber(report.submission.payload[`jarStart${jarNumber}`]);
       const end = readNumber(report.submission.payload[`jarEnd${jarNumber}`]);
+      const shipmentStart = readNumber(
+        report.submission.payload[`jarShipmentStart${jarNumber}`],
+      );
+      const shipmentEnd = readNumber(
+        report.submission.payload[`jarShipmentEnd${jarNumber}`],
+      );
 
-      if (start === undefined && end === undefined) {
+      if (
+        start === undefined &&
+        end === undefined &&
+        shipmentStart === undefined &&
+        shipmentEnd === undefined
+      ) {
         return [];
       }
 
@@ -849,6 +872,11 @@ function buildProductionJarMeasurementRows(
           end,
           consumption:
             start !== undefined && end !== undefined ? start - end : undefined,
+          ...(shipmentStart === undefined ? {} : { shipmentStart }),
+          ...(shipmentEnd === undefined ? {} : { shipmentEnd }),
+          ...(shipmentStart === undefined || shipmentEnd === undefined
+            ? {}
+            : { shipmentConsumption: shipmentStart - shipmentEnd }),
           receivedAt: report.submission.receivedAt,
         },
       ];

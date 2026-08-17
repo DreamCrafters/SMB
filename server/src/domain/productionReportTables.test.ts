@@ -106,6 +106,40 @@ test("buildProductionReportTables calculates server-owned production analytics",
   });
 });
 
+test("buildProductionReportTables keeps jar history from shipment-based values", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("august-shipment", {
+      reportDate: "05.08.2026",
+      jarShipmentStart1: "118.5",
+      jarShipmentEnd1: "94",
+    }),
+  ]);
+
+  assert.deepEqual(tables.jars, [
+    {
+      reportId: "august-shipment",
+      reportDate: "2026-08-05",
+      jarNumber: 1,
+      start: undefined,
+      end: undefined,
+      consumption: undefined,
+      shipmentStart: 118.5,
+      shipmentEnd: 94,
+      shipmentConsumption: 24.5,
+      receivedAt: "2026-07-02T18:00:00.000Z",
+    },
+  ]);
+  assert.deepEqual(buildProductionReportTableTotals(tables).jars, {
+    rowCount: 1,
+    start: undefined,
+    end: undefined,
+    consumption: undefined,
+    shipmentStart: 118.5,
+    shipmentEnd: 94,
+    shipmentConsumption: 24.5,
+  });
+});
+
 test("buildProductionMonthToDate returns cumulative plan and fact before the edited day", () => {
   const values = buildProductionMonthToDate([
     buildSubmission("day-1", {

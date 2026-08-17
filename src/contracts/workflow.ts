@@ -129,6 +129,9 @@ export type ProductionJarMeasurementRow = ProductionReportBaseRow & {
   start?: number;
   end?: number;
   consumption?: number;
+  shipmentStart?: number;
+  shipmentEnd?: number;
+  shipmentConsumption?: number;
 };
 
 export type ProductionGranulationRow = ProductionReportBaseRow & {
@@ -163,6 +166,9 @@ export type ProductionJarMeasurementTotals = {
   start?: number;
   end?: number;
   consumption?: number;
+  shipmentStart?: number;
+  shipmentEnd?: number;
+  shipmentConsumption?: number;
 };
 
 export type ProductionGranulationTotals = {

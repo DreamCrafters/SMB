@@ -40,6 +40,9 @@ export type ProductionJarMeasurementRow = ProductionReportBaseRow & {
   start?: number;
   end?: number;
   consumption?: number;
+  shipmentStart?: number;
+  shipmentEnd?: number;
+  shipmentConsumption?: number;
 };
 
 export type ProductionGranulationRow = ProductionReportBaseRow & {
@@ -74,6 +77,9 @@ export type ProductionJarMeasurementTotals = {
   start?: number;
   end?: number;
   consumption?: number;
+  shipmentStart?: number;
+  shipmentEnd?: number;
+  shipmentConsumption?: number;
 };
 
 export type ProductionGranulationTotals = {
@@ -201,12 +207,22 @@ function buildJarMeasurementTotals(
   const start = sumOptionalNumbers(rows.map((row) => row.start));
   const end = sumOptionalNumbers(rows.map((row) => row.end));
   const consumption = sumOptionalNumbers(rows.map((row) => row.consumption));
+  const shipmentStart = sumOptionalNumbers(
+    rows.map((row) => row.shipmentStart),
+  );
+  const shipmentEnd = sumOptionalNumbers(rows.map((row) => row.shipmentEnd));
+  const shipmentConsumption = sumOptionalNumbers(
+    rows.map((row) => row.shipmentConsumption),
+  );
 
   return {
     rowCount: rows.length,
     start,
     end,
     consumption,
+    ...(shipmentStart === undefined ? {} : { shipmentStart }),
+    ...(shipmentEnd === undefined ? {} : { shipmentEnd }),
+    ...(shipmentConsumption === undefined ? {} : { shipmentConsumption }),
   };
 }
 
@@ -586,8 +602,19 @@ function buildJarRows(
     [1, 2, 3].flatMap((jarNumber) => {
       const start = readNumber(report.submission.payload[`jarStart${jarNumber}`]);
       const end = readNumber(report.submission.payload[`jarEnd${jarNumber}`]);
+      const shipmentStart = readNumber(
+        report.submission.payload[`jarShipmentStart${jarNumber}`],
+      );
+      const shipmentEnd = readNumber(
+        report.submission.payload[`jarShipmentEnd${jarNumber}`],
+      );
 
-      if (start === undefined && end === undefined) return [];
+      if (
+        start === undefined &&
+        end === undefined &&
+        shipmentStart === undefined &&
+        shipmentEnd === undefined
+      ) return [];
 
       return [{
         ...readBaseRow(report),
@@ -596,6 +623,11 @@ function buildJarRows(
         end,
         consumption:
           start !== undefined && end !== undefined ? start - end : undefined,
+        ...(shipmentStart === undefined ? {} : { shipmentStart }),
+        ...(shipmentEnd === undefined ? {} : { shipmentEnd }),
+        ...(shipmentStart === undefined || shipmentEnd === undefined
+          ? {}
+          : { shipmentConsumption: shipmentStart - shipmentEnd }),
       }];
     }));
 }
