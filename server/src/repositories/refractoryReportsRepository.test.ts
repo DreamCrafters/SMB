@@ -146,6 +146,28 @@ test("repository selects the latest approved COSH shift for each requested date"
   assert.deepEqual(queryParameters, ["2026-07-20", "2026-07-21"]);
 });
 
+test("repository accumulates COSH master options from new and legacy revisions", async () => {
+  let querySql = "";
+  const pool = {
+    async query(sql: string) {
+      querySql = sql;
+      return [[
+        { master_name: "Сидоров С.С." },
+        { master_name: "Иванов И.И." },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRefractoryReportsRepository(pool);
+
+  assert.deepEqual(await repository.listCoshMasterOptions(), [
+    "Сидоров С.С.",
+    "Иванов И.И.",
+  ]);
+  assert.match(querySql, /json_extract\(payload, '\$\.coshMaster'\)/u);
+  assert.match(querySql, /master_display_name/u);
+  assert.match(querySql, /group by master_name/u);
+});
+
 test("repository canonicalizes merged brands while keeping report revision rows immutable", async () => {
   const statements: string[] = [];
   const pool = {

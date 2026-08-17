@@ -97,6 +97,8 @@ export function isLaboratoryBankAssignment(
       value.bulkDensitySource === "laboratory_result") &&
     (value.bulkDensitySampleCount === undefined ||
       Number.isInteger(value.bulkDensitySampleCount)) &&
+    (value.bulkDensityLatestRecordDate === undefined ||
+      typeof value.bulkDensityLatestRecordDate === "string") &&
     typeof value.assignedByDisplayName === "string" &&
     typeof value.assignedAt === "string";
 }

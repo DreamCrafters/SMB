@@ -28,6 +28,8 @@ export type BankAssignmentSnapshot = {
   bulkDensitySource: BankBulkDensitySource;
   /** Сколько записей журнала печи 2 усреднено для текущего насыпного веса. */
   bulkDensitySampleCount?: number;
+  /** Последняя дата лабораторной записи, вошедшей в актуальный расчёт. */
+  bulkDensityLatestRecordDate?: string;
   laboratoryResultId?: string;
   sampleIndex?: number;
   sampleIdentifier?: string;
@@ -50,20 +52,29 @@ export type BankMeasurementCalculation = {
   volumeCubicMeters: number;
   bulkDensityTonsPerCubicMeter: number;
   materialMassTons: number;
+  loadedTons: number;
+  shippedTons: number;
+  shipmentMassTons: number;
 };
 
 export type BankMeasurementCalculationResult =
   | { ok: true; value: BankMeasurementCalculation }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      field?: "measurements" | "loadedTons" | "shippedTons";
+    };
 
 export type CoshBankMeasurementInput = {
   bankNumber: BankNumber;
   values: readonly number[];
+  loadedTons?: number;
+  shippedTons?: number;
 };
 
 export type CoshBankMeasurementCalculationResult =
   | { ok: true; value: BankMeasurementCalculation[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; fieldPath?: string };
 
 const bankLabels: Record<BankNumber, string> = {
   1: "I",
@@ -74,10 +85,14 @@ const bankLabels: Record<BankNumber, string> = {
 export function calculateBankMeasurement({
   assignment,
   measurements,
+  loadedTons = 0,
+  shippedTons = 0,
   volumeReference,
 }: {
   assignment: BankAssignmentSnapshot;
   measurements: readonly number[];
+  loadedTons?: number;
+  shippedTons?: number;
   volumeReference: BankVolumeReference;
 }): BankMeasurementCalculationResult {
   if (measurements.length === 0) {
@@ -115,6 +130,18 @@ export function calculateBankMeasurement({
     };
   }
 
+  if (
+    !Number.isFinite(loadedTons) ||
+    loadedTons < 0 ||
+    !Number.isFinite(shippedTons) ||
+    shippedTons < 0
+  ) {
+    return {
+      ok: false,
+      error: "Значения «Засыпали» и «Отгрузили» должны быть неотрицательными.",
+    };
+  }
+
   const averageHeightMeters =
     measurements.reduce((total, measurement) => total + measurement, 0) /
     measurements.length;
@@ -124,6 +151,15 @@ export function calculateBankMeasurement({
   );
   const materialMassTons =
     volumeCubicMeters * assignment.bulkDensityTonsPerCubicMeter;
+  const shipmentMassTons = materialMassTons + loadedTons - shippedTons;
+
+  if (shipmentMassTons < 0) {
+    return {
+      ok: false,
+      error: "Отгрузили больше расчётного остатка с учётом засыпки.",
+      field: "shippedTons",
+    };
+  }
 
   return {
     ok: true,
@@ -136,6 +172,12 @@ export function calculateBankMeasurement({
       ...(assignment.bulkDensitySampleCount === undefined
         ? {}
         : { bulkDensitySampleCount: assignment.bulkDensitySampleCount }),
+      ...(assignment.bulkDensityLatestRecordDate === undefined
+        ? {}
+        : {
+            bulkDensityLatestRecordDate:
+              assignment.bulkDensityLatestRecordDate,
+          }),
       ...(assignment.laboratoryResultId === undefined
         ? {}
         : { laboratoryResultId: assignment.laboratoryResultId }),
@@ -152,6 +194,9 @@ export function calculateBankMeasurement({
       bulkDensityTonsPerCubicMeter:
         assignment.bulkDensityTonsPerCubicMeter,
       materialMassTons: roundToThreeDecimals(materialMassTons),
+      loadedTons: roundToThreeDecimals(loadedTons),
+      shippedTons: roundToThreeDecimals(shippedTons),
+      shipmentMassTons: roundToThreeDecimals(shipmentMassTons),
     },
   };
 }
@@ -191,12 +236,20 @@ export function calculateCoshBankMeasurements({
     const result = calculateBankMeasurement({
       assignment,
       measurements: measurement.values,
+      loadedTons: measurement.loadedTons,
+      shippedTons: measurement.shippedTons,
       volumeReference,
     });
     if (!result.ok) {
+      const measurementIndex = measurements.indexOf(measurement);
       return {
         ok: false,
         error: `Банка ${bankLabels[bankNumber]}: ${result.error}`,
+        ...(result.field === undefined || measurementIndex < 0
+          ? {}
+          : {
+              fieldPath: `jarMeasurements.${measurementIndex}.${result.field}`,
+            }),
       };
     }
 

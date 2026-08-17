@@ -439,6 +439,7 @@ export function RefractoryShopWorkspace({
             {activeType === "cosh" ? (
               <CoshForm
                 brandLabels={brandLabels}
+                defaultCoshMaster={profile.displayName}
                 payload={
                   activeReport?.reportType === "cosh"
                     ? activeReport.payload
@@ -540,12 +541,14 @@ function RefractoryReportState({
 
 function CoshForm({
   brandLabels = [],
+  defaultCoshMaster = "",
   payload = {},
   bankData,
   bankDataMessage,
   isLocked,
 }: {
   brandLabels?: string[];
+  defaultCoshMaster?: string;
   payload?: RefractoryCoshPayload;
   bankData?: RefractoryBanksResponse;
   bankDataMessage?: string;
@@ -560,10 +563,28 @@ function CoshForm({
         bankNumber,
         saved === undefined
           ? Array.from({ length: 4 }, () => "")
-          : saved.values.map(String),
+          : Array.from(
+              {
+                length: isLocked
+                  ? Math.max(4, saved.values.length)
+                  : 4,
+              },
+              (_, index) => saved.values[index]?.toString() ?? "",
+            ),
       ];
     })) as Record<BankNumber, string[]>,
   );
+  const [jarMovementDrafts, setJarMovementDrafts] = useState<
+    Record<BankNumber, { loadedTons: string; shippedTons: string }>
+  >(() => Object.fromEntries(bankNumbers.map((bankNumber) => {
+    const saved = payload.jarMeasurements?.find(
+      (item) => item.jarNumber === bankNumber,
+    );
+    return [bankNumber, {
+      loadedTons: saved?.loadedTons?.toString() ?? "",
+      shippedTons: saved?.shippedTons?.toString() ?? "",
+    }];
+  })) as Record<BankNumber, { loadedTons: string; shippedTons: string }>);
 
   function updateJarMeasurement(
     bankNumber: BankNumber,
@@ -579,21 +600,47 @@ function CoshForm({
     }));
   }
 
-  function addJarMeasurement(bankNumber: BankNumber) {
-    setJarDrafts((current) => ({
+  function updateJarMovement(
+    bankNumber: BankNumber,
+    field: "loadedTons" | "shippedTons",
+    rawValue: string,
+  ) {
+    const value = normalizeDecimalNumberInput(rawValue);
+    setJarMovementDrafts((current) => ({
       ...current,
-      [bankNumber]: [...current[bankNumber], ""],
+      [bankNumber]: { ...current[bankNumber], [field]: value },
     }));
   }
 
-  function removeJarMeasurement(bankNumber: BankNumber, index: number) {
-    setJarDrafts((current) => current[bankNumber].length <= 1
-      ? current
-      : {
-          ...current,
-          [bankNumber]: current[bankNumber].filter((_, itemIndex) => itemIndex !== index),
-        });
-  }
+  const bankColumns = bankNumbers.map((bankNumber) => {
+    const savedRow = payload.jarMeasurements?.find(
+      (item) => item.jarNumber === bankNumber,
+    );
+    const assignment = bankData?.currentAssignments.find(
+      (item) => item.bankNumber === bankNumber,
+    );
+    const calculation = isLocked
+      ? readStoredBankCalculation(savedRow)
+      : readDraftBankCalculation(
+          assignment,
+          jarDrafts[bankNumber],
+          jarMovementDrafts[bankNumber],
+          bankData?.volumeReference,
+        );
+    return {
+      bankNumber,
+      savedRow,
+      assignment,
+      calculation,
+      material: isLocked ? savedRow?.material : assignment?.materialLabel,
+      density: isLocked
+        ? savedRow?.bulkDensityTonsPerCubicMeter
+        : assignment?.bulkDensityTonsPerCubicMeter,
+      densityDate: isLocked
+        ? savedRow?.bulkDensityLatestRecordDate
+        : assignment?.bulkDensityLatestRecordDate,
+    };
+  });
 
   return (
     <div className="refractory-form-sections">
@@ -625,49 +672,38 @@ function CoshForm({
           <p className="form-status form-status-error" role="alert">{bankDataMessage}</p>
         )}
         <p className="refractory-section-note">
-          Для каждой банки внесите хотя бы один замер. Количество замеров может отличаться.
+          Первый замер каждой банки обязателен. Среднее, объём и оба расчётных
+          веса рассчитывает сервер; плотность берётся из последних данных
+          лаборатории для назначенного содержимого.
         </p>
-        <div className="bank-measurements-grid refractory-bank-measurements">
-          {bankNumbers.map((bankNumber) => {
-            const savedRow = payload.jarMeasurements?.find(
-              (item) => item.jarNumber === bankNumber,
-            );
-            const assignment = bankData?.currentAssignments.find(
-              (item) => item.bankNumber === bankNumber,
-            );
-            const calculation = isLocked
-              ? readStoredBankCalculation(savedRow)
-              : readDraftBankCalculation(
-                  assignment,
-                  jarDrafts[bankNumber],
-                  bankData?.volumeReference,
-                );
-            const material = isLocked
-              ? savedRow?.material
-              : assignment?.materialLabel;
-            const density = isLocked
-              ? savedRow?.bulkDensityTonsPerCubicMeter
-              : assignment?.bulkDensityTonsPerCubicMeter;
-            return (
-              <article className="bank-measurement-card" data-bank-number={bankNumber} key={bankNumber}>
-                <header>
-                  <div>
+        <div className="refractory-table-wrap refractory-bank-table-wrap">
+          <table className="refractory-bank-table">
+            <thead>
+              <tr>
+                <th>Показатель</th>
+                {bankColumns.map(({ bankNumber, material }) => (
+                  <th key={bankNumber}>
                     <span>Банка {readBankLabel(bankNumber)}</span>
+                    {" "}
                     <strong>{material ?? "Не назначено"}</strong>
-                  </div>
-                  <small>
-                    {density === undefined
-                      ? "Лаборатория должна назначить материал из журнала печи 2"
-                      : `Насыпной вес ${formatTableTotal(density)} т/м³`}
-                  </small>
-                </header>
-                <div className="bank-measurement-inputs">
-                  {jarDrafts[bankNumber].map((value, index) => (
-                    <label key={index}>
-                      <span>Замер {index + 1}, м</span>
-                      <span className="bank-measurement-input-row">
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from(
+                { length: Math.max(...bankNumbers.map((bankNumber) => jarDrafts[bankNumber].length)) },
+                (_, index) => (
+                  <tr key={`measurement-${index}`}>
+                    <th>
+                      Замер {index + 1}, м{index === 0 ? " *" : ""}
+                    </th>
+                    {bankColumns.map(({ bankNumber }) => (
+                      <td key={bankNumber}>
                         <input
                           aria-label={`Банка ${readBankLabel(bankNumber)}: замер ${index + 1}`}
+                          data-bank-first-measurement={index === 0 ? "true" : undefined}
+                          data-bank-number={bankNumber}
                           data-refractory-label={`Банка ${readBankLabel(bankNumber)}: замер ${index + 1}`}
                           data-refractory-max={bankData?.volumeReference.points.at(-1)?.heightMeters}
                           data-refractory-number="decimal"
@@ -677,40 +713,131 @@ function CoshForm({
                           pattern={decimalNumberInputPattern}
                           title={decimalNumberInputTitle}
                           type="text"
-                          value={value}
+                          value={jarDrafts[bankNumber][index] ?? ""}
                           onChange={(event) => {
                             const rawValue = event.currentTarget.value;
                             clearRefractoryFieldError(event.currentTarget);
                             updateJarMeasurement(bankNumber, index, rawValue);
                           }}
                         />
-                        <button
-                          aria-label={`Удалить замер ${index + 1} банки ${readBankLabel(bankNumber)}`}
-                          disabled={jarDrafts[bankNumber].length <= 1}
-                          type="button"
-                          onClick={() => removeJarMeasurement(bankNumber, index)}
-                        >×</button>
-                      </span>
-                    </label>
+                      </td>
+                    ))}
+                  </tr>
+                ),
+              )}
+              <tr className="refractory-bank-calculated-row">
+                <th>Среднее значение, м</th>
+                {bankColumns.map(({ bankNumber, calculation }) => (
+                  <td key={bankNumber}>
+                    <output>{formatBankResult(calculation?.value?.averageHeightMeters)}</output>
+                  </td>
+                ))}
+              </tr>
+              <tr className="refractory-bank-calculated-row">
+                <th>Насыпная плотность, т/м³</th>
+                {bankColumns.map(({ bankNumber, density, densityDate }) => (
+                  <td key={bankNumber}>
+                    <output>{formatBankResult(density)}</output>
+                    {densityDate === undefined ? null : (
+                      <small>данные на {formatDate(densityDate)}</small>
+                    )}
+                  </td>
+                ))}
+              </tr>
+              <tr className="refractory-bank-calculated-row">
+                <th>Объём по замерам, м³</th>
+                {bankColumns.map(({ bankNumber, calculation }) => (
+                  <td key={bankNumber}>
+                    <output>{formatBankResult(calculation?.value?.volumeCubicMeters)}</output>
+                  </td>
+                ))}
+              </tr>
+              <tr className="refractory-bank-calculated-row refractory-bank-mass-row">
+                <th>Расчётный вес по замерам, т</th>
+                {bankColumns.map(({ bankNumber, calculation }) => (
+                  <td key={bankNumber}>
+                    <output>{formatBankResult(calculation?.value?.materialMassTons)}</output>
+                  </td>
+                ))}
+              </tr>
+              {(["loadedTons", "shippedTons"] as const).map((field) => (
+                <tr key={field}>
+                  <th>{field === "loadedTons" ? "Засыпали, т" : "Отгрузили, т"}</th>
+                  {bankColumns.map(({ bankNumber }) => (
+                    <td key={bankNumber}>
+                      <input
+                        aria-label={`Банка ${readBankLabel(bankNumber)}: ${field === "loadedTons" ? "засыпали" : "отгрузили"}, т`}
+                        data-refractory-label={`Банка ${readBankLabel(bankNumber)}: ${field === "loadedTons" ? "засыпали" : "отгрузили"}, т`}
+                        data-refractory-number="decimal"
+                        inputMode="decimal"
+                        maxLength={20}
+                        name={`jar.${bankNumber}.${field}`}
+                        pattern={decimalNumberInputPattern}
+                        title={decimalNumberInputTitle}
+                        type="text"
+                        value={jarMovementDrafts[bankNumber][field]}
+                        onChange={(event) => {
+                          const rawValue = event.currentTarget.value;
+                          clearRefractoryFieldError(event.currentTarget);
+                          updateJarMovement(bankNumber, field, rawValue);
+                        }}
+                      />
+                    </td>
                   ))}
-                </div>
-                <button
-                  className="bank-measurement-add"
-                  type="button"
-                  onClick={() => addJarMeasurement(bankNumber)}
-                >
-                  Добавить замер
-                </button>
-                {assignment === undefined && !isLocked ? (
-                  <p className="bank-measurement-error">Содержимое банки ещё не назначено.</p>
-                ) : calculation?.error === undefined ? null : (
-                  <p className="bank-measurement-error" role="alert">{calculation.error}</p>
-                )}
-                <BankCalculationResults calculation={calculation?.value} />
-              </article>
-            );
-          })}
+                </tr>
+              ))}
+              <tr className="refractory-bank-calculated-row refractory-bank-mass-row">
+                <th>Расчётный вес по отгрузкам, т</th>
+                {bankColumns.map(({ bankNumber, calculation }) => (
+                  <td key={bankNumber}>
+                    <output>{formatBankResult(calculation?.value?.shipmentMassTons)}</output>
+                  </td>
+                ))}
+              </tr>
+              <tr className="refractory-bank-report-row">
+                <th>Отображение в отчётах, т</th>
+                {bankColumns.map(({ bankNumber, calculation }) => (
+                  <td key={bankNumber}>
+                    <output>{formatBankReportValue(calculation?.value)}</output>
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         </div>
+        <div className="bank-measurement-errors">
+          {bankColumns.map(({ bankNumber, assignment, calculation }) =>
+            assignment === undefined && !isLocked ? (
+              <p className="bank-measurement-error" key={bankNumber}>
+                Банка {readBankLabel(bankNumber)}: содержимое ещё не назначено.
+              </p>
+            ) : calculation?.error === undefined ? null : (
+              <p className="bank-measurement-error" key={bankNumber} role="alert">
+                Банка {readBankLabel(bankNumber)}: {calculation.error}
+              </p>
+            )
+          )}
+        </div>
+        <label className="refractory-field refractory-cosh-master-field">
+          <span>Мастер ЦОШ</span>
+          <input
+            aria-label="Мастер ЦОШ"
+            data-refractory-label="Мастер ЦОШ"
+            data-refractory-required="true"
+            defaultValue={payload.coshMaster ?? defaultCoshMaster}
+            list="refractory-cosh-master-options"
+            maxLength={120}
+            name="coshMaster"
+          />
+        </label>
+        <datalist id="refractory-cosh-master-options">
+          {Array.from(new Set([
+            payload.coshMaster,
+            defaultCoshMaster,
+            ...(bankData?.coshMasterOptions ?? []),
+          ].filter((value): value is string => value !== undefined && value.length > 0)))
+            .map((value) => <option key={value} value={value} />)}
+        </datalist>
       </ReportSection>
       <ReportSection title="Заполнение ж/д бункеров">
         <NamedQuantityRows
@@ -926,33 +1053,15 @@ function ChamotteOutputRows({
   );
 }
 
-type BankCalculationDisplay = Pick<
+type BankCalculationDisplay = Partial<Pick<
   BankMeasurementCalculation,
-  "averageHeightMeters" | "volumeCubicMeters" | "materialMassTons"
->;
-
-function BankCalculationResults({
-  calculation,
-}: {
-  calculation?: BankCalculationDisplay;
-}) {
-  return (
-    <dl className="bank-measurement-results">
-      <div>
-        <dt>Средний замер</dt>
-        <dd>{formatBankResult(calculation?.averageHeightMeters, "м")}</dd>
-      </div>
-      <div>
-        <dt>Объём</dt>
-        <dd>{formatBankResult(calculation?.volumeCubicMeters, "м³")}</dd>
-      </div>
-      <div className="bank-measurement-mass">
-        <dt>Масса материала</dt>
-        <dd>{formatBankResult(calculation?.materialMassTons, "т")}</dd>
-      </div>
-    </dl>
-  );
-}
+  | "averageHeightMeters"
+  | "volumeCubicMeters"
+  | "materialMassTons"
+  | "loadedTons"
+  | "shippedTons"
+  | "shipmentMassTons"
+>>;
 
 function readStoredBankCalculation(
   row: NonNullable<RefractoryCoshPayload["jarMeasurements"]>[number] | undefined,
@@ -969,6 +1078,9 @@ function readStoredBankCalculation(
       averageHeightMeters: row.averageHeightMeters,
       volumeCubicMeters: row.volumeCubicMeters,
       materialMassTons: row.materialMassTons,
+      loadedTons: row.loadedTons,
+      shippedTons: row.shippedTons,
+      shipmentMassTons: row.shipmentMassTons,
     },
   };
 }
@@ -976,6 +1088,7 @@ function readStoredBankCalculation(
 function readDraftBankCalculation(
   assignment: RefractoryBanksResponse["currentAssignments"][number] | undefined,
   values: readonly string[],
+  movements: { loadedTons: string; shippedTons: string },
   volumeReference: RefractoryBanksResponse["volumeReference"] | undefined,
 ): { value?: BankCalculationDisplay; error?: string } | undefined {
   if (assignment === undefined || volumeReference === undefined) return undefined;
@@ -988,6 +1101,8 @@ function readDraftBankCalculation(
   const result = calculateBankMeasurement({
     assignment,
     measurements,
+    loadedTons: readDraftNumber(movements.loadedTons),
+    shippedTons: readDraftNumber(movements.shippedTons),
     volumeReference,
   });
   return result.ok ? { value: result.value } : { error: result.error };
@@ -997,8 +1112,20 @@ function readBankLabel(bankNumber: BankNumber) {
   return ({ 1: "I", 2: "II", 3: "III" } as const)[bankNumber];
 }
 
-function formatBankResult(value: number | undefined, unit: string) {
-  return value === undefined ? "—" : `${formatTableTotal(value)} ${unit}`;
+function readDraftNumber(value: string) {
+  if (value.length === 0 || value.endsWith(".")) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatBankResult(value: number | undefined) {
+  return value === undefined ? "—" : formatTableTotal(value);
+}
+
+function formatBankReportValue(calculation: BankCalculationDisplay | undefined) {
+  return `${formatBankResult(calculation?.materialMassTons)} / ${formatBankResult(
+    calculation?.shipmentMassTons,
+  )}`;
 }
 
 const equipmentColumns = [
@@ -1921,6 +2048,8 @@ const totalLabels: Record<string, string> = {
   chamotteSupplyTons: "Подача шамота, т",
   baggingTons: "Затарка в мешки, т",
   scrapRemovalTons: "Вывоз недопала, т",
+  jarMaterialMassTons: "Вес в банках по замерам, т",
+  jarShipmentMassTons: "Вес в банках по отгрузкам, т",
   formedActualPieces: "Формованные, шт.",
   formedActualTons: "Формованные, т",
   formedWorkedHours: "Отработано, ч",
@@ -2183,9 +2312,23 @@ function buildCoshPayload(data: FormData): RefractoryCoshPayload {
       .filter((item) => Number.isFinite(item.value))
       .sort((left, right) => left.index - right.index)
       .map((item) => item.value);
-    return values.length === 0 ? [] : [{ jarNumber, values }];
+    return values.length === 0
+      ? []
+      : [{
+          jarNumber,
+          values,
+          ...compact({
+            loadedTons: first(
+              optionalNumber(data, `jar.${jarNumber}.loadedTons`),
+            ),
+            shippedTons: first(
+              optionalNumber(data, `jar.${jarNumber}.shippedTons`),
+            ),
+          }),
+        }];
   });
   return compact({
+    coshMaster: optionalText(data, "coshMaster"),
     kilnNumber: optionalText(data, "kilnNumber"),
     chamotteOutputRows,
     loadingBucketsPerHour: first(optionalNumber(data, "loadingBucketsPerHour")),

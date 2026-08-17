@@ -15,19 +15,27 @@ export function validateRefractoryForm(
     form.querySelectorAll<HTMLInputElement>("input[data-refractory-number]"),
   ).flatMap(validateNumberInput);
 
-  for (const bank of form.querySelectorAll<HTMLElement>(
-    ".bank-measurement-card[data-bank-number]",
+  for (const input of form.querySelectorAll<HTMLInputElement>(
+    'input[data-bank-first-measurement="true"]',
   )) {
-    const inputs = Array.from(
-      bank.querySelectorAll<HTMLInputElement>("input[data-refractory-number]"),
-    );
-    if (inputs.length > 0 && inputs.every((input) => input.value.trim() === "")) {
-      const bankLabel = bank.dataset.bankNumber === "1"
+    if (input.value.trim() === "") {
+      const bankLabel = input.dataset.bankNumber === "1"
         ? "I"
-        : bank.dataset.bankNumber === "2" ? "II" : "III";
+        : input.dataset.bankNumber === "2" ? "II" : "III";
       errors.push({
-        input: inputs[0]!,
+        input,
         message: `Банка ${bankLabel}: добавьте хотя бы один замер.`,
+      });
+    }
+  }
+
+  for (const input of form.querySelectorAll<HTMLInputElement>(
+    'input[data-refractory-required="true"]',
+  )) {
+    if (input.value.trim() === "") {
+      errors.push({
+        input,
+        message: `${readInputLabel(input)}: заполните обязательное поле.`,
       });
     }
   }
@@ -203,6 +211,16 @@ function findControlByFieldPath(
   form: HTMLFormElement,
   fieldPath: string,
 ) {
+  const bankMatch = /^jarMeasurements\.(\d+)\.(loadedTons|shippedTons)$/u.exec(
+    fieldPath,
+  );
+  if (bankMatch?.[1] !== undefined && bankMatch[2] !== undefined) {
+    return readFormControls(form).find(
+      (control) =>
+        control.name === `jar.${Number(bankMatch[1]) + 1}.${bankMatch[2]}`,
+    );
+  }
+
   const dynamicMatch = /^(firing|unformed)\.(\d+)\.(.+)$/u.exec(fieldPath);
   if (dynamicMatch?.[1] !== undefined && dynamicMatch[2] !== undefined) {
     return findDynamicRowControl(

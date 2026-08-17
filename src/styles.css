@@ -7260,181 +7260,137 @@ p {
   font-weight: 800;
 }
 
-.bank-measurements-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--density-4);
-}
-
 .refractory-section-note {
   margin: 0 0 var(--density-3);
   color: var(--muted);
   font-size: 12px;
 }
 
-.refractory-bank-measurements {
+.refractory-bank-table-wrap {
   margin-top: var(--density-3);
 }
 
-.bank-measurement-card {
-  display: grid;
-  gap: var(--density-4);
-  align-content: start;
+.refractory-bank-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.refractory-bank-table th,
+.refractory-bank-table td {
   border: 1px solid var(--line);
-  border-radius: var(--radius-large);
-  padding: var(--density-4);
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  text-align: center;
+  vertical-align: middle;
 }
 
-.bank-measurement-card > header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: var(--density-3);
-  padding-bottom: var(--density-3);
-  border-bottom: 1px solid var(--line);
-}
-
-.bank-measurement-card > header div {
-  display: grid;
-  gap: 4px;
-}
-
-.bank-measurement-card > header span {
+.refractory-bank-table th:first-child {
+  width: 220px;
   color: var(--muted);
+  background: var(--surface-subtle);
   font-size: 11px;
+  font-weight: 900;
+  text-align: left;
+}
+
+.refractory-bank-table thead th {
+  background: color-mix(in srgb, var(--blue-gray) 9%, var(--surface));
+}
+
+.refractory-bank-table thead th:not(:first-child) {
+  color: var(--ink);
+}
+
+.refractory-bank-table thead span,
+.refractory-bank-table thead strong {
+  display: block;
+}
+
+.refractory-bank-table thead span {
+  color: var(--muted);
+  font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.bank-measurement-card > header strong {
-  color: var(--ink);
-  font-size: 22px;
+.refractory-bank-table thead strong {
+  margin-top: 3px;
+  font-size: 15px;
 }
 
-.bank-measurement-card > header small {
-  max-width: 130px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.4;
-  text-align: right;
-}
-
-.bank-measurement-inputs {
-  display: grid;
-  gap: 9px;
-}
-
-.bank-measurement-inputs label {
-  display: grid;
-  gap: 6px;
-}
-
-.bank-measurement-inputs label > span:first-child,
-.bank-measurement-results dt {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.bank-measurement-input-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
-  gap: 7px;
-}
-
-.bank-measurement-input-row input,
-.bank-measurement-input-row button,
-.bank-measurement-add {
-  min-height: 42px;
+.refractory-bank-table input {
+  width: 100%;
+  min-height: 38px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
+  padding: 7px 9px;
   color: var(--ink);
   background: var(--surface);
   font: inherit;
-}
-
-.bank-measurement-input-row input {
-  width: 100%;
-  padding: 9px 11px;
   font-weight: 750;
+  text-align: right;
 }
 
-.bank-measurement-input-row input[aria-invalid="true"] {
+.refractory-bank-table input[aria-invalid="true"] {
   border-color: var(--brick);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--brick) 12%, transparent);
 }
 
-.bank-measurement-input-row button {
-  padding: 0;
-  color: var(--brick);
-  font-size: 20px;
-  cursor: pointer;
+.refractory-bank-calculated-row td {
+  background: var(--surface-subtle);
 }
 
-.bank-measurement-input-row button:disabled {
-  cursor: not-allowed;
-  opacity: 0.35;
-}
-
-.bank-measurement-add {
-  padding: 0 14px;
-  color: var(--nav-strong);
-  font-size: 12px;
+.refractory-bank-calculated-row output {
+  color: var(--ink);
   font-weight: 900;
-  cursor: pointer;
+}
+
+.refractory-bank-calculated-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.refractory-bank-mass-row td,
+.refractory-bank-report-row td {
+  background: color-mix(in srgb, var(--emerald) 8%, var(--surface));
+}
+
+.refractory-bank-mass-row output,
+.refractory-bank-report-row output {
+  color: var(--emerald);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.refractory-bank-report-row td {
+  border-top-color: color-mix(in srgb, var(--emerald) 42%, var(--line));
+}
+
+.bank-measurement-errors {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--density-3);
 }
 
 .bank-measurement-error {
-  margin: -4px 0 0;
+  margin: 0;
   color: var(--brick);
   font-size: 12px;
   font-weight: 800;
 }
 
-.bank-measurement-input-row input:focus-visible,
-.bank-measurement-input-row button:focus-visible,
-.bank-measurement-add:focus-visible {
+.refractory-bank-table input:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--blue-gray) 24%, transparent);
   outline-offset: 2px;
 }
 
-.bank-measurement-results {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
-
-.bank-measurement-results > div {
-  display: grid;
-  gap: 5px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  background: var(--surface-subtle);
-}
-
-.bank-measurement-results .bank-measurement-mass {
-  grid-column: 1 / -1;
-  border-color: color-mix(in srgb, var(--emerald) 34%, var(--line));
-  background: color-mix(in srgb, var(--emerald) 8%, var(--surface));
-}
-
-.bank-measurement-results dd {
-  margin: 0;
-  color: var(--ink);
-  font-size: 18px;
-  font-weight: 900;
-}
-
-.bank-measurement-results .bank-measurement-mass dd {
-  font-size: 23px;
+.refractory-cosh-master-field {
+  width: min(100%, 440px);
+  margin-top: var(--density-4);
 }
 
 .refractory-workspace,
@@ -8131,10 +8087,6 @@ p {
 }
 
 @media (max-width: 900px) {
-  .bank-measurements-grid {
-    grid-template-columns: 1fr;
-  }
-
   .refractory-header {
     display: grid;
   }

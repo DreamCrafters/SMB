@@ -402,11 +402,23 @@ test("buildRefractoryReportEmail formats the calculated totals of the other OC t
       ...baseReport,
       reportType: "cosh",
       payload: {
+        coshMaster: "Сидоров С.С.",
         kilnNumber: "3",
         chamotteOutputRows: [
           { productBrand: "ШБО", quantityTons: 12.5 },
         ],
-        jarMeasurements: [{ jarNumber: 1, values: [1.2, 1.4] }],
+        jarMeasurements: [{
+          jarNumber: 1,
+          values: [1.2, 1.4],
+          material: "ШКИ",
+          averageHeightMeters: 1.3,
+          volumeCubicMeters: 886.45,
+          bulkDensityTonsPerCubicMeter: 1.16,
+          materialMassTons: 1028.282,
+          loadedTons: 12,
+          shippedTons: 8,
+          shipmentMassTons: 1032.282,
+        }],
         bunkerFill: [{ bunker: "I", productName: "ШБО", quantity: 8 }],
         chamotteSupply: [{
           source: "street",
@@ -422,6 +434,8 @@ test("buildRefractoryReportEmail formats the calculated totals of the other OC t
         chamotteSupplyTons: 4.25,
         baggingTons: 2,
         scrapRemovalTons: 0.5,
+        jarMaterialMassTons: 1028.282,
+        jarShipmentMassTons: 1032.282,
       },
     },
     ["oc@example.com"],
@@ -467,6 +481,10 @@ test("buildRefractoryReportEmail formats the calculated totals of the other OC t
   assert.match(coshMessage?.text ?? "", /Заполнение ж\/д бункеров, т: 8/u);
   assert.match(coshMessage?.text ?? "", /Затарка в мешки, т: 2/u);
   assert.match(coshMessage?.text ?? "", /Банка I: 1,2; 1,4/u);
+  assert.match(coshMessage?.text ?? "", /Мастер ЦОШ: Сидоров С\.С\./u);
+  assert.match(coshMessage?.text ?? "", /засыпали 12 т; отгрузили 8 т/u);
+  assert.match(coshMessage?.text ?? "", /в отчёте 1028,282 \/ 1032,282 т/u);
+  assert.match(coshMessage?.text ?? "", /Вес в банках по отгрузкам, т: 1032,282/u);
   assert.match(coshMessage?.text ?? "", /уличн\.: продукт ШГР/u);
   assert.match(coshMessage?.text ?? "", /Примечание: Смена без остановок/u);
   assert.match(coshMessage?.text ?? "", /Вывоз недопала, т: 0,5/u);

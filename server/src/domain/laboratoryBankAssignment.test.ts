@@ -1,9 +1,80 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyLatestBankBulkDensities,
   resolveLaboratoryBankAssignment,
   validateLaboratoryBankAssignmentRequest,
 } from "./laboratoryBankAssignment.js";
+
+test("COSH bank assignments use the latest laboratory density for their material", () => {
+  const assignments = applyLatestBankBulkDensities([
+    {
+      assignmentId: "assignment-1",
+      bankNumber: 1 as const,
+      materialLabel: " ШКИ-66 ",
+      bulkDensityTonsPerCubicMeter: 1.4,
+      bulkDensitySource: "laboratory_result" as const,
+      bulkDensitySampleCount: 3,
+      laboratoryResultId: "legacy-result",
+      sampleIndex: 0,
+      sampleIdentifier: "legacy-sample",
+      assignedAt: "2026-07-20T08:00:00.000Z",
+    },
+  ], [{
+    material: "ШКИ-66",
+    averageBulkDensityTonsPerCubicMeter: 1.57,
+    sampleCount: 10,
+    latestRecordDate: "2026-08-16",
+  }]);
+
+  assert.deepEqual(assignments[0], {
+    assignmentId: "assignment-1",
+    bankNumber: 1,
+    materialLabel: "ШКИ-66",
+    bulkDensityTonsPerCubicMeter: 1.57,
+    bulkDensitySource: "rotary_kiln_2_journal",
+    bulkDensitySampleCount: 10,
+    bulkDensityLatestRecordDate: "2026-08-16",
+    assignedAt: "2026-07-20T08:00:00.000Z",
+  });
+});
+
+test("COSH bank assignments choose the newest normalized material duplicate", () => {
+  const assignments = applyLatestBankBulkDensities([
+    {
+      assignmentId: "assignment-1",
+      bankNumber: 1 as const,
+      materialLabel: "ШКИ-66",
+      bulkDensityTonsPerCubicMeter: 1.4,
+      bulkDensitySource: "rotary_kiln_2_journal" as const,
+      assignedAt: "2026-07-20T08:00:00.000Z",
+    },
+  ], [
+    {
+      material: "ШКИ-66",
+      averageBulkDensityTonsPerCubicMeter: 1.57,
+      sampleCount: 10,
+      latestRecordDate: "2026-08-16",
+    },
+    {
+      material: "  шки-66  ",
+      averageBulkDensityTonsPerCubicMeter: 1.41,
+      sampleCount: 4,
+      latestRecordDate: "2026-08-10",
+    },
+  ]);
+
+  assert.deepEqual(assignments[0], {
+    assignmentId: "assignment-1",
+    bankNumber: 1,
+    materialLabel: "ШКИ-66",
+    bulkDensityTonsPerCubicMeter: 1.57,
+    bulkDensitySource: "rotary_kiln_2_journal",
+    bulkDensitySampleCount: 10,
+    bulkDensityLatestRecordDate: "2026-08-16",
+    assignedAt: "2026-07-20T08:00:00.000Z",
+  });
+});
 
 const materialBulkDensity = {
   material: "ШКИ-66",

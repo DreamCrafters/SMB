@@ -28,6 +28,7 @@ export const refractoryEquipmentNames = [
 ] as const;
 
 export type RefractoryCoshPayload = {
+  coshMaster?: string;
   kilnNumber?: string;
   chamotteOutputRows?: Array<{
     productBrand: string;
@@ -45,6 +46,7 @@ export type RefractoryCoshPayload = {
     assignmentId?: string;
     bulkDensitySource?: string;
     bulkDensitySampleCount?: number;
+    bulkDensityLatestRecordDate?: string;
     laboratoryResultId?: string;
     sampleIndex?: number;
     sampleIdentifier?: string;
@@ -53,6 +55,9 @@ export type RefractoryCoshPayload = {
     volumeCubicMeters?: number;
     bulkDensityTonsPerCubicMeter?: number;
     materialMassTons?: number;
+    loadedTons?: number;
+    shippedTons?: number;
+    shipmentMassTons?: number;
   }>;
   bunkerFill?: Array<{
     bunker: "I" | "II" | "III" | "IV";

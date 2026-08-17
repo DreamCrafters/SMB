@@ -1,5 +1,9 @@
 import type { RotaryKiln2MaterialBulkDensity } from "../contracts/rotaryKiln2FiringJournal.js";
-import { bankNumbers, type BankNumber } from "./bankMeasurement.js";
+import {
+  bankNumbers,
+  type BankAssignmentSnapshot,
+  type BankNumber,
+} from "./bankMeasurement.js";
 
 export type LaboratoryBankAssignmentRequest = {
   bankNumber: BankNumber;
@@ -91,6 +95,59 @@ export function resolveLaboratoryBankAssignment(
       bulkDensitySampleCount: materialBulkDensity.sampleCount,
     },
   };
+}
+
+/**
+ * При открытии и отправке ЦОШ плотность должна соответствовать последним
+ * лабораторным данным назначенного материала, а не дате назначения банки.
+ */
+export function applyLatestBankBulkDensities<
+  Assignment extends BankAssignmentSnapshot,
+>(
+  assignments: readonly Assignment[],
+  materialBulkDensities: readonly RotaryKiln2MaterialBulkDensity[],
+): Array<Omit<Assignment, "laboratoryResultId" | "sampleIndex" | "sampleIdentifier">> {
+  const densitiesByMaterial = new Map<
+    string,
+    RotaryKiln2MaterialBulkDensity
+  >();
+  for (const item of materialBulkDensities) {
+    const key = normalizeMaterial(item.material);
+    const current = densitiesByMaterial.get(key);
+    if (
+      current === undefined ||
+      item.latestRecordDate > current.latestRecordDate
+    ) {
+      densitiesByMaterial.set(key, item);
+    }
+  }
+
+  return assignments.map((assignment) => {
+    const density = densitiesByMaterial.get(
+      normalizeMaterial(assignment.materialLabel),
+    );
+    if (density === undefined) return assignment;
+
+    const {
+      laboratoryResultId: _laboratoryResultId,
+      sampleIndex: _sampleIndex,
+      sampleIdentifier: _sampleIdentifier,
+      ...assignmentWithoutLegacySource
+    } = assignment;
+    return {
+      ...assignmentWithoutLegacySource,
+      materialLabel: density.material,
+      bulkDensityTonsPerCubicMeter:
+        density.averageBulkDensityTonsPerCubicMeter,
+      bulkDensitySource: "rotary_kiln_2_journal",
+      bulkDensitySampleCount: density.sampleCount,
+      bulkDensityLatestRecordDate: density.latestRecordDate,
+    };
+  });
+}
+
+function normalizeMaterial(value: string) {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

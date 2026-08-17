@@ -288,6 +288,7 @@ const emptyRefractoryReports: RefractoryReportsRepository = {
   async submit() { throw new Error("not used"); },
   async listLatestForShift() { return []; },
   async listLatestApprovedCoshForDates() { return []; },
+  async listCoshMasterOptions() { return []; },
   async listPending() { return []; },
   async listRecentForSubmitter() { return []; },
   async review() { throw new Error("not used"); },
@@ -3297,6 +3298,7 @@ test("dispatcher reads current bank materials and approved COSH measurements by 
         }),
       ];
     },
+    async listCoshMasterOptions() { return []; },
     async listPending() { return []; },
     async listRecentForSubmitter() { return []; },
     async review() { throw new Error("not used"); },
@@ -3540,6 +3542,7 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
     },
     async listLatestForShift() { return []; },
     async listLatestApprovedCoshForDates() { return []; },
+    async listCoshMasterOptions() { return ["Мастер ЦОШ"]; },
     async listPending() { return []; },
     async listRecentForSubmitter() { return []; },
     async review() { throw new Error("not used"); },
@@ -3564,6 +3567,37 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
       ] };
     },
   };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return [
+        {
+          material: "ШКИ",
+          averageBulkDensityTonsPerCubicMeter: 1,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-23",
+        },
+        {
+          material: "ШКИ-66",
+          averageBulkDensityTonsPerCubicMeter: 2,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-23",
+        },
+        {
+          material: "ШГР-28",
+          averageBulkDensityTonsPerCubicMeter: 3,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-23",
+        },
+      ];
+    },
+  };
   const productionBrands: ProductionBrandsDataSource = {
     async list() { return ["ШБО-69"]; },
     async resolveReferences(references) {
@@ -3586,6 +3620,35 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
 
   await withApiServer(
     async (baseUrl) => {
+      const bankContextResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/banks`,
+        { headers: { Cookie: "smb_session=prod-session" } },
+      );
+      const bankContext = await bankContextResponse.json();
+
+      assert.equal(bankContextResponse.status, 200);
+      assert.deepEqual(
+        isRecord(bankContext) ? bankContext.coshMasterOptions : undefined,
+        ["Мастер ЦОШ"],
+      );
+      assert.deepEqual(
+        isRecord(bankContext) && Array.isArray(bankContext.currentAssignments)
+          ? bankContext.currentAssignments.map((assignment) =>
+              isRecord(assignment)
+                ? {
+                    density: assignment.bulkDensityTonsPerCubicMeter,
+                    latestDate: assignment.bulkDensityLatestRecordDate,
+                  }
+                : undefined
+            )
+          : undefined,
+        [
+          { density: 1, latestDate: "2026-07-23" },
+          { density: 2, latestDate: "2026-07-23" },
+          { density: 3, latestDate: "2026-07-23" },
+        ],
+      );
+
       const invalidResponse = await fetch(
         `${baseUrl}/api/refractory-reports`,
         {
@@ -3599,6 +3662,7 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
             reportDate: "2026-07-23",
             shiftNumber: 1,
             payload: {
+              coshMaster: "Сидоров С.С.",
               chamotteOutputRows: [
                 { productBrand: "ШБО", quantityTons: 2.5 },
               ],
@@ -3630,6 +3694,44 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
         },
       );
 
+      const excessiveShipmentResponse = await fetch(
+        `${baseUrl}/api/refractory-reports`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: "smb_session=prod-session",
+          },
+          body: JSON.stringify({
+            reportType: "cosh",
+            reportDate: "2026-07-23",
+            shiftNumber: 1,
+            payload: {
+              coshMaster: "Сидоров С.С.",
+              jarMeasurements: [
+                { jarNumber: 1, values: [1], shippedTons: 1_000 },
+                { jarNumber: 2, values: [2] },
+                { jarNumber: 3, values: [3] },
+              ],
+            },
+          }),
+        },
+      );
+      const excessiveShipmentPayload = await excessiveShipmentResponse.json();
+
+      assert.equal(excessiveShipmentResponse.status, 400);
+      assert.deepEqual(
+        isRecord(excessiveShipmentPayload) &&
+          isRecord(excessiveShipmentPayload.error)
+          ? excessiveShipmentPayload.error.details
+          : undefined,
+        [{
+          fieldPath: "jarMeasurements.0.shippedTons",
+          message:
+            "Банка I: Отгрузили больше расчётного остатка с учётом засыпки.",
+        }],
+      );
+
       const response = await fetch(`${baseUrl}/api/refractory-reports`, {
         method: "POST",
         headers: {
@@ -3641,13 +3743,14 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
           reportDate: "2026-07-23",
           shiftNumber: 1,
           payload: {
+            coshMaster: "Сидоров С.С.",
             chamotteOutputRows: [
               { productBrand: " шбо-69 ", quantityTons: 2.5 },
             ],
             jarMeasurements: [
-              { jarNumber: 1, values: [1, 1] },
-              { jarNumber: 2, values: [2] },
-              { jarNumber: 3, values: [3] },
+              { jarNumber: 1, values: [1, 1], loadedTons: 10, shippedTons: 5 },
+              { jarNumber: 2, values: [2], loadedTons: 4, shippedTons: 3 },
+              { jarNumber: 3, values: [3], loadedTons: 0, shippedTons: 0 },
             ],
           },
         }),
@@ -3659,11 +3762,44 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
       const rows = (stored.payload as {
         jarMeasurements?: Array<{ material?: string; materialMassTons?: number }>;
       }).jarMeasurements;
-      const totals = stored.totals as { jarMaterialMassTons?: number };
+      const totals = stored.totals as {
+        jarMaterialMassTons?: number;
+        jarShipmentMassTons?: number;
+      };
       assert.equal(rows?.[0]?.material, "ШКИ");
       assert.equal(rows?.[1]?.materialMassTons, 80);
       assert.equal(rows?.[2]?.materialMassTons, 0);
       assert.equal(totals.jarMaterialMassTons, 160);
+      assert.equal(totals.jarShipmentMassTons, 166);
+      assert.equal((stored.payload as RefractoryCoshPayload).coshMaster, "Сидоров С.С.");
+      assert.deepEqual(
+        (stored.payload as RefractoryCoshPayload).jarMeasurements?.map((row) => ({
+          loadedTons: row.loadedTons,
+          shippedTons: row.shippedTons,
+          shipmentMassTons: row.shipmentMassTons,
+          bulkDensityLatestRecordDate: row.bulkDensityLatestRecordDate,
+        })),
+        [
+          {
+            loadedTons: 10,
+            shippedTons: 5,
+            shipmentMassTons: 85,
+            bulkDensityLatestRecordDate: "2026-07-23",
+          },
+          {
+            loadedTons: 4,
+            shippedTons: 3,
+            shipmentMassTons: 81,
+            bulkDensityLatestRecordDate: "2026-07-23",
+          },
+          {
+            loadedTons: 0,
+            shippedTons: 0,
+            shipmentMassTons: 0,
+            bulkDensityLatestRecordDate: "2026-07-23",
+          },
+        ],
+      );
       assert.deepEqual((stored.payload as RefractoryCoshPayload).chamotteOutputRows, [
         { productBrand: "ШБО-69", quantityTons: 2.5 },
       ]);
@@ -3686,6 +3822,8 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
     undefined,
     laboratoryBankAssignments,
     bankVolumeReferenceDataSource,
+    undefined,
+    rotaryKiln2FiringJournal,
   );
 });
 
@@ -9896,6 +10034,9 @@ test("refractory reports are submitted and reviewed independently through protec
     },
     async listLatestApprovedCoshForDates() {
       return [];
+    },
+    async listCoshMasterOptions() {
+      return ["Мастер ЦОШ"];
     },
     async listPending() {
       return stored?.status === "pending" ? [stored] : [];

@@ -71,6 +71,7 @@ export type RefractoryEquipmentTotals = {
 };
 
 export type RefractoryCoshPayload = {
+  coshMaster?: string;
   kilnNumber?: string;
   chamotteOutputRows?: Array<{
     productBrand: string;
@@ -93,6 +94,7 @@ export type RefractoryCoshPayload = {
     assignmentId?: string;
     bulkDensitySource?: string;
     bulkDensitySampleCount?: number;
+    bulkDensityLatestRecordDate?: string;
     laboratoryResultId?: string;
     sampleIndex?: number;
     sampleIdentifier?: string;
@@ -101,6 +103,9 @@ export type RefractoryCoshPayload = {
     volumeCubicMeters?: number;
     bulkDensityTonsPerCubicMeter?: number;
     materialMassTons?: number;
+    loadedTons?: number;
+    shippedTons?: number;
+    shipmentMassTons?: number;
   }>;
   bunkerFill?: Array<{
     bunker: "I" | "II" | "III" | "IV";
@@ -134,6 +139,7 @@ export type RefractoryCoshTotals = {
   baggingTons: number;
   scrapRemovalTons: number;
   jarMaterialMassTons?: number;
+  jarShipmentMassTons?: number;
 };
 
 /**
@@ -300,6 +306,7 @@ const refractoryFieldLabels: Record<string, string> = {
   brandReplacementHours: "Замена марки",
   bunkerNumber: "№ бункера",
   calcinationHours: "Время прогонки, час(а)",
+  coshMaster: "Мастер ЦОШ",
   carriageReplacementHours: "Замена вагона",
   electricalRepairHours: "Ремонт по эл. части",
   firingDate: "Дата обжига",
@@ -312,6 +319,7 @@ const refractoryFieldLabels: Record<string, string> = {
   kilnNumber: "Работает вр. печь №",
   loadingBucketsPerHour: "Загрузка, ковш/час",
   loadingStartTime: "Время начала загрузки",
+  loadedTons: "Засыпали, т",
   mechanicalRepairHours: "Ремонт по мех. части",
   moldReplacementHours: "Замена формы",
   note: "Примечание",
@@ -335,6 +343,7 @@ const refractoryFieldLabels: Record<string, string> = {
   shgr1: "ШГР-1, т",
   shgr2: "ШГР-2, т",
   shki: "ШКИ, т",
+  shippedTons: "Отгрузили, т",
   sorterCount: "Присутствуют на смене, сортировщиков",
   sortingDate: "Дата сортировки",
   totalLoadingBuckets: "Загрузка, всего ковшей",
@@ -476,6 +485,7 @@ function validateCoshPayload(
   }
 
   const scalarTextFields = [
+    "coshMaster",
     "kilnNumber",
     "bunkerNumber",
     "jarNumber",
@@ -519,6 +529,13 @@ function validateCoshPayload(
       field === "note" ? 2_000 : 120,
       undefined,
       errors,
+    );
+  }
+  if (payload.coshMaster === undefined) {
+    addValidationIssue(
+      errors,
+      "Поле «Мастер ЦОШ»: укажите мастера ЦОШ.",
+      "coshMaster",
     );
   }
   for (const field of numberFields) {
@@ -717,12 +734,17 @@ function readJarMeasurements(
     if (
       !isRecord(value) ||
       Array.isArray(value) ||
-      unexpectedKeys(value, ["jarNumber", "values"]).length > 0 ||
+      unexpectedKeys(value, [
+        "jarNumber",
+        "values",
+        "loadedTons",
+        "shippedTons",
+      ]).length > 0 ||
       (value.jarNumber !== 1 &&
         value.jarNumber !== 2 &&
         value.jarNumber !== 3) ||
       !Array.isArray(value.values) ||
-      value.values.length > 100 ||
+      value.values.length > 4 ||
       value.values.length === 0 ||
       value.values.some((entry) => !isValidNumber(entry))
     ) {
@@ -732,7 +754,19 @@ function readJarMeasurements(
       );
       continue;
     }
-    rows.push({ jarNumber: value.jarNumber, values: value.values as number[] });
+    const row: NonNullable<RefractoryCoshPayload["jarMeasurements"]>[number] = {
+      jarNumber: value.jarNumber,
+      values: value.values as number[],
+    };
+    readOptionalNumber(value, row, "loadedTons", index, errors, {
+      fieldPath: `jarMeasurements.${index}.loadedTons`,
+      section: `Банка ${["I", "II", "III"][Number(value.jarNumber) - 1]}`,
+    });
+    readOptionalNumber(value, row, "shippedTons", index, errors, {
+      fieldPath: `jarMeasurements.${index}.shippedTons`,
+      section: `Банка ${["I", "II", "III"][Number(value.jarNumber) - 1]}`,
+    });
+    rows.push(row);
   }
   if (new Set(rows.map((row) => row.jarNumber)).size !== rows.length) {
     addValidationIssue(errors, "Номер банки в замерах не должен повторяться.");

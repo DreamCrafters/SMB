@@ -85,6 +85,32 @@ test("refractory validation requires output for a selected COSH brand", () => {
   assert.equal(quantity.getAttribute("aria-invalid"), "true");
 });
 
+test("COSH bank table requires the first measurement and master", () => {
+  const { form, document } = buildForm(`
+    <input aria-label="Банка I: замер 1" data-bank-first-measurement="true"
+      data-bank-number="1" data-refractory-number="decimal" value="">
+    <input aria-label="Мастер ЦОШ" data-refractory-label="Мастер ЦОШ"
+      data-refractory-required="true" value="">
+  `);
+
+  const errors = validateRefractoryForm(form);
+
+  assert.deepEqual(errors.map((error) => error.message), [
+    "Банка I: добавьте хотя бы один замер.",
+    "Мастер ЦОШ: заполните обязательное поле.",
+  ]);
+  assert.equal(
+    document.querySelector('[data-bank-first-measurement]')
+      .getAttribute("aria-invalid"),
+    "true",
+  );
+  assert.equal(
+    document.querySelector('[data-refractory-required]')
+      .getAttribute("aria-invalid"),
+    "true",
+  );
+});
+
 test("refractory validation rejects duplicate COSH brands", () => {
   const { form, document } = buildForm(`
     <table data-refractory-unique-brands><tbody>

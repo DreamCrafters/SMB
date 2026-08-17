@@ -329,6 +329,8 @@ function isRefractoryBanksResponse(value: unknown): value is RefractoryBanksResp
   return isRecord(value) &&
     Array.isArray(value.currentAssignments) &&
     value.currentAssignments.every(isLaboratoryBankAssignment) &&
+    Array.isArray(value.coshMasterOptions) &&
+    value.coshMasterOptions.every((option) => typeof option === "string") &&
     isRecord(value.volumeReference) &&
     Array.isArray(value.volumeReference.points) &&
     value.volumeReference.points.length >= 2 &&

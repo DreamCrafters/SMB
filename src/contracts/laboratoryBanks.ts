@@ -17,6 +17,7 @@ export type LaboratoryBankAssignment = {
   bulkDensityTonsPerCubicMeter: number;
   bulkDensitySource: BankBulkDensitySource;
   bulkDensitySampleCount?: number;
+  bulkDensityLatestRecordDate?: string;
   laboratoryResultId?: string;
   sampleIndex?: number;
   sampleIdentifier?: string;
@@ -55,4 +56,5 @@ export type DispatcherProductionBankContentsResponse = {
 export type RefractoryBanksResponse = {
   currentAssignments: LaboratoryBankAssignment[];
   volumeReference: BankVolumeReference;
+  coshMasterOptions: string[];
 };

@@ -131,6 +131,7 @@ import {
 } from "../contracts/laboratoryGreenProductQualityJournal.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
+  applyLatestBankBulkDensities,
   resolveLaboratoryBankAssignment,
   validateLaboratoryBankAssignmentRequest,
 } from "../domain/laboratoryBankAssignment.js";
@@ -820,6 +821,7 @@ export function createApiServer({
           refractoryReports,
           refractoryWagons,
           laboratoryBankAssignments,
+          rotaryKiln2FiringJournal,
           bankVolumeReferenceDataSource,
           productionBrands,
           referenceDataSource,
@@ -6188,6 +6190,7 @@ async function handleRefractoryReportsRequest({
   refractoryReports,
   refractoryWagons,
   laboratoryBankAssignments,
+  rotaryKiln2FiringJournal,
   bankVolumeReferenceDataSource,
   productionBrands,
   referenceDataSource,
@@ -6205,6 +6208,7 @@ async function handleRefractoryReportsRequest({
   refractoryReports: RefractoryReportsRepository | undefined;
   refractoryWagons: RefractoryWagonsRepository | undefined;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
+  rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository | undefined;
   bankVolumeReferenceDataSource: BankVolumeReferenceDataSource;
   productionBrands: ProductionBrandsDataSource;
   referenceDataSource: DispatcherReferenceDataSource;
@@ -6254,20 +6258,37 @@ async function handleRefractoryReportsRequest({
       });
       return;
     }
-    if (laboratoryBankAssignments === undefined) {
+    if (
+      laboratoryBankAssignments === undefined ||
+      rotaryKiln2FiringJournal === undefined
+    ) {
       sendJson(res, 503, {
         error: { code: "server_error", message: "Хранилище назначений банок не настроено." },
       });
       return;
     }
     try {
-      const [currentAssignments, volumeReference] = await Promise.all([
+      const [
+        currentAssignments,
+        volumeReference,
+        materialBulkDensities,
+        coshMasterOptions,
+      ] = await Promise.all([
         laboratoryBankAssignments.listCurrent(),
         bankVolumeReferenceDataSource.read(),
+        rotaryKiln2FiringJournal.listMaterialBulkDensities(),
+        refractoryReports.listCoshMasterOptions(),
       ]);
-      sendJson(res, 200, { currentAssignments, volumeReference });
+      sendJson(res, 200, {
+        currentAssignments: applyLatestBankBulkDensities(
+          currentAssignments,
+          materialBulkDensities,
+        ),
+        volumeReference,
+        coshMasterOptions,
+      });
     } catch (error) {
-      console.warn("bank_reference.google_sheets_fetch_failed", error);
+      console.warn("refractory_banks.reference_load_failed", error);
       sendJson(res, 502, {
         error: { code: "server_error", message: "Не удалось загрузить справочник банок." },
       });
@@ -6559,27 +6580,48 @@ async function handleRefractoryReportsRequest({
   }
 
   if (validation.value.reportType === "cosh") {
-    if (laboratoryBankAssignments === undefined) {
+    if (
+      laboratoryBankAssignments === undefined ||
+      rotaryKiln2FiringJournal === undefined
+    ) {
       sendJson(res, 503, {
         error: { code: "server_error", message: "Хранилище назначений банок не настроено." },
       });
       return;
     }
     try {
-      const [assignments, volumeReference] = await Promise.all([
+      const [assignments, volumeReference, materialBulkDensities] = await Promise.all([
         laboratoryBankAssignments.listCurrent(),
         bankVolumeReferenceDataSource.read(),
+        rotaryKiln2FiringJournal.listMaterialBulkDensities(),
       ]);
       const calculated = calculateCoshBankMeasurements({
-        assignments,
+        assignments: applyLatestBankBulkDensities(
+          assignments,
+          materialBulkDensities,
+        ),
         measurements: (validation.value.payload.jarMeasurements ?? []).map(
-          (row) => ({ bankNumber: row.jarNumber, values: row.values }),
+          (row) => ({
+            bankNumber: row.jarNumber,
+            values: row.values,
+            loadedTons: row.loadedTons,
+            shippedTons: row.shippedTons,
+          }),
         ),
         volumeReference,
       });
       if (!calculated.ok) {
         sendJson(res, 400, {
-          error: { code: "invalid_response", message: calculated.error },
+          error: {
+            code: "invalid_response",
+            message: calculated.error,
+            details: calculated.fieldPath === undefined
+              ? []
+              : [{
+                  fieldPath: calculated.fieldPath,
+                  message: calculated.error,
+                }],
+          },
         });
         return;
       }
@@ -6597,8 +6639,15 @@ async function handleRefractoryReportsRequest({
       validation.value.totals.jarMaterialMassTons = Math.round(
         (totalBankMass + Number.EPSILON) * 1_000,
       ) / 1_000;
+      const totalShipmentMass = calculated.value.reduce(
+        (total, row) => total + row.shipmentMassTons,
+        0,
+      );
+      validation.value.totals.jarShipmentMassTons = Math.round(
+        (totalShipmentMass + Number.EPSILON) * 1_000,
+      ) / 1_000;
     } catch (error) {
-      console.warn("bank_reference.google_sheets_fetch_failed", error);
+      console.warn("refractory_report.cosh_calculation_failed", error);
       sendJson(res, 502, {
         error: { code: "server_error", message: "Не удалось рассчитать массу в банках." },
       });

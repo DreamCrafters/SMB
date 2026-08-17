@@ -97,6 +97,7 @@ function buildCoshPayloadLines(payload: RefractoryCoshPayload) {
       ];
   const lines = [
     "Сводка по ЦОШ (ежесменная)",
+    formatField("Мастер ЦОШ", payload.coshMaster),
     "Выпуск шамота",
     formatField("Работает вр. печь №", payload.kilnNumber),
     ...outputLines,
@@ -111,7 +112,11 @@ function buildCoshPayloadLines(payload: RefractoryCoshPayload) {
         `среднее ${formatValue(row.averageHeightMeters)} м`,
         `объём ${formatValue(row.volumeCubicMeters)} м³`,
         `насыпной вес ${formatValue(row.bulkDensityTonsPerCubicMeter)} т/м³`,
-        `масса ${formatValue(row.materialMassTons)} т`,
+        `расчётный вес по замерам ${formatValue(row.materialMassTons)} т`,
+        `засыпали ${formatValue(row.loadedTons)} т`,
+        `отгрузили ${formatValue(row.shippedTons)} т`,
+        `расчётный вес по отгрузкам ${formatValue(row.shipmentMassTons)} т`,
+        `в отчёте ${formatValue(row.materialMassTons)} / ${formatValue(row.shipmentMassTons)} т`,
       ].join("; ")
     ) ?? ["—"]),
     "Заполнение ж/д бункеров",
@@ -206,7 +211,10 @@ function buildTotalsLines(report: RefractoryReportNotification) {
       formatTotal("Вывоз недопала, т", totals.scrapRemovalTons),
       ...(totals.jarMaterialMassTons === undefined
         ? []
-        : [formatTotal("Масса материала в банках, т", totals.jarMaterialMassTons)]),
+        : [formatTotal("Вес в банках по замерам, т", totals.jarMaterialMassTons)]),
+      ...(totals.jarShipmentMassTons === undefined
+        ? []
+        : [formatTotal("Вес в банках по отгрузкам, т", totals.jarShipmentMassTons)]),
     ];
   }
 
@@ -276,12 +284,16 @@ function formatValue(value: string | number | undefined) {
 function formatBulkDensitySource(row: {
   bulkDensitySource?: string;
   bulkDensitySampleCount?: number;
+  bulkDensityLatestRecordDate?: string;
   sampleIdentifier?: string;
 }) {
   if (row.bulkDensitySource === "rotary_kiln_2_journal") {
-    return row.bulkDensitySampleCount === undefined
+    const source = row.bulkDensitySampleCount === undefined
       ? "журнал печи 2"
       : `журнал печи 2, среднее по ${row.bulkDensitySampleCount} записям`;
+    return row.bulkDensityLatestRecordDate === undefined
+      ? source
+      : `${source}, данные на ${formatReportDate(row.bulkDensityLatestRecordDate)}`;
   }
 
   return `результат испытаний ${formatValue(row.sampleIdentifier)}`;

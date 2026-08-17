@@ -118,6 +118,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
             buildBankAssignment(2, "ШКИ-66", 1.57),
             buildBankAssignment(3, "ШГР-28", 1.09),
           ],
+          coshMasterOptions: ["Сидоров С.С.", "Иванов Иван Иванович"],
           volumeReference: { points: [
             { heightMeters: 0, volumeCubicMeters: 988.5 },
             { heightMeters: 0.1, volumeCubicMeters: 980.65 },
@@ -274,7 +275,14 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       rootElement.querySelector(".refractory-paper-title")?.textContent,
       "Сводка по ЦОШ (ежесменная)",
     );
-    assert.equal(rootElement.querySelectorAll(".bank-measurement-card").length, 3);
+    const bankTable = rootElement.querySelector(".refractory-bank-table");
+    assert.ok(bankTable);
+    assert.deepEqual(
+      Array.from(bankTable.querySelectorAll("thead th"), (cell) =>
+        cell.textContent.trim().replace(/\s+/gu, " "),
+      ),
+      ["Показатель", "Банка I ШКИ", "Банка II ШКИ-66", "Банка III ШГР-28"],
+    );
     assert.match(rootElement.textContent, /ШКИ-66/u);
     const chamotteOutputTable = rootElement.querySelector(
       ".refractory-input-table-cosh-output",
@@ -301,13 +309,18 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.ok(addChamotteRow);
     await React.act(async () => addChamotteRow.click());
     assert.equal(chamotteOutputTable.querySelectorAll("tbody tr").length, 2);
-    const firstBank = rootElement.querySelector(
-      '.bank-measurement-card[data-bank-number="1"]',
+    assert.equal(
+      bankTable.querySelectorAll('input[name^="jar.1."]:not([name$="Tons"])').length,
+      4,
     );
-    const addMeasurementButton = firstBank.querySelector(".bank-measurement-add");
-    assert.equal(firstBank.querySelectorAll("input").length, 4);
-    await React.act(async () => addMeasurementButton.click());
-    assert.equal(firstBank.querySelectorAll("input").length, 5);
+    assert.equal(rootElement.querySelector(".bank-measurement-add"), null);
+    const coshMasterInput = rootElement.querySelector('input[name="coshMaster"]');
+    assert.ok(coshMasterInput);
+    assert.equal(coshMasterInput.value, "Иванов Иван Иванович");
+    assert.deepEqual(readBrandOptions(coshMasterInput, rootElement), [
+      "Иванов Иван Иванович",
+      "Сидоров С.С.",
+    ]);
     const coshHeadings = Array.from(
       rootElement.querySelectorAll(".refractory-section h3"),
       (heading) => heading.textContent,
@@ -336,6 +349,7 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       "Время перехода на банку",
       "№ банки",
       "Время прекращения работы печи",
+      "Мастер ЦОШ",
     ].forEach((label) => assert.ok(coshLabels.includes(label), label));
 
     await React.act(async () => menuButtons[1].click());
@@ -1115,6 +1129,7 @@ function buildBankAssignment(bankNumber, materialLabel, density) {
     bulkDensityTonsPerCubicMeter: density,
     bulkDensitySource: "rotary_kiln_2_journal",
     bulkDensitySampleCount: 10,
+    bulkDensityLatestRecordDate: "2026-08-16",
     assignedByDisplayName: "Лаборант",
     assignedAt: "2026-07-23T08:00:00.000Z",
   };
@@ -1161,6 +1176,7 @@ test("refractory correction can be cancelled without saving draft changes", asyn
             buildBankAssignment(2, "ШКИ-66", 1.57),
             buildBankAssignment(3, "ШГР-28", 1.09),
           ],
+          coshMasterOptions: ["Иванов Иван Иванович"],
           volumeReference: {
             points: [
               { heightMeters: 0, volumeCubicMeters: 100 },

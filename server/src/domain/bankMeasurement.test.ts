@@ -28,6 +28,8 @@ test("bank measurement calculates average, table volume, and material mass", () 
   const result = calculateBankMeasurement({
     assignment: assignments[0],
     measurements: [0, 0.1, 0.2, 0.3],
+    loadedTons: 12,
+    shippedTons: 5,
     volumeReference,
   });
 
@@ -46,6 +48,9 @@ test("bank measurement calculates average, table volume, and material mass", () 
       volumeCubicMeters: 976.725,
       bulkDensityTonsPerCubicMeter: 1.16,
       materialMassTons: 1133.001,
+      loadedTons: 12,
+      shippedTons: 5,
+      shipmentMassTons: 1140.001,
     },
   });
 });
@@ -72,6 +77,9 @@ test("bank measurement accepts any positive number of measurements", () => {
       volumeCubicMeters: 160.5,
       bulkDensityTonsPerCubicMeter: 1.57,
       materialMassTons: 251.985,
+      loadedTons: 0,
+      shippedTons: 0,
+      shipmentMassTons: 251.985,
     },
   });
 });
@@ -92,6 +100,20 @@ test("bank measurement rejects empty and out-of-table measurements", () => {
       volumeReference,
     }),
     { ok: false, error: "Замеры должны быть от 0 до 15 м." },
+  );
+  assert.deepEqual(
+    calculateBankMeasurement({
+      assignment: assignments[2],
+      measurements: [15],
+      loadedTons: 0,
+      shippedTons: 0.001,
+      volumeReference,
+    }),
+    {
+      ok: false,
+      error: "Отгрузили больше расчётного остатка с учётом засыпки.",
+      field: "shippedTons",
+    },
   );
 });
 
@@ -151,12 +173,14 @@ test("bank measurement keeps calculating a legacy laboratory result snapshot", (
       bulkDensitySampleCount: result.value.bulkDensitySampleCount,
       sampleIdentifier: result.value.sampleIdentifier,
       materialMassTons: result.value.materialMassTons,
+      shipmentMassTons: result.value.shipmentMassTons,
     },
     {
       bulkDensitySource: "laboratory_result",
       bulkDensitySampleCount: undefined,
       sampleIdentifier: "Неформованные изделия",
       materialMassTons: 0,
+      shipmentMassTons: 0,
     },
   );
 });

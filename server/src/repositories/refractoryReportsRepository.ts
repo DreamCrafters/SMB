@@ -48,6 +48,7 @@ export type RefractoryReportsRepository = {
   listLatestApprovedCoshForDates: (input: {
     reportDates: readonly string[];
   }) => Promise<RefractoryReportRevision[]>;
+  listCoshMasterOptions: () => Promise<string[]>;
   listPending: () => Promise<RefractoryReportRevision[]>;
   listRecentForSubmitter: (input: {
     submittedByAccountId: string;
@@ -105,6 +106,10 @@ type RefractoryReportRow = RowDataPacket & {
   reviewer_display_name: string | null;
   reviewed_at: Date | string | null;
   rejection_comment: string | null;
+};
+
+type CoshMasterOptionRow = RowDataPacket & {
+  master_name: string;
 };
 
 type RefractoryReportsRepositoryOptions = {
@@ -288,6 +293,26 @@ export function createRefractoryReportsRepository(
         reportDates,
       );
       return mapPersistedRevisions(rows);
+    },
+
+    async listCoshMasterOptions() {
+      const [rows] = await pool.query<CoshMasterOptionRow[]>(
+        `select master_name
+         from (
+           select
+             coalesce(
+               nullif(trim(json_unquote(json_extract(payload, '$.coshMaster'))), ''),
+               master_display_name
+             ) as master_name,
+             submitted_at
+           from refractory_report_revisions
+           where report_type = 'cosh'
+         ) master_options
+         where master_name <> ''
+         group by master_name
+         order by max(submitted_at) desc, master_name asc`,
+      );
+      return rows.map((row) => row.master_name);
     },
 
     async listPending() {

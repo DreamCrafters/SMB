@@ -196,6 +196,7 @@ test("COSH report accepts the shift summary and calculates section totals", () =
     reportDate: "2026-07-20",
     shiftNumber: 2,
     payload: {
+      coshMaster: "Сидоров С.С.",
       kilnNumber: "1",
       chamotteOutputRows: [
         { productBrand: "ШБО", quantityTons: 10.2 },
@@ -206,8 +207,13 @@ test("COSH report accepts the shift summary and calculates section totals", () =
       loadingBucketsPerHour: 8,
       totalLoadingBuckets: 64,
       jarMeasurements: [
-        { jarNumber: 1, values: [24, 25, 24, 26] },
-        { jarNumber: 2, values: [30, 30.1, 30.2, 30.3, 30.4] },
+        {
+          jarNumber: 1,
+          values: [24, 25, 24, 26],
+          loadedTons: 5.5,
+          shippedTons: 2.25,
+        },
+        { jarNumber: 2, values: [30, 30.1, 30.2, 30.3] },
       ],
       bunkerFill: [
         { bunker: "I", productName: "ШБО", quantity: 5 },
@@ -230,6 +236,13 @@ test("COSH report accepts the shift summary and calculates section totals", () =
   assert.equal(result.value.reportType, "cosh");
   if (result.value.reportType !== "cosh") return;
 
+  assert.deepEqual(result.value.payload.jarMeasurements?.[0], {
+    jarNumber: 1,
+    values: [24, 25, 24, 26],
+    loadedTons: 5.5,
+    shippedTons: 2.25,
+  });
+
   assert.deepEqual(result.value.totals, {
     chamotteOutputTons: 19.2,
     bunkerFillTons: 11,
@@ -239,12 +252,31 @@ test("COSH report accepts the shift summary and calculates section totals", () =
   });
 });
 
+test("COSH report rejects more than four bank measurements", () => {
+  const result = validateRefractoryReportSubmission({
+    reportType: "cosh",
+    reportDate: "2026-07-20",
+    shiftNumber: 2,
+    payload: {
+      coshMaster: "Сидоров С.С.",
+      jarMeasurements: [
+        { jarNumber: 1, values: [24, 25, 24, 26, 25] },
+      ],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.errors[0] ?? "", /Замеры банки 1 заполнены неверно/u);
+});
+
 test("COSH chamotte output requires complete unique brand rows", () => {
   const result = validateRefractoryReportSubmission({
     reportType: "cosh",
     reportDate: "2026-07-20",
     shiftNumber: 1,
     payload: {
+      coshMaster: "Сидоров С.С.",
       chamotteOutputRows: [
         { quantityTons: 2 },
         { productBrand: "ШБО" },
@@ -359,6 +391,7 @@ test("scalar and section validation errors keep their visible context", () => {
     reportDate: "2026-07-20",
     shiftNumber: 1,
     payload: {
+      coshMaster: "Сидоров С.С.",
       loadingBucketsPerHour: 1_000_000_001,
       bunkerFill: [{ bunker: "I", quantity: "много" }],
     },
