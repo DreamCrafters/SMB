@@ -606,6 +606,26 @@ test("buildProductionReportTables keeps jar history from shipment-based values",
   });
 });
 
+test("buildProductionReportTables sorts jar history by report date descending", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("production-august-5", "production", {
+      reportDate: "05.08.2026",
+      jarShipmentStart1: "118.5",
+      jarShipmentEnd1: "94",
+    }),
+    buildSubmission("production-july-31", "production", {
+      reportDate: "31.07.2026",
+      jarStart1: "120",
+      jarEnd1: "95",
+    }),
+  ], {});
+
+  assert.deepEqual(
+    tables.jars.map((row) => row.reportDate),
+    ["2026-08-05", "2026-07-31"],
+  );
+});
+
 test("buildIncidentSummaryRows keeps incidents not closed before range start", () => {
   const rows = buildIncidentSummaryRows(
     [

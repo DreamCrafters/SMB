@@ -881,7 +881,7 @@ function buildProductionJarMeasurementRows(
         },
       ];
     });
-  });
+  }).sort((left, right) => right.reportDate.localeCompare(left.reportDate));
 }
 
 function buildProductionGranulationRows(

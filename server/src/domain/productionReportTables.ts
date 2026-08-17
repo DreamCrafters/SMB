@@ -629,7 +629,8 @@ function buildJarRows(
           ? {}
           : { shipmentConsumption: shipmentStart - shipmentEnd }),
       }];
-    }));
+    }))
+    .sort((left, right) => right.reportDate.localeCompare(left.reportDate));
 }
 
 function buildGranulationRows(
