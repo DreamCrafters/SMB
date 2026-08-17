@@ -836,15 +836,73 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         ],
         bankMeasurements: bankReportDate === "2026-07-18"
           ? [
-              { bankNumber: 1, start: 1.25, end: 1.1 },
-              { bankNumber: 2, start: 1.5, end: 1.4 },
-              { bankNumber: 3, start: 1.75, end: 1.6 },
+              {
+                bankNumber: 1,
+                start: 105,
+                shipmentStart: 108,
+                end: 110,
+                shipmentEnd: 120,
+              },
+              {
+                bankNumber: 2,
+                start: 205,
+                shipmentStart: 208,
+                end: 210,
+                shipmentEnd: 220,
+              },
+              {
+                bankNumber: 3,
+                start: 305,
+                shipmentStart: 308,
+                end: 310,
+                shipmentEnd: 320,
+              },
             ]
           : [
               { bankNumber: 1 },
               { bankNumber: 2 },
               { bankNumber: 3 },
             ],
+        bankReport: bankReportDate === "2026-07-18"
+          ? {
+              reportDate: "2026-07-18",
+              shiftNumber: 2,
+              coshMaster: "Сидоров С.С.",
+              banks: [
+                {
+                  bankNumber: 1,
+                  materialLabel: "ШКИ-66",
+                  measurements: [2, 2.2, 2.1, 2.3],
+                  averageHeightMeters: 2.15,
+                  bulkDensityTonsPerCubicMeter: 1.1,
+                  bulkDensityLatestRecordDate: "2026-07-17",
+                  volumeCubicMeters: 100,
+                  materialMassTons: 110,
+                  loadedTons: 15,
+                  shippedTons: 5,
+                  shipmentMassTons: 120,
+                },
+                {
+                  bankNumber: 2,
+                  materialLabel: "ШГР-1",
+                  measurements: [3],
+                  averageHeightMeters: 3,
+                  bulkDensityTonsPerCubicMeter: 2,
+                  volumeCubicMeters: 105,
+                  materialMassTons: 210,
+                  shipmentMassTons: 220,
+                },
+                {
+                  bankNumber: 3,
+                  measurements: [4],
+                  averageHeightMeters: 4,
+                  volumeCubicMeters: 110,
+                  materialMassTons: 310,
+                  shipmentMassTons: 320,
+                },
+              ],
+            }
+          : undefined,
       });
     }
 
@@ -1047,52 +1105,61 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(
       rootElement.querySelector('input[name="jarStart1"]')?.value,
-      "1.25",
+      "105",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarEnd1"]')?.value,
-      "1.1",
+      "110",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarShipmentStart1"]')?.value,
-      "118.5",
+      "108",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarShipmentEnd1"]')?.value,
-      "94",
+      "120",
     );
     assert.equal(
-      rootElement.querySelector('input[name="jarStart1"]')?.readOnly,
-      true,
+      rootElement.querySelector('input[name="jarStart1"]')?.type,
+      "hidden",
     );
     assert.equal(
-      rootElement.querySelector('input[name="jarShipmentStart1"]')?.readOnly,
-      false,
+      rootElement.querySelector('input[name="jarShipmentStart1"]')?.type,
+      "hidden",
     );
-    const jarHeaderRows = rootElement.querySelectorAll(
-      ".production-report-jar-table thead tr",
+    const bankTable = rootElement.querySelector(
+      ".dispatcher-bank-detail-table",
     );
-    assert.match(
-      jarHeaderRows[0]?.textContent ?? "",
-      /Банка.*Начало дня.*Конец дня/u,
+    assert.ok(bankTable);
+    assert.deepEqual(
+      Array.from(bankTable.querySelectorAll("thead th"), (cell) =>
+        cell.textContent.trim().replace(/\s+/gu, " "),
+      ),
+      ["Показатель", "Банка I ШКИ-66", "Банка II ШГР-1", "Банка III Не назначено"],
     );
     assert.deepEqual(
-      Array.from(jarHeaderRows[1]?.querySelectorAll("th") ?? []).map(
-        (header) => header.textContent,
+      Array.from(bankTable.querySelectorAll("tbody th"), (cell) =>
+        cell.textContent.trim().replace(/\s+/gu, " "),
       ),
-      ["По замерам", "По отгрузкам", "По замерам", "По отгрузкам"],
+      [
+        "Замер 1, м",
+        "Замер 2, м",
+        "Замер 3, м",
+        "Замер 4, м",
+        "Среднее значение, м",
+        "Насыпная плотность, т/м³",
+        "Объём по замерам, м³",
+        "Расчётный вес по замерам, т",
+        "Засыпали, т",
+        "Отгрузили, т",
+        "Расчётный вес по отгрузкам, т",
+        "Отображение в отчётах, т",
+        "Мастер ЦОШ",
+      ],
     );
     assert.match(
-      rootElement.querySelector(
-        ".production-report-jar-table tbody tr:first-child th",
-      )?.textContent ?? "",
-      /1.*ШКИ-66/u,
-    );
-    assert.match(
-      rootElement.querySelector(
-        ".production-report-jar-table tbody tr:nth-child(3) th",
-      )?.textContent ?? "",
-      /3.*Не назначено/u,
+      bankTable.textContent ?? "",
+      /110.*120.*Сидоров С\.С\./u,
     );
     assert.equal(
       rootElement.querySelector(
@@ -1115,7 +1182,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       rootElement.querySelector(
         ".production-report-split-bottom .production-report-section-note",
       )?.textContent ?? "",
-      /17\.07\.2026.*18\.07\.2026/u,
+      /Сводка ЦОШ за 18\.07\.2026, смена 2/u,
     );
     assert.ok(
       requestedUrls.some((url) => url.includes("/api/production-brands")),

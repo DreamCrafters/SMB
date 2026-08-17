@@ -29,6 +29,7 @@ import {
   type DispatcherFormField,
   type DispatcherFormId,
   type DispatcherProductionBankContent,
+  type DispatcherProductionBankReportRow,
   type DispatcherSubmission,
   type DispatcherSubmissionPayload,
   type ProductionBrandCategoryRow,
@@ -4827,14 +4828,6 @@ function ProductionReportEditor({
   onRetryBrands: () => void;
 }) {
   const initialPayload = initialSubmission?.payload;
-  const bankMaterialByNumber = new Map(
-    bankContentsState.status === "ready"
-      ? bankContentsState.bankContents.map((item) => [
-          item.bankNumber,
-          item.materialLabel,
-        ])
-      : [],
-  );
   const bankMeasurementByNumber = new Map(
     bankContentsState.status === "ready"
       ? bankContentsState.bankMeasurements.map((item) => [
@@ -4843,8 +4836,6 @@ function ProductionReportEditor({
         ])
       : [],
   );
-  const unavailableBankMaterialLabel =
-    bankContentsState.status === "loading" ? "Загрузка…" : "Нет данных";
 
   return (
     <>
@@ -4925,13 +4916,6 @@ function ProductionReportEditor({
       <div className="production-report-split production-report-split-bottom">
         <fieldset className="production-report-section">
           <legend>Замеры банок</legend>
-          {bankContentsState.status === "ready" ? (
-            <span className="production-report-section-note">
-              По замерам: начало — ЦОШ ОЦ за{" "}
-              {formatDateOnly(bankContentsState.previousReportDate)}, конец —
-              ЦОШ ОЦ за {formatDateOnly(bankContentsState.reportDate)}.
-            </span>
-          ) : null}
           {bankContentsState.status === "error" ? (
             <span
               className="production-report-section-note production-report-bank-content-error"
@@ -4940,77 +4924,26 @@ function ProductionReportEditor({
               {bankContentsState.message}
             </span>
           ) : null}
-          <div className="production-report-table-wrap">
-            <table className="production-report-table production-report-jar-table">
-              <thead>
-                <tr>
-                  <th scope="col" rowSpan={2}>Банка</th>
-                  <th scope="colgroup" colSpan={2}>Начало дня</th>
-                  <th scope="colgroup" colSpan={2}>Конец дня</th>
-                </tr>
-                <tr>
-                  <th scope="col">По замерам</th>
-                  <th scope="col">По отгрузкам</th>
-                  <th scope="col">По замерам</th>
-                  <th scope="col">По отгрузкам</th>
-                </tr>
-              </thead>
-              <tbody>
-                {([1, 2, 3] as const).map((jarNumber) => (
-                  <tr key={jarNumber}>
-                    <th scope="row">
-                      <span className="production-report-jar-label">
-                        <span>{jarNumber}</span>
-                        <small>
-                          {bankContentsState.status === "ready"
-                            ? bankMaterialByNumber.get(jarNumber) ?? "Не назначено"
-                            : unavailableBankMaterialLabel}
-                        </small>
-                      </span>
-                    </th>
-                    <td>
-                      <ProductionReportCell
-                        defaultValue={readBankMeasurementValue(
-                          bankMeasurementByNumber.get(jarNumber)?.start,
-                        )}
-                        fieldName={`jarStart${jarNumber}`}
-                        form={form}
-                        readOnly
-                      />
-                    </td>
-                    <td>
-                      <ProductionReportCell
-                        defaultValue={
-                          initialPayload?.[`jarShipmentStart${jarNumber}`]
-                        }
-                        fieldName={`jarShipmentStart${jarNumber}`}
-                        form={form}
-                      />
-                    </td>
-                    <td>
-                      <ProductionReportCell
-                        defaultValue={readBankMeasurementValue(
-                          bankMeasurementByNumber.get(jarNumber)?.end,
-                        )}
-                        fieldName={`jarEnd${jarNumber}`}
-                        form={form}
-                        readOnly
-                      />
-                    </td>
-                    <td>
-                      <ProductionReportCell
-                        defaultValue={
-                          initialPayload?.[`jarShipmentEnd${jarNumber}`]
-                        }
-                        fieldName={`jarShipmentEnd${jarNumber}`}
-                        form={form}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DispatcherProductionBankReportTable state={bankContentsState} />
+          {([1, 2, 3] as const).flatMap((bankNumber) => {
+            const values = bankMeasurementByNumber.get(bankNumber);
+            return [
+              ["jarStart", values?.start],
+              ["jarShipmentStart", values?.shipmentStart],
+              ["jarEnd", values?.end],
+              ["jarShipmentEnd", values?.shipmentEnd],
+            ].map(([prefix, value]) => (
+              <input
+                key={`${prefix}${bankNumber}`}
+                name={`${prefix}${bankNumber}`}
+                type="hidden"
+                value={readBankMeasurementValue(
+                  typeof value === "number" ? value : undefined,
+                )}
+                readOnly
+              />
+            ));
+          })}
         </fieldset>
 
         <fieldset className="production-report-section">
@@ -5040,6 +4973,167 @@ function ProductionReportEditor({
       </div>
     </>
   );
+}
+
+function DispatcherProductionBankReportTable({
+  state,
+}: {
+  state: DispatcherProductionBankContentsState;
+}) {
+  const bankNumbers = [1, 2, 3] as const;
+  const report = state.status === "ready" ? state.bankReport : undefined;
+  const reportRows = new Map(
+    report?.banks.map((row) => [row.bankNumber, row]) ?? [],
+  );
+  const currentMaterialByBank = new Map(
+    state.status === "ready"
+      ? state.bankContents.map((row) => [row.bankNumber, row.materialLabel])
+      : [],
+  );
+  const measurementCount = Math.max(
+    4,
+    ...bankNumbers.map(
+      (bankNumber) => reportRows.get(bankNumber)?.measurements.length ?? 0,
+    ),
+  );
+  const reportStatus = report === undefined
+    ? `За ${state.status === "ready" ? formatDateOnly(state.reportDate) : "выбранную дату"} нет подтверждённой сводки ЦОШ.`
+    : `Сводка ЦОШ за ${formatDateOnly(report.reportDate)}, смена ${report.shiftNumber}.`;
+
+  function renderNumberRow(
+    label: string,
+    readValue: (row: DispatcherProductionBankReportRow | undefined) =>
+      number | undefined,
+    className?: string,
+  ) {
+    return (
+      <tr className={className}>
+        <th scope="row">{label}</th>
+        {bankNumbers.map((bankNumber) => (
+          <td key={bankNumber}>
+            <output>
+              {formatDispatcherBankNumber(readValue(reportRows.get(bankNumber)))}
+            </output>
+          </td>
+        ))}
+      </tr>
+    );
+  }
+
+  return (
+    <>
+      <span className="production-report-section-note">{reportStatus}</span>
+      <div className="refractory-table-wrap refractory-bank-table-wrap">
+        <table className="refractory-bank-table dispatcher-bank-detail-table">
+          <thead>
+            <tr>
+              <th scope="col">Показатель</th>
+              {bankNumbers.map((bankNumber) => {
+                const reportRow = reportRows.get(bankNumber);
+                return (
+                  <th key={bankNumber} scope="col">
+                    <span>Банка {readRomanBankNumber(bankNumber)}</span>
+                    {" "}
+                    <strong>
+                      {reportRow?.materialLabel ??
+                        currentMaterialByBank.get(bankNumber) ??
+                        "Не назначено"}
+                    </strong>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: measurementCount }, (_, index) => (
+              <tr key={`measurement-${index}`}>
+                <th scope="row">Замер {index + 1}, м</th>
+                {bankNumbers.map((bankNumber) => (
+                  <td key={bankNumber}>
+                    <output>
+                      {formatDispatcherBankNumber(
+                        reportRows.get(bankNumber)?.measurements[index],
+                      )}
+                    </output>
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {renderNumberRow(
+              "Среднее значение, м",
+              (row) => row?.averageHeightMeters,
+              "refractory-bank-calculated-row",
+            )}
+            <tr className="refractory-bank-calculated-row">
+              <th scope="row">Насыпная плотность, т/м³</th>
+              {bankNumbers.map((bankNumber) => {
+                const row = reportRows.get(bankNumber);
+                return (
+                  <td key={bankNumber}>
+                    <output>
+                      {formatDispatcherBankNumber(
+                        row?.bulkDensityTonsPerCubicMeter,
+                      )}
+                    </output>
+                    {row?.bulkDensityLatestRecordDate === undefined ? null : (
+                      <small>
+                        данные на {formatDateOnly(row.bulkDensityLatestRecordDate)}
+                      </small>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+            {renderNumberRow(
+              "Объём по замерам, м³",
+              (row) => row?.volumeCubicMeters,
+              "refractory-bank-calculated-row",
+            )}
+            {renderNumberRow(
+              "Расчётный вес по замерам, т",
+              (row) => row?.materialMassTons,
+              "refractory-bank-calculated-row refractory-bank-mass-row",
+            )}
+            {renderNumberRow("Засыпали, т", (row) => row?.loadedTons)}
+            {renderNumberRow("Отгрузили, т", (row) => row?.shippedTons)}
+            {renderNumberRow(
+              "Расчётный вес по отгрузкам, т",
+              (row) => row?.shipmentMassTons,
+              "refractory-bank-calculated-row refractory-bank-mass-row",
+            )}
+            <tr className="refractory-bank-report-row">
+              <th scope="row">Отображение в отчётах, т</th>
+              {bankNumbers.map((bankNumber) => {
+                const row = reportRows.get(bankNumber);
+                return (
+                  <td key={bankNumber}>
+                    <output>
+                      {formatDispatcherBankNumber(row?.materialMassTons)} /{" "}
+                      {formatDispatcherBankNumber(row?.shipmentMassTons)}
+                    </output>
+                  </td>
+                );
+              })}
+            </tr>
+            <tr className="dispatcher-bank-master-row">
+              <th scope="row">Мастер ЦОШ</th>
+              <td colSpan={3}>{report?.coshMaster || "—"}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function readRomanBankNumber(bankNumber: 1 | 2 | 3) {
+  return ({ 1: "I", 2: "II", 3: "III" } as const)[bankNumber];
+}
+
+function formatDispatcherBankNumber(value: number | undefined) {
+  return value === undefined
+    ? "—"
+    : value.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
 }
 
 type ProductionBrandColumn = {

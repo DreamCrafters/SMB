@@ -43,12 +43,36 @@ export type DispatcherProductionBankContent = Pick<
 export type DispatcherProductionBankMeasurement = {
   bankNumber: BankNumber;
   start?: number;
+  shipmentStart?: number;
   end?: number;
+  shipmentEnd?: number;
+};
+
+export type DispatcherProductionBankReportRow = {
+  bankNumber: BankNumber;
+  materialLabel?: string;
+  measurements: number[];
+  averageHeightMeters?: number;
+  bulkDensityTonsPerCubicMeter?: number;
+  bulkDensityLatestRecordDate?: string;
+  volumeCubicMeters?: number;
+  materialMassTons?: number;
+  loadedTons?: number;
+  shippedTons?: number;
+  shipmentMassTons?: number;
+};
+
+export type DispatcherProductionBankReport = {
+  reportDate: string;
+  shiftNumber: 1 | 2;
+  coshMaster: string;
+  banks: DispatcherProductionBankReportRow[];
 };
 
 export type DispatcherProductionBankContentsResponse = {
   bankContents: DispatcherProductionBankContent[];
   bankMeasurements: DispatcherProductionBankMeasurement[];
+  bankReport?: DispatcherProductionBankReport;
   reportDate: string;
   previousReportDate: string;
 };

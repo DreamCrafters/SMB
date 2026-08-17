@@ -7387,12 +7387,14 @@ async function handleDispatcherProductionBankContentsRequest({
     previousReportDate: measurementSnapshot.previousReportDate,
     bankContents: toDispatcherBankContents(currentAssignments),
     bankMeasurements: measurementSnapshot.bankMeasurements,
+    bankReport: measurementSnapshot.bankReport,
   });
 }
 
 /**
- * Наружу отдаётся только номер банки и назначенный Лабораторией материал:
- * насыпной вес и автор назначения остаются внутри лабораторного контура.
+ * В списке текущих назначений наружу отдаётся только номер банки и материал.
+ * Расчётные значения, включая сохранённую плотность, приходят отдельно из
+ * подтверждённого снимка ЦОШ; автор назначения остаётся внутри Лаборатории.
  */
 function toDispatcherBankContents(
   assignments: readonly LaboratoryBankAssignment[],
@@ -7426,6 +7428,7 @@ async function readDispatcherProductionBankMeasurements(
       ...readProductionBankMeasurementSide(startReport, bankNumber, "start"),
       ...readProductionBankMeasurementSide(endReport, bankNumber, "end"),
     })),
+    bankReport: buildDispatcherProductionBankReport(endReport),
   };
 }
 
@@ -7441,32 +7444,135 @@ function readProductionBankMeasurementSide(
   const measurement = (report.payload as RefractoryCoshPayload)
     .jarMeasurements
     ?.find((item) => item.jarNumber === bankNumber);
-  const candidate = measurement?.averageHeightMeters ??
-    readAverageMeasurement(measurement?.values);
-  const averageHeightMeters =
-    candidate !== undefined &&
-      Number.isFinite(candidate) &&
-      candidate >= 0
-      ? candidate
-      : undefined;
+  const materialMassTons = readStoredBankMaterialMass(measurement);
+  const shipmentMassTons = readStoredBankShipmentMass(
+    measurement,
+    materialMassTons,
+  );
 
-  return averageHeightMeters === undefined
-    ? {}
-    : { [side]: averageHeightMeters };
+  if (side === "start") {
+    return {
+      ...(materialMassTons === undefined ? {} : { start: materialMassTons }),
+      ...(shipmentMassTons === undefined
+        ? {}
+        : { shipmentStart: shipmentMassTons }),
+    };
+  }
+
+  return {
+    ...(materialMassTons === undefined ? {} : { end: materialMassTons }),
+    ...(shipmentMassTons === undefined ? {} : { shipmentEnd: shipmentMassTons }),
+  };
 }
 
-function readAverageMeasurement(values: readonly number[] | undefined) {
-  if (
-    values === undefined ||
-    values.length === 0 ||
-    values.some((value) => !Number.isFinite(value) || value < 0)
-  ) {
+type StoredCoshBankMeasurement = NonNullable<
+  RefractoryCoshPayload["jarMeasurements"]
+>[number];
+
+function readStoredBankMaterialMass(
+  measurement: StoredCoshBankMeasurement | undefined,
+) {
+  const stored = readNonNegativeFiniteNumber(measurement?.materialMassTons);
+  if (stored !== undefined) return stored;
+
+  const volume = readNonNegativeFiniteNumber(measurement?.volumeCubicMeters);
+  const density = readNonNegativeFiniteNumber(
+    measurement?.bulkDensityTonsPerCubicMeter,
+  );
+  if (volume === undefined || density === undefined) {
     return undefined;
   }
 
-  const average = values.reduce((total, value) => total + value, 0) /
-    values.length;
-  return Math.round((average + Number.EPSILON) * 1_000) / 1_000;
+  return roundBankReportNumber(volume * density);
+}
+
+function readStoredBankShipmentMass(
+  measurement: StoredCoshBankMeasurement | undefined,
+  materialMassTons: number | undefined,
+) {
+  const stored = readNonNegativeFiniteNumber(measurement?.shipmentMassTons);
+  if (stored !== undefined) return stored;
+
+  const loadedTons = readNonNegativeFiniteNumber(measurement?.loadedTons) ?? 0;
+  const shippedTons = readNonNegativeFiniteNumber(measurement?.shippedTons) ?? 0;
+  if (materialMassTons === undefined) return undefined;
+
+  const calculated = materialMassTons + loadedTons - shippedTons;
+  return calculated < 0 ? undefined : roundBankReportNumber(calculated);
+}
+
+function buildDispatcherProductionBankReport(
+  report: RefractoryReportRevision | undefined,
+) {
+  if (report?.reportType !== "cosh") return undefined;
+
+  const payload = report.payload as RefractoryCoshPayload;
+  const rows = payload.jarMeasurements ?? [];
+
+  return {
+    reportDate: report.reportDate,
+    shiftNumber: report.shiftNumber,
+    coshMaster: payload.coshMaster?.trim() || report.masterDisplayName,
+    banks: bankNumbers.map((bankNumber) => {
+      const row = rows.find((item) => item.jarNumber === bankNumber);
+      const materialMassTons = readStoredBankMaterialMass(row);
+      return {
+        bankNumber,
+        ...(row?.material === undefined
+          ? {}
+          : { materialLabel: row.material }),
+        measurements: (row?.values ?? []).filter(
+          (value) => Number.isFinite(value) && value >= 0,
+        ),
+        ...copyOptionalBankReportNumber(
+          "averageHeightMeters",
+          row?.averageHeightMeters,
+        ),
+        ...copyOptionalBankReportNumber(
+          "bulkDensityTonsPerCubicMeter",
+          row?.bulkDensityTonsPerCubicMeter,
+        ),
+        ...(row?.bulkDensityLatestRecordDate === undefined
+          ? {}
+          : {
+              bulkDensityLatestRecordDate:
+                row.bulkDensityLatestRecordDate,
+            }),
+        ...copyOptionalBankReportNumber(
+          "volumeCubicMeters",
+          row?.volumeCubicMeters,
+        ),
+        ...copyOptionalBankReportNumber(
+          "materialMassTons",
+          materialMassTons,
+        ),
+        ...copyOptionalBankReportNumber("loadedTons", row?.loadedTons),
+        ...copyOptionalBankReportNumber("shippedTons", row?.shippedTons),
+        ...copyOptionalBankReportNumber(
+          "shipmentMassTons",
+          readStoredBankShipmentMass(row, materialMassTons),
+        ),
+      };
+    }),
+  };
+}
+
+function copyOptionalBankReportNumber<Key extends string>(
+  key: Key,
+  value: number | undefined,
+): Partial<Record<Key, number>> {
+  const normalized = readNonNegativeFiniteNumber(value);
+  return normalized === undefined ? {} : { [key]: normalized } as Record<Key, number>;
+}
+
+function readNonNegativeFiniteNumber(value: number | undefined) {
+  return value !== undefined && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function roundBankReportNumber(value: number) {
+  return Math.round((value + Number.EPSILON) * 1_000) / 1_000;
 }
 
 function shiftCalendarDate(value: string, dayOffset: number) {
@@ -7504,7 +7610,9 @@ function buildProductionPayloadWithBankMeasurements({
   bankMeasurements: ReadonlyArray<{
     bankNumber: BankNumber;
     start?: number;
+    shipmentStart?: number;
     end?: number;
+    shipmentEnd?: number;
   }>;
 }) {
   const nextPayload: DispatcherSubmission["payload"] = {
@@ -7516,7 +7624,9 @@ function buildProductionPayloadWithBankMeasurements({
 
   for (const bankNumber of bankNumbers) {
     delete nextPayload[`jarStart${bankNumber}`];
+    delete nextPayload[`jarShipmentStart${bankNumber}`];
     delete nextPayload[`jarEnd${bankNumber}`];
+    delete nextPayload[`jarShipmentEnd${bankNumber}`];
   }
 
   for (const measurement of bankMeasurements) {
@@ -7525,8 +7635,18 @@ function buildProductionPayloadWithBankMeasurements({
         String(measurement.start);
     }
 
+    if (measurement.shipmentStart !== undefined) {
+      nextPayload[`jarShipmentStart${measurement.bankNumber}`] =
+        String(measurement.shipmentStart);
+    }
+
     if (measurement.end !== undefined) {
       nextPayload[`jarEnd${measurement.bankNumber}`] = String(measurement.end);
+    }
+
+    if (measurement.shipmentEnd !== undefined) {
+      nextPayload[`jarShipmentEnd${measurement.bankNumber}`] =
+        String(measurement.shipmentEnd);
     }
   }
 

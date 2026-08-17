@@ -3330,10 +3330,74 @@ test("dispatcher reads current bank materials and approved COSH measurements by 
           { bankNumber: 3, materialLabel: "ШГР-1" },
         ],
         bankMeasurements: [
-          { bankNumber: 1, start: 1.25, end: 1.1 },
-          { bankNumber: 2, start: 1.5, end: 1.4 },
-          { bankNumber: 3, start: 1.75, end: 1.6 },
+          {
+            bankNumber: 1,
+            start: 12.5,
+            shipmentStart: 17.5,
+            end: 11,
+            shipmentEnd: 16,
+          },
+          {
+            bankNumber: 2,
+            start: 30,
+            shipmentStart: 35,
+            end: 28,
+            shipmentEnd: 33,
+          },
+          {
+            bankNumber: 3,
+            start: 52.5,
+            shipmentStart: 57.5,
+            end: 48,
+            shipmentEnd: 53,
+          },
         ],
+        bankReport: {
+          reportDate: "2026-07-23",
+          shiftNumber: 1,
+          coshMaster: "Мастер ЦОШ",
+          banks: [
+            {
+              bankNumber: 1,
+              materialLabel: "Материал 1",
+              measurements: [1.1, 1.1],
+              averageHeightMeters: 1.1,
+              bulkDensityTonsPerCubicMeter: 1,
+              bulkDensityLatestRecordDate: "2026-07-23",
+              volumeCubicMeters: 11,
+              materialMassTons: 11,
+              loadedTons: 10,
+              shippedTons: 5,
+              shipmentMassTons: 16,
+            },
+            {
+              bankNumber: 2,
+              materialLabel: "Материал 2",
+              measurements: [1.4, 1.4],
+              averageHeightMeters: 1.4,
+              bulkDensityTonsPerCubicMeter: 2,
+              bulkDensityLatestRecordDate: "2026-07-23",
+              volumeCubicMeters: 14,
+              materialMassTons: 28,
+              loadedTons: 10,
+              shippedTons: 5,
+              shipmentMassTons: 33,
+            },
+            {
+              bankNumber: 3,
+              materialLabel: "Материал 3",
+              measurements: [1.6, 1.6],
+              averageHeightMeters: 1.6,
+              bulkDensityTonsPerCubicMeter: 3,
+              bulkDensityLatestRecordDate: "2026-07-23",
+              volumeCubicMeters: 16,
+              materialMassTons: 48,
+              loadedTons: 10,
+              shippedTons: 5,
+              shipmentMassTons: 53,
+            },
+          ],
+        },
       });
       assert.deepEqual(requestedReportDates, [
         ["2026-07-22", "2026-07-23"],
@@ -3408,14 +3472,18 @@ test("production submission replaces client bank values with approved COSH measu
         reportDate: "23.07.2026",
         reportMonth: "2026-07",
         granulationPlatesInOperation: "2",
-        jarStart1: "1.25",
-        jarShipmentStart1: "118.5",
-        jarEnd1: "1.1",
-        jarShipmentEnd1: "94",
-        jarStart2: "1.5",
-        jarEnd2: "1.4",
-        jarStart3: "1.75",
-        jarEnd3: "1.6",
+        jarStart1: "12.5",
+        jarShipmentStart1: "17.5",
+        jarEnd1: "11",
+        jarShipmentEnd1: "16",
+        jarStart2: "30",
+        jarShipmentStart2: "35",
+        jarEnd2: "28",
+        jarShipmentEnd2: "33",
+        jarStart3: "52.5",
+        jarShipmentStart3: "57.5",
+        jarEnd3: "48",
+        jarShipmentEnd3: "53",
       });
     },
     repository,
@@ -3471,6 +3539,25 @@ test("production submission notifications receive current bank contents for the 
       throw new Error("Unexpected refractory report notification.");
     },
   };
+  const refractoryReports: RefractoryReportsRepository = {
+    ...emptyRefractoryReports,
+    async listLatestApprovedCoshForDates() {
+      return [
+        buildApprovedCoshReport({
+          id: "cosh-notification-previous",
+          reportDate: "2026-07-22",
+          shiftNumber: 2,
+          measurements: [1.25, 1.5, 1.75],
+        }),
+        buildApprovedCoshReport({
+          id: "cosh-notification-current",
+          reportDate: "2026-07-23",
+          shiftNumber: 2,
+          measurements: [1.1, 1.4, 1.6],
+        }),
+      ];
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -3492,11 +3579,11 @@ test("production submission notifications receive current bank contents for the 
       for (const text of [emailText, maxText]) {
         assert.match(
           text ?? "",
-          /Замеры банок — Банка 1 \(ША-22\), начало дня, по отгрузкам: 45/u,
+          /Замеры банок — Банка 1 \(ША-22\), начало дня, по отгрузкам: 17\.5/u,
         );
         assert.match(
           text ?? "",
-          /Замеры банок — Банка 2 \(Не назначено\), начало дня, по отгрузкам: 12/u,
+          /Замеры банок — Банка 2 \(Не назначено\), начало дня, по отгрузкам: 35/u,
         );
       }
     },
@@ -3513,7 +3600,7 @@ test("production submission notifications receive current bank contents for the 
     undefined,
     passthroughProductionBrands,
     undefined,
-    emptyRefractoryReports,
+    refractoryReports,
     undefined,
     undefined,
     laboratoryBankAssignments,
@@ -11688,11 +11775,26 @@ function buildApprovedCoshReport({
     revisionNumber: 1,
     status: "approved",
     payload: {
-      jarMeasurements: measurements.map((averageHeightMeters, index) => ({
-        jarNumber: (index + 1) as 1 | 2 | 3,
-        values: [averageHeightMeters],
-        averageHeightMeters,
-      })),
+      coshMaster: "Мастер ЦОШ",
+      jarMeasurements: measurements.map((averageHeightMeters, index) => {
+        const volumeCubicMeters = Number((averageHeightMeters * 10).toFixed(3));
+        const materialMassTons = Number(
+          (volumeCubicMeters * (index + 1)).toFixed(3),
+        );
+        return {
+          jarNumber: (index + 1) as 1 | 2 | 3,
+          values: [averageHeightMeters, averageHeightMeters],
+          material: `Материал ${index + 1}`,
+          averageHeightMeters,
+          bulkDensityTonsPerCubicMeter: index + 1,
+          bulkDensityLatestRecordDate: reportDate,
+          volumeCubicMeters,
+          materialMassTons,
+          loadedTons: 10,
+          shippedTons: 5,
+          shipmentMassTons: materialMassTons + 5,
+        };
+      }),
     },
     totals: {
       chamotteOutputTons: 0,

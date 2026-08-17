@@ -88,6 +88,8 @@ function isDispatcherProductionBankContentsResponse(
     value.bankContents.every(isDispatcherProductionBankContent) &&
     Array.isArray(value.bankMeasurements) &&
     value.bankMeasurements.every(isDispatcherProductionBankMeasurement) &&
+    (value.bankReport === undefined ||
+      isDispatcherProductionBankReport(value.bankReport)) &&
     typeof value.reportDate === "string" &&
     typeof value.previousReportDate === "string"
   );
@@ -111,7 +113,40 @@ function isDispatcherProductionBankMeasurement(
     isRecord(value) &&
     isBankNumber(value.bankNumber) &&
     isOptionalFiniteNumber(value.start) &&
-    isOptionalFiniteNumber(value.end)
+    isOptionalFiniteNumber(value.shipmentStart) &&
+    isOptionalFiniteNumber(value.end) &&
+    isOptionalFiniteNumber(value.shipmentEnd)
+  );
+}
+
+function isDispatcherProductionBankReport(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.reportDate === "string" &&
+    (value.shiftNumber === 1 || value.shiftNumber === 2) &&
+    typeof value.coshMaster === "string" &&
+    Array.isArray(value.banks) &&
+    value.banks.every(isDispatcherProductionBankReportRow)
+  );
+}
+
+function isDispatcherProductionBankReportRow(value: unknown) {
+  return (
+    isRecord(value) &&
+    isBankNumber(value.bankNumber) &&
+    (value.materialLabel === undefined ||
+      typeof value.materialLabel === "string") &&
+    Array.isArray(value.measurements) &&
+    value.measurements.every(isFiniteNumber) &&
+    isOptionalFiniteNumber(value.averageHeightMeters) &&
+    isOptionalFiniteNumber(value.bulkDensityTonsPerCubicMeter) &&
+    (value.bulkDensityLatestRecordDate === undefined ||
+      typeof value.bulkDensityLatestRecordDate === "string") &&
+    isOptionalFiniteNumber(value.volumeCubicMeters) &&
+    isOptionalFiniteNumber(value.materialMassTons) &&
+    isOptionalFiniteNumber(value.loadedTons) &&
+    isOptionalFiniteNumber(value.shippedTons) &&
+    isOptionalFiniteNumber(value.shipmentMassTons)
   );
 }
 
@@ -120,8 +155,11 @@ function isBankNumber(value: unknown): value is BankNumber {
 }
 
 function isOptionalFiniteNumber(value: unknown) {
-  return value === undefined ||
-    (typeof value === "number" && Number.isFinite(value));
+  return value === undefined || isFiniteNumber(value);
+}
+
+function isFiniteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function readError(payload: unknown): ErrorResult {

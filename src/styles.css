@@ -7370,6 +7370,13 @@ p {
   border-top-color: color-mix(in srgb, var(--emerald) 42%, var(--line));
 }
 
+.dispatcher-bank-master-row td {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--blue-gray) 7%, var(--surface));
+  font-weight: 900;
+  text-align: left;
+}
+
 .bank-measurement-errors {
   display: grid;
   gap: 4px;
