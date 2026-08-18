@@ -5116,7 +5116,7 @@ function DispatcherProductionBankReportTable({
   return (
     <>
       <span className="production-report-section-note">{reportStatus}</span>
-      <div className="refractory-table-wrap refractory-bank-table-wrap">
+      <div className="refractory-table-wrap refractory-table-wrap-full-height refractory-bank-table-wrap">
         <table className="refractory-bank-table dispatcher-bank-detail-table">
           <thead>
             <tr>
