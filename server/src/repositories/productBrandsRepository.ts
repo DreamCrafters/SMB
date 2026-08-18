@@ -134,6 +134,25 @@ type CurrentBankAssignmentRow = RowDataPacket & {
   bulk_density_source: string;
   bulk_density_sample_count: number | string | null;
 };
+type CurrentRawMaterialWarehouseRevisionRow = RowDataPacket & {
+  entry_id: string;
+  revision_number: number;
+  status: string;
+  movement_date: Date | string;
+  stack_location: string;
+  received_tons: number | string;
+  supplier: string | null;
+  shipped_tons: number | string;
+  recipient: string | null;
+  submitted_by_user_id: string;
+  submitted_by_account_id: string;
+  submitted_by_display_name: string;
+  submitted_at: Date | string;
+  reviewed_by_user_id: string | null;
+  reviewed_by_account_id: string | null;
+  reviewed_by_display_name: string | null;
+  reviewed_at: Date | string | null;
+};
 
 type RepositoryOptions = {
   createId?: () => string;
@@ -182,6 +201,20 @@ export function createProductBrandsRepository(
       );
       usageCount += Number(rows[0]?.count ?? 0);
     }
+
+    const [warehouseRows] = await pool.query<CountRow[]>(
+      `select count(*) as count
+      from laboratory_raw_material_warehouse_revisions revisions
+      where revisions.material_label = ?
+        and not exists (
+          select 1
+          from laboratory_raw_material_warehouse_revisions newer
+          where newer.entry_id = revisions.entry_id
+            and newer.revision_number > revisions.revision_number
+        )`,
+      [sourceName],
+    );
+    usageCount += Number(warehouseRows[0]?.count ?? 0);
 
     const [bankRows] = await pool.query<CountRow[]>(
       `select count(*) as count
@@ -289,6 +322,56 @@ export function createProductBrandsRepository(
           actor.accountId,
           actor.displayName,
           now().toISOString(),
+        ],
+      );
+      updatedRecords += 1;
+    }
+
+    const [warehouseRows] = await pool.query<
+      CurrentRawMaterialWarehouseRevisionRow[]
+    >(
+      `select revisions.*
+      from laboratory_raw_material_warehouse_revisions revisions
+      where revisions.material_label = ?
+        and not exists (
+          select 1
+          from laboratory_raw_material_warehouse_revisions newer
+          where newer.entry_id = revisions.entry_id
+            and newer.revision_number > revisions.revision_number
+        )
+      for update`,
+      [sourceName],
+    );
+    for (const row of warehouseRows) {
+      await pool.query(
+        `insert into laboratory_raw_material_warehouse_revisions (
+          id, entry_id, revision_number, status, movement_date,
+          material_label, stack_location, received_tons, supplier,
+          shipped_tons, recipient, submitted_by_user_id,
+          submitted_by_account_id, submitted_by_display_name, submitted_at,
+          reviewed_by_user_id, reviewed_by_account_id,
+          reviewed_by_display_name, reviewed_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          createId(),
+          row.entry_id,
+          Number(row.revision_number) + 1,
+          row.status,
+          row.movement_date,
+          replacementName,
+          row.stack_location,
+          row.received_tons,
+          row.supplier,
+          row.shipped_tons,
+          row.recipient,
+          row.submitted_by_user_id,
+          row.submitted_by_account_id,
+          row.submitted_by_display_name,
+          row.submitted_at,
+          row.reviewed_by_user_id,
+          row.reviewed_by_account_id,
+          row.reviewed_by_display_name,
+          row.reviewed_at,
         ],
       );
       updatedRecords += 1;

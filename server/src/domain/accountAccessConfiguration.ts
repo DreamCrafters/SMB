@@ -117,14 +117,21 @@ export function resolveCapabilitiesForPosition(
   boardAssignmentAccess = getDefaultBoardAssignmentAccess(position),
   hasAdminRights = false,
   showOverviewVisitors = true,
+  canReviewRawMaterialWarehouse = false,
 ) {
   const resolvedNavigationItems =
     position === defaultPositionByAccountType.admin
       ? Array.from(new Set(navigationItems))
       : resolveNavigationForPosition(navigationItems, hasAdminRights);
-  const capabilities = resolveCapabilitiesForNavigation(
+  const navigationCapabilities = resolveCapabilitiesForNavigation(
     resolvedNavigationItems,
   );
+  const capabilities = canReviewRawMaterialWarehouse &&
+      resolvedNavigationItems.includes("business.laboratory_results")
+    ? navigationCapabilities.filter(
+        (capability) => capability !== "business.manage_laboratory_results",
+      )
+    : navigationCapabilities;
 
   const boardCapabilities: AccountCapability[] =
     !resolvedNavigationItems.includes("business.board_assignments")
@@ -146,11 +153,24 @@ export function resolveCapabilitiesForPosition(
       ? ["business.view_overview_visitors"]
       : [];
 
+  const rawMaterialWarehouseCapabilities: AccountCapability[] =
+    canReviewRawMaterialWarehouse &&
+      resolvedNavigationItems.includes("business.laboratory_results")
+      ? ["business.review_raw_material_warehouse"]
+      : [];
+
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
     ...overviewVisitorsCapabilities,
+    ...rawMaterialWarehouseCapabilities,
   ]));
+}
+
+export function readRawMaterialWarehouseReviewAccess(
+  capabilities: AccountCapability[],
+) {
+  return capabilities.includes("business.review_raw_material_warehouse");
 }
 
 /** Отдельный тумблер блока «Посетители» в Обзоре, поверх авто-вывода из вкладок. */

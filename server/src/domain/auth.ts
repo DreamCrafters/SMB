@@ -60,6 +60,7 @@ export const accountCapabilities = [
   "business.submit_refractory_reports",
   "business.review_refractory_reports",
   "business.manage_laboratory_results",
+  "business.review_raw_material_warehouse",
   "business.view_laboratory_results",
   "business.view_board_assignments",
   "business.create_board_assignments",

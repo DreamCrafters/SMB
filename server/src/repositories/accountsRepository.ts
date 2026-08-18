@@ -262,6 +262,7 @@ type PositionRow = RowDataPacket & {
   capabilities: unknown;
   is_protected: number | boolean;
   is_admin_protected: number | boolean;
+  can_review_raw_material_warehouse: number | boolean;
   created_at: Date | string;
   usage_count: number | string;
 };
@@ -298,6 +299,7 @@ type PositionProtectionRow = RowDataPacket & {
   navigation_items: unknown;
   capabilities: unknown;
   is_admin_protected: number | boolean;
+  can_review_raw_material_warehouse: number | boolean;
 };
 
 type UserStatusRow = RowDataPacket & {
@@ -378,6 +380,7 @@ export function createAccountsRepository(
       select positions.id, positions.display_name, positions.account_type,
         positions.navigation_items, positions.capabilities, positions.is_protected,
         positions.is_admin_protected,
+        positions.can_review_raw_material_warehouse,
         positions.created_at,
         (select count(*) from account_accesses accesses
           where accesses.position_code = positions.id) as usage_count
@@ -427,6 +430,7 @@ export function createAccountsRepository(
         select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities, positions.is_protected,
           positions.is_admin_protected,
+          positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
             where accesses.position_code = positions.id) as usage_count
@@ -463,6 +467,8 @@ export function createAccountsRepository(
         boardAssignmentAccess,
         hasAdminRights,
         showOverviewVisitors,
+        current.can_review_raw_material_warehouse === true ||
+          current.can_review_raw_material_warehouse === 1,
       );
       await connection.query(
         `update account_positions
@@ -623,7 +629,8 @@ export function createAccountsRepository(
       await connection.beginTransaction();
       const [rows] = await connection.query<PositionProtectionRow[]>(
         `select id, display_name, account_type, navigation_items,
-          capabilities, is_admin_protected
+          capabilities, is_admin_protected,
+          can_review_raw_material_warehouse
          from account_positions
          where id = ?
          limit 1
@@ -666,6 +673,8 @@ export function createAccountsRepository(
             boardAssignmentAccess,
             input.isProtected,
             showOverviewVisitors,
+            position.can_review_raw_material_warehouse === true ||
+              position.can_review_raw_material_warehouse === 1,
           );
       await connection.query(
         `update account_positions
@@ -751,6 +760,7 @@ export function createAccountsRepository(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
           positions.is_protected, positions.is_admin_protected,
+          positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
             where accesses.position_code = positions.id) as usage_count
@@ -801,6 +811,8 @@ export function createAccountsRepository(
           readBoardAssignmentAccess(storedCapabilities, currentNavigationItems),
           hasAdminRights,
           readOverviewVisitorsAccess(storedCapabilities),
+          row.can_review_raw_material_warehouse === true ||
+            row.can_review_raw_material_warehouse === 1,
         );
         await connection.query(
           `update account_positions
@@ -866,6 +878,7 @@ export function createAccountsRepository(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
           positions.is_protected, positions.is_admin_protected,
+          positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
             where accesses.position_code = positions.id) as usage_count
@@ -1268,6 +1281,7 @@ export function createAccountsRepository(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
           positions.is_protected, positions.is_admin_protected,
+          positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
             where accesses.position_code = positions.id) as usage_count

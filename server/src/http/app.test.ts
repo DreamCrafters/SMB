@@ -69,6 +69,7 @@ import {
 import type { LaboratoryChemicalAnalysisSampleOption } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
+import type { LaboratoryRawMaterialWarehouseRepository } from "../repositories/laboratoryRawMaterialWarehouseRepository.js";
 import {
   LaboratoryGreenProductQualityWagonBrandMismatchError,
   LaboratoryGreenProductQualityWagonUnavailableError,
@@ -11946,6 +11947,290 @@ test("notification settings API returns login reminders and persists server-owne
     await once(server, "close");
   }
 });
+
+test("raw material warehouse API keeps movements pending until a warehouse keeper reviews them", async () => {
+  const auditActions: string[] = [];
+  let stored: Awaited<ReturnType<
+    LaboratoryRawMaterialWarehouseRepository["submit"]
+  >> | undefined;
+  const repository: LaboratoryRawMaterialWarehouseRepository = {
+    async submit(input) {
+      stored = {
+        id: "warehouse-entry-1",
+        revisionNumber: 1,
+        status: "pending",
+        ...input.record,
+        submittedByDisplayName: input.submittedByDisplayName,
+        submittedAt: "2026-08-18T08:00:00.000Z",
+      };
+      return stored;
+    },
+    async review(input) {
+      if (stored === undefined || stored.id !== input.id) return undefined;
+      const before = stored;
+      stored = {
+        ...stored,
+        ...(input.record ?? {}),
+        revisionNumber: stored.revisionNumber + 1,
+        status: input.action === "approve" ? "approved" : "corrected",
+        warehouseKeeperDisplayName: input.reviewerDisplayName,
+        reviewedAt: "2026-08-18T09:00:00.000Z",
+      };
+      return { before, record: stored };
+    },
+    async list() {
+      const records = stored === undefined || stored.status === "pending"
+        ? []
+        : [stored];
+      const receivedTons = records[0]?.receivedTons ?? "0";
+      const shippedTons = records[0]?.shippedTons ?? "0";
+      return {
+        records,
+        totals: {
+          recordCount: records.length,
+          receivedTons,
+          shippedTons,
+          balanceTons: String(Number(receivedTons) - Number(shippedTons)),
+        },
+      };
+    },
+    async listPending() {
+      return stored?.status === "pending" ? [stored] : [];
+    },
+    async listOptions() {
+      return {
+        stackLocations: ["Штабель 4"],
+        suppliers: ["ООО Поставщик"],
+        recipients: ["Цех формовки"],
+      };
+    },
+  };
+  const audit: AuditRepository = {
+    async record(event) {
+      auditActions.push(event.action);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const productionBrands: ProductionBrandsDataSource = {
+    async list() {
+      return ["Глина огнеупорная"];
+    },
+    async resolveReferences(references) {
+      return {
+        ok: true,
+        references: references.map((reference) => ({
+          ...reference,
+          label: "Глина огнеупорная",
+        })),
+      };
+    },
+  };
+  const laboratoryProfile = buildProductionProfile("business_owner");
+  laboratoryProfile.displayName = "Иванова Анна";
+  laboratoryProfile.activeAccess.position = "laboratory_assistant";
+  laboratoryProfile.activeAccess.positionDisplayName = "Лаборант";
+  laboratoryProfile.activeAccess.navigationItems = ["business.laboratory_results"];
+  laboratoryProfile.activeAccess.capabilities = [
+    "business.manage_laboratory_results",
+  ];
+
+  await withRawMaterialWarehouseApiServer({
+    profile: laboratoryProfile,
+    repository,
+    productionBrands,
+    audit,
+  }, async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: "smb_session=prod-session",
+    };
+    const createResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          movementDate: "2026-08-18",
+          materialLabel: " глина огнеупорная ",
+          stackLocation: "Штабель 4",
+          receivedTons: "12,5",
+          supplier: "ООО Поставщик",
+          shippedTons: "0",
+          recipient: "",
+        }),
+      },
+    );
+    const listResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse`,
+      { headers },
+    );
+    const listPayload = await listResponse.json() as {
+      records: unknown[];
+      pendingRecords: Array<{ materialLabel: string }>;
+      permissions: { canSubmit: boolean; canReview: boolean };
+    };
+    const forbiddenReviewResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse/warehouse-entry-1/review`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ action: "approve" }),
+      },
+    );
+
+    assert.equal(createResponse.status, 201);
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(listPayload.records, []);
+    assert.equal(listPayload.pendingRecords[0]?.materialLabel, "Глина огнеупорная");
+    assert.deepEqual(listPayload.permissions, {
+      canSubmit: true,
+      canReview: false,
+    });
+    assert.equal(forbiddenReviewResponse.status, 403);
+  });
+
+  const warehouseProfile = buildProductionProfile("business_owner");
+  warehouseProfile.displayName = "Петров Пётр";
+  warehouseProfile.activeAccess.positionDisplayName = "Старший кладовщик";
+  warehouseProfile.activeAccess.navigationItems = ["business.laboratory_results"];
+  warehouseProfile.activeAccess.capabilities = [
+    "business.review_raw_material_warehouse",
+  ];
+
+  await withRawMaterialWarehouseApiServer({
+    profile: warehouseProfile,
+    repository,
+    productionBrands,
+    audit,
+  }, async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: "smb_session=prod-session",
+    };
+    const approveResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse/warehouse-entry-1/review`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ action: "approve" }),
+      },
+    );
+    const forbiddenCreateResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          movementDate: "2026-08-18",
+          materialLabel: "Глина огнеупорная",
+          stackLocation: "Штабель 4",
+          receivedTons: "1",
+          supplier: "ООО Поставщик",
+          shippedTons: "0",
+          recipient: "",
+        }),
+      },
+    );
+    const forbiddenOtherJournalResponse = await fetch(
+      `${baseUrl}/api/laboratory/rotary-kiln-2-journal`,
+      { headers },
+    );
+    const brandSelectorResponse = await fetch(
+      `${baseUrl}/api/production-brands`,
+      { headers },
+    );
+    const correctionResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse/warehouse-entry-1/review`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          action: "correct",
+          record: {
+            movementDate: "2026-08-18",
+            materialLabel: "Глина огнеупорная",
+            stackLocation: "Штабель 4",
+            receivedTons: "12.5",
+            supplier: "ООО Поставщик",
+            shippedTons: "2",
+            recipient: "Цех формовки",
+          },
+        }),
+      },
+    );
+    const listResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse?query=формовки`,
+      { headers },
+    );
+    const listPayload = await listResponse.json() as {
+      records: Array<{
+        status: string;
+        warehouseKeeperDisplayName: string;
+      }>;
+      totals: { balanceTons: string };
+      permissions: { canSubmit: boolean; canReview: boolean };
+    };
+
+    assert.equal(approveResponse.status, 200);
+    assert.equal(forbiddenCreateResponse.status, 403);
+    assert.equal(forbiddenOtherJournalResponse.status, 403);
+    assert.equal(brandSelectorResponse.status, 200);
+    assert.equal(correctionResponse.status, 200);
+    assert.equal(listResponse.status, 200);
+    assert.equal(listPayload.records[0]?.status, "corrected");
+    assert.equal(
+      listPayload.records[0]?.warehouseKeeperDisplayName,
+      "Петров Пётр",
+    );
+    assert.equal(listPayload.totals.balanceTons, "10.5");
+    assert.deepEqual(listPayload.permissions, {
+      canSubmit: false,
+      canReview: true,
+    });
+  });
+
+  assert.deepEqual(auditActions, [
+    "laboratory_raw_material_warehouse.submit",
+    "laboratory_raw_material_warehouse.approve",
+    "laboratory_raw_material_warehouse.correct",
+  ]);
+});
+
+async function withRawMaterialWarehouseApiServer(
+  dependencies: {
+    profile: ServerUserProfile;
+    repository: LaboratoryRawMaterialWarehouseRepository;
+    productionBrands: ProductionBrandsDataSource;
+    audit: AuditRepository;
+  },
+  callback: (baseUrl: string) => Promise<void>,
+) {
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile: dependencies.profile }),
+    productionBrands: dependencies.productionBrands,
+    laboratoryRawMaterialWarehouse: dependencies.repository,
+    audit: dependencies.audit,
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+    now: () => new Date("2026-08-18T10:00:00.000Z"),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  try {
+    await callback(`http://127.0.0.1:${address.port}`);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+}
 
 async function withApiServer(
   callback: (baseUrl: string) => Promise<void>,

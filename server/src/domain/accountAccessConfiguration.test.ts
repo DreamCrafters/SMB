@@ -4,6 +4,7 @@ import {
   accountTypeByPosition,
   navigationItemsByAccountType,
   readBoardAssignmentAccess,
+  readRawMaterialWarehouseReviewAccess,
   resolveCapabilitiesForPosition,
   resolveCapabilitiesForNavigation,
   resolveNavigationForPosition,
@@ -153,6 +154,26 @@ test("navigation selection expands only to its server capabilities", () => {
     "business.view_dispatcher_feed",
     "business.review_refractory_reports",
   ]);
+});
+
+test("raw material warehouse review is a stable capability without general laboratory mutations", () => {
+  assert.deepEqual(
+    resolveCapabilitiesForPosition(
+      "warehouse-position",
+      ["business.laboratory_results"],
+      "none",
+      false,
+      false,
+      true,
+    ),
+    ["business.review_raw_material_warehouse"],
+  );
+  assert.equal(
+    readRawMaterialWarehouseReviewAccess([
+      "business.review_raw_material_warehouse",
+    ]),
+    true,
+  );
 });
 
 test("board assignment actions are derived from the selected access variant", () => {

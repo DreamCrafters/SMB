@@ -3801,6 +3801,82 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "071_laboratory_raw_material_warehouse",
+    statements: [
+      `
+      alter table account_positions
+        add column if not exists can_review_raw_material_warehouse
+          tinyint(1) not null default 0 after is_admin_protected;
+      `,
+      `
+      create table if not exists laboratory_raw_material_warehouse_revisions (
+        id char(36) primary key,
+        entry_id char(36) not null,
+        revision_number int unsigned not null,
+        status varchar(20) not null,
+        movement_date date not null,
+        material_label varchar(120) not null,
+        stack_location varchar(255) not null,
+        received_tons decimal(14,3) not null default 0,
+        supplier varchar(255) null,
+        shipped_tons decimal(14,3) not null default 0,
+        recipient varchar(255) null,
+        submitted_by_user_id char(36) not null,
+        submitted_by_account_id char(36) not null,
+        submitted_by_display_name varchar(160) not null,
+        submitted_at timestamp(3) not null,
+        reviewed_by_user_id char(36) null,
+        reviewed_by_account_id char(36) null,
+        reviewed_by_display_name varchar(160) null,
+        reviewed_at timestamp(3) null,
+        unique key uq_laboratory_raw_material_warehouse_revision (
+          entry_id, revision_number
+        ),
+        key idx_laboratory_raw_material_warehouse_current (
+          entry_id, revision_number
+        ),
+        key idx_laboratory_raw_material_warehouse_history (
+          status, movement_date, entry_id
+        ),
+        constraint chk_laboratory_raw_material_warehouse_status
+          check (status in ('pending', 'approved', 'corrected')),
+        constraint chk_laboratory_raw_material_warehouse_received
+          check (received_tons >= 0),
+        constraint chk_laboratory_raw_material_warehouse_shipped
+          check (shipped_tons >= 0)
+      );
+      `,
+      `
+      update account_positions
+      set can_review_raw_material_warehouse = 1
+      where lower(display_name) like '%кладовщик%';
+      `,
+      addPositionJsonValue(
+        "navigation_items",
+        "business.laboratory_results",
+        "lower(display_name) like '%кладовщик%'",
+      ),
+      addPositionJsonValue(
+        "capabilities",
+        "business.review_raw_material_warehouse",
+        "lower(display_name) like '%кладовщик%'",
+      ),
+      removePositionJsonValue(
+        "capabilities",
+        "business.manage_laboratory_results",
+        "lower(display_name) like '%кладовщик%'",
+      ),
+      `
+      update account_accesses accesses
+      join account_positions positions
+        on positions.id = accesses.position_code
+      set accesses.navigation_items = positions.navigation_items,
+        accesses.capabilities = positions.capabilities
+      where lower(positions.display_name) like '%кладовщик%';
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

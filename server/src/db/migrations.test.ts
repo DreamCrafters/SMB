@@ -27,6 +27,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "068_overview_visitors_capability",
   "069_formed_product_sample_wagon_fields",
   "070_formed_product_sample_registration_link",
+  "071_laboratory_raw_material_warehouse",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3065,6 +3066,70 @@ test("formed product sample registration link migration restores the sample code
     /transmit_to_journal in \( 'unshaped_product_sample', 'formed_product_sample', 'verification' \)/u,
   );
   assert.equal(statements[5], "insert into schema_migrations (id) values (?)");
+});
+
+test("raw material warehouse migration creates append-only approval revisions", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "071_laboratory_raw_material_warehouse" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(statements.length, 8);
+  assert.match(
+    statements[0] ?? "",
+    /add column if not exists can_review_raw_material_warehouse/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /create table if not exists laboratory_raw_material_warehouse_revisions/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /unique key uq_laboratory_raw_material_warehouse_revision \(\s*entry_id, revision_number\s*\)/u,
+  );
+  assert.match(
+    statements[1] ?? "",
+    /check \(status in \('pending', 'approved', 'corrected'\)\)/u,
+  );
+  assert.match(
+    statements[2] ?? "",
+    /set can_review_raw_material_warehouse = 1/u,
+  );
+  assert.match(statements[3] ?? "", /business\.laboratory_results/u);
+  assert.match(
+    statements[4] ?? "",
+    /business\.review_raw_material_warehouse/u,
+  );
+  assert.match(
+    statements[5] ?? "",
+    /business\.manage_laboratory_results/u,
+  );
+  assert.match(statements[6] ?? "", /update account_accesses accesses/u);
+  assert.equal(statements[7], "insert into schema_migrations (id) values (?)");
 });
 
 function normalizeSql(sql: string) {

@@ -10,6 +10,7 @@ import type {
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
+import { LaboratoryRawMaterialWarehouse } from "./LaboratoryRawMaterialWarehouse";
 import { ProductBrandJournal } from "./ProductBrandJournal";
 import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
@@ -20,9 +21,7 @@ import { LaboratoryVerificationJournal } from "./LaboratoryVerificationJournal";
 import { LaboratoryRawMaterialQualityJournal } from "./LaboratoryRawMaterialQualityJournal";
 import { LaboratoryGreenProductQualityJournal } from "./LaboratoryGreenProductQualityJournal";
 import {
-  centralLabTabLabel,
   qualityControlTabLabel,
-  refractoryShopTabLabel,
 } from "./LaboratoryJournalTables";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import {
@@ -46,6 +45,7 @@ type LaboratoryWorkspacePanel =
   | "results"
   | "banks"
   | "brands"
+  | "raw-material-warehouse"
   | "central-lab"
   | "quality-control"
   | "refractory-shop";
@@ -155,11 +155,20 @@ export function LaboratoryResultsWorkspace({
   isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
+  const isRawMaterialWarehouseReviewOnly =
+    profile.activeAccess.capabilities.includes(
+      "business.review_raw_material_warehouse",
+    ) &&
+    !profile.activeAccess.capabilities.includes(
+      "business.manage_laboratory_results",
+    );
   const [section, setSection] = useState<LaboratorySection>(
     visibleControlSections[0] ?? "incoming",
   );
   const [activePanel, setActivePanel] = useState<LaboratoryWorkspacePanel>(
-    visibleControlSections.length === 0 ? "banks" : "results",
+    isRawMaterialWarehouseReviewOnly
+      ? "raw-material-warehouse"
+      : visibleControlSections.length === 0 ? "banks" : "results",
   );
   const [centralLabJournal, setCentralLabJournal] = useState<CentralLabJournalId>(
     centralLabJournals[0].id,
@@ -435,7 +444,7 @@ export function LaboratoryResultsWorkspace({
       </header>
 
       <div
-        className="laboratory-section-tabs"
+        className="laboratory-section-tabs laboratory-root-tabs"
         role="tablist"
         aria-label="Разделы лаборатории"
       >
@@ -457,18 +466,7 @@ export function LaboratoryResultsWorkspace({
             {sectionLabels[item]}
           </button>
         ))}
-        <button
-          aria-selected={activePanel === "banks"}
-          className={activePanel === "banks" ? "is-active" : ""}
-          role="tab"
-          type="button"
-          onClick={() => {
-            setActivePanel("banks");
-            setFormMessage("");
-          }}
-        >
-          Банки
-        </button>
+        {isRawMaterialWarehouseReviewOnly ? null : (<>
         <button
           aria-selected={activePanel === "brands"}
           className={activePanel === "brands" ? "is-active" : ""}
@@ -482,6 +480,32 @@ export function LaboratoryResultsWorkspace({
           Марки
         </button>
         <button
+          aria-selected={activePanel === "banks"}
+          className={activePanel === "banks" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("banks");
+            setFormMessage("");
+          }}
+        >
+          Банки
+        </button>
+        </>)}
+        <button
+          aria-selected={activePanel === "raw-material-warehouse"}
+          className={activePanel === "raw-material-warehouse" ? "is-active" : ""}
+          role="tab"
+          type="button"
+          onClick={() => {
+            setActivePanel("raw-material-warehouse");
+            setFormMessage("");
+          }}
+        >
+          Склад сырья
+        </button>
+        {isRawMaterialWarehouseReviewOnly ? null : (<>
+        <button
           aria-selected={activePanel === "central-lab"}
           className={activePanel === "central-lab" ? "is-active" : ""}
           role="tab"
@@ -491,7 +515,7 @@ export function LaboratoryResultsWorkspace({
             setFormMessage("");
           }}
         >
-          {centralLabTabLabel}
+          ЦЗЛ
         </button>
         <button
           aria-selected={activePanel === "quality-control"}
@@ -515,8 +539,9 @@ export function LaboratoryResultsWorkspace({
             setFormMessage("");
           }}
         >
-          {refractoryShopTabLabel}
+          ОЦ
         </button>
+        </>)}
       </div>
 
       {activePanel === "central-lab" ? (
@@ -593,6 +618,11 @@ export function LaboratoryResultsWorkspace({
           onBrandSaved={() => {
             setProductBrandRefreshVersion((value) => value + 1);
           }}
+          onShowToast={onShowToast}
+        />
+      ) : activePanel === "raw-material-warehouse" ? (
+        <LaboratoryRawMaterialWarehouse
+          isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
       ) : activePanel === "central-lab" ? (

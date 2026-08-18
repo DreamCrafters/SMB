@@ -41,6 +41,11 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
   });
   const submissions = [];
   const bankAssignments = [];
+  const rawMaterialWarehouseSubmissions = [];
+  const rawMaterialWarehousePending = [];
+  const rawMaterialWarehouseHistory = [];
+  const rawMaterialWarehouseReviews = [];
+  let rawMaterialWarehousePermissions = { canSubmit: true, canReview: false };
   const kilnJournalSubmissions = [];
   const kilnJournalCorrections = [];
   const kilnJournalRequests = [];
@@ -377,6 +382,58 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             sampleCount: 3,
             latestRecordDate: "2026-07-30",
           }],
+        });
+      }
+      if (
+        url.pathname ===
+          "/api/laboratory/raw-material-warehouse/raw-material-movement-1/review" &&
+        init.method === "PATCH"
+      ) {
+        const review = JSON.parse(String(init.body));
+        rawMaterialWarehouseReviews.push(review);
+        const pending = rawMaterialWarehousePending.shift();
+        const record = {
+          ...pending,
+          ...(review.record ?? {}),
+          revisionNumber: 2,
+          status: review.action === "approve" ? "approved" : "corrected",
+          warehouseKeeperDisplayName: "Петров Пётр",
+          reviewedAt: "2026-08-18T09:00:00.000Z",
+        };
+        rawMaterialWarehouseHistory.splice(0, rawMaterialWarehouseHistory.length, record);
+        return jsonResponse({ record });
+      }
+      if (url.pathname === "/api/laboratory/raw-material-warehouse") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          rawMaterialWarehouseSubmissions.push(submission);
+          const record = {
+            id: "raw-material-movement-1",
+            revisionNumber: 1,
+            status: "pending",
+            ...submission,
+            submittedByDisplayName: "Иванова Анна",
+            submittedAt: "2026-08-18T08:30:00.000Z",
+          };
+          rawMaterialWarehousePending.push(record);
+          return jsonResponse({ record }, 201);
+        }
+        return jsonResponse({
+          records: rawMaterialWarehouseHistory,
+          pendingRecords: rawMaterialWarehousePending,
+          options: {
+            stackLocations: ["Штабель 3"],
+            suppliers: ["ООО Поставщик"],
+            recipients: ["Цех формовки"],
+          },
+          totals: {
+            recordCount: 0,
+            receivedTons: "0",
+            shippedTons: "0",
+            balanceTons: "0",
+          },
+          permissions: rawMaterialWarehousePermissions,
+          draftDate: "2026-08-18",
         });
       }
       if (
@@ -985,7 +1042,49 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     const rootTabLabels = Array.from(rootElement.querySelectorAll(
       '.laboratory-section-tabs[aria-label="Разделы лаборатории"] > button',
     )).map((button) => button.textContent?.trim());
-    assert.deepEqual(rootTabLabels.slice(0, 2), ["Банки", "Марки"]);
+    assert.deepEqual(rootTabLabels, [
+      "Марки",
+      "Банки",
+      "Склад сырья",
+      "ЦЗЛ",
+      "ОТК",
+      "ОЦ",
+    ]);
+    const rawMaterialWarehouseTab = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Склад сырья");
+    assert.ok(rawMaterialWarehouseTab);
+    await React.act(async () => rawMaterialWarehouseTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".raw-material-warehouse-form") !== null
+    );
+    const rawMaterialWarehouseForm = rootElement.querySelector(
+      ".raw-material-warehouse-form",
+    );
+    for (const [label, value] of [
+      ["Вид сырья", "ША-22"],
+      ["№ штабеля / место нахождения", "Штабель 3"],
+      ["Поступило, т", "12.5"],
+      ["Поставщик", "ООО Поставщик"],
+    ]) {
+      const input = findControlByLabel(rawMaterialWarehouseForm, label);
+      await React.act(async () => {
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+    }
+    await React.act(async () => {
+      rawMaterialWarehouseForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => rawMaterialWarehouseSubmissions.length === 1);
+    assert.equal(rawMaterialWarehouseSubmissions[0].materialLabel, "ША-22");
+    assert.equal(rawMaterialWarehouseSubmissions[0].receivedTons, "12.5");
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Ожидает подтверждения кладовщиком")
+    );
+    assert.match(rootElement.textContent, /Записей0/u);
     const brandsTab = Array.from(rootElement.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Марки",
     );
@@ -1115,7 +1214,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     ]) {
       assert.equal(findTabByText(journalLabel), undefined);
     }
-    const centralLabTab = findTabByText("ЦЗЛ (Центральная заводская лаборатория)");
+    const centralLabTab = findTabByText("ЦЗЛ");
     assert.ok(centralLabTab);
     const qualityControlTab = findTabByText("ОТК");
     assert.ok(qualityControlTab);
@@ -2358,7 +2457,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     );
     assert.ok(unshapedProductSampleRequests.length > 0);
 
-    const refractoryShopTab = findTabByText("ОЦ (Огнеупорный цех)");
+    const refractoryShopTab = findTabByText("ОЦ");
     assert.ok(refractoryShopTab);
     await React.act(async () => refractoryShopTab.click());
     await waitFor(React, () =>
@@ -2776,6 +2875,61 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     assert.ok(resolveStaleSamplingLocations);
     await React.act(async () => resolveStaleSamplingLocations());
     assert.equal(reopenedSamplingLocationInput.value, "Экспресс-площадка");
+
+    rawMaterialWarehousePermissions = { canSubmit: false, canReview: true };
+    const warehouseProfile = buildLaboratoryProfile();
+    warehouseProfile.displayName = "Петров Пётр";
+    warehouseProfile.activeAccess.position = "warehouse-position";
+    warehouseProfile.activeAccess.positionDisplayName = "Старший кладовщик";
+    warehouseProfile.activeAccess.capabilities = [
+      "business.review_raw_material_warehouse",
+    ];
+    await React.act(async () => {
+      root.render(
+        React.createElement(LaboratoryResultsWorkspace, {
+          key: "warehouse-review",
+          profile: warehouseProfile,
+          isAdminPreviewMode: false,
+          onShowToast() {},
+        }),
+      );
+    });
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Ожидает подтверждения кладовщиком")
+    );
+    const warehouseRootTabs = Array.from(rootElement.querySelectorAll(
+      '.laboratory-section-tabs[aria-label="Разделы лаборатории"] > button',
+    )).map((button) => button.textContent?.trim());
+    assert.deepEqual(warehouseRootTabs, ["Склад сырья"]);
+    const correctionButton = Array.from(rootElement.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Исправить");
+    assert.ok(correctionButton);
+    await React.act(async () => correctionButton.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".raw-material-warehouse-form") !== null
+    );
+    const correctionForm = rootElement.querySelector(
+      ".raw-material-warehouse-form",
+    );
+    const correctionMaterial = findControlByLabel(correctionForm, "Вид сырья");
+    assert.equal(correctionMaterial.disabled, false);
+    assert.equal(correctionMaterial.value, "ША-22");
+    await React.act(async () => {
+      const shippedInput = findControlByLabel(correctionForm, "Отгружено, т");
+      setNativeInputValue(shippedInput, "2");
+      shippedInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      const recipientInput = findControlByLabel(correctionForm, "Кому отгружено");
+      setNativeInputValue(recipientInput, "Цех формовки");
+      recipientInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      correctionForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => rawMaterialWarehouseReviews.length === 1);
+    assert.equal(rawMaterialWarehouseReviews[0].action, "correct");
+    await waitFor(React, () =>
+      rootElement.textContent.includes("Скорректировано кладовщиком")
+    );
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;

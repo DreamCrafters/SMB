@@ -33,6 +33,7 @@ import { createLaboratoryUnshapedProductSampleJournalRepository } from "./reposi
 import { createLaboratoryFormedProductSampleJournalRepository } from "./repositories/laboratoryFormedProductSampleJournalRepository.js";
 import { createLaboratoryVerificationJournalRepository } from "./repositories/laboratoryVerificationJournalRepository.js";
 import { createLaboratoryRawMaterialQualityJournalRepository } from "./repositories/laboratoryRawMaterialQualityJournalRepository.js";
+import { createLaboratoryRawMaterialWarehouseRepository } from "./repositories/laboratoryRawMaterialWarehouseRepository.js";
 import { createLaboratoryGreenProductQualityJournalRepository } from "./repositories/laboratoryGreenProductQualityJournalRepository.js";
 import { createBoardAssignmentsRepository } from "./repositories/boardAssignmentsRepository.js";
 import { createNotificationSettingsRepository } from "./repositories/notificationSettingsRepository.js";
@@ -122,6 +123,8 @@ const server = createApiServer({
     }),
   laboratoryRawMaterialQualityJournal:
     createLaboratoryRawMaterialQualityJournalRepository(pool),
+  laboratoryRawMaterialWarehouse:
+    createLaboratoryRawMaterialWarehouseRepository(pool),
   laboratoryGreenProductQualityJournal:
     createLaboratoryGreenProductQualityJournalRepository(pool),
   boardAssignments: createBoardAssignmentsRepository(pool),

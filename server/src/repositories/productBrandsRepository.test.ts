@@ -153,13 +153,19 @@ test("product brand repository stores an immutable correction revision and rejec
 });
 
 test("product brand repository requires a replacement for a used brand", async () => {
+  const statements: string[] = [];
   const pool = {
     async query(sql: string) {
+      statements.push(sql);
       if (/from product_brands[\s\S]+where id = \?[\s\S]+for update/u.test(sql)) {
         return [[buildRow()], []];
       }
       if (/select count\(\*\) as count/u.test(sql)) {
-        return [[{ count: 1 }], []];
+        return [[{
+          count: /from laboratory_raw_material_warehouse_revisions/u.test(sql)
+            ? 1
+            : 0,
+        }], []];
       }
       if (/from dispatcher_submissions/u.test(sql) || /from refractory_report_revisions/u.test(sql)) {
         return [[], []];
@@ -173,6 +179,9 @@ test("product brand repository requires a replacement for a used brand", async (
     () => repository.deleteRecord({ id: "brand-1", ...deletionActor }),
     ProductBrandReplacementRequiredError,
   );
+  assert.ok(statements.some((sql) =>
+    /from laboratory_raw_material_warehouse_revisions revisions[\s\S]+not exists/u.test(sql)
+  ));
 });
 
 test("product brand repository archives an unused brand without a replacement", async () => {
@@ -266,6 +275,27 @@ test("product brand repository transfers every current reference before archivin
           bulk_density_sample_count: 4,
         }], []];
       }
+      if (/from laboratory_raw_material_warehouse_revisions/u.test(sql)) {
+        return [[{
+          entry_id: "warehouse-entry-1",
+          revision_number: 1,
+          status: "pending",
+          movement_date: "2026-08-08",
+          stack_location: "Штабель 1",
+          received_tons: "4.000",
+          supplier: "Поставщик",
+          shipped_tons: "0.000",
+          recipient: null,
+          submitted_by_user_id: "laboratory-user",
+          submitted_by_account_id: "laboratory-account",
+          submitted_by_display_name: "Лаборант",
+          submitted_at: "2026-08-08T08:00:00.000Z",
+          reviewed_by_user_id: null,
+          reviewed_by_account_id: null,
+          reviewed_by_display_name: null,
+          reviewed_at: null,
+        }], []];
+      }
       if (/select id, name, merged_into_id/u.test(sql)) {
         return [[source, replacement].map((row) => ({
           id: row.id,
@@ -292,7 +322,7 @@ test("product brand repository transfers every current reference before archivin
     sourceName: "ША-8",
     replacementId: "brand-2",
     replacementName: "ШБ-5",
-    updatedRecords: 8,
+    updatedRecords: 9,
   });
   const dispatcherUpdate = queries.find(({ sql }) =>
     /update dispatcher_submissions/u.test(sql)
@@ -316,6 +346,11 @@ test("product brand repository transfers every current reference before archivin
     deletionActor.deletedByAccountId,
     deletionActor.deletedByDisplayName,
   ]);
+  const warehouseRevisionInsert = queries.find(({ sql }) =>
+    /insert into laboratory_raw_material_warehouse_revisions/u.test(sql)
+  );
+  assert.equal(warehouseRevisionInsert?.parameters?.[5], "ШБ-5");
+  assert.equal(warehouseRevisionInsert?.parameters?.[2], 2);
   assert.ok(queries.some(({ sql, parameters }) =>
     /update product_brands[\s\S]+deleted_at/u.test(sql) &&
     parameters?.includes("brand-1")
@@ -386,6 +421,7 @@ test("product brand repository counts effective approved COSH references through
       }
       if (
         /from laboratory_bank_assignments/u.test(sql) ||
+        /from laboratory_raw_material_warehouse_revisions/u.test(sql) ||
         /from laboratory_results/u.test(sql) ||
         /from dispatcher_submissions/u.test(sql)
       ) {

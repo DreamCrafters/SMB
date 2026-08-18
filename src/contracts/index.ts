@@ -14,6 +14,7 @@ export * from "./refractoryReports";
 export * from "./refractoryWagons";
 export * from "./laboratoryResults";
 export * from "./laboratoryBanks";
+export * from "./laboratoryRawMaterialWarehouse";
 export * from "./rotaryKiln2FiringJournal";
 export * from "./laboratorySampleRegistrationJournal";
 export * from "./laboratoryChemicalAnalysisJournal";

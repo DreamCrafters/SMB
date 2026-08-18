@@ -346,6 +346,67 @@ test("setPositionNavigationAccess clears the last working tab of an ordinary pos
   assert.equal(didCommit, true);
 });
 
+test("setPositionNavigationAccess preserves warehouse review assignment across a disabled tab", async () => {
+  let navigationItems = ["business.laboratory_results"];
+  let capabilities = ["business.review_raw_material_warehouse"];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "warehouse-keeper",
+          display_name: "Кладовщик",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_protected: 0,
+          is_admin_protected: 0,
+          can_review_raw_material_warehouse: 1,
+          created_at: "2026-08-10T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions set navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[0]));
+        capabilities = JSON.parse(String(params?.[1]));
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  const repository = createAccountsRepository(pool);
+  const actor = {
+    userId: "root-admin-user",
+    accessId: "root-admin-access",
+    devAccessEnabled: false,
+  };
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.laboratory_results",
+    positionIds: ["warehouse-keeper"],
+    enabled: false,
+  }, actor);
+  assert.deepEqual(navigationItems, []);
+  assert.deepEqual(capabilities, []);
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.laboratory_results",
+    positionIds: ["warehouse-keeper"],
+    enabled: true,
+  }, actor);
+  assert.deepEqual(navigationItems, ["business.laboratory_results"]);
+  assert.deepEqual(capabilities, ["business.review_raw_material_warehouse"]);
+});
+
 test("setPositionNavigationAccess lets synthetic dev admin clear an admin-rights position", async () => {
   let didUpdate = false;
   let didCommit = false;

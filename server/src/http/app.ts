@@ -109,6 +109,10 @@ import {
   validateLaboratoryUnshapedProductSampleSubmission,
 } from "../domain/laboratoryUnshapedProductSampleJournal.js";
 import { validateLaboratoryRawMaterialQualitySubmission } from "../domain/laboratoryRawMaterialQualityJournal.js";
+import {
+  validateLaboratoryRawMaterialWarehouseReviewRequest,
+  validateLaboratoryRawMaterialWarehouseSubmission,
+} from "../domain/laboratoryRawMaterialWarehouse.js";
 import { validateLaboratoryGreenProductQualitySubmission } from "../domain/laboratoryGreenProductQualityJournal.js";
 import {
   laboratoryClayMeasurementFields,
@@ -129,6 +133,7 @@ import {
   type LaboratoryGreenProductQualityRecord,
   type LaboratoryGreenProductQualitySubmission,
 } from "../contracts/laboratoryGreenProductQualityJournal.js";
+import type { LaboratoryRawMaterialWarehouseRecord } from "../contracts/laboratoryRawMaterialWarehouse.js";
 import { buildLaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
   applyLatestBankBulkDensities,
@@ -309,6 +314,11 @@ import {
 import type { LaboratoryVerificationJournalRepository } from "../repositories/laboratoryVerificationJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import {
+  LaboratoryRawMaterialWarehouseAlreadyReviewedError,
+  LaboratoryRawMaterialWarehouseSelfReviewError,
+  type LaboratoryRawMaterialWarehouseRepository,
+} from "../repositories/laboratoryRawMaterialWarehouseRepository.js";
+import {
   LaboratoryGreenProductQualityWagonBrandMismatchError,
   LaboratoryGreenProductQualityWagonLoadingIncompleteError,
   LaboratoryGreenProductQualityWagonUnavailableError,
@@ -375,6 +385,7 @@ type AppDependencies = {
   laboratoryVerificationJournal?: LaboratoryVerificationJournalRepository;
   laboratoryRawMaterialQualityJournal?:
     LaboratoryRawMaterialQualityJournalRepository;
+  laboratoryRawMaterialWarehouse?: LaboratoryRawMaterialWarehouseRepository;
   laboratoryGreenProductQualityJournal?:
     LaboratoryGreenProductQualityJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
@@ -417,6 +428,8 @@ const laboratoryVerificationRecordPathPattern =
   /^\/api\/laboratory\/verification-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryRawMaterialQualityRecordPathPattern =
   /^\/api\/laboratory\/raw-material-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
+const laboratoryRawMaterialWarehouseReviewPathPattern =
+  /^\/api\/laboratory\/raw-material-warehouse\/([a-zA-Z0-9-]{1,100})\/review$/u;
 const laboratoryGreenProductQualityRecordPathPattern =
   /^\/api\/laboratory\/green-product-quality-journal\/([a-zA-Z0-9-]{1,100})$/u;
 const productBrandRecordPathPattern =
@@ -477,6 +490,7 @@ export function createApiServer({
   laboratoryFormedProductSampleJournal,
   laboratoryVerificationJournal,
   laboratoryRawMaterialQualityJournal,
+  laboratoryRawMaterialWarehouse,
   laboratoryGreenProductQualityJournal,
   boardAssignments,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
@@ -868,6 +882,8 @@ export function createApiServer({
         url.pathname === "/api/laboratory/raw-material-quality-options" ||
         url.pathname === "/api/laboratory/raw-material-quality-journal" ||
         laboratoryRawMaterialQualityRecordPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/raw-material-warehouse" ||
+        laboratoryRawMaterialWarehouseReviewPathPattern.test(url.pathname) ||
         url.pathname === "/api/laboratory/green-product-quality-draft" ||
         url.pathname === "/api/laboratory/green-product-quality-options" ||
         url.pathname === "/api/laboratory/green-product-quality-journal" ||
@@ -894,6 +910,7 @@ export function createApiServer({
           laboratoryFormedProductSampleJournal,
           laboratoryVerificationJournal,
           laboratoryRawMaterialQualityJournal,
+          laboratoryRawMaterialWarehouse,
           laboratoryGreenProductQualityJournal,
           productionBrands,
           productBrandJournal,
@@ -2830,6 +2847,279 @@ function buildBoardAssignmentActionAuditEvent({
   };
 }
 
+async function handleLaboratoryRawMaterialWarehouseRequest({
+  req,
+  res,
+  url,
+  profile,
+  canManageLaboratory,
+  repository,
+  productionBrands,
+  audit,
+  databaseTransaction,
+  now,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  profile: ServerUserProfile;
+  canManageLaboratory: boolean;
+  repository: LaboratoryRawMaterialWarehouseRepository;
+  productionBrands: ProductionBrandsDataSource;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+  now: () => Date;
+}) {
+  const reviewMatch = laboratoryRawMaterialWarehouseReviewPathPattern.exec(
+    url.pathname,
+  );
+  const canReview = hasProfileCapability(
+    profile,
+    "business.review_raw_material_warehouse",
+  );
+  const canSubmit = canManageLaboratory &&
+    profile.activeAccess.position === "laboratory_assistant";
+
+  if (
+    url.pathname === "/api/laboratory/raw-material-warehouse" &&
+    req.method === "GET"
+  ) {
+    const dateFrom = readOptionalQueryParam(url, "dateFrom");
+    const dateTo = readOptionalQueryParam(url, "dateTo");
+    const query = readOptionalQueryParam(url, "query");
+    if (
+      (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+      (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+      (query !== undefined && query.length > 120)
+    ) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Проверьте фильтры истории склада сырья.",
+        },
+      });
+      return;
+    }
+    const [history, pendingRecords, options] = await Promise.all([
+      repository.list({
+        ...(dateFrom === undefined ? {} : { dateFrom }),
+        ...(dateTo === undefined ? {} : { dateTo }),
+        ...(query === undefined ? {} : { query }),
+      }),
+      repository.listPending(),
+      repository.listOptions(),
+    ]);
+    sendJson(res, 200, {
+      records: history.records,
+      pendingRecords,
+      options,
+      totals: history.totals,
+      permissions: { canSubmit, canReview },
+      draftDate: formatMoscowCalendarDate(now()),
+    });
+    return;
+  }
+
+  if (
+    url.pathname === "/api/laboratory/raw-material-warehouse" &&
+    req.method === "POST"
+  ) {
+    if (!canSubmit) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Отправка движения сырья доступна лаборанту.",
+        },
+      });
+      return;
+    }
+    const validation = validateLaboratoryRawMaterialWarehouseSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+    const references = await resolveProductionBrandReferencesForRequest({
+      res,
+      productionBrands,
+      references: [{
+        fieldName: "materialLabel",
+        label: validation.value.materialLabel,
+      }],
+      logEvent: "raw_material_warehouse_brands.database_read_failed",
+    });
+    if (references === undefined) return;
+    validation.value.materialLabel = references[0]?.label ??
+      validation.value.materialLabel;
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => repository.submit({
+        record: validation.value,
+        submittedByUserId: profile.userId,
+        submittedByAccountId: profile.activeAccess.accountId,
+        submittedByDisplayName: profile.displayName,
+      }),
+      buildEvent: (record) => ({
+        actor: buildAuditActor(profile),
+        category: "form_submission",
+        action: "laboratory_raw_material_warehouse.submit",
+        summary: `Движение сырья «${record.materialLabel}» отправлено кладовщику`,
+        details: buildRawMaterialWarehouseAuditDetails(record),
+        targetType: "laboratory_raw_material_warehouse_movement",
+        targetId: record.id,
+      }),
+    });
+    sendJson(res, 201, { record: saved });
+    return;
+  }
+
+  if (reviewMatch !== null && req.method === "PATCH") {
+    if (!canReview) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Подтверждение движения сырья доступно кладовщику.",
+        },
+      });
+      return;
+    }
+    const validation = validateLaboratoryRawMaterialWarehouseReviewRequest(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+    if (validation.value.action === "correct") {
+      const references = await resolveProductionBrandReferencesForRequest({
+        res,
+        productionBrands,
+        references: [{
+          fieldName: "materialLabel",
+          label: validation.value.record.materialLabel,
+        }],
+        logEvent: "raw_material_warehouse_brands.database_read_failed",
+      });
+      if (references === undefined) return;
+      validation.value.record.materialLabel = references[0]?.label ??
+        validation.value.record.materialLabel;
+    }
+    try {
+      const result = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => repository.review({
+          id: reviewMatch[1],
+          action: validation.value.action,
+          ...(validation.value.action === "correct"
+            ? { record: validation.value.record }
+            : {}),
+          reviewerUserId: profile.userId,
+          reviewerAccountId: profile.activeAccess.accountId,
+          reviewerDisplayName: profile.displayName,
+        }),
+        buildEvent: (review) => review === undefined
+          ? undefined
+          : {
+              actor: buildAuditActor(profile),
+              category: "data_change",
+              action: validation.value.action === "approve"
+                ? "laboratory_raw_material_warehouse.approve"
+                : "laboratory_raw_material_warehouse.correct",
+              summary: validation.value.action === "approve"
+                ? `Кладовщик утвердил движение сырья «${review.record.materialLabel}»`
+                : `Кладовщик скорректировал движение сырья «${review.record.materialLabel}»`,
+              details: validation.value.action === "approve"
+                ? buildRawMaterialWarehouseAuditDetails(review.record)
+                : buildRawMaterialWarehouseCorrectionAuditDetails(
+                    review.before,
+                    review.record,
+                  ),
+              targetType: "laboratory_raw_material_warehouse_movement",
+              targetId: review.record.id,
+            },
+      });
+      if (result === undefined) {
+        sendJson(res, 404, {
+          error: {
+            code: "not_found",
+            message: "Движение сырья не найдено.",
+          },
+        });
+        return;
+      }
+      sendJson(res, 200, { record: result.record });
+    } catch (error) {
+      if (error instanceof LaboratoryRawMaterialWarehouseAlreadyReviewedError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Это движение сырья уже подтверждено.",
+          },
+        });
+        return;
+      }
+      if (error instanceof LaboratoryRawMaterialWarehouseSelfReviewError) {
+        sendJson(res, 403, {
+          error: {
+            code: "access_denied",
+            message: "Нельзя подтвердить собственную заявку.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  sendJson(res, 405, {
+    error: {
+      code: "access_denied",
+      message: "Для склада сырья используются GET, POST и PATCH проверки.",
+    },
+  });
+}
+
+function buildRawMaterialWarehouseAuditDetails(
+  record: LaboratoryRawMaterialWarehouseRecord,
+) {
+  return [
+    { label: "Дата", value: record.movementDate },
+    { label: "Вид сырья", value: record.materialLabel },
+    { label: "Номер штабеля", value: record.stackLocation },
+    { label: "Поступило, тонн", value: record.receivedTons },
+    { label: "Поставщик", value: record.supplier || "—" },
+    { label: "Отгрузили, тонн", value: record.shippedTons },
+    { label: "Кому отгрузили", value: record.recipient || "—" },
+    { label: "Кладовщик", value: record.warehouseKeeperDisplayName ?? "—" },
+  ];
+}
+
+function buildRawMaterialWarehouseCorrectionAuditDetails(
+  before: LaboratoryRawMaterialWarehouseRecord,
+  after: LaboratoryRawMaterialWarehouseRecord,
+) {
+  const beforeDetails = buildRawMaterialWarehouseAuditDetails(before);
+  const afterDetails = buildRawMaterialWarehouseAuditDetails(after);
+  return beforeDetails.map((detail, index) => ({
+    label: detail.label,
+    value: `${detail.value} → ${afterDetails[index]?.value}`,
+  }));
+}
+
 async function handleLaboratoryRequest({
   req,
   res,
@@ -2847,6 +3137,7 @@ async function handleLaboratoryRequest({
   laboratoryFormedProductSampleJournal,
   laboratoryVerificationJournal,
   laboratoryRawMaterialQualityJournal,
+  laboratoryRawMaterialWarehouse,
   laboratoryGreenProductQualityJournal,
   productionBrands,
   productBrandJournal,
@@ -2884,6 +3175,9 @@ async function handleLaboratoryRequest({
   laboratoryRawMaterialQualityJournal:
     | LaboratoryRawMaterialQualityJournalRepository
     | undefined;
+  laboratoryRawMaterialWarehouse:
+    | LaboratoryRawMaterialWarehouseRepository
+    | undefined;
   laboratoryGreenProductQualityJournal:
     | LaboratoryGreenProductQualityJournalRepository
     | undefined;
@@ -2905,6 +3199,10 @@ async function handleLaboratoryRequest({
     access.profile,
     "business.manage_laboratory_results",
   );
+  const canReviewRawMaterialWarehouse = hasProfileCapability(
+    access.profile,
+    "business.review_raw_material_warehouse",
+  );
   const isLaboratoryReadRequest = req.method === "GET" && (
     url.pathname === "/api/laboratory/reference" ||
     url.pathname === "/api/laboratory/results" ||
@@ -2915,11 +3213,19 @@ async function handleLaboratoryRequest({
     url.pathname === "/api/laboratory/formed-product-sample-journal" ||
     url.pathname === "/api/laboratory/verification-journal" ||
     url.pathname === "/api/laboratory/raw-material-quality-journal" ||
+    url.pathname === "/api/laboratory/raw-material-warehouse" ||
     url.pathname === "/api/laboratory/green-product-quality-journal" ||
     url.pathname === laboratoryChemicalAnalysisProtocolPath ||
     laboratoryProtocolPathPattern.test(url.pathname)
   );
   const canReadLaboratory = canManageLaboratory ||
+    (
+      canReviewRawMaterialWarehouse &&
+      (
+        url.pathname === "/api/laboratory/raw-material-warehouse" ||
+        laboratoryRawMaterialWarehouseReviewPathPattern.test(url.pathname)
+      )
+    ) ||
     (
       isLaboratoryReadRequest &&
       hasProfileCapability(access.profile, "business.view_laboratory_results")
@@ -2932,6 +3238,34 @@ async function handleLaboratoryRequest({
         code: "access_denied",
         message: "Результаты лабораторных испытаний недоступны.",
       },
+    });
+    return;
+  }
+
+  if (
+    url.pathname === "/api/laboratory/raw-material-warehouse" ||
+    laboratoryRawMaterialWarehouseReviewPathPattern.test(url.pathname)
+  ) {
+    if (laboratoryRawMaterialWarehouse === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище склада сырья не настроено.",
+        },
+      });
+      return;
+    }
+    await handleLaboratoryRawMaterialWarehouseRequest({
+      req,
+      res,
+      url,
+      profile: access.profile,
+      canManageLaboratory,
+      repository: laboratoryRawMaterialWarehouse,
+      productionBrands,
+      audit,
+      databaseTransaction,
+      now,
     });
     return;
   }
@@ -7340,6 +7674,7 @@ async function handleProductionBrandsRequest({
     "business.view_dispatcher_feed",
     "business.manage_production_plan",
     "business.manage_laboratory_results",
+    "business.review_raw_material_warehouse",
   ] as const satisfies readonly AccountCapability[]).some((capability) =>
     hasProfileCapability(access.profile, capability),
   );

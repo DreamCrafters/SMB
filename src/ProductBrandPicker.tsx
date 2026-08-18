@@ -10,6 +10,7 @@ export function ProductBrandPicker({
   isRefractoryRowBrand = false,
   labels,
   name,
+  placeholder = "Поиск марки",
   selectedLabels = [],
   value,
   onChange,
@@ -23,6 +24,7 @@ export function ProductBrandPicker({
   isRefractoryRowBrand?: boolean;
   labels: readonly string[];
   name: string;
+  placeholder?: string;
   selectedLabels?: readonly string[];
   value?: string;
   onChange?: (value: string) => void;
@@ -56,7 +58,7 @@ export function ProductBrandPicker({
           list={listId}
           maxLength={120}
           name={name}
-          placeholder="Поиск марки"
+          placeholder={placeholder}
           type="text"
           value={currentValue}
           onChange={(event) => {
