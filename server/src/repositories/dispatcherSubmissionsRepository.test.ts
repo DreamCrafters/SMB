@@ -52,6 +52,30 @@ test("dispatcher submissions repository filters production history by payload mo
   ]);
 });
 
+test("dispatcher submissions repository reads only accumulated COSH master names", async () => {
+  let statement = "";
+  let queryValues: unknown[] = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      statement = sql.replace(/\s+/gu, " ").trim();
+      queryValues = values ?? [];
+      return [[
+        { cosh_master: "Сидоров С.С." },
+        { cosh_master: "Петров П.П." },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createDispatcherSubmissionsRepository(pool);
+
+  const options = await repository.listProductionCoshMasterOptions?.();
+
+  assert.deepEqual(options, ["Сидоров С.С.", "Петров П.П."]);
+  assert.match(statement, /json_extract\(payload, '\$\.coshMaster'\)/u);
+  assert.match(statement, /group by cosh_master/u);
+  assert.doesNotMatch(statement, /select id,/u);
+  assert.deepEqual(queryValues, ["production"]);
+});
+
 test("dispatcher submissions repository ignores a duplicate non-equipment row", async () => {
   const statements: string[] = [];
   const queryValues: unknown[][] = [];

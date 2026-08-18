@@ -41,6 +41,10 @@ test("production submission payload keeps dynamic fields for every category", as
   formData.set("unformedFact3", "4");
   formData.set("chamotteBrand4", "Ш-1");
   formData.set("chamotteFact4", "3");
+  formData.set("jarMeasurement1_1", "2,25");
+  formData.set("jarLoaded1", "4,5");
+  formData.set("jarShipped1", "1,25");
+  formData.set("coshMaster", "  Сидоров С.С.  ");
 
   assert.deepEqual(
     readDispatcherSubmissionPayload(formData, buildProductionFormDefinition()),
@@ -54,6 +58,10 @@ test("production submission payload keeps dynamic fields for every category", as
       unformedFact3: "4",
       chamotteBrand4: "Ш-1",
       chamotteFact4: "3",
+      jarMeasurement1_1: "2.25",
+      jarLoaded1: "4.5",
+      jarShipped1: "1.25",
+      coshMaster: "Сидоров С.С.",
     },
   );
 });
@@ -863,6 +871,35 @@ test(`production form loads all saved data by date in ${label}`, async () => {
               { bankNumber: 2 },
               { bankNumber: 3 },
             ],
+        bankInput: {
+          currentAssignments: [
+            {
+              assignmentId: "assignment-1",
+              bankNumber: 1,
+              materialLabel: "ШКИ-66",
+              bulkDensityTonsPerCubicMeter: 1.1,
+              bulkDensitySource: "rotary_kiln_2_journal",
+              bulkDensityLatestRecordDate: "2026-07-17",
+              assignedAt: "2026-07-17T08:00:00.000Z",
+            },
+            {
+              assignmentId: "assignment-2",
+              bankNumber: 2,
+              materialLabel: "ШГР-1",
+              bulkDensityTonsPerCubicMeter: 2,
+              bulkDensitySource: "rotary_kiln_2_journal",
+              assignedAt: "2026-07-17T08:00:00.000Z",
+            },
+          ],
+          volumeReference: {
+            points: [
+              { heightMeters: 0, volumeCubicMeters: 0 },
+              { heightMeters: 2, volumeCubicMeters: 90 },
+              { heightMeters: 4, volumeCubicMeters: 110 },
+            ],
+          },
+          coshMasterOptions: ["Сидоров С.С."],
+        },
         bankReport: bankReportDate === "2026-07-18"
           ? {
               reportDate: "2026-07-18",
@@ -1105,19 +1142,19 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(
       rootElement.querySelector('input[name="jarStart1"]')?.value,
-      "105",
+      "10",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarEnd1"]')?.value,
-      "110",
+      isAdminPreviewMode ? undefined : "100.65",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarShipmentStart1"]')?.value,
-      "108",
+      "118.5",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarShipmentEnd1"]')?.value,
-      "120",
+      isAdminPreviewMode ? undefined : "110.65",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarStart1"]')?.type,
@@ -1131,6 +1168,37 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       ".dispatcher-bank-detail-table",
     );
     assert.ok(bankTable);
+    const bankInputs = Array.from(
+      bankTable.querySelectorAll('tbody input:not([type="hidden"])'),
+    );
+    assert.equal(bankInputs.length, 19);
+    assert.equal(
+      bankInputs.every((input) =>
+        input.disabled === isAdminPreviewMode &&
+        input.readOnly === isAdminPreviewMode
+      ),
+      true,
+    );
+    assert.equal(
+      bankTable.querySelector('input[name="jarMeasurement1_1"]')?.value,
+      "2",
+    );
+    assert.equal(
+      bankTable.querySelector('input[name="jarLoaded1"]')?.value,
+      "15",
+    );
+    assert.equal(
+      bankTable.querySelector('input[name="coshMaster"]')?.value,
+      "Сидоров С.С.",
+    );
+    assert.equal(
+      bankTable.querySelector('input[name="jarMeasurement1_1"]')?.required,
+      true,
+    );
+    assert.equal(
+      bankTable.querySelector('input[name="coshMaster"]')?.required,
+      true,
+    );
     assert.deepEqual(
       Array.from(bankTable.querySelectorAll("thead th"), (cell) =>
         cell.textContent.trim().replace(/\s+/gu, " "),
@@ -1159,7 +1227,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.match(
       bankTable.textContent ?? "",
-      /110.*120.*Сидоров С\.С\./u,
+      isAdminPreviewMode ? /110.*94/u : /100,65.*110,65/u,
     );
     assert.equal(
       rootElement.querySelector(
@@ -1184,6 +1252,19 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       )?.textContent ?? "",
       /Сводка ЦОШ за 18\.07\.2026, смена 2/u,
     );
+    if (!isAdminPreviewMode) {
+      const firstBankMeasurement = bankTable.querySelector(
+        'input[name="jarMeasurement1_1"]',
+      );
+      assert.ok(firstBankMeasurement);
+      await React.act(async () => {
+        setNativeInputValue(firstBankMeasurement, "1,5");
+        firstBankMeasurement.dispatchEvent(
+          new dom.window.Event("input", { bubbles: true }),
+        );
+      });
+      assert.equal(firstBankMeasurement.value, "1.5");
+    }
     assert.ok(
       requestedUrls.some((url) => url.includes("/api/production-brands")),
     );
@@ -1566,6 +1647,19 @@ function buildProductionFormDefinition() {
       numberField("jarShipmentStart3"),
       numberField("jarEnd3"),
       numberField("jarShipmentEnd3"),
+      ...[1, 2, 3].flatMap((bankNumber) => [
+        ...[1, 2, 3, 4].map((measurementNumber) =>
+          numberField(`jarMeasurement${bankNumber}_${measurementNumber}`)
+        ),
+        numberField(`jarLoaded${bankNumber}`),
+        numberField(`jarShipped${bankNumber}`),
+      ]),
+      {
+        name: "coshMaster",
+        label: "Мастер ЦОШ",
+        type: "text",
+        required: true,
+      },
       numberField("granulationPlatesInOperation"),
       numberField("granulationMillHours"),
       numberField("granulationFraction1630Day"),

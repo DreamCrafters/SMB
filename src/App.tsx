@@ -226,6 +226,11 @@ import {
   requestDispatcherProductionBankContents,
   type DispatcherProductionBankContentsResult,
 } from "./services/dispatcherBankContents";
+import {
+  calculateBankMeasurement,
+  type BankMeasurementCalculation,
+  type BankNumber,
+} from "./services/bankMeasurements";
 import { ProductBrandPicker } from "./ProductBrandPicker";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { useProductionBrands } from "./useProductionBrands";
@@ -4563,6 +4568,20 @@ type DispatcherProductionBankContentsState =
   | DispatcherProductionBankContentsResult
   | { status: "loading" };
 
+type DispatcherBankCalculationDisplay = Pick<
+  BankMeasurementCalculation,
+  | "averageHeightMeters"
+  | "volumeCubicMeters"
+  | "bulkDensityTonsPerCubicMeter"
+  | "materialMassTons"
+  | "shipmentMassTons"
+>;
+
+type DispatcherBankCalculationState = {
+  value?: DispatcherBankCalculationDisplay;
+  error?: string;
+};
+
 export function DispatcherProductionReportFormBody({
   form,
   isAdminPreviewMode,
@@ -4828,15 +4847,6 @@ function ProductionReportEditor({
   onRetryBrands: () => void;
 }) {
   const initialPayload = initialSubmission?.payload;
-  const bankMeasurementByNumber = new Map(
-    bankContentsState.status === "ready"
-      ? bankContentsState.bankMeasurements.map((item) => [
-          item.bankNumber,
-          item,
-        ])
-      : [],
-  );
-
   return (
     <>
       {initialSubmission === undefined ? (
@@ -4924,26 +4934,11 @@ function ProductionReportEditor({
               {bankContentsState.message}
             </span>
           ) : null}
-          <DispatcherProductionBankReportTable state={bankContentsState} />
-          {([1, 2, 3] as const).flatMap((bankNumber) => {
-            const values = bankMeasurementByNumber.get(bankNumber);
-            return [
-              ["jarStart", values?.start],
-              ["jarShipmentStart", values?.shipmentStart],
-              ["jarEnd", values?.end],
-              ["jarShipmentEnd", values?.shipmentEnd],
-            ].map(([prefix, value]) => (
-              <input
-                key={`${prefix}${bankNumber}`}
-                name={`${prefix}${bankNumber}`}
-                type="hidden"
-                value={readBankMeasurementValue(
-                  typeof value === "number" ? value : undefined,
-                )}
-                readOnly
-              />
-            ));
-          })}
+          <DispatcherProductionBankReportTable
+            initialPayload={initialPayload}
+            isAdminPreviewMode={isAdminPreviewMode}
+            state={bankContentsState}
+          />
         </fieldset>
 
         <fieldset className="production-report-section">
@@ -4976,44 +4971,142 @@ function ProductionReportEditor({
 }
 
 function DispatcherProductionBankReportTable({
+  initialPayload,
+  isAdminPreviewMode,
   state,
 }: {
+  initialPayload?: DispatcherSubmissionPayload;
+  isAdminPreviewMode: boolean;
   state: DispatcherProductionBankContentsState;
 }) {
-  const bankNumbers = [1, 2, 3] as const;
+  const bankNumbers = [1, 2, 3] as const satisfies readonly BankNumber[];
   const report = state.status === "ready" ? state.bankReport : undefined;
   const reportRows = new Map(
     report?.banks.map((row) => [row.bankNumber, row]) ?? [],
   );
-  const currentMaterialByBank = new Map(
+  const inputAssignments = new Map(
     state.status === "ready"
-      ? state.bankContents.map((row) => [row.bankNumber, row.materialLabel])
+      ? state.bankInput?.currentAssignments.map((assignment) => [
+          assignment.bankNumber,
+          assignment,
+        ]) ?? []
       : [],
   );
-  const measurementCount = Math.max(
-    4,
-    ...bankNumbers.map(
-      (bankNumber) => reportRows.get(bankNumber)?.measurements.length ?? 0,
-    ),
+  const volumeReference = state.status === "ready"
+    ? state.bankInput?.volumeReference
+    : undefined;
+  const [measurementDrafts, setMeasurementDrafts] = useState<
+    Record<BankNumber, string[]>
+  >(() => Object.fromEntries(bankNumbers.map((bankNumber) => {
+    const saved = reportRows.get(bankNumber);
+    return [bankNumber, Array.from({ length: 4 }, (_, index) =>
+      readInitialDispatcherBankField(
+        initialPayload,
+        `jarMeasurement${bankNumber}_${index + 1}`,
+        saved?.measurements[index],
+      ))];
+  })) as Record<BankNumber, string[]>);
+  const [movementDrafts, setMovementDrafts] = useState<
+    Record<BankNumber, { loaded: string; shipped: string }>
+  >(() => Object.fromEntries(bankNumbers.map((bankNumber) => {
+    const saved = reportRows.get(bankNumber);
+    return [bankNumber, {
+      loaded: readInitialDispatcherBankField(
+        initialPayload,
+        `jarLoaded${bankNumber}`,
+        saved?.loadedTons,
+      ),
+      shipped: readInitialDispatcherBankField(
+        initialPayload,
+        `jarShipped${bankNumber}`,
+        saved?.shippedTons,
+      ),
+    }];
+  })) as Record<BankNumber, { loaded: string; shipped: string }>);
+  const [coshMaster, setCoshMaster] = useState(
+    initialPayload?.coshMaster ?? report?.coshMaster ?? "",
   );
-  const reportStatus = report === undefined
-    ? `За ${state.status === "ready" ? formatDateOnly(state.reportDate) : "выбранную дату"} нет подтверждённой сводки ЦОШ.`
-    : `Сводка ЦОШ за ${formatDateOnly(report.reportDate)}, смена ${report.shiftNumber}.`;
 
-  function renderNumberRow(
+  function updateMeasurement(
+    bankNumber: BankNumber,
+    index: number,
+    rawValue: string,
+  ) {
+    const value = normalizeDecimalNumberInput(rawValue);
+    setMeasurementDrafts((current) => ({
+      ...current,
+      [bankNumber]: current[bankNumber].map((item, itemIndex) =>
+        itemIndex === index ? value : item
+      ),
+    }));
+  }
+
+  function updateMovement(
+    bankNumber: BankNumber,
+    field: "loaded" | "shipped",
+    rawValue: string,
+  ) {
+    const value = normalizeDecimalNumberInput(rawValue);
+    setMovementDrafts((current) => ({
+      ...current,
+      [bankNumber]: { ...current[bankNumber], [field]: value },
+    }));
+  }
+
+  const bankColumns = bankNumbers.map((bankNumber) => {
+    const savedRow = reportRows.get(bankNumber);
+    const assignment = inputAssignments.get(bankNumber);
+    const calculation = isAdminPreviewMode
+      ? readStoredDispatcherBankCalculation(
+          bankNumber,
+          initialPayload,
+          savedRow,
+        )
+      : readDraftDispatcherBankCalculation(
+          assignment,
+          measurementDrafts[bankNumber],
+          movementDrafts[bankNumber],
+          volumeReference,
+        );
+    return {
+      bankNumber,
+      assignment,
+      calculation,
+      material: isAdminPreviewMode
+        ? initialPayload?.[`jarMaterial${bankNumber}`] ??
+          savedRow?.materialLabel ?? assignment?.materialLabel
+        : assignment?.materialLabel ?? savedRow?.materialLabel,
+      density: isAdminPreviewMode
+        ? readDispatcherPayloadNumber(
+            initialPayload,
+            `jarBulkDensity${bankNumber}`,
+          ) ?? savedRow?.bulkDensityTonsPerCubicMeter
+        : assignment?.bulkDensityTonsPerCubicMeter,
+      densityDate: isAdminPreviewMode
+        ? initialPayload?.[`jarBulkDensityDate${bankNumber}`] ??
+          savedRow?.bulkDensityLatestRecordDate
+        : assignment?.bulkDensityLatestRecordDate,
+    };
+  });
+  const savedReportStatus = report === undefined
+    ? ""
+    : ` Сводка ЦОШ за ${formatDateOnly(report.reportDate)}, смена ${report.shiftNumber}.`;
+  const reportStatus = isAdminPreviewMode
+    ? `Предпросмотр доступен только для чтения.${savedReportStatus}`
+    : `Введите до четырёх замеров для каждой банки. Вес пересчитывается по текущему содержимому и данным лаборатории.${savedReportStatus}`;
+
+  function renderCalculatedRow(
     label: string,
-    readValue: (row: DispatcherProductionBankReportRow | undefined) =>
+    readValue: (calculation: DispatcherBankCalculationDisplay | undefined) =>
       number | undefined,
     className?: string,
   ) {
     return (
       <tr className={className}>
         <th scope="row">{label}</th>
-        {bankNumbers.map((bankNumber) => (
+        {bankColumns.map(({ bankNumber, calculation }) => (
           <td key={bankNumber}>
-            <output>
-              {formatDispatcherBankNumber(readValue(reportRows.get(bankNumber)))}
-            </output>
+            <output>{formatDispatcherBankNumber(readValue(calculation?.value))}</output>
           </td>
         ))}
       </tr>
@@ -5028,88 +5121,120 @@ function DispatcherProductionBankReportTable({
           <thead>
             <tr>
               <th scope="col">Показатель</th>
-              {bankNumbers.map((bankNumber) => {
-                const reportRow = reportRows.get(bankNumber);
+              {bankColumns.map(({ bankNumber, material }) => {
                 return (
                   <th key={bankNumber} scope="col">
                     <span>Банка {readRomanBankNumber(bankNumber)}</span>
                     {" "}
-                    <strong>
-                      {reportRow?.materialLabel ??
-                        currentMaterialByBank.get(bankNumber) ??
-                        "Не назначено"}
-                    </strong>
+                    <strong>{material ?? "Не назначено"}</strong>
                   </th>
                 );
               })}
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: measurementCount }, (_, index) => (
+            {Array.from({ length: 4 }, (_, index) => (
               <tr key={`measurement-${index}`}>
-                <th scope="row">Замер {index + 1}, м</th>
-                {bankNumbers.map((bankNumber) => (
+                <th scope="row">
+                  Замер {index + 1}, м
+                </th>
+                {bankColumns.map(({ bankNumber }) => (
                   <td key={bankNumber}>
-                    <output>
-                      {formatDispatcherBankNumber(
-                        reportRows.get(bankNumber)?.measurements[index],
-                      )}
-                    </output>
+                    <input
+                      aria-label={`Банка ${readRomanBankNumber(bankNumber)}: замер ${index + 1}`}
+                      disabled={isAdminPreviewMode}
+                      inputMode="decimal"
+                      maxLength={20}
+                      name={`jarMeasurement${bankNumber}_${index + 1}`}
+                      pattern={decimalNumberInputPattern}
+                      readOnly={isAdminPreviewMode}
+                      required={index === 0}
+                      title={decimalNumberInputTitle}
+                      type="text"
+                      value={measurementDrafts[bankNumber][index] ?? ""}
+                      onChange={(event) => {
+                        const rawValue = event.currentTarget.value;
+                        updateMeasurement(bankNumber, index, rawValue);
+                      }}
+                    />
                   </td>
                 ))}
               </tr>
             ))}
-            {renderNumberRow(
+            {renderCalculatedRow(
               "Среднее значение, м",
-              (row) => row?.averageHeightMeters,
+              (calculation) => calculation?.averageHeightMeters,
               "refractory-bank-calculated-row",
             )}
             <tr className="refractory-bank-calculated-row">
               <th scope="row">Насыпная плотность, т/м³</th>
-              {bankNumbers.map((bankNumber) => {
-                const row = reportRows.get(bankNumber);
+              {bankColumns.map(({ bankNumber, density, densityDate }) => {
                 return (
                   <td key={bankNumber}>
-                    <output>
-                      {formatDispatcherBankNumber(
-                        row?.bulkDensityTonsPerCubicMeter,
-                      )}
-                    </output>
-                    {row?.bulkDensityLatestRecordDate === undefined ? null : (
+                    <output>{formatDispatcherBankNumber(density)}</output>
+                    {densityDate === undefined ? null : (
                       <small>
-                        данные на {formatDateOnly(row.bulkDensityLatestRecordDate)}
+                        данные на {formatDateOnly(densityDate)}
                       </small>
                     )}
                   </td>
                 );
               })}
             </tr>
-            {renderNumberRow(
+            {renderCalculatedRow(
               "Объём по замерам, м³",
-              (row) => row?.volumeCubicMeters,
+              (calculation) => calculation?.volumeCubicMeters,
               "refractory-bank-calculated-row",
             )}
-            {renderNumberRow(
+            {renderCalculatedRow(
               "Расчётный вес по замерам, т",
-              (row) => row?.materialMassTons,
+              (calculation) => calculation?.materialMassTons,
               "refractory-bank-calculated-row refractory-bank-mass-row",
             )}
-            {renderNumberRow("Засыпали, т", (row) => row?.loadedTons)}
-            {renderNumberRow("Отгрузили, т", (row) => row?.shippedTons)}
-            {renderNumberRow(
+            {(["loaded", "shipped"] as const).map((field) => (
+              <tr key={field}>
+                <th scope="row">
+                  {field === "loaded" ? "Засыпали, т" : "Отгрузили, т"}
+                </th>
+                {bankColumns.map(({ bankNumber }) => (
+                  <td key={bankNumber}>
+                    <input
+                      aria-label={`Банка ${readRomanBankNumber(bankNumber)}: ${field === "loaded" ? "засыпали" : "отгрузили"}, т`}
+                      disabled={isAdminPreviewMode}
+                      inputMode="decimal"
+                      maxLength={20}
+                      name={`${field === "loaded" ? "jarLoaded" : "jarShipped"}${bankNumber}`}
+                      pattern={decimalNumberInputPattern}
+                      readOnly={isAdminPreviewMode}
+                      title={decimalNumberInputTitle}
+                      type="text"
+                      value={movementDrafts[bankNumber][field]}
+                      onChange={(event) => {
+                        const rawValue = event.currentTarget.value;
+                        updateMovement(bankNumber, field, rawValue);
+                      }}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {renderCalculatedRow(
               "Расчётный вес по отгрузкам, т",
-              (row) => row?.shipmentMassTons,
+              (calculation) => calculation?.shipmentMassTons,
               "refractory-bank-calculated-row refractory-bank-mass-row",
             )}
             <tr className="refractory-bank-report-row">
               <th scope="row">Отображение в отчётах, т</th>
-              {bankNumbers.map((bankNumber) => {
-                const row = reportRows.get(bankNumber);
+              {bankColumns.map(({ bankNumber, calculation }) => {
                 return (
                   <td key={bankNumber}>
                     <output>
-                      {formatDispatcherBankNumber(row?.materialMassTons)} /{" "}
-                      {formatDispatcherBankNumber(row?.shipmentMassTons)}
+                      {formatDispatcherBankNumber(
+                        calculation?.value?.materialMassTons,
+                      )} /{" "}
+                      {formatDispatcherBankNumber(
+                        calculation?.value?.shipmentMassTons,
+                      )}
                     </output>
                   </td>
                 );
@@ -5117,13 +5242,192 @@ function DispatcherProductionBankReportTable({
             </tr>
             <tr className="dispatcher-bank-master-row">
               <th scope="row">Мастер ЦОШ</th>
-              <td colSpan={3}>{report?.coshMaster || "—"}</td>
+              <td colSpan={3}>
+                <input
+                  aria-label="Мастер ЦОШ"
+                  disabled={isAdminPreviewMode}
+                  list="dispatcher-cosh-master-options"
+                  maxLength={120}
+                  name="coshMaster"
+                  readOnly={isAdminPreviewMode}
+                  required
+                  value={coshMaster}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setCoshMaster(value);
+                  }}
+                />
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
+      <datalist id="dispatcher-cosh-master-options">
+        {Array.from(new Set([
+          report?.coshMaster,
+          ...(state.status === "ready"
+            ? state.bankInput?.coshMasterOptions ?? []
+            : []),
+        ].filter((value): value is string =>
+          value !== undefined && value.trim().length > 0
+        ))).map((value) => <option key={value} value={value} />)}
+      </datalist>
+      <div className="bank-measurement-errors">
+        {bankColumns.map(({ bankNumber, assignment, calculation }) =>
+          assignment === undefined && !isAdminPreviewMode ? (
+            <p className="bank-measurement-error" key={bankNumber}>
+              Банка {readRomanBankNumber(bankNumber)}: содержимое ещё не назначено.
+            </p>
+          ) : calculation?.error === undefined ? null : (
+            <p className="bank-measurement-error" key={bankNumber} role="alert">
+              Банка {readRomanBankNumber(bankNumber)}: {calculation.error}
+            </p>
+          )
+        )}
+      </div>
+      {bankNumbers.flatMap((bankNumber) =>
+        (["jarStart", "jarShipmentStart"] as const).map((prefix) => {
+          const name = `${prefix}${bankNumber}`;
+          return (
+            <input
+              key={name}
+              name={name}
+              type="hidden"
+              value={initialPayload?.[name] ?? ""}
+              readOnly
+            />
+          );
+        })
+      )}
+      {isAdminPreviewMode ? null : bankColumns.flatMap((column) =>
+        buildDispatcherBankCalculatedFields(column).map(([name, value]) => (
+          <input key={name} name={name} type="hidden" value={value} readOnly />
+        ))
+      )}
     </>
   );
+}
+
+function readInitialDispatcherBankField(
+  payload: DispatcherSubmissionPayload | undefined,
+  name: string,
+  fallback: number | undefined,
+) {
+  const saved = payload?.[name];
+  return saved === undefined ? readBankMeasurementValue(fallback) : saved;
+}
+
+function readDraftDispatcherBankCalculation(
+  assignment: Parameters<typeof calculateBankMeasurement>[0]["assignment"] |
+    undefined,
+  measurements: readonly string[],
+  movement: { loaded: string; shipped: string },
+  volumeReference: Parameters<typeof calculateBankMeasurement>[0]["volumeReference"] |
+    undefined,
+): DispatcherBankCalculationState | undefined {
+  if (assignment === undefined || volumeReference === undefined) return undefined;
+  const values = measurements.flatMap((text) => {
+    if (text.length === 0 || text.endsWith(".")) return [];
+    const value = Number(text);
+    return Number.isFinite(value) ? [value] : [];
+  });
+  if (values.length === 0) return undefined;
+  const result = calculateBankMeasurement({
+    assignment,
+    measurements: values,
+    loadedTons: readDispatcherDraftNumber(movement.loaded),
+    shippedTons: readDispatcherDraftNumber(movement.shipped),
+    volumeReference,
+  });
+  return result.ok ? { value: result.value } : { error: result.error };
+}
+
+function readStoredDispatcherBankCalculation(
+  bankNumber: BankNumber,
+  payload: DispatcherSubmissionPayload | undefined,
+  reportRow: DispatcherProductionBankReportRow | undefined,
+): DispatcherBankCalculationState | undefined {
+  const materialMassTons = readDispatcherPayloadNumber(
+    payload,
+    `jarCalculatedWeight${bankNumber}`,
+  ) ?? readDispatcherPayloadNumber(payload, `jarEnd${bankNumber}`) ??
+    reportRow?.materialMassTons;
+  const shipmentMassTons = readDispatcherPayloadNumber(
+    payload,
+    `jarShipmentCalculatedWeight${bankNumber}`,
+  ) ?? readDispatcherPayloadNumber(payload, `jarShipmentEnd${bankNumber}`) ??
+    reportRow?.shipmentMassTons;
+  const averageHeightMeters = readDispatcherPayloadNumber(
+    payload,
+    `jarAverage${bankNumber}`,
+  ) ?? reportRow?.averageHeightMeters;
+  const volumeCubicMeters = readDispatcherPayloadNumber(
+    payload,
+    `jarVolume${bankNumber}`,
+  ) ?? reportRow?.volumeCubicMeters;
+  const bulkDensityTonsPerCubicMeter = readDispatcherPayloadNumber(
+    payload,
+    `jarBulkDensity${bankNumber}`,
+  ) ?? reportRow?.bulkDensityTonsPerCubicMeter;
+  if (
+    materialMassTons === undefined ||
+    shipmentMassTons === undefined || averageHeightMeters === undefined ||
+    volumeCubicMeters === undefined ||
+    bulkDensityTonsPerCubicMeter === undefined
+  ) return undefined;
+  return {
+    value: {
+      averageHeightMeters,
+      volumeCubicMeters,
+      bulkDensityTonsPerCubicMeter,
+      materialMassTons,
+      shipmentMassTons,
+    },
+  };
+}
+
+function readDispatcherDraftNumber(value: string) {
+  if (value.length === 0 || value.endsWith(".")) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function readDispatcherPayloadNumber(
+  payload: DispatcherSubmissionPayload | undefined,
+  name: string,
+) {
+  const text = payload?.[name]?.trim();
+  if (text === undefined || text.length === 0) return undefined;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function buildDispatcherBankCalculatedFields({
+  bankNumber,
+  calculation,
+  densityDate,
+  material,
+}: {
+  bankNumber: BankNumber;
+  calculation: DispatcherBankCalculationState | undefined;
+  densityDate: string | undefined;
+  material: string | undefined;
+}): Array<[string, string]> {
+  const value = calculation?.value;
+  if (value === undefined) return [];
+  return [
+    [`jarMaterial${bankNumber}`, material ?? ""],
+    [`jarAverage${bankNumber}`, String(value.averageHeightMeters)],
+    [`jarBulkDensity${bankNumber}`, String(value.bulkDensityTonsPerCubicMeter)],
+    ...(densityDate === undefined
+      ? []
+      : [[`jarBulkDensityDate${bankNumber}`, densityDate] as [string, string]]),
+    [`jarVolume${bankNumber}`, String(value.volumeCubicMeters)],
+    [`jarCalculatedWeight${bankNumber}`, String(value.materialMassTons)],
+    [`jarShipmentCalculatedWeight${bankNumber}`, String(value.shipmentMassTons)],
+    [`jarEnd${bankNumber}`, String(value.materialMassTons)],
+    [`jarShipmentEnd${bankNumber}`, String(value.shipmentMassTons)],
+  ];
 }
 
 function readRomanBankNumber(bankNumber: 1 | 2 | 3) {

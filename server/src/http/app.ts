@@ -163,6 +163,7 @@ import {
 import {
   bankNumbers,
   calculateCoshBankMeasurements,
+  type BankMeasurementCalculation,
   type BankNumber,
 } from "../domain/bankMeasurement.js";
 import {
@@ -723,8 +724,11 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          dispatcherSubmissions,
           laboratoryBankAssignments,
           refractoryReports,
+          rotaryKiln2FiringJournal,
+          bankVolumeReferenceDataSource,
         });
         return;
       }
@@ -1165,7 +1169,25 @@ export function createApiServer({
           }
 
           if (validation.value.draft.formId === "production") {
-            if (refractoryReports === undefined) {
+            const productionPayload = validation.value.draft.payload;
+            const bankInputError = validateDispatcherProductionBankInput(
+              productionPayload,
+            );
+
+            if (bankInputError !== undefined) {
+              sendJson(res, 400, {
+                error: {
+                  code: "invalid_response",
+                  message: bankInputError,
+                },
+              });
+              return;
+            }
+
+            if (
+              (laboratoryBankAssignments === undefined ||
+                rotaryKiln2FiringJournal === undefined)
+            ) {
               sendJson(res, 503, {
                 error: {
                   code: "server_error",
@@ -1189,19 +1211,65 @@ export function createApiServer({
               return;
             }
 
-            const measurementSnapshot =
-              await readDispatcherProductionBankMeasurements(
-                refractoryReports,
-                reportDate,
+            try {
+              const previousReportDate = shiftCalendarDate(reportDate, -1);
+              const [
+                assignments,
+                volumeReference,
+                materialBulkDensities,
+                previousSubmissions,
+              ] = await Promise.all([
+                laboratoryBankAssignments!.listCurrent(),
+                bankVolumeReferenceDataSource.read(),
+                rotaryKiln2FiringJournal!.listMaterialBulkDensities(),
+                dispatcherSubmissions.listLatest({
+                  formId: "production",
+                  reportDate: previousReportDate,
+                  limit: 1,
+                }),
+              ]);
+              const refreshedAssignments = applyLatestBankBulkDensities(
+                assignments,
+                materialBulkDensities,
               );
-            validation = validateDispatcherSubmissionDraft({
-              formId: "production",
-              payload: buildProductionPayloadWithBankMeasurements({
-                payload: validation.value.draft.payload,
-                reportDate,
-                bankMeasurements: measurementSnapshot.bankMeasurements,
-              }),
-            });
+              const calculated = calculateCoshBankMeasurements({
+                assignments: refreshedAssignments,
+                measurements: readDispatcherProductionBankInputs(
+                  productionPayload,
+                ),
+                volumeReference,
+              });
+
+              if (!calculated.ok) {
+                sendJson(res, 400, {
+                  error: {
+                    code: "invalid_response",
+                    message: calculated.error,
+                  },
+                });
+                return;
+              }
+
+              validation = validateDispatcherSubmissionDraft({
+                formId: "production",
+                payload: buildProductionPayloadWithBankMeasurements({
+                  payload: productionPayload,
+                  reportDate,
+                  calculated: calculated.value,
+                  assignments: refreshedAssignments,
+                  previousPayload: previousSubmissions[0]?.payload,
+                }),
+              });
+            } catch (error) {
+              console.warn("dispatcher_production.bank_calculation_failed", error);
+              sendJson(res, 502, {
+                error: {
+                  code: "server_error",
+                  message: "Не удалось рассчитать вес банок.",
+                },
+              });
+              return;
+            }
 
             if (!validation.ok) {
               sendJson(res, 400, {
@@ -7316,8 +7384,11 @@ async function handleDispatcherProductionBankContentsRequest({
   config,
   devSessions,
   authService,
+  dispatcherSubmissions,
   laboratoryBankAssignments,
   refractoryReports,
+  rotaryKiln2FiringJournal,
+  bankVolumeReferenceDataSource,
 }: {
   req: IncomingMessage;
   res: ServerResponse;
@@ -7325,8 +7396,11 @@ async function handleDispatcherProductionBankContentsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+  dispatcherSubmissions: DispatcherSubmissionsRepository;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
   refractoryReports: RefractoryReportsRepository | undefined;
+  rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository | undefined;
+  bankVolumeReferenceDataSource: BankVolumeReferenceDataSource;
 }) {
   const access = await requireCapability(req, res, {
     config,
@@ -7366,7 +7440,8 @@ async function handleDispatcherProductionBankContentsRequest({
 
   if (
     laboratoryBankAssignments === undefined ||
-    refractoryReports === undefined
+    refractoryReports === undefined ||
+    rotaryKiln2FiringJournal === undefined
   ) {
     sendJson(res, 503, {
       error: {
@@ -7377,25 +7452,57 @@ async function handleDispatcherProductionBankContentsRequest({
     return;
   }
 
-  const [currentAssignments, measurementSnapshot] = await Promise.all([
-    laboratoryBankAssignments.listCurrent(),
-    readDispatcherProductionBankMeasurements(refractoryReports, reportDate),
-  ]);
+  try {
+    const [
+      currentAssignments,
+      materialBulkDensities,
+      volumeReference,
+      legacyCoshMasterOptions,
+      dispatcherCoshMasterOptions,
+      measurementSnapshot,
+    ] = await Promise.all([
+      laboratoryBankAssignments.listCurrent(),
+      rotaryKiln2FiringJournal.listMaterialBulkDensities(),
+      bankVolumeReferenceDataSource.read(),
+      refractoryReports.listCoshMasterOptions(),
+      dispatcherSubmissions.listProductionCoshMasterOptions?.() ??
+        Promise.resolve([]),
+      readDispatcherProductionBankMeasurements(refractoryReports, reportDate),
+    ]);
+    const refreshedAssignments = applyLatestBankBulkDensities(
+      currentAssignments,
+      materialBulkDensities,
+    );
 
-  sendJson(res, 200, {
-    reportDate,
-    previousReportDate: measurementSnapshot.previousReportDate,
-    bankContents: toDispatcherBankContents(currentAssignments),
-    bankMeasurements: measurementSnapshot.bankMeasurements,
-    bankReport: measurementSnapshot.bankReport,
-  });
+    sendJson(res, 200, {
+      reportDate,
+      previousReportDate: measurementSnapshot.previousReportDate,
+      bankContents: toDispatcherBankContents(refreshedAssignments),
+      bankMeasurements: measurementSnapshot.bankMeasurements,
+      bankInput: {
+        currentAssignments: refreshedAssignments.map(
+          toDispatcherBankInputAssignment,
+        ),
+        volumeReference,
+        coshMasterOptions: collectDispatcherCoshMasterOptions(
+          dispatcherCoshMasterOptions,
+          legacyCoshMasterOptions,
+        ),
+      },
+      bankReport: measurementSnapshot.bankReport,
+    });
+  } catch (error) {
+    console.warn("dispatcher_production.bank_contents_read_failed", error);
+    sendJson(res, 502, {
+      error: {
+        code: "server_error",
+        message: "Не удалось загрузить данные для расчёта банок.",
+      },
+    });
+  }
 }
 
-/**
- * В списке текущих назначений наружу отдаётся только номер банки и материал.
- * Расчётные значения, включая сохранённую плотность, приходят отдельно из
- * подтверждённого снимка ЦОШ; автор назначения остаётся внутри Лаборатории.
- */
+/** Краткий список для аналитики не раскрывает плотность и автора назначения. */
 function toDispatcherBankContents(
   assignments: readonly LaboratoryBankAssignment[],
 ) {
@@ -7403,6 +7510,36 @@ function toDispatcherBankContents(
     bankNumber: assignment.bankNumber,
     materialLabel: assignment.materialLabel,
   }));
+}
+
+function toDispatcherBankInputAssignment(
+  assignment: LaboratoryBankAssignment,
+) {
+  const { assignedByDisplayName: _assignedByDisplayName, ...safeAssignment } =
+    assignment;
+  return safeAssignment;
+}
+
+function collectDispatcherCoshMasterOptions(
+  dispatcherOptions: readonly string[],
+  legacyOptions: readonly string[],
+) {
+  const options: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of [
+    ...dispatcherOptions,
+    ...legacyOptions,
+  ]) {
+    const normalized = value?.trim().replace(/\s+/gu, " ");
+    if (normalized === undefined || normalized.length === 0) continue;
+    const key = normalized.toLocaleLowerCase("ru-RU");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    options.push(normalized);
+  }
+
+  return options;
 }
 
 async function readDispatcherProductionBankMeasurements(
@@ -7603,17 +7740,15 @@ function readIsoDispatcherReportDate(value: string | undefined) {
 function buildProductionPayloadWithBankMeasurements({
   payload,
   reportDate,
-  bankMeasurements,
+  calculated,
+  assignments,
+  previousPayload,
 }: {
   payload: DispatcherSubmission["payload"];
   reportDate: string;
-  bankMeasurements: ReadonlyArray<{
-    bankNumber: BankNumber;
-    start?: number;
-    shipmentStart?: number;
-    end?: number;
-    shipmentEnd?: number;
-  }>;
+  calculated: readonly BankMeasurementCalculation[];
+  assignments: readonly LaboratoryBankAssignment[];
+  previousPayload: DispatcherSubmission["payload"] | undefined;
 }) {
   const nextPayload: DispatcherSubmission["payload"] = {
     ...payload,
@@ -7623,34 +7758,125 @@ function buildProductionPayloadWithBankMeasurements({
   delete nextPayload.reportMonth;
 
   for (const bankNumber of bankNumbers) {
-    delete nextPayload[`jarStart${bankNumber}`];
-    delete nextPayload[`jarShipmentStart${bankNumber}`];
-    delete nextPayload[`jarEnd${bankNumber}`];
-    delete nextPayload[`jarShipmentEnd${bankNumber}`];
+    for (const prefix of [
+      "jarStart",
+      "jarShipmentStart",
+      "jarEnd",
+      "jarShipmentEnd",
+      "jarMaterial",
+      "jarAverage",
+      "jarBulkDensity",
+      "jarBulkDensityDate",
+      "jarVolume",
+      "jarCalculatedWeight",
+      "jarShipmentCalculatedWeight",
+    ]) {
+      delete nextPayload[`${prefix}${bankNumber}`];
+    }
   }
 
-  for (const measurement of bankMeasurements) {
-    if (measurement.start !== undefined) {
-      nextPayload[`jarStart${measurement.bankNumber}`] =
-        String(measurement.start);
+  for (const calculation of calculated) {
+    const bankNumber = calculation.bankNumber;
+    const previousEnd = readDispatcherBankPayloadNumber(
+      previousPayload,
+      `jarEnd${bankNumber}`,
+    );
+    const previousShipmentEnd = readDispatcherBankPayloadNumber(
+      previousPayload,
+      `jarShipmentEnd${bankNumber}`,
+    );
+    const assignment = assignments.find(
+      (candidate) => candidate.bankNumber === bankNumber,
+    );
+
+    if (previousEnd !== undefined) {
+      nextPayload[`jarStart${bankNumber}`] = String(previousEnd);
     }
 
-    if (measurement.shipmentStart !== undefined) {
-      nextPayload[`jarShipmentStart${measurement.bankNumber}`] =
-        String(measurement.shipmentStart);
+    if (previousShipmentEnd !== undefined) {
+      nextPayload[`jarShipmentStart${bankNumber}`] =
+        String(previousShipmentEnd);
     }
 
-    if (measurement.end !== undefined) {
-      nextPayload[`jarEnd${measurement.bankNumber}`] = String(measurement.end);
+    nextPayload[`jarMaterial${bankNumber}`] = calculation.material;
+    nextPayload[`jarAverage${bankNumber}`] =
+      String(calculation.averageHeightMeters);
+    nextPayload[`jarBulkDensity${bankNumber}`] =
+      String(calculation.bulkDensityTonsPerCubicMeter);
+    if (assignment?.bulkDensityLatestRecordDate !== undefined) {
+      nextPayload[`jarBulkDensityDate${bankNumber}`] =
+        assignment.bulkDensityLatestRecordDate;
     }
-
-    if (measurement.shipmentEnd !== undefined) {
-      nextPayload[`jarShipmentEnd${measurement.bankNumber}`] =
-        String(measurement.shipmentEnd);
-    }
+    nextPayload[`jarVolume${bankNumber}`] =
+      String(calculation.volumeCubicMeters);
+    nextPayload[`jarCalculatedWeight${bankNumber}`] =
+      String(calculation.materialMassTons);
+    nextPayload[`jarShipmentCalculatedWeight${bankNumber}`] =
+      String(calculation.shipmentMassTons);
+    nextPayload[`jarEnd${bankNumber}`] = String(calculation.materialMassTons);
+    nextPayload[`jarShipmentEnd${bankNumber}`] =
+      String(calculation.shipmentMassTons);
   }
 
   return nextPayload;
+}
+
+function validateDispatcherProductionBankInput(
+  payload: DispatcherSubmission["payload"],
+) {
+  for (const bankNumber of bankNumbers) {
+    if (
+      readDispatcherBankPayloadNumber(
+        payload,
+        `jarMeasurement${bankNumber}_1`,
+      ) === undefined
+    ) {
+      return `Укажите первый замер для банки ${readRomanBankNumber(bankNumber)}.`;
+    }
+  }
+
+  if ((payload.coshMaster ?? "").trim().length === 0) {
+    return "Укажите мастера ЦОШ.";
+  }
+
+  return undefined;
+}
+
+function readDispatcherProductionBankInputs(
+  payload: DispatcherSubmission["payload"],
+) {
+  return bankNumbers.map((bankNumber) => ({
+    bankNumber,
+    values: [1, 2, 3, 4].flatMap((measurementNumber) => {
+      const value = readDispatcherBankPayloadNumber(
+        payload,
+        `jarMeasurement${bankNumber}_${measurementNumber}`,
+      );
+      return value === undefined ? [] : [value];
+    }),
+    loadedTons: readDispatcherBankPayloadNumber(
+      payload,
+      `jarLoaded${bankNumber}`,
+    ),
+    shippedTons: readDispatcherBankPayloadNumber(
+      payload,
+      `jarShipped${bankNumber}`,
+    ),
+  }));
+}
+
+function readDispatcherBankPayloadNumber(
+  payload: DispatcherSubmission["payload"] | undefined,
+  name: string,
+) {
+  const text = payload?.[name]?.trim();
+  if (text === undefined || text.length === 0) return undefined;
+  const value = Number(text);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function readRomanBankNumber(bankNumber: BankNumber) {
+  return ({ 1: "I", 2: "II", 3: "III" } as const)[bankNumber];
 }
 
 async function handleProductionSnapshotRequest({

@@ -3262,7 +3262,7 @@ test("laboratory PDF protocols require an authenticated laboratory access", asyn
   );
 });
 
-test("dispatcher reads current bank materials and approved COSH measurements by date", async () => {
+test("dispatcher reads current bank materials and manual calculation data by date", async () => {
   const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
     async assign() {
       throw new Error("Assignments are not created through the dispatcher endpoint.");
@@ -3298,11 +3298,62 @@ test("dispatcher reads current bank materials and approved COSH measurements by 
         }),
       ];
     },
-    async listCoshMasterOptions() { return []; },
+    async listCoshMasterOptions() { return ["Сидоров С.С."]; },
     async listPending() { return []; },
     async listRecentForSubmitter() { return []; },
     async review() { throw new Error("not used"); },
   };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return {
+        points: [
+          { heightMeters: 0, volumeCubicMeters: 0 },
+          { heightMeters: 4, volumeCubicMeters: 100 },
+        ],
+      };
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return [
+        {
+          material: "ШКИ-66",
+          averageBulkDensityTonsPerCubicMeter: 1.16,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-23",
+        },
+        {
+          material: "ШГР-1",
+          averageBulkDensityTonsPerCubicMeter: 1.24,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-22",
+        },
+      ];
+    },
+  };
+  const repository = buildRepositoryWithHistory([
+    {
+      id: "dispatcher-production-with-master",
+      formId: "production",
+      formTitle: "Выработка",
+      payload: {
+        reportDate: "22.07.2026",
+        coshMaster: "Новый мастер ЦОШ",
+      },
+      summary: "Выработка за 22.07.2026",
+      status: "received",
+      submittedByAccountId: "dispatcher-1",
+      submittedAt: "2026-07-22T18:00:00.000Z",
+      receivedAt: "2026-07-22T18:00:01.000Z",
+    },
+  ]);
 
   await withApiServer(
     async (baseUrl) => {
@@ -3352,6 +3403,37 @@ test("dispatcher reads current bank materials and approved COSH measurements by 
             shipmentEnd: 53,
           },
         ],
+        bankInput: {
+          currentAssignments: [
+            {
+              assignmentId: "assignment-1",
+              bankNumber: 1,
+              materialLabel: "ШКИ-66",
+              bulkDensityTonsPerCubicMeter: 1.16,
+              bulkDensitySource: "rotary_kiln_2_journal",
+              bulkDensitySampleCount: 10,
+              bulkDensityLatestRecordDate: "2026-07-23",
+              assignedAt: "2026-07-23T08:00:00.000Z",
+            },
+            {
+              assignmentId: "assignment-3",
+              bankNumber: 3,
+              materialLabel: "ШГР-1",
+              bulkDensityTonsPerCubicMeter: 1.24,
+              bulkDensitySource: "rotary_kiln_2_journal",
+              bulkDensitySampleCount: 10,
+              bulkDensityLatestRecordDate: "2026-07-22",
+              assignedAt: "2026-07-23T08:00:00.000Z",
+            },
+          ],
+          volumeReference: {
+            points: [
+              { heightMeters: 0, volumeCubicMeters: 0 },
+              { heightMeters: 4, volumeCubicMeters: 100 },
+            ],
+          },
+          coshMasterOptions: ["Новый мастер ЦОШ", "Сидоров С.С."],
+        },
         bankReport: {
           reportDate: "2026-07-23",
           shiftNumber: 1,
@@ -3403,7 +3485,7 @@ test("dispatcher reads current bank materials and approved COSH measurements by 
         ["2026-07-22", "2026-07-23"],
       ]);
     },
-    dispatcherSubmissions,
+    repository,
     emptyReferenceDataSource,
     undefined,
     undefined,
@@ -3420,31 +3502,73 @@ test("dispatcher reads current bank materials and approved COSH measurements by 
     undefined,
     undefined,
     laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
+    undefined,
+    rotaryKiln2FiringJournal,
   );
 });
 
-test("production submission replaces client bank values with approved COSH measurements", async () => {
+test("production submission calculates dispatcher-entered bank measurements", async () => {
   let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
-  const repository = buildRepositoryWithHistory([], (draft) => {
+  const repository = buildRepositoryWithHistory([
+    {
+      id: "production-previous-day",
+      formId: "production",
+      formTitle: "Выработка",
+      payload: {
+        reportDate: "22.07.2026",
+        jarEnd1: "9",
+        jarShipmentEnd1: "11",
+        jarEnd2: "29",
+        jarShipmentEnd2: "31",
+        jarEnd3: "59",
+        jarShipmentEnd3: "61",
+      },
+      summary: "Выработка за 22.07.2026",
+      status: "received",
+      submittedByAccountId: "dispatcher-1",
+      submittedAt: "2026-07-22T18:00:00.000Z",
+      receivedAt: "2026-07-22T18:00:01.000Z",
+    },
+  ], (draft) => {
     createdDraft = draft;
   });
-  const refractoryReports: RefractoryReportsRepository = {
-    ...emptyRefractoryReports,
-    async listLatestApprovedCoshForDates() {
-      return [
-        buildApprovedCoshReport({
-          id: "cosh-previous",
-          reportDate: "2026-07-22",
-          shiftNumber: 2,
-          measurements: [1.25, 1.5, 1.75],
-        }),
-        buildApprovedCoshReport({
-          id: "cosh-current",
-          reportDate: "2026-07-23",
-          shiftNumber: 2,
-          measurements: [1.1, 1.4, 1.6],
-        }),
-      ];
+  const assignments = [
+    buildLaboratoryBankAssignment(1, "ШКИ", 1),
+    buildLaboratoryBankAssignment(2, "ШКИ-66", 2),
+    buildLaboratoryBankAssignment(3, "ШГР-28", 3),
+  ];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() { throw new Error("not used"); },
+    async listCurrent() { return assignments; },
+    async listHistory() { return assignments; },
+  };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return { points: [
+        { heightMeters: 0, volumeCubicMeters: 0 },
+        { heightMeters: 1, volumeCubicMeters: 10 },
+        { heightMeters: 2, volumeCubicMeters: 20 },
+        { heightMeters: 3, volumeCubicMeters: 30 },
+      ] };
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return assignments.map((assignment) => ({
+        material: assignment.materialLabel,
+        averageBulkDensityTonsPerCubicMeter:
+          assignment.bulkDensityTonsPerCubicMeter,
+        sampleCount: 10,
+        latestRecordDate: "2026-07-23",
+      }));
     },
   };
 
@@ -3459,31 +3583,89 @@ test("production submission replaces client bank values with approved COSH measu
           payload: {
             reportDate: "2026-07-23",
             granulationPlatesInOperation: "2",
-            jarStart1: "999",
-            jarShipmentStart1: "118.5",
-            jarEnd1: "998",
-            jarShipmentEnd1: "94",
+            jarMeasurement1_1: "1",
+            jarMeasurement1_2: "1",
+            jarLoaded1: "5",
+            jarShipped1: "2",
+            jarMeasurement2_1: "1.5",
+            jarMeasurement3_1: "2",
+            jarShipped3: "5",
+            coshMaster: "Сидоров С.С.",
           },
         }),
       });
 
       assert.equal(response.status, 201);
+      const excessiveShipmentResponse = await fetch(
+        `${baseUrl}/api/dispatcher/submissions`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            formId: "production",
+            payload: {
+              reportDate: "2026-07-23",
+              granulationPlatesInOperation: "2",
+              jarMeasurement1_1: "1",
+              jarLoaded1: "5",
+              jarShipped1: "20",
+              jarMeasurement2_1: "1.5",
+              jarMeasurement3_1: "2",
+              coshMaster: "Сидоров С.С.",
+            },
+          }),
+        },
+      );
+      assert.equal(excessiveShipmentResponse.status, 400);
+      assert.match(
+        JSON.stringify(await excessiveShipmentResponse.json()),
+        /Отгрузили больше расчётного остатка/u,
+      );
       assert.deepEqual(createdDraft?.draft.payload, {
         reportDate: "23.07.2026",
         reportMonth: "2026-07",
         granulationPlatesInOperation: "2",
-        jarStart1: "12.5",
-        jarShipmentStart1: "17.5",
-        jarEnd1: "11",
-        jarShipmentEnd1: "16",
-        jarStart2: "30",
-        jarShipmentStart2: "35",
-        jarEnd2: "28",
-        jarShipmentEnd2: "33",
-        jarStart3: "52.5",
-        jarShipmentStart3: "57.5",
-        jarEnd3: "48",
-        jarShipmentEnd3: "53",
+        jarMeasurement1_1: "1",
+        jarMeasurement1_2: "1",
+        jarLoaded1: "5",
+        jarShipped1: "2",
+        jarMeasurement2_1: "1.5",
+        jarMeasurement3_1: "2",
+        jarShipped3: "5",
+        coshMaster: "Сидоров С.С.",
+        jarMaterial1: "ШКИ",
+        jarAverage1: "1",
+        jarBulkDensity1: "1",
+        jarBulkDensityDate1: "2026-07-23",
+        jarVolume1: "10",
+        jarCalculatedWeight1: "10",
+        jarShipmentCalculatedWeight1: "13",
+        jarStart1: "9",
+        jarShipmentStart1: "11",
+        jarEnd1: "10",
+        jarShipmentEnd1: "13",
+        jarMaterial2: "ШКИ-66",
+        jarAverage2: "1.5",
+        jarBulkDensity2: "2",
+        jarBulkDensityDate2: "2026-07-23",
+        jarVolume2: "15",
+        jarCalculatedWeight2: "30",
+        jarShipmentCalculatedWeight2: "30",
+        jarStart2: "29",
+        jarShipmentStart2: "31",
+        jarEnd2: "30",
+        jarShipmentEnd2: "30",
+        jarMaterial3: "ШГР-28",
+        jarAverage3: "2",
+        jarBulkDensity3: "3",
+        jarBulkDensityDate3: "2026-07-23",
+        jarVolume3: "20",
+        jarCalculatedWeight3: "60",
+        jarShipmentCalculatedWeight3: "55",
+        jarStart3: "59",
+        jarShipmentStart3: "61",
+        jarEnd3: "60",
+        jarShipmentEnd3: "55",
       });
     },
     repository,
@@ -3499,7 +3681,54 @@ test("production submission replaces client bank values with approved COSH measu
     undefined,
     passthroughProductionBrands,
     undefined,
-    refractoryReports,
+    emptyRefractoryReports,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
+    undefined,
+    rotaryKiln2FiringJournal,
+  );
+});
+
+test("production submission requires raw bank measurements and COSH master", async () => {
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
+      const responses = await Promise.all([
+        fetch(`${baseUrl}/api/dispatcher/submissions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            formId: "production",
+            payload: {
+              reportDate: "2026-07-23",
+              granulationPlatesInOperation: "2",
+              jarEnd1: "999",
+            },
+          }),
+        }),
+        fetch(`${baseUrl}/api/dispatcher/submissions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            formId: "production",
+            payload: {
+              reportDate: "2026-07-23",
+              granulationPlatesInOperation: "2",
+              jarMeasurement1_1: "1",
+              jarMeasurement2_1: "1",
+              jarMeasurement3_1: "1",
+            },
+          }),
+        }),
+      ]);
+
+      assert.deepEqual(
+        responses.map((response) => response.status),
+        [400, 400],
+      );
+    },
   );
 });
 
@@ -3509,7 +3738,11 @@ test("production submission notifications receive current bank contents for the 
       throw new Error("Assignments are not created through the dispatcher endpoint.");
     },
     async listCurrent() {
-      return [buildLaboratoryBankAssignment(1, "ША-22", 1.16)];
+      return [
+        buildLaboratoryBankAssignment(1, "ША-22", 1.16),
+        buildLaboratoryBankAssignment(2, "ШКИ-66", 1.2),
+        buildLaboratoryBankAssignment(3, "ШГР-28", 1.3),
+      ];
     },
     async listHistory() {
       throw new Error("Dispatcher notifications must not expose assignment history.");
@@ -3558,6 +3791,47 @@ test("production submission notifications receive current bank contents for the 
       ];
     },
   };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return {
+        points: [
+          { heightMeters: 0, volumeCubicMeters: 0 },
+          { heightMeters: 3, volumeCubicMeters: 30 },
+        ],
+      };
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return [
+        {
+          material: "ША-22",
+          averageBulkDensityTonsPerCubicMeter: 1.16,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-23",
+        },
+        {
+          material: "ШКИ-66",
+          averageBulkDensityTonsPerCubicMeter: 1.2,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-23",
+        },
+        {
+          material: "ШГР-28",
+          averageBulkDensityTonsPerCubicMeter: 1.3,
+          sampleCount: 10,
+          latestRecordDate: "2026-07-23",
+        },
+      ];
+    },
+  };
 
   await withApiServer(
     async (baseUrl) => {
@@ -3569,8 +3843,11 @@ test("production submission notifications receive current bank contents for the 
           formId: "production",
           payload: {
             reportDate: "2026-07-23",
-            jarShipmentStart1: "45",
-            jarShipmentStart2: "12",
+            granulationPlatesInOperation: "2",
+            jarMeasurement1_1: "1",
+            jarMeasurement2_1: "1.5",
+            jarMeasurement3_1: "2",
+            coshMaster: "Сидоров С.С.",
           },
         }),
       });
@@ -3579,11 +3856,11 @@ test("production submission notifications receive current bank contents for the 
       for (const text of [emailText, maxText]) {
         assert.match(
           text ?? "",
-          /Замеры банок — Банка 1 \(ША-22\), начало дня, по отгрузкам: 17\.5/u,
+          /Замеры банок — Банка 1 \(ША-22\), замер 1: 1/u,
         );
         assert.match(
           text ?? "",
-          /Замеры банок — Банка 2 \(Не назначено\), начало дня, по отгрузкам: 35/u,
+          /Замеры банок — Банка 2 \(ШКИ-66\), замер 1: 1\.5/u,
         );
       }
     },
@@ -3604,6 +3881,9 @@ test("production submission notifications receive current bank contents for the 
     undefined,
     undefined,
     laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
+    undefined,
+    rotaryKiln2FiringJournal,
   );
 });
 
@@ -8804,6 +9084,44 @@ test("production submission accepts only brands from the shared nomenclature", a
       }
     },
   };
+  const assignments = [
+    buildLaboratoryBankAssignment(1, "ША-22", 1.1),
+    buildLaboratoryBankAssignment(2, "ШКИ-66", 1.2),
+    buildLaboratoryBankAssignment(3, "ШГР-28", 1.3),
+  ];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() { throw new Error("not used"); },
+    async listCurrent() { return assignments; },
+    async listHistory() { return assignments; },
+  };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return {
+        points: [
+          { heightMeters: 0, volumeCubicMeters: 0 },
+          { heightMeters: 3, volumeCubicMeters: 30 },
+        ],
+      };
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return assignments.map((assignment) => ({
+        material: assignment.materialLabel,
+        averageBulkDensityTonsPerCubicMeter:
+          assignment.bulkDensityTonsPerCubicMeter,
+        sampleCount: 10,
+        latestRecordDate: "2026-07-17",
+      }));
+    },
+  };
   await withApiServer(async (baseUrl) => {
     const headers = {
       "Content-Type": "application/json",
@@ -8816,6 +9134,10 @@ test("production submission accepts only brands from the shared nomenclature", a
         formId: "production",
         payload: {
           reportDate: "2026-07-17",
+          jarMeasurement1_1: "1",
+          jarMeasurement2_1: "1.5",
+          jarMeasurement3_1: "2",
+          coshMaster: "Сидоров С.С.",
           formingFact1: "7",
           formingBrand1: " фл-1 ",
           formingFact2: "5",
@@ -8839,6 +9161,10 @@ test("production submission accepts only brands from the shared nomenclature", a
         formId: "production",
         payload: {
           reportDate: "2026-07-17",
+          jarMeasurement1_1: "1",
+          jarMeasurement2_1: "1.5",
+          jarMeasurement3_1: "2",
+          coshMaster: "Сидоров С.С.",
           chamotteBrand1: "Ш-404",
           chamotteFact1: "3",
         },
@@ -8856,7 +9182,9 @@ test("production submission accepts only brands from the shared nomenclature", a
     ]);
   }, repository, emptyReferenceDataSource, undefined, undefined, adminDatabase,
   productionConfig, buildAuthService({ profile }), undefined, undefined,
-  undefined, transaction, productionBrands);
+  undefined, transaction, productionBrands, undefined, emptyRefractoryReports,
+  undefined, undefined, laboratoryBankAssignments,
+  bankVolumeReferenceDataSource, undefined, rotaryKiln2FiringJournal);
 });
 
 test("production API keeps admin database gated by admin capability", async () => {
@@ -11851,6 +12179,14 @@ function buildRepositoryWithHistory(
     },
     async listLatest() {
       return history;
+    },
+    async listProductionCoshMasterOptions() {
+      return history.flatMap((submission) => {
+        const value = submission.formId === "production"
+          ? submission.payload.coshMaster?.trim()
+          : undefined;
+        return value === undefined || value.length === 0 ? [] : [value];
+      });
     },
     async readSummary() {
       return {

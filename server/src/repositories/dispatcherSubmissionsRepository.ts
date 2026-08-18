@@ -57,6 +57,10 @@ type IncidentNumberRow = {
 
 type DispatcherSubmissionDbRow = DispatcherSubmissionRow & RowDataPacket;
 
+type ProductionCoshMasterOptionRow = {
+  cosh_master: string;
+} & RowDataPacket;
+
 type WhereClause = {
   sql: string;
   values: unknown[];
@@ -73,6 +77,7 @@ export type DispatcherSubmissionsRepository = {
     value: EquipmentReportRevisionDraft,
   ) => Promise<void>;
   listLatest: (filters?: DispatcherFeedFilters) => Promise<DispatcherSubmission[]>;
+  listProductionCoshMasterOptions?: () => Promise<string[]>;
   readSummary: (filters?: DispatcherFeedFilters) => Promise<DispatcherFeedSummary>;
 };
 
@@ -249,6 +254,24 @@ export function createDispatcherSubmissionsRepository(
       );
 
       return rows.map(mapDispatcherSubmissionRow);
+    },
+
+    async listProductionCoshMasterOptions() {
+      const [rows] = await pool.query<ProductionCoshMasterOptionRow[]>(
+        `
+          select
+            trim(json_unquote(json_extract(payload, '$.coshMaster'))) as cosh_master
+          from dispatcher_submissions
+          where form_id = ?
+            and json_type(json_extract(payload, '$.coshMaster')) = 'STRING'
+            and trim(json_unquote(json_extract(payload, '$.coshMaster'))) <> ''
+          group by cosh_master
+          order by max(received_at) desc, cosh_master asc
+        `,
+        ["production"],
+      );
+
+      return rows.map((row) => row.cosh_master);
     },
 
     async readSummary(filters = {}) {

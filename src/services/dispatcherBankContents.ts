@@ -88,10 +88,55 @@ function isDispatcherProductionBankContentsResponse(
     value.bankContents.every(isDispatcherProductionBankContent) &&
     Array.isArray(value.bankMeasurements) &&
     value.bankMeasurements.every(isDispatcherProductionBankMeasurement) &&
+    (value.bankInput === undefined ||
+      isDispatcherProductionBankInput(value.bankInput)) &&
     (value.bankReport === undefined ||
       isDispatcherProductionBankReport(value.bankReport)) &&
     typeof value.reportDate === "string" &&
     typeof value.previousReportDate === "string"
+  );
+}
+
+function isDispatcherProductionBankInput(value: unknown) {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.currentAssignments) &&
+    value.currentAssignments.every(isDispatcherProductionBankAssignment) &&
+    isRecord(value.volumeReference) &&
+    Array.isArray(value.volumeReference.points) &&
+    value.volumeReference.points.every(isBankVolumeReferencePoint) &&
+    Array.isArray(value.coshMasterOptions) &&
+    value.coshMasterOptions.every((option) => typeof option === "string")
+  );
+}
+
+function isDispatcherProductionBankAssignment(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.assignmentId === "string" &&
+    isBankNumber(value.bankNumber) &&
+    typeof value.materialLabel === "string" &&
+    value.materialLabel.trim().length > 0 &&
+    isFiniteNumber(value.bulkDensityTonsPerCubicMeter) &&
+    (value.bulkDensitySource === "rotary_kiln_2_journal" ||
+      value.bulkDensitySource === "laboratory_result") &&
+    isOptionalFiniteNumber(value.bulkDensitySampleCount) &&
+    (value.bulkDensityLatestRecordDate === undefined ||
+      typeof value.bulkDensityLatestRecordDate === "string") &&
+    (value.laboratoryResultId === undefined ||
+      typeof value.laboratoryResultId === "string") &&
+    isOptionalFiniteNumber(value.sampleIndex) &&
+    (value.sampleIdentifier === undefined ||
+      typeof value.sampleIdentifier === "string") &&
+    typeof value.assignedAt === "string"
+  );
+}
+
+function isBankVolumeReferencePoint(value: unknown) {
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.heightMeters) &&
+    isFiniteNumber(value.volumeCubicMeters)
   );
 }
 

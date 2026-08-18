@@ -72,6 +72,13 @@ export type DispatcherProductionBankReport = {
 export type DispatcherProductionBankContentsResponse = {
   bankContents: DispatcherProductionBankContent[];
   bankMeasurements: DispatcherProductionBankMeasurement[];
+  bankInput?: {
+    currentAssignments: Array<
+      Omit<LaboratoryBankAssignment, "assignedByDisplayName">
+    >;
+    volumeReference: BankVolumeReference;
+    coshMasterOptions: string[];
+  };
   bankReport?: DispatcherProductionBankReport;
   reportDate: string;
   previousReportDate: string;

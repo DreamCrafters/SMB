@@ -473,35 +473,93 @@ function buildLocalProductionSummaryFields(
 }
 
 function buildLocalJarMeasurementFields(): DispatcherFormField[] {
-  return [1, 2, 3].flatMap((jarNumber) => [
-    localProductionNumberField(
-      `jarStart${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, начало дня, по замерам`,
-    ),
-    localProductionNumberField(
-      `jarShipmentStart${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, начало дня, по отгрузкам`,
-    ),
-    localProductionNumberField(
-      `jarEnd${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, конец дня, по замерам`,
-    ),
-    localProductionNumberField(
-      `jarShipmentEnd${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, конец дня, по отгрузкам`,
-    ),
-  ]);
+  return [
+    ...[1, 2, 3].flatMap((jarNumber) => [
+      localProductionNumberField(
+        `jarStart${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, начало дня, по замерам`,
+      ),
+      localProductionNumberField(
+        `jarShipmentStart${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, начало дня, по отгрузкам`,
+      ),
+      localProductionNumberField(
+        `jarEnd${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, конец дня, по замерам`,
+      ),
+      localProductionNumberField(
+        `jarShipmentEnd${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, конец дня, по отгрузкам`,
+      ),
+      ...[1, 2, 3, 4].map((measurementNumber) =>
+        localProductionNumberField(
+          `jarMeasurement${jarNumber}_${measurementNumber}`,
+          `Замеры банок — Банка ${jarNumber}, замер ${measurementNumber}`,
+          measurementNumber === 1,
+        )
+      ),
+      localProductionNumberField(
+        `jarLoaded${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, засыпали`,
+      ),
+      localProductionNumberField(
+        `jarShipped${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, отгрузили`,
+      ),
+      {
+        name: `jarMaterial${jarNumber}`,
+        label: `Замеры банок — Банка ${jarNumber}, содержимое`,
+        type: "text" as const,
+        required: false,
+        maxLength: 120,
+      },
+      localProductionNumberField(
+        `jarAverage${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, среднее значение`,
+      ),
+      localProductionNumberField(
+        `jarBulkDensity${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, насыпная плотность`,
+      ),
+      {
+        name: `jarBulkDensityDate${jarNumber}`,
+        label: `Замеры банок — Банка ${jarNumber}, дата насыпной плотности`,
+        type: "date" as const,
+        required: false,
+      },
+      localProductionNumberField(
+        `jarVolume${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, объём по замерам`,
+      ),
+      localProductionNumberField(
+        `jarCalculatedWeight${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, расчётный вес по замерам`,
+      ),
+      localProductionNumberField(
+        `jarShipmentCalculatedWeight${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, расчётный вес по отгрузкам`,
+      ),
+    ]),
+    {
+      name: "coshMaster",
+      label: "Замеры банок — Мастер ЦОШ",
+      type: "text",
+      required: true,
+      maxLength: 120,
+    },
+  ];
 }
 
 function localProductionNumberField(
   name: string,
   label: string,
+  required = false,
 ): DispatcherFormField {
   return {
     name,
     label,
     type: "number",
-    required: false,
+    required,
   };
 }
 

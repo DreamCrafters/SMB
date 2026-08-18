@@ -5,6 +5,7 @@ import {
   mapDispatcherSubmissionRow,
   validateDispatcherSubmissionDraft,
 } from "./dispatcherSubmission.js";
+
 import {
   applyIncidentStateRules,
   buildIncidentOverviewPeriod,
@@ -12,6 +13,13 @@ import {
   buildOpenIncidentSummaries,
 } from "./dispatcherIncidentState.js";
 import { applyVisitorStateRules } from "./dispatcherVisitorState.js";
+
+const requiredProductionBankInput = {
+  jarMeasurement1_1: "1",
+  jarMeasurement2_1: "1.5",
+  jarMeasurement3_1: "2",
+  coshMaster: "Сидоров С.С.",
+};
 
 test("validateDispatcherSubmissionDraft accepts and trims a known form payload", () => {
   const result = validateDispatcherSubmissionDraft({
@@ -105,6 +113,7 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
     formId: "production",
     payload: {
       reportDate: "2026-07-16",
+      ...requiredProductionBankInput,
       formingDay: "12,5",
       formingProductBrand: "ПБ-5",
       unformedBrand1: "МКР-1",
@@ -127,6 +136,7 @@ test("validateDispatcherSubmissionDraft accepts a production report and derives 
     assert.deepEqual(result.value.draft.payload, {
       reportDate: "16.07.2026",
       reportMonth: "2026-07",
+      ...requiredProductionBankInput,
       formingDay: "12.5",
       formingProductBrand: "ПБ-5",
       unformedBrand1: "МКР-1",
@@ -151,6 +161,7 @@ test("validateDispatcherSubmissionDraft requires one unique saved-brand fact per
     formId: "production",
     payload: {
       reportDate: "2026-07-16",
+      ...requiredProductionBankInput,
       unformedBrand1: "МКР-1",
       unformedFact1: "4",
       unformedBrand2: " мкр-1 ",
@@ -172,6 +183,7 @@ test("validateDispatcherSubmissionDraft accepts dynamic forming and sorting bran
     formId: "production",
     payload: {
       reportDate: "2026-07-16",
+      ...requiredProductionBankInput,
       formingBrand1: "ФЛ-1",
       formingFact1: "4,5",
       formingBrand2: "ФЛ-2",
@@ -187,6 +199,7 @@ test("validateDispatcherSubmissionDraft accepts dynamic forming and sorting bran
     assert.deepEqual(result.value.draft.payload, {
       reportDate: "16.07.2026",
       reportMonth: "2026-07",
+      ...requiredProductionBankInput,
       formingBrand1: "ФЛ-1",
       formingFact1: "4.5",
       formingBrand2: "ФЛ-2",
@@ -202,6 +215,7 @@ test("validateDispatcherSubmissionDraft omits a blank forming fact on a weekend"
     formId: "production",
     payload: {
       reportDate: "2026-07-18",
+      ...requiredProductionBankInput,
       formingBrand1: "ФЛ-1",
       sortingBrand1: "СО-1",
       sortingFact1: "5",
@@ -214,6 +228,7 @@ test("validateDispatcherSubmissionDraft omits a blank forming fact on a weekend"
     assert.deepEqual(result.value.draft.payload, {
       reportDate: "18.07.2026",
       reportMonth: "2026-07",
+      ...requiredProductionBankInput,
       sortingBrand1: "СО-1",
       sortingFact1: "5",
     });

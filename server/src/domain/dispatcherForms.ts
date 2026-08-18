@@ -375,35 +375,93 @@ function buildProductionSummaryFields(
 }
 
 function buildJarMeasurementFields(): DispatcherFormField[] {
-  return [1, 2, 3].flatMap((jarNumber) => [
-    productionNumberField(
-      `jarStart${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, начало дня, по замерам`,
-    ),
-    productionNumberField(
-      `jarShipmentStart${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, начало дня, по отгрузкам`,
-    ),
-    productionNumberField(
-      `jarEnd${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, конец дня, по замерам`,
-    ),
-    productionNumberField(
-      `jarShipmentEnd${jarNumber}`,
-      `Замеры банок — Банка ${jarNumber}, конец дня, по отгрузкам`,
-    ),
-  ]);
+  return [
+    ...[1, 2, 3].flatMap((jarNumber) => [
+      productionNumberField(
+        `jarStart${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, начало дня, по замерам`,
+      ),
+      productionNumberField(
+        `jarShipmentStart${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, начало дня, по отгрузкам`,
+      ),
+      productionNumberField(
+        `jarEnd${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, конец дня, по замерам`,
+      ),
+      productionNumberField(
+        `jarShipmentEnd${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, конец дня, по отгрузкам`,
+      ),
+      ...[1, 2, 3, 4].map((measurementNumber) =>
+        productionNumberField(
+          `jarMeasurement${jarNumber}_${measurementNumber}`,
+          `Замеры банок — Банка ${jarNumber}, замер ${measurementNumber}`,
+          measurementNumber === 1,
+        )
+      ),
+      productionNumberField(
+        `jarLoaded${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, засыпали`,
+      ),
+      productionNumberField(
+        `jarShipped${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, отгрузили`,
+      ),
+      {
+        name: `jarMaterial${jarNumber}`,
+        label: `Замеры банок — Банка ${jarNumber}, содержимое`,
+        type: "text" as const,
+        required: false,
+        maxLength: 120,
+      },
+      productionNumberField(
+        `jarAverage${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, среднее значение`,
+      ),
+      productionNumberField(
+        `jarBulkDensity${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, насыпная плотность`,
+      ),
+      {
+        name: `jarBulkDensityDate${jarNumber}`,
+        label: `Замеры банок — Банка ${jarNumber}, дата насыпной плотности`,
+        type: "date" as const,
+        required: false,
+      },
+      productionNumberField(
+        `jarVolume${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, объём по замерам`,
+      ),
+      productionNumberField(
+        `jarCalculatedWeight${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, расчётный вес по замерам`,
+      ),
+      productionNumberField(
+        `jarShipmentCalculatedWeight${jarNumber}`,
+        `Замеры банок — Банка ${jarNumber}, расчётный вес по отгрузкам`,
+      ),
+    ]),
+    {
+      name: "coshMaster",
+      label: "Замеры банок — Мастер ЦОШ",
+      type: "text",
+      required: true,
+      maxLength: 120,
+    },
+  ];
 }
 
 function productionNumberField(
   name: string,
   label: string,
+  required = false,
 ): DispatcherFormField {
   return {
     name,
     label,
     type: "number",
-    required: false,
+    required,
   };
 }
 
