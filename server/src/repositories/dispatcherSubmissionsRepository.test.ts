@@ -52,6 +52,40 @@ test("dispatcher submissions repository filters production history by payload mo
   ]);
 });
 
+test("dispatcher submissions repository finds the latest production report before a date", async () => {
+  let statement = "";
+  let queryValues: unknown[] = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      statement = sql.replace(/\s+/gu, " ").trim();
+      queryValues = values ?? [];
+      return [[{
+        id: "production-2026-07-20",
+        form_id: "production",
+        payload: JSON.stringify({ reportDate: "20.07.2026" }),
+        summary: "Выработка за 20.07.2026",
+        status: "received",
+        submitted_by_account_id: "dispatcher-1",
+        submitted_at: "2026-07-20T18:00:00.000Z",
+        received_at: "2026-07-20T18:00:01.000Z",
+      }], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createDispatcherSubmissionsRepository(pool);
+
+  const found = await repository.findLatestProductionBefore?.("2026-07-23");
+
+  // Цепочка веса по отгрузкам не должна рваться на пропущенном дне, поэтому
+  // выборка идёт строго по дате отчёта, а не по предыдущему календарному дню.
+  assert.match(statement, /< cast\(\? as date\)/u);
+  assert.match(statement, /like '__\.__\.____'/u);
+  assert.match(statement, /order by case .* end desc, received_at desc/u);
+  assert.match(statement, /limit 1$/u);
+  assert.deepEqual(queryValues, ["production", "2026-07-23"]);
+  assert.equal(found?.id, "production-2026-07-20");
+  assert.equal(found?.payload.reportDate, "20.07.2026");
+});
+
 test("dispatcher submissions repository reads only accumulated COSH master names", async () => {
   let statement = "";
   let queryValues: unknown[] = [];

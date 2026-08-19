@@ -76,9 +76,10 @@ export type CoshBankMeasurementInput = {
 
 /**
  * Вес по отгрузкам ведёт собственную цепочку: базой служит предыдущий вес по
- * отгрузкам этой же банки, а не её вес по замерам за текущую смену. Материал
+ * отгрузкам этой же банки, а вес по замерам в расчёт не входит. Материал
  * прошлой записи нужен, чтобы отследить смену содержимого банки: накопленный
- * баланс относится к прежнему материалу и вместе с ним заканчивается.
+ * баланс относится к прежнему материалу и вместе с ним заканчивается, а на
+ * новом содержимом цепочка стартует с нуля.
  */
 export type PreviousBankShipment = {
   materialLabel: string;
@@ -111,7 +112,7 @@ export function calculateBankMeasurement({
   measurements: readonly number[];
   loadedTons?: number;
   shippedTons?: number;
-  /** Предыдущая запись цепочки; без неё и при смене материала цепочка стартует с веса по замерам. */
+  /** Предыдущая запись цепочки; без неё и при смене материала цепочка стартует с нуля. */
   previousShipment?: PreviousBankShipment;
   volumeReference: BankVolumeReference;
 }): BankMeasurementCalculationResult {
@@ -174,7 +175,6 @@ export function calculateBankMeasurement({
   const shipmentBaseTons = readShipmentBaseTons(
     previousShipment,
     assignment.materialLabel,
-    materialMassTons,
   );
   const shipmentMassTons = shipmentBaseTons + loadedTons - shippedTons;
 
@@ -290,14 +290,15 @@ export function calculateCoshBankMeasurements({
 }
 
 /**
- * Отсчётная точка цепочки — смена материала в банке: пока содержимое прежнее,
- * база берётся из предыдущего веса по отгрузкам, а на новом материале и на
- * legacy-записях без сохранённой базы цепочка начинается с веса по замерам.
+ * Отсчётная точка цепочки — назначение материала в банку: накопленный баланс
+ * принадлежит прежнему содержимому, поэтому с новым материалом, без предыдущей
+ * записи и на legacy-записях без сохранённого материала цепочка начинается с
+ * нуля. Вес по замерам сюда не входит вообще: это параллельный расчёт, а вес по
+ * отгрузкам складывается только из движений «Засыпали» и «Отгрузили».
  */
 function readShipmentBaseTons(
   previousShipment: PreviousBankShipment | undefined,
   materialLabel: string,
-  materialMassTons: number,
 ) {
   if (
     previousShipment === undefined ||
@@ -305,7 +306,7 @@ function readShipmentBaseTons(
     previousShipment.shipmentMassTons < 0 ||
     !isSameBankMaterial(previousShipment.materialLabel, materialLabel)
   ) {
-    return materialMassTons;
+    return 0;
   }
 
   return previousShipment.shipmentMassTons;

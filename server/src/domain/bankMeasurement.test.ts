@@ -50,8 +50,8 @@ test("bank measurement calculates average, table volume, and material mass", () 
       materialMassTons: 1133.001,
       loadedTons: 12,
       shippedTons: 5,
-      shipmentBaseTons: 1133.001,
-      shipmentMassTons: 1140.001,
+      shipmentBaseTons: 0,
+      shipmentMassTons: 7,
     },
   });
 });
@@ -80,8 +80,8 @@ test("bank measurement accepts any positive number of measurements", () => {
       materialMassTons: 251.985,
       loadedTons: 0,
       shippedTons: 0,
-      shipmentBaseTons: 251.985,
-      shipmentMassTons: 251.985,
+      shipmentBaseTons: 0,
+      shipmentMassTons: 0,
     },
   });
 });
@@ -176,7 +176,7 @@ test("shipment weight continues its own chain while the material stays the same"
   );
 });
 
-test("changed bank material restarts the shipment chain from the measured weight", () => {
+test("changed bank material restarts the shipment chain from zero", () => {
   const result = calculateBankMeasurement({
     assignment: assignments[0],
     measurements: [0, 0.1, 0.2, 0.3],
@@ -196,8 +196,8 @@ test("changed bank material restarts the shipment chain from the measured weight
     },
     {
       materialMassTons: 1133.001,
-      shipmentBaseTons: 1133.001,
-      shipmentMassTons: 1140.001,
+      shipmentBaseTons: 0,
+      shipmentMassTons: 7,
     },
   );
 });
@@ -239,7 +239,9 @@ test("COSH calculation runs both weights in parallel per bank", () => {
   if (!calculated.ok) return;
   assert.deepEqual(
     calculated.value.map((row) => [row.materialMassTons, row.shipmentMassTons]),
-    [[0, 42], [0, 14], [128.075, 128.075]],
+    // Банка III без предыдущей записи начинает цепочку с нуля, хотя вес по
+    // замерам у неё положительный: расчёты параллельные.
+    [[0, 42], [0, 14], [128.075, 0]],
   );
 });
 
@@ -262,7 +264,7 @@ test("COSH calculation restarts only the bank whose material was replaced", () =
   if (!calculated.ok) return;
   assert.deepEqual(
     calculated.value.map((row) => [row.shipmentBaseTons, row.shipmentMassTons]),
-    [[136.3, 141.3], [12, 17], [128.075, 128.075]],
+    [[0, 5], [12, 17], [0, 0]],
   );
 });
 

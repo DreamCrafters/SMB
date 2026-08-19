@@ -1236,16 +1236,15 @@ export function createApiServer({
                 assignments,
                 volumeReference,
                 materialBulkDensities,
-                previousSubmissions,
+                previousProduction,
               ] = await Promise.all([
                 laboratoryBankAssignments!.listCurrent(),
                 bankVolumeReferenceDataSource.read(),
                 rotaryKiln2FiringJournal!.listMaterialBulkDensities(),
-                dispatcherSubmissions.listLatest({
-                  formId: "production",
-                  reportDate: previousReportDate,
-                  limit: 1,
-                }),
+                readPreviousProductionSubmission(
+                  dispatcherSubmissions,
+                  reportDate,
+                ),
               ]);
               const refreshedAssignments = applyLatestBankBulkDensities(
                 assignments,
@@ -1257,7 +1256,7 @@ export function createApiServer({
                   productionPayload,
                 ),
                 previousShipments: readDispatcherPreviousBankShipments(
-                  previousSubmissions[0]?.payload,
+                  previousProduction?.payload,
                 ),
                 volumeReference,
               });
@@ -1279,7 +1278,10 @@ export function createApiServer({
                   reportDate,
                   calculated: calculated.value,
                   assignments: refreshedAssignments,
-                  previousPayload: previousSubmissions[0]?.payload,
+                  previousPayload: readPreviousDayProductionPayload(
+                    previousProduction,
+                    previousReportDate,
+                  ),
                 }),
               });
             } catch (error) {
@@ -7824,7 +7826,7 @@ async function handleDispatcherProductionBankContentsRequest({
       legacyCoshMasterOptions,
       dispatcherCoshMasterOptions,
       measurementSnapshot,
-      previousSubmissions,
+      previousProduction,
     ] = await Promise.all([
       laboratoryBankAssignments.listCurrent(),
       rotaryKiln2FiringJournal.listMaterialBulkDensities(),
@@ -7833,11 +7835,7 @@ async function handleDispatcherProductionBankContentsRequest({
       dispatcherSubmissions.listProductionCoshMasterOptions?.() ??
         Promise.resolve([]),
       readDispatcherProductionBankMeasurements(refractoryReports, reportDate),
-      dispatcherSubmissions.listLatest({
-        formId: "production",
-        reportDate: shiftCalendarDate(reportDate, -1),
-        limit: 1,
-      }),
+      readPreviousProductionSubmission(dispatcherSubmissions, reportDate),
     ]);
     const refreshedAssignments = applyLatestBankBulkDensities(
       currentAssignments,
@@ -7859,7 +7857,7 @@ async function handleDispatcherProductionBankContentsRequest({
           legacyCoshMasterOptions,
         ),
         previousShipments: toBankPreviousShipmentList(
-          readDispatcherPreviousBankShipments(previousSubmissions[0]?.payload),
+          readDispatcherPreviousBankShipments(previousProduction?.payload),
         ),
       },
       bankReport: measurementSnapshot.bankReport,
@@ -8197,7 +8195,7 @@ function buildProductionPayloadWithBankMeasurements({
     }
 
     // Начало по отгрузкам — фактическая отсчётная точка цепочки: предыдущий вес
-    // на прежнем материале и вес по замерам сразу после смены содержимого.
+    // на прежнем материале и ноль сразу после смены содержимого.
     nextPayload[`jarShipmentStart${bankNumber}`] =
       String(calculation.shipmentBaseTons);
 
@@ -8266,6 +8264,42 @@ function readDispatcherProductionBankInputs(
       `jarShipped${bankNumber}`,
     ),
   }));
+}
+
+/**
+ * Цепочка веса по отгрузкам продолжается от последней сводки строго раньше даты
+ * отчёта: пропущенный день не должен обнулять накопленный баланс.
+ */
+async function readPreviousProductionSubmission(
+  dispatcherSubmissions: DispatcherSubmissionsRepository,
+  reportDate: string,
+) {
+  if (dispatcherSubmissions.findLatestProductionBefore !== undefined) {
+    return dispatcherSubmissions.findLatestProductionBefore(reportDate);
+  }
+
+  // Репозиторий без этого метода умеет искать только точную дату отчёта.
+  const [previous] = await dispatcherSubmissions.listLatest({
+    formId: "production",
+    reportDate: shiftCalendarDate(reportDate, -1),
+    limit: 1,
+  });
+
+  return previous;
+}
+
+/**
+ * Начало дня по замерам остаётся привязанным ровно к предыдущей календарной
+ * дате: это конец прошлого дня, а не последнее известное значение.
+ */
+function readPreviousDayProductionPayload(
+  previousProduction: DispatcherSubmission | undefined,
+  previousReportDate: string,
+) {
+  return readIsoDispatcherReportDate(previousProduction?.payload.reportDate) ===
+      previousReportDate
+    ? previousProduction?.payload
+    : undefined;
 }
 
 /** Клиентский контракт — список, а не разреженная запись по номерам банок. */

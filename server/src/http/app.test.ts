@@ -3603,7 +3603,7 @@ test("production submission calculates dispatcher-entered bank measurements", as
             jarShipped1: "2",
             jarMeasurement2_1: "1.5",
             jarMeasurement3_1: "2",
-            jarShipped3: "5",
+            jarLoaded3: "5",
             coshMaster: "Сидоров С.С.",
           },
         }),
@@ -3645,7 +3645,7 @@ test("production submission calculates dispatcher-entered bank measurements", as
         jarShipped1: "2",
         jarMeasurement2_1: "1.5",
         jarMeasurement3_1: "2",
-        jarShipped3: "5",
+        jarLoaded3: "5",
         coshMaster: "Сидоров С.С.",
         jarMaterial1: "ШКИ",
         jarAverage1: "1",
@@ -3675,12 +3675,144 @@ test("production submission calculates dispatcher-entered bank measurements", as
         jarBulkDensityDate3: "2026-07-23",
         jarVolume3: "20",
         jarCalculatedWeight3: "60",
-        jarShipmentCalculatedWeight3: "55",
+        jarShipmentCalculatedWeight3: "5",
         jarStart3: "59",
-        jarShipmentStart3: "60",
+        jarShipmentStart3: "0",
         jarEnd3: "60",
-        jarShipmentEnd3: "55",
+        jarShipmentEnd3: "5",
       });
+    },
+    repository,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    emptyRefractoryReports,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
+    undefined,
+    rotaryKiln2FiringJournal,
+  );
+});
+
+test("production submission keeps the shipment chain across a missing report day", async () => {
+  let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
+  // Последняя сводка — за 20.07, отчёт сохраняется за 23.07: два дня пропущено.
+  const repository = buildRepositoryWithHistory([
+    {
+      id: "production-2026-07-20",
+      formId: "production",
+      formTitle: "Выработка",
+      payload: {
+        reportDate: "20.07.2026",
+        jarMaterial1: "ШКИ",
+        jarEnd1: "9",
+        jarShipmentEnd1: "11",
+        jarMaterial2: "ШКИ-66",
+        jarEnd2: "29",
+        jarShipmentEnd2: "31",
+        jarMaterial3: "ШГР-28",
+        jarEnd3: "59",
+        jarShipmentEnd3: "61",
+      },
+      summary: "Выработка за 20.07.2026",
+      status: "received",
+      submittedByAccountId: "dispatcher-1",
+      submittedAt: "2026-07-20T18:00:00.000Z",
+      receivedAt: "2026-07-20T18:00:01.000Z",
+    },
+  ], (draft) => {
+    createdDraft = draft;
+  });
+  const assignments = [
+    buildLaboratoryBankAssignment(1, "ШКИ", 1),
+    buildLaboratoryBankAssignment(2, "ШКИ-66", 2),
+    buildLaboratoryBankAssignment(3, "ШГР-28", 3),
+  ];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() { throw new Error("not used"); },
+    async listCurrent() { return assignments; },
+    async listHistory() { return assignments; },
+  };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return { points: [
+        { heightMeters: 0, volumeCubicMeters: 0 },
+        { heightMeters: 1, volumeCubicMeters: 10 },
+        { heightMeters: 2, volumeCubicMeters: 20 },
+        { heightMeters: 3, volumeCubicMeters: 30 },
+      ] };
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return assignments.map((assignment) => ({
+        material: assignment.materialLabel,
+        averageBulkDensityTonsPerCubicMeter:
+          assignment.bulkDensityTonsPerCubicMeter,
+        sampleCount: 10,
+        latestRecordDate: "2026-07-23",
+      }));
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          formId: "production",
+          payload: {
+            reportDate: "2026-07-23",
+            jarMeasurement1_1: "1",
+            jarLoaded1: "5",
+            jarShipped1: "3",
+            jarMeasurement2_1: "1",
+            jarMeasurement3_1: "1",
+            coshMaster: "Сидоров С.С.",
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      // Цепочка по отгрузкам продолжается от сводки за 20.07.
+      assert.deepEqual(
+        {
+          shipmentStart: createdDraft?.draft.payload.jarShipmentStart1,
+          shipmentEnd: createdDraft?.draft.payload.jarShipmentEnd1,
+          shipmentStart2: createdDraft?.draft.payload.jarShipmentStart2,
+          shipmentEnd2: createdDraft?.draft.payload.jarShipmentEnd2,
+        },
+        {
+          shipmentStart: "11",
+          shipmentEnd: "13",
+          shipmentStart2: "31",
+          shipmentEnd2: "31",
+        },
+      );
+      // Начало дня по замерам остаётся привязанным к 22.07, сводки за которое
+      // нет, поэтому значение не подставляется.
+      assert.equal(createdDraft?.draft.payload.jarStart1, undefined);
+      assert.equal(createdDraft?.draft.payload.jarEnd1, "10");
     },
     repository,
     emptyReferenceDataSource,
@@ -4152,7 +4284,9 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
       assert.equal(rows?.[1]?.materialMassTons, 80);
       assert.equal(rows?.[2]?.materialMassTons, 0);
       assert.equal(totals.jarMaterialMassTons, 160);
-      assert.equal(totals.jarShipmentMassTons, 166);
+      // Подтверждённой сводки раньше нет, поэтому цепочка по отгрузкам стартует
+      // с нуля и складывается только из движений: (10 − 5) + (4 − 3) + 0.
+      assert.equal(totals.jarShipmentMassTons, 6);
       assert.equal((stored.payload as RefractoryCoshPayload).coshMaster, "Сидоров С.С.");
       assert.deepEqual(
         (stored.payload as RefractoryCoshPayload).jarMeasurements?.map((row) => ({
@@ -4165,13 +4299,13 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
           {
             loadedTons: 10,
             shippedTons: 5,
-            shipmentMassTons: 85,
+            shipmentMassTons: 5,
             bulkDensityLatestRecordDate: "2026-07-23",
           },
           {
             loadedTons: 4,
             shippedTons: 3,
-            shipmentMassTons: 81,
+            shipmentMassTons: 1,
             bulkDensityLatestRecordDate: "2026-07-23",
           },
           {
@@ -4314,7 +4448,7 @@ test("COSH API continues the shipment chain until the bank material changes", as
             jarMeasurements: [
               { jarNumber: 1, values: [1, 1], loadedTons: 10, shippedTons: 5 },
               { jarNumber: 2, values: [2], loadedTons: 4, shippedTons: 3 },
-              { jarNumber: 3, values: [3], loadedTons: 0, shippedTons: 0 },
+              { jarNumber: 3, values: [2], loadedTons: 6, shippedTons: 0 },
             ],
           },
         }),
@@ -4333,7 +4467,9 @@ test("COSH API continues the shipment chain until the bank material changes", as
           row.shipmentBaseTons,
           row.shipmentMassTons,
         ]),
-        [[80, 17.5, 22.5], [80, 35, 36], [0, 0, 0]],
+        // Банка III сменила содержимое, поэтому её цепочка стартует с нуля и
+        // не наследует ни прошлый баланс, ни собственный вес по замерам.
+        [[80, 17.5, 22.5], [80, 35, 36], [120, 0, 6]],
       );
       assert.deepEqual(
         {
@@ -4342,7 +4478,7 @@ test("COSH API continues the shipment chain until the bank material changes", as
           shipment: (stored.totals as { jarShipmentMassTons?: number })
             .jarShipmentMassTons,
         },
-        { material: 160, shipment: 58.5 },
+        { material: 280, shipment: 64.5 },
       );
     },
     dispatcherSubmissions,
@@ -12645,6 +12781,19 @@ function buildRepositoryWithHistory(
     async listLatest() {
       return history;
     },
+    async findLatestProductionBefore(reportDate) {
+      return history
+        .flatMap((submission) => {
+          const date = submission.formId === "production"
+            ? readIsoTestReportDate(submission.payload.reportDate)
+            : undefined;
+          return date === undefined || date >= reportDate
+            ? []
+            : [{ submission, date }];
+        })
+        .sort((left, right) => right.date.localeCompare(left.date))[0]
+        ?.submission;
+    },
     async listProductionCoshMasterOptions() {
       return history.flatMap((submission) => {
         const value = submission.formId === "production"
@@ -12660,6 +12809,19 @@ function buildRepositoryWithHistory(
       };
     },
   };
+}
+
+/** Даты отчётов в фикстурах встречаются и в `DD.MM.YYYY`, и в `YYYY-MM-DD`. */
+function readIsoTestReportDate(value: string | undefined) {
+  const russian = /^(\d{2})\.(\d{2})\.(\d{4})$/u.exec(value?.trim() ?? "");
+
+  if (russian !== null) {
+    return `${russian[3]}-${russian[2]}-${russian[1]}`;
+  }
+
+  return /^\d{4}-\d{2}-\d{2}$/u.test(value?.trim() ?? "")
+    ? value!.trim()
+    : undefined;
 }
 
 function buildAuthService({

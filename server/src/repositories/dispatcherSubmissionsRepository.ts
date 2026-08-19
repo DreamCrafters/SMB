@@ -68,6 +68,20 @@ type WhereClause = {
 
 const dispatcherFeedPageLimit = 2_000;
 
+/**
+ * Дата отчёта хранится в payload в двух форматах: `DD.MM.YYYY` у сводок,
+ * сохранённых формой, и `YYYY-MM-DD` у legacy-импорта. Для сравнения дат обе
+ * записи приводятся к `date`; нераспознанное значение даёт `null` и выпадает из
+ * выборки.
+ */
+const productionReportDateSql = `case
+    when json_unquote(json_extract(payload, '$.reportDate')) like '__.__.____'
+      then str_to_date(
+        json_unquote(json_extract(payload, '$.reportDate')), '%d.%m.%Y')
+    else str_to_date(
+      json_unquote(json_extract(payload, '$.reportDate')), '%Y-%m-%d')
+  end`;
+
 export type DispatcherSubmissionsRepository = {
   create: (
     value: ValidatedDispatcherSubmissionDraft,
@@ -77,6 +91,15 @@ export type DispatcherSubmissionsRepository = {
     value: EquipmentReportRevisionDraft,
   ) => Promise<void>;
   listLatest: (filters?: DispatcherFeedFilters) => Promise<DispatcherSubmission[]>;
+  /**
+   * Последняя сводка `Выработка` строго раньше даты отчёта. Нужна цепочке веса
+   * по отгрузкам: пропущенный день не должен обнулять накопленный баланс,
+   * поэтому база ищется по дате отчёта, а не только за предыдущий календарный
+   * день.
+   */
+  findLatestProductionBefore?: (
+    reportDate: string,
+  ) => Promise<DispatcherSubmission | undefined>;
   listProductionCoshMasterOptions?: () => Promise<string[]>;
   readSummary: (filters?: DispatcherFeedFilters) => Promise<DispatcherFeedSummary>;
 };
@@ -254,6 +277,32 @@ export function createDispatcherSubmissionsRepository(
       );
 
       return rows.map(mapDispatcherSubmissionRow);
+    },
+
+    async findLatestProductionBefore(reportDate) {
+      const [rows] = await pool.query<DispatcherSubmissionDbRow[]>(
+        `
+          select
+            id,
+            form_id,
+            payload,
+            summary,
+            status,
+            submitted_by_account_id,
+            submitted_at,
+            received_at
+          from dispatcher_submissions
+          where form_id = ?
+            and ${productionReportDateSql} < cast(? as date)
+          order by ${productionReportDateSql} desc,
+            received_at desc, submitted_at desc, id desc
+          limit 1
+        `,
+        ["production", reportDate],
+      );
+      const row = rows[0];
+
+      return row === undefined ? undefined : mapDispatcherSubmissionRow(row);
     },
 
     async listProductionCoshMasterOptions() {
