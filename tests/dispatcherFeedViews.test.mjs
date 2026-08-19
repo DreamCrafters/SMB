@@ -72,7 +72,7 @@ test("buildEquipmentSummaryRows aggregates production, downtime, and reasons", (
   ]);
 });
 
-test("buildEquipmentDetailRows lists selected equipment rows by report date", () => {
+test("buildEquipmentDetailRows lists selected equipment rows newest first", () => {
   const rows = buildEquipmentDetailRows(
     [
       buildSubmission(
@@ -132,27 +132,27 @@ test("buildEquipmentDetailRows lists selected equipment rows by report date", ()
   );
 
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].reportDate, "2026-07-01");
-  assert.equal(rows[0].productionTons, 15);
-  assert.equal(rows[0].downtimeHours, 3);
-  assert.equal(rows[0].receivedAt, "2026-07-01T20:00:00.000Z");
-  assert.equal(rows[0].submissionCount, 2);
+  assert.equal(rows[0].reportDate, "2026-07-03");
+  assert.equal(rows[0].productionTons, 7);
+  assert.equal(rows[0].downtimeHours, 4);
   assert.deepEqual(rows[0].downtimeReasons, [
-    {
-      reason: "Резерв",
-      hours: 3,
-    },
-  ]);
-  assert.deepEqual(rows[0].notes, ["Утро", "Вечер"]);
-  assert.equal(rows[1].reportDate, "2026-07-03");
-  assert.equal(rows[1].productionTons, 7);
-  assert.equal(rows[1].downtimeHours, 4);
-  assert.deepEqual(rows[1].downtimeReasons, [
     {
       reason: "Простой по мех, эл. части",
       hours: 4,
     },
   ]);
+  assert.equal(rows[1].reportDate, "2026-07-01");
+  assert.equal(rows[1].productionTons, 15);
+  assert.equal(rows[1].downtimeHours, 3);
+  assert.equal(rows[1].receivedAt, "2026-07-01T20:00:00.000Z");
+  assert.equal(rows[1].submissionCount, 2);
+  assert.deepEqual(rows[1].downtimeReasons, [
+    {
+      reason: "Резерв",
+      hours: 3,
+    },
+  ]);
+  assert.deepEqual(rows[1].notes, ["Утро", "Вечер"]);
 });
 
 test("buildProductionReportTables calculates monthly forming and sorting values", () => {
@@ -606,6 +606,47 @@ test("buildProductionReportTables keeps jar history from shipment-based values",
   });
 });
 
+test("buildProductionReportTables sorts brand and granulation history newest first", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("production-july-31", "production", {
+      reportDate: "31.07.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "8",
+      granulationFraction1630Day: "2",
+    }, "2026-07-31T18:00:00.000Z"),
+    buildSubmission("production-august-1", "production", {
+      reportDate: "01.08.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "6",
+      granulationFraction1630Day: "3",
+    }, "2026-08-01T18:00:00.000Z"),
+    buildSubmission("production-august-2", "production", {
+      reportDate: "02.08.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "4",
+      granulationFraction1630Day: "1",
+    }, "2026-08-02T18:00:00.000Z"),
+  ], {});
+
+  assert.deepEqual(
+    tables.forming.map((row) => row.reportDate),
+    ["2026-08-02", "2026-08-01", "2026-07-31"],
+  );
+  assert.deepEqual(
+    tables.granulation.map((row) => row.reportDate),
+    ["2026-08-02", "2026-08-01", "2026-07-31"],
+  );
+  // Накопительные месячные значения по-прежнему считаются по хронологии.
+  assert.deepEqual(
+    tables.forming.map((row) => row.monthFact),
+    [10, 6, 8],
+  );
+  assert.deepEqual(
+    tables.granulation.map((row) => row.fraction1630Month),
+    [4, 3, 2],
+  );
+});
+
 test("buildProductionReportTables sorts jar history by report date descending", () => {
   const tables = buildProductionReportTables([
     buildSubmission("production-august-5", "production", {
@@ -772,8 +813,10 @@ test("visitor helpers list open visitors and daily visits", () => {
   });
 
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].exitAt, "04.07.2026 12:00");
-  assert.equal(rows[1].exitAt, undefined);
+  assert.equal(rows[0].entryAt, "04.07.2026 13:00");
+  assert.equal(rows[0].exitAt, undefined);
+  assert.equal(rows[1].entryAt, "04.07.2026 09:10");
+  assert.equal(rows[1].exitAt, "04.07.2026 12:00");
 });
 
 test("visitor helpers close entries when exit has the same received timestamp", () => {
@@ -823,7 +866,7 @@ test("visitor overview closes a legacy entry when an exit contains a stale link"
   assert.deepEqual(buildOpenVisitorOptions(submissions), []);
 });
 
-test("buildVisitorVisitRows sorts completed visits by exit time descending", () => {
+test("buildVisitorVisitRows sorts visits by entry time descending", () => {
   const submissions = [
     buildSubmission("visit-july", "visitor", {
       fio: "Июльский посетитель",
@@ -851,7 +894,7 @@ test("buildVisitorVisitRows sorts completed visits by exit time descending", () 
 
   assert.deepEqual(
     buildVisitorVisitRows(submissions, {}).map((visitor) => visitor.entryId),
-    ["visit-august", "visit-july", "visit-open"],
+    ["visit-open", "visit-august", "visit-july"],
   );
 });
 
@@ -876,7 +919,7 @@ test("buildVisitorVisitRows supports ranges and an empty all-time range", () => 
       dateFrom: "2026-07-01",
       dateTo: "2026-07-31",
     }).map((visitor) => visitor.fio),
-    ["Первый июльский посетитель", "Второй июльский посетитель"],
+    ["Второй июльский посетитель", "Первый июльский посетитель"],
   );
   assert.equal(buildVisitorVisitRows(submissions, {}).length, 3);
 });

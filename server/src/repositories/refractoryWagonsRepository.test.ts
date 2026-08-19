@@ -121,7 +121,12 @@ test("refractory wagon repository creates and lists server-owned wagon records",
     serviceApprovalDate: "2026-08-14",
     createdAt: "2026-08-06T08:30:00.000Z",
   }]);
-  assert.match(queries[2]?.sql ?? "", /order by sequence_id desc/u);
+  // История вагонов идёт от свежих к старым: строка нового цикла без садки
+  // сверху, дальше по убыванию даты садки.
+  assert.match(
+    queries[2]?.sql ?? "",
+    /order by loading_date is null desc, loading_date desc, sequence_id desc/u,
+  );
   assert.match(queries[3]?.sql ?? "", /from refractory_wagon_lifecycle_events/u);
   assert.deepEqual(await repository.findByIds(["wagon-17"]), [{
     id: "wagon-17",

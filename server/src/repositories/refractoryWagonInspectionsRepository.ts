@@ -78,7 +78,7 @@ export function createRefractoryWagonInspectionsRepository(
           inspections.created_at
         from refractory_wagon_inspections inspections
         inner join refractory_wagons wagons on wagons.id = inspections.wagon_id
-        order by inspections.sequence_id desc
+        order by inspections.approval_date desc, inspections.sequence_id desc
         limit ${maxListedInspections}`,
       );
       return rows.map(mapInspectionRow);

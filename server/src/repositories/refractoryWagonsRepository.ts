@@ -197,6 +197,12 @@ export function createRefractoryWagonsRepository(
       };
     },
 
+    /**
+     * История вагонов: сверху самые свежие циклы по дате садки. Строка нового
+     * цикла ещё без садки — самая свежая, поэтому null идёт первым, а
+     * sequence_id остаётся тай-брейкером. Такой порядок сохраняет инвариант
+     * `selectLatestWagonCycles`: текущий цикл номера встречается первым.
+     */
     async list() {
       const [rows] = await pool.query<WagonRow[]>(
         `select
@@ -215,7 +221,7 @@ export function createRefractoryWagonsRepository(
           service_approval_date,
           created_at
         from refractory_wagons
-        order by sequence_id desc`,
+        order by loading_date is null desc, loading_date desc, sequence_id desc`,
       );
       const lifecycle = await loadLifecycle(pool, rows.map((row) => row.id));
       return rows.map((row) => mapWagonRow(row, lifecycle.get(row.id)));

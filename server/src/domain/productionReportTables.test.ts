@@ -49,7 +49,8 @@ test("buildProductionReportTables calculates server-owned production analytics",
     }),
   ], [productionPlan]);
 
-  assert.deepEqual(tables.forming[1], {
+  // История отсортирована от свежих к старым, поэтому второй день сверху.
+  assert.deepEqual(tables.forming[0], {
     reportId: "day-2",
     reportDate: "2026-07-02",
     facts: [
@@ -63,7 +64,7 @@ test("buildProductionReportTables calculates server-owned production analytics",
     deviation: -1,
     receivedAt: "2026-07-02T18:00:00.000Z",
   });
-  assert.deepEqual(tables.sorting[1], {
+  assert.deepEqual(tables.sorting[0], {
     reportId: "day-2",
     reportDate: "2026-07-02",
     facts: [
@@ -77,7 +78,7 @@ test("buildProductionReportTables calculates server-owned production analytics",
     deviation: 0,
     receivedAt: "2026-07-02T18:00:00.000Z",
   });
-  assert.deepEqual(tables.unformed[1], {
+  assert.deepEqual(tables.unformed[0], {
     reportId: "day-2",
     reportDate: "2026-07-02",
     facts: [
@@ -91,9 +92,9 @@ test("buildProductionReportTables calculates server-owned production analytics",
     deviation: -7,
     receivedAt: "2026-07-02T18:00:00.000Z",
   });
-  assert.equal(tables.chamotte[1]?.monthFact, 8);
+  assert.equal(tables.chamotte[0]?.monthFact, 8);
   assert.equal(tables.jars[0]?.consumption, 25);
-  assert.deepEqual(tables.granulation[1], {
+  assert.deepEqual(tables.granulation[0], {
     reportId: "day-2",
     reportDate: "2026-07-02",
     platesInOperation: 2,
@@ -157,6 +158,47 @@ test("buildProductionReportTables sorts jar history by report date descending", 
   assert.deepEqual(
     tables.jars.map((row) => row.reportDate),
     ["2026-08-05", "2026-07-31"],
+  );
+});
+
+test("buildProductionReportTables sorts brand and granulation history newest first", () => {
+  const tables = buildProductionReportTables([
+    buildSubmission("july-31", {
+      reportDate: "31.07.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "8",
+      granulationFraction1630Day: "2",
+    }, "2026-07-31T18:00:00.000Z"),
+    buildSubmission("august-1", {
+      reportDate: "01.08.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "6",
+      granulationFraction1630Day: "3",
+    }, "2026-08-01T18:00:00.000Z"),
+    buildSubmission("august-2", {
+      reportDate: "02.08.2026",
+      formingBrand1: "ФЛ-1",
+      formingFact1: "4",
+      granulationFraction1630Day: "1",
+    }, "2026-08-02T18:00:00.000Z"),
+  ]);
+
+  assert.deepEqual(
+    tables.forming.map((row) => row.reportDate),
+    ["2026-08-02", "2026-08-01", "2026-07-31"],
+  );
+  assert.deepEqual(
+    tables.granulation.map((row) => row.reportDate),
+    ["2026-08-02", "2026-08-01", "2026-07-31"],
+  );
+  // Накопительные месячные значения по-прежнему считаются по хронологии.
+  assert.deepEqual(
+    tables.forming.map((row) => row.monthFact),
+    [10, 6, 8],
+  );
+  assert.deepEqual(
+    tables.granulation.map((row) => row.fraction1630Month),
+    [4, 3, 2],
   );
 });
 

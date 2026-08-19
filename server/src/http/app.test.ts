@@ -9561,18 +9561,9 @@ test("remote API returns server-calculated production report tables", async () =
       isRecord(payload) && isRecord(payload.productionReportTables)
         ? payload.productionReportTables.forming
         : undefined,
+      // История отдаётся от свежих строк к старым при неизменных
+      // накопительных месячных значениях.
       [
-        {
-          reportId: "production-2026-07-01",
-          reportDate: "2026-07-01",
-          facts: [],
-          dayPlan: 10,
-          dayFact: 8,
-          monthPlan: 10,
-          monthFact: 8,
-          deviation: -2,
-          receivedAt: "2026-07-01T18:00:01.000Z",
-        },
         {
           reportId: "production-2026-07-02",
           reportDate: "2026-07-02",
@@ -9583,6 +9574,17 @@ test("remote API returns server-calculated production report tables", async () =
           monthFact: 20,
           deviation: 0,
           receivedAt: "2026-07-02T18:00:01.000Z",
+        },
+        {
+          reportId: "production-2026-07-01",
+          reportDate: "2026-07-01",
+          facts: [],
+          dayPlan: 10,
+          dayFact: 8,
+          monthPlan: 10,
+          monthFact: 8,
+          deviation: -2,
+          receivedAt: "2026-07-01T18:00:01.000Z",
         },
       ],
     );

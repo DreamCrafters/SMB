@@ -388,12 +388,14 @@ export function buildProductionMonthToDate(
   const result: ProductionMonthToDate = {};
 
   for (const category of productionCategories) {
-    const latestRow = (tables[category] as ProductionMetricRow[])
-      .filter(
+    // История отсортирована от свежих к старым, поэтому последний день до
+    // выбранного берётся по значению даты, а не по позиции в массиве.
+    const latestRow = readLatestProductionRow(
+      (tables[category] as ProductionMetricRow[]).filter(
         (row) =>
           row.reportDate.startsWith(month) && row.reportDate < reportDate,
-      )
-      .at(-1);
+      ),
+    );
     const schedule = applicablePlan?.schedules[category];
     const scheduledMonthPlan = schedule === undefined
       ? undefined
@@ -442,6 +444,18 @@ function readLatestProductionReports(
   return [...reportsByDate.entries()]
     .map(([reportDate, submission]) => ({ reportDate, submission }))
     .sort((left, right) => left.reportDate.localeCompare(right.reportDate));
+}
+
+/**
+ * Общее правило историй проекта: самые свежие строки сверху. Накопительные
+ * месячные итоги считаются по хронологии, поэтому сортировка применяется к уже
+ * готовым строкам, а не к исходному списку отчётов.
+ */
+function compareRowsByReportDateDescending(
+  left: { reportDate: string },
+  right: { reportDate: string },
+) {
+  return right.reportDate.localeCompare(left.reportDate);
 }
 
 function buildBrandRows(
@@ -503,7 +517,7 @@ function buildBrandRows(
       dayFact,
       ...readMonthlyValues(totals, categoryPlan.monthPlan),
     }];
-  });
+  }).sort(compareRowsByReportDateDescending);
 }
 
 function readDailyBrandFacts(
@@ -630,7 +644,7 @@ function buildJarRows(
           : { shipmentConsumption: shipmentStart - shipmentEnd }),
       }];
     }))
-    .sort((left, right) => right.reportDate.localeCompare(left.reportDate));
+    .sort(compareRowsByReportDateDescending);
 }
 
 function buildGranulationRows(
@@ -700,7 +714,7 @@ function buildGranulationRows(
         ? totals.fraction1218
         : undefined,
     }];
-  });
+  }).sort(compareRowsByReportDateDescending);
 }
 
 function readTotals(map: Map<string, ProductionTotals>, key: string) {

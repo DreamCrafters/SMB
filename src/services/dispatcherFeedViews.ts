@@ -245,6 +245,18 @@ export function buildEquipmentSummaryRows(
     .sort((left, right) => left.equipment.localeCompare(right.equipment, "ru"));
 }
 
+/**
+ * Общее правило историй проекта: самые свежие строки сверху. Накопительные
+ * месячные итоги считаются по хронологии, поэтому сортировка применяется к уже
+ * готовым строкам, а не к исходному списку отчётов.
+ */
+function compareRowsByReportDateDescending(
+  left: { reportDate: string },
+  right: { reportDate: string },
+) {
+  return right.reportDate.localeCompare(left.reportDate);
+}
+
 export function buildEquipmentDetailRows(
   submissions: DispatcherSubmission[],
   equipment: string,
@@ -340,7 +352,7 @@ export function buildEquipmentDetailRows(
       receivedAt: row.latestSubmission.receivedAt,
       submissionCount: row.submissionCount,
     }))
-    .sort((left, right) => left.reportDate.localeCompare(right.reportDate));
+    .sort(compareRowsByReportDateDescending);
 }
 
 export function buildProductionReportTables(
@@ -732,7 +744,7 @@ function buildProductionBrandRows(
     });
   }
 
-  return rows;
+  return rows.sort(compareRowsByReportDateDescending);
 }
 
 function readDailyProductionBrandFacts(
@@ -881,7 +893,7 @@ function buildProductionJarMeasurementRows(
         },
       ];
     });
-  }).sort((left, right) => right.reportDate.localeCompare(left.reportDate));
+  }).sort(compareRowsByReportDateDescending);
 }
 
 function buildProductionGranulationRows(
@@ -958,7 +970,7 @@ function buildProductionGranulationRows(
     });
   }
 
-  return rows;
+  return rows.sort(compareRowsByReportDateDescending);
 }
 
 function readFirstPayloadNumber(
@@ -1106,7 +1118,7 @@ export function buildVisitorVisitRows(
         exitAt: exit?.payload.exitAt,
       };
     })
-    .sort(compareVisitorVisitRowsByExitDescending);
+    .sort(compareVisitorVisitRowsByEntryDescending);
 }
 
 export function buildOpenVisitorOptions(
@@ -1635,30 +1647,25 @@ function compareSubmissionsAscending(
   return readVisitorLifecycleRank(left) - readVisitorLifecycleRank(right);
 }
 
-function compareVisitorVisitRowsByExitDescending(
+/**
+ * Журнал посетителей — история: сверху самый свежий визит по времени входа.
+ * Раньше строки сортировались по выходу, поэтому незакрытые визиты уходили вниз
+ * под вчерашние закрытые, а несколько открытых визитов оставались в порядке
+ * поступления.
+ */
+function compareVisitorVisitRowsByEntryDescending(
   left: VisitorVisitRow,
   right: VisitorVisitRow,
 ) {
-  const leftExitAt = readPayloadDateTime(left.exitAt);
-  const rightExitAt = readPayloadDateTime(right.exitAt);
+  const entryAtDelta = (readPayloadDateTime(right.entryAt) ?? 0) -
+    (readPayloadDateTime(left.entryAt) ?? 0);
 
-  if (leftExitAt === undefined && rightExitAt !== undefined) {
-    return 1;
+  if (entryAtDelta !== 0) {
+    return entryAtDelta;
   }
 
-  if (leftExitAt !== undefined && rightExitAt === undefined) {
-    return -1;
-  }
-
-  if (leftExitAt !== undefined && rightExitAt !== undefined) {
-    const exitAtDelta = rightExitAt - leftExitAt;
-
-    if (exitAtDelta !== 0) {
-      return exitAtDelta;
-    }
-  }
-
-  return 0;
+  return (readPayloadDateTime(right.exitAt) ?? 0) -
+    (readPayloadDateTime(left.exitAt) ?? 0);
 }
 
 function readVisitorLifecycleRank(submission: DispatcherSubmission) {
