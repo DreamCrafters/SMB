@@ -2884,8 +2884,14 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
     profile,
     "business.review_raw_material_warehouse",
   );
-  const canSubmit = canManageLaboratory &&
-    profile.activeAccess.position === "laboratory_assistant";
+  /*
+   * Право на заявку идёт от capability лабораторных журналов, а не от кода
+   * должности: администратор создаёт должности с id `position-<uuid>`, поэтому
+   * прежняя проверка по системному `laboratory_assistant` не давала форму
+   * никому, кроме одной посеянной должности. Кладовщик заявки по-прежнему не
+   * создаёт: у него только `business.review_raw_material_warehouse`.
+   */
+  const canSubmit = canManageLaboratory;
 
   if (
     url.pathname === "/api/laboratory/raw-material-warehouse" &&

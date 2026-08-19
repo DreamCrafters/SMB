@@ -12413,6 +12413,43 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
     assert.equal(forbiddenReviewResponse.status, 403);
   });
 
+  // Должность, созданная администратором, получает id `position-<uuid>`:
+  // право на заявку обязано идти от capability, а не от кода должности.
+  const customLaboratoryProfile = buildProductionProfile("business_owner");
+  customLaboratoryProfile.displayName = "Сидорова Мария";
+  customLaboratoryProfile.activeAccess.position = "position-8f21c0d4";
+  customLaboratoryProfile.activeAccess.positionDisplayName = "Лаборант ЦЗЛ";
+  customLaboratoryProfile.activeAccess.navigationItems = [
+    "business.laboratory_results",
+  ];
+  customLaboratoryProfile.activeAccess.capabilities = [
+    "business.manage_laboratory_results",
+  ];
+
+  await withRawMaterialWarehouseApiServer({
+    profile: customLaboratoryProfile,
+    repository,
+    productionBrands,
+    audit,
+  }, async (baseUrl) => {
+    const headers = {
+      "Content-Type": "application/json",
+      Cookie: "smb_session=prod-session",
+    };
+    const listResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse`,
+      { headers },
+    );
+    const listPayload = await listResponse.json() as {
+      permissions: { canSubmit: boolean; canReview: boolean };
+    };
+
+    assert.deepEqual(listPayload.permissions, {
+      canSubmit: true,
+      canReview: false,
+    });
+  });
+
   const warehouseProfile = buildProductionProfile("business_owner");
   warehouseProfile.displayName = "Петров Пётр";
   warehouseProfile.activeAccess.positionDisplayName = "Старший кладовщик";
