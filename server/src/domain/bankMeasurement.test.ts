@@ -50,6 +50,7 @@ test("bank measurement calculates average, table volume, and material mass", () 
       materialMassTons: 1133.001,
       loadedTons: 12,
       shippedTons: 5,
+      shipmentBaseTons: 1133.001,
       shipmentMassTons: 1140.001,
     },
   });
@@ -79,6 +80,7 @@ test("bank measurement accepts any positive number of measurements", () => {
       materialMassTons: 251.985,
       loadedTons: 0,
       shippedTons: 0,
+      shipmentBaseTons: 251.985,
       shipmentMassTons: 251.985,
     },
   });
@@ -146,6 +148,122 @@ test("COSH calculation requires all three banks and keeps assignment snapshots",
   assert.equal(complete.value.length, 3);
   assert.equal(complete.value[1]?.material, "ШКИ-66");
   assert.equal(complete.value[2]?.materialMassTons, 0);
+});
+
+test("shipment weight continues its own chain while the material stays the same", () => {
+  const result = calculateBankMeasurement({
+    assignment: assignments[0],
+    measurements: [0, 0.1, 0.2, 0.3],
+    loadedTons: 12,
+    shippedTons: 5,
+    previousShipment: { materialLabel: " шки ", shipmentMassTons: 800 },
+    volumeReference,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    {
+      materialMassTons: result.value.materialMassTons,
+      shipmentBaseTons: result.value.shipmentBaseTons,
+      shipmentMassTons: result.value.shipmentMassTons,
+    },
+    {
+      materialMassTons: 1133.001,
+      shipmentBaseTons: 800,
+      shipmentMassTons: 807,
+    },
+  );
+});
+
+test("changed bank material restarts the shipment chain from the measured weight", () => {
+  const result = calculateBankMeasurement({
+    assignment: assignments[0],
+    measurements: [0, 0.1, 0.2, 0.3],
+    loadedTons: 12,
+    shippedTons: 5,
+    previousShipment: { materialLabel: "ШГР-28", shipmentMassTons: 800 },
+    volumeReference,
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    {
+      materialMassTons: result.value.materialMassTons,
+      shipmentBaseTons: result.value.shipmentBaseTons,
+      shipmentMassTons: result.value.shipmentMassTons,
+    },
+    {
+      materialMassTons: 1133.001,
+      shipmentBaseTons: 1133.001,
+      shipmentMassTons: 1140.001,
+    },
+  );
+});
+
+test("shipment weight compares the remainder with the previous shipment weight", () => {
+  assert.deepEqual(
+    calculateBankMeasurement({
+      assignment: assignments[0],
+      measurements: [0],
+      loadedTons: 1,
+      shippedTons: 5,
+      previousShipment: { materialLabel: "ШКИ", shipmentMassTons: 2 },
+      volumeReference,
+    }),
+    {
+      ok: false,
+      error: "Отгрузили больше расчётного остатка с учётом засыпки.",
+      field: "shippedTons",
+    },
+  );
+});
+
+test("COSH calculation runs both weights in parallel per bank", () => {
+  const calculated = calculateCoshBankMeasurements({
+    assignments,
+    measurements: [
+      { bankNumber: 1, values: [15], loadedTons: 5, shippedTons: 3 },
+      { bankNumber: 2, values: [15], loadedTons: 2 },
+      { bankNumber: 3, values: [11] },
+    ],
+    previousShipments: {
+      1: { materialLabel: "ШКИ", shipmentMassTons: 40 },
+      2: { materialLabel: "ШКИ-66", shipmentMassTons: 12 },
+    },
+    volumeReference,
+  });
+
+  assert.equal(calculated.ok, true);
+  if (!calculated.ok) return;
+  assert.deepEqual(
+    calculated.value.map((row) => [row.materialMassTons, row.shipmentMassTons]),
+    [[0, 42], [0, 14], [128.075, 128.075]],
+  );
+});
+
+test("COSH calculation restarts only the bank whose material was replaced", () => {
+  const calculated = calculateCoshBankMeasurements({
+    assignments,
+    measurements: [
+      { bankNumber: 1, values: [11], loadedTons: 5 },
+      { bankNumber: 2, values: [11], loadedTons: 5 },
+      { bankNumber: 3, values: [11] },
+    ],
+    previousShipments: {
+      1: { materialLabel: "ШГР-28", shipmentMassTons: 40 },
+      2: { materialLabel: "ШКИ-66", shipmentMassTons: 12 },
+    },
+    volumeReference,
+  });
+
+  assert.equal(calculated.ok, true);
+  if (!calculated.ok) return;
+  assert.deepEqual(
+    calculated.value.map((row) => [row.shipmentBaseTons, row.shipmentMassTons]),
+    [[136.3, 141.3], [12, 17], [128.075, 128.075]],
+  );
 });
 
 test("bank measurement keeps calculating a legacy laboratory result snapshot", () => {

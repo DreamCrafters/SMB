@@ -48,6 +48,11 @@ export type RefractoryReportsRepository = {
   listLatestApprovedCoshForDates: (input: {
     reportDates: readonly string[];
   }) => Promise<RefractoryReportRevision[]>;
+  /** Последняя подтверждённая сводка ЦОШ строго раньше указанных даты и смены. */
+  findLatestApprovedCoshBefore: (input: {
+    reportDate: string;
+    shiftNumber: RefractoryShiftNumber;
+  }) => Promise<RefractoryReportRevision | undefined>;
   listCoshMasterOptions: () => Promise<string[]>;
   listPending: () => Promise<RefractoryReportRevision[]>;
   listRecentForSubmitter: (input: {
@@ -293,6 +298,20 @@ export function createRefractoryReportsRepository(
         reportDates,
       );
       return mapPersistedRevisions(rows);
+    },
+
+    async findLatestApprovedCoshBefore(input) {
+      const [rows] = await pool.query<RefractoryReportRow[]>(
+        `select ${selectRevisionFields}
+         from refractory_report_revisions
+         where report_type = 'cosh'
+           and status = 'approved'
+           and (report_date < ? or (report_date = ? and shift_number < ?))
+         order by report_date desc, shift_number desc, revision_number desc
+         limit 1`,
+        [input.reportDate, input.reportDate, input.shiftNumber],
+      );
+      return (await mapPersistedRevisions(rows))[0];
     },
 
     async listCoshMasterOptions() {

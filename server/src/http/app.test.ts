@@ -289,6 +289,7 @@ const emptyRefractoryReports: RefractoryReportsRepository = {
   async submit() { throw new Error("not used"); },
   async listLatestForShift() { return []; },
   async listLatestApprovedCoshForDates() { return []; },
+  async findLatestApprovedCoshBefore() { return undefined; },
   async listCoshMasterOptions() { return []; },
   async listPending() { return []; },
   async listRecentForSubmitter() { return []; },
@@ -3282,6 +3283,7 @@ test("dispatcher reads current bank materials and manual calculation data by dat
   const refractoryReports: RefractoryReportsRepository = {
     async submit() { throw new Error("not used"); },
     async listLatestForShift() { return []; },
+    async findLatestApprovedCoshBefore() { return undefined; },
     async listLatestApprovedCoshForDates(input) {
       requestedReportDates.push([...input.reportDates]);
       return [
@@ -3347,6 +3349,10 @@ test("dispatcher reads current bank materials and manual calculation data by dat
       payload: {
         reportDate: "22.07.2026",
         coshMaster: "Новый мастер ЦОШ",
+        jarMaterial1: "ШКИ-66",
+        jarShipmentEnd1: "16",
+        jarMaterial3: "ШГР-1",
+        jarShipmentEnd3: "53",
       },
       summary: "Выработка за 22.07.2026",
       status: "received",
@@ -3434,6 +3440,10 @@ test("dispatcher reads current bank materials and manual calculation data by dat
             ],
           },
           coshMasterOptions: ["Новый мастер ЦОШ", "Сидоров С.С."],
+          previousShipments: [
+            { bankNumber: 1, materialLabel: "ШКИ-66", shipmentMassTons: 16 },
+            { bankNumber: 3, materialLabel: "ШГР-1", shipmentMassTons: 53 },
+          ],
         },
         bankReport: {
           reportDate: "2026-07-23",
@@ -3518,10 +3528,13 @@ test("production submission calculates dispatcher-entered bank measurements", as
       formTitle: "Выработка",
       payload: {
         reportDate: "22.07.2026",
+        jarMaterial1: "ШКИ",
         jarEnd1: "9",
         jarShipmentEnd1: "11",
+        jarMaterial2: "ШКИ-66",
         jarEnd2: "29",
         jarShipmentEnd2: "31",
+        jarMaterial3: "ШГР-1",
         jarEnd3: "59",
         jarShipmentEnd3: "61",
       },
@@ -3640,22 +3653,22 @@ test("production submission calculates dispatcher-entered bank measurements", as
         jarBulkDensityDate1: "2026-07-23",
         jarVolume1: "10",
         jarCalculatedWeight1: "10",
-        jarShipmentCalculatedWeight1: "13",
+        jarShipmentCalculatedWeight1: "14",
         jarStart1: "9",
         jarShipmentStart1: "11",
         jarEnd1: "10",
-        jarShipmentEnd1: "13",
+        jarShipmentEnd1: "14",
         jarMaterial2: "ШКИ-66",
         jarAverage2: "1.5",
         jarBulkDensity2: "2",
         jarBulkDensityDate2: "2026-07-23",
         jarVolume2: "15",
         jarCalculatedWeight2: "30",
-        jarShipmentCalculatedWeight2: "30",
+        jarShipmentCalculatedWeight2: "31",
         jarStart2: "29",
         jarShipmentStart2: "31",
         jarEnd2: "30",
-        jarShipmentEnd2: "30",
+        jarShipmentEnd2: "31",
         jarMaterial3: "ШГР-28",
         jarAverage3: "2",
         jarBulkDensity3: "3",
@@ -3664,7 +3677,7 @@ test("production submission calculates dispatcher-entered bank measurements", as
         jarCalculatedWeight3: "60",
         jarShipmentCalculatedWeight3: "55",
         jarStart3: "59",
-        jarShipmentStart3: "61",
+        jarShipmentStart3: "60",
         jarEnd3: "60",
         jarShipmentEnd3: "55",
       });
@@ -3910,6 +3923,7 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
     },
     async listLatestForShift() { return []; },
     async listLatestApprovedCoshForDates() { return []; },
+    async findLatestApprovedCoshBefore() { return undefined; },
     async listCoshMasterOptions() { return ["Мастер ЦОШ"]; },
     async listPending() { return []; },
     async listRecentForSubmitter() { return []; },
@@ -4184,6 +4198,165 @@ test("COSH API calculates and snapshots all three current bank assignments", asy
     undefined,
     undefined,
     productionBrands,
+    undefined,
+    refractoryReports,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
+    undefined,
+    rotaryKiln2FiringJournal,
+  );
+});
+
+test("COSH API continues the shipment chain until the bank material changes", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.displayName = "Мастер ОЦ";
+  profile.activeAccess.navigationItems = ["business.refractory_shop"];
+  profile.activeAccess.capabilities = ["business.submit_refractory_reports"];
+  let requestedPrevious: { reportDate: string; shiftNumber: 1 | 2 } | undefined;
+  let stored: RefractoryReportRevision | undefined;
+  const refractoryReports: RefractoryReportsRepository = {
+    ...emptyRefractoryReports,
+    async submit(input) {
+      stored = {
+        id: "cosh-report-chain",
+        ...input.report,
+        revisionNumber: 1,
+        status: "pending",
+        submittedByUserId: input.submittedByUserId,
+        submittedByAccountId: input.submittedByAccountId,
+        masterDisplayName: input.masterDisplayName,
+        submittedAt: "2026-07-23T10:00:00.000Z",
+      };
+      return stored;
+    },
+    async findLatestApprovedCoshBefore(input) {
+      requestedPrevious = input;
+      return buildApprovedCoshReport({
+        id: "cosh-chain-previous",
+        reportDate: "2026-07-22",
+        shiftNumber: 2,
+        measurements: [1.25, 1.5, 1.75],
+        materials: ["ШКИ", "ШКИ-66", "ШГР-1"],
+      });
+    },
+  };
+  const assignments = [
+    buildLaboratoryBankAssignment(1, "ШКИ", 1),
+    buildLaboratoryBankAssignment(2, "ШКИ-66", 2),
+    buildLaboratoryBankAssignment(3, "ШГР-28", 3),
+  ];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() { throw new Error("not used"); },
+    async listCurrent() { return assignments; },
+    async listHistory() { return assignments; },
+  };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return { points: [
+        { heightMeters: 0, volumeCubicMeters: 100 },
+        { heightMeters: 1, volumeCubicMeters: 80 },
+        { heightMeters: 2, volumeCubicMeters: 40 },
+        { heightMeters: 3, volumeCubicMeters: 0 },
+      ] };
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return assignments.map((assignment) => ({
+        material: assignment.materialLabel,
+        averageBulkDensityTonsPerCubicMeter:
+          assignment.bulkDensityTonsPerCubicMeter,
+        sampleCount: 10,
+        latestRecordDate: "2026-07-23",
+      }));
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const bankContextResponse = await fetch(
+        `${baseUrl}/api/refractory-reports/banks?date=2026-07-23&shift=1`,
+        { headers: { Cookie: "smb_session=prod-session" } },
+      );
+      const bankContext = await bankContextResponse.json();
+
+      assert.equal(bankContextResponse.status, 200);
+      assert.deepEqual(
+        isRecord(bankContext) ? bankContext.previousShipments : undefined,
+        [
+          { bankNumber: 1, materialLabel: "ШКИ", shipmentMassTons: 17.5 },
+          { bankNumber: 2, materialLabel: "ШКИ-66", shipmentMassTons: 35 },
+          { bankNumber: 3, materialLabel: "ШГР-1", shipmentMassTons: 57.5 },
+        ],
+      );
+
+      const response = await fetch(`${baseUrl}/api/refractory-reports`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: "smb_session=prod-session",
+        },
+        body: JSON.stringify({
+          reportType: "cosh",
+          reportDate: "2026-07-23",
+          shiftNumber: 1,
+          payload: {
+            coshMaster: "Сидоров С.С.",
+            jarMeasurements: [
+              { jarNumber: 1, values: [1, 1], loadedTons: 10, shippedTons: 5 },
+              { jarNumber: 2, values: [2], loadedTons: 4, shippedTons: 3 },
+              { jarNumber: 3, values: [3], loadedTons: 0, shippedTons: 0 },
+            ],
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      assert.deepEqual(requestedPrevious, {
+        reportDate: "2026-07-23",
+        shiftNumber: 1,
+      });
+      assert.equal(stored?.reportType, "cosh");
+      if (stored?.reportType !== "cosh") return;
+      assert.deepEqual(
+        (stored.payload as RefractoryCoshPayload).jarMeasurements?.map((row) => [
+          row.materialMassTons,
+          row.shipmentBaseTons,
+          row.shipmentMassTons,
+        ]),
+        [[80, 17.5, 22.5], [80, 35, 36], [0, 0, 0]],
+      );
+      assert.deepEqual(
+        {
+          material: (stored.totals as { jarMaterialMassTons?: number })
+            .jarMaterialMassTons,
+          shipment: (stored.totals as { jarShipmentMassTons?: number })
+            .jarShipmentMassTons,
+        },
+        { material: 160, shipment: 58.5 },
+      );
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    productionConfig,
+    buildAuthService({ profile }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
     undefined,
     refractoryReports,
     undefined,
@@ -10451,6 +10624,9 @@ test("refractory reports are submitted and reviewed independently through protec
     async listLatestApprovedCoshForDates() {
       return [];
     },
+    async findLatestApprovedCoshBefore() {
+      return undefined;
+    },
     async listCoshMasterOptions() {
       return ["Мастер ЦОШ"];
     },
@@ -12374,11 +12550,13 @@ function buildApprovedCoshReport({
   reportDate,
   shiftNumber,
   measurements,
+  materials = ["Материал 1", "Материал 2", "Материал 3"],
 }: {
   id: string;
   reportDate: string;
   shiftNumber: 1 | 2;
   measurements: readonly [number, number, number];
+  materials?: readonly [string, string, string];
 }): RefractoryReportRevision {
   return {
     id,
@@ -12397,7 +12575,7 @@ function buildApprovedCoshReport({
         return {
           jarNumber: (index + 1) as 1 | 2 | 3,
           values: [averageHeightMeters, averageHeightMeters],
-          material: `Материал ${index + 1}`,
+          material: materials[index]!,
           averageHeightMeters,
           bulkDensityTonsPerCubicMeter: index + 1,
           bulkDensityLatestRecordDate: reportDate,

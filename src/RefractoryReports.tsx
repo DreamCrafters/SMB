@@ -114,7 +114,9 @@ export function RefractoryShopWorkspace({
     }
     const controller = new AbortController();
     setBanksState({ status: "loading" });
-    requestRefractoryBanks({ signal: controller.signal }).then((result) => {
+    requestRefractoryBanks(reportDate, shiftNumber, {
+      signal: controller.signal,
+    }).then((result) => {
       if (controller.signal.aborted) return;
       setBanksState(result.status === "ready"
         ? result
@@ -124,7 +126,7 @@ export function RefractoryShopWorkspace({
           });
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode, refreshVersion]);
+  }, [isAdminPreviewMode, refreshVersion, reportDate, shiftNumber]);
 
   useEffect(() => {
     setIsCorrectionMode(false);
@@ -626,6 +628,9 @@ function CoshForm({
           jarDrafts[bankNumber],
           jarMovementDrafts[bankNumber],
           bankData?.volumeReference,
+          bankData?.previousShipments.find(
+            (item) => item.bankNumber === bankNumber,
+          ),
         );
     return {
       bankNumber,
@@ -1090,6 +1095,8 @@ function readDraftBankCalculation(
   values: readonly string[],
   movements: { loadedTons: string; shippedTons: string },
   volumeReference: RefractoryBanksResponse["volumeReference"] | undefined,
+  previousShipment: RefractoryBanksResponse["previousShipments"][number] |
+    undefined,
 ): { value?: BankCalculationDisplay; error?: string } | undefined {
   if (assignment === undefined || volumeReference === undefined) return undefined;
   const measurements = values.flatMap((value) => {
@@ -1103,6 +1110,7 @@ function readDraftBankCalculation(
     measurements,
     loadedTons: readDraftNumber(movements.loadedTons),
     shippedTons: readDraftNumber(movements.shippedTons),
+    previousShipment,
     volumeReference,
   });
   return result.ok ? { value: result.value } : { error: result.error };

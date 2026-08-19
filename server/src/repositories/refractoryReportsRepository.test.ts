@@ -146,6 +146,50 @@ test("repository selects the latest approved COSH shift for each requested date"
   assert.deepEqual(queryParameters, ["2026-07-20", "2026-07-21"]);
 });
 
+test("repository reads the latest approved COSH strictly before a date and shift", async () => {
+  let querySql = "";
+  let queryParameters: readonly unknown[] = [];
+  const approvedCoshRow = {
+    ...pendingRow,
+    id: "cosh-previous-shift",
+    report_type: "cosh",
+    report_date: "2026-07-21",
+    shift_number: 2,
+    status: "approved",
+    payload: JSON.stringify({
+      jarMeasurements: [
+        { jarNumber: 1, values: [1.2], shipmentMassTons: 17.5 },
+      ],
+    }),
+  };
+  const pool = {
+    async query(sql: string, parameters: readonly unknown[]) {
+      querySql = sql;
+      queryParameters = parameters;
+      return [[approvedCoshRow], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createRefractoryReportsRepository(pool);
+
+  const report = await repository.findLatestApprovedCoshBefore({
+    reportDate: "2026-07-22",
+    shiftNumber: 1,
+  });
+
+  assert.equal(report?.id, "cosh-previous-shift");
+  assert.match(querySql, /report_type = 'cosh'/u);
+  assert.match(querySql, /status = 'approved'/u);
+  assert.match(
+    querySql,
+    /report_date < \? or \(report_date = \? and shift_number < \?\)/u,
+  );
+  assert.match(
+    querySql,
+    /order by report_date desc, shift_number desc, revision_number desc/u,
+  );
+  assert.deepEqual(queryParameters, ["2026-07-22", "2026-07-22", 1]);
+});
+
 test("repository accumulates COSH master options from new and legacy revisions", async () => {
   let querySql = "";
   const pool = {

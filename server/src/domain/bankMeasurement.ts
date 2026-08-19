@@ -54,6 +54,8 @@ export type BankMeasurementCalculation = {
   materialMassTons: number;
   loadedTons: number;
   shippedTons: number;
+  /** Отсчётная точка цепочки: вес по отгрузкам на начало этой записи. */
+  shipmentBaseTons: number;
   shipmentMassTons: number;
 };
 
@@ -72,6 +74,21 @@ export type CoshBankMeasurementInput = {
   shippedTons?: number;
 };
 
+/**
+ * Вес по отгрузкам ведёт собственную цепочку: базой служит предыдущий вес по
+ * отгрузкам этой же банки, а не её вес по замерам за текущую смену. Материал
+ * прошлой записи нужен, чтобы отследить смену содержимого банки: накопленный
+ * баланс относится к прежнему материалу и вместе с ним заканчивается.
+ */
+export type PreviousBankShipment = {
+  materialLabel: string;
+  shipmentMassTons: number;
+};
+
+export type PreviousBankShipments = Partial<
+  Record<BankNumber, PreviousBankShipment>
+>;
+
 export type CoshBankMeasurementCalculationResult =
   | { ok: true; value: BankMeasurementCalculation[] }
   | { ok: false; error: string; fieldPath?: string };
@@ -87,12 +104,15 @@ export function calculateBankMeasurement({
   measurements,
   loadedTons = 0,
   shippedTons = 0,
+  previousShipment,
   volumeReference,
 }: {
   assignment: BankAssignmentSnapshot;
   measurements: readonly number[];
   loadedTons?: number;
   shippedTons?: number;
+  /** Предыдущая запись цепочки; без неё и при смене материала цепочка стартует с веса по замерам. */
+  previousShipment?: PreviousBankShipment;
   volumeReference: BankVolumeReference;
 }): BankMeasurementCalculationResult {
   if (measurements.length === 0) {
@@ -151,7 +171,12 @@ export function calculateBankMeasurement({
   );
   const materialMassTons =
     volumeCubicMeters * assignment.bulkDensityTonsPerCubicMeter;
-  const shipmentMassTons = materialMassTons + loadedTons - shippedTons;
+  const shipmentBaseTons = readShipmentBaseTons(
+    previousShipment,
+    assignment.materialLabel,
+    materialMassTons,
+  );
+  const shipmentMassTons = shipmentBaseTons + loadedTons - shippedTons;
 
   if (shipmentMassTons < 0) {
     return {
@@ -196,6 +221,7 @@ export function calculateBankMeasurement({
       materialMassTons: roundToThreeDecimals(materialMassTons),
       loadedTons: roundToThreeDecimals(loadedTons),
       shippedTons: roundToThreeDecimals(shippedTons),
+      shipmentBaseTons: roundToThreeDecimals(shipmentBaseTons),
       shipmentMassTons: roundToThreeDecimals(shipmentMassTons),
     },
   };
@@ -204,10 +230,13 @@ export function calculateBankMeasurement({
 export function calculateCoshBankMeasurements({
   assignments,
   measurements,
+  previousShipments,
   volumeReference,
 }: {
   assignments: readonly BankAssignmentSnapshot[];
   measurements: readonly CoshBankMeasurementInput[];
+  /** Server-owned предыдущие записи цепочки; клиент их не передаёт. */
+  previousShipments?: PreviousBankShipments;
   volumeReference: BankVolumeReference;
 }): CoshBankMeasurementCalculationResult {
   const calculated: BankMeasurementCalculation[] = [];
@@ -238,6 +267,7 @@ export function calculateCoshBankMeasurements({
       measurements: measurement.values,
       loadedTons: measurement.loadedTons,
       shippedTons: measurement.shippedTons,
+      previousShipment: previousShipments?.[bankNumber],
       volumeReference,
     });
     if (!result.ok) {
@@ -257,6 +287,37 @@ export function calculateCoshBankMeasurements({
   }
 
   return { ok: true, value: calculated };
+}
+
+/**
+ * Отсчётная точка цепочки — смена материала в банке: пока содержимое прежнее,
+ * база берётся из предыдущего веса по отгрузкам, а на новом материале и на
+ * legacy-записях без сохранённой базы цепочка начинается с веса по замерам.
+ */
+function readShipmentBaseTons(
+  previousShipment: PreviousBankShipment | undefined,
+  materialLabel: string,
+  materialMassTons: number,
+) {
+  if (
+    previousShipment === undefined ||
+    !Number.isFinite(previousShipment.shipmentMassTons) ||
+    previousShipment.shipmentMassTons < 0 ||
+    !isSameBankMaterial(previousShipment.materialLabel, materialLabel)
+  ) {
+    return materialMassTons;
+  }
+
+  return previousShipment.shipmentMassTons;
+}
+
+function isSameBankMaterial(first: string, second: string) {
+  return normalizeBankMaterial(first) === normalizeBankMaterial(second) &&
+    normalizeBankMaterial(first).length > 0;
+}
+
+function normalizeBankMaterial(value: string) {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
 
 function validateVolumeReference(reference: BankVolumeReference) {

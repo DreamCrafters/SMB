@@ -58,9 +58,16 @@ export type RefractoryBanksResult =
   | ErrorResult;
 
 export async function requestRefractoryBanks(
+  reportDate: string,
+  shiftNumber: RefractoryShiftNumber,
   options: RequestOptions = {},
 ): Promise<RefractoryBanksResult> {
-  const result = await requestJson(`${REPORTS_PATH}/banks`, "GET", undefined, options);
+  const result = await requestJson(
+    `${REPORTS_PATH}/banks?date=${encodeURIComponent(reportDate)}&shift=${shiftNumber}`,
+    "GET",
+    undefined,
+    options,
+  );
   if (result.status === "error") return result;
   if (!isRefractoryBanksResponse(result.payload)) return invalidResponse();
   return { status: "ready", ...result.payload };
@@ -340,6 +347,16 @@ function isRefractoryBanksResponse(value: unknown): value is RefractoryBanksResp
       Number.isFinite(point.heightMeters) &&
       typeof point.volumeCubicMeters === "number" &&
       Number.isFinite(point.volumeCubicMeters)
+    ) &&
+    Array.isArray(value.previousShipments) &&
+    value.previousShipments.every((entry) =>
+      isRecord(entry) &&
+      (entry.bankNumber === 1 || entry.bankNumber === 2 ||
+        entry.bankNumber === 3) &&
+      typeof entry.materialLabel === "string" &&
+      entry.materialLabel.trim().length > 0 &&
+      typeof entry.shipmentMassTons === "number" &&
+      Number.isFinite(entry.shipmentMassTons)
     );
 }
 

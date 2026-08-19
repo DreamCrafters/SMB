@@ -4995,6 +4995,11 @@ function DispatcherProductionBankReportTable({
   const volumeReference = state.status === "ready"
     ? state.bankInput?.volumeReference
     : undefined;
+  const previousShipments = new Map(
+    (state.status === "ready"
+      ? state.bankInput?.previousShipments ?? []
+      : []).map((entry) => [entry.bankNumber, entry]),
+  );
   const [measurementDrafts, setMeasurementDrafts] = useState<
     Record<BankNumber, string[]>
   >(() => Object.fromEntries(bankNumbers.map((bankNumber) => {
@@ -5067,6 +5072,7 @@ function DispatcherProductionBankReportTable({
           measurementDrafts[bankNumber],
           movementDrafts[bankNumber],
           volumeReference,
+          previousShipments.get(bankNumber),
         );
     return {
       bankNumber,
@@ -5324,6 +5330,7 @@ function readDraftDispatcherBankCalculation(
   movement: { loaded: string; shipped: string },
   volumeReference: Parameters<typeof calculateBankMeasurement>[0]["volumeReference"] |
     undefined,
+  previousShipment: Parameters<typeof calculateBankMeasurement>[0]["previousShipment"],
 ): DispatcherBankCalculationState | undefined {
   if (assignment === undefined || volumeReference === undefined) return undefined;
   const values = measurements.flatMap((text) => {
@@ -5337,6 +5344,7 @@ function readDraftDispatcherBankCalculation(
     measurements: values,
     loadedTons: readDispatcherDraftNumber(movement.loaded),
     shippedTons: readDispatcherDraftNumber(movement.shipped),
+    previousShipment,
     volumeReference,
   });
   return result.ok ? { value: result.value } : { error: result.error };

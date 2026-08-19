@@ -899,6 +899,13 @@ test(`production form loads all saved data by date in ${label}`, async () => {
             ],
           },
           coshMasterOptions: ["Сидоров С.С."],
+          previousShipments: [
+            {
+              bankNumber: 1,
+              materialLabel: "ШКИ-66",
+              shipmentMassTons: 118.5,
+            },
+          ],
         },
         bankReport: bankReportDate === "2026-07-18"
           ? {
@@ -1154,7 +1161,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(
       rootElement.querySelector('input[name="jarShipmentEnd1"]')?.value,
-      isAdminPreviewMode ? undefined : "110.65",
+      isAdminPreviewMode ? undefined : "128.5",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarStart1"]')?.type,
@@ -1227,7 +1234,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.match(
       bankTable.textContent ?? "",
-      isAdminPreviewMode ? /110.*94/u : /100,65.*110,65/u,
+      isAdminPreviewMode ? /110.*94/u : /100,65.*128,5/u,
     );
     assert.equal(
       rootElement.querySelector(

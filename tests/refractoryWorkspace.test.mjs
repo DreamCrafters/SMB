@@ -119,6 +119,9 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
             buildBankAssignment(3, "ШГР-28", 1.09),
           ],
           coshMasterOptions: ["Сидоров С.С.", "Иванов Иван Иванович"],
+          previousShipments: [
+            { bankNumber: 1, materialLabel: "ШКИ", shipmentMassTons: 900 },
+          ],
           volumeReference: { points: [
             { heightMeters: 0, volumeCubicMeters: 988.5 },
             { heightMeters: 0.1, volumeCubicMeters: 980.65 },
@@ -312,6 +315,25 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     assert.equal(
       bankTable.querySelectorAll('input[name^="jar.1."]:not([name$="Tons"])').length,
       4,
+    );
+    for (const [name, value] of [
+      ["jar.1.0", "0,1"],
+      ["jar.1.loadedTons", "10"],
+      ["jar.1.shippedTons", "4"],
+    ]) {
+      const input = bankTable.querySelector(`input[name="${name}"]`);
+      assert.ok(input, name);
+      await React.act(async () => {
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+    }
+    assert.deepEqual(
+      Array.from(
+        bankTable.querySelectorAll(".refractory-bank-mass-row td:nth-child(2) output"),
+        (cell) => cell.textContent.replace(/\s/gu, " "),
+      ),
+      ["1 137,554", "906"],
     );
     assert.equal(rootElement.querySelector(".bank-measurement-add"), null);
     const coshMasterInput = rootElement.querySelector('input[name="coshMaster"]');
@@ -1177,6 +1199,7 @@ test("refractory correction can be cancelled without saving draft changes", asyn
             buildBankAssignment(3, "ШГР-28", 1.09),
           ],
           coshMasterOptions: ["Иванов Иван Иванович"],
+          previousShipments: [],
           volumeReference: {
             points: [
               { heightMeters: 0, volumeCubicMeters: 100 },

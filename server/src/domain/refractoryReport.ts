@@ -105,6 +105,7 @@ export type RefractoryCoshPayload = {
     materialMassTons?: number;
     loadedTons?: number;
     shippedTons?: number;
+    shipmentBaseTons?: number;
     shipmentMassTons?: number;
   }>;
   bunkerFill?: Array<{

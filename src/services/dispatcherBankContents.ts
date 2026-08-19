@@ -106,7 +106,9 @@ function isDispatcherProductionBankInput(value: unknown) {
     Array.isArray(value.volumeReference.points) &&
     value.volumeReference.points.every(isBankVolumeReferencePoint) &&
     Array.isArray(value.coshMasterOptions) &&
-    value.coshMasterOptions.every((option) => typeof option === "string")
+    value.coshMasterOptions.every((option) => typeof option === "string") &&
+    Array.isArray(value.previousShipments) &&
+    value.previousShipments.every(isBankPreviousShipment)
   );
 }
 
@@ -129,6 +131,16 @@ function isDispatcherProductionBankAssignment(value: unknown) {
     (value.sampleIdentifier === undefined ||
       typeof value.sampleIdentifier === "string") &&
     typeof value.assignedAt === "string"
+  );
+}
+
+function isBankPreviousShipment(value: unknown) {
+  return (
+    isRecord(value) &&
+    isBankNumber(value.bankNumber) &&
+    typeof value.materialLabel === "string" &&
+    value.materialLabel.trim().length > 0 &&
+    isFiniteNumber(value.shipmentMassTons)
   );
 }
 

@@ -35,6 +35,16 @@ export type LaboratoryBanksResponse = {
   availableMaterials: RotaryKiln2MaterialBulkDensity[];
 };
 
+/**
+ * Предыдущая запись цепочки веса по отгрузкам. Материал нужен, чтобы отследить
+ * смену содержимого банки: с новым материалом цепочка начинается заново.
+ */
+export type BankPreviousShipment = {
+  bankNumber: BankNumber;
+  materialLabel: string;
+  shipmentMassTons: number;
+};
+
 export type DispatcherProductionBankContent = Pick<
   LaboratoryBankAssignment,
   "bankNumber" | "materialLabel"
@@ -78,6 +88,7 @@ export type DispatcherProductionBankContentsResponse = {
     >;
     volumeReference: BankVolumeReference;
     coshMasterOptions: string[];
+    previousShipments: BankPreviousShipment[];
   };
   bankReport?: DispatcherProductionBankReport;
   reportDate: string;
@@ -88,4 +99,5 @@ export type RefractoryBanksResponse = {
   currentAssignments: LaboratoryBankAssignment[];
   volumeReference: BankVolumeReference;
   coshMasterOptions: string[];
+  previousShipments: BankPreviousShipment[];
 };

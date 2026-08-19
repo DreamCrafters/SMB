@@ -170,6 +170,8 @@ import {
   calculateCoshBankMeasurements,
   type BankMeasurementCalculation,
   type BankNumber,
+  type PreviousBankShipment,
+  type PreviousBankShipments,
 } from "../domain/bankMeasurement.js";
 import {
   refractoryReportLabels,
@@ -1253,6 +1255,9 @@ export function createApiServer({
                 assignments: refreshedAssignments,
                 measurements: readDispatcherProductionBankInputs(
                   productionPayload,
+                ),
+                previousShipments: readDispatcherPreviousBankShipments(
+                  previousSubmissions[0]?.payload,
                 ),
                 volumeReference,
               });
@@ -6669,17 +6674,28 @@ async function handleRefractoryReportsRequest({
       });
       return;
     }
+    const banksReportDate = url.searchParams.get("date") ?? "";
+    const banksShiftNumber = Number(url.searchParams.get("shift"));
+    const banksShift: { reportDate: string; shiftNumber: RefractoryShiftNumber } |
+      undefined = isCalendarDateQueryValue(banksReportDate) &&
+        (banksShiftNumber === 1 || banksShiftNumber === 2)
+      ? { reportDate: banksReportDate, shiftNumber: banksShiftNumber }
+      : undefined;
     try {
       const [
         currentAssignments,
         volumeReference,
         materialBulkDensities,
         coshMasterOptions,
+        previousCoshReport,
       ] = await Promise.all([
         laboratoryBankAssignments.listCurrent(),
         bankVolumeReferenceDataSource.read(),
         rotaryKiln2FiringJournal.listMaterialBulkDensities(),
         refractoryReports.listCoshMasterOptions(),
+        banksShift === undefined
+          ? Promise.resolve(undefined)
+          : refractoryReports.findLatestApprovedCoshBefore(banksShift),
       ]);
       sendJson(res, 200, {
         currentAssignments: applyLatestBankBulkDensities(
@@ -6688,6 +6704,9 @@ async function handleRefractoryReportsRequest({
         ),
         volumeReference,
         coshMasterOptions,
+        previousShipments: toBankPreviousShipmentList(
+          readCoshPreviousBankShipments(previousCoshReport),
+        ),
       });
     } catch (error) {
       console.warn("refractory_banks.reference_load_failed", error);
@@ -6992,10 +7011,19 @@ async function handleRefractoryReportsRequest({
       return;
     }
     try {
-      const [assignments, volumeReference, materialBulkDensities] = await Promise.all([
+      const [
+        assignments,
+        volumeReference,
+        materialBulkDensities,
+        previousCoshReport,
+      ] = await Promise.all([
         laboratoryBankAssignments.listCurrent(),
         bankVolumeReferenceDataSource.read(),
         rotaryKiln2FiringJournal.listMaterialBulkDensities(),
+        refractoryReports.findLatestApprovedCoshBefore({
+          reportDate: validation.value.reportDate,
+          shiftNumber: validation.value.shiftNumber,
+        }),
       ]);
       const calculated = calculateCoshBankMeasurements({
         assignments: applyLatestBankBulkDensities(
@@ -7010,6 +7038,7 @@ async function handleRefractoryReportsRequest({
             shippedTons: row.shippedTons,
           }),
         ),
+        previousShipments: readCoshPreviousBankShipments(previousCoshReport),
         volumeReference,
       });
       if (!calculated.ok) {
@@ -7795,6 +7824,7 @@ async function handleDispatcherProductionBankContentsRequest({
       legacyCoshMasterOptions,
       dispatcherCoshMasterOptions,
       measurementSnapshot,
+      previousSubmissions,
     ] = await Promise.all([
       laboratoryBankAssignments.listCurrent(),
       rotaryKiln2FiringJournal.listMaterialBulkDensities(),
@@ -7803,6 +7833,11 @@ async function handleDispatcherProductionBankContentsRequest({
       dispatcherSubmissions.listProductionCoshMasterOptions?.() ??
         Promise.resolve([]),
       readDispatcherProductionBankMeasurements(refractoryReports, reportDate),
+      dispatcherSubmissions.listLatest({
+        formId: "production",
+        reportDate: shiftCalendarDate(reportDate, -1),
+        limit: 1,
+      }),
     ]);
     const refreshedAssignments = applyLatestBankBulkDensities(
       currentAssignments,
@@ -7822,6 +7857,9 @@ async function handleDispatcherProductionBankContentsRequest({
         coshMasterOptions: collectDispatcherCoshMasterOptions(
           dispatcherCoshMasterOptions,
           legacyCoshMasterOptions,
+        ),
+        previousShipments: toBankPreviousShipmentList(
+          readDispatcherPreviousBankShipments(previousSubmissions[0]?.payload),
         ),
       },
       bankReport: measurementSnapshot.bankReport,
@@ -7937,6 +7975,35 @@ function readProductionBankMeasurementSide(
   };
 }
 
+/**
+ * Вес по отгрузкам новой сводки продолжает цепочку предыдущей подтверждённой
+ * сводки ЦОШ и не зависит от веса по замерам текущей смены.
+ */
+function readCoshPreviousBankShipments(
+  report: RefractoryReportRevision | undefined,
+): PreviousBankShipments {
+  const previous: PreviousBankShipments = {};
+
+  if (report?.reportType !== "cosh") {
+    return previous;
+  }
+
+  const rows = (report.payload as RefractoryCoshPayload).jarMeasurements ?? [];
+
+  for (const bankNumber of bankNumbers) {
+    const row = rows.find((item) => item.jarNumber === bankNumber);
+    const shipment = buildPreviousBankShipment(
+      row?.material,
+      readStoredBankShipmentMass(row, readStoredBankMaterialMass(row)),
+    );
+    if (shipment !== undefined) {
+      previous[bankNumber] = shipment;
+    }
+  }
+
+  return previous;
+}
+
 type StoredCoshBankMeasurement = NonNullable<
   RefractoryCoshPayload["jarMeasurements"]
 >[number];
@@ -7958,6 +8025,11 @@ function readStoredBankMaterialMass(
   return roundBankReportNumber(volume * density);
 }
 
+/**
+ * Восстановление legacy-ревизий, сохранённых до появления `shipmentMassTons`:
+ * они считались по прежнему правилу «вес по замерам + засыпали − отгрузили».
+ * Новые ревизии всегда приходят с сохранённым весом и этой ветки не достигают.
+ */
 function readStoredBankShipmentMass(
   measurement: StoredCoshBankMeasurement | undefined,
   materialMassTons: number | undefined,
@@ -8116,10 +8188,6 @@ function buildProductionPayloadWithBankMeasurements({
       previousPayload,
       `jarEnd${bankNumber}`,
     );
-    const previousShipmentEnd = readDispatcherBankPayloadNumber(
-      previousPayload,
-      `jarShipmentEnd${bankNumber}`,
-    );
     const assignment = assignments.find(
       (candidate) => candidate.bankNumber === bankNumber,
     );
@@ -8128,10 +8196,10 @@ function buildProductionPayloadWithBankMeasurements({
       nextPayload[`jarStart${bankNumber}`] = String(previousEnd);
     }
 
-    if (previousShipmentEnd !== undefined) {
-      nextPayload[`jarShipmentStart${bankNumber}`] =
-        String(previousShipmentEnd);
-    }
+    // Начало по отгрузкам — фактическая отсчётная точка цепочки: предыдущий вес
+    // на прежнем материале и вес по замерам сразу после смены содержимого.
+    nextPayload[`jarShipmentStart${bankNumber}`] =
+      String(calculation.shipmentBaseTons);
 
     nextPayload[`jarMaterial${bankNumber}`] = calculation.material;
     nextPayload[`jarAverage${bankNumber}`] =
@@ -8198,6 +8266,54 @@ function readDispatcherProductionBankInputs(
       `jarShipped${bankNumber}`,
     ),
   }));
+}
+
+/** Клиентский контракт — список, а не разреженная запись по номерам банок. */
+function toBankPreviousShipmentList(previous: PreviousBankShipments) {
+  return bankNumbers.flatMap((bankNumber) => {
+    const shipment = previous[bankNumber];
+    return shipment === undefined ? [] : [{ bankNumber, ...shipment }];
+  });
+}
+
+/**
+ * Вес по отгрузкам продолжает собственную цепочку от предыдущей сводки, поэтому
+ * база берётся только из server-owned значений прошлой диспетчерской выработки.
+ * Материал прошлой записи отдаётся вместе с весом: на новом содержимом банки
+ * цепочка начинается заново.
+ */
+function readDispatcherPreviousBankShipments(
+  previousPayload: DispatcherSubmission["payload"] | undefined,
+): PreviousBankShipments {
+  const previous: PreviousBankShipments = {};
+
+  for (const bankNumber of bankNumbers) {
+    const shipment = buildPreviousBankShipment(
+      previousPayload?.[`jarMaterial${bankNumber}`],
+      readDispatcherBankPayloadNumber(
+        previousPayload,
+        `jarShipmentEnd${bankNumber}`,
+      ),
+    );
+    if (shipment !== undefined) {
+      previous[bankNumber] = shipment;
+    }
+  }
+
+  return previous;
+}
+
+/** Без материала прошлой записи совпадение содержимого не подтвердить. */
+function buildPreviousBankShipment(
+  materialLabel: string | undefined,
+  shipmentMassTons: number | undefined,
+): PreviousBankShipment | undefined {
+  const trimmedMaterial = materialLabel?.trim();
+
+  return trimmedMaterial === undefined || trimmedMaterial.length === 0 ||
+      shipmentMassTons === undefined
+    ? undefined
+    : { materialLabel: trimmedMaterial, shipmentMassTons };
 }
 
 function readDispatcherBankPayloadNumber(
