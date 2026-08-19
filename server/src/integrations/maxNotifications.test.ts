@@ -178,7 +178,7 @@ test("createMaxNotificationService sends production reports to equipment recipie
   );
 });
 
-test("createMaxNotificationService splices assigned bank content into jar labels", async () => {
+test("createMaxNotificationService lists bank contents in a single block", async () => {
   const sent: { url: string; body: string }[] = [];
   const service = createMaxNotificationService(
     {
@@ -205,14 +205,18 @@ test("createMaxNotificationService splices assigned bank content into jar labels
     { bankNumber: 1, materialLabel: "ША-22" },
   ]);
 
+  const text = JSON.parse(sent[0]?.body ?? "{}").text as string;
+
   assert.match(
-    JSON.parse(sent[0]?.body ?? "{}").text,
-    /Замеры банок — Банка 1 \(ША-22\), начало дня, по замерам: 45/u,
+    text,
+    /- Банка 1 \(ША-22\), начало дня, по отгрузкам: —; по замерам 45,/u,
   );
   assert.match(
-    JSON.parse(sent[0]?.body ?? "{}").text,
-    /Замеры банок — Банка 2 \(Не назначено\), начало дня, по замерам: 12/u,
+    text,
+    /- Банка 2 \(Не назначено\), начало дня, по отгрузкам: —; по замерам 12,/u,
   );
+  // Задача 100: сырые поля замеров в рассылку больше не попадают.
+  assert.doesNotMatch(text, /Замеры банок —/u);
 });
 
 test("createMaxNotificationService marks every test-site message at the end", async () => {

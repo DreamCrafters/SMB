@@ -76,12 +76,6 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
       "",
       "Данные:",
       "Дата отчета: 27.07.2026",
-      "Замеры банок — Банка 1, начало дня, по отгрузкам: 760",
-      "Замеры банок — Банка 1, конец дня, по отгрузкам: 760",
-      "Замеры банок — Банка 2, начало дня, по отгрузкам: 316",
-      "Замеры банок — Банка 2, конец дня, по отгрузкам: 316",
-      "Замеры банок — Банка 3, начало дня, по отгрузкам: 1208",
-      "Замеры банок — Банка 3, конец дня, по отгрузкам: 1256",
       "Формовка — Марка изделия 1: ШЦУ-15 (вес 1,39), т",
       "Формовка — Марка изделия 2: ША-8",
       "Формовка — Факт по марке 1: 19.79",
@@ -93,6 +87,15 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
       "Цех обжига шамота — Марка изделия 1: Мертель МШ-28 (ШГР-28), т",
       "Цех обжига шамота — Факт по марке 1: 60",
       "Месяц отчета: 2026-07",
+      "",
+      // Задача 100: банки уходят одним блоком, сырые поля в текст не попадают.
+      "Содержимое банок:",
+      "- Банка 1 (Не назначено), начало дня, по отгрузкам: 760; " +
+        "по замерам —, на конец дня 760 / —",
+      "- Банка 2 (Не назначено), начало дня, по отгрузкам: 316; " +
+        "по замерам —, на конец дня 316 / —",
+      "- Банка 3 (Не назначено), начало дня, по отгрузкам: 1208; " +
+        "по замерам —, на конец дня 1256 / —",
     ].join("\n"),
   );
   assert.doesNotMatch(message?.text ?? "", /^Получено:/mu);
@@ -102,11 +105,12 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
   );
 });
 
-test("buildDispatcherSubmissionEmail splices assigned bank content after the bank number", () => {
+test("buildDispatcherSubmissionEmail lists bank contents in a single block", () => {
   const submission = buildSubmission("production", {
     jarStart1: "45",
     jarStart2: "12",
     jarStart3: "8",
+    coshMaster: "Сидоров С.С.",
   });
   submission.formTitle = "Выработка";
 
@@ -122,22 +126,29 @@ test("buildDispatcherSubmissionEmail splices assigned bank content after the ban
     ],
   );
 
-  assert.match(
-    message?.text ?? "",
-    /Замеры банок — Банка 1 \(ША-22\), начало дня, по замерам: 45/u,
+  assert.equal(
+    (message?.text ?? "").split("\n").slice(-5).join("\n"),
+    [
+      "Содержимое банок:",
+      "- Банка 1 (ША-22), начало дня, по отгрузкам: —; " +
+        "по замерам 45, на конец дня — / —",
+      "- Банка 2 (Не назначено), начало дня, по отгрузкам: —; " +
+        "по замерам 12, на конец дня — / —",
+      "- Банка 3 (ШКИ-66), начало дня, по отгрузкам: —; " +
+        "по замерам 8, на конец дня — / —",
+      "Мастер ЦОШ: Сидоров С.С.",
+    ].join("\n"),
   );
-  assert.match(
-    message?.text ?? "",
-    /Замеры банок — Банка 2 \(Не назначено\), начало дня, по замерам: 12/u,
-  );
-  assert.match(
-    message?.text ?? "",
-    /Замеры банок — Банка 3 \(ШКИ-66\), начало дня, по замерам: 8/u,
-  );
+  // Задача 100: сырые поля замеров в рассылку больше не попадают.
+  assert.doesNotMatch(message?.text ?? "", /Замеры банок —/u);
 });
 
-test("buildDispatcherSubmissionEmail leaves jar labels untouched without bank contents", () => {
-  const submission = buildSubmission("production", { jarStart1: "45" });
+test("buildDispatcherSubmissionEmail omits the bank block without bank fields", () => {
+  const submission = buildSubmission("production", {
+    reportDate: "27.07.2026",
+    formingBrand1: "ША-8",
+    formingFact1: "12",
+  });
   submission.formTitle = "Выработка";
 
   const message = buildDispatcherSubmissionEmail(
@@ -146,10 +157,29 @@ test("buildDispatcherSubmissionEmail leaves jar labels untouched without bank co
     "noreply@example.com",
   );
 
+  // Legacy-сводка без блока банок не получает пустой список банок.
+  assert.doesNotMatch(message?.text ?? "", /Содержимое банок/u);
+});
+
+test("buildDispatcherSubmissionEmail falls back to the report bank snapshot", () => {
+  const submission = buildSubmission("production", {
+    jarStart1: "45",
+    jarMaterial1: "ША-22",
+  });
+  submission.formTitle = "Выработка";
+
+  const message = buildDispatcherSubmissionEmail(
+    submission,
+    recipients,
+    "noreply@example.com",
+  );
+
+  // Без текущих назначений содержимое берётся из снимка самой сводки.
   assert.match(
     message?.text ?? "",
-    /Замеры банок — Банка 1, начало дня, по замерам: 45/u,
+    /- Банка 1 \(ША-22\), начало дня, по отгрузкам: —; по замерам 45,/u,
   );
+  assert.match(message?.text ?? "", /- Банка 2 \(Не назначено\),/u);
 });
 
 test("buildDispatcherSubmissionEmail adds mechanical recipients for mechanical incidents", () => {

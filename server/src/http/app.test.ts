@@ -3999,15 +3999,23 @@ test("production submission notifications receive current bank contents for the 
       });
 
       assert.equal(response.status, 201);
+      // Задача 100: банки уходят одним блоком, сырые поля замеров — нет.
       for (const text of [emailText, maxText]) {
+        assert.match(text ?? "", /^Содержимое банок:$/mu);
         assert.match(
           text ?? "",
-          /Замеры банок — Банка 1 \(ША-22\), замер 1: 1/u,
+          /^- Банка 1 \(ША-22\), начало дня, по отгрузкам: /mu,
         );
         assert.match(
           text ?? "",
-          /Замеры банок — Банка 2 \(ШКИ-66\), замер 1: 1\.5/u,
+          /^- Банка 2 \(ШКИ-66\), начало дня, по отгрузкам: /mu,
         );
+        assert.match(
+          text ?? "",
+          /^- Банка 3 \(ШГР-28\), начало дня, по отгрузкам: /mu,
+        );
+        assert.match(text ?? "", /^Мастер ЦОШ: Сидоров С\.С\.$/mu);
+        assert.doesNotMatch(text ?? "", /Замеры банок —/u);
       }
     },
     dispatcherSubmissions,

@@ -10,7 +10,7 @@ import {
   productionCategoryLabels,
   type ProductionCategory,
 } from "../domain/productionPlan.js";
-import type { BankNumber } from "../domain/bankMeasurement.js";
+import { bankNumbers, type BankNumber } from "../domain/bankMeasurement.js";
 import type { SmbAppEnv } from "../config/env.js";
 
 /** Задача 93: марка, назначенная банке на момент отправки уведомления. */
@@ -167,16 +167,13 @@ export function buildDispatcherNotificationText(
         ),
       );
   const form = getDispatcherFormDefinition(submission.formId);
-  const payloadLines = Object.entries(submission.payload).map(([key, value]) => {
-    const field = form?.fields.find((item) => item.name === key);
-    const label = readProductionNotificationFieldLabel(field, key);
+  const payloadLines = Object.entries(submission.payload)
+    .filter(([key]) => !isJarNotificationField(key))
+    .map(([key, value]) => {
+      const field = form?.fields.find((item) => item.name === key);
 
-    return `${
-      bankContentByNumber === undefined
-        ? label
-        : spliceJarBankContent(label, bankContentByNumber)
-    }: ${value}`;
-  });
+      return `${readProductionNotificationFieldLabel(field, key)}: ${value}`;
+    });
 
   return [
     `Форма: ${submission.formTitle}`,
@@ -185,6 +182,7 @@ export function buildDispatcherNotificationText(
     "",
     "Данные:",
     ...payloadLines,
+    ...buildJarBankNotificationLines(submission, bankContentByNumber),
   ].join("\n");
 }
 
@@ -440,20 +438,74 @@ function readProductionNotificationFieldLabel(
   return `${productionCategoryLabels[category]} — ${fieldLabel} ${match[3]}`;
 }
 
-/** Задача 93: вставляет содержимое банки сразу после «Замеры банок — Банка N». */
-function spliceJarBankContent(
-  label: string,
-  bankContentByNumber: Map<BankNumber, string>,
-) {
-  return label.replace(
-    /^Замеры банок — Банка (\d+)/u,
-    (match, bankNumberText: string) => {
-      const content = bankContentByNumber.get(Number(bankNumberText) as BankNumber) ??
-        "Не назначено";
+/**
+ * Задача 100: поля блока «Замеры банок» не уходят в рассылку построчно. Все они
+ * начинаются с `jar`, а мастер ЦОШ выводится последней строкой того же блока.
+ */
+function isJarNotificationField(fieldName: string) {
+  return /^jar/u.test(fieldName) || fieldName === "coshMaster";
+}
 
-      return `${match} (${content})`;
-    },
-  );
+/**
+ * Задача 100: вместо сырых полей банок уходит один компактный блок. Блок
+ * пропускается целиком, если в сводке нет ни одного поля банок.
+ */
+function buildJarBankNotificationLines(
+  submission: DispatcherSubmission,
+  bankContentByNumber: Map<BankNumber, string> | undefined,
+) {
+  if (!Object.keys(submission.payload).some(isJarNotificationField)) {
+    return [];
+  }
+
+  const coshMaster = submission.payload.coshMaster?.trim();
+
+  return [
+    "",
+    "Содержимое банок:",
+    ...bankNumbers.map((bankNumber) =>
+      `- Банка ${bankNumber} (${
+        readJarBankMaterial(submission, bankNumber, bankContentByNumber)
+      }), начало дня, по отгрузкам: ${
+        readJarNotificationValue(submission, `jarShipmentStart${bankNumber}`)
+      }; по замерам ${
+        readJarNotificationValue(submission, `jarStart${bankNumber}`)
+      }, на конец дня ${
+        readJarNotificationValue(submission, `jarShipmentEnd${bankNumber}`)
+      } / ${readJarNotificationValue(submission, `jarEnd${bankNumber}`)}`
+    ),
+    ...(coshMaster === undefined || coshMaster.length === 0
+      ? []
+      : [`Мастер ЦОШ: ${coshMaster}`]),
+  ];
+}
+
+/**
+ * Содержимое банки берётся из снимка сводки: уведомление описывает именно этот
+ * отчёт. Текущее назначение Лаборатории (задача 93) остаётся запасным
+ * источником для записей без снимка.
+ */
+function readJarBankMaterial(
+  submission: DispatcherSubmission,
+  bankNumber: BankNumber,
+  bankContentByNumber: Map<BankNumber, string> | undefined,
+) {
+  const snapshot = submission.payload[`jarMaterial${bankNumber}`]?.trim();
+
+  if (snapshot !== undefined && snapshot.length > 0) {
+    return snapshot;
+  }
+
+  return bankContentByNumber?.get(bankNumber) ?? "Не назначено";
+}
+
+function readJarNotificationValue(
+  submission: DispatcherSubmission,
+  fieldName: string,
+) {
+  const value = submission.payload[fieldName]?.trim();
+
+  return value === undefined || value.length === 0 ? "—" : value;
 }
 
 function readDispatcherSubmissionStatusLabel(
