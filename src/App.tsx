@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   accountCapabilities,
@@ -429,6 +430,12 @@ type DispatcherFeedFilterState = {
   dateFrom: string;
   dateTo: string;
   incidentView: "period" | "all_open";
+  /**
+   * Задача 99: выбранный раздел `Выработки` живёт в фильтрах, а не в локальном
+   * состоянии таблицы, чтобы плитка `Обзора` могла открыть `Замеры банок`
+   * сразу. Пока раздел не выбран, показывается первый непустой.
+   */
+  productionSection?: ProductionReportSection;
 };
 
 type ProductionReportSection = keyof ProductionReportTables;
@@ -1608,6 +1615,7 @@ export default function App() {
     group: DispatcherFeedGroup,
     navigateTab: (tab: BusinessTab) => void,
     changeFilters: (patch: Partial<DispatcherFeedFilterState>) => void,
+    productionSection?: ProductionReportSection,
   ) {
     navigateTab("dispatcher");
     const range = buildDispatcherFeedDateRange("current_month");
@@ -1617,24 +1625,31 @@ export default function App() {
       dateFrom: range.dateFrom ?? "",
       dateTo: range.dateTo ?? "",
       incidentView: "period",
+      ...(productionSection === undefined ? {} : { productionSection }),
     });
   }
 
-  function handleOverviewDispatcherNavigate(group: DispatcherFeedGroup) {
+  function handleOverviewDispatcherNavigate(
+    group: DispatcherFeedGroup,
+    productionSection?: ProductionReportSection,
+  ) {
     navigateOverviewToDispatcherGroup(
       group,
       handleOwnerTabNavigation,
       handleDispatcherFeedFiltersChange,
+      productionSection,
     );
   }
 
   function handleAdminViewedOverviewDispatcherNavigate(
     group: DispatcherFeedGroup,
+    productionSection?: ProductionReportSection,
   ) {
     navigateOverviewToDispatcherGroup(
       group,
       handleAdminViewedOwnerTabNavigation,
       handleAdminViewedDispatcherFeedFiltersChange,
+      productionSection,
     );
   }
 
@@ -2879,7 +2894,10 @@ function RoleWorkspace({
   requestedDispatcherFormId?: DispatcherFormId;
   onRequestedDispatcherFormHandled: () => void;
   requestedLaboratoryReviewDateFrom?: string;
-  onOverviewNavigateToDispatcherGroup: (group: DispatcherFeedGroup) => void;
+  onOverviewNavigateToDispatcherGroup: (
+    group: DispatcherFeedGroup,
+    productionSection?: ProductionReportSection,
+  ) => void;
   onOverviewNavigateToLaboratoryReview: () => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
@@ -3042,7 +3060,10 @@ function OwnerWorkspace({
   onDispatcherFeedFiltersChange: (
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
-  onNavigateToDispatcherGroup: (group: DispatcherFeedGroup) => void;
+  onNavigateToDispatcherGroup: (
+    group: DispatcherFeedGroup,
+    productionSection?: ProductionReportSection,
+  ) => void;
   onNavigateToLaboratoryReview: () => void;
   canViewVisitors: boolean;
 }) {
@@ -3052,6 +3073,10 @@ function OwnerWorkspace({
       dispatcherFeed.status === "ready"
         ? dispatcherFeed.productionMonthOverview ?? undefined
         : undefined,
+      dispatcherFeed.status === "ready"
+        ? dispatcherFeed.productionReportTables.jars
+        : [],
+      dispatcherFeed.status === "ready" ? dispatcherFeed.bankContents : [],
     );
 
     return (
@@ -3088,7 +3113,10 @@ export function OwnerOverviewPanel({
   businessOverview: BusinessOverviewLoadState;
   dispatcherFeed: DispatcherFeedLoadState;
   dispatcherOverview: OwnerDispatcherOverview;
-  onNavigateToDispatcherGroup?: (group: DispatcherFeedGroup) => void;
+  onNavigateToDispatcherGroup?: (
+    group: DispatcherFeedGroup,
+    productionSection?: ProductionReportSection,
+  ) => void;
   onNavigateToLaboratoryReview?: () => void;
   canViewVisitors?: boolean;
 }) {
@@ -3236,6 +3264,14 @@ export function OwnerOverviewPanel({
               />
             </>
           ) : null}
+          {dispatcherFeed.status === "ready" ? (
+            <OwnerBanksOverviewBlock
+              overview={dispatcherOverview}
+              onNavigate={onNavigateToDispatcherGroup === undefined
+                ? undefined
+                : () => onNavigateToDispatcherGroup("production", "jars")}
+            />
+          ) : null}
           {dispatcherFeed.status === "ready" && canViewVisitors !== false ? (
             <OwnerVisitorsOverviewBlock
               overview={dispatcherOverview}
@@ -3250,25 +3286,22 @@ export function OwnerOverviewPanel({
   );
 }
 
-function OwnerOverviewMetrics({
+/** Общая оболочка плитки Обзора: заголовок, кликабельность и подпись снизу. */
+function OwnerOverviewCard({
   title,
   headingMeta,
-  metrics,
   note,
   onNavigate,
+  children,
 }: {
   title: string;
   headingMeta?: {
     label: string;
     value: string;
   };
-  metrics: Array<{
-    label: string;
-    value: number | string;
-    tone?: "attention";
-  }>;
   note?: string;
   onNavigate?: () => void;
+  children: ReactNode;
 }) {
   return (
     <section
@@ -3298,6 +3331,41 @@ function OwnerOverviewMetrics({
           </p>
         )}
       </div>
+      {children}
+      {note === undefined ? null : (
+        <p className="owner-overview-note">{note}</p>
+      )}
+    </section>
+  );
+}
+
+function OwnerOverviewMetrics({
+  title,
+  headingMeta,
+  metrics,
+  note,
+  onNavigate,
+}: {
+  title: string;
+  headingMeta?: {
+    label: string;
+    value: string;
+  };
+  metrics: Array<{
+    label: string;
+    value: number | string;
+    tone?: "attention";
+  }>;
+  note?: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <OwnerOverviewCard
+      title={title}
+      headingMeta={headingMeta}
+      note={note}
+      onNavigate={onNavigate}
+    >
       <dl className="owner-overview-metrics">
         {metrics.map((metric) => (
           <div
@@ -3323,10 +3391,7 @@ function OwnerOverviewMetrics({
           </div>
         ))}
       </dl>
-      {note === undefined ? null : (
-        <p className="owner-overview-note">{note}</p>
-      )}
-    </section>
+    </OwnerOverviewCard>
   );
 }
 
@@ -3424,6 +3489,71 @@ function OwnerProductionOverviewBlock({
           : undefined
       }
     />
+  );
+}
+
+/**
+ * Задача 99: плитка «Банки» показывает содержимое и текущий остаток трёх банок
+ * в ряд и открывает `Диспетчерская → Выработка → Замеры банок`. Доступ у всех,
+ * у кого есть `Диспетчерская`: отдельным тумблером посетителей она не
+ * ограничена.
+ */
+function OwnerBanksOverviewBlock({
+  overview,
+  onNavigate,
+}: {
+  overview: OwnerDispatcherOverview;
+  onNavigate?: () => void;
+}) {
+  const latestReportDate = overview.banks
+    .flatMap((bank) => (bank.reportDate === undefined ? [] : [bank.reportDate]))
+    .sort((left, right) => right.localeCompare(left))[0];
+
+  return (
+    <OwnerOverviewCard
+      title="Банки"
+      onNavigate={onNavigate}
+      headingMeta={{
+        label: "Последний отчёт",
+        value: latestReportDate === undefined
+          ? "—"
+          : formatDateOnly(latestReportDate),
+      }}
+      note={latestReportDate === undefined
+        ? "Замеров банок пока нет."
+        : undefined}
+    >
+      <ul className="owner-overview-banks">
+        {overview.banks.map((bank) => (
+          <li className="owner-overview-bank" key={bank.bankNumber}>
+            <span className="owner-overview-bank-title">
+              Банка {bank.bankNumber}
+            </span>
+            <strong className="owner-overview-bank-material">
+              {bank.materialLabel ?? "Не назначено"}
+            </strong>
+            <dl className="owner-overview-bank-values">
+              <div>
+                <dt>Остаток по замерам, т</dt>
+                <dd>
+                  {bank.measuredTons === undefined
+                    ? "—"
+                    : formatNumber(bank.measuredTons)}
+                </dd>
+              </div>
+              <div>
+                <dt>Остаток по отгрузкам, т</dt>
+                <dd>
+                  {bank.shipmentTons === undefined
+                    ? "—"
+                    : formatNumber(bank.shipmentTons)}
+                </dd>
+              </div>
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </OwnerOverviewCard>
   );
 }
 
@@ -7485,6 +7615,9 @@ export function DispatcherFeedPanel({
           totals={productionTableTotals}
           bankContents={bankContents}
           submissions={submissions}
+          section={filters.productionSection}
+          onSectionChange={(productionSection) =>
+            onFiltersChange({ productionSection })}
         />
       ) : null}
       {dispatcherFeed.status === "ready" && activeGroup === "equipment" ? (
@@ -7654,22 +7787,28 @@ export function ProductionReportSummaryTable({
   totals,
   bankContents,
   submissions,
+  section: requestedSection,
+  onSectionChange,
 }: {
   form: DispatcherFormDefinition | undefined;
   tables: ProductionReportTables;
   totals: ProductionReportTableTotals;
   bankContents: readonly DispatcherProductionBankContent[];
   submissions: DispatcherSubmission[];
+  section?: ProductionReportSection;
+  onSectionChange: (section: ProductionReportSection) => void;
 }) {
   const firstAvailableSection = productionReportSectionOptions.find(
     (option) => tables[option.id].length > 0,
   )?.id;
-  const [section, setSection] = useState<ProductionReportSection>(
-    () => firstAvailableSection ?? "forming",
-  );
+  /**
+   * Задача 99: раздел выбирается снаружи, чтобы плитка `Обзора` открывала
+   * `Замеры банок`. Пока выбора не было, показывается первый непустой раздел —
+   * поэтому пришедшие позже данные сами открывают нужную таблицу.
+   */
+  const section = requestedSection ?? firstAvailableSection ?? "forming";
   const [formingBrandQuery, setFormingBrandQuery] = useState("");
   const [sortingBrandQuery, setSortingBrandQuery] = useState("");
-  const hadAvailableSectionRef = useRef(firstAvailableSection !== undefined);
   const [detailReportId, setDetailReportId] = useState<string>();
   const filteredFormingRows = filterProductionBrandCategoryRows(
     tables.forming,
@@ -7693,18 +7832,6 @@ export function ProductionReportSummaryTable({
     (submission) =>
       submission.formId === "production" && submission.id === detailReportId,
   );
-
-  useEffect(() => {
-    if (
-      !hadAvailableSectionRef.current &&
-      firstAvailableSection !== undefined &&
-      selectedRows.length === 0
-    ) {
-      setSection(firstAvailableSection);
-    }
-
-    hadAvailableSectionRef.current = firstAvailableSection !== undefined;
-  }, [firstAvailableSection, selectedRows.length]);
 
   useEffect(() => {
     if (
@@ -7759,7 +7886,7 @@ export function ProductionReportSummaryTable({
             type="button"
             aria-pressed={section === option.id}
             key={option.id}
-            onClick={() => setSection(option.id)}
+            onClick={() => onSectionChange(option.id)}
           >
             {option.label}
           </button>

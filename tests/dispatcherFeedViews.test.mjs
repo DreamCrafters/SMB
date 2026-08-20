@@ -6,6 +6,7 @@ import {
   buildEquipmentSummaryRows,
   buildIncidentSummaryRows,
   buildLocalProductionReportTableTotals,
+  buildOwnerBanksOverview,
   buildOwnerDispatcherOverview,
   buildOpenIncidentOptions,
   buildOpenIncidentRows,
@@ -1050,6 +1051,12 @@ test("buildOwnerDispatcherOverview restores equipment, production, and visitors"
           },
         ],
       },
+      // Задача 99: банки всегда три, без замеров остаются пустыми.
+      banks: [
+        { bankNumber: 1 },
+        { bankNumber: 2 },
+        { bankNumber: 3 },
+      ],
       visitors: {
         latestDate: "2026-07-24",
         count: 2,
@@ -1058,6 +1065,59 @@ test("buildOwnerDispatcherOverview restores equipment, production, and visitors"
       },
     },
   );
+});
+
+test("buildOwnerBanksOverview shows the content and the latest remainder", () => {
+  const banks = buildOwnerBanksOverview(
+    [
+      {
+        reportId: "production-july-31",
+        reportDate: "2026-07-31",
+        receivedAt: "2026-07-31T18:00:00.000Z",
+        jarNumber: 1,
+        end: 500,
+        shipmentEnd: 40,
+      },
+      {
+        reportId: "production-august-2",
+        reportDate: "2026-08-02",
+        receivedAt: "2026-08-02T18:00:00.000Z",
+        jarNumber: 1,
+        end: 685.4,
+        shipmentEnd: 55,
+      },
+      {
+        reportId: "production-august-2",
+        reportDate: "2026-08-02",
+        receivedAt: "2026-08-02T18:00:00.000Z",
+        jarNumber: 2,
+        end: 120,
+      },
+    ],
+    [
+      { bankNumber: 1, materialLabel: "ШКИ" },
+      { bankNumber: 2, materialLabel: "ШКИ-66" },
+    ],
+  );
+
+  assert.deepEqual(banks, [
+    {
+      bankNumber: 1,
+      materialLabel: "ШКИ",
+      measuredTons: 685.4,
+      shipmentTons: 55,
+      reportDate: "2026-08-02",
+    },
+    {
+      bankNumber: 2,
+      materialLabel: "ШКИ-66",
+      measuredTons: 120,
+      reportDate: "2026-08-02",
+    },
+    // Банка без назначения и без замеров остаётся пустой, но из плитки не
+    // исчезает.
+    { bankNumber: 3 },
+  ]);
 });
 
 function buildSubmission(

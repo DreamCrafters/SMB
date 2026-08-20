@@ -523,9 +523,21 @@ test("production dashboard totals follow the selected jars and granulation table
     const rootElement = dom.window.document.getElementById("root");
     const root = createRoot(rootElement);
 
+    // Задача 99: раздел выбирается снаружи, поэтому тест повторяет поведение
+    // реального родителя — хранит выбор и возвращает его в таблицу.
+    function ProductionReportSummaryHost(props) {
+      const [section, setSection] = React.useState(undefined);
+
+      return React.createElement(ProductionReportSummaryTable, {
+        ...props,
+        section,
+        onSectionChange: setSection,
+      });
+    }
+
     await React.act(async () => {
       root.render(
-        React.createElement(ProductionReportSummaryTable, {
+        React.createElement(ProductionReportSummaryHost, {
           form: undefined,
           submissions: [],
           bankContents: [{ bankNumber: 1, materialLabel: "ШКИ" }],
@@ -1555,6 +1567,69 @@ test("DOM globals replace and restore a getter-only navigator", () => {
   } finally {
     dom.window.close();
     restoreGlobal("navigator", originalNavigator);
+  }
+});
+
+test("overview bank tile opens the jar measurements table", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+
+  installDomGlobals(dom.window);
+
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  try {
+    const { OwnerOverviewPanel } = await vite.ssrLoadModule("/src/App.tsx");
+    const rootElement = dom.window.document.getElementById("root");
+    const root = createRoot(rootElement);
+    const navigations = [];
+
+    await React.act(async () => {
+      root.render(
+        React.createElement(OwnerOverviewPanel, {
+          businessOverview: { status: "loading", message: "Загружаем" },
+          dispatcherFeed: {
+            status: "ready",
+            source: "remote",
+            submissions: [],
+            summary: { total: 0, byForm: {} },
+            receivedAt: "2026-08-19T12:00:00.000Z",
+          },
+          dispatcherOverview: {
+            banks: [
+              { bankNumber: 1, materialLabel: "ШКИ", measuredTons: 685.4 },
+              { bankNumber: 2 },
+              { bankNumber: 3 },
+            ],
+            visitors: { count: 0, hosts: [], openCount: 0 },
+          },
+          onNavigateToDispatcherGroup: (group, productionSection) => {
+            navigations.push([group, productionSection]);
+          },
+        }),
+      );
+    });
+
+    const tile = dom.window.document.querySelector(
+      'section[aria-label="Банки"]',
+    );
+
+    assert.ok(tile instanceof dom.window.HTMLElement);
+
+    await React.act(async () => {
+      tile.click();
+    });
+
+    // Задача 99: плитка ведёт прямо в «Замеры банок», а не просто в «Выработку».
+    assert.deepEqual(navigations, [["production", "jars"]]);
+
+    await React.act(async () => root.unmount());
+  } finally {
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
   }
 });
 

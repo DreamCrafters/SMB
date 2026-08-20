@@ -70,6 +70,22 @@ test("owner overview renders every operational section as glanceable metrics", a
               },
             ],
           },
+          banks: [
+            {
+              bankNumber: 1,
+              materialLabel: "ШКИ",
+              measuredTons: 685.4,
+              shipmentTons: 55,
+              reportDate: "2026-07-23",
+            },
+            {
+              bankNumber: 2,
+              materialLabel: "ШКИ-66",
+              measuredTons: 120,
+              reportDate: "2026-07-22",
+            },
+            { bankNumber: 3 },
+          ],
           visitors: {
             latestDate: "2026-07-23",
             count: 3,
@@ -77,6 +93,7 @@ test("owner overview renders every operational section as glanceable metrics", a
             openCount: 1,
           },
         },
+        onNavigateToDispatcherGroup: () => {},
       }),
     );
     const document = new JSDOM(html).window.document;
@@ -115,6 +132,22 @@ test("owner overview renders every operational section as glanceable metrics", a
       ["Гранулировано с начала месяца, т", "9"],
       ["Гранулировано сегодня, т", "5,5"],
     ]);
+    // Задача 99: три банки в ряд, содержимое и оба остатка, плитка кликабельна.
+    assert.deepEqual(readOverviewHeadingMeta(document, "Банки"), [
+      "Последний отчёт",
+      "23.07.2026",
+    ]);
+    assert.deepEqual(readOverviewBanks(document), [
+      ["Банка 1", "ШКИ", "685,4", "55"],
+      ["Банка 2", "ШКИ-66", "120", "—"],
+      ["Банка 3", "Не назначено", "—", "—"],
+    ]);
+    assert.equal(
+      document
+        .querySelector('section[aria-label="Банки"]')
+        ?.getAttribute("role"),
+      "button",
+    );
     assert.deepEqual(readOverviewHeadingMeta(document, "Посетители"), [
       "Последний день посещений",
       "23.07.2026",
@@ -155,6 +188,19 @@ function readOverviewMetrics(document, sectionLabel) {
       metric.querySelector("dd")?.textContent,
     ],
   );
+}
+
+function readOverviewBanks(document) {
+  const section = document.querySelector('section[aria-label="Банки"]');
+  assert.ok(section, "Missing overview section: Банки");
+
+  return [...section.querySelectorAll(".owner-overview-bank")].map((bank) => [
+    bank.querySelector(".owner-overview-bank-title")?.textContent,
+    bank.querySelector(".owner-overview-bank-material")?.textContent,
+    ...[...bank.querySelectorAll(".owner-overview-bank-values dd")].map(
+      (value) => value.textContent,
+    ),
+  ]);
 }
 
 function readOverviewHeadingMeta(document, sectionLabel) {

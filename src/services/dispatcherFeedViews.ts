@@ -1,5 +1,7 @@
+import { bankNumbers } from "./bankMeasurements.js";
 import type {
   DispatcherFormId,
+  DispatcherProductionBankContent,
   DispatcherSubmission,
   DispatcherSubmissionPayload,
   OpenIncidentSummary,
@@ -111,7 +113,17 @@ export type OwnerVisitorsOverview = {
 export type OwnerDispatcherOverview = {
   production?: ProductionMonthOverview;
   equipment?: OwnerEquipmentOverview;
+  banks: OwnerBankOverview[];
   visitors: OwnerVisitorsOverview;
+};
+
+/** Задача 99: строка плитки «Банки» в Обзоре — содержимое и текущий остаток. */
+export type OwnerBankOverview = {
+  bankNumber: number;
+  materialLabel?: string;
+  measuredTons?: number;
+  shipmentTons?: number;
+  reportDate?: string;
 };
 
 export type DateRange = {
@@ -167,12 +179,55 @@ export function buildDispatcherFeedDateRange(
 export function buildOwnerDispatcherOverview(
   submissions: DispatcherSubmission[],
   productionMonthOverview?: ProductionMonthOverview,
+  jars: readonly ProductionJarMeasurementRow[] = [],
+  bankContents: readonly DispatcherProductionBankContent[] = [],
 ): OwnerDispatcherOverview {
   return {
     production: productionMonthOverview,
     equipment: buildOwnerEquipmentOverview(submissions),
+    banks: buildOwnerBanksOverview(jars, bankContents),
     visitors: buildOwnerVisitorsOverview(submissions),
   };
+}
+
+/**
+ * Задача 99: остаток банки — конец последнего дня, за который есть строка
+ * `Замеров банок`. Оба веса берутся из server-owned строки как есть: плитка
+ * ничего не пересчитывает. Содержимое — текущее назначение Лаборатории, потому
+ * что плитка показывает состояние банки сейчас, а не на дату старого отчёта.
+ */
+export function buildOwnerBanksOverview(
+  jars: readonly ProductionJarMeasurementRow[],
+  bankContents: readonly DispatcherProductionBankContent[],
+): OwnerBankOverview[] {
+  const materialByBankNumber = new Map(
+    bankContents.map((content) => [content.bankNumber, content.materialLabel]),
+  );
+
+  return bankNumbers.map((bankNumber) => {
+    const latestRow = jars
+      .filter((row) => row.jarNumber === bankNumber)
+      .reduce<ProductionJarMeasurementRow | undefined>(
+        (latest, row) =>
+          latest === undefined || row.reportDate > latest.reportDate ||
+            (row.reportDate === latest.reportDate &&
+              row.receivedAt > latest.receivedAt)
+            ? row
+            : latest,
+        undefined,
+      );
+    const materialLabel = materialByBankNumber.get(bankNumber);
+
+    return {
+      bankNumber,
+      ...(materialLabel === undefined ? {} : { materialLabel }),
+      ...(latestRow?.end === undefined ? {} : { measuredTons: latestRow.end }),
+      ...(latestRow?.shipmentEnd === undefined
+        ? {}
+        : { shipmentTons: latestRow.shipmentEnd }),
+      ...(latestRow === undefined ? {} : { reportDate: latestRow.reportDate }),
+    };
+  });
 }
 
 export function buildEquipmentSummaryRows(
