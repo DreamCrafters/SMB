@@ -217,6 +217,7 @@ import type {
   AdminDatabaseTableRows,
   AdminDatabaseListOptions,
 } from "../repositories/adminDatabaseRepository.js";
+import { AdminDatabaseRowMutationError } from "../repositories/adminDatabaseRepository.js";
 import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
@@ -9652,32 +9653,48 @@ async function handleAdminDatabaseRequest({
         }
       }
 
-      await runAuditedMutation({
-        transaction: databaseTransaction,
-        audit,
-        mutate: async () => adminDatabase.updateRow({
-          tableName: route.tableName,
-          primaryKey: validation.value.primaryKey,
-          values: validation.value.values,
-          changedByAccountId: access.profile.activeAccess.accountId,
-          allowProtectedAccounts:
-            accounts !== undefined &&
-            await readCanAssignAdminNavigation({
-              profile: access.profile,
-              accounts,
-              devAccessEnabled: config.devAccessEnabled,
-            }),
-        }),
-        buildEvent: () => ({
-          actor: buildAuditActor(access.profile),
-          category: "data_change",
-          action: "data.update",
-          summary: `Изменена запись в разделе «${readAdminDatabaseSectionLabel(route.tableName)}»`,
-          details: buildSafeAuditDetails(validation.value.values),
-          targetType: "database_row",
-          targetId: route.tableName,
-        }),
-      });
+      try {
+        await runAuditedMutation({
+          transaction: databaseTransaction,
+          audit,
+          mutate: async () => adminDatabase.updateRow({
+            tableName: route.tableName,
+            primaryKey: validation.value.primaryKey,
+            values: validation.value.values,
+            changedByAccountId: access.profile.activeAccess.accountId,
+            allowProtectedAccounts:
+              accounts !== undefined &&
+              await readCanAssignAdminNavigation({
+                profile: access.profile,
+                accounts,
+                devAccessEnabled: config.devAccessEnabled,
+              }),
+          }),
+          buildEvent: () => ({
+            actor: buildAuditActor(access.profile),
+            category: "data_change",
+            action: "data.update",
+            summary: `Изменена запись в разделе «${readAdminDatabaseSectionLabel(route.tableName)}»`,
+            details: buildSafeAuditDetails(validation.value.values),
+            targetType: "database_row",
+            targetId: route.tableName,
+          }),
+        });
+      } catch (error) {
+        /*
+         * Правку, отклонённую самими данными, нельзя отдавать как `500`: иначе
+         * администратор видит «Internal server error» вместо причины и не знает,
+         * какое поле поправить.
+         */
+        if (error instanceof AdminDatabaseRowMutationError) {
+          sendJson(res, 400, {
+            error: { code: "invalid_response", message: error.message },
+          });
+          return;
+        }
+
+        throw error;
+      }
       sendJson(res, 200, { ok: true });
       return;
     }

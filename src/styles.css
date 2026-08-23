@@ -3591,9 +3591,17 @@ p {
   max-width: 260px;
 }
 
+/*
+ * Краткое описание переносится целиком: обрезка многоточием прятала часть
+ * сохранённого текста, а он и есть содержимое записи.
+ */
 .admin-db-cell-wide {
-  min-width: 300px;
-  max-width: 420px;
+  min-width: 320px;
+  max-width: 520px;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: pre-wrap;
 }
 
 .admin-db-cell-date {

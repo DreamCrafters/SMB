@@ -50,6 +50,18 @@ export type AdminDatabaseColumn = {
   nullable: boolean;
 };
 
+/**
+ * Правка строки отклонена введёнными данными, а не сбоем сервера: администратор
+ * может исправить значение и повторить. Такие ошибки уходят клиенту как `400`
+ * с текстом причины, а не как общий `500`.
+ */
+export class AdminDatabaseRowMutationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AdminDatabaseRowMutationError";
+  }
+}
+
 export type AdminDatabaseFilterOption = {
   value: string;
   label: string;
@@ -453,7 +465,9 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
     const updateEntries = Object.entries(value.values).filter(([, rawValue]) => rawValue !== undefined);
 
     if (updateEntries.length === 0) {
-      throw new Error("No editable values were provided.");
+      throw new AdminDatabaseRowMutationError(
+        "No editable values were provided.",
+      );
     }
 
     const assignments: string[] = [];
@@ -463,7 +477,9 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
       const column = columnByName.get(columnName);
 
       if (!column?.editable || column.sourceColumn === undefined) {
-        throw new Error(`Column is not editable: ${columnName}`);
+        throw new AdminDatabaseRowMutationError(
+          `Column is not editable: ${columnName}`,
+        );
       }
 
       assignments.push(`${quoteIdentifier(column.sourceColumn)} = ?`);
@@ -590,7 +606,9 @@ async function updateDispatcherSubmission(
   const current = rows[0];
 
   if (current === undefined) {
-    throw new Error("Dispatcher submission was not found.");
+    throw new AdminDatabaseRowMutationError(
+      "Dispatcher submission was not found.",
+    );
   }
 
   const form = isDispatcherFormId(current.form_id)
@@ -612,12 +630,14 @@ async function updateDispatcherSubmission(
   const entries = Object.entries(value.values).filter(([, rawValue]) => rawValue !== undefined);
 
   if (entries.length === 0) {
-    throw new Error("No editable values were provided.");
+    throw new AdminDatabaseRowMutationError(
+      "No editable values were provided.",
+    );
   }
 
   for (const [name] of entries) {
     if (name !== "status" && !allowedPayloadNames.has(name)) {
-      throw new Error(`Column is not editable: ${name}`);
+      throw new AdminDatabaseRowMutationError(`Column is not editable: ${name}`);
     }
   }
 
@@ -630,7 +650,9 @@ async function updateDispatcherSubmission(
 
   if (hasPayloadChanges) {
     if (form === undefined) {
-      throw new Error("Stored dispatcher form is not editable.");
+      throw new AdminDatabaseRowMutationError(
+        "Stored dispatcher form is not editable.",
+      );
     }
 
     const editablePayload = Object.fromEntries(
@@ -650,7 +672,7 @@ async function updateDispatcherSubmission(
     });
 
     if (!validation.ok) {
-      throw new Error(validation.errors.join(" "));
+      throw new AdminDatabaseRowMutationError(validation.errors.join(" "));
     }
 
     for (const field of form.fields) {
@@ -674,12 +696,12 @@ async function updateDispatcherSubmission(
         if (raw === undefined) continue;
         if (raw === null || raw.trim().length === 0) delete nextPayload[name];
         else if (raw.trim().length > (name === "note" ? 2_000 : 240)) {
-          throw new Error(`${name} is too long.`);
+          throw new AdminDatabaseRowMutationError(`${name} is too long.`);
         } else nextPayload[name] = raw.trim();
       }
 
       if ((nextPayload.fio ?? "").trim().length === 0) {
-        throw new Error("fio is required.");
+        throw new AdminDatabaseRowMutationError("fio is required.");
       }
     }
   }

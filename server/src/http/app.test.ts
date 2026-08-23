@@ -13,6 +13,7 @@ import { resolveCapabilitiesForPosition } from "../domain/accountAccessConfigura
 import { CanonicalAdminMutationRequiredError } from "../domain/adminAccountProtection.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
+import { AdminDatabaseRowMutationError } from "../repositories/adminDatabaseRepository.js";
 import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
@@ -5304,6 +5305,50 @@ test("admin database rows endpoint forwards a bounded search term", async () => 
       assert.equal(listed[0]?.search, "INC-2026-51");
       assert.equal(listed[1]?.search, undefined);
       assert.equal(listed.length, 2);
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    repository,
+  );
+});
+
+test("rejected admin row edit answers with the reason instead of a server error", async () => {
+  const repository: AdminDatabaseRepository = {
+    ...adminDatabase,
+    async updateRow() {
+      throw new AdminDatabaseRowMutationError(
+        "equipment reserve downtime requires exactly 8 downtime hours.",
+      );
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/database/tables/dispatcher_submissions/rows`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({
+            primaryKey: { id: "equipment-row" },
+            values: { "payload.productionTons": "12" },
+          }),
+        },
+      );
+      const payload = await response.json();
+
+      // Причину отказа администратор должен увидеть, а не «Internal server error».
+      assert.equal(response.status, 400);
+      assert.match(
+        JSON.stringify(payload),
+        /reserve downtime requires exactly 8/u,
+      );
     },
     dispatcherSubmissions,
     emptyReferenceDataSource,

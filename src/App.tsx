@@ -9566,7 +9566,10 @@ function AdminDatabaseWorkspace({
       return;
     }
 
-    setMutationStatus(result.message);
+    setMutationStatus(readShortUserMessage(
+      result.message,
+      "Не удалось сохранить строку БД.",
+    ));
   }
 
   function handleStartDelete(row: AdminDatabaseRow) {
@@ -9833,6 +9836,7 @@ function AdminDatabaseWorkspace({
               table={selectedTable}
               editor={editor}
               isMutating={isMutating}
+              message={mutationStatus}
               onCancel={() => setEditor(undefined)}
               onSave={handleSaveEdit}
               onValueChange={handleEditValue}
@@ -10724,6 +10728,7 @@ function AdminDatabaseEditorModal({
   table,
   editor,
   isMutating,
+  message,
   onCancel,
   onSave,
   onValueChange,
@@ -10734,6 +10739,8 @@ function AdminDatabaseEditorModal({
     values: Record<string, AdminDatabaseCellValue>;
   };
   isMutating: boolean;
+  /** Причина отказа показывается здесь: страница под модалкой не видна. */
+  message: string;
   onCancel: () => void;
   onSave: () => void;
   onValueChange: (columnName: string, value: AdminDatabaseCellValue) => void;
@@ -10795,6 +10802,9 @@ function AdminDatabaseEditorModal({
             </button>
           </div>
         </div>
+        {message.length === 0 ? null : (
+          <p className="form-message is-error" role="alert">{message}</p>
+        )}
         <div className="admin-db-editor-grid">
           {editableFields.map((field) => {
             const value = editor.values[field.name] ?? "";

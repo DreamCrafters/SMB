@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import { ProtectedAccountMutationError } from "../domain/adminAccountProtection.js";
-import { createAdminDatabaseRepository } from "./adminDatabaseRepository.js";
+import {
+  AdminDatabaseRowMutationError,
+  createAdminDatabaseRepository,
+} from "./adminDatabaseRepository.js";
 
 test("admin database catalog contains only safe editable user-facing sections", async () => {
   const queries: string[] = [];
@@ -479,6 +482,50 @@ test("equipment edits keep report identity and append a full report revision", a
       changedByAccountId: "admin-access",
     }),
     /not editable/u,
+  );
+});
+
+test("rejected equipment edit reports the reason as a row mutation error", async () => {
+  const pool = {
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+
+      if (normalized.startsWith("select form_id")) {
+        return [[{
+          form_id: "equipment",
+          payload: JSON.stringify({
+            reportDate: "16.07.2026",
+            reportMonth: "2026-07",
+            equipment: "Пресс №1",
+            productionTons: "10",
+          }),
+          summary: "Пресс №1 · 10 т",
+          status: "received",
+          period: "2026-07",
+        }], []];
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool;
+
+  // Правку отклоняют сами данные, а не сбой сервера: администратору нужна
+  // причина, а не «Internal server error».
+  await assert.rejects(
+    createAdminDatabaseRepository(pool).updateRow({
+      tableName: "dispatcher_submissions",
+      primaryKey: { id: "submission-id" },
+      values: {
+        "payload.productionTons": "12",
+        "payload.downtimeReason": "Резерв",
+        "payload.downtimeHours": "2",
+        status: "received",
+      },
+      changedByAccountId: "admin-access",
+    }),
+    (error: unknown) =>
+      error instanceof AdminDatabaseRowMutationError &&
+      /reserve downtime requires exactly 8/u.test(error.message),
   );
 });
 
