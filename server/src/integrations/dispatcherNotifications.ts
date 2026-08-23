@@ -28,6 +28,15 @@ export type NotificationRecipientGroups = {
 
 export type EquipmentReportNotificationStatus = "created" | "updated";
 
+/**
+ * Задача 101: исправление отчёта уходит отдельным сообщением — с пометкой в
+ * теме и первой строкой текста, но с полным содержимым обновлённого отчёта.
+ */
+export type DispatcherSubmissionNotificationKind = "created" | "corrected";
+
+const correctedSubmissionNote =
+  "Внесены корректировки. Ниже полный текст обновлённого отчёта.";
+
 export const testNotificationNote = "Примечание: Тестовое сообщение";
 
 export function appendNotificationEnvironmentNote(
@@ -90,15 +99,17 @@ export function readEquipmentReportNotificationRecipients(
 export function buildDispatcherNotificationSubject(
   submission: DispatcherSubmission,
   subjectPrefix: string,
+  kind: DispatcherSubmissionNotificationKind = "created",
 ) {
   const prefix = subjectPrefix.length > 0 ? `[${subjectPrefix}] ` : "";
+  const suffix = kind === "corrected" ? " — исправлено" : "";
 
   if (submission.formId === "incident") {
-    return `${prefix}Открытие инцидента ${readIncidentNumber(submission)}`;
+    return `${prefix}Открытие инцидента ${readIncidentNumber(submission)}${suffix}`;
   }
 
   if (submission.formId === "incident_close") {
-    return `${prefix}Закрытие инцидента ${readIncidentNumber(submission)}`;
+    return `${prefix}Закрытие инцидента ${readIncidentNumber(submission)}${suffix}`;
   }
 
   if (submission.formId === "equipment") {
@@ -106,18 +117,18 @@ export function buildDispatcherNotificationSubject(
 
     return `${prefix}Отчет по оборудованию${
       equipment === undefined || equipment.length === 0 ? "" : `: ${equipment}`
-    }`;
+    }${suffix}`;
   }
 
   if (submission.formId === "visitor") {
-    return `${prefix}Вход посетителя${readVisitorNameSuffix(submission)}`;
+    return `${prefix}Вход посетителя${readVisitorNameSuffix(submission)}${suffix}`;
   }
 
   if (submission.formId === "visitor_exit") {
-    return `${prefix}Выход посетителя${readVisitorNameSuffix(submission)}`;
+    return `${prefix}Выход посетителя${readVisitorNameSuffix(submission)}${suffix}`;
   }
 
-  return `${prefix}${submission.formTitle}`;
+  return `${prefix}${submission.formTitle}${suffix}`;
 }
 
 export function buildEquipmentReportNotificationSubject(
@@ -138,25 +149,39 @@ export function buildEquipmentReportNotificationSubject(
 export function buildDispatcherNotificationText(
   submission: DispatcherSubmission,
   bankContents?: readonly DispatcherNotificationBankContent[],
+  kind: DispatcherSubmissionNotificationKind = "created",
 ) {
+  /**
+   * Задача 101: пометка об исправлении добавляется ко всем формам одинаково, а
+   * ниже идёт обычный полный текст отчёта — без сокращений и выборочных полей.
+   */
+  const prependCorrectionNote = (text: string) =>
+    kind === "corrected" ? `${correctedSubmissionNote}\n\n${text}` : text;
+
   if (submission.formId === "incident") {
-    return buildIncidentOpeningNotificationText(submission);
+    return prependCorrectionNote(
+      buildIncidentOpeningNotificationText(submission),
+    );
   }
 
   if (submission.formId === "incident_close") {
-    return buildIncidentClosureNotificationText(submission);
+    return prependCorrectionNote(
+      buildIncidentClosureNotificationText(submission),
+    );
   }
 
   if (submission.formId === "equipment") {
-    return buildEquipmentReportNotificationText([submission], "created");
+    return prependCorrectionNote(
+      buildEquipmentReportNotificationText([submission], "created"),
+    );
   }
 
   if (submission.formId === "visitor") {
-    return buildVisitorEntryNotificationText(submission);
+    return prependCorrectionNote(buildVisitorEntryNotificationText(submission));
   }
 
   if (submission.formId === "visitor_exit") {
-    return buildVisitorExitNotificationText(submission);
+    return prependCorrectionNote(buildVisitorExitNotificationText(submission));
   }
 
   const bankContentByNumber = bankContents === undefined
@@ -175,7 +200,7 @@ export function buildDispatcherNotificationText(
       return `${readProductionNotificationFieldLabel(field, key)}: ${value}`;
     });
 
-  return [
+  return prependCorrectionNote([
     `Форма: ${submission.formTitle}`,
     `Статус: ${readDispatcherSubmissionStatusLabel(submission.status)}`,
     `Кратко: ${submission.summary}`,
@@ -183,7 +208,7 @@ export function buildDispatcherNotificationText(
     "Данные:",
     ...payloadLines,
     ...buildJarBankNotificationLines(submission, bankContentByNumber),
-  ].join("\n");
+  ].join("\n"));
 }
 
 export function buildEquipmentReportNotificationText(

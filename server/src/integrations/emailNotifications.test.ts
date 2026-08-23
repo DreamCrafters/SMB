@@ -143,6 +143,78 @@ test("buildDispatcherSubmissionEmail lists bank contents in a single block", () 
   assert.doesNotMatch(message?.text ?? "", /Замеры банок —/u);
 });
 
+test("buildDispatcherSubmissionEmail marks a corrected report", () => {
+  const submission = buildSubmission("production", {
+    reportDate: "27.07.2026",
+    formingBrand1: "ША-8",
+    formingFact1: "12",
+    coshMaster: "Сидоров С.С.",
+  });
+  submission.formTitle = "Выработка";
+  submission.summary = "Дата отчета: 27.07.2026";
+
+  const message = buildDispatcherSubmissionEmail(
+    submission,
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+    "production",
+    undefined,
+    "corrected",
+  );
+
+  // Задача 101: пометка об исправлении и ниже полный текст отчёта.
+  assert.equal(message?.subject, "[SMB Monitor] Выработка — исправлено");
+  assert.equal(
+    message?.text,
+    [
+      "Внесены корректировки. Ниже полный текст обновлённого отчёта.",
+      "",
+      "Форма: Выработка",
+      "Статус: Получено",
+      "Кратко: Дата отчета: 27.07.2026",
+      "",
+      "Данные:",
+      "Дата отчета: 27.07.2026",
+      "Формовка — Марка изделия 1: ША-8",
+      "Формовка — Факт по марке 1: 12",
+      "",
+      "Содержимое банок:",
+      "- Банка 1 (Не назначено), начало дня, по отгрузкам: —; " +
+        "по замерам —, на конец дня — / —",
+      "- Банка 2 (Не назначено), начало дня, по отгрузкам: —; " +
+        "по замерам —, на конец дня — / —",
+      "- Банка 3 (Не назначено), начало дня, по отгрузкам: —; " +
+        "по замерам —, на конец дня — / —",
+      "Мастер ЦОШ: Сидоров С.С.",
+    ].join("\n"),
+  );
+});
+
+test("buildDispatcherSubmissionEmail marks a corrected incident closure", () => {
+  const message = buildDispatcherSubmissionEmail(
+    buildSubmission("incident_close", {
+      incidentNumber: "INC-2026-1",
+      location: "Цех 1",
+    }),
+    recipients,
+    "noreply@example.com",
+    "SMB Monitor",
+    "production",
+    undefined,
+    "corrected",
+  );
+
+  assert.equal(
+    message?.subject,
+    "[SMB Monitor] Закрытие инцидента INC-2026-1 — исправлено",
+  );
+  assert.match(
+    message?.text ?? "",
+    /^Внесены корректировки\. Ниже полный текст обновлённого отчёта\.\n\nИнцидент закрыт/u,
+  );
+});
+
 test("buildDispatcherSubmissionEmail omits the bank block without bank fields", () => {
   const submission = buildSubmission("production", {
     reportDate: "27.07.2026",

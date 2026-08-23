@@ -258,7 +258,10 @@ import {
   createMaxNotificationService,
   type MaxNotificationService,
 } from "../integrations/maxNotifications.js";
-import type { DispatcherNotificationBankContent } from "../integrations/dispatcherNotifications.js";
+import type {
+  DispatcherNotificationBankContent,
+  DispatcherSubmissionNotificationKind,
+} from "../integrations/dispatcherNotifications.js";
 import {
   renderLaboratoryChemicalAnalysisProtocolPdf,
   renderLaboratoryProtocolPdf,
@@ -1200,6 +1203,13 @@ export function createApiServer({
             return;
           }
 
+          /**
+           * Задача 101: исправление отчёта рассылается с пометкой и полным
+           * текстом обновлённого отчёта. Признак вычисляется до сохранения:
+           * после вставки сводка за эту дату уже есть в любом случае.
+           */
+          let notificationKind: DispatcherSubmissionNotificationKind = "created";
+
           if (validation.value.draft.formId === "production") {
             const productionPayload = validation.value.draft.payload;
             const bankInputError = validateDispatcherProductionBankInput(
@@ -1250,6 +1260,7 @@ export function createApiServer({
                 volumeReference,
                 materialBulkDensities,
                 previousProduction,
+                sameDateReports,
               ] = await Promise.all([
                 laboratoryBankAssignments!.listCurrent(),
                 bankVolumeReferenceDataSource.read(),
@@ -1258,7 +1269,16 @@ export function createApiServer({
                   dispatcherSubmissions,
                   reportDate,
                 ),
+                dispatcherSubmissions.listLatest({
+                  formId: "production",
+                  reportDate,
+                  limit: 1,
+                }),
               ]);
+
+              if (sameDateReports.length > 0) {
+                notificationKind = "corrected";
+              }
               const refreshedAssignments = applyLatestBankBulkDensities(
                 assignments,
                 materialBulkDensities,
@@ -1396,6 +1416,7 @@ export function createApiServer({
             emailNotificationService,
             maxNotificationService,
             laboratoryBankAssignments,
+            notificationKind,
           );
 
           sendJson(res, 201, { submission });
@@ -11959,6 +11980,7 @@ async function notifyDispatcherSubmission(
   emailNotificationService: EmailNotificationService,
   maxNotificationService: MaxNotificationService,
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined,
+  kind: DispatcherSubmissionNotificationKind = "created",
 ) {
   if (submission.formId === "equipment") {
     return;
@@ -11985,12 +12007,14 @@ async function notifyDispatcherSubmission(
       submission,
       recipients?.email ?? referenceData!.notificationRecipients,
       bankContents,
+      kind,
     );
     await notifyByMax(
       maxNotificationService,
       submission,
       recipients?.max ?? referenceData!.maxNotificationRecipients,
       bankContents,
+      kind,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.reference_data_failed", error);
@@ -12170,12 +12194,14 @@ async function notifyByEmail(
     EmailNotificationService["sendDispatcherSubmissionNotification"]
   >[1],
   bankContents?: readonly DispatcherNotificationBankContent[],
+  kind: DispatcherSubmissionNotificationKind = "created",
 ) {
   try {
     await emailNotificationService.sendDispatcherSubmissionNotification(
       submission,
       recipients,
       bankContents,
+      kind,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.email_send_failed", error);
@@ -12208,12 +12234,14 @@ async function notifyByMax(
     MaxNotificationService["sendDispatcherSubmissionNotification"]
   >[1],
   bankContents?: readonly DispatcherNotificationBankContent[],
+  kind: DispatcherSubmissionNotificationKind = "created",
 ) {
   try {
     await maxNotificationService.sendDispatcherSubmissionNotification(
       submission,
       recipients,
       bankContents,
+      kind,
     );
   } catch (error) {
     console.warn("dispatcher_notifications.max_send_failed", error);

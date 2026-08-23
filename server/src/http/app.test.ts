@@ -3707,6 +3707,144 @@ test("production submission calculates dispatcher-entered bank measurements", as
   );
 });
 
+test("production correction notifies with the corrected mark and the full report", async () => {
+  const existingReport = {
+    id: "production-2026-07-23",
+    formId: "production" as const,
+    formTitle: "Выработка",
+    payload: {
+      reportDate: "23.07.2026",
+      jarMaterial1: "ШКИ",
+      jarShipmentEnd1: "11",
+    },
+    summary: "Выработка за 23.07.2026",
+    status: "received" as const,
+    submittedByAccountId: "dispatcher-1",
+    submittedAt: "2026-07-23T18:00:00.000Z",
+    receivedAt: "2026-07-23T18:00:01.000Z",
+  };
+  const repository = buildRepositoryWithHistory([existingReport]);
+  const assignments = [
+    buildLaboratoryBankAssignment(1, "ШКИ", 1),
+    buildLaboratoryBankAssignment(2, "ШКИ-66", 2),
+    buildLaboratoryBankAssignment(3, "ШГР-28", 3),
+  ];
+  const laboratoryBankAssignments: LaboratoryBankAssignmentsRepository = {
+    async assign() { throw new Error("not used"); },
+    async listCurrent() { return assignments; },
+    async listHistory() { return assignments; },
+  };
+  const bankVolumeReferenceDataSource: BankVolumeReferenceDataSource = {
+    async read() {
+      return { points: [
+        { heightMeters: 0, volumeCubicMeters: 0 },
+        { heightMeters: 1, volumeCubicMeters: 10 },
+      ] };
+    },
+  };
+  const rotaryKiln2FiringJournal: RotaryKiln2FiringJournalRepository = {
+    async create() { throw new Error("not used"); },
+    async update() { throw new Error("not used"); },
+    async list() { return { records: [], averageBulkDensity: null }; },
+    async findLatestCreated() { return undefined; },
+    async listPersonnelOptions() {
+      return { shiftSupervisors: [], burnerOperators: [] };
+    },
+    async listMaterialBulkDensities() {
+      return assignments.map((assignment) => ({
+        material: assignment.materialLabel,
+        averageBulkDensityTonsPerCubicMeter:
+          assignment.bulkDensityTonsPerCubicMeter,
+        sampleCount: 10,
+        latestRecordDate: "2026-07-23",
+      }));
+    },
+  };
+  const kinds: Array<string | undefined> = [];
+  let emailText: string | undefined;
+  const emailNotificationService: EmailNotificationService = {
+    async sendDispatcherSubmissionNotification(
+      submission,
+      _recipients,
+      bankContents,
+      kind,
+    ) {
+      kinds.push(kind);
+      emailText = buildDispatcherNotificationText(submission, bankContents, kind);
+    },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
+    },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
+    },
+  };
+  const maxNotificationService: MaxNotificationService = {
+    async sendDispatcherSubmissionNotification(_submission, _recipients, _bank, kind) {
+      kinds.push(kind);
+    },
+    async sendEquipmentReportNotification() {
+      throw new Error("Unexpected equipment report notification.");
+    },
+    async sendRefractoryReportNotification() {
+      throw new Error("Unexpected refractory report notification.");
+    },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const headers = await createDispatcherHeaders(baseUrl);
+      const response = await fetch(`${baseUrl}/api/dispatcher/submissions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          formId: "production",
+          payload: {
+            reportDate: "2026-07-23",
+            jarMeasurement1_1: "1",
+            jarMeasurement2_1: "1",
+            jarMeasurement3_1: "1",
+            coshMaster: "Сидоров С.С.",
+          },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      // Задача 101: сводка за эту дату уже была, значит это исправление.
+      assert.deepEqual(kinds, ["corrected", "corrected"]);
+      assert.match(
+        emailText ?? "",
+        /^Внесены корректировки\. Ниже полный текст обновлённого отчёта\./u,
+      );
+      // Полный текст отчёта остаётся на месте, а не заменяется пометкой.
+      assert.match(emailText ?? "", /^Данные:$/mu);
+      assert.match(emailText ?? "", /^Дата отчета: 23\.07\.2026$/mu);
+      assert.match(emailText ?? "", /^Содержимое банок:$/mu);
+      assert.match(emailText ?? "", /^Мастер ЦОШ: Сидоров С\.С\.$/mu);
+    },
+    repository,
+    emptyReferenceDataSource,
+    emailNotificationService,
+    maxNotificationService,
+    adminDatabase,
+    config,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    passthroughProductionBrands,
+    undefined,
+    emptyRefractoryReports,
+    undefined,
+    undefined,
+    laboratoryBankAssignments,
+    bankVolumeReferenceDataSource,
+    undefined,
+    rotaryKiln2FiringJournal,
+  );
+});
+
 test("production submission keeps the shipment chain across a missing report day", async () => {
   let createdDraft: ValidatedDispatcherSubmissionDraft | undefined;
   // Последняя сводка — за 20.07, отчёт сохраняется за 23.07: два дня пропущено.
