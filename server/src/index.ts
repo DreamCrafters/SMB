@@ -21,6 +21,7 @@ import { createDispatcherSpreadsheetImportRepository } from "./repositories/disp
 import { createAuditRepository } from "./repositories/auditRepository.js";
 import { createProductionPlansRepository } from "./repositories/productionPlansRepository.js";
 import { createProductBrandsRepository } from "./repositories/productBrandsRepository.js";
+import { createRawMaterialNomenclatureRepository } from "./repositories/rawMaterialNomenclatureRepository.js";
 import { createRefractoryReportsRepository } from "./repositories/refractoryReportsRepository.js";
 import { createRefractoryWagonsRepository } from "./repositories/refractoryWagonsRepository.js";
 import { createRefractoryWagonInspectionsRepository } from "./repositories/refractoryWagonInspectionsRepository.js";
@@ -98,6 +99,7 @@ const server = createApiServer({
   productionPlans: createProductionPlansRepository(pool),
   productionBrands: productBrands,
   productBrandJournal: productBrands,
+  rawMaterialNomenclature: createRawMaterialNomenclatureRepository(pool),
   refractoryReports,
   refractoryWagons,
   refractoryWagonInspections: createRefractoryWagonInspectionsRepository(pool),

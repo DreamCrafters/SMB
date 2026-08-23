@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import {
   laboratoryRawMaterialWarehouseStatusLabels,
   type LaboratoryRawMaterialWarehouseOptions,
@@ -9,7 +9,6 @@ import {
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { formatLaboratoryDate } from "./LaboratoryResultsTable";
-import { ProductBrandPicker, ProductionBrandSourceNote } from "./ProductBrandPicker";
 import {
   requestLaboratoryRawMaterialWarehouse,
   reviewLaboratoryRawMaterialMovement,
@@ -17,10 +16,6 @@ import {
 } from "./services/laboratoryRawMaterialWarehouse";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
-import {
-  normalizeProductBrandKey,
-  useProductionBrands,
-} from "./useProductionBrands";
 
 type WarehouseState = {
   status: "loading" | "ready" | "error";
@@ -38,6 +33,7 @@ type EditMode =
   | { kind: "correct"; recordId: string };
 
 const emptyOptions: LaboratoryRawMaterialWarehouseOptions = {
+  materials: [],
   stackLocations: [],
   suppliers: [],
   recipients: [],
@@ -80,8 +76,6 @@ export function LaboratoryRawMaterialWarehouse({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const { labels: productBrands, loadState: productBrandsLoadState } =
-    useProductionBrands();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -114,10 +108,6 @@ export function LaboratoryRawMaterialWarehouse({
     return () => controller.abort();
   }, [dateFrom, dateTo, query, refreshVersion]);
 
-  const productBrandByKey = useMemo(
-    () => new Map(productBrands.map((label) => [normalizeProductBrandKey(label), label])),
-    [productBrands],
-  );
   const formEnabled = !isAdminPreviewMode && (
     editMode.kind === "correct" ? state.permissions.canReview : state.permissions.canSubmit
   );
@@ -132,12 +122,14 @@ export function LaboratoryRawMaterialWarehouse({
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!formEnabled || isSaving) return;
-    const canonicalMaterial = productBrandByKey.get(normalizeProductBrandKey(form.materialLabel));
-    if (canonicalMaterial === undefined) {
-      setMessage("Выберите вид сырья из раздела «Марки».");
+    // Доработка задачи 95: вид сырья вводится свободно и накапливается в
+    // подсказках, поэтому канонизировать его по журналу марок больше не нужно.
+    const materialLabel = form.materialLabel.trim().replace(/\s+/gu, " ");
+    if (materialLabel === "") {
+      setMessage("Укажите вид сырья.");
       return;
     }
-    const submission = { ...form, materialLabel: canonicalMaterial };
+    const submission = { ...form, materialLabel };
     setIsSaving(true);
     setMessage(editMode.kind === "correct"
       ? "Сохраняем исправление…"
@@ -250,18 +242,15 @@ export function LaboratoryRawMaterialWarehouse({
                 onChange={(event) => updateFormField("movementDate", event.currentTarget.value)}
               />
             </label>
-            <label>
-              <span>Вид сырья</span>
-              <ProductBrandPicker
-                ariaLabel="Вид сырья"
-                disabled={!formEnabled || productBrandsLoadState.status !== "ready"}
-                labels={productBrands}
-                name="rawMaterial"
-                placeholder="Поиск сырья"
-                value={form.materialLabel}
-                onChange={(value) => updateFormField("materialLabel", value)}
-              />
-            </label>
+            <DatalistField
+              disabled={!formEnabled}
+              label="Вид сырья"
+              listId={`${datalistPrefix}-materials`}
+              options={state.options.materials}
+              required
+              value={form.materialLabel}
+              onChange={(value) => updateFormField("materialLabel", value)}
+            />
             <DatalistField
               disabled={!formEnabled}
               label="№ штабеля / место нахождения"
@@ -300,14 +289,6 @@ export function LaboratoryRawMaterialWarehouse({
               onChange={(value) => updateFormField("recipient", value)}
             />
           </div>
-          <ProductionBrandSourceNote />
-          {productBrandsLoadState.status === "loading" ? (
-            <LoadingIndicator label="Загружаем виды сырья…" variant="inline" />
-          ) : productBrandsLoadState.status === "error" ? (
-            <p className="form-message is-error" role="alert">
-              {productBrandsLoadState.message}
-            </p>
-          ) : null}
           <div className="laboratory-form-actions">
             <button className="primary-button" disabled={!formEnabled || isSaving} type="submit">
               {isSaving ? (

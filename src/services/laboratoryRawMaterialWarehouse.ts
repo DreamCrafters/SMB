@@ -116,6 +116,7 @@ function isWarehouseResponse(value: unknown): value is LaboratoryRawMaterialWare
     Array.isArray(value.records) && value.records.every(isWarehouseRecord) &&
     Array.isArray(value.pendingRecords) && value.pendingRecords.every(isWarehouseRecord) &&
     isRecord(value.options) &&
+    isStringArray(value.options.materials) &&
     isStringArray(value.options.stackLocations) &&
     isStringArray(value.options.suppliers) &&
     isStringArray(value.options.recipients) &&

@@ -10,6 +10,7 @@ export * from "./notificationSettings";
 export * from "./navigationOrder";
 export * from "./productionPlans";
 export * from "./productBrands";
+export * from "./rawMaterialNomenclature";
 export * from "./refractoryReports";
 export * from "./refractoryWagons";
 export * from "./laboratoryResults";

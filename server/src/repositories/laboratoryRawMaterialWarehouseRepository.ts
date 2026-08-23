@@ -128,7 +128,9 @@ export function createLaboratoryRawMaterialWarehouseRepository(
     now = () => new Date(),
   }: RepositoryOptions = {},
 ): LaboratoryRawMaterialWarehouseRepository {
-  async function readOptions(column: "stack_location" | "supplier" | "recipient") {
+  async function readOptions(
+    column: "material_label" | "stack_location" | "supplier" | "recipient",
+  ) {
     const [rows] = await pool.query<WarehouseOptionRow[]>(
       `select trim(${column}) as option_value
        from laboratory_raw_material_warehouse_revisions
@@ -302,12 +304,14 @@ export function createLaboratoryRawMaterialWarehouseRepository(
     },
 
     async listOptions() {
-      const [stackLocations, suppliers, recipients] = await Promise.all([
-        readOptions("stack_location"),
-        readOptions("supplier"),
-        readOptions("recipient"),
-      ]);
-      return { stackLocations, suppliers, recipients };
+      const [materials, stackLocations, suppliers, recipients] =
+        await Promise.all([
+          readOptions("material_label"),
+          readOptions("stack_location"),
+          readOptions("supplier"),
+          readOptions("recipient"),
+        ]);
+      return { materials, stackLocations, suppliers, recipients };
     },
   };
 }

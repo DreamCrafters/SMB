@@ -239,6 +239,20 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     name: "ШБ-5",
     description: "Основная марка",
   };
+  // Доработка задачи 95: сырьё — вторая номенклатура без геометрии и прочности.
+  const rawMaterialRecord = {
+    id: "raw-material-1",
+    name: "Глина огнеупорная",
+    description: "Сырьё для шамота",
+    productClass: "Сырьё",
+    applicationIndustry: "Металлургия",
+    normativeDocument: "ГОСТ 1234",
+    al2o3: "28 %",
+    fe2o3: "2 %",
+    createdAt: "2026-08-07T08:00:00.000Z",
+    updatedAt: "2026-08-07T08:00:00.000Z",
+  };
+  const rawMaterialSubmissions = [];
   const protocolPreview = {
     opener: {},
     document: { title: "" },
@@ -267,6 +281,21 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
             finishedProductTypes: [],
           },
         });
+      }
+      if (url.pathname === "/api/laboratory/raw-material-nomenclature") {
+        if (init.method === "POST") {
+          const submission = JSON.parse(String(init.body));
+          rawMaterialSubmissions.push(submission);
+          return jsonResponse({
+            record: {
+              id: "raw-material-created",
+              ...submission,
+              createdAt: "2026-08-07T09:00:00.000Z",
+              updatedAt: "2026-08-07T09:00:00.000Z",
+            },
+          }, 201);
+        }
+        return jsonResponse({ records: [rawMaterialRecord] });
       }
       if (url.pathname === "/api/laboratory/product-brands") {
         if (init.method === "POST") {
@@ -422,6 +451,7 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           records: rawMaterialWarehouseHistory,
           pendingRecords: rawMaterialWarehousePending,
           options: {
+            materials: ["Глина огнеупорная"],
             stackLocations: ["Штабель 3"],
             suppliers: ["ООО Поставщик"],
             recipients: ["Цех формовки"],
@@ -1042,8 +1072,9 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     const rootTabLabels = Array.from(rootElement.querySelectorAll(
       '.laboratory-section-tabs[aria-label="Разделы лаборатории"] > button',
     )).map((button) => button.textContent?.trim());
+    // Доработка задачи 95: `Марки` спрятаны под кнопку `Номенклатура`.
     assert.deepEqual(rootTabLabels, [
-      "Марки",
+      "Номенклатура",
       "Банки",
       "Склад сырья",
       "ЦЗЛ",
@@ -1085,9 +1116,18 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       rootElement.textContent.includes("Ожидает подтверждения кладовщиком")
     );
     assert.match(rootElement.textContent, /Записей0/u);
-    const brandsTab = Array.from(rootElement.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Марки",
-    );
+    const nomenclatureTab = Array.from(
+      rootElement.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Номенклатура");
+    assert.ok(nomenclatureTab);
+    await React.act(async () => nomenclatureTab.click());
+    const nomenclatureTabLabels = Array.from(rootElement.querySelectorAll(
+      '.laboratory-nomenclature-tabs > button',
+    )).map((button) => button.textContent?.trim());
+    assert.deepEqual(nomenclatureTabLabels, ["Марки", "Сырьё"]);
+    const brandsTab = Array.from(
+      rootElement.querySelectorAll(".laboratory-nomenclature-tabs > button"),
+    ).find((button) => button.textContent?.trim() === "Марки");
     assert.ok(brandsTab);
     await React.act(async () => brandsTab.click());
     await waitFor(React, () =>
@@ -1199,6 +1239,54 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     await React.act(async () => confirmBrandDeletion.click());
     await waitFor(React, () => productBrandDeletions.length === 1);
     assert.deepEqual(productBrandDeletions[0], { replacementId: "brand-2" });
+
+    // Доработка задачи 95: вторая номенклатура — сырьё без геометрии и прочности.
+    const rawMaterialsTab = Array.from(
+      rootElement.querySelectorAll(".laboratory-nomenclature-tabs > button"),
+    ).find((button) => button.textContent?.trim() === "Сырьё");
+    assert.ok(rawMaterialsTab);
+    await React.act(async () => rawMaterialsTab.click());
+    await waitFor(React, () =>
+      rootElement.querySelector(".raw-material-nomenclature-journal") !== null
+    );
+    const rawMaterialForm = rootElement.querySelector(
+      ".raw-material-nomenclature-journal .product-brand-journal-form",
+    );
+    assert.ok(rawMaterialForm);
+    assert.deepEqual(
+      Array.from(rawMaterialForm.querySelectorAll(".laboratory-form-grid label > span"))
+        .map((field) => field.textContent?.trim()),
+      [
+        "Наименование",
+        "Описание",
+        "Класс",
+        "Отрасль применения",
+        "Норматив (ГОСТ, ТУ)",
+        "Al2O3",
+        "Fe2O3",
+      ],
+    );
+    await React.act(async () => {
+      const nameInput = findControlByLabel(rawMaterialForm, "Наименование");
+      setNativeInputValue(nameInput, "Новое сырьё");
+      nameInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      nameInput.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await React.act(async () => {
+      rawMaterialForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => rawMaterialSubmissions.length === 1);
+    assert.deepEqual(rawMaterialSubmissions[0], {
+      name: "Новое сырьё",
+      description: "",
+      productClass: "",
+      applicationIndustry: "",
+      normativeDocument: "",
+      al2o3: "",
+      fe2o3: "",
+    });
 
     const findTabByText = (text) =>
       Array.from(rootElement.querySelectorAll("button")).find(

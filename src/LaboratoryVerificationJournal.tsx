@@ -17,7 +17,7 @@ import {
 } from "./services/laboratoryVerificationJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
-import { useProductionBrands } from "./useProductionBrands";
+import { useRawMaterialNomenclature } from "./useRawMaterialNomenclature";
 
 type FormState = Record<
   Exclude<keyof LaboratoryVerificationSubmission, "sourceSampleRegistrationId">,
@@ -53,8 +53,12 @@ export function LaboratoryVerificationJournal({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [sourceSampleRegistrationId, setSourceSampleRegistrationId] =
     useState<string>();
+  /**
+   * Доработка задачи 95: наименование продукции выбирается из `Номенклатура →
+   * Сырьё`, а не из журнала марок.
+   */
   const { labels: productNames, loadState: productNamesLoadState } =
-    useProductionBrands();
+    useRawMaterialNomenclature();
   const samplingLocationListId =
     `verification-sampling-locations-${useId().replaceAll(":", "")}`;
 
@@ -199,6 +203,7 @@ export function LaboratoryVerificationJournal({
                         productNamesLoadState.status !== "ready"}
                       labels={productNames}
                       name={field.id}
+                      placeholder="Поиск сырья"
                       value={form.productName}
                       onChange={(value) => updateField("productName", value)}
                     />

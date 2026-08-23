@@ -70,6 +70,8 @@ import type { LaboratoryChemicalAnalysisSampleOption } from "../contracts/labora
 import type { LaboratoryUnshapedProductSampleJournalRepository } from "../repositories/laboratoryUnshapedProductSampleJournalRepository.js";
 import type { LaboratoryRawMaterialQualityJournalRepository } from "../repositories/laboratoryRawMaterialQualityJournalRepository.js";
 import type { LaboratoryRawMaterialWarehouseRepository } from "../repositories/laboratoryRawMaterialWarehouseRepository.js";
+import type { RawMaterialNomenclatureRepository } from "../repositories/rawMaterialNomenclatureRepository.js";
+import type { RawMaterialNomenclatureRecord } from "../contracts/rawMaterialNomenclature.js";
 import {
   LaboratoryGreenProductQualityWagonBrandMismatchError,
   LaboratoryGreenProductQualityWagonUnavailableError,
@@ -12321,6 +12323,7 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
     },
     async listOptions() {
       return {
+        materials: ["Глина огнеупорная"],
         stackLocations: ["Штабель 4"],
         suppliers: ["ООО Поставщик"],
         recipients: ["Цех формовки"],
@@ -12405,7 +12408,9 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
     assert.equal(createResponse.status, 201);
     assert.equal(listResponse.status, 200);
     assert.deepEqual(listPayload.records, []);
-    assert.equal(listPayload.pendingRecords[0]?.materialLabel, "Глина огнеупорная");
+    // Доработка задачи 95: вид сырья сохраняется как введён, без канонизации по
+    // журналу марок — он ведёт собственный накапливаемый список.
+    assert.equal(listPayload.pendingRecords[0]?.materialLabel, "глина огнеупорная");
     assert.deepEqual(listPayload.permissions, {
       canSubmit: true,
       canReview: false,
@@ -12556,6 +12561,176 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
     "laboratory_raw_material_warehouse.correct",
   ]);
 });
+
+test("raw material nomenclature API keeps the journal server-owned", async () => {
+  const records: RawMaterialNomenclatureRecord[] = [];
+  const auditActions: string[] = [];
+  const repository: RawMaterialNomenclatureRepository = {
+    async listLabels() {
+      return records.map((record) => record.name);
+    },
+    async listRecords() {
+      return records;
+    },
+    async createRecord(input) {
+      const { normalizedName: _normalizedName, ...submission } = input.record;
+      const record = {
+        id: "raw-material-1",
+        ...submission,
+        createdAt: "2026-08-23T08:00:00.000Z",
+        updatedAt: "2026-08-23T08:00:00.000Z",
+      };
+      records.push(record);
+      return record;
+    },
+    async updateRecord(input) {
+      const before = records[0];
+      if (before === undefined) return undefined;
+      const { normalizedName: _normalizedName, ...submission } = input.record;
+      const record = { ...before, ...submission, updatedAt: "2026-08-23T09:00:00.000Z" };
+      records[0] = record;
+      return { before, record };
+    },
+  };
+  const audit: AuditRepository = {
+    async record(event) {
+      auditActions.push(event.action);
+    },
+    async listReport() {
+      throw new Error("not used");
+    },
+  };
+  const laboratoryProfile = buildProductionProfile("business_owner");
+  laboratoryProfile.activeAccess.navigationItems = ["business.laboratory_results"];
+  laboratoryProfile.activeAccess.capabilities = [
+    "business.manage_laboratory_results",
+  ];
+
+  await withRawMaterialNomenclatureApiServer(
+    { profile: laboratoryProfile, repository, audit },
+    async (baseUrl) => {
+      const headers = {
+        "Content-Type": "application/json",
+        Cookie: "smb_session=prod-session",
+      };
+      const createResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-nomenclature`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            name: "  глина   огнеупорная  ",
+            description: "Сырьё для шамота",
+            productClass: "Сырьё",
+            applicationIndustry: "Металлургия",
+            normativeDocument: "ГОСТ 1234",
+            al2o3: "28 %",
+            fe2o3: "2 %",
+          }),
+        },
+      );
+      const createPayload = await createResponse.json() as {
+        record: RawMaterialNomenclatureRecord;
+      };
+      // Геометрия и прочность к сырью не относятся и отклоняются как чужие поля.
+      const rejectedResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-nomenclature`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: "Кварцит", geometry: "230×114×65" }),
+        },
+      );
+      const correctionResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-nomenclature/raw-material-1`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            name: "Глина огнеупорная",
+            description: "Исправленное описание",
+            productClass: "Сырьё",
+            applicationIndustry: "Металлургия",
+            normativeDocument: "ГОСТ 1234",
+            al2o3: "28 %",
+            fe2o3: "2 %",
+          }),
+        },
+      );
+      const listResponse = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-nomenclature`,
+        { headers },
+      );
+      const listPayload = await listResponse.json() as {
+        records: RawMaterialNomenclatureRecord[];
+      };
+
+      assert.equal(createResponse.status, 201);
+      assert.equal(createPayload.record.name, "глина огнеупорная");
+      assert.equal(rejectedResponse.status, 400);
+      assert.equal(correctionResponse.status, 200);
+      assert.equal(listResponse.status, 200);
+      assert.equal(listPayload.records[0]?.description, "Исправленное описание");
+      assert.deepEqual(auditActions, [
+        "raw_material_nomenclature.create",
+        "raw_material_nomenclature.correct",
+      ]);
+    },
+  );
+
+  const warehouseKeeperProfile = buildProductionProfile("business_owner");
+  warehouseKeeperProfile.activeAccess.navigationItems = [
+    "business.laboratory_results",
+  ];
+  warehouseKeeperProfile.activeAccess.capabilities = [
+    "business.review_raw_material_warehouse",
+  ];
+
+  await withRawMaterialNomenclatureApiServer(
+    { profile: warehouseKeeperProfile, repository, audit },
+    async (baseUrl) => {
+      // Кладовщик видит только склад: номенклатура ему недоступна.
+      const response = await fetch(
+        `${baseUrl}/api/laboratory/raw-material-nomenclature`,
+        { headers: { Cookie: "smb_session=prod-session" } },
+      );
+
+      assert.equal(response.status, 403);
+    },
+  );
+});
+
+async function withRawMaterialNomenclatureApiServer(
+  dependencies: {
+    profile: ServerUserProfile;
+    repository: RawMaterialNomenclatureRepository;
+    audit: AuditRepository;
+  },
+  callback: (baseUrl: string) => Promise<void>,
+) {
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    authService: buildAuthService({ profile: dependencies.profile }),
+    rawMaterialNomenclature: dependencies.repository,
+    audit: dependencies.audit,
+    databaseTransaction: {
+      async run(operation) {
+        return operation();
+      },
+    },
+    now: () => new Date("2026-08-23T10:00:00.000Z"),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  try {
+    await callback(`http://127.0.0.1:${address.port}`);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+}
 
 async function withRawMaterialWarehouseApiServer(
   dependencies: {

@@ -3877,6 +3877,61 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /**
+     * Доработка задачи 95: `Сырьё` — вторая номенклатура рядом с `Марками`.
+     * Отдельная таблица, а не признак в `product_brands`: у сырья нет
+     * геометрии и прочности, свой уникальный список наименований и своя
+     * история исправлений, а перенос ссылок между марками сюда не относится.
+     */
+    id: "072_laboratory_raw_material_nomenclature",
+    statements: [
+      `
+      create table if not exists laboratory_raw_material_nomenclature (
+        sequence_id bigint unsigned not null auto_increment,
+        id char(36) not null primary key,
+        name varchar(120) not null,
+        normalized_name varchar(120) not null,
+        description text null,
+        product_class varchar(255) null,
+        application_industry varchar(255) null,
+        normative_document varchar(255) null,
+        al2o3 varchar(120) null,
+        fe2o3 varchar(120) null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        unique key uq_raw_material_nomenclature_sequence (sequence_id),
+        unique key uq_raw_material_nomenclature_normalized_name (
+          normalized_name
+        ),
+        key idx_raw_material_nomenclature_name (name)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists laboratory_raw_material_nomenclature_revisions (
+        id char(36) not null primary key,
+        raw_material_id char(36) not null,
+        before_snapshot json not null,
+        after_snapshot json not null,
+        corrected_by_user_id varchar(120) not null,
+        corrected_by_account_id varchar(120) not null,
+        corrected_by_display_name varchar(255) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        key idx_raw_material_nomenclature_revisions_material (
+          raw_material_id,
+          created_at
+        ),
+        constraint fk_raw_material_nomenclature_revision_material
+          foreign key (raw_material_id)
+          references laboratory_raw_material_nomenclature (id)
+          on delete restrict
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

@@ -59,6 +59,8 @@ import {
   type ProductionCategoryScheduleInput,
 } from "../domain/productionPlan.js";
 import { validateProductBrandSubmission } from "../domain/productBrandJournal.js";
+import { validateRawMaterialNomenclatureSubmission } from "../domain/rawMaterialNomenclature.js";
+import { rawMaterialNomenclatureFields } from "../contracts/rawMaterialNomenclature.js";
 import { productBrandFields } from "../contracts/productBrands.js";
 import {
   validateRefractoryWagonCatalogSubmission,
@@ -245,6 +247,10 @@ import {
   type ProductBrandsRepository,
 } from "../repositories/productBrandsRepository.js";
 import {
+  RawMaterialNomenclatureNameAlreadyExistsError,
+  type RawMaterialNomenclatureRepository,
+} from "../repositories/rawMaterialNomenclatureRepository.js";
+import {
   createEmailNotificationService,
   type EmailNotificationService,
 } from "../integrations/emailNotifications.js";
@@ -369,6 +375,7 @@ type AppDependencies = {
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsDataSource;
   productBrandJournal?: ProductBrandsRepository;
+  rawMaterialNomenclature?: RawMaterialNomenclatureRepository;
   refractoryReports?: RefractoryReportsRepository;
   refractoryWagons?: RefractoryWagonsRepository;
   refractoryWagonInspections?: RefractoryWagonInspectionsRepository;
@@ -438,6 +445,8 @@ const productBrandRecordPathPattern =
   /^\/api\/laboratory\/product-brands\/([a-zA-Z0-9-]{1,100})$/u;
 const productBrandDeletionImpactPathPattern =
   /^\/api\/laboratory\/product-brands\/([a-zA-Z0-9-]{1,100})\/deletion-impact$/u;
+const rawMaterialNomenclatureRecordPathPattern =
+  /^\/api\/laboratory\/raw-material-nomenclature\/([a-zA-Z0-9-]{1,100})$/u;
 const laboratoryChemicalAnalysisProtocolPath =
   "/api/laboratory/chemical-analysis-journal/protocol.pdf";
 const productBrandMutationLockByResponse = new WeakMap<
@@ -477,6 +486,7 @@ export function createApiServer({
   productionPlans,
   productionBrands = unavailableProductionBrandsDataSource,
   productBrandJournal,
+  rawMaterialNomenclature,
   refractoryReports,
   refractoryWagons,
   refractoryWagonInspections,
@@ -893,6 +903,8 @@ export function createApiServer({
         url.pathname === "/api/laboratory/product-brands" ||
         productBrandRecordPathPattern.test(url.pathname) ||
         productBrandDeletionImpactPathPattern.test(url.pathname) ||
+        url.pathname === "/api/laboratory/raw-material-nomenclature" ||
+        rawMaterialNomenclatureRecordPathPattern.test(url.pathname) ||
         laboratoryProtocolPathPattern.test(url.pathname)
       ) {
         await handleLaboratoryRequest({
@@ -916,6 +928,7 @@ export function createApiServer({
           laboratoryGreenProductQualityJournal,
           productionBrands,
           productBrandJournal,
+          rawMaterialNomenclature,
           refractoryWagons,
           audit,
           databaseTransaction,
@@ -2958,18 +2971,10 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
       });
       return;
     }
-    const references = await resolveProductionBrandReferencesForRequest({
-      res,
-      productionBrands,
-      references: [{
-        fieldName: "materialLabel",
-        label: validation.value.materialLabel,
-      }],
-      logEvent: "raw_material_warehouse_brands.database_read_failed",
-    });
-    if (references === undefined) return;
-    validation.value.materialLabel = references[0]?.label ??
-      validation.value.materialLabel;
+    /*
+     * Доработка задачи 95: вид сырья больше не канонизируется по `Журналу
+     * марок` — это отдельный накапливаемый список склада, а не марка изделия.
+     */
     const saved = await runAuditedMutation({
       transaction: databaseTransaction,
       audit,
@@ -3014,20 +3019,6 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
         },
       });
       return;
-    }
-    if (validation.value.action === "correct") {
-      const references = await resolveProductionBrandReferencesForRequest({
-        res,
-        productionBrands,
-        references: [{
-          fieldName: "materialLabel",
-          label: validation.value.record.materialLabel,
-        }],
-        logEvent: "raw_material_warehouse_brands.database_read_failed",
-      });
-      if (references === undefined) return;
-      validation.value.record.materialLabel = references[0]?.label ??
-        validation.value.record.materialLabel;
     }
     try {
       const result = await runAuditedMutation({
@@ -3154,6 +3145,7 @@ async function handleLaboratoryRequest({
   laboratoryGreenProductQualityJournal,
   productionBrands,
   productBrandJournal,
+  rawMaterialNomenclature,
   refractoryWagons,
   audit,
   databaseTransaction,
@@ -3196,6 +3188,7 @@ async function handleLaboratoryRequest({
     | undefined;
   productionBrands: ProductionBrandsDataSource;
   productBrandJournal: ProductBrandsRepository | undefined;
+  rawMaterialNomenclature: RawMaterialNomenclatureRepository | undefined;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   now: () => Date;
@@ -3577,6 +3570,193 @@ async function handleLaboratoryRequest({
           error: {
             code: "invalid_response",
             message: "Марка с таким наименованием уже есть в журнале.",
+          },
+        });
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
+  const rawMaterialNomenclatureRecordMatch =
+    rawMaterialNomenclatureRecordPathPattern.exec(url.pathname);
+  if (
+    url.pathname === "/api/laboratory/raw-material-nomenclature" ||
+    rawMaterialNomenclatureRecordMatch !== null
+  ) {
+    if (rawMaterialNomenclature === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Хранилище номенклатуры сырья не настроено.",
+        },
+      });
+      return;
+    }
+
+    if (rawMaterialNomenclatureRecordMatch !== null) {
+      if (!canManageLaboratory) {
+        sendJson(res, 403, {
+          error: {
+            code: "access_denied",
+            message: "Исправление сырья недоступно.",
+          },
+        });
+        return;
+      }
+      if (req.method !== "PATCH") {
+        sendJson(res, 405, {
+          error: {
+            code: "access_denied",
+            message: "Для исправления сырья используется PATCH.",
+          },
+        });
+        return;
+      }
+
+      const validation = validateRawMaterialNomenclatureSubmission(
+        await readJsonBody(req),
+      );
+      if (!validation.ok) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: validation.errors.join(" "),
+          },
+        });
+        return;
+      }
+
+      try {
+        const correction = await runAuditedMutation({
+          transaction: databaseTransaction,
+          audit,
+          mutate: () => rawMaterialNomenclature.updateRecord({
+            id: rawMaterialNomenclatureRecordMatch[1],
+            record: validation.value,
+            correctedByUserId: access.profile.userId,
+            correctedByAccountId: access.profile.activeAccess.accountId,
+            correctedByDisplayName: access.profile.displayName,
+          }),
+          buildEvent: (result) => result === undefined
+            ? undefined
+            : {
+                actor: buildAuditActor(access.profile),
+                category: "data_change",
+                action: "raw_material_nomenclature.correct",
+                summary: `Исправлено сырьё «${result.record.name}»`,
+                details: rawMaterialNomenclatureFields.map((field) => ({
+                  label: field.label,
+                  value:
+                    `${formatProductBrandAuditValue(result.before[field.id])} → ${formatProductBrandAuditValue(result.record[field.id])}`,
+                })),
+                targetType: "raw_material_nomenclature",
+                targetId: result.record.id,
+              },
+        });
+        if (correction === undefined) {
+          sendJson(res, 404, {
+            error: { code: "not_found", message: "Сырьё не найдено." },
+          });
+          return;
+        }
+        sendJson(res, 200, { record: correction.record });
+      } catch (error) {
+        if (error instanceof RawMaterialNomenclatureNameAlreadyExistsError) {
+          sendJson(res, 409, {
+            error: {
+              code: "invalid_response",
+              message: "Сырьё с таким наименованием уже есть в номенклатуре.",
+            },
+          });
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
+
+    if (req.method === "GET") {
+      const query = readOptionalQueryParam(url, "query");
+      if (query !== undefined && query.length > 120) {
+        sendJson(res, 400, {
+          error: {
+            code: "invalid_response",
+            message: "Поиск по номенклатуре должен быть не длиннее 120 символов.",
+          },
+        });
+        return;
+      }
+      sendJson(res, 200, {
+        records: await rawMaterialNomenclature.listRecords(
+          query === undefined ? {} : { query },
+        ),
+      });
+      return;
+    }
+
+    if (!canManageLaboratory) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Добавление сырья недоступно.",
+        },
+      });
+      return;
+    }
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для номенклатуры сырья используются GET и POST.",
+        },
+      });
+      return;
+    }
+
+    const validation = validateRawMaterialNomenclatureSubmission(
+      await readJsonBody(req),
+    );
+    if (!validation.ok) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: validation.errors.join(" "),
+        },
+      });
+      return;
+    }
+
+    try {
+      const saved = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => rawMaterialNomenclature.createRecord({
+          record: validation.value,
+          submittedByUserId: access.profile.userId,
+          submittedByAccountId: access.profile.activeAccess.accountId,
+        }),
+        buildEvent: (record) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "raw_material_nomenclature.create",
+          summary: `Добавлено сырьё «${record.name}»`,
+          details: rawMaterialNomenclatureFields.map((field) => ({
+            label: field.label,
+            value: formatProductBrandAuditValue(record[field.id]),
+          })),
+          targetType: "raw_material_nomenclature",
+          targetId: record.id,
+        }),
+      });
+      sendJson(res, 201, { record: saved });
+    } catch (error) {
+      if (error instanceof RawMaterialNomenclatureNameAlreadyExistsError) {
+        sendJson(res, 409, {
+          error: {
+            code: "invalid_response",
+            message: "Сырьё с таким наименованием уже есть в номенклатуре.",
           },
         });
         return;

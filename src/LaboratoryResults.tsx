@@ -12,6 +12,7 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import { LaboratoryBanksPanel } from "./LaboratoryBanksPanel";
 import { LaboratoryRawMaterialWarehouse } from "./LaboratoryRawMaterialWarehouse";
 import { ProductBrandJournal } from "./ProductBrandJournal";
+import { RawMaterialNomenclatureJournal } from "./RawMaterialNomenclatureJournal";
 import { LaboratoryRotaryKiln2FiringJournal } from "./LaboratoryRotaryKiln2FiringJournal";
 import { LaboratorySampleRegistrationJournal } from "./LaboratorySampleRegistrationJournal";
 import { LaboratoryChemicalAnalysisJournal } from "./LaboratoryChemicalAnalysisJournal";
@@ -44,7 +45,7 @@ import {
 type LaboratoryWorkspacePanel =
   | "results"
   | "banks"
-  | "brands"
+  | "nomenclature"
   | "raw-material-warehouse"
   | "central-lab"
   | "quality-control"
@@ -57,6 +58,7 @@ type QualityControlJournalId =
   | "unshaped-product-samples"
   | "formed-product-samples"
   | "verifications";
+type NomenclatureJournalId = "brands" | "raw-materials";
 type RefractoryShopJournalId =
   | "raw-material-quality"
   | "green-product-quality";
@@ -128,6 +130,18 @@ const qualityControlJournals: readonly {
   { id: "verifications", label: "Верификации" },
 ];
 
+/**
+ * Доработка задачи 95: `Марки` спрятаны под кнопку `Номенклатура` вместе с
+ * новым журналом `Сырьё`; этот список задаёт порядок кнопок внутри группы.
+ */
+const nomenclatureJournals: readonly {
+  id: NomenclatureJournalId;
+  label: string;
+}[] = [
+  { id: "brands", label: "Марки" },
+  { id: "raw-materials", label: "Сырьё" },
+];
+
 const refractoryShopJournals: readonly {
   id: RefractoryShopJournalId;
   label: string;
@@ -170,6 +184,8 @@ export function LaboratoryResultsWorkspace({
       ? "raw-material-warehouse"
       : visibleControlSections.length === 0 ? "banks" : "results",
   );
+  const [nomenclatureJournal, setNomenclatureJournal] =
+    useState<NomenclatureJournalId>(nomenclatureJournals[0].id);
   const [centralLabJournal, setCentralLabJournal] = useState<CentralLabJournalId>(
     centralLabJournals[0].id,
   );
@@ -468,16 +484,16 @@ export function LaboratoryResultsWorkspace({
         ))}
         {isRawMaterialWarehouseReviewOnly ? null : (<>
         <button
-          aria-selected={activePanel === "brands"}
-          className={activePanel === "brands" ? "is-active" : ""}
+          aria-selected={activePanel === "nomenclature"}
+          className={activePanel === "nomenclature" ? "is-active" : ""}
           role="tab"
           type="button"
           onClick={() => {
-            setActivePanel("brands");
+            setActivePanel("nomenclature");
             setFormMessage("");
           }}
         >
-          Марки
+          Номенклатура
         </button>
         <button
           aria-selected={activePanel === "banks"}
@@ -543,6 +559,27 @@ export function LaboratoryResultsWorkspace({
         </button>
         </>)}
       </div>
+
+      {activePanel === "nomenclature" ? (
+        <div
+          className="laboratory-section-tabs laboratory-nomenclature-tabs"
+          role="tablist"
+          aria-label="Номенклатура"
+        >
+          {nomenclatureJournals.map((journal) => (
+            <button
+              aria-selected={nomenclatureJournal === journal.id}
+              className={nomenclatureJournal === journal.id ? "is-active" : ""}
+              key={journal.id}
+              role="tab"
+              type="button"
+              onClick={() => setNomenclatureJournal(journal.id)}
+            >
+              {journal.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {activePanel === "central-lab" ? (
         <div
@@ -612,14 +649,21 @@ export function LaboratoryResultsWorkspace({
           isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
-      ) : activePanel === "brands" ? (
-        <ProductBrandJournal
-          isAdminPreviewMode={isAdminPreviewMode}
-          onBrandSaved={() => {
-            setProductBrandRefreshVersion((value) => value + 1);
-          }}
-          onShowToast={onShowToast}
-        />
+      ) : activePanel === "nomenclature" ? (
+        nomenclatureJournal === "brands" ? (
+          <ProductBrandJournal
+            isAdminPreviewMode={isAdminPreviewMode}
+            onBrandSaved={() => {
+              setProductBrandRefreshVersion((value) => value + 1);
+            }}
+            onShowToast={onShowToast}
+          />
+        ) : (
+          <RawMaterialNomenclatureJournal
+            isAdminPreviewMode={isAdminPreviewMode}
+            onShowToast={onShowToast}
+          />
+        )
       ) : activePanel === "raw-material-warehouse" ? (
         <LaboratoryRawMaterialWarehouse
           isAdminPreviewMode={isAdminPreviewMode}
