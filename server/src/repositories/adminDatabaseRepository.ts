@@ -50,6 +50,21 @@ export type AdminDatabaseColumn = {
   nullable: boolean;
 };
 
+export type AdminDatabaseFilterOption = {
+  value: string;
+  label: string;
+};
+
+/**
+ * Фильтры и сортировки, которые раздел поддерживает на сервере. Клиент рисует
+ * только объявленные здесь элементы и не изобретает своих.
+ */
+export type AdminDatabaseTableControls = {
+  section?: { label: string; options: AdminDatabaseFilterOption[] };
+  eventDate?: { label: string };
+  sort?: { label: string; options: AdminDatabaseFilterOption[] };
+};
+
 export type AdminDatabaseTable = {
   name: string;
   label: string;
@@ -59,6 +74,7 @@ export type AdminDatabaseTable = {
   canDelete: boolean;
   canClear: boolean;
   canMerge: boolean;
+  controls: AdminDatabaseTableControls;
 };
 
 export type AdminDatabaseCellValue = string | null;
@@ -76,6 +92,12 @@ export type AdminDatabaseRow = {
   primaryKey: Record<string, AdminDatabaseCellValue>;
   values: Record<string, AdminDatabaseCellValue>;
   editorFields: AdminDatabaseEditorField[];
+  /**
+   * Строки одной отправки: у дневного отчёта оборудования на каждую единицу
+   * заводится своя запись, а показывать их нужно одной группой с правкой
+   * каждой единицы по отдельности.
+   */
+  group?: { key: string; label: string };
 };
 
 export type AdminDatabaseTableRows = {
@@ -121,12 +143,22 @@ export type AdminDatabaseRepository = {
   listTables: () => Promise<AdminDatabaseTable[]>;
   listRows: (
     tableName: string,
-    options?: { limit?: number; offset?: number; search?: string },
+    options?: AdminDatabaseListOptions,
   ) => Promise<AdminDatabaseTableRows>;
   updateRow: (value: AdminDatabaseUpdate) => Promise<void>;
   mergeRows: (value: AdminDatabaseMerge) => Promise<AdminDatabaseMergeResult>;
   deleteRow: (value: AdminDatabaseDelete) => Promise<void>;
   clearTable: (tableName: string) => Promise<number>;
+};
+
+export type AdminDatabaseListOptions = {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  section?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  sort?: string;
 };
 
 type RawDatabaseRow = RowDataPacket & Record<string, unknown>;
@@ -150,6 +182,27 @@ type AdminDatabaseContextColumn = {
   selectExpression: string;
 };
 
+type AdminDatabaseViewSortOption = AdminDatabaseFilterOption & {
+  orderBy: string;
+};
+
+type AdminDatabaseViewSection = {
+  label: string;
+  valueExpression: string;
+  options: readonly AdminDatabaseFilterOption[];
+};
+
+type AdminDatabaseViewGroup = {
+  keyExpression: string;
+  labelExpression: string;
+};
+
+/** Нормализованная дата события для фильтра по периоду и сортировки. */
+type AdminDatabaseViewEventDate = {
+  label: string;
+  expression: string;
+};
+
 type AdminDatabaseView = {
   name: string;
   label: string;
@@ -161,6 +214,10 @@ type AdminDatabaseView = {
   contextColumns?: AdminDatabaseContextColumn[];
   canDelete: boolean;
   canClear?: boolean;
+  section?: AdminDatabaseViewSection;
+  eventDate?: AdminDatabaseViewEventDate;
+  group?: AdminDatabaseViewGroup;
+  sort?: { label: string; options: readonly AdminDatabaseViewSortOption[] };
 };
 
 type DispatcherEditorRow = RowDataPacket & {
@@ -171,7 +228,7 @@ type DispatcherEditorRow = RowDataPacket & {
   period: string;
 };
 
-type AdminDatabaseSearchFilter = {
+type AdminDatabaseRowFilter = {
   clause: string;
   values: string[];
 };
@@ -185,10 +242,20 @@ type IncidentClosureRow = RowDataPacket & {
 
 const identifierPattern = /^[A-Za-z0-9_]+$/;
 const primaryKeyAliasPrefix = "__admin_primary_key_";
+const groupKeyAlias = "__admin_group_key";
+const groupLabelAlias = "__admin_group_label";
 const contextAliasPrefix = "__admin_context_";
 const userStatusOptions = options([
   ["active", "Активен"],
   ["suspended", "Вход отключён"],
+]);
+const dispatcherFormFilterOptions = options([
+  ["equipment", "Оборудование"],
+  ["production", "Выработка"],
+  ["incident", "Открытие инцидента"],
+  ["incident_close", "Закрытие инцидента"],
+  ["visitor", "Вход посетителя"],
+  ["visitor_exit", "Выход посетителя"],
 ]);
 const submissionStatusOptions = options([
   ["received", "Получено"],
@@ -240,7 +307,38 @@ const databaseViews: AdminDatabaseView[] = [
       left join app_users users on users.id = accesses.user_id
       left join account_positions positions on positions.id = accesses.position_code
     `,
-    orderBy: "submissions.received_at desc, submissions.id desc",
+    orderBy: `${dispatcherSortableEventDateExpression()} desc, ` +
+      "submissions.received_at desc, submissions.id desc",
+    section: {
+      label: "Раздел",
+      valueExpression: "submissions.form_id",
+      options: dispatcherFormFilterOptions,
+    },
+    eventDate: {
+      label: "Дата события",
+      expression: dispatcherSortableEventDateExpression(),
+    },
+    group: {
+      keyExpression: dispatcherGroupKeyExpression(),
+      labelExpression: dispatcherGroupLabelExpression(),
+    },
+    sort: {
+      label: "Сортировка",
+      options: [
+        {
+          value: "event_date_desc",
+          label: "Дата события: сначала новые",
+          orderBy: `${dispatcherSortableEventDateExpression()} desc, ` +
+            "submissions.received_at desc, submissions.id desc",
+        },
+        {
+          value: "event_date_asc",
+          label: "Дата события: сначала старые",
+          orderBy: `${dispatcherSortableEventDateExpression()} asc, ` +
+            "submissions.received_at asc, submissions.id asc",
+        },
+      ],
+    },
     columns: [
       viewColumn("form", "Раздел", dispatcherFormLabelExpression("submissions.form_id")),
       viewColumn(
@@ -288,15 +386,12 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
 
   async function listRows(
     tableName: string,
-    { limit = 100, offset = 0, search }: {
-      limit?: number;
-      offset?: number;
-      search?: string;
-    } = {},
+    options: AdminDatabaseListOptions = {},
   ) {
+    const { limit = 100, offset = 0 } = options;
     const view = readView(tableName);
-    const filter = buildSearchFilter(view, search ?? "");
-    const table = await readPublicTable(view, filter);
+    const filters = buildRowFilters(view, options);
+    const table = await readPublicTable(view, filters);
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const safeOffset = Math.max(offset, 0);
     const selectColumns = [
@@ -309,17 +404,23 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
       ...(view.contextColumns ?? []).map(
         (column) => `${column.selectExpression} as ${quoteIdentifier(contextAlias(column.name))}`,
       ),
+      ...(view.group === undefined
+        ? []
+        : [
+            `${view.group.keyExpression} as ${quoteIdentifier(groupKeyAlias)}`,
+            `${view.group.labelExpression} as ${quoteIdentifier(groupLabelAlias)}`,
+          ]),
     ];
     const [rows] = await pool.query<RawDatabaseRow[]>(
       `
         select ${selectColumns.join(",\n          ")}
         from ${view.fromClause}
-        ${buildWhereClause(view, filter)}
-        order by ${view.orderBy}
+        ${buildWhereClause(view, filters)}
+        order by ${readOrderBy(view, options.sort)}
         limit ?
         offset ?
       `,
-      [...(filter?.values ?? []), safeLimit, safeOffset],
+      [...readFilterValues(filters), safeLimit, safeOffset],
     );
 
     return {
@@ -420,12 +521,12 @@ export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabase
 
   async function readPublicTable(
     view: AdminDatabaseView,
-    filter?: AdminDatabaseSearchFilter,
+    filters: readonly AdminDatabaseRowFilter[] = [],
   ) {
     const [rows] = await pool.query<Array<RowDataPacket & { row_count: number | string }>>(
       `select count(*) as row_count from ${view.fromClause}
-       ${buildWhereClause(view, filter)}`,
-      filter?.values ?? [],
+       ${buildWhereClause(view, filters)}`,
+      readFilterValues(filters),
     );
 
     return buildPublicTable(view, Number(rows[0]?.row_count ?? 0));
@@ -698,6 +799,30 @@ function buildPublicTable(view: AdminDatabaseView, rowCount: number | null) {
     canDelete: view.canDelete,
     canClear: view.canClear === true,
     canMerge: false,
+    controls: {
+      ...(view.section === undefined
+        ? {}
+        : {
+            section: {
+              label: view.section.label,
+              options: [...view.section.options],
+            },
+          }),
+      ...(view.eventDate === undefined
+        ? {}
+        : { eventDate: { label: view.eventDate.label } }),
+      ...(view.sort === undefined
+        ? {}
+        : {
+            sort: {
+              label: view.sort.label,
+              options: view.sort.options.map(({ value, label }) => ({
+                value,
+                label,
+              })),
+            },
+          }),
+    },
   } satisfies AdminDatabaseTable;
 }
 
@@ -724,7 +849,17 @@ function mapDatabaseRow(row: RawDatabaseRow, view: AdminDatabaseView): AdminData
             options: [...column.options],
             value: serializeDatabaseValue(row[column.name]),
           })),
+    ...readDatabaseRowGroup(row, view),
   };
+}
+
+function readDatabaseRowGroup(row: RawDatabaseRow, view: AdminDatabaseView) {
+  if (view.group === undefined) return {};
+
+  const key = serializeDatabaseValue(row[groupKeyAlias]);
+  const label = serializeDatabaseValue(row[groupLabelAlias]);
+
+  return key === null || label === null ? {} : { group: { key, label } };
 }
 
 function buildDispatcherEditorFields(row: RawDatabaseRow): AdminDatabaseEditorField[] {
@@ -830,10 +965,68 @@ function viewColumn(
 // Search matches the values the administrator actually sees in the table, so a
 // status is compared by its Russian label and a timestamp also by its printed
 // day. Every column of the shown projection takes part, and nothing hidden does.
+/**
+ * Собирает все условия раздела: общий поиск, фильтр по разделу и период по
+ * дате события. Пустой список условий означает выборку без `where`.
+ */
+function buildRowFilters(
+  view: AdminDatabaseView,
+  options: AdminDatabaseListOptions,
+): AdminDatabaseRowFilter[] {
+  const filters: AdminDatabaseRowFilter[] = [];
+  const search = buildSearchFilter(view, options.search ?? "");
+
+  if (search !== undefined) filters.push(search);
+
+  const section = options.section?.trim();
+
+  if (
+    view.section !== undefined &&
+    section !== undefined &&
+    section.length > 0 &&
+    view.section.options.some((option) => option.value === section)
+  ) {
+    filters.push({
+      clause: `${view.section.valueExpression} = ?`,
+      values: [section],
+    });
+  }
+
+  if (view.eventDate !== undefined) {
+    const dateFrom = options.dateFrom?.trim();
+    const dateTo = options.dateTo?.trim();
+
+    if (dateFrom !== undefined && dateFrom.length > 0) {
+      filters.push({
+        clause: `${view.eventDate.expression} >= cast(? as date)`,
+        values: [dateFrom],
+      });
+    }
+
+    if (dateTo !== undefined && dateTo.length > 0) {
+      filters.push({
+        clause:
+          `${view.eventDate.expression} < date_add(cast(? as date), interval 1 day)`,
+        values: [dateTo],
+      });
+    }
+  }
+
+  return filters;
+}
+
+function readOrderBy(view: AdminDatabaseView, sort: string | undefined) {
+  const selected = view.sort?.options.find(
+    (option) => option.value === sort?.trim(),
+  );
+
+  return selected?.orderBy ?? view.orderBy;
+}
+
 function buildSearchFilter(
   view: AdminDatabaseView,
   search: string,
-): AdminDatabaseSearchFilter | undefined {
+): AdminDatabaseRowFilter | undefined {
   const term = search.trim();
 
   if (term.length === 0) {
@@ -877,13 +1070,18 @@ function buildSearchableExpressions(column: AdminDatabaseViewColumn) {
 
 function buildWhereClause(
   view: AdminDatabaseView,
-  filter: AdminDatabaseSearchFilter | undefined,
+  filters: readonly AdminDatabaseRowFilter[],
 ) {
-  const clauses = [view.whereClause, filter?.clause].filter(
-    (clause): clause is string => clause !== undefined,
-  );
+  const clauses = [
+    view.whereClause,
+    ...filters.map((filter) => filter.clause),
+  ].filter((clause): clause is string => clause !== undefined);
 
   return clauses.length === 0 ? "" : `where ${clauses.join(" and ")}`;
+}
+
+function readFilterValues(filters: readonly AdminDatabaseRowFilter[]) {
+  return filters.flatMap((filter) => filter.values);
 }
 
 function escapeLikePattern(value: string) {
@@ -1032,6 +1230,53 @@ function dispatcherFormLabelExpression(column: string) {
     when 'visitor' then 'Вход посетителя'
     when 'visitor_exit' then 'Выход посетителя'
     else ${column}
+  end`;
+}
+
+/**
+ * Дата события хранится в payload в разных формах: `DD.MM.YYYY`,
+ * `DD.MM.YYYY HH:mm`, ISO у legacy-импорта и `YYYY-MM` у старого поля периода.
+ * Для сортировки и фильтра по периоду все они приводятся к datetime, а
+ * нераспознанное значение даёт `null` и уходит в конец выборки.
+ */
+function dispatcherSortableEventDateExpression() {
+  const raw = dispatcherEventDateExpression();
+
+  return `case
+    when ${raw} like '__.__.____ __:__' then str_to_date(${raw}, '%d.%m.%Y %H:%i')
+    when ${raw} like '__.__.____' then str_to_date(${raw}, '%d.%m.%Y')
+    when ${raw} like '____-__-__T%' then str_to_date(left(${raw}, 19), '%Y-%m-%dT%H:%i:%s')
+    when ${raw} like '____-__-__' then str_to_date(${raw}, '%Y-%m-%d')
+    when ${raw} like '____-__' then str_to_date(concat(${raw}, '-01'), '%Y-%m-%d')
+    else null
+  end`;
+}
+
+/**
+ * Дневной отчёт оборудования отправляется одной операцией, но сохраняется по
+ * записи на единицу оборудования. Ключ группы объединяет их по дате отчёта;
+ * остальные формы отправляются по одной и группы не получают.
+ */
+function dispatcherGroupKeyExpression() {
+  return `case when submissions.form_id = 'equipment'
+    then concat(
+      'equipment:',
+      coalesce(json_unquote(json_extract(submissions.payload, '$.reportDate')), '')
+    )
+    else null
+  end`;
+}
+
+function dispatcherGroupLabelExpression() {
+  return `case when submissions.form_id = 'equipment'
+    then concat(
+      'Оборудование · отправка за ',
+      coalesce(
+        json_unquote(json_extract(submissions.payload, '$.reportDate')),
+        'без даты'
+      )
+    )
+    else null
   end`;
 }
 

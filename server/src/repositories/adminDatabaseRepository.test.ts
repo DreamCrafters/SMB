@@ -182,6 +182,130 @@ test("dispatcher rows can be searched across every displayed column", async () =
   assert.ok(count?.sql.includes("date_format(submissions.received_at, '%d.%m.%Y') like ?"));
 });
 
+test("dispatcher rows filter by section and event date period", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, values?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, values });
+
+      if (normalized.startsWith("select count(*)")) {
+        return [[{ row_count: 3 }], []];
+      }
+
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  const result = await createAdminDatabaseRepository(pool).listRows(
+    "dispatcher_submissions",
+    {
+      limit: 50,
+      offset: 0,
+      section: "equipment",
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-31",
+      sort: "event_date_asc",
+    },
+  );
+
+  const [count, page] = queries;
+
+  assert.equal(result.table.rowCount, 3);
+  assert.ok(count?.sql.includes("submissions.form_id = ?"));
+  assert.ok(count?.sql.includes(">= cast(? as date)"));
+  assert.ok(count?.sql.includes("< date_add(cast(? as date), interval 1 day)"));
+  assert.deepEqual(count?.values, ["equipment", "2026-07-01", "2026-07-31"]);
+  assert.deepEqual(page?.values, ["equipment", "2026-07-01", "2026-07-31", 50, 0]);
+  // Сортировка выбирается из объявленных вариантов, а не из строки запроса.
+  assert.ok(page?.sql.includes("order by case when"));
+  assert.ok(page?.sql.includes("asc, submissions.received_at asc"));
+});
+
+test("dispatcher section declares filters and sorts by event date", async () => {
+  const pool = {
+    async query(sql: string) {
+      return sql.replace(/\s+/g, " ").trim().startsWith("select count(*)")
+        ? [[{ row_count: 0 }], []]
+        : [[], []];
+    },
+  } as unknown as DatabasePool;
+
+  const tables = await createAdminDatabaseRepository(pool).listTables();
+  const dispatcher = tables.find(
+    (table) => table.name === "dispatcher_submissions",
+  );
+  const users = tables.find((table) => table.name === "app_users");
+
+  assert.deepEqual(
+    dispatcher?.controls.section?.options.map((option) => option.value),
+    [
+      "equipment",
+      "production",
+      "incident",
+      "incident_close",
+      "visitor",
+      "visitor_exit",
+    ],
+  );
+  assert.equal(dispatcher?.controls.eventDate?.label, "Дата события");
+  assert.deepEqual(
+    dispatcher?.controls.sort?.options.map((option) => option.value),
+    ["event_date_desc", "event_date_asc"],
+  );
+  // Разделы без объявленных фильтров остаются с одним общим поиском.
+  assert.deepEqual(users?.controls, {});
+});
+
+test("equipment rows of one report are returned as a single group", async () => {
+  const pool = {
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+
+      if (normalized.startsWith("select count(*)")) {
+        return [[{ row_count: 2 }], []];
+      }
+
+      return [[
+        {
+          __admin_primary_key_id: "equipment-1",
+          form: "Оборудование",
+          event_date: "22.07.2026",
+          __admin_group_key: "equipment:22.07.2026",
+          __admin_group_label: "Оборудование · отправка за 22.07.2026",
+          __admin_context_form_id: "equipment",
+          __admin_context_payload: JSON.stringify({
+            reportDate: "22.07.2026",
+            equipment: "Пресс №1",
+          }),
+          __admin_context_status: "received",
+        },
+        {
+          __admin_primary_key_id: "production-1",
+          form: "Выработка",
+          event_date: "22.07.2026",
+          __admin_group_key: null,
+          __admin_group_label: null,
+          __admin_context_form_id: "production",
+          __admin_context_payload: JSON.stringify({ reportDate: "22.07.2026" }),
+          __admin_context_status: "received",
+        },
+      ], []];
+    },
+  } as unknown as DatabasePool;
+
+  const result = await createAdminDatabaseRepository(pool).listRows(
+    "dispatcher_submissions",
+  );
+
+  assert.deepEqual(result.rows[0]?.group, {
+    key: "equipment:22.07.2026",
+    label: "Оборудование · отправка за 22.07.2026",
+  });
+  // Формы, которые отправляются по одной, группы не получают.
+  assert.equal(result.rows[1]?.group, undefined);
+});
+
 test("database search escapes like wildcards and keeps view filters", async () => {
   const queries: Array<{ sql: string; values?: unknown[] }> = [];
   const pool = {

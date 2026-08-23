@@ -25,6 +25,7 @@ const table = {
   canDelete: true,
   canClear: true,
   canMerge: false,
+  controls: {},
   columns: [
     {
       name: "summary",
@@ -120,6 +121,39 @@ test("admin database service passes the search term to the rows endpoint", async
   assert.equal(
     requestedUrls[0],
     "/api/admin/database/tables/dispatcher_submissions/rows?limit=100&offset=0&search=INC-2026-51",
+  );
+  assert.equal(
+    requestedUrls[1],
+    "/api/admin/database/tables/dispatcher_submissions/rows?limit=100&offset=0",
+  );
+});
+
+test("admin database service passes section, period and sort to the rows endpoint", async () => {
+  const requestedUrls = [];
+
+  globalThis.fetch = async (url) => {
+    requestedUrls.push(String(url));
+
+    return jsonResponse({ table, rows: [], mergeTargets: [], limit: 100, offset: 0 });
+  };
+
+  await requestAdminDatabaseRows("dispatcher_submissions", {
+    section: "equipment",
+    dateFrom: "2026-07-01",
+    dateTo: "2026-07-31",
+    sort: "event_date_asc",
+  });
+  // Пустые значения фильтров в запрос не попадают.
+  await requestAdminDatabaseRows("dispatcher_submissions", {
+    section: "",
+    dateFrom: "  ",
+    sort: "",
+  });
+
+  assert.equal(
+    requestedUrls[0],
+    "/api/admin/database/tables/dispatcher_submissions/rows?limit=100&offset=0" +
+      "&section=equipment&dateFrom=2026-07-01&dateTo=2026-07-31&sort=event_date_asc",
   );
   assert.equal(
     requestedUrls[1],

@@ -35,6 +35,21 @@ export type AdminDatabaseEditorField = {
   value: AdminDatabaseCellValue;
 };
 
+export type AdminDatabaseFilterOption = {
+  value: string;
+  label: string;
+};
+
+/**
+ * Набор фильтров и сортировок, которые раздел поддерживает на сервере. Пустой
+ * объект означает, что раздел фильтруется только общим поиском.
+ */
+export type AdminDatabaseTableControls = {
+  section?: { label: string; options: AdminDatabaseFilterOption[] };
+  eventDate?: { label: string };
+  sort?: { label: string; options: AdminDatabaseFilterOption[] };
+};
+
 export type AdminDatabaseTable = {
   name: string;
   label: string;
@@ -44,6 +59,7 @@ export type AdminDatabaseTable = {
   canDelete: boolean;
   canClear: boolean;
   canMerge: boolean;
+  controls: AdminDatabaseTableControls;
 };
 
 export type AdminDatabaseMergeTarget = {
@@ -55,6 +71,11 @@ export type AdminDatabaseRow = {
   primaryKey: Record<string, AdminDatabaseCellValue>;
   values: Record<string, AdminDatabaseCellValue>;
   editorFields: AdminDatabaseEditorField[];
+  /**
+   * Строки одной отправки. Дневной отчёт оборудования сохраняется по записи на
+   * единицу оборудования, а показывается одной группой.
+   */
+  group?: { key: string; label: string };
 };
 
 export type AdminDatabaseTablesResponse = {

@@ -3468,6 +3468,63 @@ p {
   min-width: 0;
 }
 
+/* Фильтры раздела БД: поиск, раздел, период и сортировка в одном ряду. */
+.admin-db-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--density-2);
+}
+
+.admin-db-filters > label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-db-filters > label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-db-filters > .admin-db-search {
+  flex: 1 1 260px;
+}
+
+.admin-db-group-row > td {
+  padding: 0;
+  background: var(--surface-subtle);
+}
+
+.admin-db-group-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--density-2);
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-db-group-toggle:hover {
+  background: color-mix(in srgb, var(--line) 25%, transparent);
+}
+
+.admin-db-group-toggle small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.admin-db-group-member > td:first-child {
+  padding-left: 28px;
+}
+
 .admin-db-search {
   display: grid;
   gap: 6px;

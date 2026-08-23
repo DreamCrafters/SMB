@@ -215,6 +215,7 @@ import type {
   AdminDatabaseRepository,
   AdminDatabaseCellValue,
   AdminDatabaseTableRows,
+  AdminDatabaseListOptions,
 } from "../repositories/adminDatabaseRepository.js";
 import {
   ArchivedAccountLoginStatusError,
@@ -11570,36 +11571,55 @@ function readAdminDispatcherImportPayload(
 }
 
 function readAdminDatabaseRowsQuery(url: URL):
-  | {
-      ok: true;
-      value: {
-        limit?: number;
-        offset?: number;
-        search?: string;
-      };
-    }
-  | {
-      ok: false;
-      errors: string[];
-    } {
+  | { ok: true; value: AdminDatabaseListOptions }
+  | { ok: false; errors: string[] } {
   const pagination = readAdminDatabasePagination(url);
   const errors = pagination.ok ? [] : [...pagination.errors];
   const search = readOptionalQueryParam(url, "search")?.trim();
+  const section = readOptionalQueryParam(url, "section")?.trim();
+  const dateFrom = readOptionalQueryParam(url, "dateFrom")?.trim();
+  const dateTo = readOptionalQueryParam(url, "dateTo")?.trim();
+  const sort = readOptionalQueryParam(url, "sort")?.trim();
 
   if (search !== undefined && search.length > 120) {
     errors.push("search must contain at most 120 characters.");
+  }
+
+  if (section !== undefined && section.length > 80) {
+    errors.push("section must contain at most 80 characters.");
+  }
+
+  for (const [name, value] of [["dateFrom", dateFrom], ["dateTo", dateTo]]) {
+    if (
+      value !== undefined && value.length > 0 &&
+      !isCalendarDateQueryValue(value)
+    ) {
+      errors.push(`${name} must be a calendar date.`);
+    }
+  }
+
+  if (sort !== undefined && sort.length > 80) {
+    errors.push("sort must contain at most 80 characters.");
   }
 
   if (errors.length > 0 || !pagination.ok) {
     return { ok: false, errors };
   }
 
+  /** Пустые значения не отправляем в репозиторий: там они означают «без фильтра». */
+  const optional = (name: string, value: string | undefined) =>
+    value === undefined || value.length === 0 ? {} : { [name]: value };
+
   return {
     ok: true,
-    value:
-      search === undefined || search.length === 0
-        ? pagination.value
-        : { ...pagination.value, search },
+    value: {
+      ...pagination.value,
+      ...optional("search", search),
+      ...optional("section", section),
+      ...optional("dateFrom", dateFrom),
+      ...optional("dateTo", dateTo),
+      ...optional("sort", sort),
+    },
   };
 }
 

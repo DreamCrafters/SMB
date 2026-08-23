@@ -189,6 +189,7 @@ const adminDatabaseTable = {
   canDelete: true,
   canClear: true,
   canMerge: false,
+  controls: {},
   columns: [
     {
       name: "summary",

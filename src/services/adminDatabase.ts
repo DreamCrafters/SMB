@@ -125,13 +125,30 @@ export async function requestAdminDatabaseRows(
     limit = 100,
     offset = 0,
     search,
+    section,
+    dateFrom,
+    dateTo,
+    sort,
   }: AdminDatabaseRequestOptions & {
     limit?: number;
     offset?: number;
     search?: string;
+    section?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sort?: string;
   } = {},
 ): Promise<AdminDatabaseRowsResult> {
-  const endpoint = buildRowsEndpoint(tableName, { baseUrl, limit, offset, search });
+  const endpoint = buildRowsEndpoint(tableName, {
+    baseUrl,
+    limit,
+    offset,
+    search,
+    section,
+    dateFrom,
+    dateTo,
+    sort,
+  });
 
   try {
     const response = await fetch(endpoint, {
@@ -482,11 +499,19 @@ function buildRowsEndpoint(
     limit,
     offset,
     search,
+    section,
+    dateFrom,
+    dateTo,
+    sort,
   }: {
     baseUrl?: string;
     limit?: number;
     offset?: number;
     search?: string;
+    section?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sort?: string;
   },
 ) {
   const endpoint = resolveApiEndpoint(
@@ -507,8 +532,16 @@ function buildRowsEndpoint(
     url.searchParams.set("offset", String(offset));
   }
 
-  if (search !== undefined && search.trim().length > 0) {
-    url.searchParams.set("search", search.trim());
+  for (const [name, value] of [
+    ["search", search],
+    ["section", section],
+    ["dateFrom", dateFrom],
+    ["dateTo", dateTo],
+    ["sort", sort],
+  ] as const) {
+    if (value !== undefined && value.trim().length > 0) {
+      url.searchParams.set(name, value.trim());
+    }
   }
 
   return isAbsoluteEndpoint ? url.toString() : `${url.pathname}${url.search}`;
@@ -602,7 +635,29 @@ function isAdminDatabaseTable(value: unknown) {
     value.primaryKey.every((item) => typeof item === "string") &&
     typeof value.canDelete === "boolean" &&
     typeof value.canClear === "boolean" &&
-    typeof value.canMerge === "boolean"
+    typeof value.canMerge === "boolean" &&
+    isAdminDatabaseTableControls(value.controls)
+  );
+}
+
+function isAdminDatabaseTableControls(value: unknown) {
+  if (!isRecord(value)) return false;
+
+  const hasLabelledOptions = (control: unknown) =>
+    isRecord(control) &&
+    typeof control.label === "string" &&
+    Array.isArray(control.options) &&
+    control.options.every((option) =>
+      isRecord(option) &&
+      typeof option.value === "string" &&
+      typeof option.label === "string",
+    );
+
+  return (
+    (value.section === undefined || hasLabelledOptions(value.section)) &&
+    (value.sort === undefined || hasLabelledOptions(value.sort)) &&
+    (value.eventDate === undefined ||
+      (isRecord(value.eventDate) && typeof value.eventDate.label === "string"))
   );
 }
 
@@ -636,7 +691,11 @@ function isAdminDatabaseRow(value: unknown) {
     isDatabaseValueMap(value.primaryKey) &&
     isDatabaseValueMap(value.values) &&
     Array.isArray(value.editorFields) &&
-    value.editorFields.every(isAdminDatabaseEditorField)
+    value.editorFields.every(isAdminDatabaseEditorField) &&
+    (value.group === undefined ||
+      (isRecord(value.group) &&
+        typeof value.group.key === "string" &&
+        typeof value.group.label === "string"))
   );
 }
 

@@ -9354,6 +9354,10 @@ function AdminDatabaseWorkspace({
   const [rowsOffset, setRowsOffset] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [sectionFilter, setSectionFilter] = useState("");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
+  const [sortValue, setSortValue] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [editor, setEditor] = useState<
     | {
@@ -9431,6 +9435,10 @@ function AdminDatabaseWorkspace({
     setRowsOffset(0);
     setSearchInput("");
     setSearchTerm("");
+    setSectionFilter("");
+    setDateFromFilter("");
+    setDateToFilter("");
+    setSortValue("");
   }, [selectedTableName]);
 
   useEffect(() => {
@@ -9445,7 +9453,7 @@ function AdminDatabaseWorkspace({
 
   useEffect(() => {
     setRowsOffset(0);
-  }, [searchTerm]);
+  }, [searchTerm, sectionFilter, dateFromFilter, dateToFilter, sortValue]);
 
   useEffect(() => {
     if (!canManageDatabase || selectedTableName.length === 0) {
@@ -9477,6 +9485,10 @@ function AdminDatabaseWorkspace({
       limit: 100,
       offset: rowsOffset,
       search: searchTerm,
+      section: sectionFilter,
+      dateFrom: dateFromFilter,
+      dateTo: dateToFilter,
+      sort: sortValue,
       signal: controller.signal,
     }).then((result) => {
       if (!controller.signal.aborted) {
@@ -9492,6 +9504,10 @@ function AdminDatabaseWorkspace({
     selectedTableName,
     rowsOffset,
     searchTerm,
+    sectionFilter,
+    dateFromFilter,
+    dateToFilter,
+    sortValue,
     refreshVersion,
   ]);
 
@@ -9722,15 +9738,72 @@ function AdminDatabaseWorkspace({
         </div>
 
         <div className="admin-db-main">
-          <label className="admin-db-search">
-            <span>Поиск по всем столбцам</span>
-            <input
-              maxLength={120}
-              placeholder="Например: INC-2026-51, Открытие инцидента, Соколова"
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.currentTarget.value)}
-            />
-          </label>
+          <div className="admin-db-filters">
+            <label className="admin-db-search">
+              <span>Поиск по всем столбцам</span>
+              <input
+                maxLength={120}
+                placeholder="Например: INC-2026-51, Открытие инцидента, Соколова"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.currentTarget.value)}
+              />
+            </label>
+            {selectedTable?.controls.section === undefined ? null : (
+              <label>
+                <span>{selectedTable.controls.section.label}</span>
+                <select
+                  value={sectionFilter}
+                  onChange={(event) => setSectionFilter(event.currentTarget.value)}
+                >
+                  <option value="">Все</option>
+                  {selectedTable.controls.section.options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {selectedTable?.controls.eventDate === undefined ? null : (
+              <>
+                <label>
+                  <span>{selectedTable.controls.eventDate.label}: с</span>
+                  <input
+                    type="date"
+                    value={dateFromFilter}
+                    onChange={(event) =>
+                      setDateFromFilter(event.currentTarget.value)}
+                  />
+                </label>
+                <label>
+                  <span>{selectedTable.controls.eventDate.label}: по</span>
+                  <input
+                    type="date"
+                    value={dateToFilter}
+                    onChange={(event) =>
+                      setDateToFilter(event.currentTarget.value)}
+                  />
+                </label>
+              </>
+            )}
+            {selectedTable?.controls.sort === undefined ? null : (
+              <label>
+                <span>{selectedTable.controls.sort.label}</span>
+                <select
+                  value={sortValue === ""
+                    ? selectedTable.controls.sort.options[0]?.value ?? ""
+                    : sortValue}
+                  onChange={(event) => setSortValue(event.currentTarget.value)}
+                >
+                  {selectedTable.controls.sort.options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
 
           <AdminDatabaseRowsTable
             rowsState={rowsState}
@@ -10228,7 +10301,7 @@ function AdminDispatcherImportPanel({
   );
 }
 
-function AdminDatabaseRowsTable({
+export function AdminDatabaseRowsTable({
   rowsState,
   search,
   onEdit,
@@ -10247,6 +10320,8 @@ function AdminDatabaseRowsTable({
   onNextPage: () => void;
   onPreviousPage: () => void;
 }) {
+  const [expandedGroups, setExpandedGroups] = useState<readonly string[]>([]);
+
   if (rowsState.status === "loading") {
     return <LoadingIndicator label={rowsState.message} variant="page" />;
   }
@@ -10288,6 +10363,14 @@ function AdminDatabaseRowsTable({
       rowsState.offset + rowsState.rows.length < rowsState.table.rowCount);
   const hasActions = hasAdminDatabaseRowActions(rowsState.table);
   const canEdit = rowsState.table.columns.some((column) => column.editable);
+  const groups = buildAdminDatabaseRowGroups(rowsState.rows);
+  const columnCount = rowsState.table.columns.length + (hasActions ? 1 : 0);
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((current) => current.includes(key)
+      ? current.filter((item) => item !== key)
+      : [...current, key]);
+  }
 
   return (
     <>
@@ -10345,61 +10428,130 @@ function AdminDatabaseRowsTable({
             </tr>
           </thead>
           <tbody>
-            {rowsState.rows.map((row) => (
-              <tr key={formatPrimaryKey(row)}>
-                {rowsState.table.columns.map((column) => (
-                  <td
-                    className={readDatabaseCellClassName(column)}
-                    title={row.values[column.name] ?? "NULL"}
-                    key={column.name}
+            {groups.flatMap((group) => {
+              const isGrouped = group.key !== undefined && group.rows.length > 1;
+              const isExpanded = group.key !== undefined &&
+                expandedGroups.includes(group.key);
+
+              return [
+                ...(isGrouped
+                  ? [(
+                      <tr className="admin-db-group-row" key={`group-${group.key}`}>
+                        <td colSpan={columnCount}>
+                          <button
+                            aria-expanded={isExpanded}
+                            className="admin-db-group-toggle"
+                            type="button"
+                            onClick={() => toggleGroup(group.key!)}
+                          >
+                            <span aria-hidden="true">
+                              {isExpanded ? "▾" : "▸"}
+                            </span>
+                            <strong>{group.label}</strong>
+                            <small>{`${group.rows.length} записей`}</small>
+                          </button>
+                        </td>
+                      </tr>
+                    )]
+                  : []),
+                ...(isGrouped && !isExpanded ? [] : group.rows.map((row) => (
+                  <tr
+                    className={isGrouped ? "admin-db-group-member" : undefined}
+                    key={formatPrimaryKey(row)}
                   >
-                    {formatAdminDatabaseCellValue(
-                      row.values[column.name],
-                      column.format,
-                    )}
-                  </td>
-                ))}
-                {hasActions ? (
-                  <td className="admin-db-actions-column">
-                    <div className="admin-db-actions">
-                      {canEdit ? (
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => onEdit(row)}
-                        >
-                          Править
-                        </button>
-                      ) : null}
-                      {rowsState.table.canMerge ? (
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={rowsState.mergeTargets.length < 2}
-                          onClick={() => onMerge(row)}
-                        >
-                          Слить
-                        </button>
-                      ) : null}
-                      {rowsState.table.canDelete ? (
-                        <button
-                          className="secondary-button secondary-button-danger"
-                          type="button"
-                          onClick={() => onDelete(row)}
-                        >
-                          Удалить
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
+                    {rowsState.table.columns.map((column) => (
+                      <td
+                        className={readDatabaseCellClassName(column)}
+                        title={row.values[column.name] ?? "NULL"}
+                        key={column.name}
+                      >
+                        {formatAdminDatabaseCellValue(
+                          row.values[column.name],
+                          column.format,
+                        )}
+                      </td>
+                    ))}
+                    {hasActions ? (
+                      <td className="admin-db-actions-column">
+                        <div className="admin-db-actions">
+                          {canEdit ? (
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => onEdit(row)}
+                            >
+                              Править
+                            </button>
+                          ) : null}
+                          {rowsState.table.canMerge ? (
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={rowsState.mergeTargets.length < 2}
+                              onClick={() => onMerge(row)}
+                            >
+                              Слить
+                            </button>
+                          ) : null}
+                          {rowsState.table.canDelete ? (
+                            <button
+                              className="secondary-button secondary-button-danger"
+                              type="button"
+                              onClick={() => onDelete(row)}
+                            >
+                              Удалить
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))),
+              ];
+            })}
           </tbody>
         </table>
       </div>
     </>
   );
+}
+
+/**
+ * Строки одной отправки собираются в группу по server-owned ключу, порядок
+ * групп — по первому появлению, поэтому глобальная сортировка по дате события
+ * сохраняется. Записи без ключа остаются самостоятельными строками.
+ */
+function buildAdminDatabaseRowGroups(rows: readonly AdminDatabaseRow[]) {
+  const groups: Array<{
+    key?: string;
+    label: string;
+    rows: AdminDatabaseRow[];
+  }> = [];
+  const groupByKey = new Map<string, (typeof groups)[number]>();
+
+  for (const row of rows) {
+    if (row.group === undefined) {
+      groups.push({ label: "", rows: [row] });
+      continue;
+    }
+
+    const existing = groupByKey.get(row.group.key);
+
+    if (existing === undefined) {
+      const group = {
+        key: row.group.key,
+        label: row.group.label,
+        rows: [row],
+      };
+      groupByKey.set(row.group.key, group);
+      groups.push(group);
+      continue;
+    }
+
+    existing.rows.push(row);
+  }
+
+  return groups;
 }
 
 function AdminDatabaseMergeModal({
