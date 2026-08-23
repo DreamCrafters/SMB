@@ -485,10 +485,12 @@ test("equipment edits keep report identity and append a full report revision", a
   );
 });
 
-test("rejected equipment edit reports the reason as a row mutation error", async () => {
-  const pool = {
-    async query(sql: string) {
+test("database edits drop the required fields and form obligations", async () => {
+  const queries: Array<{ sql: string; values?: unknown[] }> = [];
+  const buildPool = () => ({
+    async query(sql: string, values?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
+      queries.push({ sql: normalized, values });
 
       if (normalized.startsWith("select form_id")) {
         return [[{
@@ -505,27 +507,99 @@ test("rejected equipment edit reports the reason as a row mutation error", async
         }], []];
       }
 
+      if (normalized.startsWith("select id, form_id")) {
+        return [[{
+          id: "submission-id",
+          form_id: "equipment",
+          payload: JSON.stringify({
+            reportDate: "16.07.2026",
+            equipment: "Пресс №1",
+          }),
+          summary: "Пресс №1",
+          status: "received",
+          submitted_by_account_id: "dispatcher-access",
+          submitted_at: "2026-07-16T08:00:00.000Z",
+          received_at: "2026-07-16T08:00:00.000Z",
+        }], []];
+      }
+
+      return [{ affectedRows: 1 }, []];
+    },
+  } as unknown as DatabasePool);
+
+  // Комбинация, которую форма отклоняет при обычной отправке, через БД
+  // сохраняется: это ремонт записи, а не новая отправка.
+  await createAdminDatabaseRepository(buildPool()).updateRow({
+    tableName: "dispatcher_submissions",
+    primaryKey: { id: "submission-id" },
+    values: {
+      "payload.productionTons": "0",
+      "payload.downtimeReason": "Резерв",
+      "payload.downtimeHours": "2",
+      status: "received",
+    },
+    changedByAccountId: "admin-access",
+  });
+
+  // Пустые значения тоже принимаются и просто исчезают из payload.
+  await createAdminDatabaseRepository(buildPool()).updateRow({
+    tableName: "dispatcher_submissions",
+    primaryKey: { id: "submission-id" },
+    values: {
+      "payload.productionTons": null,
+      "payload.downtimeReason": null,
+      "payload.downtimeHours": null,
+      "payload.note": null,
+      status: "received",
+    },
+    changedByAccountId: "admin-access",
+  });
+
+  const updates = queries.filter((query) =>
+    query.sql.startsWith("update dispatcher_submissions"),
+  );
+
+  assert.match(String(updates[0]?.values?.[4]), /"productionTons":"0"/u);
+  assert.match(String(updates[0]?.values?.[4]), /"downtimeHours":"2"/u);
+  // Идентичность записи не теряется даже при пустых показателях.
+  assert.match(String(updates[1]?.values?.[4]), /"equipment":"Пресс №1"/u);
+  assert.doesNotMatch(String(updates[1]?.values?.[4]), /productionTons/u);
+});
+
+test("rejected database edit reports the reason as a row mutation error", async () => {
+  const pool = {
+    async query(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+
+      if (normalized.startsWith("select form_id")) {
+        return [[{
+          form_id: "equipment",
+          payload: JSON.stringify({
+            reportDate: "16.07.2026",
+            equipment: "Пресс №1",
+          }),
+          summary: "Пресс №1",
+          status: "received",
+          period: "2026-07",
+        }], []];
+      }
+
       return [{ affectedRows: 1 }, []];
     },
   } as unknown as DatabasePool;
 
-  // Правку отклоняют сами данные, а не сбой сервера: администратору нужна
-  // причина, а не «Internal server error».
+  // Идентичность записи по-прежнему защищена, и причина отказа доходит до
+  // администратора, а не превращается в «Internal server error».
   await assert.rejects(
     createAdminDatabaseRepository(pool).updateRow({
       tableName: "dispatcher_submissions",
       primaryKey: { id: "submission-id" },
-      values: {
-        "payload.productionTons": "12",
-        "payload.downtimeReason": "Резерв",
-        "payload.downtimeHours": "2",
-        status: "received",
-      },
+      values: { "payload.equipment": "Пресс №2" },
       changedByAccountId: "admin-access",
     }),
     (error: unknown) =>
       error instanceof AdminDatabaseRowMutationError &&
-      /reserve downtime requires exactly 8/u.test(error.message),
+      /not editable/u.test(error.message),
   );
 });
 

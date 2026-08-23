@@ -666,10 +666,16 @@ async function updateDispatcherSubmission(
           : [];
       }),
     );
-    const validation = validateDispatcherSubmissionDraft({
-      formId: form.id,
-      payload: editablePayload,
-    });
+    /*
+     * Правка через БД — ремонт сохранённой записи, поэтому обязательность полей
+     * и требующие заполнения правила формы здесь не применяются: администратор
+     * может оставить любой пункт пустым. Разбор значений, нормализация и запрет
+     * неизвестных полей остаются.
+     */
+    const validation = validateDispatcherSubmissionDraft(
+      { formId: form.id, payload: editablePayload },
+      { requireValues: false },
+    );
 
     if (!validation.ok) {
       throw new AdminDatabaseRowMutationError(validation.errors.join(" "));
@@ -698,10 +704,6 @@ async function updateDispatcherSubmission(
         else if (raw.trim().length > (name === "note" ? 2_000 : 240)) {
           throw new AdminDatabaseRowMutationError(`${name} is too long.`);
         } else nextPayload[name] = raw.trim();
-      }
-
-      if ((nextPayload.fio ?? "").trim().length === 0) {
-        throw new AdminDatabaseRowMutationError("fio is required.");
       }
     }
   }
@@ -891,7 +893,7 @@ function buildDispatcherEditorFields(row: RawDatabaseRow): AdminDatabaseEditorFi
   const payload = readDispatcherPayload(row[contextAlias("payload")]);
   const fields = form?.id === "visitor_exit"
     ? [
-        dispatcherEditorField("fio", "ФИО посетителя", "text", true, payload.fio),
+        dispatcherEditorField("fio", "ФИО посетителя", "text", false, payload.fio),
         dispatcherEditorField("organization", "Организация", "text", false, payload.organization),
         dispatcherEditorField("note", "Примечание", "textarea", false, payload.note),
       ]
@@ -901,7 +903,8 @@ function buildDispatcherEditorFields(row: RawDatabaseRow): AdminDatabaseEditorFi
         name: `payload.${field.name}`,
         label: field.label,
         inputType: toAdminEditorInputType(field),
-        required: field.required,
+        // Обязательных пунктов в правке через БД нет.
+        required: false,
         options: (field.options ?? []).map((item) => ({ value: item, label: item })),
         value: toDispatcherEditorValue(payload[field.name], field),
       }));

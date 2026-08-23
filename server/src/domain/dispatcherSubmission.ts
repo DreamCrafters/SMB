@@ -78,7 +78,21 @@ const integerPattern = /^\d+$/;
 const defaultTextMaxLength = 240;
 const summaryFallback = "Запись без краткого описания";
 
-export function validateDispatcherSubmissionDraft(input: unknown): ValidationResult {
+/**
+ * Правка через `Админ → БД` — ремонт уже сохранённой записи, а не новая
+ * отправка формы: администратор должен иметь возможность оставить любой пункт
+ * пустым. Поэтому обязательность полей и требующие заполнения правила формы
+ * отключаются флагом; разбор значений, нормализация и запрет неизвестных полей
+ * остаются в силе.
+ */
+export type DispatcherSubmissionValidationOptions = {
+  requireValues?: boolean;
+};
+
+export function validateDispatcherSubmissionDraft(
+  input: unknown,
+  { requireValues = true }: DispatcherSubmissionValidationOptions = {},
+): ValidationResult {
   if (!isRecord(input) || Array.isArray(input)) {
     return {
       ok: false,
@@ -95,11 +109,11 @@ export function validateDispatcherSubmissionDraft(input: unknown): ValidationRes
     errors.push("formId must be an active dispatcher form id.");
   }
 
-  const rawPayload = readPayload(input.payload, form, errors);
+  const rawPayload = readPayload(input.payload, form, errors, requireValues);
   const payload =
     form === undefined
       ? rawPayload
-      : applyDispatcherFormScriptRules(form, rawPayload, errors);
+      : applyDispatcherFormScriptRules(form, rawPayload, errors, requireValues);
 
   if (errors.length > 0 || formId === undefined || form === undefined) {
     return {
@@ -254,6 +268,7 @@ function readPayload(
   value: unknown,
   form: DispatcherFormDefinition | undefined,
   errors: string[],
+  requireValues: boolean,
 ): DispatcherSubmissionPayload {
   if (!isRecord(value) || Array.isArray(value)) {
     errors.push("payload must be a JSON object.");
@@ -278,7 +293,12 @@ function readPayload(
   const payload: DispatcherSubmissionPayload = {};
 
   for (const field of form.fields) {
-    const fieldValue = readFieldValue(value[field.name], field, errors);
+    const fieldValue = readFieldValue(
+      value[field.name],
+      field,
+      errors,
+      requireValues,
+    );
 
     if (fieldValue !== undefined) {
       payload[field.name] = fieldValue;
@@ -293,7 +313,12 @@ function readPayload(
         continue;
       }
 
-      const fieldValue = readFieldValue(rawValue, dynamicField, errors);
+      const fieldValue = readFieldValue(
+        rawValue,
+        dynamicField,
+        errors,
+        requireValues,
+      );
 
       if (fieldValue !== undefined) {
         payload[fieldName] = fieldValue;
@@ -308,66 +333,69 @@ function applyDispatcherFormScriptRules(
   form: DispatcherFormDefinition,
   payload: DispatcherSubmissionPayload,
   errors: string[],
+  requireValues: boolean,
 ): DispatcherSubmissionPayload {
   const nextPayload = { ...payload };
 
   if (form.id === "equipment") {
-    const hasReportData = [
-      nextPayload.productionTons,
-      nextPayload.downtimeReason,
-      nextPayload.downtimeHours,
-      nextPayload.note,
-    ].some((value) => value !== undefined && value.trim().length > 0);
+    if (requireValues) {
+      const hasReportData = [
+        nextPayload.productionTons,
+        nextPayload.downtimeReason,
+        nextPayload.downtimeHours,
+        nextPayload.note,
+      ].some((value) => value !== undefined && value.trim().length > 0);
 
-    if (!hasReportData) {
-      errors.push(
-        "equipment report requires production, downtime reason, downtime hours, or note.",
-      );
-    }
-
-    const downtimeReason = nextPayload.downtimeReason?.trim() ?? "";
-    const downtimeHours = readPayloadNumber(nextPayload.downtimeHours);
-
-    if (
-      downtimeReason.length > 0 &&
-      (downtimeHours === undefined || downtimeHours <= 0)
-    ) {
-      errors.push(
-        "equipment downtime hours must be greater than zero when downtime reason is selected.",
-      );
-    }
-
-    if (
-      downtimeHours !== undefined &&
-      downtimeHours > 0 &&
-      downtimeReason.length === 0
-    ) {
-      errors.push(
-        "equipment downtime reason is required when downtime hours are greater than zero.",
-      );
-    }
-
-    if (
-      downtimeReason === equipmentReserveDowntimeReason &&
-      downtimeHours !== undefined &&
-      downtimeHours !== 8
-    ) {
-      errors.push(
-        "equipment reserve downtime requires exactly 8 downtime hours.",
-      );
-    }
-
-    if (downtimeHours !== undefined && downtimeHours > 8) {
-      errors.push("equipment downtime hours must be 8 hours or less.");
-    }
-
-    if (downtimeHours !== undefined && downtimeHours < 8) {
-      const productionTons = readPayloadNumber(nextPayload.productionTons);
-
-      if (productionTons === undefined || productionTons <= 0) {
+      if (!hasReportData) {
         errors.push(
-          "equipment production must be greater than zero when downtime is less than 8 hours.",
+          "equipment report requires production, downtime reason, downtime hours, or note.",
         );
+      }
+
+      const downtimeReason = nextPayload.downtimeReason?.trim() ?? "";
+      const downtimeHours = readPayloadNumber(nextPayload.downtimeHours);
+
+      if (
+        downtimeReason.length > 0 &&
+        (downtimeHours === undefined || downtimeHours <= 0)
+      ) {
+        errors.push(
+          "equipment downtime hours must be greater than zero when downtime reason is selected.",
+        );
+      }
+
+      if (
+        downtimeHours !== undefined &&
+        downtimeHours > 0 &&
+        downtimeReason.length === 0
+      ) {
+        errors.push(
+          "equipment downtime reason is required when downtime hours are greater than zero.",
+        );
+      }
+
+      if (
+        downtimeReason === equipmentReserveDowntimeReason &&
+        downtimeHours !== undefined &&
+        downtimeHours !== 8
+      ) {
+        errors.push(
+          "equipment reserve downtime requires exactly 8 downtime hours.",
+        );
+      }
+
+      if (downtimeHours !== undefined && downtimeHours > 8) {
+        errors.push("equipment downtime hours must be 8 hours or less.");
+      }
+
+      if (downtimeHours !== undefined && downtimeHours < 8) {
+        const productionTons = readPayloadNumber(nextPayload.productionTons);
+
+        if (productionTons === undefined || productionTons <= 0) {
+          errors.push(
+            "equipment production must be greater than zero when downtime is less than 8 hours.",
+          );
+        }
       }
     }
 
@@ -379,18 +407,21 @@ function applyDispatcherFormScriptRules(
 
   if (form.id === "production") {
     omitBlankWeekendFormingFacts(nextPayload);
-    validateProductionBrandFacts(nextPayload, errors);
-    const hasProductionData = Object.entries(nextPayload).some(
-      ([fieldName, value]) =>
-        fieldName !== "reportDate" &&
-        fieldName !== "reportMonth" &&
-        !fieldName.endsWith("Brand") &&
-        !/Brand\d+$/u.test(fieldName) &&
-        value.trim().length > 0,
-    );
 
-    if (!hasProductionData) {
-      errors.push("production report requires at least one indicator.");
+    if (requireValues) {
+      validateProductionBrandFacts(nextPayload, errors);
+      const hasProductionData = Object.entries(nextPayload).some(
+        ([fieldName, value]) =>
+          fieldName !== "reportDate" &&
+          fieldName !== "reportMonth" &&
+          !fieldName.endsWith("Brand") &&
+          !/Brand\d+$/u.test(fieldName) &&
+          value.trim().length > 0,
+      );
+
+      if (!hasProductionData) {
+        errors.push("production report requires at least one indicator.");
+      }
     }
 
     if (nextPayload.reportDate !== undefined) {
@@ -617,9 +648,10 @@ function readFieldValue(
   value: unknown,
   field: DispatcherFormField,
   errors: string[],
+  requireValues: boolean,
 ) {
   if (value === undefined || value === null) {
-    if (field.required) {
+    if (field.required && requireValues) {
       errors.push(`${field.name} is required.`);
     }
 
@@ -634,7 +666,7 @@ function readFieldValue(
   const trimmed = value.trim();
 
   if (trimmed.length === 0) {
-    if (field.required) {
+    if (field.required && requireValues) {
       errors.push(`${field.name} is required.`);
     }
 
@@ -650,7 +682,7 @@ function readFieldValue(
   }
 
   if (normalized.length === 0) {
-    if (field.required) {
+    if (field.required && requireValues) {
       errors.push(`${field.name} is required.`);
     } else if (field.type === "number" || field.type === "signed-number") {
       errors.push(`${field.name} must be a number.`);
