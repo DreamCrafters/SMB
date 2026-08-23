@@ -23,6 +23,84 @@ export const defaultNavigationOrder: AccountNavigationItem[] = [
   "admin.database",
 ];
 
+/**
+ * Названия разделов левой панели переименовываются администратором. Хранится
+ * только отличие от названия по умолчанию: пустая строка возвращает раздел к
+ * исходному имени, поэтому сброс не требует отдельной операции.
+ */
+export type NavigationLabels = Partial<Record<AccountNavigationItem, string>>;
+
+export const navigationLabelMaxLength = 60;
+
+export function validateNavigationSettings(value: unknown):
+  | { ok: true; value: { navigationOrder: AccountNavigationItem[]; navigationLabels: NavigationLabels } }
+  | { ok: false; errors: string[] } {
+  const order = validateNavigationOrder(value);
+
+  if (!order.ok) return order;
+
+  const rawLabels = typeof value === "object" && value !== null &&
+      "navigationLabels" in value
+    ? value.navigationLabels
+    : undefined;
+
+  if (rawLabels !== undefined && !isPlainRecord(rawLabels)) {
+    return { ok: false, errors: ["Передайте названия вкладок объектом."] };
+  }
+
+  const labels: NavigationLabels = {};
+
+  for (const [item, label] of Object.entries(rawLabels ?? {})) {
+    if (!isAccountNavigationItem(item)) {
+      return { ok: false, errors: ["Название задано для неизвестной вкладки."] };
+    }
+
+    if (typeof label !== "string") {
+      return { ok: false, errors: ["Название вкладки должно быть строкой."] };
+    }
+
+    const trimmed = label.trim().replace(/\s+/gu, " ");
+
+    if (trimmed.length > navigationLabelMaxLength) {
+      return {
+        ok: false,
+        errors: [
+          `Название вкладки должно быть не длиннее ${navigationLabelMaxLength} символов.`,
+        ],
+      };
+    }
+
+    if (trimmed.length > 0) labels[item] = trimmed;
+  }
+
+  return {
+    ok: true,
+    value: { navigationOrder: order.value, navigationLabels: labels },
+  };
+}
+
+export function reconcileNavigationLabels(value: unknown): NavigationLabels {
+  if (!isPlainRecord(value)) return {};
+
+  const labels: NavigationLabels = {};
+
+  for (const [item, label] of Object.entries(value)) {
+    if (!isAccountNavigationItem(item) || typeof label !== "string") continue;
+
+    const trimmed = label.trim();
+
+    if (trimmed.length > 0 && trimmed.length <= navigationLabelMaxLength) {
+      labels[item] = trimmed;
+    }
+  }
+
+  return labels;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function validateNavigationOrder(value: unknown):
   | { ok: true; value: AccountNavigationItem[] }
   | { ok: false; errors: string[] } {

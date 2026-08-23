@@ -1,6 +1,8 @@
 import {
   accountNavigationItems,
+  navigationLabelMaxLength,
   type AccountNavigationItem,
+  type NavigationLabels,
   type NavigationOrderResponse,
 } from "../contracts";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
@@ -13,7 +15,11 @@ const NAVIGATION_ORDER_PATH = "/api/navigation-order";
 const ADMIN_NAVIGATION_ORDER_PATH = "/api/admin/navigation-order";
 
 export type NavigationOrderResult =
-  | { status: "ready"; navigationOrder: AccountNavigationItem[] }
+  | {
+      status: "ready";
+      navigationOrder: AccountNavigationItem[];
+      navigationLabels: NavigationLabels;
+    }
   | { status: "error"; message: string };
 
 type RequestOptions = {
@@ -29,12 +35,13 @@ export async function requestNavigationOrder(
 
 export async function saveNavigationOrder(
   navigationOrder: AccountNavigationItem[],
+  navigationLabels: NavigationLabels,
   options: RequestOptions = {},
 ): Promise<NavigationOrderResult> {
   return requestOrder(
     ADMIN_NAVIGATION_ORDER_PATH,
     "PUT",
-    { navigationOrder },
+    { navigationOrder, navigationLabels },
     options,
   );
 }
@@ -74,7 +81,11 @@ async function requestOrder(
           status: "error",
           message: "Сервер вернул порядок вкладок в неподдерживаемом формате.",
         }
-      : { status: "ready", navigationOrder };
+      : {
+          status: "ready",
+          navigationOrder,
+          navigationLabels: readNavigationLabels(payload),
+        };
   } catch (error) {
     return {
       status: "error",
@@ -107,6 +118,26 @@ function readNavigationOrder(value: unknown) {
   }
 
   return [...order];
+}
+
+/** Неизвестные вкладки и слишком длинные названия из ответа игнорируются. */
+function readNavigationLabels(value: unknown): NavigationLabels {
+  if (!isRecord(value) || !isRecord(value.navigationLabels)) return {};
+
+  const catalog = new Set<string>(accountNavigationItems);
+  const labels: NavigationLabels = {};
+
+  for (const [item, label] of Object.entries(value.navigationLabels)) {
+    if (!catalog.has(item) || typeof label !== "string") continue;
+
+    const trimmed = label.trim();
+
+    if (trimmed.length > 0 && trimmed.length <= navigationLabelMaxLength) {
+      labels[item as AccountNavigationItem] = trimmed;
+    }
+  }
+
+  return labels;
 }
 
 function readErrorMessage(value: unknown) {

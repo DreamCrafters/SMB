@@ -205,7 +205,7 @@ import {
 } from "../domain/adminPositionProtection.js";
 import {
   defaultNavigationOrder,
-  validateNavigationOrder,
+  validateNavigationSettings,
 } from "../domain/navigationOrder.js";
 import type {
   DispatcherFeedFilters,
@@ -9254,11 +9254,13 @@ async function handleNavigationOrderRequest({
     });
     if (access === undefined) return;
 
-    sendJson(res, 200, {
-      navigationOrder: navigationOrder === undefined
-        ? [...defaultNavigationOrder]
+    sendJson(
+      res,
+      200,
+      navigationOrder === undefined
+        ? { navigationOrder: [...defaultNavigationOrder], navigationLabels: {} }
         : await navigationOrder.read(),
-    });
+    );
     return;
   }
 
@@ -9289,7 +9291,7 @@ async function handleNavigationOrderRequest({
     return;
   }
 
-  const validation = validateNavigationOrder(await readJsonBody(req));
+  const validation = validateNavigationSettings(await readJsonBody(req));
   if (!validation.ok) {
     sendJson(res, 400, {
       error: {
@@ -9304,24 +9306,49 @@ async function handleNavigationOrderRequest({
     transaction: databaseTransaction,
     audit,
     mutate: () => navigationOrder.set(validation.value),
-    buildEvent: ({ previous, updated }) =>
-      previous.every((item, index) => item === updated[index])
-        ? undefined
-        : {
-            actor: buildAuditActor(access.profile),
-            category: "administration",
-            action: "admin.navigation_order_update",
-            summary: "Изменён порядок вкладок в левой панели",
-            details: [{
-              label: "Новый порядок",
-              value: updated.map(readNavigationItemLabel).join(" → "),
-            }],
-            targetType: "navigation_order",
-            targetId: "left_rail",
-          },
+    buildEvent: ({ previous, updated }) => {
+      const orderChanged = !previous.navigationOrder.every(
+        (item, index) => item === updated.navigationOrder[index],
+      );
+      const renamed = updated.navigationOrder.flatMap((item) => {
+        const before = previous.navigationLabels[item];
+        const after = updated.navigationLabels[item];
+
+        return before === after ? [] : [{
+          label: readNavigationItemLabel(item),
+          value: `${before ?? "по умолчанию"} → ${after ?? "по умолчанию"}`,
+        }];
+      });
+
+      if (!orderChanged && renamed.length === 0) return undefined;
+
+      return {
+        actor: buildAuditActor(access.profile),
+        category: "administration",
+        action: "admin.navigation_order_update",
+        summary: orderChanged && renamed.length > 0
+          ? "Изменены порядок и названия вкладок в левой панели"
+          : orderChanged
+            ? "Изменён порядок вкладок в левой панели"
+            : "Изменены названия вкладок в левой панели",
+        details: [
+          ...(orderChanged
+            ? [{
+                label: "Новый порядок",
+                value: updated.navigationOrder
+                  .map(readNavigationItemLabel)
+                  .join(" → "),
+              }]
+            : []),
+          ...renamed,
+        ],
+        targetType: "navigation_order",
+        targetId: "left_rail",
+      };
+    },
   });
 
-  sendJson(res, 200, { navigationOrder: change.updated });
+  sendJson(res, 200, change.updated);
 }
 
 function readAdminDatabaseSectionLabel(tableName: string) {

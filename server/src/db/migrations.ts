@@ -3932,6 +3932,17 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /** Переименование разделов левой панели: хранится рядом с их порядком. */
+    id: "073_navigation_labels",
+    statements: [
+      `
+      alter table app_navigation_settings
+        add column if not exists navigation_labels json null
+          after navigation_order;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

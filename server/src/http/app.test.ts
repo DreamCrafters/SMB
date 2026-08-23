@@ -86,7 +86,10 @@ import type {
   BoardAssignmentsRepository,
 } from "../repositories/boardAssignmentsRepository.js";
 import type { NotificationSettingsRepository } from "../repositories/notificationSettingsRepository.js";
-import type { NavigationOrderRepository } from "../repositories/navigationOrderRepository.js";
+import type {
+  NavigationOrderRepository,
+  NavigationSettings,
+} from "../repositories/navigationOrderRepository.js";
 import { defaultNavigationOrder } from "../domain/navigationOrder.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
@@ -6651,18 +6654,27 @@ test("working-tab mutation returns 403 when original admin status changes under 
 });
 
 test("navigation order API stores a complete catalog and rejects unauthorized or stale writes", async () => {
-  let storedOrder = [...defaultNavigationOrder];
-  const writes: string[][] = [];
+  let stored: NavigationSettings = {
+    navigationOrder: [...defaultNavigationOrder],
+    navigationLabels: {},
+  };
+  const writes: NavigationSettings[] = [];
   const auditActions: string[] = [];
   const navigationOrder: NavigationOrderRepository = {
     async read() {
-      return [...storedOrder];
+      return {
+        navigationOrder: [...stored.navigationOrder],
+        navigationLabels: { ...stored.navigationLabels },
+      };
     },
-    async set(order) {
-      const previous = [...storedOrder];
-      storedOrder = [...order];
-      writes.push([...order]);
-      return { previous, updated: [...order] };
+    async set(settings) {
+      const previous = stored;
+      stored = {
+        navigationOrder: [...settings.navigationOrder],
+        navigationLabels: { ...settings.navigationLabels },
+      };
+      writes.push(stored);
+      return { previous, updated: stored };
     },
   };
   const audit: AuditRepository = {
@@ -6691,7 +6703,11 @@ test("navigation order API stores a complete catalog and rejects unauthorized or
     const saveResponse = await fetch(`${baseUrl}/api/admin/navigation-order`, {
       method: "PUT",
       headers,
-      body: JSON.stringify({ navigationOrder: requestedOrder }),
+      body: JSON.stringify({
+        navigationOrder: requestedOrder,
+        // Переименование раздела сохраняется вместе с порядком.
+        navigationLabels: { "business.work": "  Смена   мастера " },
+      }),
     });
     const invalidResponse = await fetch(`${baseUrl}/api/admin/navigation-order`, {
       method: "PUT",
@@ -6711,16 +6727,18 @@ test("navigation order API stores a complete catalog and rejects unauthorized or
     assert.equal(readResponse.status, 200);
     assert.deepEqual(await readResponse.json(), {
       navigationOrder: defaultNavigationOrder,
+      navigationLabels: {},
     });
     assert.equal(saveResponse.status, 200);
     assert.deepEqual(await saveResponse.json(), {
       navigationOrder: requestedOrder,
+      navigationLabels: { "business.work": "Смена мастера" },
     });
     assert.equal(invalidResponse.status, 400);
     assert.equal(forbiddenResponse.status, 403);
   }, navigationOrder, audit);
 
-  assert.deepEqual(writes, [storedOrder]);
+  assert.deepEqual(writes, [stored]);
   assert.ok(auditActions.includes("admin.navigation_order_update"));
 });
 

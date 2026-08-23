@@ -13,7 +13,9 @@ import {
   accountCapabilities,
   productionCategories,
   type AccountCapability,
+  navigationLabelMaxLength,
   type AccountNavigationItem,
+  type NavigationLabels,
   type AccountPosition,
   type AccountType,
   type BoardAssignmentAccess,
@@ -527,15 +529,36 @@ const monthDisplayInputPattern = "(0[1-9]|1[0-2])\\.[0-9]{4}";
 const monthDisplayInputTitle = "Введите месяц в формате ММ.ГГГГ, например 06.2026.";
 const isProductionApp = isProductionAppEnv();
 const isLocalTestFallbackEnabled = !isProductionApp;
+/**
+ * Переименованные разделы: server-owned название заменяет исходное во всех
+ * списках вкладок, чтобы левая панель и админские экраны говорили одинаково.
+ */
+function applyNavigationLabels(
+  items: readonly NavigationItem[],
+  navigationLabels: NavigationLabels,
+): NavigationItem[] {
+  return items.map((item) => {
+    const label = navigationLabels[item.id];
+
+    return label === undefined || label.trim().length === 0
+      ? item
+      : { ...item, label };
+  });
+}
+
 function buildVisibleNavigationItems(
   allowedNavigationItems: readonly AccountNavigationItem[],
   navigationOrder: readonly AccountNavigationItem[],
+  navigationLabels: NavigationLabels = {},
 ): NavigationItem[] {
   const orderById = new Map(
     navigationOrder.map((item, index) => [item, index]),
   );
 
-  return [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin]
+  return applyNavigationLabels(
+    [...nonAdminNavigationItems, ...navigationItemsByAccountType.admin],
+    navigationLabels,
+  )
     .filter((item) => allowedNavigationItems.includes(item.id))
     .sort(
       (left, right) =>
@@ -550,10 +573,12 @@ function buildNavigationItems(
   adminTab: AdminTab,
   workspaceKind: WorkspaceKind,
   navigationOrder: readonly AccountNavigationItem[],
+  navigationLabels: NavigationLabels = {},
 ): NavigationItem[] {
   const navigationItems = buildVisibleNavigationItems(
     profile.activeAccess.navigationItems,
     navigationOrder,
+    navigationLabels,
   );
   const effectiveWorkspaceKind = resolveAllowedWorkspaceKind(
     workspaceKind,
@@ -661,6 +686,7 @@ export default function App() {
   const [adminTab, setAdminTab] = useState<AdminTab>("account_preview");
   const [navigationOrder, setNavigationOrder] =
     useState<AccountNavigationItem[]>([...defaultNavigationOrder]);
+  const [navigationLabels, setNavigationLabels] = useState<NavigationLabels>({});
   const [navigationOrderLoadState, setNavigationOrderLoadState] =
     useState<NavigationOrderLoadState>({ status: "loading" });
   const [navigationOrderRequestVersion, setNavigationOrderRequestVersion] =
@@ -869,6 +895,7 @@ export default function App() {
 
       if (result.status === "ready") {
         setNavigationOrder(result.navigationOrder);
+        setNavigationLabels(result.navigationLabels);
         setNavigationOrderLoadState({ status: "ready" });
       } else {
         setNavigationOrderLoadState({
@@ -881,9 +908,13 @@ export default function App() {
     return () => controller.abort();
   }, [accessProfile, navigationOrderRequestVersion]);
 
-  function handleNavigationOrderChange(order: AccountNavigationItem[]) {
+  function handleNavigationOrderChange(
+    order: AccountNavigationItem[],
+    labels: NavigationLabels,
+  ) {
     navigationOrderRequestIdRef.current += 1;
     setNavigationOrder(order);
+    setNavigationLabels(labels);
     setNavigationOrderLoadState({ status: "ready" });
   }
 
@@ -1955,6 +1986,7 @@ export default function App() {
         }
         adminTab={adminTab}
         navigationOrder={navigationOrder}
+        navigationLabels={navigationLabels}
         navigationOrderLoadState={navigationOrderLoadState}
         onNavigationOrderRetry={() =>
           setNavigationOrderRequestVersion((version) => version + 1)
@@ -2038,6 +2070,7 @@ export default function App() {
           }}
           onSelectAdminAccountView={handleStartAdminAccountView}
           navigationOrder={navigationOrder}
+          navigationLabels={navigationLabels}
           navigationOrderLoadState={navigationOrderLoadState}
           onNavigationOrderChange={handleNavigationOrderChange}
           onNavigationOrderRetry={() =>
@@ -2558,6 +2591,7 @@ export function SideRail({
   onOwnerTabChange,
   adminTab,
   navigationOrder = defaultNavigationOrder,
+  navigationLabels = {},
   navigationOrderLoadState = { status: "ready" },
   onNavigationOrderRetry = () => undefined,
   onAdminTabChange,
@@ -2580,6 +2614,7 @@ export function SideRail({
   onOwnerTabChange: (tab: BusinessTab) => void;
   adminTab: AdminTab;
   navigationOrder?: readonly AccountNavigationItem[];
+  navigationLabels?: NavigationLabels;
   navigationOrderLoadState?: NavigationOrderLoadState;
   onNavigationOrderRetry?: () => void;
   onAdminTabChange: (tab: AdminTab) => void;
@@ -2597,6 +2632,7 @@ export function SideRail({
         adminTab,
         workspaceKind,
         navigationOrder,
+        navigationLabels,
       )
     : [];
 
@@ -2850,6 +2886,7 @@ function RoleWorkspace({
   onProductionSnapshotSynchronized,
   onSelectAdminAccountView,
   navigationOrder,
+  navigationLabels,
   navigationOrderLoadState,
   onNavigationOrderChange,
   onNavigationOrderRetry,
@@ -2884,8 +2921,12 @@ function RoleWorkspace({
   onProductionSnapshotSynchronized: () => void;
   onSelectAdminAccountView: (account: AdminAccountSummary) => void;
   navigationOrder: AccountNavigationItem[];
+  navigationLabels: NavigationLabels;
   navigationOrderLoadState: NavigationOrderLoadState;
-  onNavigationOrderChange: (order: AccountNavigationItem[]) => void;
+  onNavigationOrderChange: (
+    order: AccountNavigationItem[],
+    labels: NavigationLabels,
+  ) => void;
   onNavigationOrderRetry: () => void;
   pendingRefractoryReports: RefractoryReportRevision[];
   refractoryQueueError: string;
@@ -2926,6 +2967,7 @@ function RoleWorkspace({
         }
         onSelectAccountView={onSelectAdminAccountView}
         navigationOrder={navigationOrder}
+        navigationLabels={navigationLabels}
         navigationOrderLoadState={navigationOrderLoadState}
         onNavigationOrderChange={onNavigationOrderChange}
         onNavigationOrderRetry={onNavigationOrderRetry}
@@ -8591,6 +8633,7 @@ function AdminWorkspace({
   onProductionSnapshotSynchronized,
   onSelectAccountView,
   navigationOrder,
+  navigationLabels,
   navigationOrderLoadState,
   onNavigationOrderChange,
   onNavigationOrderRetry,
@@ -8601,8 +8644,12 @@ function AdminWorkspace({
   onProductionSnapshotSynchronized: () => void;
   onSelectAccountView: (account: AdminAccountSummary) => void;
   navigationOrder: AccountNavigationItem[];
+  navigationLabels: NavigationLabels;
   navigationOrderLoadState: NavigationOrderLoadState;
-  onNavigationOrderChange: (order: AccountNavigationItem[]) => void;
+  onNavigationOrderChange: (
+    order: AccountNavigationItem[],
+    labels: NavigationLabels,
+  ) => void;
   onNavigationOrderRetry: () => void;
 }) {
   if (activeTab === "database") {
@@ -8619,7 +8666,11 @@ function AdminWorkspace({
 
   if (activeTab === "accounts") {
     return (
-      <AdminAccountsWorkspace profile={profile} onShowToast={onShowToast} />
+      <AdminAccountsWorkspace
+        profile={profile}
+        navigationLabels={navigationLabels}
+        onShowToast={onShowToast}
+      />
     );
   }
 
@@ -8627,6 +8678,7 @@ function AdminWorkspace({
     return (
       <NavigationOrderWorkspace
         navigationOrder={navigationOrder}
+        navigationLabels={navigationLabels}
         loadState={navigationOrderLoadState}
         onNavigationOrderChange={onNavigationOrderChange}
         onRetry={onNavigationOrderRetry}
@@ -8639,23 +8691,36 @@ function AdminWorkspace({
     return <UserActionsWorkspace profile={profile} />;
   }
 
-  return <AdminAccountPreviewWorkspace onSelectAccountView={onSelectAccountView} />;
+  return (
+    <AdminAccountPreviewWorkspace
+      navigationLabels={navigationLabels}
+      onSelectAccountView={onSelectAccountView}
+    />
+  );
 }
 
 function NavigationOrderWorkspace({
   navigationOrder,
+  navigationLabels,
   loadState,
   onNavigationOrderChange,
   onRetry,
   onShowToast,
 }: {
   navigationOrder: AccountNavigationItem[];
+  navigationLabels: NavigationLabels;
   loadState: NavigationOrderLoadState;
-  onNavigationOrderChange: (order: AccountNavigationItem[]) => void;
+  onNavigationOrderChange: (
+    order: AccountNavigationItem[],
+    labels: NavigationLabels,
+  ) => void;
   onRetry: () => void;
   onShowToast: ShowToast;
 }) {
   const [draftOrder, setDraftOrder] = useState([...navigationOrder]);
+  const [draftLabels, setDraftLabels] = useState<NavigationLabels>({
+    ...navigationLabels,
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const navigationItemById = new Map(
@@ -8667,8 +8732,15 @@ function NavigationOrderWorkspace({
   useEffect(() => {
     if (loadState.status === "ready") {
       setDraftOrder([...navigationOrder]);
+      setDraftLabels({ ...navigationLabels });
     }
-  }, [loadState.status, navigationOrder]);
+  }, [loadState.status, navigationLabels, navigationOrder]);
+
+  /** Пустое название возвращает разделу имя по умолчанию. */
+  function renameItem(id: AccountNavigationItem, label: string) {
+    setError("");
+    setDraftLabels((current) => ({ ...current, [id]: label }));
+  }
 
   function moveItem(index: number, offset: -1 | 1) {
     setError("");
@@ -8684,19 +8756,23 @@ function NavigationOrderWorkspace({
   async function handleSave() {
     setIsSaving(true);
     setError("");
-    const result = await saveNavigationOrder(draftOrder);
+    const result = await saveNavigationOrder(draftOrder, draftLabels);
     setIsSaving(false);
 
     if (result.status === "error") {
-      setError(result.message);
+      setError(readShortUserMessage(
+        result.message,
+        "Не удалось сохранить вкладки.",
+      ));
       return;
     }
 
     setDraftOrder(result.navigationOrder);
-    onNavigationOrderChange(result.navigationOrder);
+    setDraftLabels(result.navigationLabels);
+    onNavigationOrderChange(result.navigationOrder, result.navigationLabels);
     onShowToast(
-      "Порядок вкладок сохранён",
-      "Левая панель обновлена для всех пользователей.",
+      "Вкладки сохранены",
+      "Порядок и названия обновлены для всех пользователей.",
       "success",
     );
   }
@@ -8711,8 +8787,10 @@ function NavigationOrderWorkspace({
           <p className="eyebrow">Администрирование</p>
           <h2>Вкладки</h2>
           <p>
-            Настройте общий порядок вкладок в левой панели. Пользователь увидит
-            только доступные ему вкладки, но в указанной здесь последовательности.
+            Настройте общий порядок и названия вкладок в левой панели.
+            Пользователь увидит только доступные ему вкладки, но в указанной
+            здесь последовательности и с этими названиями. Пустое название
+            возвращает разделу имя по умолчанию.
           </p>
         </div>
       </header>
@@ -8736,11 +8814,23 @@ function NavigationOrderWorkspace({
                 <div className="admin-navigation-order-row" key={id}>
                   <span className="admin-navigation-order-index">{index + 1}</span>
                   <span className="admin-navigation-order-copy">
-                    <strong>{item.label}</strong>
+                    <label className="admin-navigation-order-rename">
+                      <span>Название раздела</span>
+                      <input
+                        disabled={isSaving}
+                        maxLength={navigationLabelMaxLength}
+                        placeholder={item.label}
+                        value={draftLabels[id] ?? ""}
+                        onChange={(event) =>
+                          renameItem(id, event.currentTarget.value)}
+                      />
+                    </label>
                     <small>
                       {id.startsWith("admin.") ? "Административная" : "Рабочая"}
                       {" · "}
                       {item.description}
+                      {" · "}
+                      {`по умолчанию «${item.label}»`}
                     </small>
                   </span>
                   <span className="admin-position-order-actions">
@@ -9135,8 +9225,10 @@ function formatAuditEventCount(value: number) {
 type AdminAccountPreviewSection = "types" | "accounts" | "navigation";
 
 function AdminAccountPreviewWorkspace({
+  navigationLabels,
   onSelectAccountView,
 }: {
+  navigationLabels: NavigationLabels;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
   const [activeSection, setActiveSection] =
@@ -9275,7 +9367,10 @@ function AdminAccountPreviewWorkspace({
           aria-labelledby="admin-preview-tab-navigation"
         >
           <div className="admin-account-switcher" aria-label="Вкладки">
-            {nonAdminNavigationItems.map((navigationItem) => (
+            {applyNavigationLabels(
+              nonAdminNavigationItems,
+              navigationLabels,
+            ).map((navigationItem) => (
               <AdminAccountPreviewButton
                 account={buildAdminPreviewAccountForNavigationItem(navigationItem)}
                 description={navigationItem.description}
@@ -10947,10 +11042,16 @@ const accountTypeByPosition: Record<AccountPosition, AccountType> = {
   dispatcher: "dispatcher",
 };
 
-function getNavigationOptionsForPosition(position: AccountPosition) {
-  return accountTypeByPosition[position] === "admin"
-    ? navigationItemsByAccountType.admin
-    : nonAdminNavigationItems;
+function getNavigationOptionsForPosition(
+  position: AccountPosition,
+  navigationLabels: NavigationLabels = {},
+) {
+  return applyNavigationLabels(
+    accountTypeByPosition[position] === "admin"
+      ? navigationItemsByAccountType.admin
+      : nonAdminNavigationItems,
+    navigationLabels,
+  );
 }
 
 function formatNavigationItemLabel(item: NavigationItem) {
@@ -10960,6 +11061,7 @@ function formatNavigationItemLabel(item: NavigationItem) {
 function formatPositionNavigationItem(
   position: AdminPositionSummary,
   navigationItemId: AccountNavigationItem,
+  navigationLabels: NavigationLabels = {},
 ) {
   if (navigationItemId === "business.board_assignments") {
     return boardAssignmentAccessOptions.find(
@@ -10967,10 +11069,10 @@ function formatPositionNavigationItem(
     )?.label ?? "Поручения Совета директоров";
   }
 
-  return [
-    ...navigationItemsByAccountType.admin,
-    ...nonAdminNavigationItems,
-  ].find(({ id }) => id === navigationItemId)?.label ?? navigationItemId;
+  return applyNavigationLabels(
+    [...navigationItemsByAccountType.admin, ...nonAdminNavigationItems],
+    navigationLabels,
+  ).find(({ id }) => id === navigationItemId)?.label ?? navigationItemId;
 }
 
 function moveAdminPosition(
@@ -11081,9 +11183,11 @@ function buildAdminPreviewAccountForNavigationItem(
 
 function AdminAccountsWorkspace({
   profile,
+  navigationLabels,
   onShowToast,
 }: {
   profile: ServerUserProfile;
+  navigationLabels: NavigationLabels;
   onShowToast: ShowToast;
 }) {
   const canManage = canManageUsers(profile);
@@ -12160,7 +12264,13 @@ function AdminAccountsWorkspace({
                               Доступы должности ({account.navigationItems.length})
                             </summary>
                             <div className="admin-account-access-grid">
-                              {[...navigationItemsByAccountType.admin, ...nonAdminNavigationItems]
+                              {applyNavigationLabels(
+                                [
+                                  ...navigationItemsByAccountType.admin,
+                                  ...nonAdminNavigationItems,
+                                ],
+                                navigationLabels,
+                              )
                                 .filter((item) => account.navigationItems.includes(item.id))
                                 .map((item) => <span key={item.id}>{formatNavigationItemLabel(item)}</span>)}
                             </div>
@@ -12651,7 +12761,7 @@ function AdminAccountsWorkspace({
               <fieldset className="admin-account-navigation-fieldset">
                 <legend>Рабочие вкладки</legend>
                 <div className="admin-account-navigation-grid">
-                  {nonAdminNavigationItems
+                  {applyNavigationLabels(nonAdminNavigationItems, navigationLabels)
                     .filter(
                       (item) => item.id !== "business.board_assignments",
                     )
@@ -12792,7 +12902,10 @@ function AdminAccountsWorkspace({
                     setPositionNavigationAccessStatus("");
                   }}
                 >
-                  {nonAdminNavigationItems.map((item) => (
+                  {applyNavigationLabels(
+                    nonAdminNavigationItems,
+                    navigationLabels,
+                  ).map((item) => (
                     <option key={item.id} value={item.id}>
                       {formatNavigationItemLabel(item)}
                     </option>

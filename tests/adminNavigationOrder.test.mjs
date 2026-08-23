@@ -64,6 +64,7 @@ test("original administrator reorders the shared left navigation", async () => {
     server: { middlewareMode: true },
   });
   let savedOrder;
+  let savedLabels;
   let resolveOrderRequest;
   const orderRequest = new Promise((resolve) => {
     resolveOrderRequest = resolve;
@@ -81,8 +82,13 @@ test("original administrator reorders the shared left navigation", async () => {
         return orderRequest;
       }
       if (url.pathname === "/api/admin/navigation-order" && method === "PUT") {
-        savedOrder = JSON.parse(String(init.body)).navigationOrder;
-        return jsonResponse({ navigationOrder: savedOrder });
+        const body = JSON.parse(String(init.body));
+        savedOrder = body.navigationOrder;
+        savedLabels = body.navigationLabels;
+        return jsonResponse({
+          navigationOrder: savedOrder,
+          navigationLabels: { "admin.database": "База данных" },
+        });
       }
       if (url.pathname === "/api/admin/accounts" && method === "GET") {
         return jsonResponse({ accounts: [], canManageProtectedAccounts: true });
@@ -109,7 +115,10 @@ test("original administrator reorders the shared left navigation", async () => {
     assert.equal(findNavigationButton(rootElement, "Вкладки"), undefined);
 
     await React.act(async () => {
-      resolveOrderRequest(jsonResponse({ navigationOrder: initialNavigationOrder }));
+      resolveOrderRequest(jsonResponse({
+        navigationOrder: initialNavigationOrder,
+        navigationLabels: {},
+      }));
       await orderRequest;
     });
     await waitFor(
@@ -128,6 +137,15 @@ test("original administrator reorders the shared left navigation", async () => {
     await React.act(async () => {
       rootElement.querySelector('button[aria-label="Переместить БД выше"]')?.click();
     });
+    // Раздел переименовывается прямо в строке порядка.
+    const renameInput = Array.from(
+      rootElement.querySelectorAll(".admin-navigation-order-rename input"),
+    ).find((input) => input.placeholder === "БД");
+    assert.ok(renameInput);
+    await React.act(async () => {
+      setNativeInputValue(renameInput, "  База   данных ");
+      renameInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
     await React.act(async () => {
       findButton(rootElement, "Сохранить порядок")?.click();
     });
@@ -140,11 +158,13 @@ test("original administrator reorders the shared left navigation", async () => {
       "admin.database",
       "admin.user_actions",
     ]);
+    assert.deepEqual(savedLabels, { "admin.database": "  База   данных " });
+    // Переименованный раздел сразу виден в левой панели.
     assert.deepEqual(readVisibleNavigationLabels(rootElement), [
       "Предпросмотр",
       "Учётные записи",
       "Вкладки",
-      "БД",
+      "База данных",
       "Действия пользователей",
     ]);
 
@@ -186,6 +206,14 @@ function buildAdminProfile() {
     },
     receivedAt: "2026-08-10T08:00:00.000Z",
   };
+}
+
+function setNativeInputValue(input, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    input.constructor.prototype,
+    "value",
+  );
+  descriptor?.set?.call(input, value);
 }
 
 function findButton(rootElement, label) {

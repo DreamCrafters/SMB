@@ -29,6 +29,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "070_formed_product_sample_registration_link",
   "071_laboratory_raw_material_warehouse",
   "072_laboratory_raw_material_nomenclature",
+  "073_navigation_labels",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {

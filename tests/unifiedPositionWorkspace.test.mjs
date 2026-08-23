@@ -32,9 +32,10 @@ test("position form edits working tabs while admin rights are managed separately
   assert.equal(positionFormSource?.includes("accountType"), false);
   assert.equal(positionFormSource?.includes("showAdminNavigation"), false);
   assert.equal(appSource.includes("<span>Базовый кабинет</span>"), false);
+  // Список рабочих вкладок должности учитывает переименование разделов.
   assert.match(
     appSource,
-    /\{nonAdminNavigationItems\s*\.filter\([\s\S]*?item\.id !== "business\.board_assignments"/u,
+    /applyNavigationLabels\(nonAdminNavigationItems, navigationLabels\)\s*\.filter\([\s\S]*?item\.id !== "business\.board_assignments"/u,
   );
   assert.match(
     appSource,
