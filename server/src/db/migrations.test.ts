@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "./pool.js";
-import { initialProductBrandNames, runMigrations } from "./migrations.js";
+import {
+  initialProductBrandNames,
+  initialRawMaterialNames,
+  runMigrations,
+} from "./migrations.js";
 
 const migrationsAfterRefractoryWagonLifecycle = [
   "048_refractory_wagon_production_crew",
@@ -30,6 +34,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "071_laboratory_raw_material_warehouse",
   "072_laboratory_raw_material_nomenclature",
   "073_navigation_labels",
+  "074_initial_raw_material_nomenclature",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3137,3 +3142,58 @@ test("raw material warehouse migration creates append-only approval revisions", 
 function normalizeSql(sql: string) {
   return sql.replace(/\s+/g, " ").trim();
 }
+
+test("raw material migration imports the sheet list once and skips duplicates", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [
+          id === "074_initial_raw_material_nomenclature" ? [] : [{ id }],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    async getConnection() {
+      return connection;
+    },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.equal(initialRawMaterialNames.length, 69);
+  assert.equal(
+    new Set(
+      initialRawMaterialNames.map((name) => name.toLocaleLowerCase("ru-RU")),
+    ).size,
+    69,
+  );
+  assert.equal(
+    initialRawMaterialNames[0],
+    "Бой огнеупорного лома (шамот желтый)",
+  );
+  assert.equal(initialRawMaterialNames.at(-1), "Электрокорунд минус 1000");
+  assert.equal(statements.length, 2);
+  assert.match(
+    statements[0] ?? "",
+    /insert into laboratory_raw_material_nomenclature/u,
+  );
+  assert.match(statements[0] ?? "", /system-google-sheets-raw-material-import/u);
+  // Уже добавленное в системе сырьё миграция не перезаписывает.
+  assert.match(statements[0] ?? "", /on duplicate key update name = name/u);
+  // Кавычки внутри наименования не ломают литерал.
+  assert.match(statements[0] ?? "", /КАМЦЕЛ-400 "Стандарт"/u);
+  assert.equal(statements[1], "insert into schema_migrations (id) values (?)");
+});
