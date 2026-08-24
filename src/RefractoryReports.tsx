@@ -588,6 +588,32 @@ function CoshForm({
     }];
   })) as Record<BankNumber, { loadedTons: string; shippedTons: string }>);
 
+  /**
+   * Задача 103: ноль по справочнику `Банки` — это полная банка, поэтому пустые
+   * поля нельзя трактовать как пустую банку. Мастер отмечает её галочкой, и все
+   * замеры заполняются значением пустой банки из того же справочника.
+   */
+  const emptyBankHeightMeters =
+    bankData?.volumeReference.points.at(-1)?.heightMeters;
+
+  function isEmptyBankChecked(bankNumber: BankNumber) {
+    return emptyBankHeightMeters !== undefined &&
+      jarDrafts[bankNumber].every(
+        (value) =>
+          value.trim().length > 0 && Number(value) === emptyBankHeightMeters,
+      );
+  }
+
+  function toggleEmptyBank(bankNumber: BankNumber, isEmpty: boolean) {
+    if (emptyBankHeightMeters === undefined) return;
+
+    setJarDrafts((current) => ({
+      ...current,
+      [bankNumber]: current[bankNumber].map(() =>
+        isEmpty ? String(emptyBankHeightMeters) : ""),
+    }));
+  }
+
   function updateJarMeasurement(
     bankNumber: BankNumber,
     index: number,
@@ -696,6 +722,30 @@ function CoshForm({
               </tr>
             </thead>
             <tbody>
+              <tr className="refractory-bank-empty-row">
+                <th>Банка пустая</th>
+                {bankColumns.map(({ bankNumber }) => (
+                  <td key={bankNumber}>
+                    <label className="refractory-bank-empty-toggle">
+                      <input
+                        aria-label={`Банка ${readBankLabel(bankNumber)}: банка пустая`}
+                        checked={isEmptyBankChecked(bankNumber)}
+                        disabled={emptyBankHeightMeters === undefined}
+                        type="checkbox"
+                        onChange={(event) => {
+                          const isEmpty = event.currentTarget.checked;
+                          toggleEmptyBank(bankNumber, isEmpty);
+                        }}
+                      />
+                      <span>
+                        {emptyBankHeightMeters === undefined
+                          ? "справочник не загружен"
+                          : `все замеры ${emptyBankHeightMeters} м`}
+                      </span>
+                    </label>
+                  </td>
+                ))}
+              </tr>
               {Array.from(
                 { length: Math.max(...bankNumbers.map((bankNumber) => jarDrafts[bankNumber].length)) },
                 (_, index) => (

@@ -1188,7 +1188,9 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.ok(bankTable);
     const bankInputs = Array.from(
-      bankTable.querySelectorAll('tbody input:not([type="hidden"])'),
+      bankTable.querySelectorAll(
+        'tbody input:not([type="hidden"]):not([type="checkbox"])',
+      ),
     );
     assert.equal(bankInputs.length, 19);
     assert.equal(
@@ -1196,6 +1198,15 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         input.disabled === isAdminPreviewMode &&
         input.readOnly === isAdminPreviewMode
       ),
+      true,
+    );
+    // Задача 103: пустая банка отмечается галочкой, по одной на банку.
+    const emptyBankToggles = Array.from(
+      bankTable.querySelectorAll('tbody input[type="checkbox"]'),
+    );
+    assert.equal(emptyBankToggles.length, 3);
+    assert.equal(
+      emptyBankToggles.every((input) => input.disabled === isAdminPreviewMode),
       true,
     );
     assert.equal(
@@ -1229,6 +1240,8 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         cell.textContent.trim().replace(/\s+/gu, " "),
       ),
       [
+        // Задача 103: отметка пустой банки стоит перед замерами.
+        "Банка пустая",
         "Замер 1, м",
         "Замер 2, м",
         "Замер 3, м",
@@ -1283,6 +1296,33 @@ test(`production form loads all saved data by date in ${label}`, async () => {
         );
       });
       assert.equal(firstBankMeasurement.value, "1.5");
+
+      const bankMeasurementInputs = [1, 2, 3, 4].map((index) =>
+        rootElement.querySelector(`input[name="jarMeasurement1_${index}"]`),
+      );
+      const readBankMeasurements = () =>
+        bankMeasurementInputs.map((input) => input?.value);
+      const savedMeasurements = readBankMeasurements();
+
+      await React.act(async () => emptyBankToggles[0].click());
+
+      // Задача 103: пустая банка — самый глубокий замер по справочнику, а не ноль.
+      assert.deepEqual(readBankMeasurements(), ["4", "4", "4", "4"]);
+      assert.equal(emptyBankToggles[0].checked, true);
+
+      await React.act(async () => emptyBankToggles[0].click());
+
+      assert.deepEqual(readBankMeasurements(), ["", "", "", ""]);
+
+      // Возвращаем форму в исходное состояние для остальных проверок.
+      await React.act(async () => {
+        for (const [index, input] of bankMeasurementInputs.entries()) {
+          if (input === null) continue;
+          setNativeInputValue(input, savedMeasurements[index] ?? "");
+          input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+        }
+      });
+      assert.deepEqual(readBankMeasurements(), savedMeasurements);
     }
     assert.ok(
       requestedUrls.some((url) => url.includes("/api/production-brands")),

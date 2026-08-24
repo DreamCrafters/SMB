@@ -5204,6 +5204,32 @@ function DispatcherProductionBankReportTable({
     initialPayload?.coshMaster ?? report?.coshMaster ?? "",
   );
 
+  /**
+   * Задача 103: по справочнику `Банки` ноль — это полная банка, а пустая
+   * банка — самый глубокий замер верёвкой. Поэтому пустые поля нельзя считать
+   * пустой банкой: диспетчер отмечает её галочкой, и все замеры заполняются
+   * значением пустой банки из того же справочника.
+   */
+  const emptyBankHeightMeters = volumeReference?.points.at(-1)?.heightMeters;
+
+  function isEmptyBankChecked(bankNumber: BankNumber) {
+    return emptyBankHeightMeters !== undefined &&
+      measurementDrafts[bankNumber].every(
+        (value) =>
+          value.trim().length > 0 && Number(value) === emptyBankHeightMeters,
+      );
+  }
+
+  function toggleEmptyBank(bankNumber: BankNumber, isEmpty: boolean) {
+    if (emptyBankHeightMeters === undefined) return;
+
+    setMeasurementDrafts((current) => ({
+      ...current,
+      [bankNumber]: current[bankNumber].map(() =>
+        isEmpty ? String(emptyBankHeightMeters) : ""),
+    }));
+  }
+
   function updateMeasurement(
     bankNumber: BankNumber,
     index: number,
@@ -5311,6 +5337,32 @@ function DispatcherProductionBankReportTable({
             </tr>
           </thead>
           <tbody>
+            <tr className="refractory-bank-empty-row">
+              <th scope="row">Банка пустая</th>
+              {bankColumns.map(({ bankNumber }) => (
+                <td key={bankNumber}>
+                  <label className="refractory-bank-empty-toggle">
+                    <input
+                      aria-label={`Банка ${readRomanBankNumber(bankNumber)}: банка пустая`}
+                      checked={isEmptyBankChecked(bankNumber)}
+                      disabled={
+                        isAdminPreviewMode || emptyBankHeightMeters === undefined
+                      }
+                      type="checkbox"
+                      onChange={(event) => {
+                        const isEmpty = event.currentTarget.checked;
+                        toggleEmptyBank(bankNumber, isEmpty);
+                      }}
+                    />
+                    <span>
+                      {emptyBankHeightMeters === undefined
+                        ? "справочник не загружен"
+                        : `все замеры ${formatNumber(emptyBankHeightMeters)} м`}
+                    </span>
+                  </label>
+                </td>
+              ))}
+            </tr>
             {Array.from({ length: 4 }, (_, index) => (
               <tr key={`measurement-${index}`}>
                 <th scope="row">

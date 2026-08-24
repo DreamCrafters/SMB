@@ -316,6 +316,21 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
       bankTable.querySelectorAll('input[name^="jar.1."]:not([name$="Tons"])').length,
       4,
     );
+    // Задача 103: пустая банка отмечается галочкой и заполняет все замеры
+    // значением пустой банки из справочника, а не нулями.
+    const emptyBankToggle = bankTable.querySelector(
+      'input[aria-label="Банка I: банка пустая"]',
+    );
+    assert.ok(emptyBankToggle);
+    await React.act(async () => emptyBankToggle.click());
+    assert.deepEqual(
+      Array.from(
+        bankTable.querySelectorAll('input[name^="jar.1."]:not([name$="Tons"])'),
+        (input) => input.value,
+      ),
+      ["15", "15", "15", "15"],
+    );
+    await React.act(async () => emptyBankToggle.click());
     for (const [name, value] of [
       ["jar.1.0", "0,1"],
       ["jar.1.loadedTons", "10"],

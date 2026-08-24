@@ -7572,6 +7572,33 @@ p {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--brick) 12%, transparent);
 }
 
+/* Задача 103: отметка пустой банки над замерами. */
+.refractory-bank-empty-row td {
+  background: var(--surface-subtle);
+}
+
+.refractory-bank-empty-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.refractory-bank-empty-toggle input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.refractory-bank-empty-toggle span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .refractory-bank-calculated-row td {
   background: var(--surface-subtle);
 }
