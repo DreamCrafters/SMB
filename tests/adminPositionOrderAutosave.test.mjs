@@ -18,6 +18,26 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+
+process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
+
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+
+if (previousRemoteApiUrl === undefined) {
+  delete process.env.VITE_SMB_REMOTE_API_URL;
+} else {
+  process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+}
+
+test.after(async () => {
+  await vite.close();
+});
+
 test("position order batches moves, survives refreshes, retries, and can be cancelled", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -37,16 +57,9 @@ test("position order batches moves, survives refreshes, retries, and can be canc
   });
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
-  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
-  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   let positions = [
     buildPosition("first", "Первая"),
     buildPosition("second", "Вторая"),
@@ -232,12 +245,6 @@ test("position order batches moves, survives refreshes, retries, and can be canc
     }
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousRemoteApiUrl === undefined) {
-      delete process.env.VITE_SMB_REMOTE_API_URL;
-    } else {
-      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
-    }
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -260,16 +267,9 @@ test("original admin manages account access to a selected working tab by positio
   });
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
-  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
-  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   let positions = [
     buildPosition("manager", "Начальник производства"),
     {
@@ -475,12 +475,6 @@ test("original admin manages account access to a selected working tab by positio
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousRemoteApiUrl === undefined) {
-      delete process.env.VITE_SMB_REMOTE_API_URL;
-    } else {
-      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
-    }
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }

@@ -5,53 +5,53 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+
+test.after(async () => {
+  await vite.close();
+});
+
 /**
  * Доработка задачи 77: тумблер «Посетители» должности должен скрывать раздел
  * и в `Диспетчерской`, иначе должность без посетителей (начальник
  * производства) видит их данные, как только получает эту вкладку.
  */
 test("dispatcher feed hides the visitors group for a position without the capability", async () => {
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const { DispatcherFeedPanel } = await vite.ssrLoadModule("/src/App.tsx");
 
-  try {
-    const { DispatcherFeedPanel } = await vite.ssrLoadModule("/src/App.tsx");
+  const restrictedHtml = renderToStaticMarkup(
+    React.createElement(DispatcherFeedPanel, {
+      ...buildPanelProps(),
+      canViewVisitors: false,
+    }),
+  );
+  const restricted = new JSDOM(restrictedHtml).window.document;
 
-    const restrictedHtml = renderToStaticMarkup(
-      React.createElement(DispatcherFeedPanel, {
-        ...buildPanelProps(),
-        canViewVisitors: false,
-      }),
-    );
-    const restricted = new JSDOM(restrictedHtml).window.document;
+  assert.deepEqual(readGroupTabs(restricted), [
+    "Выработка",
+    "Оборудование",
+    "Инциденты",
+  ]);
+  assert.equal(restricted.querySelector(".visitor-summary-table"), null);
+  assert.doesNotMatch(restrictedHtml, /Фридману/u);
 
-    assert.deepEqual(readGroupTabs(restricted), [
-      "Выработка",
-      "Оборудование",
-      "Инциденты",
-    ]);
-    assert.equal(restricted.querySelector(".visitor-summary-table"), null);
-    assert.doesNotMatch(restrictedHtml, /Фридману/u);
+  const allowedHtml = renderToStaticMarkup(
+    React.createElement(DispatcherFeedPanel, {
+      ...buildPanelProps(),
+      canViewVisitors: true,
+    }),
+  );
 
-    const allowedHtml = renderToStaticMarkup(
-      React.createElement(DispatcherFeedPanel, {
-        ...buildPanelProps(),
-        canViewVisitors: true,
-      }),
-    );
-
-    assert.deepEqual(readGroupTabs(new JSDOM(allowedHtml).window.document), [
-      "Выработка",
-      "Оборудование",
-      "Инциденты",
-      "Посетители",
-    ]);
-  } finally {
-    await vite.close();
-  }
+  assert.deepEqual(readGroupTabs(new JSDOM(allowedHtml).window.document), [
+    "Выработка",
+    "Оборудование",
+    "Инциденты",
+    "Посетители",
+  ]);
 });
 
 /**
@@ -59,27 +59,17 @@ test("dispatcher feed hides the visitors group for a position without the capabi
  * поэтому без явного запрета раздел остаётся на месте.
  */
 test("dispatcher feed keeps the visitors group when no restriction is passed", async () => {
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const { DispatcherFeedPanel } = await vite.ssrLoadModule("/src/App.tsx");
+  const html = renderToStaticMarkup(
+    React.createElement(DispatcherFeedPanel, buildPanelProps()),
+  );
 
-  try {
-    const { DispatcherFeedPanel } = await vite.ssrLoadModule("/src/App.tsx");
-    const html = renderToStaticMarkup(
-      React.createElement(DispatcherFeedPanel, buildPanelProps()),
-    );
-
-    assert.deepEqual(readGroupTabs(new JSDOM(html).window.document), [
-      "Выработка",
-      "Оборудование",
-      "Инциденты",
-      "Посетители",
-    ]);
-  } finally {
-    await vite.close();
-  }
+  assert.deepEqual(readGroupTabs(new JSDOM(html).window.document), [
+    "Выработка",
+    "Оборудование",
+    "Инциденты",
+    "Посетители",
+  ]);
 });
 
 /**
@@ -87,31 +77,21 @@ test("dispatcher feed keeps the visitors group when no restriction is passed", a
  * обязана откатиться на «Выработку», а не показать данные посетителей.
  */
 test("dispatcher feed falls back to production when visitors stay selected without access", async () => {
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const { DispatcherFeedPanel } = await vite.ssrLoadModule("/src/App.tsx");
+  const html = renderToStaticMarkup(
+    React.createElement(DispatcherFeedPanel, {
+      ...buildPanelProps({ group: "visitors" }),
+      canViewVisitors: false,
+    }),
+  );
+  const document = new JSDOM(html).window.document;
 
-  try {
-    const { DispatcherFeedPanel } = await vite.ssrLoadModule("/src/App.tsx");
-    const html = renderToStaticMarkup(
-      React.createElement(DispatcherFeedPanel, {
-        ...buildPanelProps({ group: "visitors" }),
-        canViewVisitors: false,
-      }),
-    );
-    const document = new JSDOM(html).window.document;
-
-    assert.doesNotMatch(html, /Фридману/u);
-    assert.equal(
-      document.querySelector(".dispatcher-feed-group-button.is-active")
-        ?.textContent,
-      "Выработка",
-    );
-  } finally {
-    await vite.close();
-  }
+  assert.doesNotMatch(html, /Фридману/u);
+  assert.equal(
+    document.querySelector(".dispatcher-feed-group-button.is-active")
+      ?.textContent,
+    "Выработка",
+  );
 });
 
 function buildPanelProps({ group = "production" } = {}) {

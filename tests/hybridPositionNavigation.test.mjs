@@ -18,6 +18,26 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+
+process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
+
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+
+if (previousRemoteApiUrl === undefined) {
+  delete process.env.VITE_SMB_REMOTE_API_URL;
+} else {
+  process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
+}
+
+test.after(async () => {
+  await vite.close();
+});
+
 test("hybrid position switches between business and admin navigation", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -37,16 +57,9 @@ test("hybrid position switches between business and admin navigation", async () 
   });
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
-  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
-  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
 
   try {
     globalThis.fetch = async (input) => {
@@ -125,12 +138,6 @@ test("hybrid position switches between business and admin navigation", async () 
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousRemoteApiUrl === undefined) {
-      delete process.env.VITE_SMB_REMOTE_API_URL;
-    } else {
-      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
-    }
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -155,16 +162,9 @@ test("login opens the first tab of the server-owned navigation order", async () 
   });
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
-  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
-  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   // Администратор поставил `БД` перед `Обзором`, поэтому вход должен
   // открывать её, а не первую вкладку жёстко заданного каталога.
   const navigationOrder = [
@@ -214,12 +214,6 @@ test("login opens the first tab of the server-owned navigation order", async () 
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousRemoteApiUrl === undefined) {
-      delete process.env.VITE_SMB_REMOTE_API_URL;
-    } else {
-      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
-    }
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }

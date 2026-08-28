@@ -19,6 +19,16 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+
+test.after(async () => {
+  await vite.close();
+});
+
 test("notification workspaces expose the position matrix and exact MAX onboarding", async () => {
   const workspace = await readFile(
     new URL("src/NotificationSettings.tsx", projectRoot),
@@ -74,11 +84,6 @@ test("administrator selects a notification position by the whole row and enables
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   let savedChannels;
   let savedChannelValue;
   const position = {
@@ -225,7 +230,6 @@ test("administrator selects a notification position by the whole row and enables
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -241,11 +245,6 @@ test("user sees only notification types enabled by an administrator", async () =
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
 
   try {
     globalThis.fetch = async (input, init = {}) => {
@@ -307,7 +306,6 @@ test("user sees only notification types enabled by an administrator", async () =
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }

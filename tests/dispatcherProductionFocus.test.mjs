@@ -16,14 +16,44 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-const vite = await createServer({
-  appType: "custom",
-  logLevel: "silent",
-  server: { middlewareMode: true },
-});
+const REMOTE_API_URL = "http://127.0.0.1:3000";
+const viteServers = new Map();
+
+async function loadViteServer(appEnv) {
+  const cached = viteServers.get(appEnv);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const previousAppEnv = process.env.VITE_SMB_APP_ENV;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+
+  process.env.VITE_SMB_APP_ENV = appEnv;
+  process.env.VITE_SMB_REMOTE_API_URL = REMOTE_API_URL;
+
+  try {
+    const server = await createServer({
+      appType: "custom",
+      logLevel: "silent",
+      server: { middlewareMode: true },
+    });
+
+    viteServers.set(appEnv, server);
+
+    return server;
+  } finally {
+    restoreEnv("VITE_SMB_APP_ENV", previousAppEnv);
+    restoreEnv("VITE_SMB_REMOTE_API_URL", previousRemoteApiUrl);
+  }
+}
+
+const vite = await loadViteServer("test");
 
 test.after(async () => {
-  await vite.close();
+  for (const server of viteServers.values()) {
+    await server.close();
+  }
 });
 
 test("production submission payload keeps dynamic fields for every category", async () => {
@@ -821,8 +851,6 @@ test(`production form loads all saved data by date in ${label}`, async () => {
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
-  const previousAppEnv = process.env.VITE_SMB_APP_ENV;
-  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
   const initialDateRequestStarted = createDeferred();
   const initialDateResponseRelease = createDeferred();
   const selectedDateRequestStarted = createDeferred();
@@ -1074,17 +1102,10 @@ test(`production form loads all saved data by date in ${label}`, async () => {
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  let vite;
   let root;
 
   try {
-    process.env.VITE_SMB_APP_ENV = appEnv;
-    process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:3000";
-    vite = await createServer({
-      appType: "custom",
-      logLevel: "silent",
-      server: { middlewareMode: true },
-    });
+    const vite = await loadViteServer(appEnv);
     const { DispatcherProductionReportFormBody } = await vite.ssrLoadModule(
       "/src/App.tsx",
     );
@@ -1454,19 +1475,6 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       await React.act(async () => root.unmount());
     }
     globalThis.fetch = previousFetch;
-    if (vite !== undefined) {
-      await vite.close();
-    }
-    if (previousRemoteApiUrl === undefined) {
-      delete process.env.VITE_SMB_REMOTE_API_URL;
-    } else {
-      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
-    }
-    if (previousAppEnv === undefined) {
-      delete process.env.VITE_SMB_APP_ENV;
-    } else {
-      process.env.VITE_SMB_APP_ENV = previousAppEnv;
-    }
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -1480,7 +1488,6 @@ test("production monthly plan input accepts comma and dot with two decimal place
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
-  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
   const requestsStarted = createDeferred();
   const responsesRelease = createDeferred();
   const requestedKinds = new Set();
@@ -1514,16 +1521,10 @@ test("production monthly plan input accepts comma and dot with two decimal place
 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  let vite;
   let root;
 
   try {
-    process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:3000";
-    vite = await createServer({
-      appType: "custom",
-      logLevel: "silent",
-      server: { middlewareMode: true },
-    });
+    const vite = await loadViteServer("test");
     const { ProductionPlanWorkspace } = await vite.ssrLoadModule(
       "/src/App.tsx",
     );
@@ -1571,14 +1572,6 @@ test("production monthly plan input accepts comma and dot with two decimal place
       await React.act(async () => root.unmount());
     }
     globalThis.fetch = previousFetch;
-    if (vite !== undefined) {
-      await vite.close();
-    }
-    if (previousRemoteApiUrl === undefined) {
-      delete process.env.VITE_SMB_REMOTE_API_URL;
-    } else {
-      process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
-    }
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -1820,6 +1813,14 @@ async function waitForSignal(signal, failureMessage) {
     ]);
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
   }
 }
 

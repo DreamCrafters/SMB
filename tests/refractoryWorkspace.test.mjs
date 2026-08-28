@@ -17,6 +17,44 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+const viteServers = new Map();
+
+async function loadViteServer(appEnv) {
+  const cached = viteServers.get(appEnv);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const previousAppEnv = process.env.VITE_SMB_APP_ENV;
+
+  process.env.VITE_SMB_APP_ENV = appEnv;
+
+  try {
+    const server = await createServer({
+      appType: "custom",
+      logLevel: "silent",
+      server: { middlewareMode: true },
+    });
+
+    viteServers.set(appEnv, server);
+
+    return server;
+  } finally {
+    if (previousAppEnv === undefined) {
+      delete process.env.VITE_SMB_APP_ENV;
+    } else {
+      process.env.VITE_SMB_APP_ENV = previousAppEnv;
+    }
+  }
+}
+
+test.after(async () => {
+  for (const server of viteServers.values()) {
+    await server.close();
+  }
+});
+
 test("refractory workspace opens shift reports and the wagon journal", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -24,16 +62,10 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
   );
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
-  const previousAppEnv = process.env.VITE_SMB_APP_ENV;
-  process.env.VITE_SMB_APP_ENV = "production";
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const vite = await loadViteServer("production");
 
   try {
     const { RefractoryShopWorkspace } = await vite.ssrLoadModule(
@@ -1007,12 +1039,6 @@ test("refractory workspace opens shift reports and the wagon journal", async () 
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousAppEnv === undefined) {
-      delete process.env.VITE_SMB_APP_ENV;
-    } else {
-      process.env.VITE_SMB_APP_ENV = previousAppEnv;
-    }
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -1034,11 +1060,7 @@ async function runRefractoryWagonSaveRace(responseOrder) {
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const vite = await loadViteServer("test");
   let resolveInitialLoad;
   let resolveSave;
   globalThis.fetch = async (_input, init) => {
@@ -1152,7 +1174,6 @@ async function runRefractoryWagonSaveRace(responseOrder) {
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -1182,11 +1203,7 @@ test("refractory correction can be cancelled without saving draft changes", asyn
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const vite = await loadViteServer("test");
   let postCount = 0;
 
   try {
@@ -1292,7 +1309,6 @@ test("refractory correction can be cancelled without saving draft changes", asyn
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -1307,11 +1323,7 @@ test("refractory navigation shows the number of reports returned for correction"
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const vite = await loadViteServer("test");
 
   try {
     const { SideRail } = await vite.ssrLoadModule("/src/App.tsx");
@@ -1358,7 +1370,6 @@ test("refractory navigation shows the number of reports returned for correction"
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -1373,11 +1384,7 @@ test("dispatcher opens pending refractory reports from a separate choice button"
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const vite = await loadViteServer("test");
 
   try {
     const { DataEntryWorkspace } = await vite.ssrLoadModule("/src/App.tsx");
@@ -1465,7 +1472,6 @@ test("dispatcher opens pending refractory reports from a separate choice button"
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -1517,11 +1523,7 @@ test("refractory report highlights invalid numeric fields with a clear message",
   };
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const vite = await loadViteServer("test");
 
   try {
     const { RefractoryShopWorkspace } = await vite.ssrLoadModule(
@@ -1598,7 +1600,6 @@ test("refractory report highlights invalid numeric fields with a clear message",
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
-    await vite.close();
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }

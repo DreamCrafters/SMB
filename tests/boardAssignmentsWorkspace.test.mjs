@@ -17,6 +17,16 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+
+test.after(async () => {
+  await vite.close();
+});
+
 test("board assignment executor sees active cards and submits without choosing a status", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -27,11 +37,6 @@ test("board assignment executor sees active cards and submits without choosing a
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const summary = {
     id: "assignment-1",
     meetingDate: "2026-07-10",
@@ -237,7 +242,6 @@ test("board assignment executor sees active cards and submits without choosing a
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     globalThis.fetch = previousFetch;
     restoreDomGlobals(previousGlobals);
     dom.window.close();
@@ -254,11 +258,6 @@ test("board assignment creation offers one-time and recurring schedule choices",
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
 
   try {
     const { BoardAssignmentsWorkspace } = await vite.ssrLoadModule(
@@ -364,7 +363,6 @@ test("board assignment creation offers one-time and recurring schedule choices",
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     globalThis.fetch = previousFetch;
     restoreDomGlobals(previousGlobals);
     dom.window.close();
@@ -381,11 +379,6 @@ test("board assignment reviewer gets a decision queue with direct actions", asyn
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const permissions = {
     canView: true,
     canCreate: true,
@@ -521,7 +514,6 @@ test("board assignment reviewer gets a decision queue with direct actions", asyn
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     globalThis.fetch = previousFetch;
     restoreDomGlobals(previousGlobals);
     dom.window.close();
@@ -538,11 +530,6 @@ test("board assignment viewer gets a quiet read-only register", async () => {
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const permissions = {
     canView: true,
     canCreate: false,
@@ -634,7 +621,6 @@ test("board assignment viewer gets a quiet read-only register", async () => {
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     globalThis.fetch = previousFetch;
     restoreDomGlobals(previousGlobals);
     dom.window.close();
@@ -651,11 +637,6 @@ test("board assignment creator edits live tasks and opens immutable completion h
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const permissions = {
     canView: true,
     canCreate: true,
@@ -883,7 +864,6 @@ test("board assignment creator edits live tasks and opens immutable completion h
 
     await React.act(async () => root.unmount());
   } finally {
-    await vite.close();
     globalThis.fetch = previousFetch;
     restoreDomGlobals(previousGlobals);
     dom.window.close();
