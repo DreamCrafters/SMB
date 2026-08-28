@@ -53,7 +53,9 @@ export type LaboratoryRawMaterialWarehouseRepository = {
     totals: LaboratoryRawMaterialWarehouseTotals;
   }>;
   listPending: () => Promise<LaboratoryRawMaterialWarehouseRecord[]>;
-  listOptions: () => Promise<LaboratoryRawMaterialWarehouseOptions>;
+  listOptions: () => Promise<
+    Omit<LaboratoryRawMaterialWarehouseOptions, "materials">
+  >;
 };
 
 type WarehouseRevisionRow = RowDataPacket & {
@@ -128,8 +130,8 @@ export function createLaboratoryRawMaterialWarehouseRepository(
     now = () => new Date(),
   }: RepositoryOptions = {},
 ): LaboratoryRawMaterialWarehouseRepository {
-  async function readOptions(
-    column: "material_label" | "stack_location" | "supplier" | "recipient",
+  async function readAccumulatedOptions(
+    column: "stack_location" | "supplier" | "recipient",
   ) {
     const [rows] = await pool.query<WarehouseOptionRow[]>(
       `select trim(${column}) as option_value
@@ -304,14 +306,13 @@ export function createLaboratoryRawMaterialWarehouseRepository(
     },
 
     async listOptions() {
-      const [materials, stackLocations, suppliers, recipients] =
+      const [stackLocations, suppliers, recipients] =
         await Promise.all([
-          readOptions("material_label"),
-          readOptions("stack_location"),
-          readOptions("supplier"),
-          readOptions("recipient"),
+          readAccumulatedOptions("stack_location"),
+          readAccumulatedOptions("supplier"),
+          readAccumulatedOptions("recipient"),
         ]);
-      return { materials, stackLocations, suppliers, recipients };
+      return { stackLocations, suppliers, recipients };
     },
   };
 }

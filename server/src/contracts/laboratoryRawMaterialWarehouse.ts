@@ -45,8 +45,8 @@ export type LaboratoryRawMaterialWarehouseFilters = {
 
 export type LaboratoryRawMaterialWarehouseOptions = {
   /**
-   * Доработка задачи 95: вид сырья — накапливаемый список из истории склада,
-   * а не выбор из журнала марок.
+   * Доработка задачи 95: допустимые виды сырья берутся из server-owned
+   * `Номенклатура → Сырьё`, а не из журнала марок или истории склада.
    */
   materials: string[];
   stackLocations: string[];

@@ -122,8 +122,6 @@ export function LaboratoryRawMaterialWarehouse({
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!formEnabled || isSaving) return;
-    // Доработка задачи 95: вид сырья вводится свободно и накапливается в
-    // подсказках, поэтому канонизировать его по журналу марок больше не нужно.
     const materialLabel = form.materialLabel.trim().replace(/\s+/gu, " ");
     if (materialLabel === "") {
       setMessage("Укажите вид сырья.");
@@ -242,10 +240,9 @@ export function LaboratoryRawMaterialWarehouse({
                 onChange={(event) => updateFormField("movementDate", event.currentTarget.value)}
               />
             </label>
-            <DatalistField
+            <SelectField
               disabled={!formEnabled}
               label="Вид сырья"
-              listId={`${datalistPrefix}-materials`}
               options={state.options.materials}
               required
               value={form.materialLabel}
@@ -469,6 +466,37 @@ function DatalistField({
       <datalist id={listId}>
         {options.map((option) => <option key={option} value={option} />)}
       </datalist>
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  options,
+  value,
+  required = false,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  required?: boolean;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label>
+      <span>{label}</span>
+      <select
+        disabled={disabled}
+        required={required}
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      >
+        <option value="">Выберите сырьё</option>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
     </label>
   );
 }

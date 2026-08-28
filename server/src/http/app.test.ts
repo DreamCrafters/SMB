@@ -12525,7 +12525,6 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
     },
     async listOptions() {
       return {
-        materials: ["Глина огнеупорная"],
         stackLocations: ["Штабель 4"],
         suppliers: ["ООО Поставщик"],
         recipients: ["Цех формовки"],
@@ -12540,20 +12539,6 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
       throw new Error("not used");
     },
   };
-  const productionBrands: ProductionBrandsDataSource = {
-    async list() {
-      return ["Глина огнеупорная"];
-    },
-    async resolveReferences(references) {
-      return {
-        ok: true,
-        references: references.map((reference) => ({
-          ...reference,
-          label: "Глина огнеупорная",
-        })),
-      };
-    },
-  };
   const laboratoryProfile = buildProductionProfile("business_owner");
   laboratoryProfile.displayName = "Иванова Анна";
   laboratoryProfile.activeAccess.position = "laboratory_assistant";
@@ -12566,13 +12551,28 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
   await withRawMaterialWarehouseApiServer({
     profile: laboratoryProfile,
     repository,
-    productionBrands,
     audit,
   }, async (baseUrl) => {
     const headers = {
       "Content-Type": "application/json",
       Cookie: "smb_session=prod-session",
     };
+    const rejectedCreateResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          movementDate: "2026-08-18",
+          materialLabel: "Новое сырьё вне номенклатуры",
+          stackLocation: "Штабель 4",
+          receivedTons: "12,5",
+          supplier: "ООО Поставщик",
+          shippedTons: "0",
+          recipient: "",
+        }),
+      },
+    );
     const createResponse = await fetch(
       `${baseUrl}/api/laboratory/raw-material-warehouse`,
       {
@@ -12580,7 +12580,7 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
         headers,
         body: JSON.stringify({
           movementDate: "2026-08-18",
-          materialLabel: " глина огнеупорная ",
+          materialLabel: " глина бр-1 ",
           stackLocation: "Штабель 4",
           receivedTons: "12,5",
           supplier: "ООО Поставщик",
@@ -12596,6 +12596,7 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
     const listPayload = await listResponse.json() as {
       records: unknown[];
       pendingRecords: Array<{ materialLabel: string }>;
+      options: { materials: string[] };
       permissions: { canSubmit: boolean; canReview: boolean };
     };
     const forbiddenReviewResponse = await fetch(
@@ -12607,12 +12608,15 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
       },
     );
 
+    assert.equal(rejectedCreateResponse.status, 400);
     assert.equal(createResponse.status, 201);
     assert.equal(listResponse.status, 200);
     assert.deepEqual(listPayload.records, []);
-    // Доработка задачи 95: вид сырья сохраняется как введён, без канонизации по
-    // журналу марок — он ведёт собственный накапливаемый список.
-    assert.equal(listPayload.pendingRecords[0]?.materialLabel, "глина огнеупорная");
+    assert.deepEqual(listPayload.options.materials, [
+      "Глина БР-1",
+      "Кварцевая мука R10 EW",
+    ]);
+    assert.equal(listPayload.pendingRecords[0]?.materialLabel, "Глина БР-1");
     assert.deepEqual(listPayload.permissions, {
       canSubmit: true,
       canReview: false,
@@ -12636,7 +12640,6 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
   await withRawMaterialWarehouseApiServer({
     profile: customLaboratoryProfile,
     repository,
-    productionBrands,
     audit,
   }, async (baseUrl) => {
     const headers = {
@@ -12668,7 +12671,6 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
   await withRawMaterialWarehouseApiServer({
     profile: warehouseProfile,
     repository,
-    productionBrands,
     audit,
   }, async (baseUrl) => {
     const headers = {
@@ -12707,6 +12709,25 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
       `${baseUrl}/api/production-brands`,
       { headers },
     );
+    const rejectedCorrectionResponse = await fetch(
+      `${baseUrl}/api/laboratory/raw-material-warehouse/warehouse-entry-1/review`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          action: "correct",
+          record: {
+            movementDate: "2026-08-18",
+            materialLabel: "Новое сырьё вне номенклатуры",
+            stackLocation: "Штабель 4",
+            receivedTons: "12.5",
+            supplier: "ООО Поставщик",
+            shippedTons: "2",
+            recipient: "Цех формовки",
+          },
+        }),
+      },
+    );
     const correctionResponse = await fetch(
       `${baseUrl}/api/laboratory/raw-material-warehouse/warehouse-entry-1/review`,
       {
@@ -12716,7 +12737,7 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
           action: "correct",
           record: {
             movementDate: "2026-08-18",
-            materialLabel: "Глина огнеупорная",
+            materialLabel: "Глина БР-1",
             stackLocation: "Штабель 4",
             receivedTons: "12.5",
             supplier: "ООО Поставщик",
@@ -12743,6 +12764,7 @@ test("raw material warehouse API keeps movements pending until a warehouse keepe
     assert.equal(forbiddenCreateResponse.status, 403);
     assert.equal(forbiddenOtherJournalResponse.status, 403);
     assert.equal(brandSelectorResponse.status, 200);
+    assert.equal(rejectedCorrectionResponse.status, 400);
     assert.equal(correctionResponse.status, 200);
     assert.equal(listResponse.status, 200);
     assert.equal(listPayload.records[0]?.status, "corrected");
@@ -12938,7 +12960,6 @@ async function withRawMaterialWarehouseApiServer(
   dependencies: {
     profile: ServerUserProfile;
     repository: LaboratoryRawMaterialWarehouseRepository;
-    productionBrands: ProductionBrandsDataSource;
     audit: AuditRepository;
   },
   callback: (baseUrl: string) => Promise<void>,
@@ -12947,7 +12968,34 @@ async function withRawMaterialWarehouseApiServer(
     config: productionConfig,
     dispatcherSubmissions,
     authService: buildAuthService({ profile: dependencies.profile }),
-    productionBrands: dependencies.productionBrands,
+    productionBrands: {
+      async list() {
+        return ["Глина огнеупорная"];
+      },
+      async resolveReferences(references) {
+        return {
+          ok: true,
+          references: references.map((reference) => ({
+            ...reference,
+            label: "Глина огнеупорная",
+          })),
+        };
+      },
+    } satisfies ProductionBrandsDataSource,
+    rawMaterialNomenclature: {
+      async listLabels() {
+        return ["Глина БР-1", "Кварцевая мука R10 EW"];
+      },
+      async listRecords() {
+        throw new Error("not used");
+      },
+      async createRecord() {
+        throw new Error("not used");
+      },
+      async updateRecord() {
+        throw new Error("not used");
+      },
+    } satisfies RawMaterialNomenclatureRepository,
     laboratoryRawMaterialWarehouse: dependencies.repository,
     audit: dependencies.audit,
     databaseTransaction: {

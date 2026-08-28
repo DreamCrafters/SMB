@@ -1093,15 +1093,23 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       ".raw-material-warehouse-form",
     );
     for (const [label, value] of [
-      ["Вид сырья", "ША-22"],
+      ["Вид сырья", "Глина огнеупорная"],
       ["№ штабеля / место нахождения", "Штабель 3"],
       ["Поступило, т", "12.5"],
       ["Поставщик", "ООО Поставщик"],
     ]) {
-      const input = findControlByLabel(rawMaterialWarehouseForm, label);
+      const input = findControlByLabel(
+        rawMaterialWarehouseForm,
+        label,
+        label === "Вид сырья" ? "select" : undefined,
+      );
+      if (label === "Вид сырья") assert.equal(input.tagName, "SELECT");
       await React.act(async () => {
         setNativeInputValue(input, value);
-        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+        input.dispatchEvent(new dom.window.Event(
+          input.tagName === "SELECT" ? "change" : "input",
+          { bubbles: true },
+        ));
       });
     }
     await React.act(async () => {
@@ -1110,7 +1118,10 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       );
     });
     await waitFor(React, () => rawMaterialWarehouseSubmissions.length === 1);
-    assert.equal(rawMaterialWarehouseSubmissions[0].materialLabel, "ША-22");
+    assert.equal(
+      rawMaterialWarehouseSubmissions[0].materialLabel,
+      "Глина огнеупорная",
+    );
     assert.equal(rawMaterialWarehouseSubmissions[0].receivedTons, "12.5");
     await waitFor(React, () =>
       rootElement.textContent.includes("Ожидает подтверждения кладовщиком")
@@ -2999,9 +3010,13 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
     const correctionForm = rootElement.querySelector(
       ".raw-material-warehouse-form",
     );
-    const correctionMaterial = findControlByLabel(correctionForm, "Вид сырья");
+    const correctionMaterial = findControlByLabel(
+      correctionForm,
+      "Вид сырья",
+      "select",
+    );
     assert.equal(correctionMaterial.disabled, false);
-    assert.equal(correctionMaterial.value, "ША-22");
+    assert.equal(correctionMaterial.value, "Глина огнеупорная");
     await React.act(async () => {
       const shippedInput = findControlByLabel(correctionForm, "Отгружено, т");
       setNativeInputValue(shippedInput, "2");

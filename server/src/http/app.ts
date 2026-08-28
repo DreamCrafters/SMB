@@ -364,6 +364,9 @@ import {
   sendBoardAssignmentReviewNotification,
   sendOverdueBoardAssignmentNotification,
 } from "../services/accountNotificationDelivery.js";
+import {
+  canonicalizeRawMaterialWarehouseSubmission,
+} from "../services/rawMaterialWarehouseSubmission.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -2897,7 +2900,7 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
   profile,
   canManageLaboratory,
   repository,
-  productionBrands,
+  rawMaterialNomenclature,
   audit,
   databaseTransaction,
   now,
@@ -2908,7 +2911,7 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
   profile: ServerUserProfile;
   canManageLaboratory: boolean;
   repository: LaboratoryRawMaterialWarehouseRepository;
-  productionBrands: ProductionBrandsDataSource;
+  rawMaterialNomenclature: RawMaterialNomenclatureRepository;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
   now: () => Date;
@@ -2949,19 +2952,21 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
       });
       return;
     }
-    const [history, pendingRecords, options] = await Promise.all([
-      repository.list({
-        ...(dateFrom === undefined ? {} : { dateFrom }),
-        ...(dateTo === undefined ? {} : { dateTo }),
-        ...(query === undefined ? {} : { query }),
-      }),
-      repository.listPending(),
-      repository.listOptions(),
-    ]);
+    const [history, pendingRecords, accumulatedOptions, materials] =
+      await Promise.all([
+        repository.list({
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+        }),
+        repository.listPending(),
+        repository.listOptions(),
+        rawMaterialNomenclature.listLabels(),
+      ]);
     sendJson(res, 200, {
       records: history.records,
       pendingRecords,
-      options,
+      options: { ...accumulatedOptions, materials },
       totals: history.totals,
       permissions: { canSubmit, canReview },
       draftDate: formatMoscowCalendarDate(now()),
@@ -2994,15 +2999,24 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
       });
       return;
     }
-    /*
-     * Доработка задачи 95: вид сырья больше не канонизируется по `Журналу
-     * марок` — это отдельный накапливаемый список склада, а не марка изделия.
-     */
+    const record = await canonicalizeRawMaterialWarehouseSubmission({
+      nomenclature: rawMaterialNomenclature,
+      record: validation.value,
+    });
+    if (record === undefined) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Выберите вид сырья из номенклатуры.",
+        },
+      });
+      return;
+    }
     const saved = await runAuditedMutation({
       transaction: databaseTransaction,
       audit,
       mutate: () => repository.submit({
-        record: validation.value,
+        record,
         submittedByUserId: profile.userId,
         submittedByAccountId: profile.activeAccess.accountId,
         submittedByDisplayName: profile.displayName,
@@ -3043,6 +3057,24 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
       });
       return;
     }
+    const correctedRecord = validation.value.action === "correct"
+      ? await canonicalizeRawMaterialWarehouseSubmission({
+          nomenclature: rawMaterialNomenclature,
+          record: validation.value.record,
+        })
+      : undefined;
+    if (
+      validation.value.action === "correct" &&
+      correctedRecord === undefined
+    ) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Выберите вид сырья из номенклатуры.",
+        },
+      });
+      return;
+    }
     try {
       const result = await runAuditedMutation({
         transaction: databaseTransaction,
@@ -3050,9 +3082,9 @@ async function handleLaboratoryRawMaterialWarehouseRequest({
         mutate: () => repository.review({
           id: reviewMatch[1],
           action: validation.value.action,
-          ...(validation.value.action === "correct"
-            ? { record: validation.value.record }
-            : {}),
+          ...(correctedRecord === undefined
+            ? {}
+            : { record: correctedRecord }),
           reviewerUserId: profile.userId,
           reviewerAccountId: profile.activeAccess.accountId,
           reviewerDisplayName: profile.displayName,
@@ -3284,6 +3316,15 @@ async function handleLaboratoryRequest({
       });
       return;
     }
+    if (rawMaterialNomenclature === undefined) {
+      sendJson(res, 503, {
+        error: {
+          code: "server_error",
+          message: "Номенклатура сырья не настроена.",
+        },
+      });
+      return;
+    }
     await handleLaboratoryRawMaterialWarehouseRequest({
       req,
       res,
@@ -3291,7 +3332,7 @@ async function handleLaboratoryRequest({
       profile: access.profile,
       canManageLaboratory,
       repository: laboratoryRawMaterialWarehouse,
-      productionBrands,
+      rawMaterialNomenclature,
       audit,
       databaseTransaction,
       now,
