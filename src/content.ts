@@ -184,6 +184,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       state: "active",
     },
     {
+      id: "business.warehouse_1c",
+      label: "Склад 1С",
+      description: "Остатки и движение по складу из 1С",
+      state: "active",
+    },
+    {
       id: "business.settings",
       label: "Настройки",
       description: "Способы получения сообщений",

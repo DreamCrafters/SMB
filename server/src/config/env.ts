@@ -22,6 +22,16 @@ export type ServerConfig = {
   googleSheetsReference: GoogleSheetsReferenceConfig;
   emailNotifications: EmailNotificationConfig;
   maxNotifications: MaxNotificationConfig;
+  warehouse1cIntegration: Warehouse1cIntegrationConfig;
+};
+
+/**
+ * Интеграция с 1С: приёмник отчётов работает по общему ключу, а не по сессии
+ * пользователя, потому что отправитель — служба 1С по расписанию. Без ключа в
+ * окружении эндпоинт остаётся выключенным.
+ */
+export type Warehouse1cIntegrationConfig = {
+  uploadApiKey?: string;
 };
 
 export type ProductionSnapshotConfig =
@@ -129,6 +139,9 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       databaseUrl,
     ),
     corsOrigins: readList(env.CORS_ORIGIN),
+    warehouse1cIntegration: {
+      uploadApiKey: readWarehouse1cUploadApiKey(env.ONEC_UPLOAD_API_KEY),
+    },
     runMigrationsOnStart: env.RUN_MIGRATIONS_ON_START === "true",
     devAccessEnabled: readDevAccessEnabled(env.DEV_ACCESS_ENABLED, appEnv),
     session: {
@@ -354,6 +367,20 @@ function readRequired(env: NodeJS.ProcessEnv, key: string) {
   }
 
   return value;
+}
+
+const minWarehouse1cUploadApiKeyLength = 16;
+
+function readWarehouse1cUploadApiKey(value: string | undefined) {
+  const key = readOptional(value);
+
+  if (key !== undefined && key.length < minWarehouse1cUploadApiKeyLength) {
+    throw new Error(
+      `ONEC_UPLOAD_API_KEY must be at least ${minWarehouse1cUploadApiKeyLength} characters long`,
+    );
+  }
+
+  return key;
 }
 
 function readOptional(value: string | undefined) {

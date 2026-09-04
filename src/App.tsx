@@ -264,6 +264,7 @@ import {
 import { LaboratoryResultsWorkspace } from "./LaboratoryResults";
 import { LaboratoryReviewWorkspace } from "./LaboratoryReview";
 import { BoardAssignmentsWorkspace } from "./BoardAssignments";
+import { Warehouse1cWorkspace } from "./Warehouse1c";
 import {
   AdminNotificationSettingsWorkspace,
   NotificationSettingsWorkspace,
@@ -279,6 +280,7 @@ type BusinessTab =
   | "laboratory_results"
   | "laboratory_review"
   | "board_assignments"
+  | "warehouse_1c"
   | "settings"
   | "user_actions"
   | "dispatcher_form";
@@ -298,6 +300,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   laboratory_results: "business.laboratory_results",
   laboratory_review: "business.laboratory_review",
   board_assignments: "business.board_assignments",
+  warehouse_1c: "business.warehouse_1c",
   settings: "business.settings",
   user_actions: "business.user_actions",
   dispatcher_form: "business.dispatcher_form",
@@ -327,6 +330,7 @@ const adminPreviewReadCapabilitiesByNavigationItem: Partial<
   "business.user_actions": ["business.view_user_actions"],
   "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
+  "business.warehouse_1c": ["business.view_warehouse_1c"],
   "business.dispatcher_form": ["business.view_dispatcher_feed"],
 };
 
@@ -630,6 +634,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "laboratory_review";
     case "business.board_assignments":
       return "board_assignments";
+    case "business.warehouse_1c":
+      return "warehouse_1c";
     case "business.settings":
       return "settings";
     case "business.user_actions":
@@ -3020,6 +3026,9 @@ function RoleWorkspace({
         onShowToast={onShowToast}
       />
     );
+  }
+  if (effectiveOwnerTab === "warehouse_1c") {
+    return <Warehouse1cWorkspace />;
   }
   if (effectiveOwnerTab === "settings") {
     return (

@@ -41,6 +41,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.review_refractory_reports",
     "business.manage_laboratory_results",
     "business.view_board_assignments",
+    "business.view_warehouse_1c",
   ],
   business_owner: [
     "business.view_all_statistics",
@@ -48,6 +49,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "business.view_dispatcher_feed",
     "business.submit_forms",
     "business.view_own_submissions",
+    "business.view_warehouse_1c",
   ],
   worker: [],
   dispatcher: [

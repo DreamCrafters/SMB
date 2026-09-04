@@ -37,6 +37,7 @@ import { createLaboratoryRawMaterialQualityJournalRepository } from "./repositor
 import { createLaboratoryRawMaterialWarehouseRepository } from "./repositories/laboratoryRawMaterialWarehouseRepository.js";
 import { createLaboratoryGreenProductQualityJournalRepository } from "./repositories/laboratoryGreenProductQualityJournalRepository.js";
 import { createBoardAssignmentsRepository } from "./repositories/boardAssignmentsRepository.js";
+import { createWarehouse1cRepository } from "./repositories/warehouse1cRepository.js";
 import { createNotificationSettingsRepository } from "./repositories/notificationSettingsRepository.js";
 import { createNavigationOrderRepository } from "./repositories/navigationOrderRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
@@ -130,6 +131,7 @@ const server = createApiServer({
   laboratoryGreenProductQualityJournal:
     createLaboratoryGreenProductQualityJournalRepository(pool),
   boardAssignments: createBoardAssignmentsRepository(pool),
+  warehouse1c: createWarehouse1cRepository(pool),
   notificationSettings: createNotificationSettingsRepository(pool),
   navigationOrder: createNavigationOrderRepository(pool),
   audit: createAuditRepository(pool),

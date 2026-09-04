@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ServerConfig } from "../config/env.js";
 import {
@@ -367,6 +368,20 @@ import {
 import {
   canonicalizeRawMaterialWarehouseSubmission,
 } from "../services/rawMaterialWarehouseSubmission.js";
+import {
+  buildWarehouse1cAccounts,
+  selectWarehouse1cAccountCode,
+} from "../contracts/warehouse1c.js";
+import { parseWarehouse1cStockReport } from "../domain/warehouse1cStockReport.js";
+import {
+  readXlsxWorkbook,
+  XlsxFormatError,
+} from "../integrations/xlsxWorkbook.js";
+import {
+  parseMultipartFormData,
+  readMultipartBoundary,
+} from "./multipartFormData.js";
+import type { Warehouse1cRepository } from "../repositories/warehouse1cRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -406,6 +421,7 @@ type AppDependencies = {
   laboratoryGreenProductQualityJournal?:
     LaboratoryGreenProductQualityJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
+  warehouse1c?: Warehouse1cRepository;
   boardAssignmentMaterials?: BoardAssignmentMaterialsSource;
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
   audit: AuditRepository;
@@ -418,6 +434,10 @@ type JsonPayload = Record<string, unknown> | unknown[];
 
 const maxBodyBytes = 100_000;
 const maxBoardAssignmentDocumentBytes = 10_000_000;
+/** Выгрузка остатков из 1С — это несколько сотен строк, мегабайты не нужны. */
+const maxWarehouse1cUploadBytes = 20_000_000;
+const warehouse1cUploadPath = "/api/upload-report";
+const warehouse1cStockBalancesPath = "/api/warehouse-1c/stock-balances";
 const unavailableProductionBrandsDataSource: ProductionBrandsDataSource = {
   async list() {
     throw new Error("Product brand repository is not configured.");
@@ -513,6 +533,7 @@ export function createApiServer({
   laboratoryRawMaterialWarehouse,
   laboratoryGreenProductQualityJournal,
   boardAssignments,
+  warehouse1c,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
   bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
     config.googleSheetsReference,
@@ -941,6 +962,30 @@ export function createApiServer({
           audit,
           databaseTransaction,
           now,
+        });
+        return;
+      }
+
+      if (url.pathname === warehouse1cUploadPath) {
+        await handleWarehouse1cUpload({
+          req,
+          res,
+          config,
+          warehouse1c,
+          databaseTransaction,
+        });
+        return;
+      }
+
+      if (url.pathname === warehouse1cStockBalancesPath) {
+        await handleWarehouse1cStockBalances({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          warehouse1c,
         });
         return;
       }
@@ -9250,11 +9295,280 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.laboratory_results": "Результаты испытаний",
     "business.laboratory_review": "Лаборатория",
     "business.board_assignments": "Поручения Совета директоров",
+    "business.warehouse_1c": "Склад 1С",
     "business.settings": "Настройки",
     "business.dispatcher_form": "Форма",
   };
 
   return labels[item];
+}
+
+/**
+ * Интеграция с 1С: приёмник выгрузки остатков. Отправитель — служба 1С по
+ * расписанию, поэтому здесь нет сессии и CSRF-защиты — доступ даёт общий ключ
+ * `ONEC_UPLOAD_API_KEY`, а сам отчёт целиком описывает себя: дату остатков и
+ * счёт разбор берёт из файла.
+ */
+async function handleWarehouse1cUpload({
+  req,
+  res,
+  config,
+  warehouse1c,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  warehouse1c: Warehouse1cRepository | undefined;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Отчёт 1С принимается только методом POST.",
+      },
+    });
+    return;
+  }
+
+  const uploadApiKey = config.warehouse1cIntegration.uploadApiKey;
+
+  if (uploadApiKey === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Приём отчётов 1С не настроен.",
+      },
+    });
+    return;
+  }
+
+  if (!isMatchingUploadApiKey(req.headers["x-api-key"], uploadApiKey)) {
+    sendJson(res, 401, {
+      error: { code: "unauthenticated", message: "Неверный API-ключ." },
+    });
+    return;
+  }
+
+  const repository = warehouse1c;
+
+  if (repository === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище остатков 1С не настроено.",
+      },
+    });
+    return;
+  }
+
+  const boundary = readMultipartBoundary(req.headers["content-type"]);
+
+  if (boundary === undefined) {
+    sendJson(res, 415, {
+      error: {
+        code: "invalid_response",
+        message: "Отчёт нужно отправлять как multipart/form-data.",
+      },
+    });
+    return;
+  }
+
+  let body: Buffer;
+
+  try {
+    body = await readBinaryBody(req, maxWarehouse1cUploadBytes);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      sendJson(res, 413, {
+        error: {
+          code: "invalid_response",
+          message: "Файл отчёта больше 20 МБ.",
+        },
+      });
+      return;
+    }
+    throw error;
+  }
+
+  const form = parseMultipartFormData(body, boundary);
+  const file = form?.files.find((item) => item.fieldName === "file") ??
+    form?.files[0];
+
+  if (form === undefined || file === undefined) {
+    sendJson(res, 400, {
+      error: { code: "invalid_response", message: "Файл не передан." },
+    });
+    return;
+  }
+
+  if (!/\.xlsx$/iu.test(file.fileName)) {
+    sendJson(res, 415, {
+      error: {
+        code: "invalid_response",
+        message: "Отчёт принимается только в формате .xlsx.",
+      },
+    });
+    return;
+  }
+
+  let parsed;
+
+  try {
+    parsed = parseWarehouse1cStockReport(readXlsxWorkbook(file.content));
+  } catch (error) {
+    if (error instanceof XlsxFormatError) {
+      sendJson(res, 422, {
+        error: { code: "invalid_response", message: error.message },
+      });
+      return;
+    }
+    throw error;
+  }
+
+  if (!parsed.ok) {
+    sendJson(res, 422, {
+      error: { code: "invalid_response", message: parsed.errors.join(" ") },
+    });
+    return;
+  }
+
+  const report = parsed.value;
+  const fileName = file.fileName.slice(0, 255);
+  const fileChecksum = createHash("sha256").update(file.content).digest("hex");
+  const source = (form.fields.source ?? "").trim().slice(0, 120);
+  const sentAt = (form.fields.timestamp ?? "").trim().slice(0, 40);
+  /**
+   * Сводная выгрузка держит несколько счетов, и каждый сохраняется отдельным
+   * отчётом. Всё одной транзакцией: половина загруженных счетов хуже, чем
+   * отклонённый файл.
+   */
+  const saved = await databaseTransaction.run(async () => {
+    const results = [];
+
+    for (const account of report.accounts) {
+      const result = await repository.saveStockReport({
+        accountCode: account.accountCode,
+        accountLabel: account.accountLabel,
+        reportDate: report.reportDate,
+        fileName,
+        fileChecksum,
+        fileSize: file.content.length,
+        source,
+        sentAt,
+        balances: account.balances,
+      });
+
+      results.push({
+        accountCode: account.accountCode,
+        rows: result.rowCount,
+        replaced: result.isReplaced,
+      });
+    }
+
+    return results;
+  });
+
+  sendJson(res, 200, {
+    success: true,
+    message: `Остатки за ${report.reportDate}: ${
+      saved
+        .map((item) => `счёт ${item.accountCode} — ${item.rows} строк`)
+        .join(", ")
+    }.`,
+    filename: file.fileName,
+    size: file.content.length,
+    reportDate: report.reportDate,
+    reports: saved,
+    rows: saved.reduce((total, item) => total + item.rows, 0),
+    skippedDuplicates: report.skippedDuplicates,
+  });
+}
+
+async function handleWarehouse1cStockBalances({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  warehouse1c,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  warehouse1c: Warehouse1cRepository | undefined;
+}) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Остатки 1С доступны только методом GET.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "business.view_warehouse_1c",
+    message: "Просмотр остатков 1С недоступен.",
+  });
+
+  if (access === undefined) return;
+
+  if (warehouse1c === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище остатков 1С не настроено.",
+      },
+    });
+    return;
+  }
+
+  const accounts = buildWarehouse1cAccounts(await warehouse1c.listAccounts());
+  const accountCode = selectWarehouse1cAccountCode(
+    accounts,
+    (url.searchParams.get("accountCode") ?? "").trim(),
+  );
+  const availableDates = await warehouse1c.listReportDates(accountCode);
+  const requestedDate = (url.searchParams.get("reportDate") ?? "").trim();
+  const report = availableDates.length === 0
+    ? undefined
+    : await warehouse1c.readStockReport({
+        accountCode,
+        ...(availableDates.includes(requestedDate)
+          ? { reportDate: requestedDate }
+          : {}),
+      });
+
+  sendJson(res, 200, {
+    accounts,
+    accountCode,
+    availableDates,
+    ...(report === undefined ? {} : { report }),
+  });
+}
+
+function isMatchingUploadApiKey(
+  provided: string | string[] | undefined,
+  expected: string,
+) {
+  const value = Array.isArray(provided) ? provided[0] : provided;
+
+  if (typeof value !== "string") return false;
+
+  const left = Buffer.from(value, "utf8");
+  const right = Buffer.from(expected, "utf8");
+
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 async function handleNavigationOrderRequest({

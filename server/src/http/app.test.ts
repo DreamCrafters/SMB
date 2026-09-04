@@ -93,6 +93,7 @@ import type {
 import { defaultNavigationOrder } from "../domain/navigationOrder.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
+import type { Warehouse1cRepository } from "../repositories/warehouse1cRepository.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -108,6 +109,7 @@ const config: ServerConfig = {
   ],
   runMigrationsOnStart: false,
   devAccessEnabled: true,
+  warehouse1cIntegration: { uploadApiKey: "test-1c-upload-api-key" },
   session: {
     cookieName: "smb_test_session",
     ttlHours: 12,
@@ -13292,6 +13294,365 @@ function readIsoTestReportDate(value: string | undefined) {
   return /^\d{4}-\d{2}-\d{2}$/u.test(value?.trim() ?? "")
     ? value!.trim()
     : undefined;
+}
+
+test("1C stock report upload is guarded by the integration api key", async () => {
+  const saved: unknown[] = [];
+  const warehouse1c: Warehouse1cRepository = {
+    async listAccounts() {
+      return [{ code: "43", label: "Счёт 43 (Готовая продукция)" }];
+    },
+    async listReportDates() { return ["2026-08-23"]; },
+    async readStockReport() { return undefined; },
+    async saveStockReport(input) {
+      saved.push(input);
+      return {
+        reportId: `report-${input.accountCode}`,
+        rowCount: input.balances.length,
+        isReplaced: false,
+      };
+    },
+  };
+  const server = createApiServer({
+    config,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    warehouse1c,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}/api/upload-report`;
+  const boundary = "----smb1cBoundary";
+  const body = buildStockReportUploadBody(boundary);
+
+  try {
+    const withoutKey = await fetch(baseUrl, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body,
+    });
+    assert.equal(withoutKey.status, 401);
+    assert.equal(saved.length, 0);
+
+    const wrongContentType = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": "test-1c-upload-api-key",
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(wrongContentType.status, 415);
+
+    const accepted = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "x-api-key": "test-1c-upload-api-key",
+      },
+      body,
+    });
+    const payload = await accepted.json();
+
+    assert.equal(accepted.status, 200);
+    assert.equal(isRecord(payload) ? payload.success : undefined, true);
+    // Дата и счета приходят из файла, а не из запроса.
+    assert.equal(isRecord(payload) ? payload.reportDate : undefined, "2026-08-23");
+    assert.equal(isRecord(payload) ? payload.rows : undefined, 3);
+    assert.deepEqual(isRecord(payload) ? payload.reports : undefined, [
+      { accountCode: "43", rows: 2, replaced: false },
+      { accountCode: "10.01", rows: 1, replaced: false },
+    ]);
+    // Сводная выгрузка сохраняется отдельным отчётом на каждый счёт.
+    assert.deepEqual(
+      saved.map((item) => {
+        const report = item as {
+          accountCode: string;
+          accountLabel: string;
+          reportDate: string;
+          source: string;
+          sentAt: string;
+          balances: unknown[];
+        };
+        return {
+          accountCode: report.accountCode,
+          accountLabel: report.accountLabel,
+          reportDate: report.reportDate,
+          source: report.source,
+          sentAt: report.sentAt,
+          balances: report.balances,
+        };
+      }),
+      [
+        {
+          accountCode: "43",
+          accountLabel: "Счёт 43 (Готовая продукция)",
+          reportDate: "2026-08-23",
+          source: "1С:Предприятие",
+          sentAt: "2026-08-23T06:29:00",
+          balances: [
+            {
+              nomenclature: "ШБ-15 кер",
+              openingBalance: "594262.58",
+              closingBalance: "594262.58",
+            },
+            {
+              nomenclature: "ША-22 (вес 1,32)",
+              openingBalance: "-2045.53",
+              closingBalance: "-2045.53",
+            },
+          ],
+        },
+        {
+          accountCode: "10.01",
+          accountLabel: "Счёт 10.01 (Материалы)",
+          reportDate: "2026-08-23",
+          source: "1С:Предприятие",
+          sentAt: "2026-08-23T06:29:00",
+          balances: [
+            {
+              nomenclature: "ГАС-порошок",
+              openingBalance: "277693.47",
+              closingBalance: "277693.47",
+            },
+          ],
+        },
+      ],
+    );
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("1C stock balances open only for the warehouse tab capability", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "general_director",
+      positionDisplayName: "Генеральный директор",
+      navigationItems: ["business.overview"],
+      capabilities: ["business.view_all_statistics"],
+    },
+  };
+  const requestedDates: string[] = [];
+  const warehouse1c: Warehouse1cRepository = {
+    async listAccounts() {
+      return [
+        { code: "10.01", label: "Счёт 10.01 (Материалы)" },
+        { code: "43", label: "Счёт 43 (Готовая продукция)" },
+      ];
+    },
+    async listReportDates() { return ["2026-08-23", "2026-08-22"]; },
+    async readStockReport(input) {
+      requestedDates.push(input.reportDate ?? "latest");
+      return {
+        accountCode: input.accountCode,
+        accountLabel: `Счёт ${input.accountCode}`,
+        reportDate: input.reportDate ?? "2026-08-23",
+        fileName: "Остатки.xlsx",
+        importedAt: "2026-08-23T06:30:00.000Z",
+        balances: [
+          { nomenclature: "ША-8", openingBalance: "12.5", closingBalance: "10" },
+        ],
+      };
+    },
+    async saveStockReport() { throw new Error("not used"); },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    warehouse1c,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}/api/warehouse-1c/stock-balances`;
+  const headers = {
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const forbidden = await fetch(baseUrl, { headers });
+    assert.equal(forbidden.status, 403);
+
+    profile.activeAccess.navigationItems = ["business.warehouse_1c"];
+    profile.activeAccess.capabilities = ["business.view_warehouse_1c"];
+
+    const response = await fetch(baseUrl, { headers });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    // Подписи счетов приходят из выгрузки, а «10.01» сортируется перед «43».
+    assert.deepEqual(isRecord(payload) ? payload.accounts : undefined, [
+      { code: "10.01", label: "Счёт 10.01 (Материалы)" },
+      { code: "43", label: "Счёт 43 (Готовая продукция)" },
+    ]);
+    // По умолчанию открывается готовая продукция, а не первый счёт списка.
+    assert.equal(isRecord(payload) ? payload.accountCode : undefined, "43");
+    assert.deepEqual(isRecord(payload) ? payload.availableDates : undefined, [
+      "2026-08-23",
+      "2026-08-22",
+    ]);
+
+    // Неизвестная дата не подставляется в запрос, показывается последняя.
+    await fetch(`${baseUrl}?reportDate=2026-01-01`, { headers });
+    await fetch(`${baseUrl}?reportDate=2026-08-22`, { headers });
+    assert.deepEqual(requestedDates, ["latest", "latest", "2026-08-22"]);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+function buildStockReportUploadBody(boundary: string) {
+  const parts: Buffer[] = [];
+  const push = (headers: string, content: Buffer) => {
+    parts.push(
+      Buffer.from(`--${boundary}\r\n${headers}\r\n\r\n`, "utf8"),
+      content,
+      Buffer.from("\r\n", "utf8"),
+    );
+  };
+
+  push(
+    'Content-Disposition: form-data; name="file"; filename="Остатки.xlsx"\r\n' +
+      "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buildStockReportWorkbookFile(),
+  );
+  push(
+    'Content-Disposition: form-data; name="timestamp"',
+    Buffer.from("2026-08-23T06:29:00", "utf8"),
+  );
+  push(
+    'Content-Disposition: form-data; name="source"',
+    Buffer.from("1С:Предприятие", "utf8"),
+  );
+  parts.push(Buffer.from(`--${boundary}--\r\n`, "utf8"));
+
+  return Buffer.concat(parts);
+}
+
+/** Минимальная книга Excel без сжатия: разбор `.xlsx` проверяется целиком. */
+function buildStockReportWorkbookFile() {
+  return buildStoredZipArchive([
+    {
+      name: "xl/workbook.xml",
+      content:
+        '<workbook><sheets><sheet name="Остатки" sheetId="1" r:id="rId1"/>' +
+        "</sheets></workbook>",
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content:
+        '<Relationships><Relationship Id="rId1" ' +
+        'Target="worksheets/sheet1.xml"/></Relationships>',
+    },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content:
+        "<worksheet><sheetData>" +
+        inlineRow(1, ["Сводный отчёт по материалам и готовой продукции"]) +
+        inlineRow(2, ["Период: 23.08.2026 - 23.08.2026"]) +
+        inlineRow(4, ["Счёт 43 (Готовая продукция)"]) +
+        inlineRow(5, stockReportColumnCaptions) +
+        inlineRow(6, [
+          "43", "ШБ-15 кер", "594 262,58", "0", "0", "0", "594 262,58", "0",
+        ]) +
+        inlineRow(7, [
+          "43", "ША-22 (вес 1,32)", "-2 045,53", "0", "0", "0", "-2 045,53", "0",
+        ]) +
+        inlineRow(9, ["Счёт 10.01 (Материалы)"]) +
+        inlineRow(10, stockReportColumnCaptions) +
+        inlineRow(11, [
+          "10.01", "ГАС-порошок", "277 693,47", "0", "0", "0", "277 693,47", "0",
+        ]) +
+        "</sheetData></worksheet>",
+    },
+  ]);
+}
+
+const stockReportColumnCaptions = [
+  "Счет",
+  "Номенклатура",
+  "Ост.Дебет нач.",
+  "Ост.Кредит нач.",
+  "Оборот Дебет",
+  "Оборот Кредит",
+  "Ост.Дебет кон.",
+  "Ост.Кредит кон.",
+];
+
+function inlineRow(rowNumber: number, values: string[]) {
+  const cells = values
+    .map((value, index) =>
+      `<c r="${String.fromCharCode(65 + index)}${rowNumber}" t="inlineStr">` +
+      `<is><t>${escapeXml(value)}</t></is></c>`)
+    .join("");
+
+  return `<row r="${rowNumber}">${cells}</row>`;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function buildStoredZipArchive(entries: { name: string; content: string }[]) {
+  const locals: Buffer[] = [];
+  const directory: Buffer[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, "utf8");
+    const content = Buffer.from(entry.content, "utf8");
+    const localHeader = Buffer.alloc(30);
+
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt32LE(content.length, 18);
+    localHeader.writeUInt32LE(content.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    locals.push(localHeader, name, content);
+
+    const centralHeader = Buffer.alloc(46);
+
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt32LE(content.length, 20);
+    centralHeader.writeUInt32LE(content.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt32LE(offset, 42);
+    directory.push(centralHeader, name);
+
+    offset += localHeader.length + name.length + content.length;
+  }
+
+  const directoryBuffer = Buffer.concat(directory);
+  const end = Buffer.alloc(22);
+
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directoryBuffer.length, 12);
+  end.writeUInt32LE(offset, 16);
+
+  return Buffer.concat([...locals, directoryBuffer, end]);
 }
 
 function buildAuthService({

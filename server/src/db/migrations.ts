@@ -4029,6 +4029,59 @@ const migrations: Migration[] = [
     id: "074_initial_raw_material_nomenclature",
     statements: [buildInitialRawMaterialInsert()],
   },
+  {
+    /**
+     * Интеграция с 1С, первый этап. Отчёт об остатках хранится срезом: шапка
+     * файла в `warehouse_1c_stock_reports`, строки номенклатуры в
+     * `warehouse_1c_stock_balances`. Уникальный ключ по счёту и дате делает
+     * повторную выгрузку за то же число заменой, а не дублем.
+     */
+    id: "075_warehouse_1c_stock_reports",
+    statements: [
+      `
+      create table if not exists warehouse_1c_stock_reports (
+        id char(36) not null primary key,
+        account_code varchar(20) not null,
+        account_label varchar(160) not null,
+        report_date date not null,
+        file_name varchar(255) not null,
+        file_checksum char(64) not null,
+        file_size int unsigned not null,
+        source varchar(120) null,
+        sent_at varchar(40) null,
+        row_count int unsigned not null,
+        imported_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_warehouse_1c_stock_report (account_code, report_date),
+        key idx_warehouse_1c_stock_report_date (report_date)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists warehouse_1c_stock_balances (
+        id char(36) not null primary key,
+        report_id char(36) not null,
+        row_order int unsigned not null,
+        nomenclature varchar(255) not null,
+        opening_balance decimal(18,3) null,
+        closing_balance decimal(18,3) null,
+        key idx_warehouse_1c_stock_balance_order (report_id, row_order),
+        constraint fk_warehouse_1c_stock_balance_report
+          foreign key (report_id) references warehouse_1c_stock_reports (id)
+          on delete cascade
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      update app_navigation_settings
+      set navigation_order = json_array_append(
+        navigation_order,
+        '$',
+        'business.warehouse_1c'
+      )
+      where setting_key = 'left_rail'
+        and json_search(navigation_order, 'one', 'business.warehouse_1c')
+          is null;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

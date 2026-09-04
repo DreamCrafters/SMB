@@ -69,6 +69,7 @@ const navigationScreens: readonly AuditScreen[] = [
   { id: "business.laboratory_review", title: "Лаборатория" },
   { id: "business.settings", title: "Настройки" },
   { id: "business.board_assignments", title: "Поручения Совета директоров" },
+  { id: "business.warehouse_1c", title: "Склад 1С" },
   { id: "business.user_actions", title: "Действия пользователей" },
   { id: "business.dispatcher_form", title: "Выбор диспетчерской формы" },
 ];

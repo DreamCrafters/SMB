@@ -8383,3 +8383,31 @@ p {
     display: grid;
   }
 }
+
+/* Интеграция с 1С: остатки по складу в разрезе номенклатуры. */
+.warehouse-1c-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 200px));
+  justify-content: start;
+}
+
+.warehouse-1c-source {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.warehouse-1c-table {
+  min-width: 520px;
+}
+
+.warehouse-1c-table th:first-child,
+.warehouse-1c-table td:first-child {
+  min-width: 320px;
+}
+
+.warehouse-1c-table th:not(:first-child),
+.warehouse-1c-table td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

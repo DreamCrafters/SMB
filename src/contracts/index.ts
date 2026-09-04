@@ -11,6 +11,7 @@ export * from "./navigationOrder";
 export * from "./productionPlans";
 export * from "./productBrands";
 export * from "./rawMaterialNomenclature";
+export * from "./warehouse1c";
 export * from "./refractoryReports";
 export * from "./refractoryWagons";
 export * from "./laboratoryResults";

@@ -34,6 +34,7 @@ export const accountNavigationItems = [
   "business.laboratory_results",
   "business.laboratory_review",
   "business.board_assignments",
+  "business.warehouse_1c",
   "business.settings",
   "business.dispatcher_form",
 ] as const;
@@ -66,6 +67,7 @@ export const accountCapabilities = [
   "business.create_board_assignments",
   "business.execute_board_assignments",
   "business.review_board_assignments",
+  "business.view_warehouse_1c",
   "business.manage_notification_settings",
   "business.view_overview_visitors",
 ] as const;

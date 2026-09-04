@@ -26,6 +26,7 @@ const initialNavigationOrder = [
   "business.laboratory_results",
   "business.laboratory_review",
   "business.board_assignments",
+  "business.warehouse_1c",
   "business.settings",
   "business.user_actions",
   "business.dispatcher_form",
