@@ -13,7 +13,17 @@ import {
 import {
   requestLaboratoryChemicalAnalysisDraft,
   requestLaboratoryChemicalAnalysisProtocolPdf,
+  isOptionalLaboratoryChemicalAnalysisValues,
 } from "../.test-build/src/services/laboratoryChemicalAnalysisJournal.js";
+
+test("laboratory journal responses accept optional chemical results and reject invalid field types", () => {
+  for (const value of [undefined, {}, { al2o3: "45,6", cao2: "0", notes: "" }]) {
+    assert.equal(isOptionalLaboratoryChemicalAnalysisValues(value), true);
+  }
+  for (const value of [null, [], "analysis", { al2o3: 45.6 }, { chemicalAnalysisDate: {} }]) {
+    assert.equal(isOptionalLaboratoryChemicalAnalysisValues(value), false);
+  }
+});
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {

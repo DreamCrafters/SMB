@@ -8,6 +8,7 @@ import {
   type LaboratoryUnshapedProductSampleSubmission,
 } from "../contracts/laboratoryUnshapedProductSampleJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { isOptionalLaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 import {
   describeRemoteNetworkFailure,
   resolveApiEndpoint,
@@ -175,6 +176,7 @@ function isJournalRecord(
 ): value is LaboratoryUnshapedProductSampleRecord {
   return isRecord(value) &&
     typeof value.id === "string" &&
+    isOptionalLaboratoryChemicalAnalysisValues(value.chemicalAnalysis) &&
     laboratoryUnshapedProductSampleFields.every((field) => {
       const fieldValue = value[field.id];
       if (field.id === "chemicalAnalysisNumber" || field.id === "notes") {

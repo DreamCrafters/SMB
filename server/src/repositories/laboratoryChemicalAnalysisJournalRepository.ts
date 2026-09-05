@@ -6,6 +6,8 @@ import type {
   LaboratoryChemicalAnalysisJournalSubmission,
   LaboratoryChemicalAnalysisSampleOption,
   LaboratoryChemicalAnalysisSampleReference,
+  LaboratoryChemicalAnalysisSampleSource,
+  LaboratoryChemicalAnalysisValues,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
@@ -108,6 +110,75 @@ type LaboratoryChemicalAnalysisAssistantRow = RowDataPacket & {
 
 const defaultListLimit = 200;
 const maxListLimit = 500;
+
+const chemicalAnalysisValueColumns = [
+  ["laboratoryAnalysisNumber", "laboratory_analysis_number"],
+  ["chemicalAnalysisDate", "chemical_analysis_date"],
+  ["chemicalAnalysisLaboratoryAssistant", "chemical_analysis_laboratory_assistant"],
+  ["batchNumber", "batch_number"],
+  ["al2o3", "al2o3"],
+  ["fe2o3", "fe2o3"],
+  ["sio2", "sio2"],
+  ["cao2", "cao2"],
+  ["p2o5", "p2o5"],
+  ["lossOnIgnition", "loss_on_ignition"],
+  ["moisture", "moisture"],
+  ["notes", "notes"],
+] as const satisfies readonly (readonly [keyof LaboratoryChemicalAnalysisValues, string])[];
+
+/** Read-time projection for OTK journals; the caller names its base table `sample`. */
+export function buildSampleChemicalAnalysisSql(
+  sampleSource: LaboratoryChemicalAnalysisSampleSource,
+) {
+  const registrationAnalysis = `(
+    select max(latest.sequence_id)
+    from laboratory_chemical_analysis_journal latest
+    where latest.sample_registration_id = sample.source_sample_registration_id
+  )`;
+  const latestAnalysis = sampleSource === "unshaped_product"
+    ? `coalesce((
+        select max(latest.sequence_id)
+        from laboratory_chemical_analysis_journal latest
+        where latest.unshaped_product_sample_id = sample.id
+      ), ${registrationAnalysis})`
+    : registrationAnalysis;
+
+  return {
+    columns: [
+      "analysis.id as linked_analysis_id",
+      ...chemicalAnalysisValueColumns.map(([field, column]) =>
+        field === "laboratoryAnalysisNumber"
+          ? `analysis.${column} as linked_${column}`
+          : `case when analysis.id is null
+              then registration.${column} else analysis.${column}
+            end as linked_${column}`
+      ),
+    ].join(",\n          "),
+    joins: `left join laboratory_sample_registration_journal registration
+        on registration.id = sample.source_sample_registration_id
+      left join laboratory_chemical_analysis_journal analysis
+        on analysis.sequence_id = ${latestAnalysis}`,
+  };
+}
+
+export function mapSampleChemicalAnalysis(row: RowDataPacket): {
+  chemicalAnalysis?: LaboratoryChemicalAnalysisValues;
+} {
+  const values: LaboratoryChemicalAnalysisValues = {};
+  for (const [field, column] of chemicalAnalysisValueColumns) {
+    const value = row[`linked_${column}`] as Date | string | null | undefined;
+    if (value !== null && value !== undefined) {
+      values[field] = field === "chemicalAnalysisDate"
+        ? formatDate(value)
+        : String(value);
+    }
+  }
+
+  // An empty linked analysis must not fall back to older values from the sample.
+  return row.linked_analysis_id != null || Object.keys(values).length > 0
+    ? { chemicalAnalysis: values }
+    : {};
+}
 
 export function createLaboratoryChemicalAnalysisJournalRepository(
   pool: DatabasePool,

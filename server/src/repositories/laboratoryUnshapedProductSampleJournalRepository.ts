@@ -10,6 +10,10 @@ import type {
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
 import {
+  buildSampleChemicalAnalysisSql,
+  mapSampleChemicalAnalysis,
+} from "./laboratoryChemicalAnalysisJournalRepository.js";
+import {
   LaboratorySampleRegistrationTransmissionUnavailableError,
   type ClaimSampleRegistrationTransmission,
 } from "./laboratorySampleRegistrationJournalRepository.js";
@@ -268,45 +272,46 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
     },
 
     async list(filters = {}) {
+      const chemicalAnalysis = buildSampleChemicalAnalysisSql("unshaped_product");
       const clauses: string[] = [];
       const parameters: unknown[] = [];
 
       if (filters.dateFrom !== undefined) {
-        clauses.push("sample_date >= ?");
+        clauses.push("sample.sample_date >= ?");
         parameters.push(filters.dateFrom);
       }
       if (filters.dateTo !== undefined) {
-        clauses.push("sample_date <= ?");
+        clauses.push("sample.sample_date <= ?");
         parameters.push(filters.dateTo);
       }
       if (filters.query !== undefined) {
         clauses.push(`instr(
           concat_ws(
             ' ',
-            sample_number,
-            sampled_by,
-            batch_number,
-            sample_code,
-            product_name,
-            batch_mass,
-            coalesce(chemical_analysis_number, ''),
-            moisture,
-            grain_composition,
-            fire_resistance,
-            case suitability
+            sample.sample_number,
+            sample.sampled_by,
+            sample.batch_number,
+            sample.sample_code,
+            sample.product_name,
+            sample.batch_mass,
+            coalesce(sample.chemical_analysis_number, ''),
+            sample.moisture,
+            sample.grain_composition,
+            sample.fire_resistance,
+            case sample.suitability
               when 'yes' then 'Да'
               when 'no' then 'Нет'
               when 'maybe' then 'м.б.'
-              else suitability
+              else sample.suitability
             end,
-            coalesce(notes, '')
+            coalesce(sample.notes, '')
           ),
           ?
         ) > 0`);
         parameters.push(filters.query);
       }
       if (filters.nameQuery !== undefined) {
-        clauses.push("product_name like ?");
+        clauses.push("sample.product_name like ?");
         parameters.push(`%${escapeLikePattern(filters.nameQuery)}%`);
       }
 
@@ -317,32 +322,35 @@ export function createLaboratoryUnshapedProductSampleJournalRepository(
       const where = clauses.length === 0 ? "" : `where ${clauses.join(" and ")}`;
       const [rows] = await pool.query<JournalRow[]>(
         `select
-          id,
-          sample_number,
-          sample_date,
-          sampled_by,
-          batch_number,
-          sample_code,
-          product_name,
-          batch_mass,
-          chemical_analysis_number,
-          moisture,
-          grain_composition,
-          fire_resistance,
-          suitability,
-          notes,
-          created_at
-        from laboratory_unshaped_product_sample_journal
+          sample.id,
+          sample.sample_number,
+          sample.sample_date,
+          sample.sampled_by,
+          sample.batch_number,
+          sample.sample_code,
+          sample.product_name,
+          sample.batch_mass,
+          sample.chemical_analysis_number,
+          sample.moisture,
+          sample.grain_composition,
+          sample.fire_resistance,
+          sample.suitability,
+          sample.notes,
+          sample.source_sample_registration_id,
+          sample.created_at,
+          ${chemicalAnalysis.columns}
+        from laboratory_unshaped_product_sample_journal sample
+        ${chemicalAnalysis.joins}
         ${where}
         order by
           case
-            when trim(sample_number) regexp '^[0-9]+'
-              then cast(trim(sample_number) as unsigned)
+            when trim(sample.sample_number) regexp '^[0-9]+'
+              then cast(trim(sample.sample_number) as unsigned)
             else null
           end desc,
-          sample_number desc,
-          sample_date desc,
-          sequence_id desc
+          sample.sample_number desc,
+          sample.sample_date desc,
+          sample.sequence_id desc
         limit ?`,
         [...parameters, limit],
       );
@@ -401,6 +409,7 @@ function mapRecord(row: JournalRow): LaboratoryUnshapedProductSampleRecord {
   return {
     id: row.id,
     ...mapSnapshot(row),
+    ...mapSampleChemicalAnalysis(row),
     createdAt: new Date(row.created_at).toISOString(),
   };
 }

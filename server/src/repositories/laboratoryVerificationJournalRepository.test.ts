@@ -191,7 +191,13 @@ test("verification repository filters and maps history", async () => {
         product_name: record.productName,
         sampling_location: record.samplingLocation,
         sample_code: record.sampleCode,
-        source_sample_registration_id: null,
+        source_sample_registration_id: "registration-1",
+        linked_analysis_id: "analysis-1",
+        linked_laboratory_analysis_number: "108",
+        linked_chemical_analysis_date: "2026-09-04",
+        linked_al2o3: "45,6",
+        linked_cao2: "0",
+        linked_notes: "Примечание химанализа",
         created_at: "2026-08-05T08:30:00.000Z",
       }], []];
     },
@@ -208,6 +214,14 @@ test("verification repository filters and maps history", async () => {
   assert.deepEqual(rows, [{
     id: "verification-1",
     ...record,
+    sourceSampleRegistrationId: "registration-1",
+    chemicalAnalysis: {
+      laboratoryAnalysisNumber: "108",
+      chemicalAnalysisDate: "2026-09-04",
+      al2o3: "45,6",
+      cao2: "0",
+      notes: "Примечание химанализа",
+    },
     createdAt: "2026-08-05T08:30:00.000Z",
   }]);
   assert.match(querySql, /verification_date >= \?/u);

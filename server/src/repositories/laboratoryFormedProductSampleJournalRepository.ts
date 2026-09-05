@@ -8,6 +8,10 @@ import type {
 } from "../contracts/laboratoryFormedProductSampleJournal.js";
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
+import {
+  buildSampleChemicalAnalysisSql,
+  mapSampleChemicalAnalysis,
+} from "./laboratoryChemicalAnalysisJournalRepository.js";
 import type { RefractoryWagonsRepository } from "./refractoryWagonsRepository.js";
 import {
   LaboratorySampleRegistrationTransmissionUnavailableError,
@@ -313,26 +317,27 @@ export function createLaboratoryFormedProductSampleJournalRepository(
     },
 
     async list(filters = {}) {
+      const chemicalAnalysis = buildSampleChemicalAnalysisSql("sample_registration");
       const clauses: string[] = [];
       const parameters: unknown[] = [];
 
       if (filters.dateFrom !== undefined) {
-        clauses.push("sorting_date >= ?");
+        clauses.push("sample.sorting_date >= ?");
         parameters.push(filters.dateFrom);
       }
       if (filters.dateTo !== undefined) {
-        clauses.push("sorting_date <= ?");
+        clauses.push("sample.sorting_date <= ?");
         parameters.push(filters.dateTo);
       }
       if (filters.query !== undefined) {
         clauses.push(`instr(
-          concat_ws(' ', wagon_number, sample_code, product_brand),
+          concat_ws(' ', sample.wagon_number, sample.sample_code, sample.product_brand),
           ?
         ) > 0`);
         parameters.push(filters.query);
       }
       if (filters.nameQuery !== undefined) {
-        clauses.push("product_brand like ?");
+        clauses.push("sample.product_brand like ?");
         parameters.push(`%${escapeLikePattern(filters.nameQuery)}%`);
       }
 
@@ -343,17 +348,19 @@ export function createLaboratoryFormedProductSampleJournalRepository(
       const where = clauses.length === 0 ? "" : `where ${clauses.join(" and ")}`;
       const [rows] = await pool.query<JournalRow[]>(
         `select
-          id,
-          sorting_date,
-          wagon_number,
-          sample_code,
-          product_brand,
-          molding_date,
-          source_sample_registration_id,
-          created_at
-        from laboratory_formed_product_sample_journal
+          sample.id,
+          sample.sorting_date,
+          sample.wagon_number,
+          sample.sample_code,
+          sample.product_brand,
+          sample.molding_date,
+          sample.source_sample_registration_id,
+          sample.created_at,
+          ${chemicalAnalysis.columns}
+        from laboratory_formed_product_sample_journal sample
+        ${chemicalAnalysis.joins}
         ${where}
-        order by sorting_date desc, sequence_id desc
+        order by sample.sorting_date desc, sample.sequence_id desc
         limit ?`,
         [...parameters, limit],
       );
@@ -382,6 +389,7 @@ function mapRecord(row: JournalRow): LaboratoryFormedProductSampleRecord {
   return {
     id: row.id,
     ...mapSnapshot(row),
+    ...mapSampleChemicalAnalysis(row),
     createdAt: new Date(row.created_at).toISOString(),
   };
 }

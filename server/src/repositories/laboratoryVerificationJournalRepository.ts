@@ -9,6 +9,10 @@ import type {
 import type { DatabasePool } from "../db/pool.js";
 import { escapeLikePattern } from "./laboratoryResultsRepository.js";
 import {
+  buildSampleChemicalAnalysisSql,
+  mapSampleChemicalAnalysis,
+} from "./laboratoryChemicalAnalysisJournalRepository.js";
+import {
   LaboratorySampleRegistrationTransmissionUnavailableError,
   type ClaimSampleRegistrationTransmission,
 } from "./laboratorySampleRegistrationJournalRepository.js";
@@ -199,26 +203,27 @@ export function createLaboratoryVerificationJournalRepository(
     },
 
     async list(filters = {}) {
+      const chemicalAnalysis = buildSampleChemicalAnalysisSql("sample_registration");
       const clauses: string[] = [];
       const parameters: unknown[] = [];
 
       if (filters.dateFrom !== undefined) {
-        clauses.push("verification_date >= ?");
+        clauses.push("sample.verification_date >= ?");
         parameters.push(filters.dateFrom);
       }
       if (filters.dateTo !== undefined) {
-        clauses.push("verification_date <= ?");
+        clauses.push("sample.verification_date <= ?");
         parameters.push(filters.dateTo);
       }
       if (filters.query !== undefined) {
         clauses.push(`instr(
-          concat_ws(' ', product_name, sampling_location, sample_code),
+          concat_ws(' ', sample.product_name, sample.sampling_location, sample.sample_code),
           ?
         ) > 0`);
         parameters.push(filters.query);
       }
       if (filters.nameQuery !== undefined) {
-        clauses.push("product_name like ?");
+        clauses.push("sample.product_name like ?");
         parameters.push(`%${escapeLikePattern(filters.nameQuery)}%`);
       }
 
@@ -229,16 +234,18 @@ export function createLaboratoryVerificationJournalRepository(
       const where = clauses.length === 0 ? "" : `where ${clauses.join(" and ")}`;
       const [rows] = await pool.query<JournalRow[]>(
         `select
-          id,
-          verification_date,
-          product_name,
-          sampling_location,
-          sample_code,
-          source_sample_registration_id,
-          created_at
-        from laboratory_verification_journal
+          sample.id,
+          sample.verification_date,
+          sample.product_name,
+          sample.sampling_location,
+          sample.sample_code,
+          sample.source_sample_registration_id,
+          sample.created_at,
+          ${chemicalAnalysis.columns}
+        from laboratory_verification_journal sample
+        ${chemicalAnalysis.joins}
         ${where}
-        order by verification_date desc, sequence_id desc
+        order by sample.verification_date desc, sample.sequence_id desc
         limit ?`,
         [...parameters, limit],
       );
@@ -261,6 +268,7 @@ function mapRecord(row: JournalRow): LaboratoryVerificationRecord {
   return {
     id: row.id,
     ...mapSnapshot(row),
+    ...mapSampleChemicalAnalysis(row),
     ...(row.source_sample_registration_id === null
       ? {}
       : { sourceSampleRegistrationId: row.source_sample_registration_id }),

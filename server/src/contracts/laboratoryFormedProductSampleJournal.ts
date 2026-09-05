@@ -1,3 +1,5 @@
+import type { LaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
+
 /**
  * Задача 79 добавила вагонный путь: марка и дата формовки подтягиваются из
  * Журнала вагонов (`refractory_wagons`) по номеру вагона и дате сортировки,
@@ -29,6 +31,7 @@ export type LaboratoryFormedProductSampleCorrection =
  */
 export type LaboratoryFormedProductSampleRecord = {
   id: string;
+  chemicalAnalysis?: LaboratoryChemicalAnalysisValues;
   sortingDate: string;
   wagonNumber: string | null;
   sampleCode: string | null;

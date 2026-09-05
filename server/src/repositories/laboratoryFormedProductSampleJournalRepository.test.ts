@@ -398,6 +398,9 @@ test("formed product sample repository filters and maps history, tolerating lega
           product_brand: "ША-1,3",
           molding_date: null,
           source_sample_registration_id: "reg-42",
+          linked_analysis_id: "analysis-108",
+          linked_laboratory_analysis_number: "108",
+          linked_al2o3: "45,6",
           created_at: "2026-08-05T08:30:00.000Z",
         },
       ], []];
@@ -440,13 +443,14 @@ test("formed product sample repository filters and maps history, tolerating lega
       productBrand: "ША-1,3",
       moldingDate: null,
       sourceSampleRegistrationId: "reg-42",
+      chemicalAnalysis: { laboratoryAnalysisNumber: "108", al2o3: "45,6" },
       createdAt: "2026-08-05T08:30:00.000Z",
     },
   ]);
   assert.match(querySql, /sorting_date >= \?/u);
   assert.match(querySql, /sorting_date <= \?/u);
   assert.match(querySql, /instr\(/u);
-  assert.match(querySql, /concat_ws\(' ', wagon_number, sample_code, product_brand\)/u);
+  assert.match(querySql, /concat_ws\(' ', sample\.wagon_number, sample\.sample_code, sample\.product_brand\)/u);
   assert.match(querySql, /product_brand like \?/u);
   assert.deepEqual(queryParameters, [
     "2026-07-01",

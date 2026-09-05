@@ -18,6 +18,21 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+const sampleChemicalAnalysis = {
+  laboratoryAnalysisNumber: "108",
+  chemicalAnalysisDate: "2026-09-04",
+  chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
+  batchNumber: "Партия анализа",
+  al2o3: "45,6",
+  fe2o3: "1.2",
+  sio2: "50",
+  cao2: "0",
+  p2o5: "< 0,1",
+  lossOnIgnition: "2",
+  moisture: "0,25",
+  notes: "Примечание химанализа",
+};
+
 test("laboratory review filters every journal by date and nomenclature", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -182,6 +197,23 @@ test("laboratory review filters every journal by date and nomenclature", async (
             grainComposition: "0–3 мм",
             fireResistance: "1710 °C",
             suitability: "yes",
+            chemicalAnalysis: sampleChemicalAnalysis,
+            createdAt: "2026-07-23T08:30:00.000Z",
+          }, {
+            id: "unshaped-sample-with-empty-analysis",
+            sampleNumber: "19",
+            sampleDate: "2026-07-23",
+            sampledBy: "Иванова А.А.",
+            batchNumber: "55",
+            sampleCode: ".19",
+            productName: "ШКИ-66",
+            batchMass: "20 т",
+            moisture: "0,8",
+            grainComposition: "0–3 мм",
+            fireResistance: "1710 °C",
+            suitability: "no",
+            chemicalAnalysisNumber: "Старый номер",
+            chemicalAnalysis: {},
             createdAt: "2026-07-23T08:30:00.000Z",
           }],
         });
@@ -192,9 +224,12 @@ test("laboratory review filters every journal by date and nomenclature", async (
           records: [{
             id: "formed-sample-1",
             sortingDate: "2026-07-24",
-            wagonNumber: "214",
+            wagonNumber: null,
+            sampleCode: "26.18",
             productBrand: "ШКИ-66",
-            moldingDate: "2026-07-20",
+            moldingDate: null,
+            sourceSampleRegistrationId: "sample-registration-1",
+            chemicalAnalysis: sampleChemicalAnalysis,
             createdAt: "2026-07-24T08:30:00.000Z",
           }],
         });
@@ -204,6 +239,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
         return jsonResponse({
           records: [{
             id: "verification-1",
+            chemicalAnalysis: sampleChemicalAnalysis,
             verificationDate: "2026-07-24",
             productName: "ШКИ-66",
             samplingLocation: "Склад сырья",
@@ -423,6 +459,39 @@ test("laboratory review filters every journal by date and nomenclature", async (
       null,
       "Management review must keep sample registrations read-only.",
     );
+    for (const selector of [
+      ".unshaped-product-sample-table",
+      ".formed-product-sample-table",
+      ".verification-table",
+    ]) {
+      const table = container.querySelector(selector);
+      assert.ok(table, `${selector} must show the server-backed journal.`);
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((cell) => cell.textContent);
+      const values = Array.from(table.querySelectorAll("tbody tr:first-child td"))
+        .map((cell) => cell.textContent);
+      assert.deepEqual(headers.slice(-12), [
+        "№ Хим анализа", "Дата хим. анализа", "Лаборант", "Номер партии",
+        "Al2O3", "Fe2O3", "SiO2", "CaO2", "P2O5", "ппп", "Влажность", "Примечания",
+      ]);
+      assert.deepEqual(values.slice(-12), [
+        "108", "04.09.2026", "Петрова П.П.", "Партия анализа",
+        "45,6", "1.2", "50", "0", "< 0,1", "2", "0,25", "Примечание химанализа",
+      ]);
+      assert.equal(table.querySelector("button"), null);
+      if (selector === ".unshaped-product-sample-table") {
+        assert.ok(values.includes("55"), "The sample batch must be preserved.");
+        assert.ok(values.includes("0,8"), "The sample moisture must be preserved.");
+        assert.equal(headers.filter((label) => /хим.*анализа/iu.test(label)).length, 2);
+        assert.deepEqual(
+          Array.from(table.querySelectorAll("tbody tr:nth-child(2) td"))
+            .slice(-12).map((cell) => cell.textContent),
+          Array(12).fill("—"),
+          "An empty current analysis must not show an older cached analysis number.",
+        );
+        assert.ok(table.querySelector(".unshaped-product-sample-suitability-no"));
+      }
+    }
     assert.equal(
       container.querySelector(".chemical-analysis-edit-link"),
       null,

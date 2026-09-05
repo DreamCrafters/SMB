@@ -1,3 +1,5 @@
+import type { LaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
+
 export type LaboratoryVerificationSubmission = {
   verificationDate: string;
   productName: string;
@@ -11,6 +13,7 @@ export type LaboratoryVerificationCorrection =
 
 export type LaboratoryVerificationRecord = LaboratoryVerificationSubmission & {
   id: string;
+  chemicalAnalysis?: LaboratoryChemicalAnalysisValues;
   createdAt: string;
 };
 

@@ -5,6 +5,7 @@ import type {
   LaboratoryFormedProductSampleSubmission,
 } from "../contracts/laboratoryFormedProductSampleJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { isOptionalLaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 import {
   describeRemoteNetworkFailure,
   resolveApiEndpoint,
@@ -175,6 +176,7 @@ function isJournalRecord(
 ): value is LaboratoryFormedProductSampleRecord {
   return isRecord(value) &&
     typeof value.id === "string" &&
+    isOptionalLaboratoryChemicalAnalysisValues(value.chemicalAnalysis) &&
     typeof value.sortingDate === "string" &&
     (value.wagonNumber === null || typeof value.wagonNumber === "string") &&
     (value.sampleCode === null || typeof value.sampleCode === "string") &&

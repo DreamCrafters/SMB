@@ -6,6 +6,7 @@ import {
   type LaboratoryVerificationSubmission,
 } from "../contracts/laboratoryVerificationJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import { isOptionalLaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 import {
   describeRemoteNetworkFailure,
   resolveApiEndpoint,
@@ -140,6 +141,7 @@ function isJournalRecord(
 ): value is LaboratoryVerificationRecord {
   return isRecord(value) &&
     typeof value.id === "string" &&
+    isOptionalLaboratoryChemicalAnalysisValues(value.chemicalAnalysis) &&
     laboratoryVerificationFields.every(
       (field) => typeof value[field.id] === "string",
     ) &&

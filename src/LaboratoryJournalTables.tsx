@@ -18,6 +18,7 @@ import {
   laboratoryGreenProductQualityMeasurementFields,
   laboratoryGreenProductQualitySummaryFields,
   type LaboratoryChemicalAnalysisJournalRecord,
+  type LaboratoryChemicalAnalysisValues,
   type LaboratoryRawMaterialQualityRecord,
   type LaboratoryGreenProductQualityRecord,
   type LaboratoryFormedProductSampleRecord,
@@ -82,13 +83,7 @@ export function LaboratorySampleRegistrationTable({
             {laboratorySampleRegistrationFields.map((field) => (
               <th key={field.id}>{field.label}</th>
             ))}
-            {laboratoryChemicalAnalysisFields.map((field) => (
-              <th key={field.id}>
-                {field.id === "laboratoryAnalysisNumber"
-                  ? "№ Хим анализа"
-                  : field.label}
-              </th>
-            ))}
+            <SampleChemicalAnalysisHeaders />
           </tr>
         </thead>
         <tbody>
@@ -124,24 +119,40 @@ export function LaboratorySampleRegistrationTable({
                         : record[field.id]}
                 </td>
               ))}
-              {laboratoryChemicalAnalysisFields.map((field) => {
-                const value = record[field.id];
-                return (
-                  <td key={field.id}>
-                    {value === undefined
-                      ? "—"
-                      : field.kind === "date"
-                        ? formatLaboratoryDate(value)
-                        : value}
-                  </td>
-                );
-              })}
+              <SampleChemicalAnalysisCells values={record} />
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   );
+}
+
+function SampleChemicalAnalysisHeaders() {
+  return laboratoryChemicalAnalysisFields.map((field) => (
+    <th key={field.id}>
+      {field.id === "laboratoryAnalysisNumber" ? "№ Хим анализа" : field.label}
+    </th>
+  ));
+}
+
+function SampleChemicalAnalysisCells({
+  values,
+}: {
+  values?: LaboratoryChemicalAnalysisValues;
+}) {
+  return laboratoryChemicalAnalysisFields.map((field) => {
+    const value = values?.[field.id];
+    return (
+      <td key={field.id}>
+        {value === undefined
+          ? "—"
+          : field.kind === "date"
+            ? formatLaboratoryDate(value)
+            : value}
+      </td>
+    );
+  });
 }
 
 export function LaboratoryChemicalAnalysisTable({
@@ -217,14 +228,19 @@ export function LaboratoryUnshapedProductSampleTable({
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
 
+  const sampleFields = laboratoryUnshapedProductSampleFields.filter(
+    (field) => field.id !== "chemicalAnalysisNumber",
+  );
+
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table unshaped-product-sample-table">
         <thead>
           <tr>
-            {laboratoryUnshapedProductSampleFields.map((field) => (
+            {sampleFields.map((field) => (
               <th key={field.id}>{field.label}</th>
             ))}
+            <SampleChemicalAnalysisHeaders />
           </tr>
         </thead>
         <tbody>
@@ -233,7 +249,7 @@ export function LaboratoryUnshapedProductSampleTable({
               className={`unshaped-product-sample-suitability-${record.suitability}`}
               key={record.id}
             >
-              {laboratoryUnshapedProductSampleFields.map((field) => {
+              {sampleFields.map((field) => {
                 const value = record[field.id];
                 return (
                   <td key={field.id}>
@@ -259,6 +275,11 @@ export function LaboratoryUnshapedProductSampleTable({
                   </td>
                 );
               })}
+              <SampleChemicalAnalysisCells
+                values={record.chemicalAnalysis ?? {
+                  laboratoryAnalysisNumber: record.chemicalAnalysisNumber,
+                }}
+              />
             </tr>
           ))}
         </tbody>
@@ -286,6 +307,7 @@ export function LaboratoryFormedProductSampleTable({
             {laboratoryFormedProductSampleFields.map((field) => (
               <th key={field.id}>{field.label}</th>
             ))}
+            <SampleChemicalAnalysisHeaders />
           </tr>
         </thead>
         <tbody>
@@ -317,6 +339,7 @@ export function LaboratoryFormedProductSampleTable({
                     </td>
                   );
                 })}
+                <SampleChemicalAnalysisCells values={record.chemicalAnalysis} />
               </tr>
             );
           })}
@@ -345,6 +368,7 @@ export function LaboratoryVerificationTable({
             {laboratoryVerificationFields.map((field) => (
               <th key={field.id}>{field.label}</th>
             ))}
+            <SampleChemicalAnalysisHeaders />
           </tr>
         </thead>
         <tbody>
@@ -367,6 +391,7 @@ export function LaboratoryVerificationTable({
                       : record[field.id]}
                 </td>
               ))}
+              <SampleChemicalAnalysisCells values={record.chemicalAnalysis} />
             </tr>
           ))}
         </tbody>

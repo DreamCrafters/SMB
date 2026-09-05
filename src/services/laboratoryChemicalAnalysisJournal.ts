@@ -7,6 +7,7 @@ import {
   type LaboratoryChemicalAnalysisSampleOption,
   type LaboratoryChemicalAnalysisJournalSelection,
   type LaboratoryChemicalAnalysisJournalSubmission,
+  type LaboratoryChemicalAnalysisValues,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
 import {
@@ -217,6 +218,15 @@ async function requestJson(
       ),
     };
   }
+}
+
+export function isOptionalLaboratoryChemicalAnalysisValues(
+  value: unknown,
+): value is LaboratoryChemicalAnalysisValues | undefined {
+  return value === undefined || (isRecord(value) &&
+    laboratoryChemicalAnalysisFields.every(
+      (field) => value[field.id] === undefined || typeof value[field.id] === "string",
+    ));
 }
 
 function isJournalRecord(

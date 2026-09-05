@@ -1,4 +1,5 @@
 import { buildLaboratorySampleCodeDraft } from "./laboratorySampleRegistrationJournal.js";
+import type { LaboratoryChemicalAnalysisValues } from "./laboratoryChemicalAnalysisJournal.js";
 
 export const laboratoryUnshapedProductSampleSuitabilityValues = [
   "yes",
@@ -49,6 +50,7 @@ export type LaboratoryUnshapedProductSampleRecord =
   LaboratoryUnshapedProductSampleSubmission & {
     id: string;
     chemicalAnalysisNumber?: string;
+    chemicalAnalysis?: LaboratoryChemicalAnalysisValues;
     createdAt: string;
   };
 

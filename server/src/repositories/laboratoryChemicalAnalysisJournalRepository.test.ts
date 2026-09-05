@@ -1,10 +1,72 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
+import type { RowDataPacket } from "mysql2/promise";
 import {
   createLaboratoryChemicalAnalysisJournalRepository,
   LaboratoryChemicalAnalysisSampleUnavailableError,
+  mapSampleChemicalAnalysis,
 } from "./laboratoryChemicalAnalysisJournalRepository.js";
+
+test("sample chemical analysis projection keeps optional values separate from sample data", () => {
+  const row = {
+    linked_analysis_id: "analysis-108",
+    linked_laboratory_analysis_number: "108",
+    linked_chemical_analysis_date: new Date("2026-09-04T00:00:00.000Z"),
+    linked_chemical_analysis_laboratory_assistant: "Петрова П.П.",
+    linked_batch_number: "Партия анализа",
+    linked_al2o3: "45,6",
+    linked_fe2o3: "1.2",
+    linked_sio2: "50",
+    linked_cao2: "0",
+    linked_p2o5: "< 0,1",
+    linked_loss_on_ignition: "2",
+    linked_moisture: "0,25",
+    linked_notes: null,
+    batch_number: "Партия пробы",
+    moisture: "0,8",
+    notes: "Примечание пробы",
+  } as unknown as RowDataPacket;
+  assert.deepEqual(mapSampleChemicalAnalysis(row), {
+    chemicalAnalysis: {
+      laboratoryAnalysisNumber: "108",
+      chemicalAnalysisDate: "2026-09-04",
+      chemicalAnalysisLaboratoryAssistant: "Петрова П.П.",
+      batchNumber: "Партия анализа",
+      al2o3: "45,6",
+      fe2o3: "1.2",
+      sio2: "50",
+      cao2: "0",
+      p2o5: "< 0,1",
+      lossOnIgnition: "2",
+      moisture: "0,25",
+    },
+  });
+});
+
+test("sample chemical analysis projection distinguishes an empty analysis from no analysis", () => {
+  assert.deepEqual(mapSampleChemicalAnalysis({
+    linked_analysis_id: "empty-analysis",
+    linked_laboratory_analysis_number: null,
+    linked_al2o3: null,
+    chemical_analysis_number: "old-number",
+  } as unknown as RowDataPacket), { chemicalAnalysis: {} });
+  assert.deepEqual(mapSampleChemicalAnalysis({
+    linked_analysis_id: null,
+    linked_al2o3: null,
+  } as unknown as RowDataPacket), {});
+});
+
+test("sample chemical analysis projection displays legacy registration values without inventing a number", () => {
+  assert.deepEqual(mapSampleChemicalAnalysis({
+    linked_analysis_id: null,
+    linked_laboratory_analysis_number: null,
+    linked_al2o3: "60",
+    linked_chemical_analysis_date: "2026-08-05",
+  } as unknown as RowDataPacket), {
+    chemicalAnalysis: { al2o3: "60", chemicalAnalysisDate: "2026-08-05" },
+  });
+});
 
 const analysis = {
   sampleSource: "sample_registration" as const,

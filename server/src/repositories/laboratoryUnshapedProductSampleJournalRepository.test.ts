@@ -92,6 +92,11 @@ test("unshaped product sample repository filters and maps history", async () => 
         suitability: "yes",
         notes: "Без замечаний",
         source_sample_registration_id: null,
+        linked_analysis_id: "analysis-108",
+        linked_laboratory_analysis_number: "108",
+        linked_batch_number: "Партия анализа",
+        linked_moisture: "0,25",
+        linked_notes: "Примечание химанализа",
         created_at: "2026-08-05T08:30:00.000Z",
       }], []];
     },
@@ -108,6 +113,12 @@ test("unshaped product sample repository filters and maps history", async () => 
   assert.deepEqual(rows, [{
     id: "unshaped-sample-1",
     ...record,
+    chemicalAnalysis: {
+      laboratoryAnalysisNumber: "108",
+      batchNumber: "Партия анализа",
+      moisture: "0,25",
+      notes: "Примечание химанализа",
+    },
     createdAt: "2026-08-05T08:30:00.000Z",
   }]);
   assert.match(querySql, /sample_date >= \?/u);
@@ -116,7 +127,7 @@ test("unshaped product sample repository filters and maps history", async () => 
   assert.match(querySql, /product_name like \?/u);
   assert.match(
     querySql,
-    /cast\(trim\(sample_number\) as unsigned\)[\s\S]+end desc/u,
+    /cast\(trim\(sample\.sample_number\) as unsigned\)[\s\S]+end desc/u,
   );
   assert.deepEqual(queryParameters, [
     "2026-08-01",
