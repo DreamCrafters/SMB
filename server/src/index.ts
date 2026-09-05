@@ -63,6 +63,17 @@ const database = createDatabaseTransactionContext(
     : {},
 );
 const pool = database.pool;
+/**
+ * Тестовая среда читает остатки 1С из основной базы под read-only
+ * пользователем: один поток выгрузок вместо двух, и тест зависит от
+ * production, а не наоборот.
+ */
+const warehouse1cReadOnlyPool =
+  config.warehouse1cIntegration.readOnlySourceDatabaseUrl === undefined
+    ? undefined
+    : createDatabaseSnapshotPool(
+        config.warehouse1cIntegration.readOnlySourceDatabaseUrl,
+      );
 const dispatcherSpreadsheetImportRepository =
   createDispatcherSpreadsheetImportRepository(pool);
 const productBrands = createProductBrandsRepository(pool, {
@@ -131,7 +142,9 @@ const server = createApiServer({
   laboratoryGreenProductQualityJournal:
     createLaboratoryGreenProductQualityJournalRepository(pool),
   boardAssignments: createBoardAssignmentsRepository(pool),
-  warehouse1c: createWarehouse1cRepository(pool),
+  warehouse1c: warehouse1cReadOnlyPool === undefined
+    ? createWarehouse1cRepository(pool)
+    : createWarehouse1cRepository(warehouse1cReadOnlyPool, { isReadOnly: true }),
   notificationSettings: createNotificationSettingsRepository(pool),
   navigationOrder: createNavigationOrderRepository(pool),
   audit: createAuditRepository(pool),
@@ -153,6 +166,7 @@ async function shutdown() {
       applicationPool.end(),
       productionPool?.end() ?? Promise.resolve(),
       testSnapshotPool?.end() ?? Promise.resolve(),
+      warehouse1cReadOnlyPool?.end() ?? Promise.resolve(),
     ]).then(() => {
         process.exit(0);
       });

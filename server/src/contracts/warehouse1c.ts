@@ -49,6 +49,8 @@ export type Warehouse1cStockResponse = {
   accountCode: string;
   availableDates: string[];
   report?: Warehouse1cStockReport;
+  /** Тестовая среда показывает остатки основной базы и выгрузки не принимает. */
+  isReadOnlySource?: boolean;
 };
 
 /**

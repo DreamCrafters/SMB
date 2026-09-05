@@ -26,7 +26,19 @@ export type Warehouse1cStockReportImportResult = {
   isReplaced: boolean;
 };
 
+/**
+ * Тестовая среда читает остатки из основной базы: поток из 1С остаётся один, а
+ * сохранять в чужую базу нельзя — отсюда явный флаг вместо молчаливого отказа.
+ */
+export class Warehouse1cReadOnlyError extends Error {
+  constructor() {
+    super("Хранилище остатков 1С открыто только для чтения.");
+    this.name = "Warehouse1cReadOnlyError";
+  }
+}
+
 export type Warehouse1cRepository = {
+  isReadOnly: boolean;
   listAccounts: () => Promise<Warehouse1cAccount[]>;
   listReportDates: (accountCode: string) => Promise<string[]>;
   readStockReport: (input: {
@@ -62,6 +74,8 @@ type DateRow = { report_date: Date | string } & RowDataPacket;
 type RepositoryOptions = {
   createId?: () => string;
   now?: () => Date;
+  /** Пул указывает на чужую базу: читаем, но не пишем. */
+  isReadOnly?: boolean;
 };
 
 /** Столько строк уходит в базу одним `insert`. */
@@ -69,9 +83,15 @@ const balanceInsertChunkSize = 500;
 
 export function createWarehouse1cRepository(
   pool: DatabasePool,
-  { createId = randomUUID, now = () => new Date() }: RepositoryOptions = {},
+  {
+    createId = randomUUID,
+    now = () => new Date(),
+    isReadOnly = false,
+  }: RepositoryOptions = {},
 ): Warehouse1cRepository {
   return {
+    isReadOnly,
+
     /** Подпись счёта берётся из самой свежей выгрузки этого счёта. */
     async listAccounts() {
       const [rows] = await pool.query<AccountRow[]>(
@@ -148,6 +168,8 @@ export function createWarehouse1cRepository(
      * `utf8mb4_unicode_ci` уронил бы вставку на двух написаниях одного имени.
      */
     async saveStockReport(input) {
+      if (isReadOnly) throw new Warehouse1cReadOnlyError();
+
       const importedAt = now().toISOString();
       const [existing] = await pool.query<ReportRow[]>(
         `select id, account_code, account_label, report_date, file_name, imported_at

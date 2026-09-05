@@ -80,6 +80,8 @@ function isStockResponse(value: unknown): value is Warehouse1cStockResponse {
     value.accounts.every(isAccount) &&
     Array.isArray(value.availableDates) &&
     value.availableDates.every((date) => typeof date === "string") &&
+    (value.isReadOnlySource === undefined ||
+      typeof value.isReadOnlySource === "boolean") &&
     (value.report === undefined || isStockReport(value.report));
 }
 

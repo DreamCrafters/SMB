@@ -29,9 +29,15 @@ export type ServerConfig = {
  * Интеграция с 1С: приёмник отчётов работает по общему ключу, а не по сессии
  * пользователя, потому что отправитель — служба 1С по расписанию. Без ключа в
  * окружении эндпоинт остаётся выключенным.
+ *
+ * `readOnlySourceDatabaseUrl` включает режим чтения: тестовая среда показывает
+ * остатки из основной базы и сама выгрузки не принимает. Так поток из 1С
+ * остаётся один, а зависимость идёт в правильную сторону — тест зависит от
+ * production, а не наоборот. В production такой источник запрещён.
  */
 export type Warehouse1cIntegrationConfig = {
   uploadApiKey?: string;
+  readOnlySourceDatabaseUrl?: string;
 };
 
 export type ProductionSnapshotConfig =
@@ -139,9 +145,7 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       databaseUrl,
     ),
     corsOrigins: readList(env.CORS_ORIGIN),
-    warehouse1cIntegration: {
-      uploadApiKey: readWarehouse1cUploadApiKey(env.ONEC_UPLOAD_API_KEY),
-    },
+    warehouse1cIntegration: readWarehouse1cIntegrationConfig(env, appEnv),
     runMigrationsOnStart: env.RUN_MIGRATIONS_ON_START === "true",
     devAccessEnabled: readDevAccessEnabled(env.DEV_ACCESS_ENABLED, appEnv),
     session: {
@@ -370,6 +374,31 @@ function readRequired(env: NodeJS.ProcessEnv, key: string) {
 }
 
 const minWarehouse1cUploadApiKeyLength = 16;
+
+function readWarehouse1cIntegrationConfig(
+  env: NodeJS.ProcessEnv,
+  appEnv: SmbAppEnv,
+): Warehouse1cIntegrationConfig {
+  const uploadApiKey = readWarehouse1cUploadApiKey(env.ONEC_UPLOAD_API_KEY);
+  const readOnlySourceDatabaseUrl = readOptional(
+    env.ONEC_READ_ONLY_DATABASE_URL,
+  );
+
+  if (readOnlySourceDatabaseUrl === undefined) {
+    return uploadApiKey === undefined ? {} : { uploadApiKey };
+  }
+
+  if (appEnv === "production") {
+    throw new Error(
+      "ONEC_READ_ONLY_DATABASE_URL must not be set in production.",
+    );
+  }
+
+  return {
+    ...(uploadApiKey === undefined ? {} : { uploadApiKey }),
+    readOnlySourceDatabaseUrl,
+  };
+}
 
 function readWarehouse1cUploadApiKey(value: string | undefined) {
   const key = readOptional(value);

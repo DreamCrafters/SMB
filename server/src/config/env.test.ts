@@ -7,6 +7,41 @@ const baseEnv: NodeJS.ProcessEnv = {
   DATABASE_URL: "mysql://test:test@localhost/smb_test",
 };
 
+test("1C read-only source switches the warehouse tab to reading production", () => {
+  const config = readServerConfig({
+    ...baseEnv,
+    ONEC_UPLOAD_API_KEY: "0123456789abcdef",
+    ONEC_READ_ONLY_DATABASE_URL:
+      "mysql://readonly:secret@localhost/smb_production",
+  });
+
+  assert.deepEqual(config.warehouse1cIntegration, {
+    uploadApiKey: "0123456789abcdef",
+    readOnlySourceDatabaseUrl:
+      "mysql://readonly:secret@localhost/smb_production",
+  });
+});
+
+test("production must never read 1C balances from another database", () => {
+  assert.throws(
+    () =>
+      readServerConfig({
+        ...baseEnv,
+        SMB_APP_ENV: "production",
+        ONEC_READ_ONLY_DATABASE_URL:
+          "mysql://readonly:secret@localhost/smb_production",
+      }),
+    /ONEC_READ_ONLY_DATABASE_URL must not be set in production/u,
+  );
+});
+
+test("1C upload key must be long enough to be worth checking", () => {
+  assert.throws(
+    () => readServerConfig({ ...baseEnv, ONEC_UPLOAD_API_KEY: "short" }),
+    /ONEC_UPLOAD_API_KEY must be at least 16 characters long/u,
+  );
+});
+
 test("production snapshot stays disabled unless explicitly configured", () => {
   const config = readServerConfig(baseEnv);
 

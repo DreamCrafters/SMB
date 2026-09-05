@@ -13299,6 +13299,7 @@ function readIsoTestReportDate(value: string | undefined) {
 test("1C stock report upload is guarded by the integration api key", async () => {
   const saved: unknown[] = [];
   const warehouse1c: Warehouse1cRepository = {
+    isReadOnly: false,
     async listAccounts() {
       return [{ code: "43", label: "Счёт 43 (Готовая продукция)" }];
     },
@@ -13444,6 +13445,7 @@ test("1C stock balances open only for the warehouse tab capability", async () =>
   };
   const requestedDates: string[] = [];
   const warehouse1c: Warehouse1cRepository = {
+    isReadOnly: false,
     async listAccounts() {
       return [
         { code: "10.01", label: "Счёт 10.01 (Материалы)" },
@@ -13513,6 +13515,104 @@ test("1C stock balances open only for the warehouse tab capability", async () =>
     await fetch(`${baseUrl}?reportDate=2026-01-01`, { headers });
     await fetch(`${baseUrl}?reportDate=2026-08-22`, { headers });
     assert.deepEqual(requestedDates, ["latest", "latest", "2026-08-22"]);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("read-only warehouse source serves balances but refuses uploads", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      navigationItems: ["business.warehouse_1c"],
+      capabilities: ["business.view_warehouse_1c"],
+    },
+  };
+  const warehouse1c: Warehouse1cRepository = {
+    isReadOnly: true,
+    async listAccounts() {
+      return [{ code: "43", label: "Счёт 43 (Готовая продукция)" }];
+    },
+    async listReportDates() { return ["2026-08-23"]; },
+    async readStockReport(input) {
+      return {
+        accountCode: input.accountCode,
+        accountLabel: "Счёт 43 (Готовая продукция)",
+        reportDate: "2026-08-23",
+        fileName: "Остатки.xlsx",
+        importedAt: "2026-08-23T06:30:00.000Z",
+        balances: [
+          { nomenclature: "ША-8", openingBalance: "12.5", closingBalance: "10" },
+        ],
+      };
+    },
+    async saveStockReport() {
+      throw new Error("Read-only source must never be written to.");
+    },
+  };
+  const server = createApiServer({
+    config,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    warehouse1c,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const boundary = "----smb1cBoundary";
+
+  try {
+    const upload = await fetch(`${baseUrl}/api/upload-report`, {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "x-api-key": "test-1c-upload-api-key",
+      },
+      body: buildStockReportUploadBody(boundary),
+    });
+
+    // Ключ верный, но писать в чужую базу нельзя.
+    assert.equal(upload.status, 409);
+
+    const wrongKey = await fetch(`${baseUrl}/api/upload-report`, {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "x-api-key": "wrong-key",
+      },
+      body: buildStockReportUploadBody(boundary),
+    });
+
+    // Ответ тот же: читающая среда не подсказывает, верен ли ключ.
+    assert.equal(wrongKey.status, 409);
+
+    const response = await fetch(
+      `${baseUrl}/api/warehouse-1c/stock-balances`,
+      { headers: { Cookie: `${config.session.cookieName}=prod-session` } },
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    // Клиент должен знать, что смотрит на основную базу.
+    assert.equal(
+      isRecord(payload) ? payload.isReadOnlySource : undefined,
+      true,
+    );
+    assert.equal(
+      isRecord(payload) && isRecord(payload.report)
+        ? payload.report.reportDate
+        : undefined,
+      "2026-08-23",
+    );
   } finally {
     server.close();
     await once(server, "close");

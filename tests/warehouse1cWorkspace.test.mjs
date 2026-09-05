@@ -149,6 +149,64 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
   }
 });
 
+test("warehouse 1C tab says when it reads the production database", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
+      "/src/Warehouse1c.tsx",
+    );
+    globalThis.fetch = async () =>
+      jsonResponse({
+        accounts: [{ code: "43", label: "Счёт 43 (Готовая продукция)" }],
+        accountCode: "43",
+        availableDates: ["2026-08-23"],
+        isReadOnlySource: true,
+        report: {
+          accountCode: "43",
+          accountLabel: "Счёт 43 (Готовая продукция)",
+          reportDate: "2026-08-23",
+          fileName: "Остатки.xlsx",
+          importedAt: "2026-08-23 06:30:00.000",
+          balances: [
+            { nomenclature: "ША-8", openingBalance: "1", closingBalance: "2" },
+          ],
+        },
+      });
+
+    const container = dom.window.document.querySelector("#root");
+    const root = createRoot(container);
+    await React.act(async () => {
+      root.render(React.createElement(Warehouse1cWorkspace));
+    });
+    await waitFor(React, () => container.querySelector("tbody tr") !== null);
+
+    // Иначе непонятно, почему на тестовом сайте видны боевые остатки.
+    assert.match(
+      container.textContent,
+      /Данные основной базы/u,
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    restoreDomGlobals(previousGlobals);
+    dom.window.close();
+  }
+});
+
 test("warehouse 1C tab explains an empty store instead of an empty table", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',

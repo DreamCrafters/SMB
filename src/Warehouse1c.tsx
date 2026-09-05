@@ -15,6 +15,7 @@ type StockState =
       accounts: Warehouse1cAccount[];
       accountCode: string;
       availableDates: string[];
+      isReadOnlySource: boolean;
       report?: Warehouse1cStockReport;
     }
   | { status: "error"; message: string };
@@ -50,6 +51,7 @@ export function Warehouse1cWorkspace() {
             accounts: result.accounts,
             accountCode: result.accountCode,
             availableDates: result.availableDates,
+            isReadOnlySource: result.isReadOnlySource === true,
             ...(result.report === undefined ? {} : { report: result.report }),
           }
         : {
@@ -149,6 +151,12 @@ export function Warehouse1cWorkspace() {
               {`Выгрузка «${state.report.fileName}» от ${
                 formatDateTime(state.report.importedAt)
               } · строк: ${state.report.balances.length}`}
+            </p>
+          ) : null}
+          {state.status === "ready" && state.isReadOnlySource ? (
+            <p className="warehouse-1c-source">
+              Данные основной базы: этот сайт показывает остатки и выгрузки
+              из 1С не принимает.
             </p>
           ) : null}
         </div>

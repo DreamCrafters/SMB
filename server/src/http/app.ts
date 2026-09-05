@@ -9332,6 +9332,34 @@ async function handleWarehouse1cUpload({
     return;
   }
 
+  const repository = warehouse1c;
+
+  if (repository === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище остатков 1С не настроено.",
+      },
+    });
+    return;
+  }
+
+  /**
+   * Режим чтения проверяется до ключа. Иначе среда, которая всё равно ничего
+   * не запишет, отвечала бы по-разному на верный и неверный ключ и работала
+   * оракулом для его подбора — а ключ у сред может совпадать.
+   */
+  if (repository.isReadOnly) {
+    sendJson(res, 409, {
+      error: {
+        code: "access_denied",
+        message:
+          "Этот сайт показывает остатки основной базы и выгрузки не принимает.",
+      },
+    });
+    return;
+  }
+
   const uploadApiKey = config.warehouse1cIntegration.uploadApiKey;
 
   if (uploadApiKey === undefined) {
@@ -9347,18 +9375,6 @@ async function handleWarehouse1cUpload({
   if (!isMatchingUploadApiKey(req.headers["x-api-key"], uploadApiKey)) {
     sendJson(res, 401, {
       error: { code: "unauthenticated", message: "Неверный API-ключ." },
-    });
-    return;
-  }
-
-  const repository = warehouse1c;
-
-  if (repository === undefined) {
-    sendJson(res, 503, {
-      error: {
-        code: "server_error",
-        message: "Хранилище остатков 1С не настроено.",
-      },
     });
     return;
   }
@@ -9554,6 +9570,7 @@ async function handleWarehouse1cStockBalances({
     accountCode,
     availableDates,
     ...(report === undefined ? {} : { report }),
+    ...(warehouse1c.isReadOnly ? { isReadOnlySource: true } : {}),
   });
 }
 
