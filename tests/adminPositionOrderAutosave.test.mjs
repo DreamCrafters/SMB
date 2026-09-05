@@ -395,28 +395,32 @@ test("original admin manages account access to a selected working tab by positio
       select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
 
-    const managerA = dialog.querySelector(
-      'input[aria-label="Доступ к вкладке для manager-a"]',
+    // Доступ хранится в должности, поэтому две учётные записи «Начальника
+    // производства» дают одну строку, а не две одинаковые.
+    assert.deepEqual(
+      Array.from(dialog.querySelectorAll("tbody tr td:first-child")).map(
+        (cell) => cell.textContent,
+      ),
+      [
+        "Начальник производства",
+        "Диспетчер",
+        "Главный бухгалтер",
+        "Администратор подразделения",
+      ],
     );
-    const managerB = dialog.querySelector(
-      'input[aria-label="Доступ к вкладке для manager-b"]',
-    );
-    const dispatcher = dialog.querySelector(
-      'input[aria-label="Доступ к вкладке для dispatcher"]',
-    );
-    const delegatedAdmin = dialog.querySelector(
-      'input[aria-label="Доступ к вкладке для delegated-admin"]',
-    );
-    const chiefAccountant = dialog.querySelector(
-      'input[aria-label="Доступ к вкладке для chief-accountant"]',
-    );
-    assert.ok(managerA);
-    assert.ok(managerB);
+    const findAccessToggle = (positionName) =>
+      dialog.querySelector(
+        `input[aria-label="Доступ к вкладке для должности ${positionName}"]`,
+      );
+    const manager = findAccessToggle("Начальник производства");
+    const dispatcher = findAccessToggle("Диспетчер");
+    const delegatedAdmin = findAccessToggle("Администратор подразделения");
+    const chiefAccountant = findAccessToggle("Главный бухгалтер");
+    assert.ok(manager);
     assert.ok(dispatcher);
     assert.ok(delegatedAdmin);
     assert.ok(chiefAccountant);
-    assert.equal(managerA.checked, false);
-    assert.equal(managerB.checked, false);
+    assert.equal(manager.checked, false);
     assert.equal(dispatcher.checked, true);
     assert.equal(delegatedAdmin.checked, true);
     assert.equal(delegatedAdmin.disabled, false);
@@ -432,15 +436,14 @@ test("original admin manages account access to a selected working tab by positio
     });
     assert.equal(chiefAccountant.checked, false);
 
-    await React.act(async () => managerA.click());
+    await React.act(async () => manager.click());
     await waitFor(React, () => changes.length === 2);
     assert.deepEqual(changes[1], {
       navigationItem: "business.settings",
       positionIds: ["manager"],
       enabled: true,
     });
-    assert.equal(managerA.checked, true);
-    assert.equal(managerB.checked, true);
+    assert.equal(manager.checked, true);
 
     await React.act(async () => findButton(dialog, "Выкл. все")?.click());
     await waitFor(React, () => changes.length === 3);
@@ -449,8 +452,7 @@ test("original admin manages account access to a selected working tab by positio
       positionIds: ["manager", "dispatcher", "delegated-admin"],
       enabled: false,
     });
-    assert.equal(managerA.checked, false);
-    assert.equal(managerB.checked, false);
+    assert.equal(manager.checked, false);
     assert.equal(dispatcher.checked, false);
     assert.equal(delegatedAdmin.checked, false);
 
@@ -466,8 +468,7 @@ test("original admin manages account access to a selected working tab by positio
       ],
       enabled: true,
     });
-    assert.equal(managerA.checked, true);
-    assert.equal(managerB.checked, true);
+    assert.equal(manager.checked, true);
     assert.equal(dispatcher.checked, true);
     assert.equal(delegatedAdmin.checked, true);
     assert.equal(chiefAccountant.checked, true);

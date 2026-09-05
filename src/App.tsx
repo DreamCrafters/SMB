@@ -12056,6 +12056,18 @@ function AdminAccountsWorkspace({
       .get(positionId)
       ?.navigationItems.includes(selectedPositionNavigationItem) === true,
   );
+  /**
+   * Доступ хранится в должности, поэтому строка списка — должность, а не
+   * аккаунт: несколько аккаунтов одной должности давали одинаковые строки с
+   * общим переключателем. Порядок остаётся прежним — по первому появлению
+   * должности среди аккаунтов.
+   */
+  const navigationAccessPositions = navigationAccessPositionIds.flatMap(
+    (positionId) => {
+      const position = positionById.get(positionId);
+      return position === undefined ? [] : [position];
+    },
+  );
 
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
@@ -12947,8 +12959,8 @@ function AdminAccountsWorkspace({
               </button>
             </div>
             <p className="admin-position-navigation-access-copy">
-              Доступ хранится в должности. Поэтому изменение одного аккаунта
-              применяется ко всем аккаунтам с той же должностью.
+              Доступ хранится в должности. Поэтому переключатель применяется
+              сразу ко всем аккаунтам этой должности.
             </p>
             <div className="admin-position-navigation-access-toolbar">
               <label>
@@ -13013,39 +13025,28 @@ function AdminAccountsWorkspace({
                 <thead>
                   <tr>
                     <th>Должность</th>
-                    <th>Аккаунт</th>
                     <th>Доступ</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {navigationAccessAccounts.map((account) => {
-                    const position = positionById.get(account.position);
-                    const hasAccess = position?.navigationItems.includes(
+                  {navigationAccessPositions.map((position) => {
+                    const hasAccess = position.navigationItems.includes(
                       selectedPositionNavigationItem,
-                    ) === true;
+                    );
                     return (
-                      <tr key={account.accessId}>
-                        <td>{account.positionDisplayName}</td>
-                        <td>
-                          <strong>{account.userDisplayName}</strong>
-                          <span className="admin-position-navigation-access-login">
-                            {account.login}
-                          </span>
-                        </td>
+                      <tr key={position.id}>
+                        <td>{position.displayName}</td>
                         <td>
                           <label className="admin-account-protection-control">
                             <input
-                              aria-label={`Доступ к вкладке для ${account.login}`}
+                              aria-label={`Доступ к вкладке для должности ${position.displayName}`}
                               type="checkbox"
                               checked={hasAccess}
-                              disabled={
-                                isSavingPositionNavigationAccess ||
-                                position === undefined
-                              }
+                              disabled={isSavingPositionNavigationAccess}
                               onChange={(event) => {
                                 const enabled = event.currentTarget.checked;
                                 void handleSetPositionNavigationAccess(
-                                  [account.position],
+                                  [position.id],
                                   enabled,
                                 );
                               }}
@@ -13056,9 +13057,9 @@ function AdminAccountsWorkspace({
                       </tr>
                     );
                   })}
-                  {navigationAccessAccounts.length === 0 ? (
+                  {navigationAccessPositions.length === 0 ? (
                     <tr>
-                      <td colSpan={3}>Рабочих аккаунтов пока нет.</td>
+                      <td colSpan={2}>Должностей с рабочими аккаунтами пока нет.</td>
                     </tr>
                   ) : null}
                 </tbody>
