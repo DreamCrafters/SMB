@@ -178,6 +178,61 @@ test("createMaxNotificationService sends production reports to equipment recipie
   );
 });
 
+test("createMaxNotificationService sends compact production rows for new and corrected reports", async () => {
+  const sent: string[] = [];
+  const service = createMaxNotificationService(
+    {
+      enabled: true,
+      botToken: "bot-token",
+      apiBaseUrl: "https://platform-api2.max.ru",
+      recipientIdType: "user_id",
+      subjectPrefix: "SMB Monitor",
+    },
+    {
+      async fetchImpl(_input, init) {
+        sent.push(JSON.parse(String(init?.body)).text as string);
+        return new Response(null, { status: 200 });
+      },
+    },
+  );
+  const submission = buildSubmission("production", {
+    reportDate: "31.08.2026",
+    formingBrand1: "ШБ-5 класс 4",
+    formingBrand2: "ШБ-8 класс 4",
+    formingFact1: "92.01",
+    formingFact2: "30.26",
+    sortingBrand1: "ШБ-5",
+    sortingBrand2: "ШБ-5 класс 4",
+    sortingFact1: "5.44",
+    sortingFact2: "34.75",
+    reportMonth: "2026-08",
+  });
+
+  for (const kind of ["created", "corrected"] as const) {
+    await service.sendDispatcherSubmissionNotification(
+      submission,
+      recipients,
+      undefined,
+      kind,
+    );
+  }
+
+  assert.equal(sent.length, 2);
+  for (const text of sent) {
+    assert.equal(
+      text.split("Данные:\n")[1],
+      [
+        "Дата отчета: 31.08.2026",
+        "Формовка — Марка изделия 1: ШБ-5 класс 4; 92.01 т.",
+        "Формовка — Марка изделия 2: ШБ-8 класс 4; 30.26 т.",
+        "Сортировка — Марка изделия 1: ШБ-5; 5.44 т.",
+        "Сортировка — Марка изделия 2: ШБ-5 класс 4; 34.75 т.",
+      ].join("\n"),
+    );
+  }
+  assert.match(sent[1] ?? "", /Внесены корректировки\./u);
+});
+
 test("createMaxNotificationService lists bank contents in a single block", async () => {
   const sent: { url: string; body: string }[] = [];
   const service = createMaxNotificationService(

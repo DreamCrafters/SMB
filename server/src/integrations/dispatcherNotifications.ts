@@ -194,10 +194,28 @@ export function buildDispatcherNotificationText(
   const form = getDispatcherFormDefinition(submission.formId);
   const payloadLines = Object.entries(submission.payload)
     .filter(([key]) => !isJarNotificationField(key))
-    .map(([key, value]) => {
+    .flatMap(([key, value]) => {
       const field = form?.fields.find((item) => item.name === key);
+      const label = readProductionNotificationFieldLabel(field, key);
 
-      return `${readProductionNotificationFieldLabel(field, key)}: ${value}`;
+      if (submission.formId === "production") {
+        if (key === "reportMonth") {
+          return [];
+        }
+
+        const match = /^(forming|sorting)(Brand|Fact)([1-9]\d?)$/u.exec(key);
+
+        if (match !== null && Number(match[3]) <= 50) {
+          const brand = readPayloadValue(submission, `${match[1]}Brand${match[3]}`);
+          const fact = readPayloadValue(submission, `${match[1]}Fact${match[3]}`);
+
+          if (brand.length > 0 && fact.length > 0) {
+            return match[2] === "Brand" ? [`${label}: ${brand}; ${fact} т.`] : [];
+          }
+        }
+      }
+
+      return [`${label}: ${value}`];
     });
 
   return prependCorrectionNote([

@@ -76,17 +76,12 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
       "",
       "Данные:",
       "Дата отчета: 27.07.2026",
-      "Формовка — Марка изделия 1: ШЦУ-15 (вес 1,39), т",
-      "Формовка — Марка изделия 2: ША-8",
-      "Формовка — Факт по марке 1: 19.79",
-      "Формовка — Факт по марке 2: 33.16",
-      "Сортировка — Марка изделия 1: ШБ-5 класс 4",
-      "Сортировка — Марка изделия 2: ШБ-22",
-      "Сортировка — Факт по марке 1: 9.31",
-      "Сортировка — Факт по марке 2: 7.72",
+      "Формовка — Марка изделия 1: ШЦУ-15 (вес 1,39), т; 19.79 т.",
+      "Формовка — Марка изделия 2: ША-8; 33.16 т.",
+      "Сортировка — Марка изделия 1: ШБ-5 класс 4; 9.31 т.",
+      "Сортировка — Марка изделия 2: ШБ-22; 7.72 т.",
       "Цех обжига шамота — Марка изделия 1: Мертель МШ-28 (ШГР-28), т",
       "Цех обжига шамота — Факт по марке 1: 60",
-      "Месяц отчета: 2026-07",
       "",
       // Задача 100: банки уходят одним блоком, сырые поля в текст не попадают.
       "Содержимое банок:",
@@ -103,6 +98,44 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
     message?.text ?? "",
     /(?:forming|sorting|unformed|chamotte)(?:Brand|Fact)\d+|reportMonth/u,
   );
+});
+
+test("buildDispatcherSubmissionEmail pairs facts by row and preserves incomplete production rows", () => {
+  const submission = buildSubmission("production", {
+    formingFact50: "0",
+    sortingFact2: "5,44",
+    formingBrand50: "ША-8",
+    sortingBrand2: "ШБ-5",
+    formingBrand1: "ШБ-8",
+    sortingFact3: "7.5",
+    formingBrand4: "ШБ-22",
+    formingFact4: "",
+    sortingBrand4: "",
+    sortingFact4: "2",
+    reportMonth: "2026-08",
+  });
+  const originalPayload = { ...submission.payload };
+
+  const message = buildDispatcherSubmissionEmail(
+    submission,
+    recipients,
+    "noreply@example.com",
+  );
+
+  assert.equal(
+    message?.text.split("Данные:\n")[1],
+    [
+      "Формовка — Марка изделия 50: ША-8; 0 т.",
+      "Сортировка — Марка изделия 2: ШБ-5; 5,44 т.",
+      "Формовка — Марка изделия 1: ШБ-8",
+      "Сортировка — Факт по марке 3: 7.5",
+      "Формовка — Марка изделия 4: ШБ-22",
+      "Формовка — Факт по марке 4: ",
+      "Сортировка — Марка изделия 4: ",
+      "Сортировка — Факт по марке 4: 2",
+    ].join("\n"),
+  );
+  assert.deepEqual(submission.payload, originalPayload);
 });
 
 test("buildDispatcherSubmissionEmail lists bank contents in a single block", () => {
@@ -146,6 +179,7 @@ test("buildDispatcherSubmissionEmail lists bank contents in a single block", () 
 test("buildDispatcherSubmissionEmail marks a corrected report", () => {
   const submission = buildSubmission("production", {
     reportDate: "27.07.2026",
+    reportMonth: "2026-07",
     formingBrand1: "ША-8",
     formingFact1: "12",
     coshMaster: "Сидоров С.С.",
@@ -176,8 +210,7 @@ test("buildDispatcherSubmissionEmail marks a corrected report", () => {
       "",
       "Данные:",
       "Дата отчета: 27.07.2026",
-      "Формовка — Марка изделия 1: ША-8",
-      "Формовка — Факт по марке 1: 12",
+      "Формовка — Марка изделия 1: ША-8; 12 т.",
       "",
       "Содержимое банок:",
       "- Банка 1 (Не назначено), начало дня, по отгрузкам: —; " +
