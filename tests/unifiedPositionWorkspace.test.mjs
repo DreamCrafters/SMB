@@ -21,6 +21,7 @@ test("position form edits working tabs while admin rights are managed separately
       "business.laboratory_review",
       "business.board_assignments",
       "business.warehouse_1c",
+      "business.railway_wagons",
       "business.settings",
       "business.user_actions",
       "business.dispatcher_form",

@@ -94,6 +94,9 @@ import { defaultNavigationOrder } from "../domain/navigationOrder.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
 import type { Warehouse1cRepository } from "../repositories/warehouse1cRepository.js";
+import type { RailwayWagonsRepository } from "../repositories/railwayWagonsRepository.js";
+import type { RailwayReferenceRepository } from "../repositories/railwayReferenceRepository.js";
+import type { RailwayWagonOrder } from "../contracts/railwayWagons.js";
 import { createApiServer } from "./app.js";
 
 const config: ServerConfig = {
@@ -5884,7 +5887,7 @@ const accounts: AccountsRepository = {
         accountType: "dispatcher",
         navigationItems: ["business.dispatcher", "business.dispatcher_form"],
         capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -5895,7 +5898,7 @@ const accounts: AccountsRepository = {
         accountType: "business_owner",
         navigationItems: ["business.overview", "business.dispatcher"],
         capabilities: ["business.view_all_statistics", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 0,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -5903,10 +5906,10 @@ const accounts: AccountsRepository = {
     ];
   },
   async createPosition(input) {
-    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async updatePosition(input) {
-    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async deletePosition() {
     return "deleted";
@@ -6353,7 +6356,7 @@ test("admin positions API creates a position with tabs from the unified workspac
     ...accounts,
     async createPosition(input) {
       createdInput = input;
-      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -6754,7 +6757,7 @@ test("admin positions API stores the selected board assignment access variant", 
         id: "position-board-reviewer",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "review", showOverviewVisitors: true,
+        boardAssignmentAccess: "review", railwayWagonAccess: "none", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-27T00:00:00.000Z",
@@ -6774,7 +6777,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Проверяющий поручений",
         navigationItems: ["business.board_assignments"],
-        boardAssignmentAccess: "review", showOverviewVisitors: true,
+        boardAssignmentAccess: "review", railwayWagonAccess: "none", showOverviewVisitors: true,
       }),
     });
     const invalidResponse = await fetch(`${baseUrl}/api/admin/positions`, {
@@ -6783,7 +6786,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Несогласованная должность",
         navigationItems: ["business.overview"],
-        boardAssignmentAccess: "execute", showOverviewVisitors: true,
+        boardAssignmentAccess: "execute", railwayWagonAccess: "none", showOverviewVisitors: true,
       }),
     });
 
@@ -6804,7 +6807,7 @@ test("admin positions API allows an empty tab set and rejects the removed base c
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -6839,7 +6842,7 @@ test("primary admin cannot assign root admin panels directly to a custom positio
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -6908,7 +6911,7 @@ test("production account with canonical admin login cannot assign root panels to
         id: "position-production-hybrid",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -6976,7 +6979,7 @@ test("delegated account manager changes working tabs but cannot add root admin p
       "business.view_notifications" as const,
       "business.view_dispatcher_feed" as const,
     ],
-    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -7072,7 +7075,7 @@ test("delegated account manager cannot mutate or unprotect a protected position"
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -7183,7 +7186,7 @@ test("delegated account manager cannot assign a position with admin rights", asy
       "platform.manage_users" as const,
       "platform.manage_access" as const,
     ],
-    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -7251,7 +7254,7 @@ test("original admin can keep an admin-rights position without working tabs", as
     accountType: "dispatcher" as const,
     navigationItems: ["business.dispatcher_form" as const],
     capabilities: ["business.submit_dispatcher_forms" as const],
-    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     hasAdminRights: true,
     usageCount: 2,
@@ -7293,7 +7296,7 @@ test("original admin can enable admin rights for a selected position", async () 
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
     usageCount: 0,
@@ -7375,7 +7378,7 @@ test("admin positions API keeps the administrator outside the unified workspace"
         accountType: "admin",
         navigationItems: ["admin.accounts"],
         capabilities: ["platform.manage_users", "platform.manage_access"],
-        boardAssignmentAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -7425,7 +7428,7 @@ test("admin positions API deletes only an unused position", async () => {
     accountType: "worker" as const,
     navigationItems: [],
     capabilities: [],
-    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -7467,7 +7470,7 @@ test("admin positions API deletes an unused laboratory system position", async (
     accountType: "business_owner" as const,
     navigationItems: ["business.laboratory_results" as const],
     capabilities: ["business.manage_laboratory_results" as const],
-    boardAssignmentAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -7500,7 +7503,7 @@ test("admin positions API deletes an unused program-created non-admin position",
       "business.view_board_assignments" as const,
       "business.review_board_assignments" as const,
     ],
-    boardAssignmentAccess: "review" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "review" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",
@@ -13753,6 +13756,359 @@ function buildStoredZipArchive(entries: { name: string; content: string }[]) {
   end.writeUInt32LE(offset, 16);
 
   return Buffer.concat([...locals, directoryBuffer, end]);
+}
+
+test("railway wagon section gates each stage by the position role", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      navigationItems: ["business.railway_wagons"],
+      capabilities: [
+        "business.view_railway_wagons",
+        "business.manage_railway_wagon_orders",
+      ],
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const stageCalls: unknown[] = [];
+  const savedOrders: unknown[] = [];
+  const order = buildRailwayOrderFixture();
+  const railwayWagons: RailwayWagonsRepository = {
+    async list() { return [order]; },
+    async read() { return order; },
+    async listCarrierOptions() { return ["ПГК"]; },
+    async createOrder(input) {
+      savedOrders.push(input.order);
+      return order;
+    },
+    async correctOrder() { return { before: order, record: order }; },
+    async applyStage(input) {
+      stageCalls.push(input);
+      return { before: order, record: order };
+    },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    railwayWagons,
+    railwayReference: buildRailwayReferenceFixture(),
+    audit: {
+      async record(event) { auditEvents.push(event); },
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}/api/railway-wagons`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const listResponse = await fetch(baseUrl, { headers });
+    const listPayload = await listResponse.json();
+
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(
+      isRecord(listPayload) ? listPayload.roles : undefined,
+      ["sales"],
+    );
+    assert.deepEqual(
+      isRecord(listPayload) ? listPayload.carrierOptions : undefined,
+      ["ПГК"],
+    );
+
+    const created = await fetch(baseUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        contractReference: "12/2026",
+        movementDirection: "На погрузку",
+        destinationStation: "Абагур-Лесной",
+        wagonType: "КР (крытый)",
+        cargoLines: [
+          { cargoName: "ШБ-5", etsngCode: "01000", securingMethod: "Растяжки" },
+        ],
+      }),
+    });
+
+    assert.equal(created.status, 201);
+    // Дорога и наименование груза берутся из справочника, а не из запроса.
+    const savedOrder = savedOrders[0] as {
+      destinationStationRoad: string | null;
+      cargoLines: { etsngName: string | null }[];
+    };
+    assert.equal(savedOrder.destinationStationRoad, "З-Сиб");
+    assert.equal(savedOrder.cargoLines[0].etsngName, "Зерновые культуры");
+    assert.equal(auditEvents[0]?.action, "railway_wagon.create");
+
+    // Право на этап решает репозиторий под блокировкой строки, поэтому маршрут
+    // передаёт ему роли вызывающего как есть, вместе с разобранными полями.
+    const stage = await fetch(`${baseUrl}/order-1/stage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        stageId: "carriage_terms",
+        rentCost: "120000",
+        tariffCost: "85000,50",
+        demurragePenalty: "3 000 руб.",
+        carrier: "ПГК",
+      }),
+    });
+    assert.equal(stage.status, 200);
+    assert.equal(stageCalls.length, 1);
+    assert.deepEqual(stageCalls[0], {
+      orderId: "order-1",
+      stageId: "carriage_terms",
+      roles: ["sales"],
+      fields: {
+        rentCost: 120000,
+        tariffCost: 85000.5,
+        demurragePenalty: "3 000 руб.",
+        carrier: "ПГК",
+      },
+      actor: {
+        userId: profile.userId,
+        accountId: profile.activeAccess.accountId,
+        displayName: profile.displayName ?? null,
+      },
+    });
+    assert.equal(auditEvents[1]?.action, "railway_wagon.stage");
+
+    const unknownStage = await fetch(`${baseUrl}/order-1/stage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ stageId: "нет такого этапа" }),
+    });
+    assert.equal(unknownStage.status, 400);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("railway wagon order is refused when the station is outside the reference", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      navigationItems: ["business.railway_wagons"],
+      capabilities: [
+        "business.view_railway_wagons",
+        "business.manage_railway_wagon_orders",
+      ],
+    },
+  };
+  const order = buildRailwayOrderFixture();
+  const railwayWagons: RailwayWagonsRepository = {
+    async list() { return [order]; },
+    async read() { return order; },
+    async listCarrierOptions() { return []; },
+    async createOrder() { return order; },
+    async correctOrder() { return { before: order, record: order }; },
+    async applyStage() { return { before: order, record: order }; },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    railwayWagons,
+    railwayReference: buildRailwayReferenceFixture(),
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}/api/railway-wagons`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const unknownStation = await fetch(baseUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        contractReference: "12/2026",
+        movementDirection: "На погрузку",
+        destinationStation: "Станция без справочника",
+        wagonType: "КР (крытый)",
+        cargoLines: [{ cargoName: "ШБ-5" }],
+      }),
+    });
+    assert.equal(unknownStation.status, 409);
+
+    const unknownCode = await fetch(baseUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        contractReference: "12/2026",
+        movementDirection: "На погрузку",
+        destinationStation: "Абагур-Лесной",
+        wagonType: "КР (крытый)",
+        cargoLines: [{ cargoName: "ШБ-5", etsngCode: "99999" }],
+      }),
+    });
+    assert.equal(unknownCode.status, 409);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("railway wagon section and reference stay closed without the capability", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      navigationItems: ["business.overview"],
+      capabilities: ["business.view_all_statistics"],
+    },
+  };
+  const order = buildRailwayOrderFixture();
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    railwayWagons: {
+      async list() { return [order]; },
+      async read() { return order; },
+      async listCarrierOptions() { return []; },
+      async createOrder() { return order; },
+      async correctOrder() { return { before: order, record: order }; },
+      async applyStage() { return { before: order, record: order }; },
+    },
+    railwayReference: buildRailwayReferenceFixture(),
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const origin = `http://127.0.0.1:${address.port}`;
+  const headers = {
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    assert.equal((await fetch(`${origin}/api/railway-wagons`, { headers })).status, 403);
+    assert.equal(
+      (await fetch(`${origin}/api/railway-reference/stations?query=Аб`, { headers })).status,
+      403,
+    );
+
+    profile.activeAccess.navigationItems = ["business.railway_wagons"];
+    profile.activeAccess.capabilities = ["business.view_railway_wagons"];
+
+    const stations = await fetch(
+      `${origin}/api/railway-reference/stations?query=Аб`,
+      { headers },
+    );
+    const payload = await stations.json();
+
+    assert.equal(stations.status, 200);
+    assert.deepEqual(isRecord(payload) ? payload.stations : undefined, [
+      { name: "Абагур-Лесной", road: "З-Сиб" },
+    ]);
+
+    const unknownReference = await fetch(
+      `${origin}/api/railway-reference/couplings`,
+      { headers },
+    );
+    assert.equal(unknownReference.status, 404);
+
+    // Просмотр без роли не даёт создавать заявку.
+    const forbiddenCreate = await fetch(`${origin}/api/railway-wagons`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(forbiddenCreate.status, 403);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+function buildRailwayOrderFixture(): RailwayWagonOrder {
+  return {
+    id: "order-1",
+    contractReference: "12/2026",
+    movementDirection: "На погрузку",
+    destinationStation: "Абагур-Лесной",
+    destinationStationRoad: "З-Сиб",
+    wagonType: "КР (крытый)",
+    rentCost: null,
+    tariffCost: null,
+    demurragePenalty: null,
+    carrier: null,
+    wagonNumber: null,
+    expectedArrivalDate: null,
+    currentLocation: null,
+    replacedByOrderId: null,
+    cargoLines: [],
+    createdAt: "2026-09-07T08:00:00.000Z",
+    orderedAt: "2026-09-07T08:00:00.000Z",
+    pricingStartedAt: null,
+    logisticsApprovedAt: null,
+    managerApprovedAt: null,
+    specificationSignedAt: null,
+    enRouteAt: null,
+    atLoadingStationAt: null,
+    rejectedAt: null,
+    atShipperTrackAt: null,
+    atLoadingAt: null,
+    loadedAt: null,
+    acceptedForCarriageAt: null,
+    deliveredAt: null,
+    unloadedAt: null,
+    releasedAt: null,
+  };
+}
+
+function buildRailwayReferenceFixture(): RailwayReferenceRepository {
+  return {
+    async searchStations() {
+      return [{ name: "Абагур-Лесной", road: "З-Сиб" }];
+    },
+    async searchEtsngCodes() {
+      return [{ code: "01000", name: "Зерновые культуры" }];
+    },
+    async listSecuringMethods() {
+      return [{ name: "Растяжки", description: null }];
+    },
+    async resolveStation(name) {
+      return name === "Абагур-Лесной"
+        ? { name: "Абагур-Лесной", road: "З-Сиб" }
+        : undefined;
+    },
+    async resolveEtsngCodes(codes) {
+      const resolved = new Map<string, { code: string; name: string }>();
+      if (codes.includes("01000")) {
+        resolved.set("01000", { code: "01000", name: "Зерновые культуры" });
+      }
+      return resolved;
+    },
+    async resolveSecuringMethods(names) {
+      return new Set(names.filter((name) => name === "Растяжки"));
+    },
+  };
 }
 
 function buildAuthService({

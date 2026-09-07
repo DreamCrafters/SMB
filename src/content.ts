@@ -4,6 +4,7 @@ import type {
   AccountType,
   BoardAssignmentAccess,
 } from "./contracts/accounts";
+import type { RailwayWagonAccess } from "./contracts/railwayWagons";
 
 export type NavigationItem = {
   id: AccountNavigationItem;
@@ -42,6 +43,21 @@ export const boardAssignmentAccessOptions: ReadonlyArray<{
     label:
       "Поручения Совета директоров (создание, приёмка и возврат на доработку)",
   },
+];
+
+/**
+ * Роль должности в разделе «ЖД Вагоны»: этапы заявки заполняют разные
+ * должности, поэтому вкладка выдаётся вместе с ролью, а не сама по себе.
+ */
+export const railwayWagonAccessOptions: ReadonlyArray<{
+  id: Exclude<RailwayWagonAccess, "none">;
+  label: string;
+}> = [
+  { id: "view", label: "ЖД Вагоны (только просмотр)" },
+  { id: "sales", label: "ЖД Вагоны (менеджер по продажам)" },
+  { id: "carrier", label: "ЖД Вагоны (сотрудник по работе с РЖД)" },
+  { id: "logistics", label: "ЖД Вагоны (директор по логистике)" },
+  { id: "dispatcher", label: "ЖД Вагоны (диспетчер)" },
 ];
 
 export const shellCopy = {
@@ -187,6 +203,12 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       id: "business.warehouse_1c",
       label: "Склад 1С",
       description: "Остатки и движение по складу из 1С",
+      state: "active",
+    },
+    {
+      id: "business.railway_wagons",
+      label: "ЖД Вагоны",
+      description: "Заявки на вагоны и движение по маршруту",
       state: "active",
     },
     {

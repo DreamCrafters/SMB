@@ -1,9 +1,16 @@
+import { readFileSync } from "node:fs";
+
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "./pool.js";
 
+/**
+ * Справочник РЖД задачи 106 весит 16 388 строк, поэтому его вставки строятся
+ * функцией: иначе 700 КБ ассетов разбирались бы при каждом импорте модуля, а не
+ * один раз на неприменённой миграции.
+ */
 type Migration = {
   id: string;
-  statements: string[];
+  statements: string[] | (() => string[]);
 };
 
 /**
@@ -4082,6 +4089,131 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /**
+     * Задача 106, раздел «ЖД Вагоны». Одна заявка на вагон — строка
+     * `railway_wagon_orders` с пятнадцатью метками этапов; статус нахождения по
+     * ним выводится и не хранится. Наименования груза лежат отдельной дочерней
+     * таблицей с `row_order`, потому что в одном вагоне может быть несколько
+     * грузов со своими характеристиками. Забракованный вагон перевыставляют
+     * новой заявкой, ссылка на неё хранится в `replaced_by_order_id`.
+     */
+    id: "076_railway_wagons",
+    statements: [
+      `
+      create table if not exists railway_wagon_orders (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        contract_reference varchar(255) not null,
+        movement_direction varchar(40) not null,
+        destination_station varchar(160) not null,
+        destination_station_road varchar(40) null,
+        wagon_type varchar(40) not null,
+        rent_cost decimal(14,2) null,
+        tariff_cost decimal(14,2) null,
+        demurrage_penalty varchar(1000) null,
+        carrier varchar(255) null,
+        wagon_number varchar(40) null,
+        expected_arrival_date date null,
+        current_location varchar(255) null,
+        replaced_by_order_id char(36) null,
+        ordered_at datetime(3) null,
+        pricing_started_at datetime(3) null,
+        logistics_approved_at datetime(3) null,
+        manager_approved_at datetime(3) null,
+        specification_signed_at datetime(3) null,
+        en_route_at datetime(3) null,
+        at_loading_station_at datetime(3) null,
+        rejected_at datetime(3) null,
+        at_shipper_track_at datetime(3) null,
+        at_loading_at datetime(3) null,
+        loaded_at datetime(3) null,
+        accepted_for_carriage_at datetime(3) null,
+        delivered_at datetime(3) null,
+        unloaded_at datetime(3) null,
+        released_at datetime(3) null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        updated_at timestamp(3) not null default current_timestamp(3)
+          on update current_timestamp(3),
+        unique key uq_railway_wagon_orders_id (id),
+        key idx_railway_wagon_orders_ordered (ordered_at),
+        key idx_railway_wagon_orders_wagon_number (wagon_number),
+        constraint chk_railway_wagon_orders_direction
+          check (movement_direction in ('На выгрузку', 'На погрузку')),
+        constraint chk_railway_wagon_orders_type
+          check (wagon_type in ('КР (крытый)', 'ПВ (полувагон)'))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists railway_wagon_cargo_lines (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        order_id char(36) not null,
+        row_order int unsigned not null,
+        cargo_name varchar(255) not null,
+        etsng_code varchar(10) null,
+        etsng_name varchar(400) null,
+        pallet_count int unsigned null,
+        pallet_weight decimal(14,3) null,
+        pallet_width decimal(10,2) null,
+        pallet_height decimal(10,2) null,
+        pallet_length decimal(10,2) null,
+        securing_method varchar(255) null,
+        securing_weight decimal(14,3) null,
+        unique key uq_railway_wagon_cargo_lines_id (id),
+        key idx_railway_wagon_cargo_lines_order (order_id, row_order),
+        constraint fk_railway_wagon_cargo_lines_order
+          foreign key (order_id) references railway_wagon_orders (id)
+          on delete cascade
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      create table if not exists railway_wagon_revisions (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        order_id char(36) not null,
+        stage_id varchar(60) not null,
+        before_snapshot json null,
+        after_snapshot json null,
+        submitted_by_user_id varchar(120) not null,
+        submitted_by_account_id varchar(120) not null,
+        submitted_by_display_name varchar(255) null,
+        created_at timestamp(3) not null default current_timestamp(3),
+        unique key uq_railway_wagon_revisions_id (id),
+        key idx_railway_wagon_revisions_order (order_id, sequence_id),
+        constraint fk_railway_wagon_revisions_order
+          foreign key (order_id) references railway_wagon_orders (id)
+          on delete cascade
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+      `
+      update app_navigation_settings
+      set navigation_order = json_array_append(
+        navigation_order,
+        '$',
+        'business.railway_wagons'
+      )
+      where setting_key = 'left_rail'
+        and json_search(navigation_order, 'one', 'business.railway_wagons')
+          is null;
+      `,
+    ],
+  },
+  {
+    /**
+     * Разовый перенос `Справочник РЖД.xls` задачи 106: листы ` ЕТСНГ`,
+     * `Станции` и `Крепления`. Приём тот же, что у марок (`050`) и сырья
+     * (`074`) — справочник переносится один раз, дальше живёт в системе, а
+     * исходный файл больше не читается. Данные лежат в
+     * `server/assets/railway-reference/`, потому что 16 388 строк литералами в
+     * этом файле не помещаются; конвертация описана в
+     * `scripts/convert-railway-reference.py`.
+     */
+    id: "077_railway_reference",
+    statements: buildRailwayReferenceStatements,
+  },
 ];
 
 function removePositionJsonValue(
@@ -4155,6 +4287,106 @@ function buildInitialRawMaterialInsert() {
   `;
 }
 
+/**
+ * Ассеты справочника РЖД лежат рядом со сборкой, поэтому путь одинаково
+ * разрешается и из `src/`, и из `dist/` — тем же приёмом, что материалы
+ * поручений Совета директоров.
+ */
+function readRailwayReferenceAsset(name: string): [string, string][] {
+  const asset = new URL(
+    `../../assets/railway-reference/${name}.json`,
+    import.meta.url,
+  );
+
+  return JSON.parse(readFileSync(asset, "utf8")) as [string, string][];
+}
+
+const railwayReferenceInsertChunkSize = 500;
+
+function buildRailwayReferenceInsert(
+  table: string,
+  columns: [string, string],
+  rows: readonly [string, string][],
+  onDuplicate: string,
+) {
+  const statements: string[] = [];
+
+  for (
+    let offset = 0;
+    offset < rows.length;
+    offset += railwayReferenceInsertChunkSize
+  ) {
+    const values = rows
+      .slice(offset, offset + railwayReferenceInsertChunkSize)
+      .map(([first, second]) =>
+        `(${sqlString(first)}, ${second === "" ? "null" : sqlString(second)})`
+      )
+      .join(",\n");
+
+    statements.push(`
+      insert into ${table} (${columns[0]}, ${columns[1]})
+      values ${values}
+      on duplicate key update ${onDuplicate};
+    `);
+  }
+
+  return statements;
+}
+
+/**
+ * Дублей в справочнике два (коды ЕТСНГ `23216` и `31100`), поэтому вставка
+ * идемпотентна: повторный код и повторная пара «станция + дорога» ничего не
+ * перезаписывают, а повторный прогон миграции ничего не ломает.
+ */
+function buildRailwayReferenceStatements() {
+  return [
+    `
+    create table if not exists railway_stations (
+      sequence_id bigint unsigned not null auto_increment primary key,
+      name varchar(160) not null,
+      road varchar(40) null,
+      unique key uq_railway_stations_name_road (name, road),
+      key idx_railway_stations_name (name)
+    ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+    `,
+    `
+    create table if not exists railway_etsng_codes (
+      sequence_id bigint unsigned not null auto_increment primary key,
+      code varchar(10) not null,
+      name varchar(400) not null,
+      unique key uq_railway_etsng_codes_code (code),
+      key idx_railway_etsng_codes_name (name(160))
+    ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+    `,
+    `
+    create table if not exists railway_securing_methods (
+      sequence_id bigint unsigned not null auto_increment primary key,
+      name varchar(255) not null,
+      description varchar(500) null,
+      unique key uq_railway_securing_methods_name (name)
+    ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+    `,
+    ...buildRailwayReferenceInsert(
+      "railway_stations",
+      ["name", "road"],
+      readRailwayReferenceAsset("stations"),
+      "name = name",
+    ),
+    ...buildRailwayReferenceInsert(
+      "railway_etsng_codes",
+      ["code", "name"],
+      readRailwayReferenceAsset("etsng"),
+      "code = code",
+    ),
+    ...buildRailwayReferenceInsert(
+      "railway_securing_methods",
+      ["name", "description"],
+      readRailwayReferenceAsset("securing-methods"),
+      "name = name",
+    ),
+  ];
+}
+
 function normalizeInitialProductBrandName(name: string) {
   return name.trim().replace(/\s+/gu, " ").toLocaleLowerCase("ru-RU");
 }
@@ -4190,7 +4422,11 @@ export async function runMigrations(pool: DatabasePool) {
     try {
       await connection.beginTransaction();
 
-      for (const statement of migration.statements) {
+      const statements = typeof migration.statements === "function"
+        ? migration.statements()
+        : migration.statements;
+
+      for (const statement of statements) {
         await connection.query(statement);
       }
 

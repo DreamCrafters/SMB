@@ -180,6 +180,7 @@ test("delegated account manager edits only working tabs of ordinary positions", 
         "business.settings",
       ],
       boardAssignmentAccess: "none",
+      railwayWagonAccess: "none",
       showOverviewVisitors: true,
     });
 
@@ -254,6 +255,7 @@ function buildHybridPosition() {
       "platform.manage_analytics_database",
     ],
     boardAssignmentAccess: "none",
+    railwayWagonAccess: "none",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,

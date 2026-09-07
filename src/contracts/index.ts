@@ -14,6 +14,7 @@ export * from "./rawMaterialNomenclature";
 export * from "./warehouse1c";
 export * from "./refractoryReports";
 export * from "./refractoryWagons";
+export * from "./railwayWagons";
 export * from "./laboratoryResults";
 export * from "./laboratoryBanks";
 export * from "./laboratoryRawMaterialWarehouse";

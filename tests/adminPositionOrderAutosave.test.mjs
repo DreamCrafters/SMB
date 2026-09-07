@@ -549,6 +549,7 @@ function buildPosition(id, displayName) {
     navigationItems: ["business.overview"],
     capabilities: ["business.view_all_statistics"],
     boardAssignmentAccess: "none",
+    railwayWagonAccess: "none",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,

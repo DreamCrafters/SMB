@@ -32,6 +32,7 @@ export const accountNavigationItems = [
   "business.laboratory_review",
   "business.board_assignments",
   "business.warehouse_1c",
+  "business.railway_wagons",
   "business.settings",
   "business.dispatcher_form",
 ] as const;
@@ -65,6 +66,11 @@ export const accountCapabilities = [
   "business.execute_board_assignments",
   "business.review_board_assignments",
   "business.view_warehouse_1c",
+  "business.view_railway_wagons",
+  "business.manage_railway_wagon_orders",
+  "business.manage_railway_wagon_carriage",
+  "business.approve_railway_wagon_logistics",
+  "business.confirm_railway_wagon_movement",
   "business.manage_notification_settings",
   "business.view_overview_visitors",
 ] as const;

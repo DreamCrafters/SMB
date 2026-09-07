@@ -36,6 +36,8 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "073_navigation_labels",
   "074_initial_raw_material_nomenclature",
   "075_warehouse_1c_stock_reports",
+  "076_railway_wagons",
+  "077_railway_reference",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3197,4 +3199,83 @@ test("raw material migration imports the sheet list once and skips duplicates", 
   // Кавычки внутри наименования не ломают литерал.
   assert.match(statements[0] ?? "", /КАМЦЕЛ-400 "Стандарт"/u);
   assert.equal(statements[1], "insert into schema_migrations (id) values (?)");
+});
+
+test("railway wagon migration creates the order, cargo and revision tables", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "076_railway_wagons" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(statements[0] ?? "", /create table if not exists railway_wagon_orders/u);
+  // Пятнадцать меток лестницы статусов лежат колонками одной строки.
+  assert.match(statements[0] ?? "", /ordered_at datetime\(3\) null/u);
+  assert.match(statements[0] ?? "", /released_at datetime\(3\) null/u);
+  assert.match(statements[0] ?? "", /check \(movement_direction in/u);
+  assert.match(statements[1] ?? "", /create table if not exists railway_wagon_cargo_lines/u);
+  // Порядок строк груза внутри вагона держит row_order.
+  assert.match(statements[1] ?? "", /row_order int unsigned not null/u);
+  assert.match(statements[1] ?? "", /foreign key \(order_id\).*on delete cascade/su);
+  assert.match(statements[2] ?? "", /create table if not exists railway_wagon_revisions/u);
+  assert.match(statements[3] ?? "", /json_array_append/u);
+  assert.match(statements[3] ?? "", /business\.railway_wagons/u);
+});
+
+test("railway reference migration imports the RZD workbook once, in chunks", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "077_railway_reference" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(statements[0] ?? "", /create table if not exists railway_stations/u);
+  // Одно название станции встречается на нескольких дорогах, поэтому ключ парный.
+  assert.match(statements[0] ?? "", /unique key uq_railway_stations_name_road \(name, road\)/u);
+  assert.match(statements[1] ?? "", /create table if not exists railway_etsng_codes/u);
+  assert.match(statements[2] ?? "", /create table if not exists railway_securing_methods/u);
+
+  const inserts = statements.filter((sql) => sql.startsWith("insert into railway_"));
+  const stationInserts = inserts.filter((sql) =>
+    sql.startsWith("insert into railway_stations"));
+  const etsngInserts = inserts.filter((sql) =>
+    sql.startsWith("insert into railway_etsng_codes"));
+  const securingInserts = inserts.filter((sql) =>
+    sql.startsWith("insert into railway_securing_methods"));
+
+  // 11 676 станций и 4 704 кода уходят чанками по 500 строк.
+  assert.equal(stationInserts.length, 24);
+  assert.equal(etsngInserts.length, 10);
+  assert.equal(securingInserts.length, 1);
+  // Повторный код ЕТСНГ и повторная пара «станция + дорога» ничего не ломают.
+  for (const sql of inserts) {
+    assert.match(sql, /on duplicate key update/u);
+  }
+  assert.match(stationInserts[0] ?? "", /\('Абагур-Лесной', 'З-Сиб'\)/u);
+  assert.match(etsngInserts[0] ?? "", /\('01000', 'Зерновые и зернобобовые культуры'\)/u);
+  assert.match(securingInserts[0] ?? "", /\('Растяжки', /u);
 });

@@ -6,6 +6,7 @@ import type {
   AccountScope,
   AccountType,
 } from "./accounts";
+import type { RailwayWagonAccess } from "./railwayWagons";
 
 export type AdminAccountSummary = {
   accessId: string;
@@ -58,6 +59,7 @@ export type AdminPositionSummary = {
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  railwayWagonAccess: RailwayWagonAccess;
   showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights: boolean;
@@ -75,6 +77,7 @@ export type SaveAdminPositionRequest = {
   displayName: string;
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  railwayWagonAccess: RailwayWagonAccess;
   showOverviewVisitors: boolean;
 };
 export type SaveAdminPositionResponse = { position: AdminPositionSummary };

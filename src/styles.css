@@ -8447,3 +8447,295 @@ p {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* Задача 106: раздел «ЖД Вагоны» — заявки, грузы и этапы движения вагона. */
+.railway-wagons-workspace {
+  display: grid;
+  gap: var(--density-4);
+  align-content: start;
+}
+
+.railway-wagons-header {
+  display: grid;
+  gap: var(--density-1);
+}
+
+.railway-wagons-header h2 {
+  margin: 0;
+}
+
+.railway-wagons-roles {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.railway-wagon-form,
+.railway-stage-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-4);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.railway-wagon-form > fieldset,
+.railway-stage-item > fieldset {
+  display: grid;
+  gap: var(--density-3);
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.railway-wagon-form legend,
+.railway-stage-item legend {
+  padding: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.railway-field-grid {
+  display: grid;
+  gap: var(--density-3);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.railway-field {
+  display: grid;
+  gap: var(--density-1);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.railway-field input,
+.railway-field select {
+  min-width: 0;
+}
+
+.railway-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+}
+
+.railway-total-weight {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.railway-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.railway-table-wrap-orders {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.railway-cargo-table,
+.railway-orders-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.railway-cargo-table {
+  min-width: 1180px;
+}
+
+.railway-orders-table {
+  min-width: 2600px;
+}
+
+.railway-cargo-table caption,
+.railway-orders-table caption {
+  padding: var(--density-2);
+  font-weight: 800;
+  text-align: left;
+}
+
+.railway-cargo-table th,
+.railway-cargo-table td,
+.railway-orders-table th,
+.railway-orders-table td {
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.railway-cargo-table thead th,
+.railway-orders-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-subtle);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.railway-cargo-table tfoot th,
+.railway-cargo-table tfoot td {
+  background: var(--surface-subtle);
+  font-weight: 800;
+}
+
+.railway-cargo-table input,
+.railway-cargo-table select {
+  width: 100%;
+  min-width: 0;
+}
+
+.railway-dimensions-cell {
+  display: flex;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.railway-row-action {
+  white-space: nowrap;
+}
+
+.railway-calculated {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.railway-orders-table tr.is-active td {
+  background: var(--surface-subtle);
+}
+
+.railway-order-link + .railway-order-link {
+  margin-left: var(--density-2);
+}
+
+.railway-empty-note {
+  margin: 0;
+  padding: var(--density-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.railway-stage-panel {
+  display: grid;
+  gap: var(--density-3);
+}
+
+.railway-stage-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--density-2);
+}
+
+.railway-stage-header h3,
+.railway-stage-header p {
+  margin: 0;
+}
+
+.railway-stage-header p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.railway-stage-header .secondary-button {
+  margin-left: auto;
+}
+
+.railway-stage-list {
+  display: grid;
+  gap: var(--density-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.railway-stage-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-3);
+}
+
+/* Комбобокс поиска по справочнику РЖД: разметка журнала химических анализов. */
+.reference-search-picker {
+  position: relative;
+  display: grid;
+  gap: var(--density-1);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reference-search-picker label {
+  display: grid;
+  gap: var(--density-1);
+}
+
+.reference-search-picker input {
+  width: 100%;
+  min-width: 0;
+}
+
+.reference-search-options {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  display: grid;
+  min-width: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.reference-search-option {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reference-search-option:last-child {
+  border-bottom: 0;
+}
+
+.reference-search-option:hover,
+.reference-search-option:focus-visible,
+.reference-search-option[aria-selected="true"] {
+  background: var(--surface-subtle);
+  outline: none;
+}
+
+.reference-search-empty {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .railway-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .railway-dimensions-cell {
+    flex-wrap: wrap;
+  }
+}

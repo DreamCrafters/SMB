@@ -19,6 +19,7 @@ import {
   type AccountPosition,
   type AccountType,
   type BoardAssignmentAccess,
+  type RailwayWagonAccess,
   type AdminAccountSummary,
   type AdminPositionSummary,
   type AdminDatabaseCellValue,
@@ -62,6 +63,7 @@ import {
   accountPositionLabels,
   authOptions,
   boardAssignmentAccessOptions,
+  railwayWagonAccessOptions,
   defaultNavigationOrder,
   navigationItemsByAccountType,
   nonAdminNavigationItems,
@@ -265,6 +267,7 @@ import { LaboratoryResultsWorkspace } from "./LaboratoryResults";
 import { LaboratoryReviewWorkspace } from "./LaboratoryReview";
 import { BoardAssignmentsWorkspace } from "./BoardAssignments";
 import { Warehouse1cWorkspace } from "./Warehouse1c";
+import { RailwayWagonsWorkspace } from "./RailwayWagons";
 import {
   AdminNotificationSettingsWorkspace,
   NotificationSettingsWorkspace,
@@ -281,6 +284,7 @@ type BusinessTab =
   | "laboratory_review"
   | "board_assignments"
   | "warehouse_1c"
+  | "railway_wagons"
   | "settings"
   | "user_actions"
   | "dispatcher_form";
@@ -301,6 +305,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   laboratory_review: "business.laboratory_review",
   board_assignments: "business.board_assignments",
   warehouse_1c: "business.warehouse_1c",
+  railway_wagons: "business.railway_wagons",
   settings: "business.settings",
   user_actions: "business.user_actions",
   dispatcher_form: "business.dispatcher_form",
@@ -331,6 +336,7 @@ const adminPreviewReadCapabilitiesByNavigationItem: Partial<
   "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
   "business.warehouse_1c": ["business.view_warehouse_1c"],
+  "business.railway_wagons": ["business.view_railway_wagons"],
   "business.dispatcher_form": ["business.view_dispatcher_feed"],
 };
 
@@ -636,6 +642,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "board_assignments";
     case "business.warehouse_1c":
       return "warehouse_1c";
+    case "business.railway_wagons":
+      return "railway_wagons";
     case "business.settings":
       return "settings";
     case "business.user_actions":
@@ -3029,6 +3037,14 @@ function RoleWorkspace({
   }
   if (effectiveOwnerTab === "warehouse_1c") {
     return <Warehouse1cWorkspace />;
+  }
+  if (effectiveOwnerTab === "railway_wagons") {
+    return (
+      <RailwayWagonsWorkspace
+        isAdminPreviewMode={isAdminPreviewMode}
+        onShowToast={onShowToast}
+      />
+    );
   }
   if (effectiveOwnerTab === "settings") {
     return (
@@ -11059,6 +11075,7 @@ type AdminPositionFormState = {
   displayName: string;
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  railwayWagonAccess: RailwayWagonAccess;
   showOverviewVisitors: boolean;
 };
 
@@ -11074,6 +11091,7 @@ const emptyAdminPositionForm: AdminPositionFormState = {
     )
     .map(({ id }) => id),
   boardAssignmentAccess: "view",
+  railwayWagonAccess: "view",
   showOverviewVisitors: true,
 };
 
@@ -11128,6 +11146,12 @@ function formatPositionNavigationItem(
     return boardAssignmentAccessOptions.find(
       ({ id }) => id === position.boardAssignmentAccess,
     )?.label ?? "Поручения Совета директоров";
+  }
+
+  if (navigationItemId === "business.railway_wagons") {
+    return railwayWagonAccessOptions.find(
+      ({ id }) => id === position.railwayWagonAccess,
+    )?.label ?? "ЖД Вагоны";
   }
 
   return applyNavigationLabels(
@@ -11497,6 +11521,7 @@ function AdminAccountsWorkspace({
             nonAdminNavigationItems.some((item) => item.id === id),
           ),
           boardAssignmentAccess: position.boardAssignmentAccess,
+          railwayWagonAccess: position.railwayWagonAccess,
           showOverviewVisitors: position.showOverviewVisitors,
         });
     setPositionFormStatus("");
@@ -11514,6 +11539,7 @@ function AdminAccountsWorkspace({
       displayName: positionForm.displayName.trim(),
       navigationItems: positionForm.navigationItems,
       boardAssignmentAccess: positionForm.boardAssignmentAccess,
+      railwayWagonAccess: positionForm.railwayWagonAccess,
       showOverviewVisitors: positionForm.showOverviewVisitors,
     };
     const result = positionForm.id === undefined
@@ -12836,7 +12862,9 @@ function AdminAccountsWorkspace({
                 <div className="admin-account-navigation-grid">
                   {applyNavigationLabels(nonAdminNavigationItems, navigationLabels)
                     .filter(
-                      (item) => item.id !== "business.board_assignments",
+                      (item) =>
+                        item.id !== "business.board_assignments" &&
+                        item.id !== "business.railway_wagons",
                     )
                     .map((item) => (
                       <label key={item.id} className="admin-account-navigation-option">
@@ -12879,6 +12907,34 @@ function AdminAccountsWorkspace({
                             boardAssignmentAccess: isChecked
                               ? option.id
                               : "none",
+                          }));
+                        }}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                  {railwayWagonAccessOptions.map((option) => (
+                    <label
+                      key={option.id}
+                      className="admin-account-navigation-option"
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={isSubmitting}
+                        checked={positionForm.railwayWagonAccess === option.id}
+                        onChange={(event) => {
+                          const isChecked = event.currentTarget.checked;
+                          setPositionForm((current) => ({
+                            ...current,
+                            navigationItems: isChecked
+                              ? Array.from(new Set([
+                                  ...current.navigationItems,
+                                  "business.railway_wagons",
+                                ]))
+                              : current.navigationItems.filter(
+                                  (id) => id !== "business.railway_wagons",
+                                ),
+                            railwayWagonAccess: isChecked ? option.id : "none",
                           }));
                         }}
                       />

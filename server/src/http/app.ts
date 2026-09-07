@@ -382,6 +382,29 @@ import {
   readMultipartBoundary,
 } from "./multipartFormData.js";
 import type { Warehouse1cRepository } from "../repositories/warehouse1cRepository.js";
+import {
+  buildRailwayWagonTotals,
+  findRailwayWagonStage,
+  isRailwayWagonAccess,
+  resolveRailwayWagonRoles,
+  selectAvailableRailwayWagonStages,
+  type RailwayWagonOrder,
+} from "../contracts/railwayWagons.js";
+import {
+  validateRailwayWagonCarriageTermsSubmission,
+  validateRailwayWagonDispatchSubmission,
+  validateRailwayWagonLocationSubmission,
+  validateRailwayWagonNumberSubmission,
+  validateRailwayWagonOrderSubmission,
+  type RailwayWagonOrderSubmission,
+} from "../domain/railwayWagons.js";
+import {
+  RailwayWagonOrderNotFoundError,
+  RailwayWagonStageNotAvailableError,
+  type RailwayWagonStageFieldValues,
+  type RailwayWagonsRepository,
+} from "../repositories/railwayWagonsRepository.js";
+import type { RailwayReferenceRepository } from "../repositories/railwayReferenceRepository.js";
 
 type AppDependencies = {
   config: ServerConfig;
@@ -422,6 +445,8 @@ type AppDependencies = {
     LaboratoryGreenProductQualityJournalRepository;
   boardAssignments?: BoardAssignmentsRepository;
   warehouse1c?: Warehouse1cRepository;
+  railwayWagons?: RailwayWagonsRepository;
+  railwayReference?: RailwayReferenceRepository;
   boardAssignmentMaterials?: BoardAssignmentMaterialsSource;
   bankVolumeReferenceDataSource?: BankVolumeReferenceDataSource;
   audit: AuditRepository;
@@ -534,6 +559,8 @@ export function createApiServer({
   laboratoryGreenProductQualityJournal,
   boardAssignments,
   warehouse1c,
+  railwayWagons,
+  railwayReference,
   boardAssignmentMaterials = createBoardAssignmentMaterialsSource(),
   bankVolumeReferenceDataSource = createGoogleSheetsBankVolumeReferenceDataSource(
     config.googleSheetsReference,
@@ -962,6 +989,38 @@ export function createApiServer({
           audit,
           databaseTransaction,
           now,
+        });
+        return;
+      }
+
+      if (url.pathname.startsWith("/api/railway-reference/")) {
+        await handleRailwayReferenceRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          railwayReference,
+        });
+        return;
+      }
+
+      if (
+        url.pathname === "/api/railway-wagons" ||
+        /^\/api\/railway-wagons\/[^/]+(?:\/stage)?$/u.test(url.pathname)
+      ) {
+        await handleRailwayWagonsRequest({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          railwayWagons,
+          railwayReference,
+          audit,
+          databaseTransaction,
         });
         return;
       }
@@ -9296,6 +9355,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.laboratory_review": "Лаборатория",
     "business.board_assignments": "Поручения Совета директоров",
     "business.warehouse_1c": "Склад 1С",
+    "business.railway_wagons": "ЖД Вагоны",
     "business.settings": "Настройки",
     "business.dispatcher_form": "Форма",
   };
@@ -9586,6 +9646,499 @@ function isMatchingUploadApiKey(
   const right = Buffer.from(expected, "utf8");
 
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/**
+ * Задача 106, раздел «ЖД Вагоны». Вкладку открывает
+ * `business.view_railway_wagons`, а право на конкретный этап даёт роль
+ * должности: порядок этапов и их редакторы описаны в контракте и повторно
+ * проверяются репозиторием под блокировкой строки.
+ */
+async function handleRailwayWagonsRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  railwayWagons,
+  railwayReference,
+  audit,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  railwayWagons: RailwayWagonsRepository | undefined;
+  railwayReference: RailwayReferenceRepository | undefined;
+  audit: AuditRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}) {
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "business.view_railway_wagons",
+    message: "Раздел «ЖД Вагоны» недоступен.",
+  });
+
+  if (access === undefined) return;
+
+  if (railwayWagons === undefined || railwayReference === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище раздела «ЖД Вагоны» не настроено.",
+      },
+    });
+    return;
+  }
+
+  const roles = resolveRailwayWagonRoles(
+    access.profile.activeAccess.capabilities,
+  );
+  const actor = {
+    userId: access.profile.userId,
+    accountId: access.profile.activeAccess.accountId,
+    displayName: access.profile.displayName ?? null,
+  };
+
+  const stageMatch = url.pathname.match(
+    /^\/api\/railway-wagons\/([^/]+)\/stage$/u,
+  );
+
+  if (stageMatch !== null) {
+    if (req.method !== "POST") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для отметки этапа используется POST.",
+        },
+      });
+      return;
+    }
+
+    const payload = await readJsonBody(req);
+    const stageId = isRecord(payload) && typeof payload.stageId === "string"
+      ? payload.stageId
+      : "";
+    const stage = findRailwayWagonStage(stageId);
+
+    if (stage === undefined) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: "Неизвестный этап вагона." },
+      });
+      return;
+    }
+
+    const fields = validateRailwayWagonStageFields(stage.id, payload);
+
+    if (!fields.ok) {
+      sendJson(res, 400, {
+        error: { code: "invalid_response", message: fields.errors.join(" ") },
+      });
+      return;
+    }
+
+    try {
+      const applied = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => railwayWagons.applyStage({
+          orderId: stageMatch[1],
+          stageId: stage.id,
+          roles,
+          fields: fields.value,
+          actor,
+        }),
+        buildEvent: (result) => ({
+          actor: buildAuditActor(access.profile),
+          category: "form_submission",
+          action: "railway_wagon.stage",
+          summary: `Вагон: этап «${stage.label}»`,
+          details: buildRailwayWagonAuditDetails(result.record),
+          targetType: "railway_wagon",
+          targetId: result.record.id,
+        }),
+      });
+
+      sendJson(res, 200, {
+        order: applied.record,
+        ...(applied.replacement === undefined
+          ? {}
+          : { replacement: applied.replacement }),
+      });
+    } catch (error) {
+      sendRailwayWagonError(res, error);
+    }
+    return;
+  }
+
+  const orderMatch = url.pathname.match(/^\/api\/railway-wagons\/([^/]+)$/u);
+
+  if (orderMatch !== null) {
+    if (req.method !== "PATCH") {
+      sendJson(res, 405, {
+        error: {
+          code: "access_denied",
+          message: "Для исправления заявки используется PATCH.",
+        },
+      });
+      return;
+    }
+    if (!roles.includes("sales")) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Заявку правит менеджер по продажам.",
+        },
+      });
+      return;
+    }
+
+    const order = await readRailwayWagonOrderSubmission({
+      res,
+      payload: await readJsonBody(req),
+      railwayReference,
+    });
+    if (order === undefined) return;
+
+    try {
+      const corrected = await runAuditedMutation({
+        transaction: databaseTransaction,
+        audit,
+        mutate: () => railwayWagons.correctOrder({
+          orderId: orderMatch[1],
+          order,
+          actor,
+        }),
+        buildEvent: (result) => ({
+          actor: buildAuditActor(access.profile),
+          category: "data_change",
+          action: "railway_wagon.correct",
+          summary: `Исправлена заявка на вагон: ${result.record.destinationStation}`,
+          details: buildRailwayWagonAuditDetails(result.record, result.before),
+          targetType: "railway_wagon",
+          targetId: result.record.id,
+        }),
+      });
+
+      sendJson(res, 200, { order: corrected.record });
+    } catch (error) {
+      sendRailwayWagonError(res, error);
+    }
+    return;
+  }
+
+  if (req.method === "GET") {
+    const [orders, carrierOptions] = await Promise.all([
+      railwayWagons.list(),
+      railwayWagons.listCarrierOptions(),
+    ]);
+
+    sendJson(res, 200, { orders, carrierOptions, roles });
+    return;
+  }
+
+  if (req.method === "POST") {
+    if (!roles.includes("sales")) {
+      sendJson(res, 403, {
+        error: {
+          code: "access_denied",
+          message: "Заявку на вагон создаёт менеджер по продажам.",
+        },
+      });
+      return;
+    }
+
+    const order = await readRailwayWagonOrderSubmission({
+      res,
+      payload: await readJsonBody(req),
+      railwayReference,
+    });
+    if (order === undefined) return;
+
+    const saved = await runAuditedMutation({
+      transaction: databaseTransaction,
+      audit,
+      mutate: () => railwayWagons.createOrder({ order, actor }),
+      buildEvent: (record) => ({
+        actor: buildAuditActor(access.profile),
+        category: "form_submission",
+        action: "railway_wagon.create",
+        summary: `Новая заявка на вагон: ${record.destinationStation}`,
+        details: buildRailwayWagonAuditDetails(record),
+        targetType: "railway_wagon",
+        targetId: record.id,
+      }),
+    });
+
+    sendJson(res, 201, { order: saved });
+    return;
+  }
+
+  sendJson(res, 405, {
+    error: {
+      code: "access_denied",
+      message: "Метод не поддерживается разделом «ЖД Вагоны».",
+    },
+  });
+}
+
+/**
+ * Станция, код ЕТСНГ и способ крепления обязаны быть в справочнике РЖД:
+ * подпись приводится к справочной, а дорога и наименование груза берутся
+ * оттуда же, чтобы в заявке не появилось пары «код — чужое наименование».
+ */
+async function readRailwayWagonOrderSubmission({
+  res,
+  payload,
+  railwayReference,
+}: {
+  res: ServerResponse;
+  payload: unknown;
+  railwayReference: RailwayReferenceRepository;
+}): Promise<RailwayWagonOrderSubmission | undefined> {
+  const validation = validateRailwayWagonOrderSubmission(payload);
+
+  if (!validation.ok) {
+    sendJson(res, 400, {
+      error: { code: "invalid_response", message: validation.errors.join(" ") },
+    });
+    return undefined;
+  }
+
+  const station = await railwayReference.resolveStation(
+    validation.value.destinationStation,
+  );
+
+  if (station === undefined) {
+    sendJson(res, 409, {
+      error: {
+        code: "invalid_response",
+        message: "Станция назначения не найдена в справочнике РЖД.",
+      },
+    });
+    return undefined;
+  }
+
+  const requestedCodes = Array.from(
+    new Set(
+      validation.value.cargoLines
+        .map((line) => line.etsngCode)
+        .filter((code): code is string => code !== null),
+    ),
+  );
+  const resolvedCodes = await railwayReference.resolveEtsngCodes(requestedCodes);
+  const missingCode = requestedCodes.find((code) => !resolvedCodes.has(code));
+
+  if (missingCode !== undefined) {
+    sendJson(res, 409, {
+      error: {
+        code: "invalid_response",
+        message: `Код груза ${missingCode} не найден в справочнике ЕТСНГ.`,
+      },
+    });
+    return undefined;
+  }
+
+  const requestedMethods = Array.from(
+    new Set(
+      validation.value.cargoLines
+        .map((line) => line.securingMethod)
+        .filter((method): method is string => method !== null),
+    ),
+  );
+  const resolvedMethods = await railwayReference.resolveSecuringMethods(
+    requestedMethods,
+  );
+  const missingMethod = requestedMethods.find(
+    (method) => !resolvedMethods.has(method),
+  );
+
+  if (missingMethod !== undefined) {
+    sendJson(res, 409, {
+      error: {
+        code: "invalid_response",
+        message: "Способ крепления не найден в справочнике РЖД.",
+      },
+    });
+    return undefined;
+  }
+
+  return {
+    ...validation.value,
+    destinationStation: station.name,
+    destinationStationRoad: station.road,
+    cargoLines: validation.value.cargoLines.map((line) => ({
+      ...line,
+      etsngName: line.etsngCode === null
+        ? null
+        : resolvedCodes.get(line.etsngCode)?.name ?? null,
+    })),
+  };
+}
+
+/** Отметка этапа несёт только свои поля; у флажков полей нет вовсе. */
+function validateRailwayWagonStageFields(
+  stageId: string,
+  payload: unknown,
+):
+  | { ok: true; value: RailwayWagonStageFieldValues }
+  | { ok: false; errors: string[] } {
+  if (stageId === "carriage_terms") {
+    const validation = validateRailwayWagonCarriageTermsSubmission(payload);
+    return validation.ok ? { ok: true, value: validation.value } : validation;
+  }
+
+  if (stageId === "wagon_number") {
+    const validation = validateRailwayWagonNumberSubmission(payload);
+    return validation.ok ? { ok: true, value: validation.value } : validation;
+  }
+
+  if (stageId === "dispatch") {
+    const validation = validateRailwayWagonDispatchSubmission(payload);
+    return validation.ok ? { ok: true, value: validation.value } : validation;
+  }
+
+  if (stageId === "location") {
+    const validation = validateRailwayWagonLocationSubmission(payload);
+    return validation.ok ? { ok: true, value: validation.value } : validation;
+  }
+
+  return { ok: true, value: {} };
+}
+
+function sendRailwayWagonError(res: ServerResponse, error: unknown) {
+  if (error instanceof RailwayWagonOrderNotFoundError) {
+    sendJson(res, 404, {
+      error: { code: "not_found", message: error.message },
+    });
+    return;
+  }
+
+  if (error instanceof RailwayWagonStageNotAvailableError) {
+    sendJson(res, 409, {
+      error: { code: "invalid_response", message: error.message },
+    });
+    return;
+  }
+
+  throw error;
+}
+
+function buildRailwayWagonAuditDetails(
+  record: RailwayWagonOrder,
+  before?: RailwayWagonOrder,
+) {
+  const totals = buildRailwayWagonTotals(record.cargoLines);
+  const fields: Array<{
+    label: string;
+    read: (order: RailwayWagonOrder) => string | number | null;
+  }> = [
+    { label: "Договор", read: (order) => order.contractReference },
+    { label: "Направление движения", read: (order) => order.movementDirection },
+    { label: "Станция назначения", read: (order) => order.destinationStation },
+    { label: "Вид вагона", read: (order) => order.wagonType },
+    { label: "Номер вагона", read: (order) => order.wagonNumber },
+    { label: "Грузоперевозчик", read: (order) => order.carrier },
+    { label: "Строк груза", read: (order) => order.cargoLines.length },
+  ];
+
+  return [
+    ...fields.map((field) => {
+      const value = readRailwayWagonAuditValue(field.read(record));
+      return {
+        label: field.label,
+        value: before === undefined
+          ? value
+          : `${readRailwayWagonAuditValue(field.read(before))} → ${value}`,
+      };
+    }),
+    { label: "Общий вес в вагоне, т", value: String(totals.totalWeight) },
+  ];
+}
+
+function readRailwayWagonAuditValue(value: string | number | null) {
+  return value === null ? "—" : String(value);
+}
+
+/** Справочник РЖД только читается: он перенесён миграцией и в UI не правится. */
+async function handleRailwayReferenceRequest({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  railwayReference,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  railwayReference: RailwayReferenceRepository | undefined;
+}) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Справочник РЖД доступен только методом GET.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    capability: "business.view_railway_wagons",
+    message: "Справочник РЖД недоступен.",
+  });
+
+  if (access === undefined) return;
+
+  if (railwayReference === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Справочник РЖД не настроен.",
+      },
+    });
+    return;
+  }
+
+  const query = (url.searchParams.get("query") ?? "").slice(0, 160);
+
+  if (url.pathname === "/api/railway-reference/stations") {
+    sendJson(res, 200, { stations: await railwayReference.searchStations(query) });
+    return;
+  }
+
+  if (url.pathname === "/api/railway-reference/etsng") {
+    sendJson(res, 200, { codes: await railwayReference.searchEtsngCodes(query) });
+    return;
+  }
+
+  if (url.pathname === "/api/railway-reference/securing-methods") {
+    sendJson(res, 200, {
+      securingMethods: await railwayReference.listSecuringMethods(),
+    });
+    return;
+  }
+
+  sendJson(res, 404, {
+    error: {
+      code: "not_found",
+      message: "Такого справочника РЖД нет.",
+    },
+  });
 }
 
 async function handleNavigationOrderRequest({
@@ -11456,6 +12009,7 @@ function validateCreatePositionRequest(input: unknown):
       key !== "displayName" &&
       key !== "navigationItems" &&
       key !== "boardAssignmentAccess" &&
+      key !== "railwayWagonAccess" &&
       key !== "showOverviewVisitors",
   );
   const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
@@ -11471,6 +12025,12 @@ function validateCreatePositionRequest(input: unknown):
       ? "view"
       : "none"
     : input.boardAssignmentAccess;
+  const hasRailwayWagons = navigationItems.includes("business.railway_wagons");
+  const railwayWagonAccess = input.railwayWagonAccess === undefined
+    ? hasRailwayWagons
+      ? "view"
+      : "none"
+    : input.railwayWagonAccess;
   const showOverviewVisitors = input.showOverviewVisitors === undefined
     ? true
     : input.showOverviewVisitors;
@@ -11497,6 +12057,13 @@ function validateCreatePositionRequest(input: unknown):
       "Вариант доступа к поручениям не соответствует выбранным вкладкам.",
     );
   }
+  if (!isRailwayWagonAccess(railwayWagonAccess)) {
+    errors.push("Выберите поддерживаемую роль в разделе «ЖД Вагоны».");
+  } else if ((railwayWagonAccess === "none") === hasRailwayWagons) {
+    errors.push(
+      "Роль в разделе «ЖД Вагоны» не соответствует выбранным вкладкам.",
+    );
+  }
   if (typeof showOverviewVisitors !== "boolean") {
     errors.push("Проверьте настройку блока «Посетители» в Обзоре.");
   }
@@ -11508,6 +12075,9 @@ function validateCreatePositionRequest(input: unknown):
     boardAssignmentAccess,
   )
     ? boardAssignmentAccess
+    : "none";
+  const validatedRailwayWagonAccess = isRailwayWagonAccess(railwayWagonAccess)
+    ? railwayWagonAccess
     : "none";
 
   return {
@@ -11521,6 +12091,8 @@ function validateCreatePositionRequest(input: unknown):
         validatedBoardAssignmentAccess,
         false,
         showOverviewVisitors === true,
+        false,
+        validatedRailwayWagonAccess,
       ),
     },
   };

@@ -1,3 +1,7 @@
+import {
+  railwayWagonRoleCapabilities,
+  type RailwayWagonAccess,
+} from "../contracts/railwayWagons.js";
 import type {
   AccountCapability,
   AccountNavigationItem,
@@ -64,6 +68,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.laboratory_review",
   "business.board_assignments",
   "business.warehouse_1c",
+  "business.railway_wagons",
   "business.settings",
   "business.dispatcher_form",
 ];
@@ -97,6 +102,7 @@ const capabilitiesByNavigationItem: Record<
   "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
   "business.warehouse_1c": ["business.view_warehouse_1c"],
+  "business.railway_wagons": ["business.view_railway_wagons"],
   "business.settings": ["business.manage_notification_settings"],
   "business.dispatcher_form": [
     "business.submit_dispatcher_forms",
@@ -120,6 +126,7 @@ export function resolveCapabilitiesForPosition(
   hasAdminRights = false,
   showOverviewVisitors = true,
   canReviewRawMaterialWarehouse = false,
+  railwayWagonAccess: RailwayWagonAccess = "view",
 ) {
   const resolvedNavigationItems =
     position === defaultPositionByAccountType.admin
@@ -161,12 +168,46 @@ export function resolveCapabilitiesForPosition(
       ? ["business.review_raw_material_warehouse"]
       : [];
 
+  const railwayWagonCapabilities: AccountCapability[] =
+    !resolvedNavigationItems.includes("business.railway_wagons") ||
+      railwayWagonAccess === "none" ||
+      railwayWagonAccess === "view"
+      ? []
+      : [railwayWagonRoleCapabilities[railwayWagonAccess] as AccountCapability];
+
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
     ...overviewVisitorsCapabilities,
     ...rawMaterialWarehouseCapabilities,
+    ...railwayWagonCapabilities,
   ]));
+}
+
+/**
+ * Роль в разделе «ЖД Вагоны» читается обратно из capability должности — так же,
+ * как уровень доступа к поручениям Совета директоров.
+ */
+export function readRailwayWagonAccess(
+  capabilities: AccountCapability[],
+  navigationItems: AccountNavigationItem[],
+): RailwayWagonAccess {
+  if (!navigationItems.includes("business.railway_wagons")) {
+    return "none";
+  }
+  if (capabilities.includes("business.manage_railway_wagon_orders")) {
+    return "sales";
+  }
+  if (capabilities.includes("business.manage_railway_wagon_carriage")) {
+    return "carrier";
+  }
+  if (capabilities.includes("business.approve_railway_wagon_logistics")) {
+    return "logistics";
+  }
+  if (capabilities.includes("business.confirm_railway_wagon_movement")) {
+    return "dispatcher";
+  }
+  return "view";
 }
 
 export function readRawMaterialWarehouseReviewAccess(

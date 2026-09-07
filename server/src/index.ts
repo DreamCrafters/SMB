@@ -38,6 +38,8 @@ import { createLaboratoryRawMaterialWarehouseRepository } from "./repositories/l
 import { createLaboratoryGreenProductQualityJournalRepository } from "./repositories/laboratoryGreenProductQualityJournalRepository.js";
 import { createBoardAssignmentsRepository } from "./repositories/boardAssignmentsRepository.js";
 import { createWarehouse1cRepository } from "./repositories/warehouse1cRepository.js";
+import { createRailwayWagonsRepository } from "./repositories/railwayWagonsRepository.js";
+import { createRailwayReferenceRepository } from "./repositories/railwayReferenceRepository.js";
 import { createNotificationSettingsRepository } from "./repositories/notificationSettingsRepository.js";
 import { createNavigationOrderRepository } from "./repositories/navigationOrderRepository.js";
 import { createDispatcherSpreadsheetImportService } from "./integrations/dispatcherSpreadsheetImport.js";
@@ -145,6 +147,8 @@ const server = createApiServer({
   warehouse1c: warehouse1cReadOnlyPool === undefined
     ? createWarehouse1cRepository(pool)
     : createWarehouse1cRepository(warehouse1cReadOnlyPool, { isReadOnly: true }),
+  railwayWagons: createRailwayWagonsRepository(pool),
+  railwayReference: createRailwayReferenceRepository(pool),
   notificationSettings: createNotificationSettingsRepository(pool),
   navigationOrder: createNavigationOrderRepository(pool),
   audit: createAuditRepository(pool),

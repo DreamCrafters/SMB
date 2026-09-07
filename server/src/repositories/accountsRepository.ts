@@ -17,10 +17,12 @@ import {
   nonAdminNavigationItems,
   readBoardAssignmentAccess,
   readOverviewVisitorsAccess,
+  readRailwayWagonAccess,
   resolveCapabilitiesForPosition,
   resolveNavigationForPosition,
   type BoardAssignmentAccess,
 } from "../domain/accountAccessConfiguration.js";
+import type { RailwayWagonAccess } from "../contracts/railwayWagons.js";
 import {
   hashPassword,
   isAccountNavigationItem,
@@ -58,6 +60,7 @@ export type AdminPositionSummary = {
   navigationItems: AccountNavigationItem[];
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
+  railwayWagonAccess: RailwayWagonAccess;
   showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights?: boolean;
@@ -411,6 +414,10 @@ export function createAccountsRepository(
         input.capabilities,
         input.navigationItems,
       ),
+      railwayWagonAccess: readRailwayWagonAccess(
+        input.capabilities,
+        input.navigationItems,
+      ),
       showOverviewVisitors: readOverviewVisitorsAccess(input.capabilities),
       isProtected: false,
       hasAdminRights: false,
@@ -454,6 +461,10 @@ export function createAccountsRepository(
         input.capabilities,
         input.navigationItems,
       );
+      const railwayWagonAccess = readRailwayWagonAccess(
+        input.capabilities,
+        input.navigationItems,
+      );
       const showOverviewVisitors = readOverviewVisitorsAccess(
         input.capabilities,
       );
@@ -469,6 +480,7 @@ export function createAccountsRepository(
         showOverviewVisitors,
         current.can_review_raw_material_warehouse === true ||
           current.can_review_raw_material_warehouse === 1,
+        railwayWagonAccess,
       );
       await connection.query(
         `update account_positions
@@ -503,6 +515,7 @@ export function createAccountsRepository(
           capabilities,
           navigationItems,
         ),
+        railwayWagonAccess: readRailwayWagonAccess(capabilities, navigationItems),
         showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
       };
     } catch (error) {
@@ -1457,6 +1470,7 @@ function mapPositionRow(row: PositionRow): AdminPositionSummary {
       capabilities,
       navigationItems,
     ),
+    railwayWagonAccess: readRailwayWagonAccess(capabilities, navigationItems),
     showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
     isProtected: row.is_protected === true || row.is_protected === 1,
     hasAdminRights:
