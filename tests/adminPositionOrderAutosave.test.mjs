@@ -295,6 +295,13 @@ test("original admin manages account access to a selected working tab by positio
       navigationItems: ["business.settings"],
       capabilities: ["business.manage_notification_settings"],
     },
+    // Только что созданная должность: аккаунтов под неё ещё нет, но выдать ей
+    // вкладку нужно до того, как их заведут.
+    {
+      ...buildPosition("economist", "Экономист"),
+      navigationItems: [],
+      capabilities: [],
+    },
   ];
   const accounts = [
     buildAccountForPosition("manager-a", "manager", "Начальник производства"),
@@ -378,7 +385,7 @@ test("original admin manages account access to a selected working tab by positio
     await React.act(async () => findButton(rootElement, "Должности")?.click());
     await waitFor(
       React,
-      () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 4,
+      () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 5,
     );
 
     const openButton = findButton(rootElement, "Доступ по вкладке");
@@ -395,8 +402,9 @@ test("original admin manages account access to a selected working tab by positio
       select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
 
-    // Доступ хранится в должности, поэтому две учётные записи «Начальника
-    // производства» дают одну строку, а не две одинаковые.
+    // Доступ хранится в должности, поэтому список строится из должностей: две
+    // учётные записи «Начальника производства» дают одну строку, должность без
+    // аккаунтов всё равно показана, а порядок — тот же, что в списке должностей.
     assert.deepEqual(
       Array.from(dialog.querySelectorAll("tbody tr td:first-child")).map(
         (cell) => cell.textContent,
@@ -404,14 +412,16 @@ test("original admin manages account access to a selected working tab by positio
       [
         "Начальник производства",
         "Диспетчер",
-        "Главный бухгалтер",
         "Администратор подразделения",
+        "Главный бухгалтер",
+        "Экономист",
       ],
     );
     const findAccessToggle = (positionName) =>
       dialog.querySelector(
         `input[aria-label="Доступ к вкладке для должности ${positionName}"]`,
       );
+    assert.ok(findAccessToggle("Экономист"));
     const manager = findAccessToggle("Начальник производства");
     const dispatcher = findAccessToggle("Диспетчер");
     const delegatedAdmin = findAccessToggle("Администратор подразделения");
@@ -458,13 +468,16 @@ test("original admin manages account access to a selected working tab by positio
 
     await React.act(async () => findButton(dialog, "Вкл. все")?.click());
     await waitFor(React, () => changes.length === 4);
+    // «Вкл. все» проходит по всем должностям в их порядке, включая ту, под
+    // которую аккаунтов ещё нет.
     assert.deepEqual(changes[3], {
       navigationItem: "business.settings",
       positionIds: [
         "manager",
         "dispatcher",
-        "chief-accountant",
         "delegated-admin",
+        "chief-accountant",
+        "economist",
       ],
       enabled: true,
     });

@@ -12122,34 +12122,25 @@ function AdminAccountsWorkspace({
   const positionById = new Map(
     displayedPositions.map((position) => [position.id, position]),
   );
-  const navigationAccessAccounts = accounts.filter(
-    (account) => {
-      const position = positionById.get(account.position);
-      return position !== undefined && position.accountType !== "admin";
-    },
+  /**
+   * Доступ хранится в должности, поэтому список строится из должностей, а не из
+   * аккаунтов: только что созданная должность ещё не имеет аккаунтов, но выдать
+   * ей вкладку нужно до того, как их заведут. Порядок — тот же, что в списке
+   * должностей, включая незасохранённый черновик перестановки.
+   */
+  const navigationAccessPositions = displayedPositions.filter(
+    (position) => position.accountType !== "admin",
   );
-  const navigationAccessPositionIds = Array.from(new Set(
-    navigationAccessAccounts.map((account) => account.position),
-  ));
+  const navigationAccessPositionIds = navigationAccessPositions.map(
+    (position) => position.id,
+  );
   const removableNavigationAccessPositionIds = navigationAccessPositionIds.filter(
     (positionId) => positionById
       .get(positionId)
       ?.navigationItems.includes(selectedPositionNavigationItem) === true,
   );
-  /**
-   * Доступ хранится в должности, поэтому строка списка — должность, а не
-   * аккаунт: несколько аккаунтов одной должности давали одинаковые строки с
-   * общим переключателем. Порядок остаётся прежним — по первому появлению
-   * должности среди аккаунтов.
-   */
   const selectedNavigationAccessLevels =
     navigationAccessLevels[selectedPositionNavigationItem];
-  const navigationAccessPositions = navigationAccessPositionIds.flatMap(
-    (positionId) => {
-      const position = positionById.get(positionId);
-      return position === undefined ? [] : [position];
-    },
-  );
 
   return (
     <section className="admin-workspace" aria-label="Учётные записи">
@@ -13163,7 +13154,7 @@ function AdminAccountsWorkspace({
                   {navigationAccessPositions.length === 0 ? (
                     <tr>
                       <td colSpan={selectedNavigationAccessLevels === undefined ? 2 : 3}>
-                        Должностей с рабочими аккаунтами пока нет.
+                        Должностей пока нет.
                       </td>
                     </tr>
                   ) : null}
