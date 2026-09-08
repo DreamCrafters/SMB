@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   warehouse1cReportViews,
   type Warehouse1cAccount,
@@ -31,11 +31,26 @@ export function Warehouse1cWorkspace() {
   const [accountCode, setAccountCode] = useState<string>();
   const [reportDate, setReportDate] = useState<string>();
   const [state, setState] = useState<StockState>({ status: "loading" });
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  /**
+   * Обновление по кнопке не убирает таблицу с экрана: пока сервер отвечает,
+   * уже показанные остатки остаются на месте, а загрузку показывает сама
+   * кнопка. Первая загрузка и смена фильтров ведут себя по-прежнему.
+   */
+  const preserveReportOnNextLoadRef = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    const shouldPreserveReport = preserveReportOnNextLoadRef.current;
 
-    setState({ status: "loading" });
+    preserveReportOnNextLoadRef.current = false;
+    setIsLoading(true);
+    setState((current) =>
+      shouldPreserveReport && current.status === "ready"
+        ? current
+        : { status: "loading" },
+    );
     requestWarehouse1cStockBalances(
       {
         ...(accountCode === undefined ? {} : { accountCode }),
@@ -45,6 +60,7 @@ export function Warehouse1cWorkspace() {
     ).then((result) => {
       if (controller.signal.aborted) return;
 
+      setIsLoading(false);
       setState(result.status === "ready"
         ? {
             status: "ready",
@@ -64,7 +80,7 @@ export function Warehouse1cWorkspace() {
     });
 
     return () => controller.abort();
-  }, [accountCode, reportDate]);
+  }, [accountCode, reportDate, refreshVersion]);
 
   const accounts = state.status === "ready" ? state.accounts : [];
   const availableDates = state.status === "ready" ? state.availableDates : [];
@@ -137,6 +153,20 @@ export function Warehouse1cWorkspace() {
                   ))}
             </select>
           </label>
+          <button
+            className="secondary-button warehouse-1c-refresh"
+            type="button"
+            disabled={isLoading}
+            onClick={() => {
+              preserveReportOnNextLoadRef.current = true;
+              setIsLoading(true);
+              setRefreshVersion((version) => version + 1);
+            }}
+          >
+            {isLoading && state.status === "ready" ? (
+              <LoadingIndicator label="Обновляем…" variant="button" />
+            ) : "Обновить отчёты"}
+          </button>
         </div>
       </section>
 

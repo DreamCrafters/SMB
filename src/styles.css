@@ -8517,6 +8517,13 @@ p {
   font-size: 12px;
 }
 
+/* Кнопка встаёт в ряд фильтров и выравнивается по нижнему краю селектов. */
+.warehouse-1c-refresh {
+  align-self: end;
+  justify-self: start;
+  min-height: 42px;
+}
+
 .warehouse-1c-table {
   min-width: 520px;
 }

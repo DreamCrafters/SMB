@@ -149,6 +149,99 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
   }
 });
 
+test("warehouse 1C tab reloads reports on demand and keeps the table meanwhile", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  const requests = [];
+  let releaseSecondResponse;
+
+  try {
+    const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
+      "/src/Warehouse1c.tsx",
+    );
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+
+      requests.push({
+        accountCode: url.searchParams.get("accountCode"),
+        reportDate: url.searchParams.get("reportDate"),
+      });
+
+      if (requests.length === 1) {
+        return jsonResponse(buildStockPayload({
+          availableDates: ["2026-09-06"],
+          reportDate: "2026-09-06",
+          nomenclature: "ША-8",
+        }));
+      }
+
+      // Ответ придерживается, чтобы проверить состояние во время обновления.
+      return new Promise((resolve) => {
+        releaseSecondResponse = () =>
+          resolve(jsonResponse(buildStockPayload({
+            availableDates: ["2026-09-07", "2026-09-06"],
+            reportDate: "2026-09-07",
+            nomenclature: "ША-9",
+          })));
+      });
+    };
+
+    const container = dom.window.document.querySelector("#root");
+    const root = createRoot(container);
+    await React.act(async () => {
+      root.render(React.createElement(Warehouse1cWorkspace));
+    });
+    await waitFor(React, () => container.querySelector("tbody tr") !== null);
+
+    const refreshButton = container.querySelector(".warehouse-1c-refresh");
+    assert.ok(refreshButton, "Expected the refresh button");
+    assert.equal(refreshButton.textContent, "Обновить отчёты");
+
+    await React.act(async () => {
+      refreshButton.dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => requests.length > 1);
+
+    // Кнопка перечитывает то же, что показано сейчас: фильтры не сбрасываются.
+    assert.deepEqual(requests[1], { accountCode: null, reportDate: null });
+    // Пока сервер отвечает, прежние остатки остаются на экране.
+    assert.deepEqual(readTableRows(container), [["ША-8", "1", "2"]]);
+    assert.equal(refreshButton.disabled, true);
+    assert.match(refreshButton.textContent, /Обновляем/u);
+
+    await React.act(async () => {
+      releaseSecondResponse();
+    });
+    await waitFor(
+      React,
+      () => container.querySelector("tbody td")?.textContent === "ША-9",
+    );
+
+    assert.equal(findSelectByLabel(container, "Дата").value, "2026-09-07");
+    assert.equal(refreshButton.disabled, false);
+    assert.equal(refreshButton.textContent, "Обновить отчёты");
+  } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    restoreDomGlobals(previousGlobals);
+    dom.window.close();
+  }
+});
+
 test("warehouse 1C tab says when it reads the production database", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -257,6 +350,24 @@ test("warehouse 1C tab explains an empty store instead of an empty table", async
     dom.window.close();
   }
 });
+
+function buildStockPayload({ availableDates, reportDate, nomenclature }) {
+  return {
+    accounts: [{ code: "43", label: "Счёт 43 (Готовая продукция)" }],
+    accountCode: "43",
+    availableDates,
+    report: {
+      accountCode: "43",
+      accountLabel: "Счёт 43 (Готовая продукция)",
+      reportDate,
+      fileName: `report_${reportDate.replaceAll("-", "")}.xlsx`,
+      importedAt: `${reportDate} 06:30:00.000`,
+      balances: [
+        { nomenclature, openingBalance: "1", closingBalance: "2" },
+      ],
+    },
+  };
+}
 
 function readTableRows(root) {
   return Array.from(root.querySelectorAll("tbody tr")).map((row) =>
