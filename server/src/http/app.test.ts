@@ -6658,6 +6658,83 @@ test("working-tab mutation returns 403 when original admin status changes under 
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 
+test("working tab API carries the access level only where the tab has levels", async () => {
+  const changes: Array<
+    Parameters<AccountsRepository["setPositionNavigationAccess"]>[0]
+  > = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setPositionNavigationAccess(input) {
+      changes.push(input);
+      return {
+        navigationItem: input.navigationItem,
+        enabled: input.enabled,
+        ...(input.accessLevel === undefined
+          ? {}
+          : { accessLevel: input.accessLevel }),
+        positions: [{ id: "business_owner", displayName: "Владелец бизнеса" }],
+      };
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const send = (body: unknown) => fetch(
+      `${baseUrl}/api/admin/positions/navigation-access`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SMB-Dev-Session": sessionId,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+
+    const accepted = await send({
+      navigationItem: "business.railway_wagons",
+      positionIds: ["business_owner"],
+      enabled: true,
+      accessLevel: "carrier",
+    });
+    assert.equal(accepted.status, 200);
+
+    // Уровень чужой вкладки не принимается.
+    const foreignLevel = await send({
+      navigationItem: "business.railway_wagons",
+      positionIds: ["business_owner"],
+      enabled: true,
+      accessLevel: "review",
+    });
+    assert.equal(foreignLevel.status, 400);
+
+    // У вкладки без уровней уровня быть не может.
+    const levelless = await send({
+      navigationItem: "business.settings",
+      positionIds: ["business_owner"],
+      enabled: true,
+      accessLevel: "view",
+    });
+    assert.equal(levelless.status, 400);
+
+    // Уровень вместе с отключением вкладки бессмыслен.
+    const disabled = await send({
+      navigationItem: "business.railway_wagons",
+      positionIds: ["business_owner"],
+      enabled: false,
+      accessLevel: "carrier",
+    });
+    assert.equal(disabled.status, 400);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+
+  assert.deepEqual(changes, [{
+    navigationItem: "business.railway_wagons",
+    positionIds: ["business_owner"],
+    enabled: true,
+    accessLevel: "carrier",
+  }]);
+});
+
 test("navigation order API stores a complete catalog and rejects unauthorized or stale writes", async () => {
   let stored: NavigationSettings = {
     navigationOrder: [...defaultNavigationOrder],

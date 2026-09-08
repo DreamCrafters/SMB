@@ -21,6 +21,7 @@ import {
   resolveCapabilitiesForPosition,
   resolveNavigationForPosition,
   type BoardAssignmentAccess,
+  type NavigationAccessLevel,
 } from "../domain/accountAccessConfiguration.js";
 import type { RailwayWagonAccess } from "../contracts/railwayWagons.js";
 import {
@@ -90,6 +91,8 @@ export type SetPositionNavigationAccessInput = {
   navigationItem: AccountNavigationItem;
   positionIds: string[];
   enabled: boolean;
+  /** Уровень внутри вкладки; без него у должности сохраняется текущий. */
+  accessLevel?: NavigationAccessLevel;
 };
 
 export type PositionNavigationAccessActor = {
@@ -101,6 +104,7 @@ export type PositionNavigationAccessActor = {
 export type PositionNavigationAccessChange = {
   navigationItem: AccountNavigationItem;
   enabled: boolean;
+  accessLevel?: NavigationAccessLevel;
   positions: Array<{ id: string; displayName: string }>;
 };
 
@@ -737,6 +741,7 @@ export function createAccountsRepository(
     navigationItem,
     positionIds,
     enabled,
+    accessLevel,
   }: SetPositionNavigationAccessInput, actor: PositionNavigationAccessActor) {
     if (
       positionIds.length === 0 ||
@@ -816,23 +821,41 @@ export function createAccountsRepository(
           nextWorkingNavigationItems,
           hasAdminRights,
         );
-        if (
-          navigationItems.length === currentNavigationItems.length &&
-          navigationItems.every((item, index) => item === currentNavigationItems[index])
-        ) {
-          continue;
-        }
         const storedCapabilities = readCapabilities(row.capabilities);
+        const storedBoardAssignmentAccess = readBoardAssignmentAccess(
+          storedCapabilities,
+          currentNavigationItems,
+        );
+        const storedRailwayWagonAccess = readRailwayWagonAccess(
+          storedCapabilities,
+          currentNavigationItems,
+        );
         const capabilities = resolveCapabilitiesForPosition(
           row.id,
           navigationItems,
-          readBoardAssignmentAccess(storedCapabilities, currentNavigationItems),
+          navigationItem === "business.board_assignments" &&
+            accessLevel !== undefined
+            ? accessLevel as BoardAssignmentAccess
+            : storedBoardAssignmentAccess,
           hasAdminRights,
           readOverviewVisitorsAccess(storedCapabilities),
           row.can_review_raw_material_warehouse === true ||
             row.can_review_raw_material_warehouse === 1,
-          readRailwayWagonAccess(storedCapabilities, currentNavigationItems),
+          navigationItem === "business.railway_wagons" &&
+            accessLevel !== undefined
+            ? accessLevel as RailwayWagonAccess
+            : storedRailwayWagonAccess,
         );
+        // Уровень внутри вкладки меняется без изменения списка вкладок,
+        // поэтому одного сравнения вкладок мало.
+        if (
+          navigationItems.length === currentNavigationItems.length &&
+          navigationItems.every((item, index) => item === currentNavigationItems[index]) &&
+          capabilities.length === storedCapabilities.length &&
+          capabilities.every((capability) => storedCapabilities.includes(capability))
+        ) {
+          continue;
+        }
         await connection.query(
           `update account_positions
            set navigation_items = ?, capabilities = ?
@@ -866,6 +889,7 @@ export function createAccountsRepository(
       return {
         navigationItem,
         enabled,
+        ...(accessLevel === undefined ? {} : { accessLevel }),
         positions: changedPositions,
       } satisfies PositionNavigationAccessChange;
     } catch (error) {

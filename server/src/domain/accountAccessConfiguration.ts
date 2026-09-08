@@ -1,4 +1,5 @@
 import {
+  railwayWagonAccessLevels,
   railwayWagonRoleCapabilities,
   type RailwayWagonAccess,
 } from "../contracts/railwayWagons.js";
@@ -208,6 +209,40 @@ export function readRailwayWagonAccess(
     return "dispatcher";
   }
   return "view";
+}
+
+/**
+ * Вкладки, внутри которых доступ делится на уровни. Галочка выдаёт саму вкладку,
+ * уровень выбирается отдельно, поэтому один каталог нужен и форме должности, и
+ * массовому переключателю доступа.
+ */
+export const navigationAccessLevelsByItem = {
+  "business.board_assignments": boardAssignmentAccessLevels,
+  "business.railway_wagons": railwayWagonAccessLevels,
+} as const satisfies Partial<
+  Record<AccountNavigationItem, readonly string[]>
+>;
+
+export type NavigationAccessLevelItem =
+  keyof typeof navigationAccessLevelsByItem;
+
+export type NavigationAccessLevel = BoardAssignmentAccess | RailwayWagonAccess;
+
+export function hasNavigationAccessLevels(
+  navigationItem: AccountNavigationItem,
+): navigationItem is NavigationAccessLevelItem {
+  return navigationItem in navigationAccessLevelsByItem;
+}
+
+export function isNavigationAccessLevel(
+  navigationItem: AccountNavigationItem,
+  value: unknown,
+): value is NavigationAccessLevel {
+  return (
+    hasNavigationAccessLevels(navigationItem) &&
+    (navigationAccessLevelsByItem[navigationItem] as readonly string[])
+      .includes(value as string)
+  );
 }
 
 export function readRawMaterialWarehouseReviewAccess(

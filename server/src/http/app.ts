@@ -17,9 +17,11 @@ import {
   hasAdminNavigationItems,
   hasSameAdminNavigationItems,
   isBoardAssignmentAccess,
+  isNavigationAccessLevel,
   nonAdminNavigationItems,
   resolveCapabilitiesForPosition,
   validatePositionNavigationItems,
+  type NavigationAccessLevel,
 } from "../domain/accountAccessConfiguration.js";
 import {
   buildDefaultDevAccessOptions,
@@ -9338,6 +9340,26 @@ function buildPositionAuditDetails(position: AdminPositionSummary) {
   ];
 }
 
+/** Короткая подпись уровня для журнала действий; UI держит свои формулировки. */
+function readNavigationAccessLevelLabel(
+  navigationItem: AccountNavigationItem,
+  level: NavigationAccessLevel,
+) {
+  const labels: Record<string, string> = {
+    "business.board_assignments:view": "Только просмотр",
+    "business.board_assignments:create": "Создание поручений",
+    "business.board_assignments:execute": "Исполнение",
+    "business.board_assignments:review": "Приёмка",
+    "business.railway_wagons:view": "Только просмотр",
+    "business.railway_wagons:sales": "Менеджер по продажам",
+    "business.railway_wagons:carrier": "Сотрудник по работе с РЖД",
+    "business.railway_wagons:logistics": "Директор по логистике",
+    "business.railway_wagons:dispatcher": "Диспетчер",
+  };
+
+  return labels[`${navigationItem}:${level}`] ?? level;
+}
+
 function readNavigationItemLabel(item: AccountNavigationItem) {
   const labels: Record<AccountNavigationItem, string> = {
     "admin.account_preview": "Предпросмотр",
@@ -11497,7 +11519,9 @@ async function handleAdminAccountsRequest({
                     actor: buildAuditActor(access.profile),
                     category: "administration",
                     action: "admin.position_navigation_access_update",
-                    summary: `${updated.enabled ? "Включён" : "Отключён"} доступ к вкладке «${readNavigationItemLabel(updated.navigationItem)}»`,
+                    summary: updated.accessLevel === undefined
+                      ? `${updated.enabled ? "Включён" : "Отключён"} доступ к вкладке «${readNavigationItemLabel(updated.navigationItem)}»`
+                      : `Назначен уровень «${readNavigationAccessLevelLabel(updated.navigationItem, updated.accessLevel)}» на вкладке «${readNavigationItemLabel(updated.navigationItem)}»`,
                     details: [
                       {
                         label: "Вкладка",
@@ -11507,6 +11531,13 @@ async function handleAdminAccountsRequest({
                         label: "Доступ",
                         value: updated.enabled ? "Включён" : "Отключён",
                       },
+                      ...(updated.accessLevel === undefined ? [] : [{
+                        label: "Уровень",
+                        value: readNavigationAccessLevelLabel(
+                          updated.navigationItem,
+                          updated.accessLevel,
+                        ),
+                      }]),
                       {
                         label: "Должности",
                         value: updated.positions
@@ -12216,6 +12247,7 @@ function validatePositionNavigationAccessRequest(input: unknown):
         navigationItem: AccountNavigationItem;
         positionIds: string[];
         enabled: boolean;
+        accessLevel?: NavigationAccessLevel;
       };
     }
   | { ok: false; errors: string[] } {
@@ -12225,7 +12257,10 @@ function validatePositionNavigationAccessRequest(input: unknown):
 
   const unknownFields = Object.keys(input).filter(
     (key) =>
-      key !== "navigationItem" && key !== "positionIds" && key !== "enabled",
+      key !== "navigationItem" &&
+      key !== "positionIds" &&
+      key !== "enabled" &&
+      key !== "accessLevel",
   );
   const navigationItem = input.navigationItem;
   const positionIds = Array.isArray(input.positionIds)
@@ -12255,6 +12290,16 @@ function validatePositionNavigationAccessRequest(input: unknown):
   if (typeof input.enabled !== "boolean") {
     errors.push("enabled must be a boolean.");
   }
+  // Уровень имеет смысл только вместе с выданной вкладкой и только у вкладок,
+  // где доступ вообще делится на уровни.
+  if (
+    input.accessLevel !== undefined &&
+    (input.enabled !== true ||
+      !isAccountNavigationItem(navigationItem) ||
+      !isNavigationAccessLevel(navigationItem, input.accessLevel))
+  ) {
+    errors.push("Выберите уровень доступа, доступный этой вкладке.");
+  }
   if (
     errors.length > 0 ||
     !isAccountNavigationItem(navigationItem) ||
@@ -12270,6 +12315,9 @@ function validatePositionNavigationAccessRequest(input: unknown):
       navigationItem,
       positionIds: positionIds as string[],
       enabled: input.enabled,
+      ...(isNavigationAccessLevel(navigationItem, input.accessLevel)
+        ? { accessLevel: input.accessLevel }
+        : {}),
     },
   };
 }

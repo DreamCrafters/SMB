@@ -2239,3 +2239,118 @@ test("setPositionProtected keeps the railway wagon role when admin rights change
   assert.ok(navigationItems.includes("business.railway_wagons"));
   assert.ok(capabilities.includes("business.manage_railway_wagon_orders"));
 });
+
+test("setPositionNavigationAccess assigns the level of an already granted tab", async () => {
+  let navigationItems = ["business.railway_wagons"];
+  let capabilities = ["business.view_railway_wagons"];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "railway-logistics",
+          display_name: "Директор по логистике",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_protected: 0,
+          is_admin_protected: 0,
+          can_review_raw_material_warehouse: 0,
+          created_at: "2026-09-07T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions set navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[0]));
+        capabilities = JSON.parse(String(params?.[1]));
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  const change = await createAccountsRepository(pool)
+    .setPositionNavigationAccess({
+      navigationItem: "business.railway_wagons",
+      positionIds: ["railway-logistics"],
+      enabled: true,
+      accessLevel: "logistics",
+    }, {
+      userId: "root-admin-user",
+      accessId: "root-admin-access",
+      devAccessEnabled: false,
+    });
+
+  // Список вкладок не изменился, поэтому запись обязана опираться на capability.
+  assert.deepEqual(navigationItems, ["business.railway_wagons"]);
+  assert.ok(capabilities.includes("business.approve_railway_wagon_logistics"));
+  assert.deepEqual(change?.positions, [
+    { id: "railway-logistics", displayName: "Директор по логистике" },
+  ]);
+  assert.equal(change?.accessLevel, "logistics");
+});
+
+test("setPositionNavigationAccess replaces the previously assigned level", async () => {
+  let navigationItems = ["business.board_assignments"];
+  let capabilities = [
+    "business.view_board_assignments",
+    "business.execute_board_assignments",
+  ];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "board-member",
+          display_name: "Член совета директоров",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_protected: 0,
+          is_admin_protected: 0,
+          can_review_raw_material_warehouse: 0,
+          created_at: "2026-09-07T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions set navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[0]));
+        capabilities = JSON.parse(String(params?.[1]));
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await createAccountsRepository(pool).setPositionNavigationAccess({
+    navigationItem: "business.board_assignments",
+    positionIds: ["board-member"],
+    enabled: true,
+    accessLevel: "review",
+  }, {
+    userId: "root-admin-user",
+    accessId: "root-admin-access",
+    devAccessEnabled: false,
+  });
+
+  assert.ok(capabilities.includes("business.review_board_assignments"));
+  assert.ok(!capabilities.includes("business.execute_board_assignments"));
+});

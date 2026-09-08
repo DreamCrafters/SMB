@@ -86,6 +86,8 @@ export type SetAdminPositionNavigationAccessRequest = {
   navigationItem: AccountNavigationItem;
   positionIds: AccountPosition[];
   enabled: boolean;
+  /** Уровень внутри вкладки; без него у должности сохраняется текущий. */
+  accessLevel?: string;
 };
 
 export type SetAdminPositionProtectedRequest = {

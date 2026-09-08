@@ -20,45 +20,53 @@ export type AuthOption = {
   scope: string;
 };
 
+/**
+ * Уровень внутри вкладки «Поручения Совета директоров». Сама вкладка выдаётся
+ * галочкой, поэтому подпись уровня короткая и не повторяет название вкладки.
+ */
 export const boardAssignmentAccessOptions: ReadonlyArray<{
   id: Exclude<BoardAssignmentAccess, "none">;
   label: string;
 }> = [
-  {
-    id: "view",
-    label: "Поручения Совета директоров (только просмотр)",
-  },
-  {
-    id: "create",
-    label:
-      "Поручения Совета директоров (просмотр и создание поручений)",
-  },
-  {
-    id: "execute",
-    label:
-      "Поручения Совета директоров (исполнение и отправка на проверку)",
-  },
-  {
-    id: "review",
-    label:
-      "Поручения Совета директоров (создание, приёмка и возврат на доработку)",
-  },
+  { id: "view", label: "Только просмотр" },
+  { id: "create", label: "Просмотр и создание поручений" },
+  { id: "execute", label: "Исполнение и отправка на проверку" },
+  { id: "review", label: "Создание, приёмка и возврат на доработку" },
 ];
 
 /**
  * Роль должности в разделе «ЖД Вагоны»: этапы заявки заполняют разные
- * должности, поэтому вкладка выдаётся вместе с ролью, а не сама по себе.
+ * должности, поэтому у вкладки есть ещё и уровень.
  */
 export const railwayWagonAccessOptions: ReadonlyArray<{
   id: Exclude<RailwayWagonAccess, "none">;
   label: string;
 }> = [
-  { id: "view", label: "ЖД Вагоны (только просмотр)" },
-  { id: "sales", label: "ЖД Вагоны (менеджер по продажам)" },
-  { id: "carrier", label: "ЖД Вагоны (сотрудник по работе с РЖД)" },
-  { id: "logistics", label: "ЖД Вагоны (директор по логистике)" },
-  { id: "dispatcher", label: "ЖД Вагоны (диспетчер)" },
+  { id: "view", label: "Только просмотр" },
+  { id: "sales", label: "Менеджер по продажам" },
+  { id: "carrier", label: "Сотрудник по работе с РЖД" },
+  { id: "logistics", label: "Директор по логистике" },
+  { id: "dispatcher", label: "Диспетчер" },
 ];
+
+/**
+ * Вкладки, где доступ делится на уровни: галочка выдаёт саму вкладку, а
+ * выпадающий список рядом — уровень внутри неё. Каталог общий для формы
+ * должности и массового переключателя доступа.
+ */
+export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
+  title: string;
+  options: ReadonlyArray<{ id: string; label: string }>;
+}>> = {
+  "business.board_assignments": {
+    title: "Уровень доступа",
+    options: boardAssignmentAccessOptions,
+  },
+  "business.railway_wagons": {
+    title: "Роль в разделе",
+    options: railwayWagonAccessOptions,
+  },
+};
 
 export const shellCopy = {
   productName: "НМОУ Вектор",

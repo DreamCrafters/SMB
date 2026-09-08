@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   boardAssignmentAccessOptions,
+  navigationAccessLevels,
   nonAdminNavigationItems,
+  railwayWagonAccessOptions,
 } from "../.test-build/src/content.js";
 
 const projectRoot = new URL("../", import.meta.url);
@@ -37,12 +39,20 @@ test("position form edits working tabs while admin rights are managed separately
   // Список рабочих вкладок должности учитывает переименование разделов.
   assert.match(
     appSource,
-    /applyNavigationLabels\(nonAdminNavigationItems, navigationLabels\)\s*\.filter\([\s\S]*?item\.id !== "business\.board_assignments"/u,
+    /applyNavigationLabels\(nonAdminNavigationItems, navigationLabels\)\s*\.map\(\(item\) => \{/u,
   );
-  assert.match(
+  // Вкладки с уровнями больше не подменяются набором галочек уровней: каждая
+  // вкладка это одна галочка, а уровень выбирается списком рядом.
+  assert.doesNotMatch(
     appSource,
     /\{boardAssignmentAccessOptions\.map\(\(option\) => \(/u,
   );
+  assert.doesNotMatch(
+    appSource,
+    /\{railwayWagonAccessOptions\.map\(\(option\) => \(/u,
+  );
+  assert.match(appSource, /renderPositionAccessLevelSelect\(item\.id, hasTab\)/u);
+  assert.match(appSource, /readPositionLevelPatch\(item\.id, isChecked, current\)/u);
   assert.equal(appSource.includes(">Админ<"), false);
   assert.equal(appSource.includes("Административные вкладки"), false);
   assert.match(appSource, /<th>Права админа<\/th>/u);
@@ -64,13 +74,48 @@ test("position form edits working tabs while admin rights are managed separately
   assert.match(appSource, />\s*Выше\s*</u);
   assert.match(appSource, />\s*Ниже\s*</u);
 
+  // Подпись уровня не повторяет название вкладки: вкладку называет галочка.
   assert.deepEqual(
     boardAssignmentAccessOptions.map(({ label }) => label),
     [
-      "Поручения Совета директоров (только просмотр)",
-      "Поручения Совета директоров (просмотр и создание поручений)",
-      "Поручения Совета директоров (исполнение и отправка на проверку)",
-      "Поручения Совета директоров (создание, приёмка и возврат на доработку)",
+      "Только просмотр",
+      "Просмотр и создание поручений",
+      "Исполнение и отправка на проверку",
+      "Создание, приёмка и возврат на доработку",
     ],
+  );
+  assert.deepEqual(
+    railwayWagonAccessOptions.map(({ id }) => id),
+    ["view", "sales", "carrier", "logistics", "dispatcher"],
+  );
+  // Уровни есть ровно у двух вкладок, и обе описаны одним каталогом.
+  assert.deepEqual(
+    Object.keys(navigationAccessLevels),
+    ["business.board_assignments", "business.railway_wagons"],
+  );
+  assert.equal(
+    navigationAccessLevels["business.railway_wagons"].title,
+    "Роль в разделе",
+  );
+});
+
+test("bulk tab access assigns the level next to the access checkbox", async () => {
+  const appSource = await readFile(new URL("src/App.tsx", projectRoot), "utf8");
+
+  // Столбец уровня появляется только у вкладок, где доступ делится на уровни.
+  assert.match(
+    appSource,
+    /selectedNavigationAccessLevels === undefined \? null : \(\s*<th>\{selectedNavigationAccessLevels\.title\}<\/th>/u,
+  );
+  assert.match(appSource, /className="admin-position-navigation-access-level"/u);
+  // Смена уровня сохраняет вкладку включённой и шлёт сам уровень.
+  assert.match(
+    appSource,
+    /handleSetPositionNavigationAccess\(\s*\[position\.id\],\s*true,\s*event\.currentTarget\.value,\s*\)/u,
+  );
+  // Список уровней недоступен, пока вкладка не выдана.
+  assert.match(
+    appSource,
+    /isSavingPositionNavigationAccess \|\| !hasAccess/u,
   );
 });

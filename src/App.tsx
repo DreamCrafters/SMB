@@ -63,6 +63,7 @@ import {
   accountPositionLabels,
   authOptions,
   boardAssignmentAccessOptions,
+  navigationAccessLevels,
   railwayWagonAccessOptions,
   defaultNavigationOrder,
   navigationItemsByAccountType,
@@ -11142,22 +11143,28 @@ function formatPositionNavigationItem(
   navigationItemId: AccountNavigationItem,
   navigationLabels: NavigationLabels = {},
 ) {
-  if (navigationItemId === "business.board_assignments") {
-    return boardAssignmentAccessOptions.find(
-      ({ id }) => id === position.boardAssignmentAccess,
-    )?.label ?? "Поручения Совета директоров";
-  }
-
-  if (navigationItemId === "business.railway_wagons") {
-    return railwayWagonAccessOptions.find(
-      ({ id }) => id === position.railwayWagonAccess,
-    )?.label ?? "ЖД Вагоны";
-  }
-
-  return applyNavigationLabels(
+  const label = applyNavigationLabels(
     [...navigationItemsByAccountType.admin, ...nonAdminNavigationItems],
     navigationLabels,
   ).find(({ id }) => id === navigationItemId)?.label ?? navigationItemId;
+
+  // У вкладки с уровнями подпись показывает и вкладку, и уровень: сама вкладка
+  // без уровня ничего не говорит о том, что должность может внутри неё делать.
+  if (navigationItemId === "business.board_assignments") {
+    const level = boardAssignmentAccessOptions.find(
+      ({ id }) => id === position.boardAssignmentAccess,
+    )?.label;
+    return level === undefined ? label : `${label} — ${level}`;
+  }
+
+  if (navigationItemId === "business.railway_wagons") {
+    const level = railwayWagonAccessOptions.find(
+      ({ id }) => id === position.railwayWagonAccess,
+    )?.label;
+    return level === undefined ? label : `${label} — ${level}`;
+  }
+
+  return label;
 }
 
 function moveAdminPosition(
@@ -11528,6 +11535,83 @@ function AdminAccountsWorkspace({
     setIsPositionModalOpen(true);
   }
 
+  /**
+   * Галочка выдаёт вкладку, поэтому она же поднимает уровень с `none` до
+   * стартового и гасит его обратно при снятии: уровень без вкладки не значит
+   * ничего, а вкладка с уровнями без уровня недоступна по сути.
+   */
+  function readPositionLevelPatch(
+    navigationItemId: AccountNavigationItem,
+    isChecked: boolean,
+    current: AdminPositionFormState,
+  ): Partial<AdminPositionFormState> {
+    if (navigationItemId === "business.board_assignments") {
+      return {
+        boardAssignmentAccess: !isChecked
+          ? "none"
+          : current.boardAssignmentAccess === "none"
+            ? "view"
+            : current.boardAssignmentAccess,
+      };
+    }
+
+    if (navigationItemId === "business.railway_wagons") {
+      return {
+        railwayWagonAccess: !isChecked
+          ? "none"
+          : current.railwayWagonAccess === "none"
+            ? "view"
+            : current.railwayWagonAccess,
+      };
+    }
+
+    return {};
+  }
+
+  function renderPositionAccessLevelSelect(
+    navigationItemId: AccountNavigationItem,
+    hasTab: boolean,
+  ) {
+    const levels = navigationAccessLevels[navigationItemId];
+    if (levels === undefined) {
+      return null;
+    }
+
+    const value = navigationItemId === "business.board_assignments"
+      ? positionForm.boardAssignmentAccess
+      : positionForm.railwayWagonAccess;
+
+    return (
+      <label className="admin-account-navigation-level">
+        <span>{levels.title}</span>
+        <select
+          disabled={isSubmitting || !hasTab}
+          value={value === "none" ? "view" : value}
+          onChange={(event) => {
+            const level = event.currentTarget.value;
+            setPositionForm((current) => (
+              navigationItemId === "business.board_assignments"
+                ? {
+                    ...current,
+                    boardAssignmentAccess: level as BoardAssignmentAccess,
+                  }
+                : {
+                    ...current,
+                    railwayWagonAccess: level as RailwayWagonAccess,
+                  }
+            ));
+          }}
+        >
+          {levels.options.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
   async function handlePositionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (positionForm.displayName.trim().length === 0) {
@@ -11690,6 +11774,7 @@ function AdminAccountsWorkspace({
   async function handleSetPositionNavigationAccess(
     positionIds: AccountPosition[],
     enabled: boolean,
+    accessLevel?: string,
   ) {
     if (
       !canAssignAdminNavigation ||
@@ -11705,6 +11790,7 @@ function AdminAccountsWorkspace({
       navigationItem: selectedPositionNavigationItem,
       positionIds,
       enabled,
+      ...(accessLevel === undefined ? {} : { accessLevel }),
     });
     setIsSavingPositionNavigationAccess(false);
     if (result.status !== "ready") {
@@ -11718,14 +11804,16 @@ function AdminAccountsWorkspace({
         (item) => item.id === selectedPositionNavigationItem,
       ) ?? nonAdminNavigationItems[0],
     );
-    setPositionNavigationAccessStatus(
-      `${enabled ? "Включён" : "Отключён"} доступ к вкладке «${navigationLabel}».`,
-    );
-    onShowToast(
-      "Доступ изменён",
-      `${enabled ? "Включён" : "Отключён"} доступ к вкладке «${navigationLabel}».`,
-      "success",
-    );
+    const levelLabel = accessLevel === undefined
+      ? undefined
+      : navigationAccessLevels[selectedPositionNavigationItem]?.options.find(
+          ({ id }) => id === accessLevel,
+        )?.label;
+    const message = levelLabel === undefined
+      ? `${enabled ? "Включён" : "Отключён"} доступ к вкладке «${navigationLabel}».`
+      : `Назначен уровень «${levelLabel}» на вкладке «${navigationLabel}».`;
+    setPositionNavigationAccessStatus(message);
+    onShowToast("Доступ изменён", message, "success");
   }
 
   function closeCreateModal() {
@@ -12088,6 +12176,8 @@ function AdminAccountsWorkspace({
    * общим переключателем. Порядок остаётся прежним — по первому появлению
    * должности среди аккаунтов.
    */
+  const selectedNavigationAccessLevels =
+    navigationAccessLevels[selectedPositionNavigationItem];
   const navigationAccessPositions = navigationAccessPositionIds.flatMap(
     (positionId) => {
       const position = positionById.get(positionId);
@@ -12861,103 +12951,59 @@ function AdminAccountsWorkspace({
                 <legend>Рабочие вкладки</legend>
                 <div className="admin-account-navigation-grid">
                   {applyNavigationLabels(nonAdminNavigationItems, navigationLabels)
-                    .filter(
-                      (item) =>
-                        item.id !== "business.board_assignments" &&
-                        item.id !== "business.railway_wagons",
-                    )
-                    .map((item) => (
-                      <label key={item.id} className="admin-account-navigation-option">
-                        <input type="checkbox" disabled={isSubmitting} checked={positionForm.navigationItems.includes(item.id)} onChange={(event) => {
-                          const isChecked = event.currentTarget.checked;
-                          setPositionForm((current) => ({
-                            ...current,
-                            navigationItems: isChecked
-                              ? Array.from(new Set([...current.navigationItems, item.id]))
-                              : current.navigationItems.filter((id) => id !== item.id),
-                          }));
-                        }} />
-                        <span>{formatNavigationItemLabel(item)}</span>
-                      </label>
-                    ))}
-                  {boardAssignmentAccessOptions.map((option) => (
-                    <label
-                      key={option.id}
-                      className="admin-account-navigation-option"
-                    >
+                    .map((item) => {
+                      const hasTab = positionForm.navigationItems.includes(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          className="admin-account-navigation-row"
+                        >
+                          <label className="admin-account-navigation-option">
+                            <input
+                              type="checkbox"
+                              disabled={isSubmitting}
+                              checked={hasTab}
+                              onChange={(event) => {
+                                const isChecked = event.currentTarget.checked;
+                                setPositionForm((current) => ({
+                                  ...current,
+                                  navigationItems: isChecked
+                                    ? Array.from(new Set([
+                                        ...current.navigationItems,
+                                        item.id,
+                                      ]))
+                                    : current.navigationItems.filter(
+                                        (id) => id !== item.id,
+                                      ),
+                                  ...readPositionLevelPatch(item.id, isChecked, current),
+                                }));
+                              }}
+                            />
+                            <span>{formatNavigationItemLabel(item)}</span>
+                          </label>
+                          {renderPositionAccessLevelSelect(item.id, hasTab)}
+                        </div>
+                      );
+                    })}
+                  <div className="admin-account-navigation-row">
+                    <label className="admin-account-navigation-option">
                       <input
                         type="checkbox"
                         disabled={isSubmitting}
-                        checked={
-                          positionForm.boardAssignmentAccess === option.id
-                        }
+                        checked={positionForm.showOverviewVisitors}
                         onChange={(event) => {
                           const isChecked = event.currentTarget.checked;
                           setPositionForm((current) => ({
                             ...current,
-                            navigationItems: isChecked
-                              ? Array.from(new Set([
-                                  ...current.navigationItems,
-                                  "business.board_assignments",
-                                ]))
-                              : current.navigationItems.filter(
-                                  (id) =>
-                                    id !== "business.board_assignments",
-                                ),
-                            boardAssignmentAccess: isChecked
-                              ? option.id
-                              : "none",
+                            showOverviewVisitors: isChecked,
                           }));
                         }}
                       />
-                      <span>{option.label}</span>
+                      <span>
+                        Показывать «Посетители» в Обзоре и Диспетчерской
+                      </span>
                     </label>
-                  ))}
-                  {railwayWagonAccessOptions.map((option) => (
-                    <label
-                      key={option.id}
-                      className="admin-account-navigation-option"
-                    >
-                      <input
-                        type="checkbox"
-                        disabled={isSubmitting}
-                        checked={positionForm.railwayWagonAccess === option.id}
-                        onChange={(event) => {
-                          const isChecked = event.currentTarget.checked;
-                          setPositionForm((current) => ({
-                            ...current,
-                            navigationItems: isChecked
-                              ? Array.from(new Set([
-                                  ...current.navigationItems,
-                                  "business.railway_wagons",
-                                ]))
-                              : current.navigationItems.filter(
-                                  (id) => id !== "business.railway_wagons",
-                                ),
-                            railwayWagonAccess: isChecked ? option.id : "none",
-                          }));
-                        }}
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                  ))}
-                  <label className="admin-account-navigation-option">
-                    <input
-                      type="checkbox"
-                      disabled={isSubmitting}
-                      checked={positionForm.showOverviewVisitors}
-                      onChange={(event) => {
-                        const isChecked = event.currentTarget.checked;
-                        setPositionForm((current) => ({
-                          ...current,
-                          showOverviewVisitors: isChecked,
-                        }));
-                      }}
-                    />
-                    <span>
-                      Показывать «Посетители» в Обзоре и Диспетчерской
-                    </span>
-                  </label>
+                  </div>
                 </div>
               </fieldset>
               <div className="form-actions">
@@ -13017,6 +13063,9 @@ function AdminAccountsWorkspace({
             <p className="admin-position-navigation-access-copy">
               Доступ хранится в должности. Поэтому переключатель применяется
               сразу ко всем аккаунтам этой должности.
+              {selectedNavigationAccessLevels === undefined
+                ? null
+                : " Галочка выдаёт саму вкладку, а список рядом — уровень внутри неё."}
             </p>
             <div className="admin-position-navigation-access-toolbar">
               <label>
@@ -13082,6 +13131,9 @@ function AdminAccountsWorkspace({
                   <tr>
                     <th>Должность</th>
                     <th>Доступ</th>
+                    {selectedNavigationAccessLevels === undefined ? null : (
+                      <th>{selectedNavigationAccessLevels.title}</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -13089,6 +13141,10 @@ function AdminAccountsWorkspace({
                     const hasAccess = position.navigationItems.includes(
                       selectedPositionNavigationItem,
                     );
+                    const level = selectedPositionNavigationItem ===
+                        "business.board_assignments"
+                      ? position.boardAssignmentAccess
+                      : position.railwayWagonAccess;
                     return (
                       <tr key={position.id}>
                         <td>{position.displayName}</td>
@@ -13110,12 +13166,39 @@ function AdminAccountsWorkspace({
                             <span>{hasAccess ? "Вкл." : "Выкл."}</span>
                           </label>
                         </td>
+                        {selectedNavigationAccessLevels === undefined ? null : (
+                          <td>
+                            <select
+                              aria-label={`${selectedNavigationAccessLevels.title} для должности ${position.displayName}`}
+                              className="admin-position-navigation-access-level"
+                              disabled={
+                                isSavingPositionNavigationAccess || !hasAccess
+                              }
+                              value={level === "none" ? "view" : level}
+                              onChange={(event) => {
+                                void handleSetPositionNavigationAccess(
+                                  [position.id],
+                                  true,
+                                  event.currentTarget.value,
+                                );
+                              }}
+                            >
+                              {selectedNavigationAccessLevels.options.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
                   {navigationAccessPositions.length === 0 ? (
                     <tr>
-                      <td colSpan={2}>Должностей с рабочими аккаунтами пока нет.</td>
+                      <td colSpan={selectedNavigationAccessLevels === undefined ? 2 : 3}>
+                        Должностей с рабочими аккаунтами пока нет.
+                      </td>
                     </tr>
                   ) : null}
                 </tbody>
