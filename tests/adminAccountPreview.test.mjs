@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
@@ -373,4 +374,31 @@ test("preview target address follows the picked account and clears on exit", asy
       globalThis.window = previousWindow;
     }
   }
+});
+
+test("tab preview offers switching between the levels of that tab", async () => {
+  const appSource = await readFile(
+    new URL("../src/App.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // Переключатель стоит рядом с плашкой режима, а не спрятан в выборе цели.
+  assert.match(appSource, /className="admin-preview-mode-level"/u);
+  assert.match(appSource, /onChangePreviewLevel\(event\.currentTarget\.value\)/u);
+  // Первым пунктом идёт вкладка целиком, поэтому пустой уровень не уходит в адрес.
+  assert.match(
+    appSource,
+    /level === undefined \|\| level === adminPreviewAllLevelsId\s*\?\s*`navigation:\$\{navigationItem\}`/u,
+  );
+  assert.match(appSource, /label: "Все сразу"/u);
+  // У предпросмотра должности переключателя нет: роль задаёт сама должность.
+  assert.match(
+    appSource,
+    /if \(!account\.accessId\.startsWith\(adminPreviewNavigationAccessPrefix\)\) \{\s*return undefined;/u,
+  );
+  // Смена уровня перемонтирует раздел, иначе на экране останется прошлый ответ.
+  assert.match(
+    appSource,
+    /setWorkspaceNavigationVersion\(\(version\) => version \+ 1\)/u,
+  );
 });

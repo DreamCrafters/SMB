@@ -7,6 +7,8 @@ import {
   readRawMaterialWarehouseReviewAccess,
   resolveCapabilitiesForPosition,
   resolveCapabilitiesForNavigation,
+  resolveCapabilitiesForNavigationLevel,
+  resolveMaximumCapabilitiesForNavigation,
   resolveNavigationForPosition,
   validatePositionNavigationItems,
 } from "./accountAccessConfiguration.js";
@@ -265,4 +267,36 @@ test("stored board assignment capabilities resolve to one editable access varian
     ),
     "review",
   );
+});
+
+test("tab preview shows every level at once, a chosen level shows only its own", () => {
+  const everything = resolveMaximumCapabilitiesForNavigation(
+    "business.railway_wagons",
+  );
+  assert.ok(everything.includes("business.manage_railway_wagon_orders"));
+  assert.ok(everything.includes("business.manage_railway_wagon_carriage"));
+  assert.ok(everything.includes("business.approve_railway_wagon_logistics"));
+  assert.ok(everything.includes("business.confirm_railway_wagon_movement"));
+
+  const carrier = resolveCapabilitiesForNavigationLevel(
+    "business.railway_wagons",
+    "carrier",
+  );
+  assert.ok(carrier.includes("business.view_railway_wagons"));
+  assert.ok(carrier.includes("business.manage_railway_wagon_carriage"));
+  assert.ok(!carrier.includes("business.manage_railway_wagon_orders"));
+
+  // Уровень чужой вкладки не добавляет ничего.
+  assert.deepEqual(
+    resolveCapabilitiesForNavigationLevel("business.railway_wagons", "review"),
+    resolveCapabilitiesForNavigationLevel("business.railway_wagons", "view"),
+  );
+
+  const reviewer = resolveCapabilitiesForNavigationLevel(
+    "business.board_assignments",
+    "review",
+  );
+  assert.ok(reviewer.includes("business.review_board_assignments"));
+  assert.ok(reviewer.includes("business.create_board_assignments"));
+  assert.ok(!reviewer.includes("business.execute_board_assignments"));
 });

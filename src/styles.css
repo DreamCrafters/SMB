@@ -117,6 +117,37 @@ p {
   pointer-events: none;
 }
 
+/* Плашка режима и переключатель уровня стоят одной колонкой в шапке панели. */
+.admin-preview-mode-panel {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-preview-mode-level {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-preview-mode-level > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-preview-mode-level select {
+  width: 100%;
+  min-height: 30px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 12px;
+}
+
 .admin-preview-mode-badge {
   padding: 6px 12px;
   border: 2px solid #8a6200;
@@ -531,7 +562,7 @@ p {
 .side-rail-collapsed .rail-product-copy,
 .side-rail-collapsed .primary-nav,
 .side-rail-collapsed .rail-note,
-.side-rail-collapsed .admin-preview-mode-badge {
+.side-rail-collapsed .admin-preview-mode-panel {
   display: none;
 }
 

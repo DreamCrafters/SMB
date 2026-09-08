@@ -19,6 +19,7 @@ import {
   isBoardAssignmentAccess,
   isNavigationAccessLevel,
   nonAdminNavigationItems,
+  resolveCapabilitiesForNavigationLevel,
   resolveCapabilitiesForPosition,
   resolveMaximumCapabilitiesForNavigation,
   validatePositionNavigationItems,
@@ -13750,17 +13751,24 @@ async function applyAccountPreview(
   }
 
   if (target.kind === "navigation") {
+    const label = target.level === undefined
+      ? readNavigationItemLabel(target.navigationItem)
+      : `${readNavigationItemLabel(target.navigationItem)} — ${readNavigationAccessLevelLabel(target.navigationItem, target.level as NavigationAccessLevel)}`;
+
     return {
       ...access,
       profile: applyAccountPreviewAccess(access.profile, {
         position: access.profile.activeAccess.position,
-        positionDisplayName: readNavigationItemLabel(target.navigationItem),
+        positionDisplayName: label,
         navigationItems: [target.navigationItem],
-        capabilities: resolveMaximumCapabilitiesForNavigation(
-          target.navigationItem,
-        ),
+        capabilities: target.level === undefined
+          ? resolveMaximumCapabilitiesForNavigation(target.navigationItem)
+          : resolveCapabilitiesForNavigationLevel(
+              target.navigationItem,
+              target.level,
+            ),
       }),
-      previewPositionDisplayName: readNavigationItemLabel(target.navigationItem),
+      previewPositionDisplayName: label,
     };
   }
 

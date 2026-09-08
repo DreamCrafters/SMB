@@ -45,6 +45,31 @@ test("preview target is read from its address", () => {
   });
 });
 
+test("navigation target carries an optional level", () => {
+  assert.deepEqual(
+    parseAccountPreviewTarget("navigation:business.railway_wagons:carrier"),
+    {
+      kind: "navigation",
+      navigationItem: "business.railway_wagons",
+      level: "carrier",
+    },
+  );
+  // Без уровня вкладка показывается целиком.
+  assert.deepEqual(
+    parseAccountPreviewTarget("navigation:business.railway_wagons"),
+    { kind: "navigation", navigationItem: "business.railway_wagons" },
+  );
+  // Мусор вместо уровня не превращается в «вкладку целиком».
+  assert.equal(
+    parseAccountPreviewTarget("navigation:business.railway_wagons:Carrier 1"),
+    undefined,
+  );
+  assert.equal(
+    parseAccountPreviewTarget("navigation:business.railway_wagons:"),
+    undefined,
+  );
+});
+
 test("preview target rejects anything that is not an address", () => {
   for (
     const value of [

@@ -57,6 +57,10 @@ export function isRailwayWagonAccess(value: unknown): value is RailwayWagonAcces
   return (railwayWagonAccessLevels as readonly unknown[]).includes(value);
 }
 
+export function isRailwayWagonRole(value: unknown): value is RailwayWagonRole {
+  return (railwayWagonRoles as readonly unknown[]).includes(value);
+}
+
 /** Роли выводятся из capability, поэтому и сервер, и браузер читают их одинаково. */
 export function resolveRailwayWagonRoles(
   capabilities: readonly string[],

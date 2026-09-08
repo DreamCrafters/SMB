@@ -6796,6 +6796,20 @@ test("admin preview grants the previewed position and refuses everyone else", as
     // Предпросмотр одной вкладки показывает её целиком.
     const byTab = await read(adminSession, "navigation:business.railway_wagons");
     assert.equal(byTab.status, 503);
+
+    // Ту же вкладку можно смотреть глазами одной роли.
+    const byRole = await read(
+      adminSession,
+      "navigation:business.railway_wagons:carrier",
+    );
+    assert.equal(byRole.status, 503);
+
+    // Испорченный уровень не проходит и не превращается в «вкладку целиком».
+    const brokenRole = await read(
+      adminSession,
+      "navigation:business.railway_wagons:carrier 1",
+    );
+    assert.equal(brokenRole.status, 403);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
 

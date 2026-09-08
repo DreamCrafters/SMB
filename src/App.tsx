@@ -708,6 +708,9 @@ export default function App() {
     useState<AdminAccountSummary>();
   const [adminViewedOwnerTab, setAdminViewedOwnerTab] =
     useState<BusinessTab>("overview");
+  /** Уровень, глазами которого показывается предпросмотр вкладки. */
+  const [adminViewedNavigationLevel, setAdminViewedNavigationLevel] =
+    useState<string>();
   const [adminViewedDataEntryStatus, setAdminViewedDataEntryStatus] =
     useState("");
   const [
@@ -1728,6 +1731,7 @@ export default function App() {
 
   function handleStartAdminAccountView(account: AdminAccountSummary) {
     storeAccountPreviewTarget(readAdminPreviewTargetAddress(account));
+    setAdminViewedNavigationLevel(undefined);
     setWorkspaceKind("business");
     setAdminViewedAccount(account);
     setAdminViewedOwnerTab("overview");
@@ -1736,8 +1740,25 @@ export default function App() {
     setAdminViewedDispatcherFeedFilters(initialDispatcherFeedFilters);
   }
 
+  function handleChangeAdminPreviewLevel(level: string) {
+    if (adminViewedAccount === undefined) {
+      return;
+    }
+
+    storeAccountPreviewTarget(
+      readAdminPreviewTargetAddress(adminViewedAccount, level),
+    );
+    setAdminViewedNavigationLevel(
+      level === adminPreviewAllLevelsId ? undefined : level,
+    );
+    // Права приходят с сервера вместе с данными, поэтому раздел нужно
+    // перемонтировать: иначе он оставит на экране ответ прошлой роли.
+    setWorkspaceNavigationVersion((version) => version + 1);
+  }
+
   function handleStopAdminAccountView() {
     clearStoredAccountPreviewTarget();
+    setAdminViewedNavigationLevel(undefined);
     setWorkspaceKind("admin");
     setAdminViewedAccount(undefined);
     setAdminViewedDataEntryStatus("");
@@ -1973,6 +1994,13 @@ export default function App() {
         profile={visibleProfile}
         signedInDisplayName={profile.displayName}
         isAdminPreviewMode={isAdminPreviewMode}
+        previewLevel={adminViewedNavigationLevel}
+        previewLevels={
+          adminViewedAccount === undefined
+            ? undefined
+            : readAdminPreviewNavigationLevels(adminViewedAccount)
+        }
+        onChangePreviewLevel={handleChangeAdminPreviewLevel}
         isMobile={isMobileNavigation}
         isOpen={isNavigationOpen}
         onToggle={() => setIsNavigationOpen((current) => !current)}
@@ -2589,6 +2617,9 @@ export function SideRail({
   profile,
   signedInDisplayName,
   isAdminPreviewMode,
+  previewLevel,
+  previewLevels,
+  onChangePreviewLevel = () => undefined,
   isMobile,
   isOpen,
   onToggle,
@@ -2612,6 +2643,12 @@ export function SideRail({
   profile: ServerUserProfile;
   signedInDisplayName: string;
   isAdminPreviewMode: boolean;
+  previewLevel?: string;
+  previewLevels?: {
+    title: string;
+    options: ReadonlyArray<{ id: string; label: string }>;
+  };
+  onChangePreviewLevel?: (level: string) => void;
   isMobile: boolean;
   isOpen: boolean;
   onToggle: () => void;
@@ -2740,12 +2777,31 @@ export function SideRail({
             <img alt="" src="/nmou-vector-icon.png" />
           </span>
           {isAdminPreviewMode ? (
-            <div
-              className="admin-preview-mode-badge"
-              role="status"
-              title={`Вы работаете от лица должности «${profile.activeAccess.positionDisplayName}». Раздел работает полностью: отправленные формы сохраняются и рассылаются как обычно, а в журнале действий запись подписана вашим аккаунтом.`}
-            >
-              АДМИН ПРЕВЬЮ МОД
+            <div className="admin-preview-mode-panel">
+              <div
+                className="admin-preview-mode-badge"
+                role="status"
+                title={`Вы работаете от лица должности «${profile.activeAccess.positionDisplayName}». Раздел работает полностью: отправленные формы сохраняются и рассылаются как обычно, а в журнале действий запись подписана вашим аккаунтом.`}
+              >
+                АДМИН ПРЕВЬЮ МОД
+              </div>
+              {previewLevels === undefined ? null : (
+                <label className="admin-preview-mode-level">
+                  <span>{previewLevels.title}</span>
+                  <select
+                    value={previewLevel ?? ""}
+                    onChange={(event) => {
+                      onChangePreviewLevel(event.currentTarget.value);
+                    }}
+                  >
+                    {previewLevels.options.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           ) : null}
           {isMobile ? (
@@ -11111,13 +11167,50 @@ function buildAdminPreviewAccountForDefinition(
 
 /**
  * Адрес цели предпросмотра для сервера. Предпросмотр отдельной вкладки не
- * опирается на должность, поэтому у него собственный вид адреса.
+ * опирается на должность, поэтому у него собственный вид адреса; уровень
+ * дописывается к нему, чтобы вкладку можно было смотреть глазами одной роли.
  */
-function readAdminPreviewTargetAddress(account: AdminAccountSummary) {
-  return account.accessId.startsWith(adminPreviewNavigationAccessPrefix)
-    ? `navigation:${account.navigationItems[0]}`
-    : `position:${account.position}`;
+function readAdminPreviewTargetAddress(
+  account: AdminAccountSummary,
+  level?: string,
+) {
+  if (!account.accessId.startsWith(adminPreviewNavigationAccessPrefix)) {
+    return `position:${account.position}`;
+  }
+
+  const navigationItem = account.navigationItems[0];
+
+  return level === undefined || level === adminPreviewAllLevelsId
+    ? `navigation:${navigationItem}`
+    : `navigation:${navigationItem}:${level}`;
 }
+
+/**
+ * Уровни, между которыми можно переключаться в предпросмотре. У предпросмотра
+ * должности их нет: роль задана самой должностью, подменять её значило бы
+ * показывать несуществующий доступ.
+ *
+ * Первым пунктом идёт показ вкладки целиком: предпросмотр вкладки отвечает на
+ * вопрос «что тут вообще есть», а сужение до одной роли — уже следующий шаг.
+ */
+function readAdminPreviewNavigationLevels(account: AdminAccountSummary) {
+  if (!account.accessId.startsWith(adminPreviewNavigationAccessPrefix)) {
+    return undefined;
+  }
+
+  const levels = navigationAccessLevels[account.navigationItems[0]];
+
+  return levels === undefined ? undefined : {
+    title: levels.title,
+    options: [
+      { id: adminPreviewAllLevelsId, label: "Все сразу" },
+      ...levels.options,
+    ],
+  };
+}
+
+/** Пустой уровень означает вкладку целиком, поэтому он не уходит в адрес. */
+const adminPreviewAllLevelsId = "";
 
 const adminPreviewNavigationAccessPrefix = "admin-preview-navigation-";
 

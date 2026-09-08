@@ -26,7 +26,12 @@ export const accountPreviewHeader = "x-smb-account-preview";
 
 export type AccountPreviewTarget =
   | { kind: "position"; positionId: string }
-  | { kind: "navigation"; navigationItem: AccountNavigationItem };
+  | {
+      kind: "navigation";
+      navigationItem: AccountNavigationItem;
+      /** Уровень внутри вкладки; без него вкладка показывается максимально. */
+      level?: string;
+    };
 
 export type AccountPreviewAccess = {
   position: AccountPosition;
@@ -36,10 +41,13 @@ export type AccountPreviewAccess = {
 };
 
 const positionIdPattern = /^[a-z0-9][a-z0-9_-]{0,119}$/u;
+const levelPattern = /^[a-z][a-z_-]{0,39}$/u;
 
 /**
  * Адрес цели: `position:<id>` — доступ конкретной должности, `navigation:<item>`
- * — что видит должность, у которой открыта только эта вкладка.
+ * — что видит должность, у которой открыта только эта вкладка. У вкладки с
+ * уровнями адрес может дописать уровень: `navigation:<item>:<level>`, тогда
+ * вкладка показывается глазами одной роли, а не целиком.
  */
 export function parseAccountPreviewTarget(
   value: string | string[] | undefined,
@@ -65,8 +73,24 @@ export function parseAccountPreviewTarget(
   }
 
   if (kind === "navigation") {
-    return isAccountNavigationItem(target)
-      ? { kind: "navigation", navigationItem: target }
+    const levelSeparator = target.indexOf(":");
+    const navigationItem = levelSeparator < 0
+      ? target
+      : target.slice(0, levelSeparator);
+    const level = levelSeparator < 0
+      ? undefined
+      : target.slice(levelSeparator + 1).trim();
+
+    if (!isAccountNavigationItem(navigationItem)) {
+      return undefined;
+    }
+
+    if (level === undefined) {
+      return { kind: "navigation", navigationItem };
+    }
+
+    return levelPattern.test(level)
+      ? { kind: "navigation", navigationItem, level }
       : undefined;
   }
 

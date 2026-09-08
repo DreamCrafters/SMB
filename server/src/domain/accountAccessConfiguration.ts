@@ -1,4 +1,5 @@
 import {
+  isRailwayWagonRole,
   railwayWagonAccessLevels,
   railwayWagonRoleCapabilities,
   railwayWagonRoles,
@@ -281,6 +282,49 @@ export function resolveMaximumCapabilitiesForNavigation(
       ...base,
       "business.review_raw_material_warehouse",
     ]));
+  }
+
+  return base;
+}
+
+/**
+ * Предпросмотр вкладки глазами одной роли: к правам вкладки добавляются права
+ * выбранного уровня. Неизвестный уровень остаётся без добавки, а не роняет
+ * запрос — цель предпросмотра приходит извне.
+ */
+export function resolveCapabilitiesForNavigationLevel(
+  navigationItem: AccountNavigationItem,
+  level: string,
+): AccountCapability[] {
+  const base = resolveCapabilitiesForNavigation([navigationItem]);
+
+  if (!isNavigationAccessLevel(navigationItem, level)) {
+    return base;
+  }
+
+  if (navigationItem === "business.board_assignments") {
+    return Array.from(new Set([
+      ...base,
+      ...(level === "review"
+        ? ([
+            "business.create_board_assignments",
+            "business.review_board_assignments",
+          ] as AccountCapability[])
+        : level === "execute"
+          ? (["business.execute_board_assignments"] as AccountCapability[])
+          : level === "create"
+            ? (["business.create_board_assignments"] as AccountCapability[])
+            : []),
+    ]));
+  }
+
+  if (navigationItem === "business.railway_wagons") {
+    return isRailwayWagonRole(level)
+      ? Array.from(new Set([
+          ...base,
+          railwayWagonRoleCapabilities[level],
+        ])) as AccountCapability[]
+      : base;
   }
 
   return base;
