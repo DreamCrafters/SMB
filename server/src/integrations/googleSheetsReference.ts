@@ -161,7 +161,7 @@ export function createGoogleSheetsReferenceDataSource(
   const now = dependencies.now ?? Date.now;
 
   return {
-    async read() {
+    read: shareConcurrentRead(async () => {
       const readStartedAt = now();
 
       if (cachedData !== undefined && readStartedAt < cacheExpiresAt) {
@@ -205,7 +205,7 @@ export function createGoogleSheetsReferenceDataSource(
       cacheExpiresAt = readStartedAt + config.cacheTtlMs;
 
       return cachedData;
-    },
+    }),
   };
 }
 
@@ -219,7 +219,7 @@ export function createGoogleSheetsLaboratoryReferenceDataSource(
   const now = dependencies.now ?? Date.now;
 
   return {
-    async read() {
+    read: shareConcurrentRead(async () => {
       const readStartedAt = now();
 
       if (cachedData !== undefined && readStartedAt < cacheExpiresAt) {
@@ -238,7 +238,7 @@ export function createGoogleSheetsLaboratoryReferenceDataSource(
       );
       cacheExpiresAt = readStartedAt + config.cacheTtlMs;
       return cachedData;
-    },
+    }),
   };
 }
 
@@ -252,7 +252,7 @@ export function createGoogleSheetsBankVolumeReferenceDataSource(
   const now = dependencies.now ?? Date.now;
 
   return {
-    async read() {
+    read: shareConcurrentRead(async () => {
       const readStartedAt = now();
       if (cachedData !== undefined && readStartedAt < cacheExpiresAt) {
         return cachedData;
@@ -270,7 +270,18 @@ export function createGoogleSheetsBankVolumeReferenceDataSource(
       );
       cacheExpiresAt = readStartedAt + config.cacheTtlMs;
       return cachedData;
-    },
+    }),
+  };
+}
+
+function shareConcurrentRead<T>(read: () => Promise<T>): () => Promise<T> {
+  let pendingRead: Promise<T> | undefined;
+
+  return () => {
+    pendingRead ??= read().finally(() => {
+      pendingRead = undefined;
+    });
+    return pendingRead;
   };
 }
 

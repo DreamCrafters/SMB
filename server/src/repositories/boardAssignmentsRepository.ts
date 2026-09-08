@@ -197,16 +197,19 @@ type BoardAssignmentCompletionRow = RowDataPacket & {
   completed_at: Date | string;
 };
 
-type BoardAssignmentDocumentRow = RowDataPacket & {
+type BoardAssignmentDocumentMetadataRow = RowDataPacket & {
   id: string;
+  file_name: string;
+  byte_size: number | string;
+  created_at: Date | string;
+};
+
+type BoardAssignmentDocumentRow = BoardAssignmentDocumentMetadataRow & {
   assignment_id: string;
   storage_key: string | null;
-  file_name: string;
   mime_type: string;
-  byte_size: number | string;
   pdf_data: Buffer | null;
   uploaded_by_display_name: string;
-  created_at: Date | string;
   deleted_at: Date | string | null;
 };
 
@@ -332,11 +335,9 @@ export function createBoardAssignmentsRepository(
       order by created_at asc, sequence_id asc`,
       [id],
     );
-    const [documentRows] = await pool.query<BoardAssignmentDocumentRow[]>(
-      `select documents.id, documents.assignment_id, documents.storage_key,
-        documents.file_name, documents.mime_type, documents.byte_size,
-        documents.pdf_data, documents.uploaded_by_display_name,
-        documents.created_at, documents.deleted_at
+    const [documentRows] = await pool.query<BoardAssignmentDocumentMetadataRow[]>(
+      `select documents.id, documents.file_name, documents.byte_size,
+        documents.created_at
       from board_assignment_documents documents
       where documents.assignment_id = ? and documents.deleted_at is null
       order by documents.sequence_id asc`,
@@ -881,7 +882,7 @@ function mapComment(row: BoardAssignmentCommentRow): BoardAssignmentComment {
   };
 }
 
-function mapDocument(row: BoardAssignmentDocumentRow): BoardAssignmentDocument {
+function mapDocument(row: BoardAssignmentDocumentMetadataRow): BoardAssignmentDocument {
   return {
     id: row.id,
     fileName: row.file_name,

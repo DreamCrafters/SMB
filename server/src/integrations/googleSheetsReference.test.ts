@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   buildGoogleSheetsCsvUrl,
   createGoogleSheetsReferenceDataSource,
+  createGoogleSheetsLaboratoryReferenceDataSource,
+  createGoogleSheetsBankVolumeReferenceDataSource,
   readBankVolumeReferenceFromRows,
   readLaboratoryReferenceFromRows,
   readGoogleSheetsWorkbook,
@@ -715,3 +717,95 @@ test("google sheets reference source reads private sheets with service account",
     "https://sheets.googleapis.com/v4/spreadsheets/sheet-id/values/'%D0%A1%D0%BF%D1%80%D0%B0%D0%B2%D0%BE%D1%87%D0%BD%D0%B8%D0%BA'?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE",
   ]);
 });
+
+const concurrentReferenceConfig = {
+  url: "https://docs.google.com/spreadsheets/d/reference-sheet/edit?gid=0",
+  responsibleColumn: "Ответственный",
+  locationColumn: "Место",
+  notificationEmailColumns: [],
+  maxUserIdColumns: [],
+  visitorNotificationEmailColumns: [],
+  visitorMaxUserIdColumns: [],
+  cacheTtlMs: 0,
+  authMode: "public_csv",
+} as const;
+
+const concurrentReferenceCases = [
+  {
+    name: "dispatcher",
+    create: createGoogleSheetsReferenceDataSource,
+    csv: "Ответственный,Место\nСотрудник,Цех\n",
+  },
+  {
+    name: "laboratory",
+    create: createGoogleSheetsLaboratoryReferenceDataSource,
+    csv: "Раздел,Материал,Al2O3\nСырье,Глина,v\n",
+  },
+  {
+    name: "bank volume",
+    create: createGoogleSheetsBankVolumeReferenceDataSource,
+    csv: "H·m,M3\n0,100\n1,90\n",
+  },
+];
+
+for (const { name, create, csv } of concurrentReferenceCases) {
+  test(`${name} reference shares concurrent reads and refetches after zero TTL`, async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    let fetchCount = 0;
+    const source = create(concurrentReferenceConfig, async () => {
+      fetchCount += 1;
+      await pending;
+      return new Response(csv, { status: 200 });
+    });
+    const reads = Array.from({ length: 20 }, () => source.read());
+    release();
+    const results = await Promise.all(reads);
+    assert.equal(fetchCount, 1);
+    for (const result of results) assert.strictEqual(result, results[0]);
+    await source.read();
+    assert.equal(fetchCount, 2);
+  });
+}
+
+for (const { name, create, csv } of concurrentReferenceCases) {
+  test(`${name} reference releases a failed shared read and retries`, async (t) => {
+    t.mock.method(console, "warn", () => {});
+    let fetchCount = 0;
+    let shouldFail = true;
+    const source = create(concurrentReferenceConfig, async () => {
+      fetchCount += 1;
+      if (shouldFail) throw new Error("Reference unavailable");
+      return new Response(csv, { status: 200 });
+    });
+    const failures = await Promise.allSettled(
+      Array.from({ length: 20 }, () => source.read()),
+    );
+    assert.equal(fetchCount, 1);
+    assert.ok(failures.every((result) =>
+      result.status === (name === "dispatcher" ? "fulfilled" : "rejected"),
+    ));
+    shouldFail = false;
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => source.read()),
+    );
+    assert.equal(fetchCount, 2);
+    for (const result of results) assert.strictEqual(result, results[0]);
+  });
+
+  test(`${name} reference retains its TTL and shares the next refresh`, async () => {
+    let time = 100;
+    let fetchCount = 0;
+    const source = create({ ...concurrentReferenceConfig, cacheTtlMs: 50 }, async () => {
+      fetchCount += 1;
+      return new Response(csv, { status: 200 });
+    }, { now: () => time });
+    const first = await source.read();
+    time = 149;
+    assert.strictEqual(await source.read(), first);
+    assert.equal(fetchCount, 1);
+    time = 150;
+    await Promise.all(Array.from({ length: 20 }, () => source.read()));
+    assert.equal(fetchCount, 2);
+  });
+}

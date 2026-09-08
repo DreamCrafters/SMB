@@ -682,3 +682,38 @@ function mapFixtureAssignment() {
     }],
   };
 }
+
+for (const forUpdate of [false, true]) {
+  test(`board assignment ${forUpdate ? "locked " : ""}details read document metadata without PDF contents`, async () => {
+    const pool = {
+      async query(sql: string) {
+        if (sql.includes("from board_assignments assignments")) {
+          return [[assignmentRow], []];
+        }
+        if (sql.includes("from board_assignment_comments")) {
+          return [[commentRow], []];
+        }
+        if (sql.includes("from board_assignment_documents")) {
+          assert.doesNotMatch(sql, /pdf_data/u);
+          return [[{
+            id: documentRow.id,
+            file_name: documentRow.file_name,
+            byte_size: documentRow.byte_size,
+            created_at: documentRow.created_at,
+          }], []];
+        }
+        throw new Error("Unexpected query");
+      },
+    } as unknown as DatabasePool;
+    const repository = createBoardAssignmentsRepository(pool);
+    const assignment = await (forUpdate
+      ? repository.readByIdForUpdate("assignment-1")
+      : repository.readById("assignment-1"));
+    assert.deepEqual(assignment?.documents, [{
+      id: "document-1",
+      fileName: "Приложение к протоколу.pdf",
+      sizeBytes: 1_024,
+      uploadedAt: "2026-07-10T08:00:00.000Z",
+    }]);
+  });
+}
