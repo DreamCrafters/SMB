@@ -11,15 +11,13 @@ import type { ShowToast } from "./services/toastStack";
  * а счётчик обжига и текущее состояние всегда считает и подтягивает сервер.
  */
 export function RefractoryWagonCatalog({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [wagons, setWagons] = useState<RefractoryWagonRecord[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
-    isAdminPreviewMode ? "ready" : "loading",
+    "loading",
   );
   const [message, setMessage] = useState("");
   const [number, setNumber] = useState("");
@@ -29,7 +27,6 @@ export function RefractoryWagonCatalog({
   const hasSuccessfulMutation = useRef(false);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     setLoadState("loading");
     requestRefractoryWagons({ signal: controller.signal }).then((result) => {
@@ -55,7 +52,7 @@ export function RefractoryWagonCatalog({
       );
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,44 +100,38 @@ export function RefractoryWagonCatalog({
 
   return (
     <section className="refractory-wagon-catalog" aria-label="Каталог вагонов">
-      {isAdminPreviewMode ? (
-        <p className="form-status form-status-local">
-          В режиме предпросмотра каталог вагонов не загружается.
-        </p>
-      ) : (
-        <form className="refractory-wagon-form" onSubmit={handleSubmit}>
-          <fieldset disabled={isSubmitting}>
-            <legend>Новый вагон</legend>
-            <div className="refractory-field-grid">
-              <label className="refractory-field">
-                <span>№ вагона</span>
-                <input
-                  name="wagonNumber"
-                  required
-                  value={number}
-                  onChange={(event) => setNumber(event.currentTarget.value)}
-                />
-              </label>
-            </div>
-            <p className="laboratory-empty-note">
-              Дата садки, марка и остальные поля заполняются исправлением в
-              журнале «Оборот вагонов» после регистрации номера.
-            </p>
-          </fieldset>
-          <div className="refractory-form-actions">
-            <button className="primary-button" disabled={isSubmitting} type="submit">
-              {isSubmitting ? "Сохраняем…" : "Добавить вагон"}
-            </button>
-            {formMessage.length > 0 ? (
-              <p className={`form-status${hasFormError ? " form-status-error" : ""}`}>
-                {formMessage}
-              </p>
-            ) : null}
+      <form className="refractory-wagon-form" onSubmit={handleSubmit}>
+        <fieldset disabled={isSubmitting}>
+          <legend>Новый вагон</legend>
+          <div className="refractory-field-grid">
+            <label className="refractory-field">
+              <span>№ вагона</span>
+              <input
+                name="wagonNumber"
+                required
+                value={number}
+                onChange={(event) => setNumber(event.currentTarget.value)}
+              />
+            </label>
           </div>
-        </form>
-      )}
+          <p className="laboratory-empty-note">
+            Дата садки, марка и остальные поля заполняются исправлением в
+            журнале «Оборот вагонов» после регистрации номера.
+          </p>
+        </fieldset>
+        <div className="refractory-form-actions">
+          <button className="primary-button" disabled={isSubmitting} type="submit">
+            {isSubmitting ? "Сохраняем…" : "Добавить вагон"}
+          </button>
+          {formMessage.length > 0 ? (
+            <p className={`form-status${hasFormError ? " form-status-error" : ""}`}>
+              {formMessage}
+            </p>
+          ) : null}
+        </div>
+      </form>
 
-      {isAdminPreviewMode ? null : loadState === "loading" ? (
+      {loadState === "loading" ? (
         <LoadingIndicator label="Загружаем каталог вагонов…" variant="panel" />
       ) : loadState === "error" ? (
         <p className="form-status form-status-error">{message}</p>

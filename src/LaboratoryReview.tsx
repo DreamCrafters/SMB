@@ -81,11 +81,9 @@ const isResultsJournalVisible = laboratoryReviewJournals.some(
 );
 
 export function LaboratoryReviewWorkspace({
-  isAdminPreviewMode,
   onShowToast,
   initialDateFrom,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
   /** Обзор передаёт 1-е число месяца при переходе по клику на блок «Лаборатория». */
   initialDateFrom?: string;
@@ -355,7 +353,6 @@ export function LaboratoryReviewWorkspace({
           {journal.id === "results" ? (
             <LaboratoryResultsHistory
               indicators={indicators}
-              isAdminPreviewMode={isAdminPreviewMode}
               query={query}
               section={section}
               onShowToast={onShowToast}
@@ -385,13 +382,11 @@ export function LaboratoryReviewWorkspace({
 
 function LaboratoryResultsHistory({
   indicators,
-  isAdminPreviewMode,
   query,
   section,
   onShowToast,
 }: {
   indicators: LaboratoryIndicatorReference[];
-  isAdminPreviewMode: boolean;
   query: ReviewQuery;
   section: LaboratoryTableSection;
   onShowToast: ShowToast;
@@ -440,7 +435,6 @@ function LaboratoryResultsHistory({
         sectionLabels={reviewSectionLabels}
         results={state.records}
         indicators={tableIndicators}
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
       />
     </>

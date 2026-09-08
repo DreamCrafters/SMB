@@ -105,10 +105,8 @@ type CompletionDetailState =
   | { status: "error"; message: string };
 
 export function BoardAssignmentsWorkspace({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [filters, setFilters] = useState<BoardAssignmentFilters>({});
@@ -309,7 +307,7 @@ export function BoardAssignmentsWorkspace({
 
   async function saveAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode || isSaving) return;
+    if (isSaving) return;
 
     setIsSaving(true);
     setFormMessage("");
@@ -362,7 +360,6 @@ export function BoardAssignmentsWorkspace({
   async function saveEditedAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
-      isAdminPreviewMode ||
       isSaving ||
       detailState?.status !== "ready"
     ) {
@@ -433,7 +430,6 @@ export function BoardAssignmentsWorkspace({
   async function saveAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
-      isAdminPreviewMode ||
       isSaving ||
       detailState?.status !== "ready"
     ) {
@@ -563,7 +559,7 @@ export function BoardAssignmentsWorkspace({
     });
   }
 
-  const canCreate = permissions.canCreate && !isAdminPreviewMode;
+  const canCreate = permissions.canCreate;
   const accessMode = readBoardAssignmentAccessMode(permissions);
   const reviewAssignments = listState.assignments.filter(
     (assignment) => assignment.status === "under_review",
@@ -1152,7 +1148,6 @@ export function BoardAssignmentsWorkspace({
           detailState={detailState}
           formMessage={formMessage}
           isOverdue={selectedAssignmentIsOverdue}
-          isAdminPreviewMode={isAdminPreviewMode}
           isMaterialOpening={isMaterialOpening}
           isSaving={isSaving}
           permissions={permissions}
@@ -1183,7 +1178,6 @@ export function BoardAssignmentsWorkspace({
           }
           formMessage=""
           isOverdue={false}
-          isAdminPreviewMode={false}
           isMaterialOpening={isMaterialOpening}
           isSaving={false}
           permissions={emptyPermissions}
@@ -1632,7 +1626,6 @@ function BoardAssignmentEditorDialog({
 function BoardAssignmentDetailDialog({
   detailState,
   permissions,
-  isAdminPreviewMode,
   isMaterialOpening,
   actionComment,
   isSaving,
@@ -1647,7 +1640,6 @@ function BoardAssignmentDetailDialog({
 }: {
   detailState: DetailState | undefined;
   permissions: BoardAssignmentPermissions;
-  isAdminPreviewMode: boolean;
   isMaterialOpening: boolean;
   actionComment: string;
   isSaving: boolean;
@@ -1684,7 +1676,6 @@ function BoardAssignmentDetailDialog({
     assignment !== undefined &&
     permissions.canCreate &&
     assignment.status !== "completed" &&
-    !isAdminPreviewMode &&
     onEdit !== undefined &&
     snapshotMeta === undefined;
 
@@ -1851,11 +1842,8 @@ function BoardAssignmentDetailDialog({
               )}
             </section>
 
-            {!hasAction || isAdminPreviewMode ? (
+            {!hasAction ? (
               <footer className="board-assignment-dialog-actions">
-                {isAdminPreviewMode ? (
-                  <small>В режиме просмотра действия отключены.</small>
-                ) : null}
                 <button
                   className="secondary-button"
                   type="button"

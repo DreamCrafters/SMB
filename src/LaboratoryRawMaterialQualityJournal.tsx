@@ -122,10 +122,8 @@ const runnerDataFieldIds: readonly (keyof Omit<RunnerRowState, "isReserve" | "ru
 ];
 
 export function LaboratoryRawMaterialQualityJournal({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [general, setGeneral] = useState<GeneralFormState>(createEmptyGeneralForm);
@@ -148,7 +146,7 @@ export function LaboratoryRawMaterialQualityJournal({
   const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
-    if (isAdminPreviewMode || editingRecordId !== undefined) return;
+    if (editingRecordId !== undefined) return;
     const controller = new AbortController();
     requestLaboratoryRawMaterialQualityDraft({ signal: controller.signal })
       .then((result) => {
@@ -164,10 +162,9 @@ export function LaboratoryRawMaterialQualityJournal({
           : current);
       });
     return () => controller.abort();
-  }, [editingRecordId, isAdminPreviewMode, refreshVersion]);
+  }, [editingRecordId, refreshVersion]);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     requestLaboratoryRawMaterialQualityOptions({ signal: controller.signal })
       .then((result) => {
@@ -178,7 +175,7 @@ export function LaboratoryRawMaterialQualityJournal({
           : current);
       });
     return () => controller.abort();
-  }, [isAdminPreviewMode, refreshVersion]);
+  }, [refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -307,7 +304,6 @@ export function LaboratoryRawMaterialQualityJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
     const submission = buildSubmission({
       general, clayRows, temperRows, slipRows, runnerRows, summary,
     });
@@ -593,7 +589,7 @@ export function LaboratoryRawMaterialQualityJournal({
         <div className="laboratory-form-actions">
           <button
             className="primary-button"
-            disabled={isAdminPreviewMode || isSubmitting}
+            disabled={isSubmitting}
             type="submit"
           >
             {isSubmitting
@@ -616,9 +612,6 @@ export function LaboratoryRawMaterialQualityJournal({
               Отменить
             </button>
           )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === ""
             ? null
             : <span className="form-message" role="status">{formMessage}</span>}
@@ -667,7 +660,7 @@ export function LaboratoryRawMaterialQualityJournal({
             : null}
         <LaboratoryRawMaterialQualityTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
 

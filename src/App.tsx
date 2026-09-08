@@ -10,6 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import {
+  clearStoredAccountPreviewTarget,
+  storeAccountPreviewTarget,
+} from "./services/devAccessSessionStorage";
+import {
   accountCapabilities,
   productionCategories,
   type AccountCapability,
@@ -318,27 +322,6 @@ const navigationByAdminTab: Record<AdminTab, AccountNavigationItem> = {
   navigation: "admin.navigation",
   database: "admin.database",
   user_actions: "admin.user_actions",
-};
-
-const adminPreviewReadCapabilitiesByNavigationItem: Partial<
-  Record<AccountNavigationItem, readonly AccountCapability[]>
-> = {
-  "business.overview": [
-    "business.view_all_statistics",
-    "business.view_notifications",
-    "business.view_dispatcher_feed",
-  ],
-  "business.dispatcher": ["business.view_dispatcher_feed"],
-  "business.work": [
-    "business.view_notifications",
-    "business.view_own_submissions",
-  ],
-  "business.user_actions": ["business.view_user_actions"],
-  "business.laboratory_review": ["business.view_laboratory_results"],
-  "business.board_assignments": ["business.view_board_assignments"],
-  "business.warehouse_1c": ["business.view_warehouse_1c"],
-  "business.railway_wagons": ["business.view_railway_wagons"],
-  "business.dispatcher_form": ["business.view_dispatcher_feed"],
 };
 
 type DataEntrySubmitStateControls = {
@@ -687,7 +670,18 @@ function getBusinessAuditScreenId(
   return navigationByBusinessTab[activeTab];
 }
 
+let hasClearedStartupAccountPreview = false;
+
 export default function App() {
+  // Цель предпросмотра лежит в sessionStorage, а сам предпросмотр — в состоянии
+  // React, которое перезагрузка сбрасывает. Чистим адрес до первого запроса,
+  // иначе после обновления страницы админ продолжил бы ходить с правами
+  // должности, не видя предпросмотра.
+  if (typeof window !== "undefined" && !hasClearedStartupAccountPreview) {
+    hasClearedStartupAccountPreview = true;
+    clearStoredAccountPreviewTarget();
+  }
+
   const [accessProfile, setAccessProfile] = useState<AccessProfileLoadState>(
     initialAccessProfileState,
   );
@@ -1733,6 +1727,7 @@ export default function App() {
   }
 
   function handleStartAdminAccountView(account: AdminAccountSummary) {
+    storeAccountPreviewTarget(readAdminPreviewTargetAddress(account));
     setWorkspaceKind("business");
     setAdminViewedAccount(account);
     setAdminViewedOwnerTab("overview");
@@ -1742,6 +1737,7 @@ export default function App() {
   }
 
   function handleStopAdminAccountView() {
+    clearStoredAccountPreviewTarget();
     setWorkspaceKind("admin");
     setAdminViewedAccount(undefined);
     setAdminViewedDataEntryStatus("");
@@ -2008,13 +2004,13 @@ export default function App() {
         }
         onAdminTabChange={handleAdminTabNavigation}
         pendingRefractoryCount={
-          isAdminPreviewMode ? 0 : pendingRefractoryReports.length
+          pendingRefractoryReports.length
         }
         returnedRefractoryCount={
-          isAdminPreviewMode ? 0 : returnedRefractoryCount
+          returnedRefractoryCount
         }
         returnedRefractoryShifts={
-          isAdminPreviewMode ? [] : returnedRefractoryShifts
+          returnedRefractoryShifts
         }
       />
 
@@ -2057,7 +2053,6 @@ export default function App() {
         <RoleWorkspace
           key={`${visibleProfile.activeAccess.accountId}:${workspaceNavigationVersion}`}
           profile={visibleProfile}
-          isAdminPreviewMode={isAdminPreviewMode}
           dataEntryStatus={visibleDataEntryStatus}
           isDataEntrySubmitting={isVisibleDataEntrySubmitting}
           onDataEntrySubmit={handleVisibleDataEntrySubmit}
@@ -2745,7 +2740,11 @@ export function SideRail({
             <img alt="" src="/nmou-vector-icon.png" />
           </span>
           {isAdminPreviewMode ? (
-            <div className="admin-preview-mode-badge" role="status">
+            <div
+              className="admin-preview-mode-badge"
+              role="status"
+              title={`Вы работаете от лица должности «${profile.activeAccess.positionDisplayName}». Раздел работает полностью: отправленные формы сохраняются и рассылаются как обычно, а в журнале действий запись подписана вашим аккаунтом.`}
+            >
               АДМИН ПРЕВЬЮ МОД
             </div>
           ) : null}
@@ -2883,7 +2882,6 @@ export function SideRail({
 
 function RoleWorkspace({
   profile,
-  isAdminPreviewMode,
   dataEntryStatus,
   isDataEntrySubmitting,
   onDataEntrySubmit,
@@ -2916,7 +2914,6 @@ function RoleWorkspace({
   onOverviewNavigateToLaboratoryReview,
 }: {
   profile: ServerUserProfile;
-  isAdminPreviewMode: boolean;
   dataEntryStatus: string;
   isDataEntrySubmitting: boolean;
   onDataEntrySubmit: DataEntrySubmitHandler;
@@ -2995,7 +2992,6 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "production_plan") {
     return (
       <ProductionPlanWorkspace
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
       />
     );
@@ -3004,7 +3000,6 @@ function RoleWorkspace({
     return (
       <RefractoryShopWorkspace
         profile={profile}
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
         decisionRefreshVersion={refractoryDecisionVersion}
       />
@@ -3014,7 +3009,6 @@ function RoleWorkspace({
     return (
       <LaboratoryResultsWorkspace
         profile={profile}
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
       />
     );
@@ -3022,7 +3016,6 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "laboratory_review") {
     return (
       <LaboratoryReviewWorkspace
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
         initialDateFrom={requestedLaboratoryReviewDateFrom}
       />
@@ -3031,7 +3024,6 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "board_assignments") {
     return (
       <BoardAssignmentsWorkspace
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
       />
     );
@@ -3042,7 +3034,6 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "railway_wagons") {
     return (
       <RailwayWagonsWorkspace
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
       />
     );
@@ -3050,7 +3041,6 @@ function RoleWorkspace({
   if (effectiveOwnerTab === "settings") {
     return (
       <NotificationSettingsWorkspace
-        isAdminPreviewMode={isAdminPreviewMode}
         onShowToast={onShowToast}
       />
     );
@@ -3059,7 +3049,7 @@ function RoleWorkspace({
     return (
       <UserActionsWorkspace
         profile={profile}
-        organizationOnly={isAdminPreviewMode}
+        organizationOnly={false}
       />
     );
   }
@@ -3075,15 +3065,14 @@ function RoleWorkspace({
         dispatcherFeedFilters={dispatcherFeedFilters}
         onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
         currentUserDisplayName={profile.displayName}
-        isAdminPreviewMode={isAdminPreviewMode}
         refreshVersion={dispatcherSubmissionVersion}
         onResetStatus={onDataEntryStatusReset}
         onShowToast={onShowToast}
         pendingRefractoryReports={
-          isAdminPreviewMode ? [] : pendingRefractoryReports
+          pendingRefractoryReports
         }
         refractoryQueueError={
-          isAdminPreviewMode ? "" : refractoryQueueError
+          refractoryQueueError
         }
         onRefractoryReportResolved={onRefractoryReportResolved}
         requestedFormId={requestedDispatcherFormId}
@@ -3729,10 +3718,8 @@ function createEmptyProductionPlanDateSelections(): Record<
 }
 
 export function ProductionPlanWorkspace({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [month, setMonth] = useState(readCurrentMonthInputValue);
@@ -3759,25 +3746,6 @@ export function ProductionPlanWorkspace({
     setActiveCategoryIndex(0);
     setStatus("");
     setMonthlyPlanInputs(createEmptyProductionPlanInputs());
-
-    if (isAdminPreviewMode) {
-      const dates = buildProductionPlanMonthDates(month);
-      const allDates = dates.map((item) => item.date);
-      const weekdayDates = dates
-        .filter((item) => !item.isWeekend)
-        .map((item) => item.date);
-
-      setDatePresets({ month, allDates, weekdayDates });
-      setSelectedWorkingDates(
-        Object.fromEntries(
-          productionCategories.map((category) => [category, weekdayDates]),
-        ) as Record<ProductionCategory, string[]>,
-      );
-      setLoadState({
-        status: "ready",
-      });
-      return;
-    }
 
     const controller = new AbortController();
 
@@ -3848,7 +3816,7 @@ export function ProductionPlanWorkspace({
     });
 
     return () => controller.abort();
-  }, [isAdminPreviewMode, month]);
+  }, [month]);
 
   function handleMonthPartChange(
     part: "month" | "year",
@@ -3983,12 +3951,6 @@ export function ProductionPlanWorkspace({
         </p>
       </header>
 
-      {isAdminPreviewMode ? (
-        <p className="production-plan-notice">
-          В режиме просмотра расчёт и сохранение отключены.
-        </p>
-      ) : null}
-
       <ol className="production-plan-steps" aria-label="Категории плана">
         {productionCategories.map((category, index) => {
           const isSaved = loadState.status === "ready" &&
@@ -4025,7 +3987,6 @@ export function ProductionPlanWorkspace({
             <button
               aria-label="Предыдущий месяц"
               disabled={
-                isAdminPreviewMode ||
                 isSaving ||
                 (monthParts.year === 2000 && monthParts.month === 1)
               }
@@ -4036,7 +3997,7 @@ export function ProductionPlanWorkspace({
             </button>
             <select
               aria-label="Месяц плана"
-              disabled={isAdminPreviewMode || isSaving}
+              disabled={isSaving}
               value={monthParts.month}
               onChange={(event) => handleMonthPartChange("month", event)}
             >
@@ -4046,7 +4007,7 @@ export function ProductionPlanWorkspace({
             </select>
             <select
               aria-label="Год плана"
-              disabled={isAdminPreviewMode || isSaving}
+              disabled={isSaving}
               value={monthParts.year}
               onChange={(event) => handleMonthPartChange("year", event)}
             >
@@ -4057,7 +4018,6 @@ export function ProductionPlanWorkspace({
             <button
               aria-label="Следующий месяц"
               disabled={
-                isAdminPreviewMode ||
                 isSaving ||
                 (monthParts.year === 2100 && monthParts.month === 12)
               }
@@ -4071,7 +4031,7 @@ export function ProductionPlanWorkspace({
         <label>
           <span>Месячный план · {productionCategoryLabels[activeCategory]}</span>
           <input
-            disabled={isAdminPreviewMode || isLoadingPresets || isSaving}
+            disabled={isLoadingPresets || isSaving}
             inputMode="decimal"
             pattern={productionPlanDecimalInputPattern}
             required
@@ -4104,7 +4064,7 @@ export function ProductionPlanWorkspace({
               <button
                 aria-pressed={isAllDatesPreset}
                 className={isAllDatesPreset ? "is-active" : undefined}
-                disabled={isAdminPreviewMode || isSaving}
+                disabled={isSaving}
                 type="button"
                 onClick={() => handleApplyPreset("all")}
               >
@@ -4113,7 +4073,7 @@ export function ProductionPlanWorkspace({
               <button
                 aria-pressed={isWeekdaysPreset}
                 className={isWeekdaysPreset ? "is-active" : undefined}
-                disabled={isAdminPreviewMode || isSaving}
+                disabled={isSaving}
                 type="button"
                 onClick={() => handleApplyPreset("weekdays")}
               >
@@ -4142,7 +4102,7 @@ export function ProductionPlanWorkspace({
                   >
                     <input
                       checked={isChecked}
-                      disabled={isAdminPreviewMode || isSaving}
+                      disabled={isSaving}
                       type="checkbox"
                       value={item.date}
                       onChange={handleWorkingDateChange}
@@ -4170,7 +4130,6 @@ export function ProductionPlanWorkspace({
           <button
             className="production-plan-primary-button"
             disabled={
-              isAdminPreviewMode ||
               isLoadingPresets ||
               isSaving ||
               activeWorkingDates.length === 0
@@ -4356,7 +4315,6 @@ export function DataEntryWorkspace({
   dispatcherFeedFilters,
   onDispatcherFeedFiltersChange,
   currentUserDisplayName,
-  isAdminPreviewMode,
   refreshVersion,
   onResetStatus,
   onShowToast,
@@ -4377,7 +4335,6 @@ export function DataEntryWorkspace({
     patch: Partial<DispatcherFeedFilterState>,
   ) => void;
   currentUserDisplayName: string;
-  isAdminPreviewMode: boolean;
   refreshVersion: number;
   onResetStatus: () => void;
   onShowToast: ShowToast;
@@ -4650,7 +4607,6 @@ export function DataEntryWorkspace({
         {currentForm.id === "production" ? (
           <DispatcherProductionReportFormBody
             form={currentForm}
-            isAdminPreviewMode={isAdminPreviewMode}
             isSubmitting={isSubmitting}
             status={status}
             onResetStatus={onResetStatus}
@@ -4688,7 +4644,6 @@ export function DataEntryWorkspace({
                     currentForm.id === "incident" && field.name === "responsible"
                       ? buildIncidentResponsibleInput({
                           currentUserDisplayName,
-                          isAdminPreviewMode,
                           options: field.options ?? [],
                         })
                       : undefined;
@@ -4782,13 +4737,11 @@ type DispatcherBankCalculationState = {
 
 export function DispatcherProductionReportFormBody({
   form,
-  isAdminPreviewMode,
   isSubmitting,
   onResetStatus,
   status,
 }: {
   form: DispatcherFormDefinition;
-  isAdminPreviewMode: boolean;
   isSubmitting: boolean;
   onResetStatus: () => void;
   status: string;
@@ -4851,7 +4804,7 @@ export function DispatcherProductionReportFormBody({
     });
 
     return () => controller.abort();
-  }, [isAdminPreviewMode, reportDate]);
+  }, [reportDate]);
 
   useEffect(() => {
     if (reportDate.length === 0) {
@@ -4891,7 +4844,7 @@ export function DispatcherProductionReportFormBody({
     });
 
     return () => controller.abort();
-  }, [isAdminPreviewMode, reportDate]);
+  }, [reportDate]);
 
   useEffect(() => {
     if (reportDate.length === 0) {
@@ -4924,7 +4877,7 @@ export function DispatcherProductionReportFormBody({
     );
 
     return () => controller.abort();
-  }, [isAdminPreviewMode, reportDate]);
+  }, [reportDate]);
 
   const dailyPlan =
     dailyPlanState.status === "ready" ? dailyPlanState.plan : undefined;
@@ -4998,7 +4951,6 @@ export function DispatcherProductionReportFormBody({
           dailyPlanValues={dailyPlanValues}
           form={form}
           initialSubmission={reportLoadState.submission}
-          isAdminPreviewMode={isAdminPreviewMode}
           isSubmitting={isSubmitting}
           monthToDateValues={monthToDateValues}
           reportDate={reportDate}
@@ -5019,7 +4971,6 @@ function ProductionReportEditor({
   dailyPlanValues,
   form,
   initialSubmission,
-  isAdminPreviewMode,
   isSubmitting,
   monthToDateValues,
   reportDate,
@@ -5035,7 +4986,6 @@ function ProductionReportEditor({
   dailyPlanValues?: Partial<ProductionCategoryPlans>;
   form: DispatcherFormDefinition;
   initialSubmission?: DispatcherSubmission;
-  isAdminPreviewMode: boolean;
   isSubmitting: boolean;
   monthToDateValues?: Partial<
     Record<ProductionCategory, ProductionMonthToDateValue>
@@ -5076,7 +5026,6 @@ function ProductionReportEditor({
           brandLabels={brandLabels}
           categoryPlan={dailyPlanValues?.forming}
           initialPayload={initialPayload}
-          isAdminPreviewMode={isAdminPreviewMode}
           monthToDate={monthToDateValues?.forming}
           prefix="forming"
           title="Формовка"
@@ -5085,7 +5034,6 @@ function ProductionReportEditor({
           brandLabels={brandLabels}
           categoryPlan={dailyPlanValues?.sorting}
           initialPayload={initialPayload}
-          isAdminPreviewMode={isAdminPreviewMode}
           monthToDate={monthToDateValues?.sorting}
           prefix="sorting"
           title="Сортировка"
@@ -5099,7 +5047,6 @@ function ProductionReportEditor({
             brandLabels={brandLabels}
             categoryPlan={dailyPlanValues?.unformed}
             initialPayload={initialPayload}
-            isAdminPreviewMode={isAdminPreviewMode}
             monthToDate={monthToDateValues?.unformed}
             prefix="unformed"
           />
@@ -5114,7 +5061,6 @@ function ProductionReportEditor({
             brandLabels={brandLabels}
             categoryPlan={dailyPlanValues?.chamotte}
             initialPayload={initialPayload}
-            isAdminPreviewMode={isAdminPreviewMode}
             monthToDate={monthToDateValues?.chamotte}
             prefix="chamotte"
           />
@@ -5134,7 +5080,6 @@ function ProductionReportEditor({
           ) : null}
           <DispatcherProductionBankReportTable
             initialPayload={initialPayload}
-            isAdminPreviewMode={isAdminPreviewMode}
             state={bankContentsState}
           />
         </fieldset>
@@ -5170,11 +5115,9 @@ function ProductionReportEditor({
 
 function DispatcherProductionBankReportTable({
   initialPayload,
-  isAdminPreviewMode,
   state,
 }: {
   initialPayload?: DispatcherSubmissionPayload;
-  isAdminPreviewMode: boolean;
   state: DispatcherProductionBankContentsState;
 }) {
   const bankNumbers = [1, 2, 3] as const satisfies readonly BankNumber[];
@@ -5285,45 +5228,27 @@ function DispatcherProductionBankReportTable({
   const bankColumns = bankNumbers.map((bankNumber) => {
     const savedRow = reportRows.get(bankNumber);
     const assignment = inputAssignments.get(bankNumber);
-    const calculation = isAdminPreviewMode
-      ? readStoredDispatcherBankCalculation(
-          bankNumber,
-          initialPayload,
-          savedRow,
-        )
-      : readDraftDispatcherBankCalculation(
-          assignment,
-          measurementDrafts[bankNumber],
-          movementDrafts[bankNumber],
-          volumeReference,
-          previousShipments.get(bankNumber),
-        );
+    const calculation = readDraftDispatcherBankCalculation(
+      assignment,
+      measurementDrafts[bankNumber],
+      movementDrafts[bankNumber],
+      volumeReference,
+      previousShipments.get(bankNumber),
+    );
     return {
       bankNumber,
       assignment,
       calculation,
-      material: isAdminPreviewMode
-        ? initialPayload?.[`jarMaterial${bankNumber}`] ??
-          savedRow?.materialLabel ?? assignment?.materialLabel
-        : assignment?.materialLabel ?? savedRow?.materialLabel,
-      density: isAdminPreviewMode
-        ? readDispatcherPayloadNumber(
-            initialPayload,
-            `jarBulkDensity${bankNumber}`,
-          ) ?? savedRow?.bulkDensityTonsPerCubicMeter
-        : assignment?.bulkDensityTonsPerCubicMeter,
-      densityDate: isAdminPreviewMode
-        ? initialPayload?.[`jarBulkDensityDate${bankNumber}`] ??
-          savedRow?.bulkDensityLatestRecordDate
-        : assignment?.bulkDensityLatestRecordDate,
+      material: assignment?.materialLabel ?? savedRow?.materialLabel,
+      density: assignment?.bulkDensityTonsPerCubicMeter,
+      densityDate: assignment?.bulkDensityLatestRecordDate,
     };
   });
   const savedReportStatus = report === undefined
     ? ""
     : ` Сводка ЦОШ за ${formatDateOnly(report.reportDate)}, смена ${report.shiftNumber}.`;
-  const reportStatus = isAdminPreviewMode
-    ? `Предпросмотр доступен только для чтения.${savedReportStatus}`
-    : `Введите до четырёх замеров для каждой банки. Вес пересчитывается по текущему содержимому и данным лаборатории.${savedReportStatus}`;
+  const reportStatus =
+    `Введите до четырёх замеров для каждой банки. Вес пересчитывается по текущему содержимому и данным лаборатории.${savedReportStatus}`;
 
   function renderCalculatedRow(
     label: string,
@@ -5372,7 +5297,7 @@ function DispatcherProductionBankReportTable({
                       aria-label={`Банка ${readRomanBankNumber(bankNumber)}: банка пустая`}
                       checked={isEmptyBankChecked(bankNumber)}
                       disabled={
-                        isAdminPreviewMode || emptyBankHeightMeters === undefined
+                        emptyBankHeightMeters === undefined
                       }
                       type="checkbox"
                       onChange={(event) => {
@@ -5398,12 +5323,10 @@ function DispatcherProductionBankReportTable({
                   <td key={bankNumber}>
                     <input
                       aria-label={`Банка ${readRomanBankNumber(bankNumber)}: замер ${index + 1}`}
-                      disabled={isAdminPreviewMode}
                       inputMode="decimal"
                       maxLength={20}
                       name={`jarMeasurement${bankNumber}_${index + 1}`}
                       pattern={decimalNumberInputPattern}
-                      readOnly={isAdminPreviewMode}
                       required={index === 0}
                       title={decimalNumberInputTitle}
                       type="text"
@@ -5456,12 +5379,10 @@ function DispatcherProductionBankReportTable({
                   <td key={bankNumber}>
                     <input
                       aria-label={`Банка ${readRomanBankNumber(bankNumber)}: ${field === "loaded" ? "засыпали" : "отгрузили"}, т`}
-                      disabled={isAdminPreviewMode}
                       inputMode="decimal"
                       maxLength={20}
                       name={`${field === "loaded" ? "jarLoaded" : "jarShipped"}${bankNumber}`}
                       pattern={decimalNumberInputPattern}
-                      readOnly={isAdminPreviewMode}
                       title={decimalNumberInputTitle}
                       type="text"
                       value={movementDrafts[bankNumber][field]}
@@ -5501,11 +5422,9 @@ function DispatcherProductionBankReportTable({
               <td colSpan={3}>
                 <input
                   aria-label="Мастер ЦОШ"
-                  disabled={isAdminPreviewMode}
                   list="dispatcher-cosh-master-options"
                   maxLength={120}
                   name="coshMaster"
-                  readOnly={isAdminPreviewMode}
                   required
                   value={coshMaster}
                   onChange={(event) => {
@@ -5530,7 +5449,7 @@ function DispatcherProductionBankReportTable({
       </datalist>
       <div className="bank-measurement-errors">
         {bankColumns.map(({ bankNumber, assignment, calculation }) =>
-          assignment === undefined && !isAdminPreviewMode ? (
+          assignment === undefined ? (
             <p className="bank-measurement-error" key={bankNumber}>
               Банка {readRomanBankNumber(bankNumber)}: содержимое ещё не назначено.
             </p>
@@ -5555,7 +5474,7 @@ function DispatcherProductionBankReportTable({
           );
         })
       )}
-      {isAdminPreviewMode ? null : bankColumns.flatMap((column) =>
+      {bankColumns.flatMap((column) =>
         buildDispatcherBankCalculatedFields(column).map(([name, value]) => (
           <input key={name} name={name} type="hidden" value={value} readOnly />
         ))
@@ -5600,64 +5519,10 @@ function readDraftDispatcherBankCalculation(
   return result.ok ? { value: result.value } : { error: result.error };
 }
 
-function readStoredDispatcherBankCalculation(
-  bankNumber: BankNumber,
-  payload: DispatcherSubmissionPayload | undefined,
-  reportRow: DispatcherProductionBankReportRow | undefined,
-): DispatcherBankCalculationState | undefined {
-  const materialMassTons = readDispatcherPayloadNumber(
-    payload,
-    `jarCalculatedWeight${bankNumber}`,
-  ) ?? readDispatcherPayloadNumber(payload, `jarEnd${bankNumber}`) ??
-    reportRow?.materialMassTons;
-  const shipmentMassTons = readDispatcherPayloadNumber(
-    payload,
-    `jarShipmentCalculatedWeight${bankNumber}`,
-  ) ?? readDispatcherPayloadNumber(payload, `jarShipmentEnd${bankNumber}`) ??
-    reportRow?.shipmentMassTons;
-  const averageHeightMeters = readDispatcherPayloadNumber(
-    payload,
-    `jarAverage${bankNumber}`,
-  ) ?? reportRow?.averageHeightMeters;
-  const volumeCubicMeters = readDispatcherPayloadNumber(
-    payload,
-    `jarVolume${bankNumber}`,
-  ) ?? reportRow?.volumeCubicMeters;
-  const bulkDensityTonsPerCubicMeter = readDispatcherPayloadNumber(
-    payload,
-    `jarBulkDensity${bankNumber}`,
-  ) ?? reportRow?.bulkDensityTonsPerCubicMeter;
-  if (
-    materialMassTons === undefined ||
-    shipmentMassTons === undefined || averageHeightMeters === undefined ||
-    volumeCubicMeters === undefined ||
-    bulkDensityTonsPerCubicMeter === undefined
-  ) return undefined;
-  return {
-    value: {
-      averageHeightMeters,
-      volumeCubicMeters,
-      bulkDensityTonsPerCubicMeter,
-      materialMassTons,
-      shipmentMassTons,
-    },
-  };
-}
-
 function readDispatcherDraftNumber(value: string) {
   if (value.length === 0 || value.endsWith(".")) return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function readDispatcherPayloadNumber(
-  payload: DispatcherSubmissionPayload | undefined,
-  name: string,
-) {
-  const text = payload?.[name]?.trim();
-  if (text === undefined || text.length === 0) return undefined;
-  const value = Number(text);
-  return Number.isFinite(value) ? value : undefined;
 }
 
 function buildDispatcherBankCalculatedFields({
@@ -5709,7 +5574,6 @@ export function ProductionCategoryTable({
   brandLabels,
   categoryPlan,
   initialPayload,
-  isAdminPreviewMode,
   monthToDate,
   prefix,
   title,
@@ -5718,7 +5582,6 @@ export function ProductionCategoryTable({
   brandLabels: ProductionBrandLabel[];
   categoryPlan?: number;
   initialPayload?: DispatcherSubmissionPayload;
-  isAdminPreviewMode: boolean;
   monthToDate?: ProductionMonthToDateValue;
   prefix: ProductionCategory;
   title?: string;
@@ -5781,7 +5644,6 @@ export function ProductionCategoryTable({
               {columns.map((column, index) => (
                 <th scope="col" key={column.id}>
                   <ProductBrandPicker
-                    disabled={isAdminPreviewMode}
                     labels={brandLabels}
                     name={`${prefix}Brand${column.id}`}
                     selectedLabels={selectedLabels.filter(
@@ -5794,7 +5656,6 @@ export function ProductionCategoryTable({
                     <button
                       aria-label={`Удалить столбец ${index + 1}`}
                       className="production-brand-column-remove"
-                      disabled={isAdminPreviewMode}
                       type="button"
                       onClick={() => removeColumn(column.id)}
                     >
@@ -5906,7 +5767,7 @@ export function ProductionCategoryTable({
       </div>
       <button
         className="production-brand-column-add"
-        disabled={isAdminPreviewMode || columns.length >= 50}
+        disabled={columns.length >= 50}
         type="button"
         onClick={addColumn}
       >
@@ -11248,6 +11109,18 @@ function buildAdminPreviewAccountForDefinition(
   };
 }
 
+/**
+ * Адрес цели предпросмотра для сервера. Предпросмотр отдельной вкладки не
+ * опирается на должность, поэтому у него собственный вид адреса.
+ */
+function readAdminPreviewTargetAddress(account: AdminAccountSummary) {
+  return account.accessId.startsWith(adminPreviewNavigationAccessPrefix)
+    ? `navigation:${account.navigationItems[0]}`
+    : `position:${account.position}`;
+}
+
+const adminPreviewNavigationAccessPrefix = "admin-preview-navigation-";
+
 function buildAdminPreviewAccountForNavigationItem(
   navigationItem: NavigationItem,
 ): AdminAccountSummary {
@@ -11255,7 +11128,7 @@ function buildAdminPreviewAccountForNavigationItem(
   const accountType = isDispatcherForm ? "dispatcher" : "business_owner";
 
   return {
-    accessId: `admin-preview-navigation-${navigationItem.id}`,
+    accessId: `${adminPreviewNavigationAccessPrefix}${navigationItem.id}`,
     userId: `admin-preview-navigation-user-${navigationItem.id}`,
     login: "Предпросмотр вкладки",
     userDisplayName: navigationItem.label,
@@ -13560,19 +13433,27 @@ export function buildAdminPreviewProfile(
   };
 }
 
+/**
+ * Предпросмотр показывает раздел так же, как его видит сотрудник, поэтому права
+ * должности берутся целиком. Настоящий гейт стоит на сервере: он сам разрешает
+ * цель предпросмотра по заголовку и выдаёт права той же должности.
+ *
+ * У предпросмотра отдельной вкладки должности нет, поэтому берутся все рабочие
+ * права: задача такого режима — увидеть вкладку целиком, а не глазами одной роли.
+ */
 function readAdminPreviewCapabilities(
   navigationItems: readonly AccountNavigationItem[],
   accountCapabilityFilter?: readonly AccountCapability[],
 ) {
-  const allowedCapabilities = new Set(
-    navigationItems.flatMap(
-      (navigationItem) =>
-        adminPreviewReadCapabilitiesByNavigationItem[navigationItem] ?? [],
-    ),
-  );
-  const capabilities = accountCapabilityFilter ?? Array.from(allowedCapabilities);
+  if (accountCapabilityFilter !== undefined) {
+    return [...accountCapabilityFilter];
+  }
 
-  return capabilities.filter((capability) => allowedCapabilities.has(capability));
+  return navigationItems.length === 0
+    ? []
+    : accountCapabilities.filter((capability) =>
+        capability.startsWith("business."),
+      );
 }
 
 function formatTableRowCount(rowCount: number | null) {

@@ -21,10 +21,8 @@ type BanksState =
   | { status: "error"; message: string; currentAssignments: LaboratoryBankAssignment[]; history: LaboratoryBankAssignment[]; availableMaterials: RotaryKiln2MaterialBulkDensity[] };
 
 export function LaboratoryBanksPanel({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [state, setState] = useState<BanksState>({
@@ -63,7 +61,6 @@ export function LaboratoryBanksPanel({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
     const selected = materialByName.get(material);
     if (selected === undefined) {
       setMessage("Выберите материал из журнала печи 2.");
@@ -162,7 +159,7 @@ export function LaboratoryBanksPanel({
             В журнале печи 2 ещё нет записей с производимым материалом.
           </p>
         ) : null}
-        <button className="primary-button" disabled={isAdminPreviewMode || isSaving || state.status !== "ready"} type="submit">
+        <button className="primary-button" disabled={isSaving || state.status !== "ready"} type="submit">
           {isSaving ? <LoadingIndicator label="Сохраняем…" variant="button" /> : "Назначить содержимое"}
         </button>
         {message === "" ? null : <span className="form-message" role="status">{message}</span>}

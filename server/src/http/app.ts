@@ -20,9 +20,16 @@ import {
   isNavigationAccessLevel,
   nonAdminNavigationItems,
   resolveCapabilitiesForPosition,
+  resolveMaximumCapabilitiesForNavigation,
   validatePositionNavigationItems,
   type NavigationAccessLevel,
 } from "../domain/accountAccessConfiguration.js";
+import {
+  accountPreviewHeader,
+  applyAccountPreviewAccess,
+  canPreviewAccounts,
+  parseAccountPreviewTarget,
+} from "../domain/accountPreview.js";
 import {
   buildDefaultDevAccessOptions,
   buildDevProfile,
@@ -634,6 +641,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
         });
         return;
       }
@@ -649,6 +657,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           navigationOrder,
           audit,
           databaseTransaction,
@@ -679,6 +688,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           audit,
         });
         return;
@@ -691,6 +701,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           audit,
         });
         return;
@@ -709,8 +720,8 @@ export function createApiServer({
           config,
           devSessions,
           authService,
-          adminDatabase,
           accounts,
+          adminDatabase,
           dispatcherSpreadsheetImport,
           productionBrands,
           audit,
@@ -780,6 +791,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           dispatcherSubmissions,
           productionPlans,
           audit,
@@ -795,6 +807,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           productionBrands,
         });
         return;
@@ -808,6 +821,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           dispatcherSubmissions,
           laboratoryBankAssignments,
           refractoryReports,
@@ -824,6 +838,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           dispatcherSubmissions,
           laboratoryResults,
           now,
@@ -847,6 +862,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           boardAssignments,
           boardAssignmentMaterials,
           notificationSettings,
@@ -866,6 +882,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           refractoryWagonInspections,
           audit,
           databaseTransaction,
@@ -884,6 +901,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           refractoryWagons,
           productionBrands,
           audit,
@@ -906,6 +924,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           refractoryReports,
           refractoryWagons,
           laboratoryBankAssignments,
@@ -972,6 +991,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           laboratoryReferenceDataSource,
           laboratoryResults,
           laboratoryBankAssignments,
@@ -1003,6 +1023,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           railwayReference,
         });
         return;
@@ -1019,6 +1040,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           railwayWagons,
           railwayReference,
           audit,
@@ -1046,6 +1068,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           warehouse1c,
         });
         return;
@@ -1089,6 +1112,7 @@ export function createApiServer({
           config,
           devSessions,
           authService,
+          accounts,
           capability: "business.submit_dispatcher_forms",
         });
 
@@ -1200,6 +1224,7 @@ export function createApiServer({
             config,
             devSessions,
             authService,
+            accounts,
             capability: "business.view_dispatcher_feed",
             alternativeNavigationItem: "admin.account_preview",
           });
@@ -1294,6 +1319,7 @@ export function createApiServer({
             config,
             devSessions,
             authService,
+            accounts,
             capability: "business.submit_dispatcher_forms",
           });
 
@@ -1567,6 +1593,7 @@ async function handleBusinessOverviewRequest({
   config,
   devSessions,
   authService,
+  accounts,
   dispatcherSubmissions,
   laboratoryResults,
   now,
@@ -1576,6 +1603,7 @@ async function handleBusinessOverviewRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   laboratoryResults: LaboratoryResultsRepository | undefined;
   now: () => Date;
@@ -1594,6 +1622,7 @@ async function handleBusinessOverviewRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "business.view_all_statistics",
     alternativeNavigationItem: "admin.account_preview",
   });
@@ -1672,6 +1701,7 @@ async function handleNotificationSettingsRequest({
       config,
       devSessions,
       authService,
+      accounts,
     });
     if (access === undefined) return;
 
@@ -1738,6 +1768,7 @@ async function handleNotificationSettingsRequest({
         config,
         devSessions,
         authService,
+        accounts,
         capability: "platform.manage_users",
         message: "Управление рассылками недоступно.",
       })
@@ -1745,6 +1776,7 @@ async function handleNotificationSettingsRequest({
         config,
         devSessions,
         authService,
+        accounts,
         capability: "business.manage_notification_settings",
         message: "Настройки рассылок недоступны.",
       });
@@ -2121,6 +2153,7 @@ async function handleBoardAssignmentsRequest({
   config,
   devSessions,
   authService,
+  accounts,
   boardAssignments,
   boardAssignmentMaterials,
   notificationSettings,
@@ -2136,6 +2169,7 @@ async function handleBoardAssignmentsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   boardAssignments: BoardAssignmentsRepository | undefined;
   boardAssignmentMaterials: BoardAssignmentMaterialsSource;
   notificationSettings: NotificationSettingsRepository | undefined;
@@ -2149,6 +2183,7 @@ async function handleBoardAssignmentsRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "business.view_board_assignments",
     alternativeNavigationItem:
       req.method === "GET" ? "admin.account_preview" : undefined,
@@ -3292,6 +3327,7 @@ async function handleLaboratoryRequest({
   config,
   devSessions,
   authService,
+  accounts,
   laboratoryReferenceDataSource,
   laboratoryResults,
   laboratoryBankAssignments,
@@ -3318,6 +3354,7 @@ async function handleLaboratoryRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   laboratoryReferenceDataSource: LaboratoryReferenceDataSource;
   laboratoryResults: LaboratoryResultsRepository | undefined;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
@@ -3358,6 +3395,7 @@ async function handleLaboratoryRequest({
     config,
     devSessions,
     authService,
+    accounts,
   });
 
   if (access === undefined) return;
@@ -6569,6 +6607,7 @@ async function handleRefractoryWagonsRequest({
   config,
   devSessions,
   authService,
+  accounts,
   refractoryWagons,
   productionBrands,
   audit,
@@ -6580,6 +6619,7 @@ async function handleRefractoryWagonsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   refractoryWagons: RefractoryWagonsRepository | undefined;
   productionBrands: ProductionBrandsDataSource;
   audit: AuditRepository;
@@ -6589,6 +6629,7 @@ async function handleRefractoryWagonsRequest({
     config,
     devSessions,
     authService,
+    accounts,
   });
   if (access === undefined) return;
 
@@ -6793,6 +6834,7 @@ async function handleRefractoryWagonInspectionsRequest({
   config,
   devSessions,
   authService,
+  accounts,
   refractoryWagonInspections,
   audit,
   databaseTransaction,
@@ -6802,6 +6844,7 @@ async function handleRefractoryWagonInspectionsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   refractoryWagonInspections: RefractoryWagonInspectionsRepository | undefined;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -6810,6 +6853,7 @@ async function handleRefractoryWagonInspectionsRequest({
     config,
     devSessions,
     authService,
+    accounts,
   });
   if (access === undefined) return;
 
@@ -6952,6 +6996,7 @@ async function handleRefractoryReportsRequest({
   config,
   devSessions,
   authService,
+  accounts,
   refractoryReports,
   refractoryWagons,
   laboratoryBankAssignments,
@@ -6970,6 +7015,7 @@ async function handleRefractoryReportsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   refractoryReports: RefractoryReportsRepository | undefined;
   refractoryWagons: RefractoryWagonsRepository | undefined;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
@@ -6986,6 +7032,7 @@ async function handleRefractoryReportsRequest({
     config,
     devSessions,
     authService,
+    accounts,
   });
   if (access === undefined) return;
 
@@ -7834,6 +7881,7 @@ async function handleAdminAuditReportRequest({
   config,
   devSessions,
   authService,
+  accounts,
   audit,
 }: {
   req: IncomingMessage;
@@ -7842,6 +7890,7 @@ async function handleAdminAuditReportRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   audit: AuditRepository;
 }) {
   if (req.method !== "GET") {
@@ -7858,6 +7907,7 @@ async function handleAdminAuditReportRequest({
     config,
     devSessions,
     authService,
+    accounts,
   });
 
   if (access === undefined) {
@@ -7924,6 +7974,7 @@ async function handleAuditEventRequest({
   config,
   devSessions,
   authService,
+  accounts,
   audit,
 }: {
   req: IncomingMessage;
@@ -7931,6 +7982,7 @@ async function handleAuditEventRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   audit: AuditRepository;
 }) {
   if (req.method !== "POST") {
@@ -7947,6 +7999,7 @@ async function handleAuditEventRequest({
     config,
     devSessions,
     authService,
+    accounts,
   });
 
   if (access === undefined) {
@@ -8036,6 +8089,7 @@ async function handleProductionBrandsRequest({
   config,
   devSessions,
   authService,
+  accounts,
   productionBrands,
 }: {
   req: IncomingMessage;
@@ -8043,12 +8097,14 @@ async function handleProductionBrandsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   productionBrands: ProductionBrandsDataSource;
 }) {
   const access = await requireAuthentication(req, res, {
     config,
     devSessions,
     authService,
+    accounts,
   });
 
   if (access === undefined) {
@@ -8106,6 +8162,7 @@ async function handleDispatcherProductionBankContentsRequest({
   config,
   devSessions,
   authService,
+  accounts,
   dispatcherSubmissions,
   laboratoryBankAssignments,
   refractoryReports,
@@ -8118,6 +8175,7 @@ async function handleDispatcherProductionBankContentsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   laboratoryBankAssignments: LaboratoryBankAssignmentsRepository | undefined;
   refractoryReports: RefractoryReportsRepository | undefined;
@@ -8128,6 +8186,7 @@ async function handleDispatcherProductionBankContentsRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "business.submit_dispatcher_forms",
     message: "Содержимое банок доступно диспетчеру.",
     alternativeNavigationItem:
@@ -8847,6 +8906,7 @@ async function handleProductionPlansRequest({
   config,
   devSessions,
   authService,
+  accounts,
   dispatcherSubmissions,
   productionPlans,
   audit,
@@ -8858,6 +8918,7 @@ async function handleProductionPlansRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   productionPlans: ProductionPlansRepository | undefined;
   audit: AuditRepository;
@@ -8868,6 +8929,7 @@ async function handleProductionPlansRequest({
       config,
       devSessions,
       authService,
+      accounts,
     });
 
     if (access === undefined) {
@@ -8966,6 +9028,7 @@ async function handleProductionPlansRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "business.manage_production_plan",
     message: "План выработки доступен только экономисту.",
   });
@@ -9591,6 +9654,7 @@ async function handleWarehouse1cStockBalances({
   config,
   devSessions,
   authService,
+  accounts,
   warehouse1c,
 }: {
   req: IncomingMessage;
@@ -9599,6 +9663,7 @@ async function handleWarehouse1cStockBalances({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   warehouse1c: Warehouse1cRepository | undefined;
 }) {
   if (req.method !== "GET") {
@@ -9615,6 +9680,7 @@ async function handleWarehouse1cStockBalances({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "business.view_warehouse_1c",
     message: "Просмотр остатков 1С недоступен.",
   });
@@ -9631,9 +9697,11 @@ async function handleWarehouse1cStockBalances({
     return;
   }
 
-  const accounts = buildWarehouse1cAccounts(await warehouse1c.listAccounts());
+  const warehouse1cAccounts = buildWarehouse1cAccounts(
+    await warehouse1c.listAccounts(),
+  );
   const accountCode = selectWarehouse1cAccountCode(
-    accounts,
+    warehouse1cAccounts,
     (url.searchParams.get("accountCode") ?? "").trim(),
   );
   const availableDates = await warehouse1c.listReportDates(accountCode);
@@ -9648,7 +9716,7 @@ async function handleWarehouse1cStockBalances({
       });
 
   sendJson(res, 200, {
-    accounts,
+    accounts: warehouse1cAccounts,
     accountCode,
     availableDates,
     ...(report === undefined ? {} : { report }),
@@ -9683,6 +9751,7 @@ async function handleRailwayWagonsRequest({
   config,
   devSessions,
   authService,
+  accounts,
   railwayWagons,
   railwayReference,
   audit,
@@ -9694,6 +9763,7 @@ async function handleRailwayWagonsRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   railwayWagons: RailwayWagonsRepository | undefined;
   railwayReference: RailwayReferenceRepository | undefined;
   audit: AuditRepository;
@@ -9703,6 +9773,7 @@ async function handleRailwayWagonsRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "business.view_railway_wagons",
     message: "Раздел «ЖД Вагоны» недоступен.",
   });
@@ -10096,6 +10167,7 @@ async function handleRailwayReferenceRequest({
   config,
   devSessions,
   authService,
+  accounts,
   railwayReference,
 }: {
   req: IncomingMessage;
@@ -10104,6 +10176,7 @@ async function handleRailwayReferenceRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   railwayReference: RailwayReferenceRepository | undefined;
 }) {
   if (req.method !== "GET") {
@@ -10120,6 +10193,7 @@ async function handleRailwayReferenceRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "business.view_railway_wagons",
     message: "Справочник РЖД недоступен.",
   });
@@ -10170,6 +10244,7 @@ async function handleNavigationOrderRequest({
   config,
   devSessions,
   authService,
+  accounts,
   navigationOrder,
   audit,
   databaseTransaction,
@@ -10180,6 +10255,7 @@ async function handleNavigationOrderRequest({
   config: ServerConfig;
   devSessions: Map<string, DevAccessSession>;
   authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   navigationOrder: NavigationOrderRepository | undefined;
   audit: AuditRepository;
   databaseTransaction: DatabaseTransactionRunner;
@@ -10198,6 +10274,7 @@ async function handleNavigationOrderRequest({
       config,
       devSessions,
       authService,
+      accounts,
     });
     if (access === undefined) return;
 
@@ -10224,6 +10301,7 @@ async function handleNavigationOrderRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "platform.manage_navigation_order",
     message: "Изменение порядка вкладок недоступно.",
   });
@@ -10314,8 +10392,8 @@ async function handleAdminDatabaseRequest({
   config,
   devSessions,
   authService,
-  adminDatabase,
   accounts,
+  adminDatabase,
   dispatcherSpreadsheetImport,
   productionBrands,
   audit,
@@ -10340,6 +10418,7 @@ async function handleAdminDatabaseRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: "platform.manage_analytics_database",
     message: "Admin database access is required.",
   });
@@ -10940,6 +11019,7 @@ async function handleAdminAccountsRequest({
     config,
     devSessions,
     authService,
+    accounts,
     capability: requiresManageAccess
       ? "platform.manage_access"
       : "platform.manage_users",
@@ -12509,7 +12589,6 @@ function sendAdminAccountsError(res: ServerResponse, error: unknown) {
     return;
   }
 
-
   if (error instanceof SystemAdministratorPositionAssignmentError) {
     sendJson(res, 403, {
       error: { code: "access_denied", message: error.message },
@@ -13517,6 +13596,7 @@ async function handleAccessProfile(
     config: ServerConfig;
     devSessions: Map<string, DevAccessSession>;
     authService: AuthSessionService | undefined;
+    accounts?: AccountsRepository | undefined;
   },
 ) {
   if (req.method !== "GET") {
@@ -13643,6 +13723,79 @@ async function handleDevAccessSession(
   sendJson(res, 200, { ok: true, sessionId });
 }
 
+type RequestAccess = {
+  profile: ServerUserProfile;
+  source: "auth" | "dev";
+  sessionId: string;
+  /** Должность, от лица которой админ смотрит систему, если предпросмотр включён. */
+  previewPositionDisplayName?: string;
+};
+
+/**
+ * Разрешает цель предпросмотра и подменяет рабочий контекст доступа. Доступ к
+ * самому предпросмотру проверяется здесь же: без вкладки `Предпросмотр`
+ * заголовок игнорируется, поэтому подделать его обычным аккаунтом нельзя.
+ */
+async function applyAccountPreview(
+  req: IncomingMessage,
+  access: RequestAccess,
+  accounts: AccountsRepository | undefined,
+): Promise<RequestAccess> {
+  const target = parseAccountPreviewTarget(
+    req.headers[accountPreviewHeader],
+  );
+
+  if (target === undefined || !canPreviewAccounts(access.profile)) {
+    return access;
+  }
+
+  if (target.kind === "navigation") {
+    return {
+      ...access,
+      profile: applyAccountPreviewAccess(access.profile, {
+        position: access.profile.activeAccess.position,
+        positionDisplayName: readNavigationItemLabel(target.navigationItem),
+        navigationItems: [target.navigationItem],
+        capabilities: resolveMaximumCapabilitiesForNavigation(
+          target.navigationItem,
+        ),
+      }),
+      previewPositionDisplayName: readNavigationItemLabel(target.navigationItem),
+    };
+  }
+
+  const position = (await accounts?.listPositions())?.find(
+    ({ id }) => id === target.positionId,
+  );
+
+  if (position === undefined) {
+    return access;
+  }
+
+  return {
+    ...access,
+    profile: applyAccountPreviewAccess(access.profile, {
+      position: position.id,
+      positionDisplayName: position.displayName,
+      navigationItems: position.navigationItems,
+      capabilities: position.capabilities,
+    }),
+    previewPositionDisplayName: position.displayName,
+  };
+}
+
+/**
+ * Зависимости, по которым запрос превращается в доступ. Репозиторий должностей
+ * нужен здесь потому, что админ может смотреть систему от лица должности:
+ * цель предпросмотра разрешает сервер, клиент присылает только её адрес.
+ */
+type AccessDependencies = {
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts?: AccountsRepository | undefined;
+};
+
 async function requireCapability(
   req: IncomingMessage,
   res: ServerResponse,
@@ -13650,13 +13803,11 @@ async function requireCapability(
     config,
     devSessions,
     authService,
+    accounts,
     capability,
     message = "Required access is missing.",
     alternativeNavigationItem,
-  }: {
-    config: ServerConfig;
-    devSessions: Map<string, DevAccessSession>;
-    authService: AuthSessionService | undefined;
+  }: AccessDependencies & {
     capability: AccountCapability;
     message?: string;
     alternativeNavigationItem?: AccountNavigationItem;
@@ -13666,6 +13817,7 @@ async function requireCapability(
     config,
     devSessions,
     authService,
+    accounts,
   });
 
   if (access === undefined) {
@@ -13712,11 +13864,7 @@ function hasAccountPreviewReadAccess(
 async function requireAuthentication(
   req: IncomingMessage,
   res: ServerResponse,
-  dependencies: {
-    config: ServerConfig;
-    devSessions: Map<string, DevAccessSession>;
-    authService: AuthSessionService | undefined;
-  },
+  dependencies: AccessDependencies,
 ) {
   const access = await readRequestAccess(req, dependencies);
 
@@ -13735,23 +13883,25 @@ async function requireAuthentication(
 
 async function readRequestAccess(
   req: IncomingMessage,
-  {
+  { config, devSessions, authService, accounts }: AccessDependencies,
+): Promise<RequestAccess | undefined> {
+  const access = await readSignedInAccess(req, {
     config,
     devSessions,
     authService,
-  }: {
-    config: ServerConfig;
-    devSessions: Map<string, DevAccessSession>;
-    authService: AuthSessionService | undefined;
-  },
-): Promise<
-  | {
-      profile: ServerUserProfile;
-      source: "auth" | "dev";
-      sessionId: string;
-    }
-  | undefined
-> {
+  });
+
+  if (access === undefined) {
+    return undefined;
+  }
+
+  return applyAccountPreview(req, access, accounts);
+}
+
+async function readSignedInAccess(
+  req: IncomingMessage,
+  { config, devSessions, authService }: AccessDependencies,
+): Promise<RequestAccess | undefined> {
   const authSessionId = readAuthSessionId(req, config);
 
   if (authSessionId !== undefined) {

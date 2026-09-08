@@ -79,10 +79,8 @@ const wagonBrandMismatchMessage =
   "Выбраны вагоны с разными марками, выберите с одинаковыми.";
 
 export function LaboratoryGreenProductQualityJournal({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [general, setGeneral] = useState<GeneralFormState>(createEmptyGeneralForm);
@@ -107,7 +105,7 @@ export function LaboratoryGreenProductQualityJournal({
     useProductionBrands();
 
   useEffect(() => {
-    if (isAdminPreviewMode || editingRecordId !== undefined) return;
+    if (editingRecordId !== undefined) return;
     const controller = new AbortController();
     requestLaboratoryGreenProductQualityDraft({ signal: controller.signal })
       .then((result) => {
@@ -123,10 +121,9 @@ export function LaboratoryGreenProductQualityJournal({
           : current);
       });
     return () => controller.abort();
-  }, [editingRecordId, isAdminPreviewMode, refreshVersion]);
+  }, [editingRecordId, refreshVersion]);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     requestLaboratoryGreenProductQualityOptions({ signal: controller.signal })
       .then((result) => {
@@ -137,7 +134,7 @@ export function LaboratoryGreenProductQualityJournal({
           : current);
       });
     return () => controller.abort();
-  }, [isAdminPreviewMode, refreshVersion]);
+  }, [refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -276,7 +273,6 @@ export function LaboratoryGreenProductQualityJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
     const submission = buildSubmission({ general, measurementRows, recommendations });
     if (submission === undefined) {
       setFormMessage(
@@ -595,7 +591,6 @@ export function LaboratoryGreenProductQualityJournal({
           <button
             disabled={
               isSubmitting ||
-              isAdminPreviewMode ||
               productBrandsLoadState.status !== "ready"
             }
             type="submit"
@@ -664,7 +659,7 @@ export function LaboratoryGreenProductQualityJournal({
             : null}
         <LaboratoryGreenProductQualityTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
 

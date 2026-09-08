@@ -86,7 +86,9 @@ test("admin preview separates account types, created accounts, and working tabs"
     const rootElement = dom.window.document.getElementById("root");
     const root = createRoot(rootElement);
 
-    const readOnlyProfile = buildAdminPreviewProfile({
+    // Предпросмотр показывает раздел так же, как его видит сотрудник, поэтому
+    // права должности берутся целиком, а не урезаются до чтения.
+    const previewProfile = buildAdminPreviewProfile({
       ...buildCreatedAccount(),
       capabilities: [
         "business.manage_production_plan",
@@ -97,7 +99,8 @@ test("admin preview separates account types, created accounts, and working tabs"
         "business.board_assignments",
       ],
     });
-    assert.deepEqual(readOnlyProfile.activeAccess.capabilities, [
+    assert.deepEqual(previewProfile.activeAccess.capabilities, [
+      "business.manage_production_plan",
       "business.view_board_assignments",
     ]);
 
@@ -322,3 +325,52 @@ function restoreDomGlobals(previousGlobals) {
     else Object.defineProperty(globalThis, name, descriptor);
   }
 }
+
+test("preview target address follows the picked account and clears on exit", async () => {
+  const stored = new Map();
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    sessionStorage: {
+      getItem: (key) => (stored.has(key) ? stored.get(key) : null),
+      setItem: (key, value) => stored.set(key, value),
+      removeItem: (key) => stored.delete(key),
+    },
+  };
+
+  try {
+    const {
+      buildDevAccessHeaders,
+      clearStoredAccountPreviewTarget,
+      readStoredAccountPreviewTarget,
+      storeAccountPreviewTarget,
+    } = await import(
+      "../.test-build/src/services/devAccessSessionStorage.js"
+    );
+
+    assert.deepEqual(buildDevAccessHeaders({ Accept: "application/json" }), {
+      Accept: "application/json",
+    });
+
+    storeAccountPreviewTarget("position:position-dispatcher");
+    assert.equal(
+      readStoredAccountPreviewTarget(),
+      "position:position-dispatcher",
+    );
+    assert.deepEqual(buildDevAccessHeaders({ Accept: "application/json" }), {
+      Accept: "application/json",
+      "X-SMB-Account-Preview": "position:position-dispatcher",
+    });
+
+    clearStoredAccountPreviewTarget();
+    assert.equal(readStoredAccountPreviewTarget(), undefined);
+    assert.deepEqual(buildDevAccessHeaders({ Accept: "application/json" }), {
+      Accept: "application/json",
+    });
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
+});

@@ -78,11 +78,9 @@ const optionalNumericFields = new Set<keyof FormState>([
 
 export function LaboratoryRotaryKiln2FiringJournal({
   profile,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   profile: ServerUserProfile;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [form, setForm] = useState(() => createEmptyForm(profile.displayName));
@@ -113,8 +111,6 @@ export function LaboratoryRotaryKiln2FiringJournal({
     useProductionBrands();
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
-
     const controller = new AbortController();
     requestRotaryKiln2PersonnelOptions({ signal: controller.signal }).then(
       (result) => {
@@ -135,11 +131,9 @@ export function LaboratoryRotaryKiln2FiringJournal({
       },
     );
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, []);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
-
     const controller = new AbortController();
     const requestVersion = draftRequestVersionRef.current;
     requestRotaryKiln2FiringJournalDraft({ signal: controller.signal }).then(
@@ -168,7 +162,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
       },
     );
     return () => controller.abort();
-  }, [isAdminPreviewMode, refreshVersion]);
+  }, [refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -244,7 +238,6 @@ export function LaboratoryRotaryKiln2FiringJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const submission = buildSubmission(form);
     if (submission === undefined) {
@@ -453,7 +446,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
         <div className="laboratory-form-actions">
           <button
             className="primary-button"
-            disabled={isAdminPreviewMode || isSubmitting}
+            disabled={isSubmitting}
             type="submit"
           >
             {isSubmitting
@@ -478,9 +471,6 @@ export function LaboratoryRotaryKiln2FiringJournal({
                   Отменить
                 </button>
               )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === ""
             ? null
             : <span className="form-message" role="status">{formMessage}</span>}
@@ -532,7 +522,7 @@ export function LaboratoryRotaryKiln2FiringJournal({
             : null}
         <RotaryKiln2FiringTable
           records={selection.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
     </div>

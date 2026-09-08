@@ -50,10 +50,8 @@ const emptyPermissions: LaboratoryRawMaterialWarehousePermissions = {
 };
 
 export function LaboratoryRawMaterialWarehouse({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const datalistPrefix = useId().replaceAll(":", "");
@@ -108,7 +106,7 @@ export function LaboratoryRawMaterialWarehouse({
     return () => controller.abort();
   }, [dateFrom, dateTo, query, refreshVersion]);
 
-  const formEnabled = !isAdminPreviewMode && (
+  const formEnabled = (
     editMode.kind === "correct" ? state.permissions.canReview : state.permissions.canSubmit
   );
 
@@ -163,7 +161,7 @@ export function LaboratoryRawMaterialWarehouse({
   }
 
   async function approve(record: LaboratoryRawMaterialWarehouseRecord) {
-    if (isAdminPreviewMode || !state.permissions.canReview || isSaving) return;
+    if (!state.permissions.canReview || isSaving) return;
     setIsSaving(true);
     setMessage(`Подтверждаем запись от ${formatLaboratoryDate(record.movementDate)}…`);
     const result = await reviewLaboratoryRawMaterialMovement(record.id, {
@@ -184,7 +182,7 @@ export function LaboratoryRawMaterialWarehouse({
   }
 
   function startCorrection(record: LaboratoryRawMaterialWarehouseRecord) {
-    if (isAdminPreviewMode || !state.permissions.canReview) return;
+    if (!state.permissions.canReview) return;
     setEditMode({ kind: "correct", recordId: record.id });
     setForm(copyRecordToForm(record));
     setMessage("Исправьте данные и сохраните новую версию записи.");
@@ -297,7 +295,6 @@ export function LaboratoryRawMaterialWarehouse({
                 Отменить исправление
               </button>
             ) : null}
-            {isAdminPreviewMode ? <small>В режиме просмотра сохранение отключено.</small> : null}
             {message === "" ? null : <span className="form-message" role="status">{message}</span>}
           </div>
         </form>
@@ -312,7 +309,7 @@ export function LaboratoryRawMaterialWarehouse({
         </div>
         <WarehouseTable
           isPending
-          canReview={!isAdminPreviewMode && state.permissions.canReview}
+          canReview={state.permissions.canReview}
           isSaving={isSaving}
           records={state.pendingRecords}
           onApprove={approve}
@@ -354,7 +351,7 @@ export function LaboratoryRawMaterialWarehouse({
           <WarehouseTotal label="Остаток, т" value={formatTons(state.totals.balanceTons)} />
         </dl>
         <WarehouseTable
-          canReview={!isAdminPreviewMode && state.permissions.canReview}
+          canReview={state.permissions.canReview}
           isSaving={isSaving}
           records={state.records}
           onApprove={approve}

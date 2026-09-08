@@ -76,12 +76,10 @@ type RefractoryBanksState =
 
 export function RefractoryShopWorkspace({
   profile,
-  isAdminPreviewMode,
   onShowToast,
   decisionRefreshVersion = 0,
 }: {
   profile: ServerUserProfile;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
   decisionRefreshVersion?: number;
 }) {
@@ -108,10 +106,6 @@ export function RefractoryShopWorkspace({
     useProductionBrands();
 
   useEffect(() => {
-    if (isAdminPreviewMode) {
-      setBanksState({ status: "error", message: "В режиме просмотра назначения банок не загружаются." });
-      return;
-    }
     const controller = new AbortController();
     setBanksState({ status: "loading" });
     requestRefractoryBanks(reportDate, shiftNumber, {
@@ -126,17 +120,12 @@ export function RefractoryShopWorkspace({
           });
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode, refreshVersion, reportDate, shiftNumber]);
+  }, [refreshVersion, reportDate, shiftNumber]);
 
   useEffect(() => {
     setIsCorrectionMode(false);
     setStatus("");
     setHasError(false);
-    if (isAdminPreviewMode) {
-      setReports([]);
-      setLoadState("ready");
-      return;
-    }
     const controller = new AbortController();
     setReports([]);
     setLoadState("loading");
@@ -161,7 +150,6 @@ export function RefractoryShopWorkspace({
     return () => controller.abort();
   }, [
     decisionRefreshVersion,
-    isAdminPreviewMode,
     reportDate,
     shiftNumber,
     refreshVersion,
@@ -171,7 +159,6 @@ export function RefractoryShopWorkspace({
     (report) => report.reportType === activeType,
   );
   const isLocked =
-    isAdminPreviewMode ||
     activeReport?.status === "pending" ||
     (activeReport?.status === "approved" && !isCorrectionMode);
   const returnedReportCounts = countReturnedRefractoryReportsByType(reports, {
@@ -346,12 +333,6 @@ export function RefractoryShopWorkspace({
         </div>
       </header>
 
-      {isAdminPreviewMode ? (
-        <p className="form-status form-status-local">
-          В режиме предпросмотра таблицы не отправляются.
-        </p>
-      ) : null}
-
       {nomenclatureState.status === "loading" ? (
         <LoadingIndicator label="Загружаем марки…" variant="panel" />
       ) : nomenclatureState.status === "error" ? (
@@ -405,13 +386,11 @@ export function RefractoryShopWorkspace({
 
       {wagonJournal === "catalog" ? (
         <RefractoryWagonCatalog
-          isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
       ) : wagonJournal === "inspection" ? (
         <RefractoryWagonInspectionJournal
           defaultApprovalDate={reportDate}
-          isAdminPreviewMode={isAdminPreviewMode}
           key={reportDate}
           onShowToast={onShowToast}
         />
@@ -419,7 +398,6 @@ export function RefractoryShopWorkspace({
         <RefractoryWagonJournal
           brandLabels={brandLabels}
           defaultLoadingDate={reportDate}
-          isAdminPreviewMode={isAdminPreviewMode}
           key={reportDate}
           onShowToast={onShowToast}
         />
@@ -463,7 +441,7 @@ export function RefractoryShopWorkspace({
             ) : (
               <FiringForm
                 defaultReportDate={reportDate}
-                loadWagons={!isAdminPreviewMode}
+                loadWagons
                 payload={
                   activeReport?.reportType === "firing"
                     ? activeReport.payload

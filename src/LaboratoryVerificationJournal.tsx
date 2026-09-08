@@ -33,10 +33,8 @@ type HistoryState =
     };
 
 export function LaboratoryVerificationJournal({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [form, setForm] = useState(createEmptyForm);
@@ -118,7 +116,6 @@ export function LaboratoryVerificationJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const submission = buildFormRecord(form, sourceSampleRegistrationId);
     if (submission === undefined) {
@@ -182,7 +179,7 @@ export function LaboratoryVerificationJournal({
         {editingRecordId === undefined
           ? (
               <SampleRegistrationTransmissionPicker
-                disabled={isAdminPreviewMode}
+                disabled={false}
                 target="verification"
                 onSelect={selectTransmission}
               />
@@ -199,8 +196,7 @@ export function LaboratoryVerificationJournal({
                     <span>{field.label}</span>
                     <ProductBrandPicker
                       ariaLabel={field.label}
-                      disabled={isAdminPreviewMode ||
-                        productNamesLoadState.status !== "ready"}
+                      disabled={productNamesLoadState.status !== "ready"}
                       labels={productNames}
                       name={field.id}
                       placeholder="Поиск сырья"
@@ -263,7 +259,6 @@ export function LaboratoryVerificationJournal({
           <button
             className="primary-button"
             disabled={
-              isAdminPreviewMode ||
               isSubmitting ||
               productNamesLoadState.status !== "ready"
             }
@@ -291,9 +286,6 @@ export function LaboratoryVerificationJournal({
                   Отменить
                 </button>
               )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === ""
             ? null
             : <span className="form-message" role="status">{formMessage}</span>}
@@ -342,7 +334,7 @@ export function LaboratoryVerificationJournal({
             : null}
         <LaboratoryVerificationTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
     </div>

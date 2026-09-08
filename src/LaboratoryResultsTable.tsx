@@ -21,14 +21,12 @@ export function LaboratoryResultsTable({
   sectionLabels = laboratorySectionLabels,
   results,
   indicators,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   section: LaboratoryTableSection;
   sectionLabels?: Record<LaboratorySection, string>;
   results: LaboratoryResult[];
   indicators: LaboratoryIndicatorReference[];
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   if (results.length === 0) {
@@ -91,7 +89,7 @@ export function LaboratoryResultsTable({
               {row.protocolRowSpan > 0 ? (
                 <td className="laboratory-protocol-cell" rowSpan={row.protocolRowSpan}>
                   <LaboratoryProtocolActions
-                    disabled={isAdminPreviewMode}
+                    disabled={false}
                     result={row.result}
                     onShowToast={onShowToast}
                   />

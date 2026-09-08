@@ -18,17 +18,15 @@ import type { ShowToast } from "./services/toastStack";
 export function RefractoryWagonJournal({
   brandLabels,
   defaultLoadingDate,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   brandLabels: string[];
   defaultLoadingDate: string;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [wagons, setWagons] = useState<RefractoryWagonRecord[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
-    isAdminPreviewMode ? "ready" : "loading",
+    "loading",
   );
   const [number, setNumber] = useState("");
   const [loadingDate, setLoadingDate] = useState(defaultLoadingDate);
@@ -47,7 +45,6 @@ export function RefractoryWagonJournal({
   const hasSuccessfulMutation = useRef(false);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     setLoadState("loading");
     requestRefractoryWagons({ signal: controller.signal }).then((result) => {
@@ -74,7 +71,7 @@ export function RefractoryWagonJournal({
       }
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -189,143 +186,137 @@ export function RefractoryWagonJournal({
       className="refractory-wagon-journal"
       aria-label="Журнал оборота вагонов"
     >
-      {isAdminPreviewMode ? (
-        <p className="form-status form-status-local">
-          В режиме предпросмотра журнал оборота вагонов не загружается.
-        </p>
-      ) : (
-        <form className="refractory-wagon-form" onSubmit={handleSubmit}>
-          <fieldset disabled={isSubmitting}>
-            <legend>
-              {isCorrection ? "Исправление вагона" : "Садка на вагоны"}
-            </legend>
-            <div className="refractory-field-grid">
-              <label className="refractory-field">
-                <span>№ вагона</span>
-                <select
-                  name="wagonNumber"
-                  required
-                  value={number}
-                  onChange={(event) => {
-                    const selectedNumber = event.currentTarget.value;
-                    const selectedWagon = wagons.find(
-                      (wagon) => wagon.number === selectedNumber,
-                    );
-                    if (selectedWagon !== undefined) editWagon(selectedWagon);
-                  }}
-                >
-                  <option value="">Выберите вагон под садку</option>
-                  {sortedWagonNumbers.map((wagonNumber) => (
-                    <option key={wagonNumber} value={wagonNumber}>
-                      {wagonNumber}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="refractory-field">
-                <span>Дата садки</span>
-                <input
-                  name="wagonLoadingDate"
-                  required
-                  type="date"
-                  value={loadingDate}
-                  onChange={(event) => setLoadingDate(event.currentTarget.value)}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Марка</span>
-                <ProductBrandPicker
-                  ariaLabel="Марка вагона"
-                  labels={brandLabels}
-                  name="wagonProductBrand"
-                  value={productBrand}
-                  onChange={setProductBrand}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Дата пресса</span>
-                <input
-                  name="wagonPressDate"
-                  type="date"
-                  value={pressDate}
-                  onChange={(event) => setPressDate(event.currentTarget.value)}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Кол-во шт.</span>
-                <input
-                  inputMode="numeric"
-                  min={0}
-                  name="wagonPieceCount"
-                  step={1}
-                  type="number"
-                  value={pieceCount}
-                  onChange={(event) => setPieceCount(event.currentTarget.value)}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Садчик</span>
-                <input
-                  list="refractory-wagon-setter-options"
-                  maxLength={120}
-                  name="wagonSetter"
-                  value={setter}
-                  onChange={(event) => setSetter(event.currentTarget.value)}
-                />
-              </label>
-              <label className="refractory-field">
-                <span>Прессовщик</span>
-                <input
-                  list="refractory-wagon-press-operator-options"
-                  maxLength={120}
-                  name="wagonPressOperator"
-                  value={pressOperator}
-                  onChange={(event) => setPressOperator(event.currentTarget.value)}
-                />
-              </label>
-            </div>
-            <p className="laboratory-empty-note">
-              В списке — годные вагоны, ожидающие садки. Вагон уходит на
-              контроль сырца только после того, как заполнены дата садки,
-              садчик, дата пресса и прессовщик; исправить уже заполненную
-              запись можно кликом по номеру в таблице ниже.
-            </p>
-            <p className="laboratory-empty-note">
-              Обжигальщик, сортировщик и даты обжига и сортировки приходят из
-              подтверждённого отчёта печного отделения, а состояние вагона и
-              дата одобрения — из журнала осмотра вагонов.
-            </p>
-          </fieldset>
-          <div className="refractory-form-actions">
-            <button
-              className="primary-button"
-              disabled={isSubmitting || editingWagonId === undefined}
-              type="submit"
-            >
-              {isSubmitting
-                ? "Сохраняем…"
-                : isCorrection
-                  ? "Сохранить исправление"
-                  : "Сохранить садку"}
-            </button>
-            {editingWagonId === undefined ? null : (
-              <button
-                className="secondary-button"
-                disabled={isSubmitting}
-                type="button"
-                onClick={() => resetForm()}
+      <form className="refractory-wagon-form" onSubmit={handleSubmit}>
+        <fieldset disabled={isSubmitting}>
+          <legend>
+            {isCorrection ? "Исправление вагона" : "Садка на вагоны"}
+          </legend>
+          <div className="refractory-field-grid">
+            <label className="refractory-field">
+              <span>№ вагона</span>
+              <select
+                name="wagonNumber"
+                required
+                value={number}
+                onChange={(event) => {
+                  const selectedNumber = event.currentTarget.value;
+                  const selectedWagon = wagons.find(
+                    (wagon) => wagon.number === selectedNumber,
+                  );
+                  if (selectedWagon !== undefined) editWagon(selectedWagon);
+                }}
               >
-                Отмена
-              </button>
-            )}
-            {message.length > 0 ? (
-              <p className={`form-status${hasError ? " form-status-error" : ""}`}>
-                {message}
-              </p>
-            ) : null}
+                <option value="">Выберите вагон под садку</option>
+                {sortedWagonNumbers.map((wagonNumber) => (
+                  <option key={wagonNumber} value={wagonNumber}>
+                    {wagonNumber}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="refractory-field">
+              <span>Дата садки</span>
+              <input
+                name="wagonLoadingDate"
+                required
+                type="date"
+                value={loadingDate}
+                onChange={(event) => setLoadingDate(event.currentTarget.value)}
+              />
+            </label>
+            <label className="refractory-field">
+              <span>Марка</span>
+              <ProductBrandPicker
+                ariaLabel="Марка вагона"
+                labels={brandLabels}
+                name="wagonProductBrand"
+                value={productBrand}
+                onChange={setProductBrand}
+              />
+            </label>
+            <label className="refractory-field">
+              <span>Дата пресса</span>
+              <input
+                name="wagonPressDate"
+                type="date"
+                value={pressDate}
+                onChange={(event) => setPressDate(event.currentTarget.value)}
+              />
+            </label>
+            <label className="refractory-field">
+              <span>Кол-во шт.</span>
+              <input
+                inputMode="numeric"
+                min={0}
+                name="wagonPieceCount"
+                step={1}
+                type="number"
+                value={pieceCount}
+                onChange={(event) => setPieceCount(event.currentTarget.value)}
+              />
+            </label>
+            <label className="refractory-field">
+              <span>Садчик</span>
+              <input
+                list="refractory-wagon-setter-options"
+                maxLength={120}
+                name="wagonSetter"
+                value={setter}
+                onChange={(event) => setSetter(event.currentTarget.value)}
+              />
+            </label>
+            <label className="refractory-field">
+              <span>Прессовщик</span>
+              <input
+                list="refractory-wagon-press-operator-options"
+                maxLength={120}
+                name="wagonPressOperator"
+                value={pressOperator}
+                onChange={(event) => setPressOperator(event.currentTarget.value)}
+              />
+            </label>
           </div>
-        </form>
-      )}
+          <p className="laboratory-empty-note">
+            В списке — годные вагоны, ожидающие садки. Вагон уходит на
+            контроль сырца только после того, как заполнены дата садки,
+            садчик, дата пресса и прессовщик; исправить уже заполненную
+            запись можно кликом по номеру в таблице ниже.
+          </p>
+          <p className="laboratory-empty-note">
+            Обжигальщик, сортировщик и даты обжига и сортировки приходят из
+            подтверждённого отчёта печного отделения, а состояние вагона и
+            дата одобрения — из журнала осмотра вагонов.
+          </p>
+        </fieldset>
+        <div className="refractory-form-actions">
+          <button
+            className="primary-button"
+            disabled={isSubmitting || editingWagonId === undefined}
+            type="submit"
+          >
+            {isSubmitting
+              ? "Сохраняем…"
+              : isCorrection
+                ? "Сохранить исправление"
+                : "Сохранить садку"}
+          </button>
+          {editingWagonId === undefined ? null : (
+            <button
+              className="secondary-button"
+              disabled={isSubmitting}
+              type="button"
+              onClick={() => resetForm()}
+            >
+              Отмена
+            </button>
+          )}
+          {message.length > 0 ? (
+            <p className={`form-status${hasError ? " form-status-error" : ""}`}>
+              {message}
+            </p>
+          ) : null}
+        </div>
+      </form>
 
       {loadState === "loading" ? (
         <LoadingIndicator label="Загружаем вагоны…" variant="panel" />

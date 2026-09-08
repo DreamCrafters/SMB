@@ -1,6 +1,7 @@
 import {
   railwayWagonAccessLevels,
   railwayWagonRoleCapabilities,
+  railwayWagonRoles,
   type RailwayWagonAccess,
 } from "../contracts/railwayWagons.js";
 import type {
@@ -243,6 +244,46 @@ export function isNavigationAccessLevel(
     (navigationAccessLevelsByItem[navigationItem] as readonly string[])
       .includes(value as string)
   );
+}
+
+/**
+ * Предпросмотр одной вкладки показывает её максимально: к правам самой вкладки
+ * добавляются права всех её уровней. Реальная должность держит один уровень, но
+ * здесь задача обратная — увидеть вкладку целиком, а не глазами одной роли.
+ */
+export function resolveMaximumCapabilitiesForNavigation(
+  navigationItem: AccountNavigationItem,
+): AccountCapability[] {
+  const base = resolveCapabilitiesForNavigation([navigationItem]);
+
+  if (navigationItem === "business.board_assignments") {
+    return Array.from(new Set([
+      ...base,
+      "business.create_board_assignments",
+      "business.execute_board_assignments",
+      "business.review_board_assignments",
+    ]));
+  }
+
+  if (navigationItem === "business.railway_wagons") {
+    return Array.from(new Set([
+      ...base,
+      ...railwayWagonRoles.map((role) => railwayWagonRoleCapabilities[role]),
+    ])) as AccountCapability[];
+  }
+
+  if (navigationItem === "business.overview") {
+    return Array.from(new Set([...base, "business.view_overview_visitors"]));
+  }
+
+  if (navigationItem === "business.laboratory_results") {
+    return Array.from(new Set([
+      ...base,
+      "business.review_raw_material_warehouse",
+    ]));
+  }
+
+  return base;
 }
 
 export function readRawMaterialWarehouseReviewAccess(

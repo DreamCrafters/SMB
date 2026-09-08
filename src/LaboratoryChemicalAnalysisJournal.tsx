@@ -54,11 +54,9 @@ const laboratoryAssistantBySessionProfile =
 
 export function LaboratoryChemicalAnalysisJournal({
   profile,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   profile: ServerUserProfile;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const initialLaboratoryAssistant =
@@ -98,7 +96,6 @@ export function LaboratoryChemicalAnalysisJournal({
     `chemical-analysis-sample-options-${useId().replaceAll(":", "")}`;
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     requestLaboratoryChemicalAnalysisDraft({
       signal: controller.signal,
@@ -127,7 +124,7 @@ export function LaboratoryChemicalAnalysisJournal({
         : current);
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode, refreshVersion]);
+  }, [refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -237,7 +234,6 @@ export function LaboratoryChemicalAnalysisJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const saveRequest = editingRecordId === undefined
       ? {
@@ -357,7 +353,6 @@ export function LaboratoryChemicalAnalysisJournal({
 
   async function openProtocol() {
     if (
-      isAdminPreviewMode ||
       isOpeningProtocol ||
       history.status !== "ready" ||
       history.records.length === 0
@@ -570,7 +565,6 @@ export function LaboratoryChemicalAnalysisJournal({
           <button
             className="primary-button"
             disabled={
-              isAdminPreviewMode ||
               isSubmitting ||
               form.sampleKey === ""
             }
@@ -597,9 +591,6 @@ export function LaboratoryChemicalAnalysisJournal({
                   Отменить
                 </button>
               )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === ""
             ? null
             : (
@@ -625,7 +616,6 @@ export function LaboratoryChemicalAnalysisJournal({
             <button
               className="secondary-button"
               disabled={
-                isAdminPreviewMode ||
                 isOpeningProtocol ||
                 history.status !== "ready" ||
                 history.records.length === 0
@@ -672,7 +662,7 @@ export function LaboratoryChemicalAnalysisJournal({
             : null}
         <LaboratoryChemicalAnalysisTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
     </div>

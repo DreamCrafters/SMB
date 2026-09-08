@@ -88,10 +88,8 @@ function buildCargoRow(): CargoDraftRow {
 }
 
 export function RailwayWagonsWorkspace({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
@@ -129,11 +127,6 @@ export function RailwayWagonsWorkspace({
     : productionBrands.labels;
 
   useEffect(() => {
-    if (isAdminPreviewMode) {
-      setLoadState("ready");
-      return;
-    }
-
     const controller = new AbortController();
 
     Promise.all([
@@ -159,7 +152,7 @@ export function RailwayWagonsWorkspace({
     });
 
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, []);
 
   const selectedOrder = useMemo(
     () => orders.find((order) => order.id === selectedOrderId),
@@ -184,21 +177,6 @@ export function RailwayWagonsWorkspace({
 
   const canManageOrders = roles.includes("sales");
   const isCorrection = editingOrderId !== undefined;
-
-  if (isAdminPreviewMode) {
-    return (
-      <section className="railway-wagons-workspace">
-        <header className="railway-wagons-header">
-          <span className="eyebrow">ЖД Вагоны</span>
-          <h2>Заявки на вагоны</h2>
-        </header>
-        <p className="form-status form-status-local">
-          Предпросмотр показывает раздел без данных: заявки на вагоны доступны
-          сотрудникам с ролью в этом разделе.
-        </p>
-      </section>
-    );
-  }
 
   function resetOrderForm() {
     setContractReference("");

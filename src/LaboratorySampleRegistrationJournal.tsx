@@ -46,11 +46,9 @@ const laboratoryAssistantBySessionProfile =
 
 export function LaboratorySampleRegistrationJournal({
   profile,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   profile: ServerUserProfile;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const initialLaboratoryAssistant =
@@ -85,7 +83,6 @@ export function LaboratorySampleRegistrationJournal({
   const samplingLocationRequestVersion = useRef(0);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     requestLaboratorySampleRegistrationDraft({
       signal: controller.signal,
@@ -123,10 +120,9 @@ export function LaboratorySampleRegistrationJournal({
         : current);
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode, refreshVersion]);
+  }, [refreshVersion]);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     const requestVersion = samplingLocationRequestVersion.current + 1;
     samplingLocationRequestVersion.current = requestVersion;
@@ -172,7 +168,7 @@ export function LaboratorySampleRegistrationJournal({
         : current);
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode, samplingLocationRefreshVersion]);
+  }, [samplingLocationRefreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -240,7 +236,6 @@ export function LaboratorySampleRegistrationJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const saveRequest = editingRecordId === undefined
       ? { kind: "create" as const, submission: buildFormRecord(form) }
@@ -406,7 +401,7 @@ export function LaboratorySampleRegistrationJournal({
         <div className="laboratory-form-actions">
           <button
             className="primary-button"
-            disabled={isAdminPreviewMode || isSubmitting}
+            disabled={isSubmitting}
             type="submit"
           >
             {isSubmitting
@@ -431,9 +426,6 @@ export function LaboratorySampleRegistrationJournal({
                   Отменить
                 </button>
               )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === ""
             ? null
             : <span className="form-message" role="status">{formMessage}</span>}
@@ -482,7 +474,7 @@ export function LaboratorySampleRegistrationJournal({
             : null}
         <LaboratorySampleRegistrationTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
     </div>

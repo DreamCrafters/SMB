@@ -14,7 +14,6 @@ test("incident opening defaults to the active dispatcher even outside the refere
   assert.deepEqual(
     buildIncidentResponsibleInput({
       currentUserDisplayName: "Мария Сидорова",
-      isAdminPreviewMode: false,
       options: ["Иван Иванов", "Пётр Петров"],
     }),
     {
@@ -23,10 +22,11 @@ test("incident opening defaults to the active dispatcher even outside the refere
     },
   );
 
+  // Предпросмотр больше не подменяет ответственного: админ смотрит форму от
+  // лица должности и подставляется так же, как настоящий диспетчер.
   assert.deepEqual(
     buildIncidentResponsibleInput({
-      currentUserDisplayName: "Превью: Диспетчер",
-      isAdminPreviewMode: true,
+      currentUserDisplayName: "",
       options: ["Иван Иванов", "Пётр Петров"],
     }),
     {

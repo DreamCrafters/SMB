@@ -21,11 +21,9 @@ import type { ShowToast } from "./services/toastStack";
  */
 export function RefractoryWagonInspectionJournal({
   defaultApprovalDate,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   defaultApprovalDate: string;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [wagons, setWagons] = useState<RefractoryWagonRecord[]>([]);
@@ -33,7 +31,7 @@ export function RefractoryWagonInspectionJournal({
     RefractoryWagonInspectionRecord[]
   >([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
-    isAdminPreviewMode ? "ready" : "loading",
+    "loading",
   );
   const [wagonId, setWagonId] = useState("");
   const [condition, setCondition] = useState<RefractoryWagonCondition | "">("");
@@ -43,7 +41,6 @@ export function RefractoryWagonInspectionJournal({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (isAdminPreviewMode) return;
     const controller = new AbortController();
     setLoadState("loading");
     Promise.all([
@@ -69,7 +66,7 @@ export function RefractoryWagonInspectionJournal({
       setLoadState("ready");
     });
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, []);
 
   const awaitingWagons = wagons.filter(isRefractoryWagonAwaitingInspection);
   const selectedWagon = awaitingWagons.find((wagon) => wagon.id === wagonId);
@@ -122,78 +119,72 @@ export function RefractoryWagonInspectionJournal({
       className="refractory-wagon-inspection-journal"
       aria-label="Журнал осмотра вагонов"
     >
-      {isAdminPreviewMode ? (
-        <p className="form-status form-status-local">
-          В режиме предпросмотра журнал осмотра вагонов не загружается.
-        </p>
-      ) : (
-        <form className="refractory-wagon-form" onSubmit={handleSubmit}>
-          <fieldset disabled={isSubmitting}>
-            <legend>Осмотр вагона</legend>
-            <div className="refractory-field-grid">
-              <label className="refractory-field">
-                <span>Номер вагона</span>
-                <select
-                  name="inspectionWagonId"
-                  required
-                  value={wagonId}
-                  onChange={(event) => setWagonId(event.currentTarget.value)}
-                >
-                  <option value="">Выберите вагон</option>
-                  {awaitingWagons.map((wagon) => (
-                    <option key={wagon.id} value={wagon.id}>
-                      {formatWagonOption(wagon)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="refractory-field">
-                <span>Состояние вагона после обжига</span>
-                <select
-                  name="inspectionCondition"
-                  required
-                  value={condition}
-                  onChange={(event) =>
-                    setCondition(
-                      event.currentTarget.value as RefractoryWagonCondition | "",
-                    )}
-                >
-                  <option value="">Выберите действие</option>
-                  {refractoryWagonConditionValues.map((value) => (
-                    <option key={value} value={value}>{value}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="refractory-field">
-                <span>Дата осмотра</span>
-                <input
-                  name="inspectionApprovalDate"
-                  required
-                  type="date"
-                  value={approvalDate}
-                  onChange={(event) =>
-                    setApprovalDate(event.currentTarget.value)}
-                />
-              </label>
-            </div>
-            {selectedWagon === undefined ? null : (
-              <p className="laboratory-empty-note">
-                {`Марка ${selectedWagon.productBrand ?? "—"}, обжигов: ${selectedWagon.firingDates.length}.`}
-              </p>
-            )}
-          </fieldset>
-          <div className="refractory-form-actions">
-            <button className="primary-button" disabled={isSubmitting} type="submit">
-              {isSubmitting ? "Сохраняем…" : "Сохранить осмотр"}
-            </button>
-            {message.length > 0 ? (
-              <p className={`form-status${hasError ? " form-status-error" : ""}`}>
-                {message}
-              </p>
-            ) : null}
+      <form className="refractory-wagon-form" onSubmit={handleSubmit}>
+        <fieldset disabled={isSubmitting}>
+          <legend>Осмотр вагона</legend>
+          <div className="refractory-field-grid">
+            <label className="refractory-field">
+              <span>Номер вагона</span>
+              <select
+                name="inspectionWagonId"
+                required
+                value={wagonId}
+                onChange={(event) => setWagonId(event.currentTarget.value)}
+              >
+                <option value="">Выберите вагон</option>
+                {awaitingWagons.map((wagon) => (
+                  <option key={wagon.id} value={wagon.id}>
+                    {formatWagonOption(wagon)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="refractory-field">
+              <span>Состояние вагона после обжига</span>
+              <select
+                name="inspectionCondition"
+                required
+                value={condition}
+                onChange={(event) =>
+                  setCondition(
+                    event.currentTarget.value as RefractoryWagonCondition | "",
+                  )}
+              >
+                <option value="">Выберите действие</option>
+                {refractoryWagonConditionValues.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label className="refractory-field">
+              <span>Дата осмотра</span>
+              <input
+                name="inspectionApprovalDate"
+                required
+                type="date"
+                value={approvalDate}
+                onChange={(event) =>
+                  setApprovalDate(event.currentTarget.value)}
+              />
+            </label>
           </div>
-        </form>
-      )}
+          {selectedWagon === undefined ? null : (
+            <p className="laboratory-empty-note">
+              {`Марка ${selectedWagon.productBrand ?? "—"}, обжигов: ${selectedWagon.firingDates.length}.`}
+            </p>
+          )}
+        </fieldset>
+        <div className="refractory-form-actions">
+          <button className="primary-button" disabled={isSubmitting} type="submit">
+            {isSubmitting ? "Сохраняем…" : "Сохранить осмотр"}
+          </button>
+          {message.length > 0 ? (
+            <p className={`form-status${hasError ? " form-status-error" : ""}`}>
+              {message}
+            </p>
+          ) : null}
+        </div>
+      </form>
 
       {loadState === "loading" ? (
         <LoadingIndicator label="Загружаем осмотры…" variant="panel" />

@@ -32,10 +32,8 @@ function changeNotificationChannel(
 }
 
 export function NotificationSettingsWorkspace({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [state, setState] = useState<
@@ -46,13 +44,6 @@ export function NotificationSettingsWorkspace({
   const [savingType, setSavingType] = useState<NotificationType>();
 
   useEffect(() => {
-    if (isAdminPreviewMode) {
-      setState({
-        status: "error",
-        message: "В превью настройки рассылок доступны только для просмотра интерфейса.",
-      });
-      return;
-    }
     const controller = new AbortController();
     void requestOwnNotificationSettings({ signal: controller.signal }).then(
       (result) => {
@@ -63,7 +54,7 @@ export function NotificationSettingsWorkspace({
       },
     );
     return () => controller.abort();
-  }, [isAdminPreviewMode]);
+  }, []);
 
   async function saveSetting(
     type: NotificationType,

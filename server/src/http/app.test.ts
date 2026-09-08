@@ -6735,6 +6735,70 @@ test("working tab API carries the access level only where the tab has levels", a
   }]);
 });
 
+test("admin preview grants the previewed position and refuses everyone else", async () => {
+  const repository: AccountsRepository = {
+    ...accounts,
+    async listPositions() {
+      // Список должностей питает и dev-сессии, поэтому базовые остаются.
+      return [
+        ...(await accounts.listPositions()),
+        {
+          id: "position-railway-carrier",
+          displayName: "Сотрудник по работе с РЖД",
+          accountType: "business_owner",
+          navigationItems: ["business.railway_wagons"],
+          capabilities: [
+            "business.view_railway_wagons",
+            "business.manage_railway_wagon_carriage",
+          ],
+          boardAssignmentAccess: "none",
+          railwayWagonAccess: "carrier",
+          showOverviewVisitors: false,
+          isProtected: false,
+          usageCount: 1,
+          createdAt: "2026-09-07T00:00:00.000Z",
+        },
+      ] as Awaited<ReturnType<AccountsRepository["listPositions"]>>;
+    },
+  };
+
+  await withApiServer(async (baseUrl) => {
+    const adminSession = await createDevSession(baseUrl, "admin");
+    const workerSession = await createDevSession(baseUrl, "worker");
+    const read = (sessionId: string, preview?: string) => fetch(
+      `${baseUrl}/api/railway-wagons`,
+      {
+        headers: {
+          "X-SMB-Dev-Session": sessionId,
+          ...(preview === undefined
+            ? {}
+            : { "X-SMB-Account-Preview": preview }),
+        },
+      },
+    );
+
+    // Админ без предпросмотра права раздела не имеет.
+    const withoutPreview = await read(adminSession);
+    assert.equal(withoutPreview.status, 403);
+
+    // 503 значит, что гейт пройден и запрос дошёл до хранилища раздела.
+    const previewed = await read(adminSession, "position:position-railway-carrier");
+    assert.equal(previewed.status, 503);
+
+    // Заголовок без вкладки «Предпросмотр» не даёт ничего.
+    const foreign = await read(workerSession, "position:position-railway-carrier");
+    assert.equal(foreign.status, 403);
+
+    // Несуществующая должность оставляет админа с его собственными правами.
+    const unknown = await read(adminSession, "position:position-missing");
+    assert.equal(unknown.status, 403);
+
+    // Предпросмотр одной вкладки показывает её целиком.
+    const byTab = await read(adminSession, "navigation:business.railway_wagons");
+    assert.equal(byTab.status, 503);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});
+
 test("navigation order API stores a complete catalog and rejects unauthorized or stale writes", async () => {
   let stored: NavigationSettings = {
     navigationOrder: [...defaultNavigationOrder],

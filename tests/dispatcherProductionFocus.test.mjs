@@ -119,12 +119,10 @@ test("forming and sorting facts switch focus on the first mouse press", async ()
           null,
           React.createElement(ProductionCategoryTable, {
             brandLabels: [],
-            isAdminPreviewMode: false,
             prefix: "forming",
           }),
           React.createElement(ProductionCategoryTable, {
             brandLabels: [],
-            isAdminPreviewMode: false,
             prefix: "sorting",
           }),
         ),
@@ -824,25 +822,19 @@ test("jar dashboard table shows the current bank content next to the number", as
   }
 });
 
-for (const { label, appEnv, isAdminPreviewMode, expectedCreateButtons } of [
+for (const { label, appEnv, expectedCreateButtons } of [
   {
     label: "test dispatcher mode",
     appEnv: "test",
-    isAdminPreviewMode: false,
     expectedCreateButtons: 0,
   },
   {
     label: "production dispatcher mode",
     appEnv: "production",
-    isAdminPreviewMode: false,
     expectedCreateButtons: 0,
   },
-  {
-    label: "production admin preview",
-    appEnv: "production",
-    isAdminPreviewMode: true,
-    expectedCreateButtons: 0,
-  },
+  // Предпросмотр админа больше не отдельный режим формы: он работает так же,
+  // как боевой диспетчерский, поэтому отдельного сценария у формы нет.
 ]) {
 test(`production form loads all saved data by date in ${label}`, async () => {
   const dom = new JSDOM(
@@ -1120,7 +1112,6 @@ test(`production form loads all saved data by date in ${label}`, async () => {
           null,
           React.createElement(DispatcherProductionReportFormBody, {
             form,
-            isAdminPreviewMode,
             isSubmitting: false,
             onResetStatus: () => undefined,
             status: "",
@@ -1186,7 +1177,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(
       rootElement.querySelector('input[name="jarEnd1"]')?.value,
-      isAdminPreviewMode ? undefined : "100.65",
+      "100.65",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarShipmentStart1"]')?.value,
@@ -1194,7 +1185,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(
       rootElement.querySelector('input[name="jarShipmentEnd1"]')?.value,
-      isAdminPreviewMode ? undefined : "128.5",
+      "128.5",
     );
     assert.equal(
       rootElement.querySelector('input[name="jarStart1"]')?.type,
@@ -1215,10 +1206,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(bankInputs.length, 19);
     assert.equal(
-      bankInputs.every((input) =>
-        input.disabled === isAdminPreviewMode &&
-        input.readOnly === isAdminPreviewMode
-      ),
+      bankInputs.every((input) => !input.disabled && !input.readOnly),
       true,
     );
     // Задача 103: пустая банка отмечается галочкой, по одной на банку.
@@ -1227,7 +1215,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.equal(emptyBankToggles.length, 3);
     assert.equal(
-      emptyBankToggles.every((input) => input.disabled === isAdminPreviewMode),
+      emptyBankToggles.every((input) => !input.disabled),
       true,
     );
     assert.equal(
@@ -1280,7 +1268,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
     );
     assert.match(
       bankTable.textContent ?? "",
-      isAdminPreviewMode ? /110.*94/u : /100,65.*128,5/u,
+      /100,65.*128,5/u,
     );
     assert.equal(
       rootElement.querySelector(
@@ -1305,7 +1293,7 @@ test(`production form loads all saved data by date in ${label}`, async () => {
       )?.textContent ?? "",
       /Сводка ЦОШ за 18\.07\.2026, смена 2/u,
     );
-    if (!isAdminPreviewMode) {
+    {
       const firstBankMeasurement = bankTable.querySelector(
         'input[name="jarMeasurement1_1"]',
       );
@@ -1534,7 +1522,6 @@ test("production monthly plan input accepts comma and dot with two decimal place
     await React.act(async () => {
       root.render(
         React.createElement(ProductionPlanWorkspace, {
-          isAdminPreviewMode: false,
           onShowToast: () => undefined,
         }),
       );

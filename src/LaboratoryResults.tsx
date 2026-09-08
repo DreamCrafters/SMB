@@ -162,11 +162,9 @@ let nextSampleKey = 1;
 
 export function LaboratoryResultsWorkspace({
   profile,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   profile: ServerUserProfile;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const isRawMaterialWarehouseReviewOnly =
@@ -371,7 +369,6 @@ export function LaboratoryResultsWorkspace({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const validationMessage = validateForm(
       section,
@@ -646,13 +643,11 @@ export function LaboratoryResultsWorkspace({
 
       {activePanel === "banks" ? (
         <LaboratoryBanksPanel
-          isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
       ) : activePanel === "nomenclature" ? (
         nomenclatureJournal === "brands" ? (
           <ProductBrandJournal
-            isAdminPreviewMode={isAdminPreviewMode}
             onBrandSaved={() => {
               setProductBrandRefreshVersion((value) => value + 1);
             }}
@@ -660,26 +655,22 @@ export function LaboratoryResultsWorkspace({
           />
         ) : (
           <RawMaterialNomenclatureJournal
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         )
       ) : activePanel === "raw-material-warehouse" ? (
         <LaboratoryRawMaterialWarehouse
-          isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
       ) : activePanel === "central-lab" ? (
         centralLabJournal === "kiln-journal" ? (
           <LaboratoryRotaryKiln2FiringJournal
             profile={profile}
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         ) : (
           <LaboratoryChemicalAnalysisJournal
             profile={profile}
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         )
@@ -687,35 +678,29 @@ export function LaboratoryResultsWorkspace({
         qualityControlJournal === "sample-registration" ? (
           <LaboratorySampleRegistrationJournal
             profile={profile}
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         ) : qualityControlJournal === "unshaped-product-samples" ? (
           <LaboratoryUnshapedProductSampleJournal
             profile={profile}
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         ) : qualityControlJournal === "formed-product-samples" ? (
           <LaboratoryFormedProductSampleJournal
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         ) : (
           <LaboratoryVerificationJournal
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         )
       ) : activePanel === "refractory-shop" ? (
         refractoryShopJournal === "raw-material-quality" ? (
           <LaboratoryRawMaterialQualityJournal
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         ) : (
           <LaboratoryGreenProductQualityJournal
-            isAdminPreviewMode={isAdminPreviewMode}
             onShowToast={onShowToast}
           />
         )
@@ -820,7 +805,6 @@ export function LaboratoryResultsWorkspace({
             <button
               className="primary-button"
               disabled={
-                isAdminPreviewMode ||
                 isSubmitting ||
                 (section === "finished_product" && selectedProductType === undefined)
               }
@@ -830,9 +814,6 @@ export function LaboratoryResultsWorkspace({
                 <LoadingIndicator label="Сохраняем…" variant="button" />
               ) : "Внести данные"}
             </button>
-            {isAdminPreviewMode ? (
-              <small>В режиме просмотра сохранение отключено.</small>
-            ) : null}
             {formMessage === "" ? null : (
               <span className="form-message" role="status">{formMessage}</span>
             )}
@@ -895,7 +876,6 @@ export function LaboratoryResultsWorkspace({
           section={section}
           results={historyState.results}
           indicators={historyIndicators}
-          isAdminPreviewMode={isAdminPreviewMode}
           onShowToast={onShowToast}
         />
       </section>

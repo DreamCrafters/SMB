@@ -26,10 +26,8 @@ type HistoryState =
  * исправляет правка записи.
  */
 export function RawMaterialNomenclatureJournal({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [form, setForm] = useState<FormState>(createEmptyForm);
@@ -72,7 +70,6 @@ export function RawMaterialNomenclatureJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const submission = buildSubmission(form);
     if (submission === undefined) {
@@ -144,7 +141,7 @@ export function RawMaterialNomenclatureJournal({
               <span>{field.label}</span>
               {field.kind === "long_text" ? (
                 <textarea
-                  disabled={isAdminPreviewMode || isSubmitting}
+                  disabled={isSubmitting}
                   maxLength={field.maxLength}
                   value={form[field.id]}
                   onChange={(event) => {
@@ -154,7 +151,7 @@ export function RawMaterialNomenclatureJournal({
                 />
               ) : (
                 <input
-                  disabled={isAdminPreviewMode || isSubmitting}
+                  disabled={isSubmitting}
                   maxLength={field.maxLength}
                   required={field.id === "name"}
                   value={form[field.id]}
@@ -171,7 +168,7 @@ export function RawMaterialNomenclatureJournal({
         <div className="laboratory-form-actions">
           <button
             className="primary-button"
-            disabled={isAdminPreviewMode || isSubmitting}
+            disabled={isSubmitting}
             type="submit"
           >
             {isSubmitting
@@ -190,9 +187,6 @@ export function RawMaterialNomenclatureJournal({
               Отменить
             </button>
           )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === "" ? null : (
             <span className="form-message" role="status">{formMessage}</span>
           )}
@@ -227,7 +221,7 @@ export function RawMaterialNomenclatureJournal({
             : null}
         <RawMaterialNomenclatureTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
     </div>

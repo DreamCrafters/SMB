@@ -44,10 +44,8 @@ type WagonLookupState =
   | { status: "error"; message: string };
 
 export function LaboratoryFormedProductSampleJournal({
-  isAdminPreviewMode,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [form, setForm] = useState(createEmptyForm);
@@ -161,7 +159,6 @@ export function LaboratoryFormedProductSampleJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const submission = buildFormRecord(
       form,
@@ -244,7 +241,7 @@ export function LaboratoryFormedProductSampleJournal({
         {editingRecordId === undefined
           ? (
               <SampleRegistrationTransmissionPicker
-                disabled={isAdminPreviewMode}
+                disabled={false}
                 target="formed_product_sample"
                 onSelect={selectTransmission}
               />
@@ -323,8 +320,7 @@ export function LaboratoryFormedProductSampleJournal({
                       <span>Марка изделия</span>
                       <ProductBrandPicker
                         ariaLabel="Марка изделия"
-                        disabled={isAdminPreviewMode ||
-                          productNamesLoadState.status !== "ready"}
+                        disabled={productNamesLoadState.status !== "ready"}
                         labels={productNames}
                         name="productBrand"
                         value={form.productBrand}
@@ -357,7 +353,6 @@ export function LaboratoryFormedProductSampleJournal({
           <button
             className="primary-button"
             disabled={
-              isAdminPreviewMode ||
               isSubmitting ||
               (sourceMode === "wagon" && wagonLookup.status !== "ready")
             }
@@ -385,9 +380,6 @@ export function LaboratoryFormedProductSampleJournal({
                   Отменить
                 </button>
               )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === ""
             ? null
             : <span className="form-message" role="status">{formMessage}</span>}
@@ -436,7 +428,7 @@ export function LaboratoryFormedProductSampleJournal({
             : null}
         <LaboratoryFormedProductSampleTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
     </div>

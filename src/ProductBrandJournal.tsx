@@ -30,11 +30,9 @@ type DeletionDialogState = {
 };
 
 export function ProductBrandJournal({
-  isAdminPreviewMode,
   onBrandSaved,
   onShowToast,
 }: {
-  isAdminPreviewMode: boolean;
   onBrandSaved: () => void;
   onShowToast: ShowToast;
 }) {
@@ -81,7 +79,6 @@ export function ProductBrandJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const submission = buildSubmission(form);
     if (submission === undefined) {
@@ -132,7 +129,7 @@ export function ProductBrandJournal({
   }
 
   async function prepareDeletion(record: ProductBrandRecord) {
-    if (isAdminPreviewMode || loadingDeletionId !== undefined) return;
+    if (loadingDeletionId !== undefined) return;
     setLoadingDeletionId(record.id);
     setFormMessage("");
     const impactResult = await requestProductBrandDeletionImpact(record.id);
@@ -232,7 +229,7 @@ export function ProductBrandJournal({
               <span>{field.label}</span>
               {field.kind === "long_text" ? (
                 <textarea
-                  disabled={isAdminPreviewMode || isSubmitting}
+                  disabled={isSubmitting}
                   maxLength={field.maxLength}
                   value={form[field.id]}
                   onChange={(event) => {
@@ -242,7 +239,7 @@ export function ProductBrandJournal({
                 />
               ) : (
                 <input
-                  disabled={isAdminPreviewMode || isSubmitting}
+                  disabled={isSubmitting}
                   maxLength={field.maxLength}
                   required={field.id === "name"}
                   value={form[field.id]}
@@ -259,7 +256,7 @@ export function ProductBrandJournal({
         <div className="laboratory-form-actions">
           <button
             className="primary-button"
-            disabled={isAdminPreviewMode || isSubmitting}
+            disabled={isSubmitting}
             type="submit"
           >
             {isSubmitting
@@ -278,9 +275,6 @@ export function ProductBrandJournal({
               Отменить
             </button>
           )}
-          {isAdminPreviewMode
-            ? <small>В режиме просмотра сохранение отключено.</small>
-            : null}
           {formMessage === "" ? null : (
             <span className="form-message" role="status">{formMessage}</span>
           )}
@@ -315,8 +309,8 @@ export function ProductBrandJournal({
             : null}
         <ProductBrandJournalTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
-          onDeleteRecord={isAdminPreviewMode ? undefined : prepareDeletion}
+          onEditRecord={editRecord}
+          onDeleteRecord={prepareDeletion}
           loadingDeletionId={loadingDeletionId}
         />
       </section>

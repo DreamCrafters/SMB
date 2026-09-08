@@ -41,11 +41,9 @@ type HistoryState =
 
 export function LaboratoryUnshapedProductSampleJournal({
   profile,
-  isAdminPreviewMode,
   onShowToast,
 }: {
   profile: ServerUserProfile;
-  isAdminPreviewMode: boolean;
   onShowToast: ShowToast;
 }) {
   const [form, setForm] = useState(createEmptyForm);
@@ -69,7 +67,7 @@ export function LaboratoryUnshapedProductSampleJournal({
     useProductionBrands();
 
   useEffect(() => {
-    if (isAdminPreviewMode || editingRecordId !== undefined) return;
+    if (editingRecordId !== undefined) return;
     const controller = new AbortController();
     requestLaboratoryUnshapedProductSampleDraft({
       signal: controller.signal,
@@ -110,7 +108,7 @@ export function LaboratoryUnshapedProductSampleJournal({
         : current);
     });
     return () => controller.abort();
-  }, [editingRecordId, isAdminPreviewMode, profile.displayName, refreshVersion]);
+  }, [editingRecordId, profile.displayName, refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -191,7 +189,6 @@ export function LaboratoryUnshapedProductSampleJournal({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdminPreviewMode) return;
 
     const submission = buildFormRecord(form, sourceSampleRegistrationId);
     if (submission === undefined) {
@@ -273,7 +270,7 @@ export function LaboratoryUnshapedProductSampleJournal({
         {editingRecordId === undefined
           ? (
               <SampleRegistrationTransmissionPicker
-                disabled={isAdminPreviewMode}
+                disabled={false}
                 target="unshaped_product_sample"
                 onSelect={selectTransmission}
               />
@@ -314,7 +311,7 @@ export function LaboratoryUnshapedProductSampleJournal({
                     <span>{field.label}</span>
                     <ProductBrandPicker
                       ariaLabel={field.label}
-                      disabled={isAdminPreviewMode || productNamesLoadState.status !== "ready"}
+                      disabled={productNamesLoadState.status !== "ready"}
                       labels={productNames}
                       name={field.id}
                       value={form.productName}
@@ -392,7 +389,6 @@ export function LaboratoryUnshapedProductSampleJournal({
           <button
             className="primary-button"
             disabled={
-              isAdminPreviewMode ||
               isSubmitting ||
               productNamesLoadState.status !== "ready"
             }
@@ -468,7 +464,7 @@ export function LaboratoryUnshapedProductSampleJournal({
             : null}
         <LaboratoryUnshapedProductSampleTable
           records={history.records}
-          onEditRecord={isAdminPreviewMode ? undefined : editRecord}
+          onEditRecord={editRecord}
         />
       </section>
     </div>
