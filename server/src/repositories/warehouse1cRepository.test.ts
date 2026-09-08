@@ -123,6 +123,89 @@ test("stock report reads the latest date when none is asked for", async () => {
   assert.deepEqual(queries[0]?.parameters, ["43"]);
 });
 
+test("upload journal keeps the file and the refusal reason", async () => {
+  const queries: { sql: string; parameters?: unknown[] }[] = [];
+  const repository = createWarehouse1cRepository(
+    buildPool(queries, () => [[], []]),
+    {
+      createId: buildIdSequence(),
+      now: () => new Date("2026-09-08T09:20:00.000Z"),
+    },
+  );
+
+  await repository.recordUpload({
+    outcome: "rejected",
+    statusCode: 422,
+    fileName: "report_20260908.xlsx",
+    fileSize: 6,
+    fileChecksum: "b".repeat(64),
+    fileContent: Buffer.from("xlsx-b", "utf8"),
+    source: "1С:Предприятие",
+    errorMessage: "В шапке отчёта нет даты.",
+  });
+
+  assert.match(queries[0]?.sql ?? "", /insert into warehouse_1c_uploads/u);
+  assert.deepEqual(queries[0]?.parameters, [
+    "id-1",
+    "2026-09-08T09:20:00.000Z",
+    "rejected",
+    422,
+    "report_20260908.xlsx",
+    6,
+    "b".repeat(64),
+    Buffer.from("xlsx-b", "utf8"),
+    "1С:Предприятие",
+    // Незаполненные поля отказа хранятся как NULL, а не пустой строкой.
+    null,
+    null,
+    null,
+    null,
+    "В шапке отчёта нет даты.",
+  ]);
+});
+
+test("upload journal skips a file too large to store but keeps the record", async () => {
+  const queries: { sql: string; parameters?: unknown[] }[] = [];
+  const repository = createWarehouse1cRepository(
+    buildPool(queries, () => [[], []]),
+    { createId: buildIdSequence(), now: () => new Date("2026-09-08T09:20:00.000Z") },
+  );
+
+  await repository.recordUpload({
+    outcome: "accepted",
+    statusCode: 200,
+    fileName: "big.xlsx",
+    fileSize: 9_000_000,
+    fileContent: Buffer.alloc(9_000_000),
+    reportDate: "2026-09-07",
+    accounts: "43, 10.01",
+    rowCount: 104,
+  });
+
+  // Blob под лимит приёмника в 20 МБ уронил бы запись о `max_allowed_packet`.
+  assert.equal(queries[0]?.parameters?.[7], null);
+  assert.equal(queries[0]?.parameters?.[10], "2026-09-07");
+  assert.equal(queries[0]?.parameters?.[11], "43, 10.01");
+  assert.equal(queries[0]?.parameters?.[12], 104);
+});
+
+test("read-only source writes no upload journal entry", async () => {
+  const queries: { sql: string; parameters?: unknown[] }[] = [];
+  const repository = createWarehouse1cRepository(
+    buildPool(queries, () => [[], []]),
+    { isReadOnly: true },
+  );
+
+  // В чужую базу писать нечего: приёмник в этом режиме и так отвечает 409.
+  await repository.recordUpload({
+    outcome: "rejected",
+    statusCode: 409,
+    fileName: "",
+  });
+
+  assert.deepEqual(queries, []);
+});
+
 function buildPool(
   queries: { sql: string; parameters?: unknown[] }[],
   respond: (sql: string) => [unknown[], unknown[]],

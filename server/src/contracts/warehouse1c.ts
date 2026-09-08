@@ -6,10 +6,47 @@
  */
 export const warehouse1cReportViews = [
   { id: "stock_balances", label: "Остатки" },
+  { id: "uploads", label: "Журнал загрузок" },
 ] as const;
 
 export type Warehouse1cReportView =
   (typeof warehouse1cReportViews)[number]["id"];
+
+/**
+ * Журнал приёма: строка на каждый `POST /api/upload-report`, включая
+ * отклонённые. Отказ в остатки ничего не пишет и раньше не оставлял следа
+ * вообще, поэтому «данные не обновились» было неотличимо от «1С ничего не
+ * присылала». Файл сохраняется вместе с записью, чтобы выгрузку можно было
+ * скачать и открыть, а не только увидеть её имя.
+ */
+export const warehouse1cUploadOutcomes = ["accepted", "rejected"] as const;
+
+export type Warehouse1cUploadOutcome =
+  (typeof warehouse1cUploadOutcomes)[number];
+
+export type Warehouse1cUpload = {
+  id: string;
+  receivedAt: string;
+  outcome: Warehouse1cUploadOutcome;
+  /** Код ответа, который получила 1С: по нему видно причину отказа. */
+  statusCode: number;
+  fileName: string;
+  fileSize?: number;
+  /** Оригинал доступен для скачивания: слишком большой файл не сохраняется. */
+  hasFile: boolean;
+  source?: string;
+  sentAt?: string;
+  reportDate?: string;
+  accounts?: string;
+  rowCount?: number;
+  errorMessage?: string;
+};
+
+export type Warehouse1cUploadsResponse = {
+  uploads: Warehouse1cUpload[];
+  /** Тестовая среда показывает журнал основной базы и выгрузки не принимает. */
+  isReadOnlySource?: boolean;
+};
 
 /**
  * Счёт готовой продукции выбирается по умолчанию: сводный отчёт 1С содержит

@@ -8528,6 +8528,49 @@ p {
   min-width: 520px;
 }
 
+/* Журнал приёма: файл, результат и причина отказа одной строкой. */
+.warehouse-1c-uploads-table {
+  min-width: 720px;
+}
+
+.warehouse-1c-uploads-table td {
+  vertical-align: top;
+}
+
+.warehouse-1c-upload-file {
+  display: block;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.warehouse-1c-upload-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.warehouse-1c-upload-download {
+  margin-top: 6px;
+  min-height: 30px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.warehouse-1c-upload-accepted,
+.warehouse-1c-upload-rejected {
+  display: block;
+  font-weight: 850;
+}
+
+.warehouse-1c-upload-accepted {
+  color: var(--emerald);
+}
+
+.warehouse-1c-upload-rejected {
+  color: var(--brick);
+}
+
 .warehouse-1c-table th:first-child,
 .warehouse-1c-table td:first-child {
   min-width: 320px;

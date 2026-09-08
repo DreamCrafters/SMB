@@ -2,10 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import {
   warehouse1cReportViews,
   type Warehouse1cAccount,
+  type Warehouse1cReportView,
   type Warehouse1cStockReport,
+  type Warehouse1cUpload,
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
-import { requestWarehouse1cStockBalances } from "./services/warehouse1c";
+import {
+  requestWarehouse1cStockBalances,
+  requestWarehouse1cUploadFile,
+  requestWarehouse1cUploads,
+} from "./services/warehouse1c";
 import { readShortUserMessage } from "./services/userFacingMessages";
 
 type StockState =
@@ -20,14 +26,58 @@ type StockState =
     }
   | { status: "error"; message: string };
 
+type UploadsState =
+  | { status: "loading" }
+  | { status: "ready"; uploads: Warehouse1cUpload[]; isReadOnlySource: boolean }
+  | { status: "error"; message: string };
+
 /**
  * Интеграция с 1С, первый этап: просмотр остатков по складу в разрезе
  * номенклатуры. Раздел ничего не заполняет — данные приходят выгрузкой из 1С,
  * поэтому дата и счёт выбираются только из того, что уже загружено, а не
- * задаются произвольно.
+ * задаются произвольно. Второй вид — журнал приёма самих выгрузок.
  */
 export function Warehouse1cWorkspace() {
-  const [view] = useState(warehouse1cReportViews[0].id);
+  const [view, setView] = useState<Warehouse1cReportView>(
+    warehouse1cReportViews[0].id,
+  );
+
+  return (
+    <main className="workspace laboratory-workspace warehouse-1c">
+      <header className="laboratory-heading">
+        <div>
+          <span className="eyebrow">Интеграция с 1С</span>
+          <h1>Склад</h1>
+        </div>
+      </header>
+
+      <div
+        className="laboratory-section-tabs warehouse-1c-tabs"
+        role="tablist"
+        aria-label="Отчёты склада 1С"
+      >
+        {warehouse1cReportViews.map((item) => (
+          <button
+            aria-selected={view === item.id}
+            className={view === item.id ? "is-active" : ""}
+            key={item.id}
+            role="tab"
+            type="button"
+            onClick={() => setView(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {view === "uploads"
+        ? <Warehouse1cUploadsView />
+        : <Warehouse1cStockBalancesView />}
+    </main>
+  );
+}
+
+function Warehouse1cStockBalancesView() {
   const [accountCode, setAccountCode] = useState<string>();
   const [reportDate, setReportDate] = useState<string>();
   const [state, setState] = useState<StockState>({ status: "loading" });
@@ -92,32 +142,7 @@ export function Warehouse1cWorkspace() {
     : reportDate ?? "";
 
   return (
-    <main className="workspace laboratory-workspace warehouse-1c">
-      <header className="laboratory-heading">
-        <div>
-          <span className="eyebrow">Интеграция с 1С</span>
-          <h1>Склад</h1>
-        </div>
-      </header>
-
-      <div
-        className="laboratory-section-tabs warehouse-1c-tabs"
-        role="tablist"
-        aria-label="Отчёты склада 1С"
-      >
-        {warehouse1cReportViews.map((item) => (
-          <button
-            aria-selected={view === item.id}
-            className={view === item.id ? "is-active" : ""}
-            key={item.id}
-            role="tab"
-            type="button"
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
+    <>
       <section className="laboratory-review-filters" aria-label="Фильтры остатков">
         <div className="laboratory-filters">
           <label>
@@ -201,8 +226,226 @@ export function Warehouse1cWorkspace() {
           <Warehouse1cStockTable report={state.report} />
         ) : null}
       </section>
-    </main>
+    </>
   );
+}
+
+/**
+ * Журнал приёма: строка на каждую попытку 1С отправить выгрузку, включая
+ * отклонённые. Без него отказ не оставлял следа, и «данные не обновились» было
+ * неотличимо от «1С ничего не присылала».
+ */
+function Warehouse1cUploadsView() {
+  const [state, setState] = useState<UploadsState>({ status: "loading" });
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [downloadError, setDownloadError] = useState("");
+  const [downloadingId, setDownloadingId] = useState("");
+  const preserveListOnNextLoadRef = useRef(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const shouldPreserveList = preserveListOnNextLoadRef.current;
+
+    preserveListOnNextLoadRef.current = false;
+    setIsLoading(true);
+    setState((current) =>
+      shouldPreserveList && current.status === "ready"
+        ? current
+        : { status: "loading" },
+    );
+    requestWarehouse1cUploads({ signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) return;
+
+      setIsLoading(false);
+      setState(result.status === "ready"
+        ? {
+            status: "ready",
+            uploads: result.uploads,
+            isReadOnlySource: result.isReadOnlySource === true,
+          }
+        : {
+            status: "error",
+            message: readShortUserMessage(
+              result.message,
+              "Не удалось загрузить журнал выгрузок 1С.",
+            ),
+          });
+    });
+
+    return () => controller.abort();
+  }, [refreshVersion]);
+
+  async function downloadUpload(upload: Warehouse1cUpload) {
+    setDownloadError("");
+    setDownloadingId(upload.id);
+
+    const result = await requestWarehouse1cUploadFile(upload.id);
+
+    setDownloadingId("");
+
+    if (result.status === "error") {
+      setDownloadError(
+        readShortUserMessage(
+          result.message,
+          "Не удалось скачать файл выгрузки.",
+        ),
+      );
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(result.blob);
+    const link = document.createElement("a");
+
+    link.href = objectUrl;
+    link.download = result.filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+
+  return (
+    <section className="laboratory-history" aria-label="Журнал загрузок 1С">
+      <div className="laboratory-history-heading">
+        <div>
+          <span className="eyebrow">Приём выгрузок</span>
+          <h2>Журнал загрузок</h2>
+        </div>
+        <p className="warehouse-1c-source">
+          Каждая попытка 1С отправить отчёт, включая отклонённые. Файл
+          сохраняется вместе с записью, поэтому выгрузку можно скачать.
+        </p>
+        {state.status === "ready" && state.isReadOnlySource ? (
+          <p className="warehouse-1c-source">
+            Данные основной базы: этот сайт показывает журнал и выгрузки из 1С
+            не принимает.
+          </p>
+        ) : null}
+        <button
+          className="secondary-button warehouse-1c-refresh"
+          type="button"
+          disabled={isLoading}
+          onClick={() => {
+            preserveListOnNextLoadRef.current = true;
+            setIsLoading(true);
+            setRefreshVersion((version) => version + 1);
+          }}
+        >
+          {isLoading && state.status === "ready" ? (
+            <LoadingIndicator label="Обновляем…" variant="button" />
+          ) : "Обновить журнал"}
+        </button>
+      </div>
+
+      {downloadError === "" ? null : (
+        <p className="laboratory-empty-note">{downloadError}</p>
+      )}
+      {state.status === "loading" ? (
+        <LoadingIndicator label="Загружаем журнал…" variant="inline" />
+      ) : null}
+      {state.status === "error" ? (
+        <p className="laboratory-empty-note">{state.message}</p>
+      ) : null}
+      {state.status === "ready" ? (
+        <Warehouse1cUploadsTable
+          downloadingId={downloadingId}
+          uploads={state.uploads}
+          onDownload={(upload) => void downloadUpload(upload)}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function Warehouse1cUploadsTable({
+  downloadingId,
+  uploads,
+  onDownload,
+}: {
+  downloadingId: string;
+  uploads: Warehouse1cUpload[];
+  onDownload: (upload: Warehouse1cUpload) => void;
+}) {
+  if (uploads.length === 0) {
+    return (
+      <p className="laboratory-empty-note">
+        1С ещё ни разу не отправляла выгрузку на этот сайт.
+      </p>
+    );
+  }
+
+  return (
+    <div className="table-scroll laboratory-table-scroll history-table-scroll">
+      <table className="data-table laboratory-results-table warehouse-1c-uploads-table">
+        <thead>
+          <tr>
+            <th>Принято</th>
+            <th>Файл</th>
+            <th>Результат</th>
+            <th>Итог разбора</th>
+          </tr>
+        </thead>
+        <tbody>
+          {uploads.map((upload) => (
+            <tr key={upload.id}>
+              <td>{formatDateTime(upload.receivedAt)}</td>
+              <td>
+                <span className="warehouse-1c-upload-file">
+                  {upload.fileName === "" ? "Файл не передан" : upload.fileName}
+                </span>
+                {upload.source === undefined ? null : (
+                  <span className="warehouse-1c-upload-note">
+                    {upload.source}
+                  </span>
+                )}
+                {upload.hasFile ? (
+                  <button
+                    className="secondary-button warehouse-1c-upload-download"
+                    disabled={downloadingId === upload.id}
+                    type="button"
+                    onClick={() => onDownload(upload)}
+                  >
+                    {downloadingId === upload.id ? "Скачиваем…" : "Скачать"}
+                  </button>
+                ) : null}
+              </td>
+              <td>
+                <span
+                  className={upload.outcome === "accepted"
+                    ? "warehouse-1c-upload-accepted"
+                    : "warehouse-1c-upload-rejected"}
+                >
+                  {upload.outcome === "accepted" ? "Принята" : "Отклонена"}
+                </span>
+                <span className="warehouse-1c-upload-note">
+                  {`код ${upload.statusCode}`}
+                </span>
+              </td>
+              <td>{describeUploadResult(upload)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** У принятой выгрузки итог — что именно записано, у отклонённой — причина. */
+function describeUploadResult(upload: Warehouse1cUpload) {
+  if (upload.outcome === "rejected") {
+    return upload.errorMessage ?? "—";
+  }
+
+  const parts = [
+    upload.reportDate === undefined
+      ? undefined
+      : `остатки за ${formatDate(upload.reportDate)}`,
+    upload.accounts === undefined ? undefined : `счета ${upload.accounts}`,
+    upload.rowCount === undefined ? undefined : `строк: ${upload.rowCount}`,
+  ].filter((part) => part !== undefined);
+
+  return parts.length === 0 ? "—" : parts.join(" · ");
 }
 
 function Warehouse1cStockTable({

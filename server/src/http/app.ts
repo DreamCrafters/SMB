@@ -473,6 +473,11 @@ const maxBoardAssignmentDocumentBytes = 10_000_000;
 const maxWarehouse1cUploadBytes = 20_000_000;
 const warehouse1cUploadPath = "/api/upload-report";
 const warehouse1cStockBalancesPath = "/api/warehouse-1c/stock-balances";
+const warehouse1cUploadsPath = "/api/warehouse-1c/uploads";
+/** Журнал открывается последними выгрузками: их по одной в день. */
+const defaultWarehouse1cUploadListSize = 50;
+const warehouse1cUploadFilePathPattern =
+  /^\/api\/warehouse-1c\/uploads\/([a-zA-Z0-9-]{1,100})\/file$/u;
 const unavailableProductionBrandsDataSource: ProductionBrandsDataSource = {
   async list() {
     throw new Error("Product brand repository is not configured.");
@@ -1057,6 +1062,37 @@ export function createApiServer({
           config,
           warehouse1c,
           databaseTransaction,
+        });
+        return;
+      }
+
+      if (url.pathname === warehouse1cUploadsPath) {
+        await handleWarehouse1cUploads({
+          req,
+          res,
+          url,
+          config,
+          devSessions,
+          authService,
+          accounts,
+          warehouse1c,
+        });
+        return;
+      }
+
+      const warehouse1cUploadFileMatch =
+        warehouse1cUploadFilePathPattern.exec(url.pathname);
+
+      if (warehouse1cUploadFileMatch !== null) {
+        await handleWarehouse1cUploadFile({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          accounts,
+          warehouse1c,
+          uploadId: warehouse1cUploadFileMatch[1] ?? "",
         });
         return;
       }
@@ -9490,51 +9526,135 @@ async function handleWarehouse1cUpload({
     return;
   }
 
+  const result = await readWarehouse1cUploadResult({
+    req,
+    config,
+    repository,
+    databaseTransaction,
+  });
+
+  await recordWarehouse1cUpload(repository, result);
+  sendJson(res, result.statusCode, result.payload);
+}
+
+/**
+ * Итог приёма отдельным значением, а не сразу ответом: журнал должен получить
+ * и отклонённые выгрузки, а у отказа несколько выходов из разбора. Одна точка
+ * ответа гарантирует, что записаны все.
+ */
+type Warehouse1cUploadResult = {
+  statusCode: number;
+  payload: JsonPayload;
+  file?: { fileName: string; checksum: string; content: Buffer };
+  source?: string;
+  sentAt?: string;
+  reportDate?: string;
+  accounts?: string;
+  rowCount?: number;
+  errorMessage?: string;
+};
+
+type Warehouse1cUploadSender = Pick<
+  Warehouse1cUploadResult,
+  "file" | "source" | "sentAt"
+>;
+
+/**
+ * Запись журнала не должна ломать сам приём: файл уже разобран и сохранён, и
+ * падение журнала — не повод ответить 1С ошибкой на принятую выгрузку.
+ */
+async function recordWarehouse1cUpload(
+  repository: Warehouse1cRepository,
+  result: Warehouse1cUploadResult,
+) {
+  try {
+    await repository.recordUpload({
+      outcome: result.statusCode === 200 ? "accepted" : "rejected",
+      statusCode: result.statusCode,
+      fileName: result.file?.fileName ?? "",
+      ...(result.file === undefined
+        ? {}
+        : {
+            fileSize: result.file.content.length,
+            fileChecksum: result.file.checksum,
+            fileContent: result.file.content,
+          }),
+      ...(result.source === undefined ? {} : { source: result.source }),
+      ...(result.sentAt === undefined ? {} : { sentAt: result.sentAt }),
+      ...(result.reportDate === undefined
+        ? {}
+        : { reportDate: result.reportDate }),
+      ...(result.accounts === undefined ? {} : { accounts: result.accounts }),
+      ...(result.rowCount === undefined ? {} : { rowCount: result.rowCount }),
+      ...(result.errorMessage === undefined
+        ? {}
+        : { errorMessage: result.errorMessage }),
+    });
+  } catch (error) {
+    console.warn("warehouse_1c_upload.journal_write_failed", error);
+  }
+}
+
+function warehouse1cUploadFailure(
+  statusCode: number,
+  code: "access_denied" | "server_error" | "unauthenticated" | "invalid_response",
+  message: string,
+  sender: Warehouse1cUploadSender = {},
+): Warehouse1cUploadResult {
+  return {
+    statusCode,
+    payload: { error: { code, message } },
+    errorMessage: message,
+    ...sender,
+  };
+}
+
+async function readWarehouse1cUploadResult({
+  req,
+  config,
+  repository,
+  databaseTransaction,
+}: {
+  req: IncomingMessage;
+  config: ServerConfig;
+  repository: Warehouse1cRepository;
+  databaseTransaction: DatabaseTransactionRunner;
+}): Promise<Warehouse1cUploadResult> {
   /**
    * Режим чтения проверяется до ключа. Иначе среда, которая всё равно ничего
    * не запишет, отвечала бы по-разному на верный и неверный ключ и работала
    * оракулом для его подбора — а ключ у сред может совпадать.
    */
   if (repository.isReadOnly) {
-    sendJson(res, 409, {
-      error: {
-        code: "access_denied",
-        message:
-          "Этот сайт показывает остатки основной базы и выгрузки не принимает.",
-      },
-    });
-    return;
+    return warehouse1cUploadFailure(
+      409,
+      "access_denied",
+      "Этот сайт показывает остатки основной базы и выгрузки не принимает.",
+    );
   }
 
   const uploadApiKey = config.warehouse1cIntegration.uploadApiKey;
 
   if (uploadApiKey === undefined) {
-    sendJson(res, 503, {
-      error: {
-        code: "server_error",
-        message: "Приём отчётов 1С не настроен.",
-      },
-    });
-    return;
+    return warehouse1cUploadFailure(
+      503,
+      "server_error",
+      "Приём отчётов 1С не настроен.",
+    );
   }
 
   if (!isMatchingUploadApiKey(req.headers["x-api-key"], uploadApiKey)) {
-    sendJson(res, 401, {
-      error: { code: "unauthenticated", message: "Неверный API-ключ." },
-    });
-    return;
+    return warehouse1cUploadFailure(401, "unauthenticated", "Неверный API-ключ.");
   }
 
   const boundary = readMultipartBoundary(req.headers["content-type"]);
 
   if (boundary === undefined) {
-    sendJson(res, 415, {
-      error: {
-        code: "invalid_response",
-        message: "Отчёт нужно отправлять как multipart/form-data.",
-      },
-    });
-    return;
+    return warehouse1cUploadFailure(
+      415,
+      "invalid_response",
+      "Отчёт нужно отправлять как multipart/form-data.",
+    );
   }
 
   let body: Buffer;
@@ -9543,13 +9663,11 @@ async function handleWarehouse1cUpload({
     body = await readBinaryBody(req, maxWarehouse1cUploadBytes);
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
-      sendJson(res, 413, {
-        error: {
-          code: "invalid_response",
-          message: "Файл отчёта больше 20 МБ.",
-        },
-      });
-      return;
+      return warehouse1cUploadFailure(
+        413,
+        "invalid_response",
+        "Файл отчёта больше 20 МБ.",
+      );
     }
     throw error;
   }
@@ -9557,22 +9675,36 @@ async function handleWarehouse1cUpload({
   const form = parseMultipartFormData(body, boundary);
   const file = form?.files.find((item) => item.fieldName === "file") ??
     form?.files[0];
+  const source = (form?.fields.source ?? "").trim().slice(0, 120);
+  const sentAt = (form?.fields.timestamp ?? "").trim().slice(0, 40);
+  const sender: Warehouse1cUploadSender = {
+    ...(source === "" ? {} : { source }),
+    ...(sentAt === "" ? {} : { sentAt }),
+  };
 
   if (form === undefined || file === undefined) {
-    sendJson(res, 400, {
-      error: { code: "invalid_response", message: "Файл не передан." },
-    });
-    return;
+    return warehouse1cUploadFailure(
+      400,
+      "invalid_response",
+      "Файл не передан.",
+      sender,
+    );
   }
 
+  const fileName = file.fileName.slice(0, 255);
+  const fileChecksum = createHash("sha256").update(file.content).digest("hex");
+  const uploaded: Warehouse1cUploadSender = {
+    ...sender,
+    file: { fileName, checksum: fileChecksum, content: file.content },
+  };
+
   if (!/\.xlsx$/iu.test(file.fileName)) {
-    sendJson(res, 415, {
-      error: {
-        code: "invalid_response",
-        message: "Отчёт принимается только в формате .xlsx.",
-      },
-    });
-    return;
+    return warehouse1cUploadFailure(
+      415,
+      "invalid_response",
+      "Отчёт принимается только в формате .xlsx.",
+      uploaded,
+    );
   }
 
   let parsed;
@@ -9581,26 +9713,26 @@ async function handleWarehouse1cUpload({
     parsed = parseWarehouse1cStockReport(readXlsxWorkbook(file.content));
   } catch (error) {
     if (error instanceof XlsxFormatError) {
-      sendJson(res, 422, {
-        error: { code: "invalid_response", message: error.message },
-      });
-      return;
+      return warehouse1cUploadFailure(
+        422,
+        "invalid_response",
+        error.message,
+        uploaded,
+      );
     }
     throw error;
   }
 
   if (!parsed.ok) {
-    sendJson(res, 422, {
-      error: { code: "invalid_response", message: parsed.errors.join(" ") },
-    });
-    return;
+    return warehouse1cUploadFailure(
+      422,
+      "invalid_response",
+      parsed.errors.join(" "),
+      uploaded,
+    );
   }
 
   const report = parsed.value;
-  const fileName = file.fileName.slice(0, 255);
-  const fileChecksum = createHash("sha256").update(file.content).digest("hex");
-  const source = (form.fields.source ?? "").trim().slice(0, 120);
-  const sentAt = (form.fields.timestamp ?? "").trim().slice(0, 40);
   /**
    * Сводная выгрузка держит несколько счетов, и каждый сохраняется отдельным
    * отчётом. Всё одной транзакцией: половина загруженных счетов хуже, чем
@@ -9632,20 +9764,27 @@ async function handleWarehouse1cUpload({
     return results;
   });
 
-  sendJson(res, 200, {
-    success: true,
-    message: `Остатки за ${report.reportDate}: ${
-      saved
-        .map((item) => `счёт ${item.accountCode} — ${item.rows} строк`)
-        .join(", ")
-    }.`,
-    filename: file.fileName,
-    size: file.content.length,
+  return {
+    statusCode: 200,
+    payload: {
+      success: true,
+      message: `Остатки за ${report.reportDate}: ${
+        saved
+          .map((item) => `счёт ${item.accountCode} — ${item.rows} строк`)
+          .join(", ")
+      }.`,
+      filename: file.fileName,
+      size: file.content.length,
+      reportDate: report.reportDate,
+      reports: saved,
+      rows: saved.reduce((total, item) => total + item.rows, 0),
+      skippedDuplicates: report.skippedDuplicates,
+    },
+    ...uploaded,
     reportDate: report.reportDate,
-    reports: saved,
-    rows: saved.reduce((total, item) => total + item.rows, 0),
-    skippedDuplicates: report.skippedDuplicates,
-  });
+    accounts: saved.map((item) => item.accountCode).join(", ").slice(0, 255),
+    rowCount: saved.reduce((total, item) => total + item.rows, 0),
+  };
 }
 
 async function handleWarehouse1cStockBalances({
@@ -9723,6 +9862,142 @@ async function handleWarehouse1cStockBalances({
     ...(report === undefined ? {} : { report }),
     ...(warehouse1c.isReadOnly ? { isReadOnlySource: true } : {}),
   });
+}
+
+/**
+ * Журнал приёма выгрузок 1С — второй вид того же раздела, поэтому открывает
+ * его та же capability, что и остатки. Содержимое файлов в список не идёт: за
+ * оригиналом отдельный запрос, иначе ответ раздувался бы мегабайтами.
+ */
+async function handleWarehouse1cUploads({
+  req,
+  res,
+  url,
+  config,
+  devSessions,
+  authService,
+  accounts,
+  warehouse1c,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  url: URL;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts?: AccountsRepository | undefined;
+  warehouse1c: Warehouse1cRepository | undefined;
+}) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Журнал загрузок 1С доступен только методом GET.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    accounts,
+    capability: "business.view_warehouse_1c",
+    message: "Просмотр журнала загрузок 1С недоступен.",
+  });
+
+  if (access === undefined) return;
+
+  if (warehouse1c === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище остатков 1С не настроено.",
+      },
+    });
+    return;
+  }
+
+  const requestedLimit = Number.parseInt(
+    (url.searchParams.get("limit") ?? "").trim(),
+    10,
+  );
+
+  sendJson(res, 200, {
+    uploads: await warehouse1c.listUploads(
+      Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? requestedLimit
+        : defaultWarehouse1cUploadListSize,
+    ),
+    ...(warehouse1c.isReadOnly ? { isReadOnlySource: true } : {}),
+  });
+}
+
+async function handleWarehouse1cUploadFile({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  accounts,
+  warehouse1c,
+  uploadId,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts?: AccountsRepository | undefined;
+  warehouse1c: Warehouse1cRepository | undefined;
+  uploadId: string;
+}) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Файл выгрузки доступен только методом GET.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    accounts,
+    capability: "business.view_warehouse_1c",
+    message: "Просмотр журнала загрузок 1С недоступен.",
+  });
+
+  if (access === undefined) return;
+
+  if (warehouse1c === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище остатков 1С не настроено.",
+      },
+    });
+    return;
+  }
+
+  const file = await warehouse1c.readUploadFile(uploadId);
+
+  /** Записи журнала без файла — отказ до чтения тела или слишком большой файл. */
+  if (file === undefined) {
+    sendJson(res, 404, {
+      error: {
+        code: "not_found",
+        message: "Файл этой выгрузки не сохранён.",
+      },
+    });
+    return;
+  }
+
+  sendXlsx(res, file.content, file.fileName);
 }
 
 function isMatchingUploadApiKey(
@@ -14032,6 +14307,25 @@ function sendJson(res: ServerResponse, statusCode: number, payload: JsonPayload)
     "cache-control": "no-store",
   });
   res.end(JSON.stringify(payload));
+}
+
+/** Выгрузка 1С отдаётся файлом на скачивание, а не открывается в браузере. */
+function sendXlsx(res: ServerResponse, content: Buffer, filename: string) {
+  const asciiFilename = filename
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._ -]/gu, "")
+    .trim()
+    .replace(/\s+/gu, "-") || "warehouse-1c-report.xlsx";
+
+  res.writeHead(200, {
+    "content-type":
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "content-length": String(content.length),
+    "content-disposition":
+      `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    "cache-control": "no-store",
+  });
+  res.end(content);
 }
 
 function sendPdf(res: ServerResponse, pdf: Buffer, filename: string) {

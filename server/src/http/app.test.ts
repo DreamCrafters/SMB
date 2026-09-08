@@ -93,7 +93,10 @@ import type {
 import { defaultNavigationOrder } from "../domain/navigationOrder.js";
 import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
-import type { Warehouse1cRepository } from "../repositories/warehouse1cRepository.js";
+import type {
+  Warehouse1cRepository,
+  Warehouse1cUploadRecord,
+} from "../repositories/warehouse1cRepository.js";
 import type { RailwayWagonsRepository } from "../repositories/railwayWagonsRepository.js";
 import type { RailwayReferenceRepository } from "../repositories/railwayReferenceRepository.js";
 import type { RailwayWagonOrder } from "../contracts/railwayWagons.js";
@@ -13456,8 +13459,12 @@ function readIsoTestReportDate(value: string | undefined) {
 
 test("1C stock report upload is guarded by the integration api key", async () => {
   const saved: unknown[] = [];
+  const uploadJournal: Warehouse1cUploadRecord[] = [];
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: false,
+    async recordUpload(input) { uploadJournal.push(input); },
+    async listUploads() { return []; },
+    async readUploadFile() { return undefined; },
     async listAccounts() {
       return [{ code: "43", label: "Счёт 43 (Готовая продукция)" }];
     },
@@ -13584,6 +13591,53 @@ test("1C stock report upload is guarded by the integration api key", async () =>
         },
       ],
     );
+
+    // Журнал пишет и отказы: раньше отклонённая выгрузка не оставляла следа,
+    // и «данные не обновились» было неотличимо от «1С ничего не присылала».
+    assert.deepEqual(
+      uploadJournal.map((entry) => ({
+        outcome: entry.outcome,
+        statusCode: entry.statusCode,
+        fileName: entry.fileName,
+        reportDate: entry.reportDate,
+        accounts: entry.accounts,
+        rowCount: entry.rowCount,
+      })),
+      [
+        {
+          outcome: "rejected",
+          statusCode: 401,
+          fileName: "",
+          reportDate: undefined,
+          accounts: undefined,
+          rowCount: undefined,
+        },
+        {
+          outcome: "rejected",
+          statusCode: 415,
+          fileName: "",
+          reportDate: undefined,
+          accounts: undefined,
+          rowCount: undefined,
+        },
+        {
+          outcome: "accepted",
+          statusCode: 200,
+          fileName: "Остатки.xlsx",
+          reportDate: "2026-08-23",
+          accounts: "43, 10.01",
+          rowCount: 3,
+        },
+      ],
+    );
+    // Причина отказа сохраняется тем же текстом, что получила 1С.
+    assert.equal(uploadJournal[0]?.errorMessage, "Неверный API-ключ.");
+    // Оригинал ложится в журнал целиком: выгрузку можно скачать и открыть.
+    assert.equal(
+      uploadJournal[2]?.fileContent?.length,
+      uploadJournal[2]?.fileSize,
+    );
+    assert.equal(uploadJournal[2]?.errorMessage, undefined);
   } finally {
     server.close();
     await once(server, "close");
@@ -13602,8 +13656,12 @@ test("1C stock balances open only for the warehouse tab capability", async () =>
     },
   };
   const requestedDates: string[] = [];
+  const uploadJournal: Warehouse1cUploadRecord[] = [];
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: false,
+    async recordUpload(input) { uploadJournal.push(input); },
+    async listUploads() { return []; },
+    async readUploadFile() { return undefined; },
     async listAccounts() {
       return [
         { code: "10.01", label: "Счёт 10.01 (Материалы)" },
@@ -13679,6 +13737,116 @@ test("1C stock balances open only for the warehouse tab capability", async () =>
   }
 });
 
+test("1C upload journal and its files open only for the warehouse tab capability", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      position: "general_director",
+      positionDisplayName: "Генеральный директор",
+      navigationItems: ["business.overview"],
+      capabilities: ["business.view_all_statistics"],
+    },
+  };
+  const requestedLimits: number[] = [];
+  const uploadJournal: Warehouse1cUploadRecord[] = [];
+  const warehouse1c: Warehouse1cRepository = {
+    isReadOnly: false,
+    async recordUpload(input) { uploadJournal.push(input); },
+    async listUploads(limit) {
+      requestedLimits.push(limit);
+      return [
+        {
+          id: "upload-1",
+          receivedAt: "2026-09-08T09:20:00.000Z",
+          outcome: "rejected",
+          statusCode: 422,
+          fileName: "report_20260908.xlsx",
+          fileSize: 2048,
+          hasFile: true,
+          errorMessage: "В шапке отчёта нет даты.",
+        },
+      ];
+    },
+    async readUploadFile(id) {
+      return id === "upload-1"
+        ? {
+            fileName: "report_20260908.xlsx",
+            content: Buffer.from("xlsx-bytes", "utf8"),
+          }
+        : undefined;
+    },
+    async listAccounts() { return []; },
+    async listReportDates() { return []; },
+    async readStockReport() { return undefined; },
+    async saveStockReport() { throw new Error("not used"); },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    warehouse1c,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}/api/warehouse-1c`;
+  const headers = {
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const forbidden = await fetch(`${baseUrl}/uploads`, { headers });
+    assert.equal(forbidden.status, 403);
+
+    profile.activeAccess.navigationItems = ["business.warehouse_1c"];
+    profile.activeAccess.capabilities = ["business.view_warehouse_1c"];
+
+    const response = await fetch(`${baseUrl}/uploads`, { headers });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    // Код ответа и текст ошибки видны в журнале: по ним ищут причину отказа.
+    assert.deepEqual(isRecord(payload) ? payload.uploads : undefined, [
+      {
+        id: "upload-1",
+        receivedAt: "2026-09-08T09:20:00.000Z",
+        outcome: "rejected",
+        statusCode: 422,
+        fileName: "report_20260908.xlsx",
+        fileSize: 2048,
+        hasFile: true,
+        errorMessage: "В шапке отчёта нет даты.",
+      },
+    ]);
+    assert.deepEqual(requestedLimits, [50]);
+
+    // Оригинал отдаётся файлом на скачивание, а не открывается в браузере.
+    const file = await fetch(`${baseUrl}/uploads/upload-1/file`, { headers });
+
+    assert.equal(file.status, 200);
+    assert.match(
+      file.headers.get("content-disposition") ?? "",
+      /^attachment;/u,
+    );
+    assert.equal(await file.text(), "xlsx-bytes");
+
+    // Запись без сохранённого файла не должна выглядеть как пустой файл.
+    const missing = await fetch(`${baseUrl}/uploads/upload-2/file`, { headers });
+
+    assert.equal(missing.status, 404);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("read-only warehouse source serves balances but refuses uploads", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
@@ -13688,8 +13856,12 @@ test("read-only warehouse source serves balances but refuses uploads", async () 
       capabilities: ["business.view_warehouse_1c"],
     },
   };
+  const uploadJournal: Warehouse1cUploadRecord[] = [];
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: true,
+    async recordUpload(input) { uploadJournal.push(input); },
+    async listUploads() { return []; },
+    async readUploadFile() { return undefined; },
     async listAccounts() {
       return [{ code: "43", label: "Счёт 43 (Готовая продукция)" }];
     },

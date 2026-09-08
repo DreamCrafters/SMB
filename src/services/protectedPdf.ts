@@ -22,31 +22,50 @@ export type ProtectedPdfResult =
       code?: RemoteServerErrorCode;
     };
 
-export async function requestProtectedPdf({
+/**
+ * Тип ответа проверяется всегда: истёкшая сессия отдаёт HTML страницы входа с
+ * кодом 200, и без проверки он сохранился бы «файлом».
+ */
+type ProtectedFileRequest = ProtectedPdfRequest & {
+  contentType: string;
+  invalidFormatMessage: string;
+};
+
+export function requestProtectedPdf(request: ProtectedPdfRequest) {
+  return requestProtectedFile({
+    ...request,
+    contentType: "application/pdf",
+    invalidFormatMessage: "Сервер вернул протокол в неподдерживаемом формате.",
+  });
+}
+
+export async function requestProtectedFile({
   path,
   fallbackFilename,
   failureMessage,
   cancellationMessage,
+  contentType,
+  invalidFormatMessage,
   baseUrl,
   signal,
-}: ProtectedPdfRequest): Promise<ProtectedPdfResult> {
+}: ProtectedFileRequest): Promise<ProtectedPdfResult> {
   const endpoint = resolveApiEndpoint(path, path, { baseUrl });
 
   try {
     const response = await fetch(endpoint, {
       method: "GET",
-      headers: buildDevAccessHeaders({ Accept: "application/pdf" }),
+      headers: buildDevAccessHeaders({ Accept: contentType }),
       credentials: "include",
       signal,
     });
     if (!response.ok) {
       return readRemoteError(await readJson(response), failureMessage);
     }
-    if (!(response.headers.get("content-type") ?? "").startsWith("application/pdf")) {
+    if (!(response.headers.get("content-type") ?? "").startsWith(contentType)) {
       return {
         status: "error",
         code: "invalid_response",
-        message: "Сервер вернул протокол в неподдерживаемом формате.",
+        message: invalidFormatMessage,
       };
     }
 

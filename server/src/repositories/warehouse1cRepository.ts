@@ -4,6 +4,8 @@ import type {
   Warehouse1cAccount,
   Warehouse1cStockBalance,
   Warehouse1cStockReport,
+  Warehouse1cUpload,
+  Warehouse1cUploadOutcome,
 } from "../contracts/warehouse1c.js";
 import type { DatabasePool } from "../db/pool.js";
 
@@ -24,6 +26,27 @@ export type Warehouse1cStockReportImportResult = {
   rowCount: number;
   /** Отчёт за эту дату и счёт уже был загружен и заменён новым файлом. */
   isReplaced: boolean;
+};
+
+/** Одна попытка приёма выгрузки: и принятая, и отклонённая. */
+export type Warehouse1cUploadRecord = {
+  outcome: Warehouse1cUploadOutcome;
+  statusCode: number;
+  fileName: string;
+  fileSize?: number;
+  fileChecksum?: string;
+  fileContent?: Buffer;
+  source?: string;
+  sentAt?: string;
+  reportDate?: string;
+  accounts?: string;
+  rowCount?: number;
+  errorMessage?: string;
+};
+
+export type Warehouse1cUploadFile = {
+  fileName: string;
+  content: Buffer;
 };
 
 /**
@@ -48,6 +71,9 @@ export type Warehouse1cRepository = {
   saveStockReport: (
     input: Warehouse1cStockReportImport,
   ) => Promise<Warehouse1cStockReportImportResult>;
+  recordUpload: (input: Warehouse1cUploadRecord) => Promise<void>;
+  listUploads: (limit: number) => Promise<Warehouse1cUpload[]>;
+  readUploadFile: (id: string) => Promise<Warehouse1cUploadFile | undefined>;
 };
 
 type ReportRow = {
@@ -69,6 +95,27 @@ type AccountRow = {
   account_code: string;
   account_label: string;
 } & RowDataPacket;
+
+type UploadRow = {
+  id: string;
+  received_at: Date | string;
+  outcome: string;
+  status_code: number;
+  file_name: string | null;
+  file_size: number | null;
+  source: string | null;
+  sent_at: string | null;
+  report_date: Date | string | null;
+  accounts: string | null;
+  row_count: number | null;
+  error_message: string | null;
+  has_file: number;
+} & RowDataPacket;
+
+type UploadFileRow = {
+  file_name: string | null;
+  file_content: Buffer | null;
+} & RowDataPacket;
 type DateRow = { report_date: Date | string } & RowDataPacket;
 
 type RepositoryOptions = {
@@ -80,6 +127,17 @@ type RepositoryOptions = {
 
 /** Столько строк уходит в базу одним `insert`. */
 const balanceInsertChunkSize = 500;
+
+/**
+ * Больше этого размера файл в журнал не кладётся: реальная выгрузка весит
+ * сотни килобайт, а blob под лимит приёмника в 20 МБ упёрся бы в
+ * `max_allowed_packet` и уронил бы запись журнала вместе с самим импортом.
+ * Запись при этом сохраняется — без содержимого.
+ */
+const maxStoredUploadBytes = 8_000_000;
+
+/** Журнал приёма читается страницей: он растёт по выгрузке в день. */
+export const maxWarehouse1cUploadListSize = 200;
 
 export function createWarehouse1cRepository(
   pool: DatabasePool,
@@ -275,6 +333,115 @@ export function createWarehouse1cRepository(
         reportId,
         rowCount: input.balances.length,
         isReplaced: previous !== undefined,
+      };
+    },
+
+    /**
+     * Журнал пишется и для отклонённой выгрузки, поэтому запись не привязана к
+     * отчёту. В режиме чтения запись пропускается молча: писать в чужую базу
+     * нельзя, а сам приёмник в этом режиме и так отвечает `409`.
+     */
+    async recordUpload(input) {
+      if (isReadOnly) return;
+
+      const content = input.fileContent !== undefined &&
+          input.fileContent.length <= maxStoredUploadBytes
+        ? input.fileContent
+        : null;
+
+      await pool.query(
+        `insert into warehouse_1c_uploads (
+          id,
+          received_at,
+          outcome,
+          status_code,
+          file_name,
+          file_size,
+          file_checksum,
+          file_content,
+          source,
+          sent_at,
+          report_date,
+          accounts,
+          row_count,
+          error_message
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          createId(),
+          now().toISOString(),
+          input.outcome,
+          input.statusCode,
+          emptyToNull(input.fileName),
+          input.fileSize ?? null,
+          emptyToNull(input.fileChecksum ?? ""),
+          content,
+          emptyToNull(input.source ?? ""),
+          emptyToNull(input.sentAt ?? ""),
+          emptyToNull(input.reportDate ?? ""),
+          emptyToNull(input.accounts ?? ""),
+          input.rowCount ?? null,
+          emptyToNull(input.errorMessage ?? ""),
+        ],
+      );
+    },
+
+    async listUploads(limit) {
+      const [rows] = await pool.query<UploadRow[]>(
+        `select id,
+          received_at,
+          outcome,
+          status_code,
+          file_name,
+          file_size,
+          source,
+          sent_at,
+          report_date,
+          accounts,
+          row_count,
+          error_message,
+          file_content is not null as has_file
+        from warehouse_1c_uploads
+        order by received_at desc, sequence_id desc
+        limit ?`,
+        [Math.min(Math.max(Math.trunc(limit), 1), maxWarehouse1cUploadListSize)],
+      );
+
+      return rows.map((row) => ({
+        id: row.id,
+        receivedAt: toIsoString(row.received_at),
+        outcome: row.outcome === "accepted" ? "accepted" : "rejected",
+        statusCode: row.status_code,
+        fileName: row.file_name ?? "",
+        hasFile: Number(row.has_file) === 1,
+        ...(row.file_size === null ? {} : { fileSize: row.file_size }),
+        ...(row.source === null ? {} : { source: row.source }),
+        ...(row.sent_at === null ? {} : { sentAt: row.sent_at }),
+        ...(row.report_date === null
+          ? {}
+          : { reportDate: formatDate(row.report_date) }),
+        ...(row.accounts === null ? {} : { accounts: row.accounts }),
+        ...(row.row_count === null ? {} : { rowCount: row.row_count }),
+        ...(row.error_message === null
+          ? {}
+          : { errorMessage: row.error_message }),
+      }));
+    },
+
+    async readUploadFile(id) {
+      const [rows] = await pool.query<UploadFileRow[]>(
+        `select file_name, file_content
+        from warehouse_1c_uploads
+        where id = ?
+        limit 1`,
+        [id],
+      );
+      const row = rows[0];
+
+      if (row?.file_content == null) return undefined;
+
+      return {
+        fileName: row.file_name ?? "report.xlsx",
+        content: row.file_content,
       };
     },
   };

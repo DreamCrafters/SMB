@@ -95,11 +95,11 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
     });
     await waitFor(React, () => container.querySelector("tbody tr") !== null);
 
-    // Раздел открывается кнопкой «Остатки»: движение по складу — следующий этап.
+    // Раздел открывается «Остатками»; журнал приёма — второй вид того же раздела.
     assert.deepEqual(
       Array.from(container.querySelectorAll(".laboratory-section-tabs button"))
         .map((button) => button.textContent),
-      ["Остатки"],
+      ["Остатки", "Журнал загрузок"],
     );
     assert.deepEqual(
       Array.from(container.querySelectorAll("thead th"))
@@ -235,6 +235,164 @@ test("warehouse 1C tab reloads reports on demand and keeps the table meanwhile",
     assert.equal(refreshButton.disabled, false);
     assert.equal(refreshButton.textContent, "Обновить отчёты");
   } finally {
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    restoreDomGlobals(previousGlobals);
+    dom.window.close();
+  }
+});
+
+test("warehouse 1C journal lists upload attempts and downloads the stored file", async () => {
+  const dom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { url: "http://127.0.0.1:5173/" },
+  );
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  const previousCreateObjectUrl = URL.createObjectURL;
+  const previousRevokeObjectUrl = URL.revokeObjectURL;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  const requests = [];
+  const clicked = [];
+  const previousClick = dom.window.HTMLElement.prototype.click;
+
+  try {
+    const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
+      "/src/Warehouse1c.tsx",
+    );
+    // Скачивание проверяется по параметрам ссылки: переход jsdom не выполняет.
+    dom.window.HTMLElement.prototype.click = function captureClick() {
+      clicked.push({ href: this.href, download: this.download });
+    };
+    URL.createObjectURL = () => "blob:report";
+    URL.revokeObjectURL = () => {};
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+
+      requests.push(url.pathname);
+
+      if (url.pathname === "/api/warehouse-1c/stock-balances") {
+        return jsonResponse(buildStockPayload({
+          availableDates: ["2026-09-06"],
+          reportDate: "2026-09-06",
+          nomenclature: "ША-8",
+        }));
+      }
+
+      if (url.pathname === "/api/warehouse-1c/uploads") {
+        return jsonResponse({
+          uploads: [
+            {
+              id: "upload-2",
+              receivedAt: "2026-09-08T09:20:00.000Z",
+              outcome: "rejected",
+              statusCode: 422,
+              fileName: "report_20260908.xlsx",
+              fileSize: 2048,
+              hasFile: true,
+              source: "1С:Предприятие",
+              errorMessage: "В шапке отчёта нет даты.",
+            },
+            {
+              id: "upload-1",
+              receivedAt: "2026-09-07T09:20:00.000Z",
+              outcome: "accepted",
+              statusCode: 200,
+              fileName: "report_20260907.xlsx",
+              fileSize: 2048,
+              hasFile: true,
+              reportDate: "2026-09-06",
+              accounts: "43, 10.01",
+              rowCount: 104,
+            },
+          ],
+        });
+      }
+
+      if (url.pathname === "/api/warehouse-1c/uploads/upload-2/file") {
+        return new Response("xlsx-bytes", {
+          status: 200,
+          headers: {
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition":
+              'attachment; filename="report_20260908.xlsx"',
+          },
+        });
+      }
+
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    };
+
+    const container = dom.window.document.querySelector("#root");
+    const root = createRoot(container);
+    await React.act(async () => {
+      root.render(React.createElement(Warehouse1cWorkspace));
+    });
+    await waitFor(React, () => container.querySelector("tbody tr") !== null);
+
+    const journalTab = Array.from(
+      container.querySelectorAll(".laboratory-section-tabs button"),
+    ).find((button) => button.textContent === "Журнал загрузок");
+
+    assert.ok(journalTab, "Expected the journal tab");
+
+    await React.act(async () => {
+      journalTab.dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(
+      React,
+      () => requests.includes("/api/warehouse-1c/uploads") &&
+        container.querySelector(".warehouse-1c-uploads-table") !== null,
+    );
+
+    const rows = readTableRows(container);
+
+    assert.equal(rows.length, 2);
+    // Отказ виден с кодом ответа и причиной: без журнала следа не оставалось.
+    assert.match(rows[0].join(" "), /Отклонена/u);
+    assert.match(rows[0].join(" "), /код 422/u);
+    assert.match(rows[0].join(" "), /В шапке отчёта нет даты\./u);
+    // У принятой выгрузки итог — что именно записано.
+    assert.match(rows[1].join(" "), /Принята/u);
+    assert.match(rows[1].join(" "), /остатки за 06\.09\.2026/u);
+    assert.match(rows[1].join(" "), /счета 43, 10\.01/u);
+    assert.match(rows[1].join(" "), /строк: 104/u);
+
+    const downloadButton = container.querySelector(
+      ".warehouse-1c-upload-download",
+    );
+
+    assert.ok(downloadButton, "Expected a download button");
+
+    await React.act(async () => {
+      downloadButton.dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(React, () => clicked.length > 0);
+
+    // Оригинал сохраняется файлом, а не открывается вкладкой браузера.
+    assert.equal(clicked[0].download, "report_20260908.xlsx");
+    assert.equal(
+      requests.filter(
+        (path) => path === "/api/warehouse-1c/uploads/upload-2/file",
+      ).length,
+      1,
+    );
+  } finally {
+    dom.window.HTMLElement.prototype.click = previousClick;
+    URL.createObjectURL = previousCreateObjectUrl;
+    URL.revokeObjectURL = previousRevokeObjectUrl;
     globalThis.fetch = previousFetch;
     await vite.close();
     restoreDomGlobals(previousGlobals);

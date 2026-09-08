@@ -4,8 +4,14 @@ import type {
   Warehouse1cStockFilters,
   Warehouse1cStockReport,
   Warehouse1cStockResponse,
+  Warehouse1cUpload,
+  Warehouse1cUploadsResponse,
 } from "../contracts/warehouse1c.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
+import {
+  requestProtectedFile,
+  type ProtectedPdfResult,
+} from "./protectedPdf.js";
 import {
   describeRemoteNetworkFailure,
   resolveApiEndpoint,
@@ -13,11 +19,19 @@ import {
 } from "./remoteServer.js";
 
 const STOCK_BALANCES_PATH = "/api/warehouse-1c/stock-balances";
+const UPLOADS_PATH = "/api/warehouse-1c/uploads";
+/** Тот же тип, которым сервер отдаёт сохранённую выгрузку. */
+const xlsxContentType =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 type RequestOptions = { baseUrl?: string; signal?: AbortSignal };
 
 export type Warehouse1cStockResult =
   | ({ status: "ready" } & Warehouse1cStockResponse)
+  | { status: "error"; message: string; code?: RemoteServerErrorCode };
+
+export type Warehouse1cUploadsResult =
+  | ({ status: "ready" } & Warehouse1cUploadsResponse)
   | { status: "error"; message: string; code?: RemoteServerErrorCode };
 
 export async function requestWarehouse1cStockBalances(
@@ -73,6 +87,88 @@ export async function requestWarehouse1cStockBalances(
   }
 }
 
+/**
+ * Журнал приёма выгрузок: строка на каждую попытку, включая отклонённые.
+ * Отдельный запрос от остатков — это разные виды одного раздела.
+ */
+export async function requestWarehouse1cUploads(
+  { baseUrl, signal }: RequestOptions = {},
+): Promise<Warehouse1cUploadsResult> {
+  const endpoint = resolveApiEndpoint(UPLOADS_PATH, UPLOADS_PATH, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(payload, "Не удалось загрузить журнал выгрузок 1С.");
+    }
+    if (!isUploadsResponse(payload)) {
+      return {
+        status: "error",
+        code: "invalid_response",
+        message: "Сервер вернул журнал выгрузок в неподдерживаемом формате.",
+      };
+    }
+
+    return { status: "ready", ...payload };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { status: "error", message: "Запрос журнала выгрузок отменён." };
+    }
+
+    return {
+      status: "error",
+      code: "network_error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось загрузить журнал выгрузок 1С.",
+        { baseUrl },
+      ),
+    };
+  }
+}
+
+export function requestWarehouse1cUploadFile(
+  uploadId: string,
+  { baseUrl, signal }: RequestOptions = {},
+): Promise<ProtectedPdfResult> {
+  const path = `${UPLOADS_PATH}/${encodeURIComponent(uploadId)}/file`;
+
+  return requestProtectedFile({
+    path,
+    fallbackFilename: `warehouse-1c-${uploadId}.xlsx`,
+    failureMessage: "Не удалось скачать файл выгрузки.",
+    cancellationMessage: "Скачивание файла выгрузки отменено.",
+    contentType: xlsxContentType,
+    invalidFormatMessage: "Сервер вернул файл выгрузки в неподдерживаемом формате.",
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+function isUploadsResponse(value: unknown): value is Warehouse1cUploadsResponse {
+  return isRecord(value) &&
+    Array.isArray(value.uploads) &&
+    value.uploads.every(isUpload) &&
+    (value.isReadOnlySource === undefined ||
+      typeof value.isReadOnlySource === "boolean");
+}
+
+function isUpload(value: unknown): value is Warehouse1cUpload {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.receivedAt === "string" &&
+    (value.outcome === "accepted" || value.outcome === "rejected") &&
+    typeof value.statusCode === "number" &&
+    typeof value.fileName === "string" &&
+    typeof value.hasFile === "boolean";
+}
+
 function isStockResponse(value: unknown): value is Warehouse1cStockResponse {
   return isRecord(value) &&
     typeof value.accountCode === "string" &&
@@ -109,7 +205,10 @@ function isBalance(value: unknown): value is Warehouse1cStockBalance {
     typeof value.closingBalance === "string";
 }
 
-function readRemoteError(payload: unknown): Warehouse1cStockResult {
+function readRemoteError(
+  payload: unknown,
+  fallback = "Не удалось загрузить остатки 1С.",
+): { status: "error"; message: string; code?: RemoteServerErrorCode } {
   const error = isRecord(payload) && isRecord(payload.error)
     ? payload.error
     : undefined;
@@ -118,7 +217,7 @@ function readRemoteError(payload: unknown): Warehouse1cStockResult {
     status: "error",
     message: error !== undefined && typeof error.message === "string"
       ? error.message
-      : "Не удалось загрузить остатки 1С.",
+      : fallback,
     ...(error !== undefined && typeof error.code === "string"
       ? { code: error.code as RemoteServerErrorCode }
       : {}),

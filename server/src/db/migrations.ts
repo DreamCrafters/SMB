@@ -4214,6 +4214,42 @@ const migrations: Migration[] = [
     id: "077_railway_reference",
     statements: buildRailwayReferenceStatements,
   },
+  {
+    /**
+     * Журнал приёма выгрузок 1С. Пишется на каждый `POST /api/upload-report`,
+     * включая отклонённые: отказ в остатки ничего не пишет, поэтому без
+     * журнала «данные не обновились» неотличимо от «1С ничего не присылала».
+     * Оригинал файла лежит здесь же, чтобы выгрузку можно было скачать и
+     * открыть; строка со ссылкой на отчёт не связана, потому что отклонённой
+     * выгрузке отчёт не соответствует.
+     */
+    id: "078_warehouse_1c_uploads",
+    statements: [
+      `
+      create table if not exists warehouse_1c_uploads (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id char(36) not null,
+        received_at timestamp(3) not null default current_timestamp(3),
+        outcome varchar(20) not null,
+        status_code smallint unsigned not null,
+        file_name varchar(255) null,
+        file_size int unsigned null,
+        file_checksum char(64) null,
+        file_content mediumblob null,
+        source varchar(120) null,
+        sent_at varchar(40) null,
+        report_date date null,
+        accounts varchar(255) null,
+        row_count int unsigned null,
+        error_message varchar(2000) null,
+        unique key uq_warehouse_1c_uploads_id (id),
+        key idx_warehouse_1c_uploads_received (received_at),
+        constraint chk_warehouse_1c_uploads_outcome
+          check (outcome in ('accepted', 'rejected'))
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(
