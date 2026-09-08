@@ -669,6 +669,10 @@ export function createAccountsRepository(
         storedCapabilities,
         storedNavigationItems,
       );
+      const railwayWagonAccess = readRailwayWagonAccess(
+        storedCapabilities,
+        storedNavigationItems,
+      );
       const showOverviewVisitors = readOverviewVisitorsAccess(
         storedCapabilities,
       );
@@ -688,6 +692,7 @@ export function createAccountsRepository(
             showOverviewVisitors,
             position.can_review_raw_material_warehouse === true ||
               position.can_review_raw_material_warehouse === 1,
+            railwayWagonAccess,
           );
       await connection.query(
         `update account_positions
@@ -826,6 +831,7 @@ export function createAccountsRepository(
           readOverviewVisitorsAccess(storedCapabilities),
           row.can_review_raw_material_warehouse === true ||
             row.can_review_raw_material_warehouse === 1,
+          readRailwayWagonAccess(storedCapabilities, currentNavigationItems),
         );
         await connection.query(
           `update account_positions

@@ -2074,3 +2074,168 @@ function buildFakeDatabase({
     queries: state.queries,
   };
 }
+
+test("setPositionNavigationAccess keeps the railway wagon role when another tab is toggled", async () => {
+  let navigationItems = [
+    "business.railway_wagons",
+    "business.laboratory_results",
+  ];
+  let capabilities = [
+    "business.view_railway_wagons",
+    "business.manage_railway_wagon_carriage",
+    "business.manage_laboratory_results",
+  ];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "railway-carrier",
+          display_name: "Сотрудник по работе с РЖД",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_protected: 0,
+          is_admin_protected: 0,
+          can_review_raw_material_warehouse: 0,
+          created_at: "2026-09-07T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions set navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[0]));
+        capabilities = JSON.parse(String(params?.[1]));
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  const repository = createAccountsRepository(pool);
+  const actor = {
+    userId: "root-admin-user",
+    accessId: "root-admin-access",
+    devAccessEnabled: false,
+  };
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.laboratory_results",
+    positionIds: ["railway-carrier"],
+    enabled: false,
+  }, actor);
+
+  assert.deepEqual(navigationItems, ["business.railway_wagons"]);
+  assert.ok(capabilities.includes("business.manage_railway_wagon_carriage"));
+  assert.ok(!capabilities.includes("business.manage_laboratory_results"));
+});
+
+test("setPositionNavigationAccess grants the railway tab as view only", async () => {
+  let navigationItems = ["business.laboratory_results"];
+  let capabilities = ["business.manage_laboratory_results"];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select login, status from app_users")) {
+        return [[{ login: "admin", status: "active" }], []];
+      }
+      if (normalized.startsWith("select positions.id, positions.display_name")) {
+        return [[{
+          id: "observer",
+          display_name: "Наблюдатель",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_protected: 0,
+          is_admin_protected: 0,
+          can_review_raw_material_warehouse: 0,
+          created_at: "2026-09-07T00:00:00.000Z",
+          usage_count: 1,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions set navigation_items")) {
+        navigationItems = JSON.parse(String(params?.[0]));
+        capabilities = JSON.parse(String(params?.[1]));
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  const repository = createAccountsRepository(pool);
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.railway_wagons",
+    positionIds: ["observer"],
+    enabled: true,
+  }, {
+    userId: "root-admin-user",
+    accessId: "root-admin-access",
+    devAccessEnabled: false,
+  });
+
+  assert.ok(navigationItems.includes("business.railway_wagons"));
+  assert.ok(capabilities.includes("business.view_railway_wagons"));
+  assert.ok(!capabilities.some((capability) => (
+    capability === "business.manage_railway_wagon_orders" ||
+    capability === "business.manage_railway_wagon_carriage" ||
+    capability === "business.approve_railway_wagon_logistics" ||
+    capability === "business.confirm_railway_wagon_movement"
+  )));
+});
+
+test("setPositionProtected keeps the railway wagon role when admin rights change", async () => {
+  let navigationItems = ["business.railway_wagons"];
+  let capabilities = [
+    "business.view_railway_wagons",
+    "business.manage_railway_wagon_orders",
+  ];
+  const connection = {
+    async beginTransaction() {},
+    async commit() {},
+    async rollback() {},
+    release() {},
+    async query(sql: string, params?: unknown[]) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("select id, display_name, account_type")) {
+        return [[{
+          id: "sales-manager",
+          display_name: "Менеджер по продажам",
+          account_type: "business_owner",
+          navigation_items: JSON.stringify(navigationItems),
+          capabilities: JSON.stringify(capabilities),
+          is_admin_protected: 0,
+          can_review_raw_material_warehouse: 0,
+        }], []];
+      }
+      if (normalized.startsWith("update account_positions set is_admin_protected")) {
+        navigationItems = JSON.parse(String(params?.[1]));
+        capabilities = JSON.parse(String(params?.[2]));
+      }
+      return [[], []];
+    },
+  };
+  const pool = {
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await createAccountsRepository(pool).setPositionProtected({
+    id: "sales-manager",
+    isProtected: true,
+  });
+
+  assert.ok(navigationItems.includes("business.railway_wagons"));
+  assert.ok(capabilities.includes("business.manage_railway_wagon_orders"));
+});
