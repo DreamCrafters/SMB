@@ -12,6 +12,7 @@ import { LoadingIndicator } from "./LoadingIndicator";
 import {
   requestWarehouse1cStockBalances,
   requestWarehouse1cUploadFile,
+  requestWarehouse1cUploadParse,
   requestWarehouse1cUploadSheets,
   requestWarehouse1cUploads,
 } from "./services/warehouse1c";
@@ -249,6 +250,8 @@ function Warehouse1cUploadsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [downloadError, setDownloadError] = useState("");
   const [downloadingId, setDownloadingId] = useState("");
+  const [parsingId, setParsingId] = useState("");
+  const [parseResult, setParseResult] = useState("");
   const [openedUpload, setOpenedUpload] = useState<Warehouse1cUpload>();
   const preserveListOnNextLoadRef = useRef(false);
 
@@ -284,6 +287,35 @@ function Warehouse1cUploadsView() {
 
     return () => controller.abort();
   }, [refreshVersion]);
+
+  /**
+   * Разбор идёт в момент приёма, поэтому у выгрузки со старой структурой
+   * остатков нет и после того, как разбор её осваивает. Оригинал лежит в
+   * журнале — просить 1С прислать заново незачем.
+   */
+  async function parseUpload(upload: Warehouse1cUpload) {
+    setParseResult("");
+    setParsingId(upload.id);
+
+    const result = await requestWarehouse1cUploadParse(upload.id);
+
+    setParsingId("");
+
+    if (result.status === "error") {
+      setParseResult(
+        readShortUserMessage(result.message, "Не удалось разобрать выгрузку."),
+      );
+      return;
+    }
+
+    setParseResult(
+      `Разобрано: остатки за ${formatDate(result.reportDate)}, строк: ${
+        result.rows
+      }. Они уже видны во вкладке «Остатки».`,
+    );
+    preserveListOnNextLoadRef.current = true;
+    setRefreshVersion((version) => version + 1);
+  }
 
   async function downloadUpload(upload: Warehouse1cUpload) {
     setDownloadError("");
@@ -350,6 +382,9 @@ function Warehouse1cUploadsView() {
       {downloadError === "" ? null : (
         <p className="laboratory-empty-note">{downloadError}</p>
       )}
+      {parseResult === "" ? null : (
+        <p className="laboratory-empty-note">{parseResult}</p>
+      )}
       {state.status === "loading" ? (
         <LoadingIndicator label="Загружаем журнал…" variant="inline" />
       ) : null}
@@ -360,8 +395,10 @@ function Warehouse1cUploadsView() {
         <Warehouse1cUploadsTable
           downloadingId={downloadingId}
           openedUploadId={openedUpload?.id ?? ""}
+          parsingId={parsingId}
           uploads={state.uploads}
           onDownload={(upload) => void downloadUpload(upload)}
+          onParse={(upload) => void parseUpload(upload)}
           onOpen={(upload) =>
             setOpenedUpload((current) =>
               current?.id === upload.id ? undefined : upload)}
@@ -541,15 +578,19 @@ function readSheetSpans(sheet: Warehouse1cUploadSheet) {
 function Warehouse1cUploadsTable({
   downloadingId,
   openedUploadId,
+  parsingId,
   uploads,
   onDownload,
   onOpen,
+  onParse,
 }: {
   downloadingId: string;
   openedUploadId: string;
+  parsingId: string;
   uploads: Warehouse1cUpload[];
   onDownload: (upload: Warehouse1cUpload) => void;
   onOpen: (upload: Warehouse1cUpload) => void;
+  onParse: (upload: Warehouse1cUpload) => void;
 }) {
   if (uploads.length === 0) {
     return (
@@ -600,6 +641,17 @@ function Warehouse1cUploadsTable({
                     >
                       {downloadingId === upload.id ? "Скачиваем…" : "Скачать"}
                     </button>
+                    {upload.outcome !== "accepted" ||
+                      isParsedWarehouse1cUpload(upload) ? null : (
+                      <button
+                        className="secondary-button warehouse-1c-upload-download"
+                        disabled={parsingId === upload.id}
+                        type="button"
+                        onClick={() => onParse(upload)}
+                      >
+                        {parsingId === upload.id ? "Разбираем…" : "Разобрать"}
+                      </button>
+                    )}
                   </span>
                 ) : null}
               </td>
@@ -622,7 +674,9 @@ function Warehouse1cUploadsTable({
 
 /**
  * Принятая выгрузка не обязана быть разобранной: файл с незнакомой структурой
- * сохраняется, но остатки из него не выходят.
+ * сохраняется, но остатки из него не выходят. Разобрать позже предлагается
+ * только принятым: отклонённую приёмник отверг, и втягивать из неё остатки
+ * задним числом нельзя.
  */
 function readUploadStatus(upload: Warehouse1cUpload) {
   if (upload.outcome === "rejected") {

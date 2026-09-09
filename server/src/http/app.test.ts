@@ -13464,6 +13464,7 @@ test("1C stock report upload is guarded by the integration api key", async () =>
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: false,
     async recordUpload(input) { uploadJournal.push(input); },
+    async markUploadParsed() {},
     async listUploads() { return []; },
     async readUploadFile() { return undefined; },
     async listAccounts() {
@@ -13657,6 +13658,7 @@ test("1C upload of the hierarchical report saves amounts and quantities", async 
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: false,
     async recordUpload(input) { uploadJournal.push(input); },
+    async markUploadParsed() {},
     async listUploads() { return []; },
     async readUploadFile() { return undefined; },
     async listAccounts() { return []; },
@@ -13736,6 +13738,7 @@ test("1C upload with an unknown structure is stored instead of refused", async (
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: false,
     async recordUpload(input) { uploadJournal.push(input); },
+    async markUploadParsed() {},
     async listUploads() { return []; },
     async readUploadFile() { return undefined; },
     async listAccounts() { return []; },
@@ -13823,6 +13826,7 @@ test("1C stock balances open only for the warehouse tab capability", async () =>
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: false,
     async recordUpload(input) { uploadJournal.push(input); },
+    async markUploadParsed() {},
     async listUploads() { return []; },
     async readUploadFile() { return undefined; },
     async listAccounts() {
@@ -13906,6 +13910,105 @@ test("1C stock balances open only for the warehouse tab capability", async () =>
   }
 });
 
+test("1C stored upload is parsed again on demand", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      navigationItems: ["business.warehouse_1c"],
+      capabilities: ["business.view_warehouse_1c"],
+    },
+  };
+  const saved: Warehouse1cStockReportImport[] = [];
+  const marked: unknown[] = [];
+  const warehouse1c: Warehouse1cRepository = {
+    isReadOnly: false,
+    async recordUpload() {},
+    async markUploadParsed(id, input) { marked.push({ id, ...input }); },
+    async listUploads() { return []; },
+    async readUploadFile(id) {
+      return id === "upload-1"
+        ? {
+            fileName: "report_20260909.xlsx",
+            content: buildUnknownStructureWorkbookFile(),
+          }
+        : undefined;
+    },
+    async listAccounts() { return []; },
+    async listReportDates() { return []; },
+    async readStockReport() { return undefined; },
+    async saveStockReport(input) {
+      saved.push(input);
+      return {
+        reportId: "report-1",
+        rowCount: input.balances.length,
+        isReplaced: true,
+      };
+    },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    warehouse1c,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}/api/warehouse-1c/uploads`;
+  const headers = {
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const response = await fetch(`${baseUrl}/upload-1/parse`, {
+      method: "POST",
+      headers,
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      isRecord(payload) ? payload.reportDate : undefined,
+      "2026-09-09",
+    );
+    assert.equal(isRecord(payload) ? payload.rows : undefined, 1);
+    // Разбор идёт в момент приёма, поэтому файл со старой структурой остаётся
+    // без остатков — повторный разбор берёт сохранённый оригинал.
+    assert.deepEqual(saved.map((report) => report.balances), [[
+      {
+        nomenclature: "Шамот бокситовый 69",
+        warehouse: "Центральный Склад",
+        openingBalance: "0",
+        closingBalance: "1257929.75",
+        openingQuantity: "0",
+        closingQuantity: "69.89",
+      },
+    ]]);
+    // Запись журнала перестаёт быть неразобранной.
+    assert.deepEqual(marked, [
+      { id: "upload-1", reportDate: "2026-09-09", accounts: "43", rowCount: 1 },
+    ]);
+
+    // Записи без файла разбирать нечего.
+    const missing = await fetch(`${baseUrl}/upload-2/parse`, {
+      method: "POST",
+      headers,
+    });
+
+    assert.equal(missing.status, 404);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("1C upload journal and its files open only for the warehouse tab capability", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
@@ -13922,6 +14025,7 @@ test("1C upload journal and its files open only for the warehouse tab capability
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: false,
     async recordUpload(input) { uploadJournal.push(input); },
+    async markUploadParsed() {},
     async listUploads(limit) {
       requestedLimits.push(limit);
       return [
@@ -14067,6 +14171,7 @@ test("read-only warehouse source serves balances but refuses uploads", async () 
   const warehouse1c: Warehouse1cRepository = {
     isReadOnly: true,
     async recordUpload(input) { uploadJournal.push(input); },
+    async markUploadParsed() {},
     async listUploads() { return []; },
     async readUploadFile() { return undefined; },
     async listAccounts() {

@@ -344,6 +344,10 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
         });
       }
 
+      if (url.pathname === "/api/warehouse-1c/uploads/upload-3/parse") {
+        return jsonResponse({ reportDate: "2026-09-09", rows: 479 });
+      }
+
       if (url.pathname === "/api/warehouse-1c/uploads/upload-3/sheet") {
         return jsonResponse({
           fileName: "report_20260909.xlsx",
@@ -438,6 +442,34 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
       requests.filter(
         (path) => path === "/api/warehouse-1c/uploads/upload-2/file",
       ).length,
+      1,
+    );
+
+    // Неразобранную выгрузку можно разобрать позже: файл уже лежит у нас.
+    const parseButton = Array.from(
+      container.querySelectorAll(".warehouse-1c-upload-download"),
+    ).find((button) => button.textContent === "Разобрать");
+
+    assert.ok(parseButton, "Expected a parse button");
+
+    await React.act(async () => {
+      parseButton.dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(
+      React,
+      () => requests.includes("/api/warehouse-1c/uploads/upload-3/parse"),
+    );
+    await waitFor(React, () => /Разобрано/u.test(container.textContent));
+
+    assert.match(container.textContent, /остатки за 09\.09\.2026/u);
+    assert.match(container.textContent, /строк: 479/u);
+    // Разобрать предлагается только принятой и ещё не разобранной выгрузке:
+    // ни разобранной, ни отклонённой такая кнопка не положена.
+    assert.equal(
+      Array.from(container.querySelectorAll(".warehouse-1c-upload-download"))
+        .filter((button) => button.textContent === "Разобрать").length,
       1,
     );
 

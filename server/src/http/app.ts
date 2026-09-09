@@ -480,6 +480,8 @@ const warehouse1cUploadFilePathPattern =
   /^\/api\/warehouse-1c\/uploads\/([a-zA-Z0-9-]{1,100})\/file$/u;
 const warehouse1cUploadSheetPathPattern =
   /^\/api\/warehouse-1c\/uploads\/([a-zA-Z0-9-]{1,100})\/sheet$/u;
+const warehouse1cUploadParsePathPattern =
+  /^\/api\/warehouse-1c\/uploads\/([a-zA-Z0-9-]{1,100})\/parse$/u;
 /** Столько строк листа уходит в браузер: остальное показывать негде. */
 const maxWarehouse1cSheetRows = 5000;
 const unavailableProductionBrandsDataSource: ProductionBrandsDataSource = {
@@ -1080,6 +1082,24 @@ export function createApiServer({
           authService,
           accounts,
           warehouse1c,
+        });
+        return;
+      }
+
+      const warehouse1cUploadParseMatch =
+        warehouse1cUploadParsePathPattern.exec(url.pathname);
+
+      if (warehouse1cUploadParseMatch !== null) {
+        await handleWarehouse1cUploadParse({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          accounts,
+          warehouse1c,
+          databaseTransaction,
+          uploadId: warehouse1cUploadParseMatch[1] ?? "",
         });
         return;
       }
@@ -9968,6 +9988,147 @@ async function handleWarehouse1cUploads({
         : defaultWarehouse1cUploadListSize,
     ),
     ...(warehouse1c.isReadOnly ? { isReadOnlySource: true } : {}),
+  });
+}
+
+/**
+ * Повторный разбор уже принятой выгрузки. Разбор идёт в момент приёма, поэтому
+ * файл, чью структуру он тогда не понял, остаётся без остатков и после того,
+ * как разбор её осваивает. Оригинал лежит в журнале — просить 1С прислать
+ * заново незачем.
+ */
+async function handleWarehouse1cUploadParse({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  accounts,
+  warehouse1c,
+  databaseTransaction,
+  uploadId,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts?: AccountsRepository | undefined;
+  warehouse1c: Warehouse1cRepository | undefined;
+  databaseTransaction: DatabaseTransactionRunner;
+  uploadId: string;
+}) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Разбор выгрузки запускается методом POST.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    accounts,
+    capability: "business.view_warehouse_1c",
+    message: "Разбор выгрузок 1С недоступен.",
+  });
+
+  if (access === undefined) return;
+
+  if (warehouse1c === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище остатков 1С не настроено.",
+      },
+    });
+    return;
+  }
+
+  if (warehouse1c.isReadOnly) {
+    sendJson(res, 409, {
+      error: {
+        code: "access_denied",
+        message: "Этот сайт показывает остатки основной базы и не меняет их.",
+      },
+    });
+    return;
+  }
+
+  const file = await warehouse1c.readUploadFile(uploadId);
+
+  if (file === undefined) {
+    sendJson(res, 404, {
+      error: {
+        code: "not_found",
+        message: "Файл этой выгрузки не сохранён.",
+      },
+    });
+    return;
+  }
+
+  let parsed;
+
+  try {
+    parsed = parseWarehouse1cStockReport(readXlsxWorkbook(file.content));
+  } catch (error) {
+    if (error instanceof XlsxFormatError) {
+      sendJson(res, 422, {
+        error: { code: "invalid_response", message: error.message },
+      });
+      return;
+    }
+    throw error;
+  }
+
+  if (!parsed.ok) {
+    sendJson(res, 422, {
+      error: { code: "invalid_response", message: parsed.errors.join(" ") },
+    });
+    return;
+  }
+
+  const report = parsed.value;
+  const saved = await databaseTransaction.run(async () => {
+    const results = [];
+
+    for (const account of report.accounts) {
+      const result = await warehouse1c.saveStockReport({
+        accountCode: account.accountCode,
+        accountLabel: account.accountLabel,
+        reportDate: report.reportDate,
+        fileName: file.fileName,
+        fileChecksum: createHash("sha256").update(file.content).digest("hex"),
+        fileSize: file.content.length,
+        balances: account.balances,
+      });
+
+      results.push({
+        accountCode: account.accountCode,
+        rows: result.rowCount,
+        replaced: result.isReplaced,
+      });
+    }
+
+    return results;
+  });
+  const rows = saved.reduce((total, item) => total + item.rows, 0);
+
+  await warehouse1c.markUploadParsed(uploadId, {
+    reportDate: report.reportDate,
+    accounts: saved.map((item) => item.accountCode).join(", ").slice(0, 255),
+    rowCount: rows,
+  });
+
+  sendJson(res, 200, {
+    success: true,
+    reportDate: report.reportDate,
+    reports: saved,
+    rows,
   });
 }
 

@@ -72,6 +72,10 @@ export type Warehouse1cRepository = {
     input: Warehouse1cStockReportImport,
   ) => Promise<Warehouse1cStockReportImportResult>;
   recordUpload: (input: Warehouse1cUploadRecord) => Promise<void>;
+  markUploadParsed: (
+    id: string,
+    input: { reportDate: string; accounts: string; rowCount: number },
+  ) => Promise<void>;
   listUploads: (limit: number) => Promise<Warehouse1cUpload[]>;
   readUploadFile: (id: string) => Promise<Warehouse1cUploadFile | undefined>;
 };
@@ -399,6 +403,24 @@ export function createWarehouse1cRepository(
           input.rowCount ?? null,
           emptyToNull(input.errorMessage ?? ""),
         ],
+      );
+    },
+
+    /**
+     * Разбор мог догнать структуру уже после приёма: файл лежит в журнале, и
+     * повторный разбор делает запись разобранной, снимая причину отказа.
+     */
+    async markUploadParsed(id, input) {
+      if (isReadOnly) throw new Warehouse1cReadOnlyError();
+
+      await pool.query(
+        `update warehouse_1c_uploads
+        set report_date = ?,
+          accounts = ?,
+          row_count = ?,
+          error_message = null
+        where id = ?`,
+        [input.reportDate, input.accounts, input.rowCount, id],
       );
     },
 

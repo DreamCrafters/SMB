@@ -139,6 +139,67 @@ export async function requestWarehouse1cUploads(
   }
 }
 
+export type Warehouse1cUploadParseResult =
+  | { status: "ready"; reportDate: string; rows: number }
+  | { status: "error"; message: string; code?: RemoteServerErrorCode };
+
+/**
+ * Повторный разбор сохранённой выгрузки: разбор идёт в момент приёма, поэтому
+ * файл, чью структуру он тогда не понял, остаётся без остатков и после того,
+ * как разбор её осваивает.
+ */
+export async function requestWarehouse1cUploadParse(
+  uploadId: string,
+  { baseUrl, signal }: RequestOptions = {},
+): Promise<Warehouse1cUploadParseResult> {
+  const path = `${UPLOADS_PATH}/${encodeURIComponent(uploadId)}/parse`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(payload, "Не удалось разобрать выгрузку.");
+    }
+    if (
+      !isRecord(payload) ||
+      typeof payload.reportDate !== "string" ||
+      typeof payload.rows !== "number"
+    ) {
+      return {
+        status: "error",
+        code: "invalid_response",
+        message: "Сервер вернул итог разбора в неподдерживаемом формате.",
+      };
+    }
+
+    return {
+      status: "ready",
+      reportDate: payload.reportDate,
+      rows: payload.rows,
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { status: "error", message: "Разбор выгрузки отменён." };
+    }
+
+    return {
+      status: "error",
+      code: "network_error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось разобрать выгрузку.",
+        { baseUrl },
+      ),
+    };
+  }
+}
+
 /** Лист выгрузки как он составлен: разбор в остатки здесь не участвует. */
 export async function requestWarehouse1cUploadSheets(
   uploadId: string,
