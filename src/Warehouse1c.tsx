@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  isParsedWarehouse1cUpload,
   warehouse1cReportViews,
   type Warehouse1cAccount,
   type Warehouse1cReportView,
   type Warehouse1cStockReport,
   type Warehouse1cUpload,
+  type Warehouse1cUploadSheet,
 } from "./contracts";
 import { LoadingIndicator } from "./LoadingIndicator";
 import {
   requestWarehouse1cStockBalances,
   requestWarehouse1cUploadFile,
+  requestWarehouse1cUploadSheets,
   requestWarehouse1cUploads,
 } from "./services/warehouse1c";
 import { readShortUserMessage } from "./services/userFacingMessages";
@@ -29,6 +32,11 @@ type StockState =
 type UploadsState =
   | { status: "loading" }
   | { status: "ready"; uploads: Warehouse1cUpload[]; isReadOnlySource: boolean }
+  | { status: "error"; message: string };
+
+type SheetState =
+  | { status: "loading" }
+  | { status: "ready"; sheets: Warehouse1cUploadSheet[] }
   | { status: "error"; message: string };
 
 /**
@@ -241,6 +249,7 @@ function Warehouse1cUploadsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [downloadError, setDownloadError] = useState("");
   const [downloadingId, setDownloadingId] = useState("");
+  const [openedUpload, setOpenedUpload] = useState<Warehouse1cUpload>();
   const preserveListOnNextLoadRef = useRef(false);
 
   useEffect(() => {
@@ -350,22 +359,197 @@ function Warehouse1cUploadsView() {
       {state.status === "ready" ? (
         <Warehouse1cUploadsTable
           downloadingId={downloadingId}
+          openedUploadId={openedUpload?.id ?? ""}
           uploads={state.uploads}
           onDownload={(upload) => void downloadUpload(upload)}
+          onOpen={(upload) =>
+            setOpenedUpload((current) =>
+              current?.id === upload.id ? undefined : upload)}
         />
       ) : null}
+
+      {openedUpload === undefined ? null : (
+        <Warehouse1cUploadSheetView
+          upload={openedUpload}
+          onClose={() => setOpenedUpload(undefined)}
+        />
+      )}
     </section>
   );
 }
 
+/**
+ * Файл показывается как он составлен — строками и колонками исходного листа.
+ * 1С меняет структуру отчёта, и увидеть выгрузку нужно раньше, чем разбор
+ * научится её читать, поэтому здесь нет ни номенклатуры, ни остатков.
+ */
+function Warehouse1cUploadSheetView({
+  upload,
+  onClose,
+}: {
+  upload: Warehouse1cUpload;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<SheetState>({ status: "loading" });
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setState({ status: "loading" });
+    requestWarehouse1cUploadSheets(upload.id, { signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+
+        setState(result.status === "ready"
+          ? { status: "ready", sheets: result.sheets }
+          : {
+              status: "error",
+              message: readShortUserMessage(
+                result.message,
+                "Не удалось открыть файл выгрузки.",
+              ),
+            });
+      });
+
+    return () => controller.abort();
+  }, [upload.id]);
+
+  return (
+    <section className="warehouse-1c-sheet" aria-label="Файл выгрузки">
+      <div className="laboratory-history-heading">
+        <div>
+          <span className="eyebrow">Файл выгрузки</span>
+          <h3>{upload.fileName}</h3>
+        </div>
+        <p className="warehouse-1c-source">
+          Лист показан так, как он составлен: строки и колонки исходного файла
+          без разбора в номенклатуру и остатки.
+        </p>
+        <button
+          className="secondary-button warehouse-1c-refresh"
+          type="button"
+          onClick={onClose}
+        >
+          Скрыть файл
+        </button>
+      </div>
+
+      {state.status === "loading" ? (
+        <LoadingIndicator label="Открываем файл…" variant="inline" />
+      ) : null}
+      {state.status === "error" ? (
+        <p className="laboratory-empty-note">{state.message}</p>
+      ) : null}
+      {state.status === "ready"
+        ? state.sheets.map((sheet) => (
+            <Warehouse1cSheetTable key={sheet.name} sheet={sheet} />
+          ))
+        : null}
+    </section>
+  );
+}
+
+function Warehouse1cSheetTable({ sheet }: { sheet: Warehouse1cUploadSheet }) {
+  const columnCount = sheet.rows.reduce(
+    (widest, row) => Math.max(widest, row.length),
+    0,
+  );
+
+  if (columnCount === 0) {
+    return (
+      <p className="laboratory-empty-note">{`Лист «${sheet.name}» пуст.`}</p>
+    );
+  }
+
+  const spans = readSheetSpans(sheet);
+
+  return (
+    <div className="warehouse-1c-sheet-block">
+      <p className="warehouse-1c-source">
+        {`Лист «${sheet.name}» · строк: ${sheet.rows.length}${
+          sheet.isTruncated ? " (показаны первые)" : ""
+        } · колонок: ${columnCount}`}
+      </p>
+      <div className="table-scroll laboratory-table-scroll history-table-scroll">
+        <table className="data-table warehouse-1c-sheet-table">
+          <tbody>
+            {sheet.rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                <th scope="row">{rowIndex + 1}</th>
+                {Array.from({ length: columnCount }, (_, columnIndex) => {
+                  const span = spans.get(`${rowIndex}:${columnIndex}`);
+
+                  // Ячейку, накрытую объединением, рисовать нельзя: она уехала
+                  // бы вправо и сдвинула всю строку.
+                  if (span === "covered") return null;
+
+                  return (
+                    <td
+                      key={columnIndex}
+                      {...(span === undefined ? {} : {
+                        colSpan: span.columnSpan,
+                        rowSpan: span.rowSpan,
+                      })}
+                    >
+                      {row[columnIndex] ?? ""}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Объединения листа в вид, удобный отрисовке: у верхней левой ячейки — охват,
+ * у накрытых ею — пометка, что рисовать их не нужно.
+ */
+function readSheetSpans(sheet: Warehouse1cUploadSheet) {
+  const spans = new Map<
+    string,
+    "covered" | { rowSpan: number; columnSpan: number }
+  >();
+
+  for (const merge of sheet.merges) {
+    if (merge.rowSpan < 1 || merge.columnSpan < 1) continue;
+    if (merge.rowSpan === 1 && merge.columnSpan === 1) continue;
+
+    spans.set(`${merge.row}:${merge.column}`, {
+      rowSpan: merge.rowSpan,
+      columnSpan: merge.columnSpan,
+    });
+
+    for (let row = merge.row; row < merge.row + merge.rowSpan; row += 1) {
+      for (
+        let column = merge.column;
+        column < merge.column + merge.columnSpan;
+        column += 1
+      ) {
+        if (row === merge.row && column === merge.column) continue;
+        spans.set(`${row}:${column}`, "covered");
+      }
+    }
+  }
+
+  return spans;
+}
+
 function Warehouse1cUploadsTable({
   downloadingId,
+  openedUploadId,
   uploads,
   onDownload,
+  onOpen,
 }: {
   downloadingId: string;
+  openedUploadId: string;
   uploads: Warehouse1cUpload[];
   onDownload: (upload: Warehouse1cUpload) => void;
+  onOpen: (upload: Warehouse1cUpload) => void;
 }) {
   if (uploads.length === 0) {
     return (
@@ -400,23 +584,28 @@ function Warehouse1cUploadsTable({
                   </span>
                 )}
                 {upload.hasFile ? (
-                  <button
-                    className="secondary-button warehouse-1c-upload-download"
-                    disabled={downloadingId === upload.id}
-                    type="button"
-                    onClick={() => onDownload(upload)}
-                  >
-                    {downloadingId === upload.id ? "Скачиваем…" : "Скачать"}
-                  </button>
+                  <span className="warehouse-1c-upload-actions">
+                    <button
+                      className="secondary-button warehouse-1c-upload-download"
+                      type="button"
+                      onClick={() => onOpen(upload)}
+                    >
+                      {openedUploadId === upload.id ? "Скрыть" : "Показать"}
+                    </button>
+                    <button
+                      className="secondary-button warehouse-1c-upload-download"
+                      disabled={downloadingId === upload.id}
+                      type="button"
+                      onClick={() => onDownload(upload)}
+                    >
+                      {downloadingId === upload.id ? "Скачиваем…" : "Скачать"}
+                    </button>
+                  </span>
                 ) : null}
               </td>
               <td>
-                <span
-                  className={upload.outcome === "accepted"
-                    ? "warehouse-1c-upload-accepted"
-                    : "warehouse-1c-upload-rejected"}
-                >
-                  {upload.outcome === "accepted" ? "Принята" : "Отклонена"}
+                <span className={readUploadStatus(upload).className}>
+                  {readUploadStatus(upload).label}
                 </span>
                 <span className="warehouse-1c-upload-note">
                   {`код ${upload.statusCode}`}
@@ -431,9 +620,26 @@ function Warehouse1cUploadsTable({
   );
 }
 
-/** У принятой выгрузки итог — что именно записано, у отклонённой — причина. */
-function describeUploadResult(upload: Warehouse1cUpload) {
+/**
+ * Принятая выгрузка не обязана быть разобранной: файл с незнакомой структурой
+ * сохраняется, но остатки из него не выходят.
+ */
+function readUploadStatus(upload: Warehouse1cUpload) {
   if (upload.outcome === "rejected") {
+    return { label: "Отклонена", className: "warehouse-1c-upload-rejected" };
+  }
+
+  return isParsedWarehouse1cUpload(upload)
+    ? { label: "Принята", className: "warehouse-1c-upload-accepted" }
+    : {
+        label: "Принята, не разобрана",
+        className: "warehouse-1c-upload-stored",
+      };
+}
+
+/** У разобранной выгрузки итог — что записано, иначе — причина. */
+function describeUploadResult(upload: Warehouse1cUpload) {
+  if (!isParsedWarehouse1cUpload(upload)) {
     return upload.errorMessage ?? "—";
   }
 

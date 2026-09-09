@@ -312,6 +312,36 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
               accounts: "43, 10.01",
               rowCount: 104,
             },
+            {
+              id: "upload-3",
+              receivedAt: "2026-09-09T07:35:00.000Z",
+              outcome: "accepted",
+              statusCode: 200,
+              fileName: "report_20260909.xlsx",
+              fileSize: 54051,
+              hasFile: true,
+              errorMessage: "Не нашли шапку таблицы с колонками.",
+            },
+          ],
+        });
+      }
+
+      if (url.pathname === "/api/warehouse-1c/uploads/upload-3/sheet") {
+        return jsonResponse({
+          fileName: "report_20260909.xlsx",
+          sheets: [
+            {
+              name: "Лист_1",
+              isTruncated: false,
+              merges: [
+                { row: 0, column: 0, rowSpan: 1, columnSpan: 3 },
+              ],
+              rows: [
+                ["Сводный отчёт по материалам и готовой продукции"],
+                ["Счет / Склад / Номенклатура", "Показатели", "Дебет"],
+                ["43", "БУ", "130 559 980,47"],
+              ],
+            },
           ],
         });
       }
@@ -357,7 +387,7 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
 
     const rows = readTableRows(container);
 
-    assert.equal(rows.length, 2);
+    assert.equal(rows.length, 3);
     // Отказ виден с кодом ответа и причиной: без журнала следа не оставалось.
     assert.match(rows[0].join(" "), /Отклонена/u);
     assert.match(rows[0].join(" "), /код 422/u);
@@ -367,10 +397,13 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
     assert.match(rows[1].join(" "), /остатки за 06\.09\.2026/u);
     assert.match(rows[1].join(" "), /счета 43, 10\.01/u);
     assert.match(rows[1].join(" "), /строк: 104/u);
+    // Незнакомая структура принимается, но остатков из неё нет.
+    assert.match(rows[2].join(" "), /Принята, не разобрана/u);
+    assert.match(rows[2].join(" "), /Не нашли шапку таблицы с колонками\./u);
 
-    const downloadButton = container.querySelector(
-      ".warehouse-1c-upload-download",
-    );
+    const downloadButton = Array.from(
+      container.querySelectorAll(".warehouse-1c-upload-download"),
+    ).find((button) => button.textContent === "Скачать");
 
     assert.ok(downloadButton, "Expected a download button");
 
@@ -388,6 +421,53 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
         (path) => path === "/api/warehouse-1c/uploads/upload-2/file",
       ).length,
       1,
+    );
+
+    // Нераспознанный файл открывается как есть, строками исходного листа.
+    const showButton = Array.from(
+      container.querySelectorAll(".warehouse-1c-upload-download"),
+    ).filter((button) => button.textContent === "Показать").at(-1);
+
+    assert.ok(showButton, "Expected a show button");
+
+    await React.act(async () => {
+      showButton.dispatchEvent(
+        new dom.window.MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await waitFor(
+      React,
+      () => container.querySelector(".warehouse-1c-sheet-table") !== null,
+    );
+
+    const sheetRows = Array.from(
+      container.querySelectorAll(".warehouse-1c-sheet-table tbody tr"),
+    ).map((row) =>
+      Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent));
+
+    // Шапка новой структуры видна дословно, без сведения к номенклатуре.
+    assert.equal(sheetRows.length, 3);
+    assert.deepEqual(sheetRows[1], [
+      "Счет / Склад / Номенклатура",
+      "Показатели",
+      "Дебет",
+    ]);
+    // Объединённая ячейка рисуется одной на всю ширину, как в Excel.
+    assert.deepEqual(sheetRows[0], [
+      "Сводный отчёт по материалам и готовой продукции",
+    ]);
+    assert.equal(
+      container.querySelector(".warehouse-1c-sheet-table td")?.getAttribute(
+        "colspan",
+      ),
+      "3",
+    );
+    // Номер строки помогает сверяться с файлом, открытым в Excel.
+    assert.deepEqual(
+      Array.from(
+        container.querySelectorAll('.warehouse-1c-sheet-table th[scope="row"]'),
+      ).map((cell) => cell.textContent),
+      ["1", "2", "3"],
     );
   } finally {
     dom.window.HTMLElement.prototype.click = previousClick;

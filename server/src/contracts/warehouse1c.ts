@@ -39,7 +39,43 @@ export type Warehouse1cUpload = {
   reportDate?: string;
   accounts?: string;
   rowCount?: number;
+  /** Причина отказа либо причина, по которой принятый файл не разобран. */
   errorMessage?: string;
+};
+
+/**
+ * Принятая выгрузка считается разобранной, когда из неё вышли остатки: дату
+ * разбор требует всегда, поэтому её наличие и есть признак. Отдельной колонки
+ * нет намеренно — она повторяла бы то, что уже видно по данным.
+ */
+export function isParsedWarehouse1cUpload(upload: Warehouse1cUpload) {
+  return upload.outcome === "accepted" && upload.reportDate !== undefined;
+}
+
+/**
+ * Лист выгрузки как он составлен: строки и ячейки без попытки свести их к
+ * номенклатуре и остаткам. 1С меняет структуру отчёта, и нераспознанный файл
+ * всё равно должен быть виден целиком — разбор колонок идёт отдельным шагом.
+ */
+export type Warehouse1cUploadSheetMerge = {
+  row: number;
+  column: number;
+  rowSpan: number;
+  columnSpan: number;
+};
+
+export type Warehouse1cUploadSheet = {
+  name: string;
+  rows: string[][];
+  /** Объединённые области: шапка над парой колонок, имя над «БУ» и «Кол». */
+  merges: Warehouse1cUploadSheetMerge[];
+  /** Лист длиннее лимита показа: строки после него не переданы. */
+  isTruncated: boolean;
+};
+
+export type Warehouse1cUploadSheetsResponse = {
+  fileName: string;
+  sheets: Warehouse1cUploadSheet[];
 };
 
 export type Warehouse1cUploadsResponse = {

@@ -24,6 +24,24 @@ test("xlsx reader returns shared strings, numbers and formatted dates", () => {
   assert.equal(sheet.rows[5][2]?.number, 3);
 });
 
+test("xlsx reader trusts the format declared in the file over the builtin id", () => {
+  const sheet = readXlsxWorkbook(buildRedefinedFormatWorkbook())[0];
+
+  // 1С переопределяет `51` (у Excel это дата) под `0.000`: количество должно
+  // остаться числом. Иначе 69,890 читалось бы как 1900-03-09.
+  assert.equal(sheet.rows[0][0]?.date, undefined);
+  assert.equal(sheet.rows[0][0]?.number, 69.89);
+  // Показывается по объявленному формату — три знака и запятая, как в Excel.
+  assert.equal(sheet.rows[0][0]?.text, "69,890");
+  // Встроенный id без объявления в файле по-прежнему означает дату.
+  assert.equal(sheet.rows[0][1]?.date, "2026-08-23");
+  // Объединённые области читаются, чтобы лист выглядел как в редакторе.
+  assert.deepEqual(sheet.merges, [
+    { row: 0, column: 0, rowSpan: 1, columnSpan: 2 },
+    { row: 1, column: 0, rowSpan: 2, columnSpan: 1 },
+  ]);
+});
+
 test("xlsx reader rejects files that are not workbooks", () => {
   assert.throws(
     () => readXlsxWorkbook(Buffer.from("не архив")),
@@ -97,6 +115,45 @@ function buildStockReportWorkbook() {
         `<c r="C6" s="2"><v>3</v></c>` +
         `</row>` +
         `</sheetData></worksheet>`,
+    },
+  ]);
+}
+
+function buildRedefinedFormatWorkbook() {
+  return buildZipArchive([
+    {
+      name: "xl/workbook.xml",
+      content:
+        `<?xml version="1.0"?><workbook><sheets>` +
+        `<sheet name="Лист_1" sheetId="1" r:id="rId1"/>` +
+        `</sheets></workbook>`,
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content:
+        `<?xml version="1.0"?><Relationships>` +
+        `<Relationship Id="rId1" Target="worksheets/sheet1.xml"/>` +
+        `</Relationships>`,
+    },
+    {
+      name: "xl/styles.xml",
+      content:
+        `<?xml version="1.0"?><styleSheet>` +
+        `<numFmts><numFmt numFmtId="51" formatCode="0.000"/></numFmts>` +
+        `<cellXfs count="2">` +
+        `<xf numFmtId="51"/><xf numFmtId="14"/>` +
+        `</cellXfs></styleSheet>`,
+    },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content:
+        `<?xml version="1.0"?><worksheet><sheetData>` +
+        `<row r="1"><c r="A1" s="0"><v>69.89</v></c>` +
+        `<c r="B1" s="1"><v>46257</v></c></row>` +
+        `</sheetData>` +
+        `<mergeCells count="2">` +
+        `<mergeCell ref="A1:B1"/><mergeCell ref="A2:A3"/>` +
+        `</mergeCells></worksheet>`,
     },
   ]);
 }

@@ -8567,6 +8567,58 @@ p {
   color: var(--emerald);
 }
 
+.warehouse-1c-upload-stored {
+  color: var(--amber);
+}
+
+.warehouse-1c-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-1);
+}
+
+/* Файл выгрузки показывается как есть: строки и колонки исходного листа. */
+.warehouse-1c-sheet {
+  display: grid;
+  gap: var(--density-4);
+  padding: var(--density-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+}
+
+.warehouse-1c-sheet h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.warehouse-1c-sheet-block {
+  display: grid;
+  gap: var(--density-2);
+}
+
+.warehouse-1c-sheet-table {
+  min-width: 100%;
+  font-size: 12px;
+}
+
+.warehouse-1c-sheet-table td,
+.warehouse-1c-sheet-table th {
+  max-width: 340px;
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Номер строки листа: по нему сверяются с файлом, открытым в Excel. */
+.warehouse-1c-sheet-table th[scope="row"] {
+  width: 1%;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .warehouse-1c-upload-rejected {
   color: var(--brick);
 }

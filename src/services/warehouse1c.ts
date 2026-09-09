@@ -5,6 +5,8 @@ import type {
   Warehouse1cStockReport,
   Warehouse1cStockResponse,
   Warehouse1cUpload,
+  Warehouse1cUploadSheet,
+  Warehouse1cUploadSheetsResponse,
   Warehouse1cUploadsResponse,
 } from "../contracts/warehouse1c.js";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage.js";
@@ -32,6 +34,10 @@ export type Warehouse1cStockResult =
 
 export type Warehouse1cUploadsResult =
   | ({ status: "ready" } & Warehouse1cUploadsResponse)
+  | { status: "error"; message: string; code?: RemoteServerErrorCode };
+
+export type Warehouse1cUploadSheetsResult =
+  | ({ status: "ready" } & Warehouse1cUploadSheetsResponse)
   | { status: "error"; message: string; code?: RemoteServerErrorCode };
 
 export async function requestWarehouse1cStockBalances(
@@ -131,6 +137,79 @@ export async function requestWarehouse1cUploads(
       ),
     };
   }
+}
+
+/** Лист выгрузки как он составлен: разбор в остатки здесь не участвует. */
+export async function requestWarehouse1cUploadSheets(
+  uploadId: string,
+  { baseUrl, signal }: RequestOptions = {},
+): Promise<Warehouse1cUploadSheetsResult> {
+  const path = `${UPLOADS_PATH}/${encodeURIComponent(uploadId)}/sheet`;
+  const endpoint = resolveApiEndpoint(path, path, { baseUrl });
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: buildDevAccessHeaders({ Accept: "application/json" }),
+      credentials: "include",
+      signal,
+    });
+    const payload = await readJson(response);
+
+    if (!response.ok) {
+      return readRemoteError(payload, "Не удалось открыть файл выгрузки.");
+    }
+    if (!isUploadSheetsResponse(payload)) {
+      return {
+        status: "error",
+        code: "invalid_response",
+        message: "Сервер вернул лист выгрузки в неподдерживаемом формате.",
+      };
+    }
+
+    return { status: "ready", ...payload };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { status: "error", message: "Просмотр файла выгрузки отменён." };
+    }
+
+    return {
+      status: "error",
+      code: "network_error",
+      message: describeRemoteNetworkFailure(
+        "Не удалось открыть файл выгрузки.",
+        { baseUrl },
+      ),
+    };
+  }
+}
+
+function isUploadSheetsResponse(
+  value: unknown,
+): value is Warehouse1cUploadSheetsResponse {
+  return isRecord(value) &&
+    typeof value.fileName === "string" &&
+    Array.isArray(value.sheets) &&
+    value.sheets.every(isUploadSheet);
+}
+
+function isUploadSheet(value: unknown): value is Warehouse1cUploadSheet {
+  return isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.isTruncated === "boolean" &&
+    Array.isArray(value.merges) &&
+    value.merges.every(isUploadSheetMerge) &&
+    Array.isArray(value.rows) &&
+    value.rows.every((row) =>
+      Array.isArray(row) && row.every((cell) => typeof cell === "string"));
+}
+
+function isUploadSheetMerge(value: unknown) {
+  return isRecord(value) &&
+    typeof value.row === "number" &&
+    typeof value.column === "number" &&
+    typeof value.rowSpan === "number" &&
+    typeof value.columnSpan === "number";
 }
 
 export function requestWarehouse1cUploadFile(

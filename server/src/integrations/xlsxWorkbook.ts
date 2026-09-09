@@ -22,9 +22,18 @@ export type XlsxCell = {
   date?: string;
 };
 
+/** Объединённая область листа: верхняя левая ячейка и её охват. */
+export type XlsxMerge = {
+  row: number;
+  column: number;
+  rowSpan: number;
+  columnSpan: number;
+};
+
 export type XlsxSheet = {
   name: string;
   rows: XlsxCell[][];
+  merges: XlsxMerge[];
 };
 
 const zipLocalHeaderSignature = 0x04034b50;
@@ -55,7 +64,7 @@ export function readXlsxWorkbook(file: Buffer): XlsxSheet[] {
   const sharedStrings = parseSharedStrings(
     readTextEntry(archive, "xl/sharedStrings.xml") ?? "",
   );
-  const dateStyles = parseDateStyles(
+  const cellStyles = parseCellStyles(
     readTextEntry(archive, "xl/styles.xml") ?? "",
   );
   const isDate1904 = /date1904="(?:1|true)"/u.test(workbookXml);
@@ -76,9 +85,10 @@ export function readXlsxWorkbook(file: Buffer): XlsxSheet[] {
       name: sheet.name,
       rows: parseSheetRows(sheetXml, {
         sharedStrings,
-        dateStyles,
+        cellStyles,
         isDate1904,
       }),
+      merges: parseSheetMerges(sheetXml),
     });
   }
 
@@ -247,7 +257,10 @@ function readSharedStringText(item: string) {
   return text;
 }
 
-function parseDateStyles(xml: string) {
+/** Что стиль ячейки говорит о её показе: дата и сколько знаков после запятой. */
+type XlsxCellStyle = { isDate: boolean; decimals?: number };
+
+function parseCellStyles(xml: string): XlsxCellStyle[] {
   const formatCodes = new Map<number, string>();
 
   for (const tag of xml.match(/<numFmt\b[^>]*>/gu) ?? []) {
@@ -259,16 +272,95 @@ function parseDateStyles(xml: string) {
   }
 
   const cellFormats = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/u.exec(xml)?.[1] ?? "";
-  const isDateByStyleIndex: boolean[] = [];
+  const styles: XlsxCellStyle[] = [];
 
   for (const tag of cellFormats.match(/<xf\b[^>]*>/gu) ?? []) {
     const id = Number(readAttribute(tag, "numFmtId") ?? "0");
-    isDateByStyleIndex.push(
-      builtinDateFormatIds.has(id) || isDateFormatCode(formatCodes.get(id)),
-    );
+    const declaredCode = formatCodes.get(id);
+
+    /**
+     * Формат, объявленный в самом файле, перекрывает встроенное значение id.
+     * 1С переопределяет `50` и `51` — в таблице Excel это даты — под пустой
+     * формат и `0.000`, поэтому без этой проверки количество читалось бы
+     * датой: `69,890` превращалось в `1900-03-09`.
+     */
+    const isDate = declaredCode === undefined
+      ? builtinDateFormatIds.has(id)
+      : isDateFormatCode(declaredCode);
+    const decimals = isDate ? undefined : readFormatDecimals(declaredCode);
+
+    styles.push({ isDate, ...(decimals === undefined ? {} : { decimals }) });
   }
 
-  return isDateByStyleIndex;
+  return styles;
+}
+
+/**
+ * Дробная часть из формата, объявленного в файле: `0.000` у 1С означает три
+ * знака и запятую, и без этого количество печаталось бы как `69.89` рядом с
+ * соседними `4 655,063`. Форматы без дробной части не трогаем — округлять
+ * значение молча нельзя.
+ */
+function readFormatDecimals(code: string | undefined) {
+  if (code === undefined) return undefined;
+
+  const positive = (code.split(";")[0] ?? "")
+    .replace(/"[^"]*"/gu, "")
+    .replace(/\[[^\]]*\]/gu, "")
+    .replace(/\\./gu, "");
+
+  if (/[dy@%eE/]/u.test(positive)) return undefined;
+
+  const fraction = /\.([0#]+)/u.exec(positive)?.[1];
+
+  return fraction === undefined ? undefined : fraction.length;
+}
+
+/**
+ * Объединённые ячейки нужны, чтобы показать лист так, как он выглядит в Excel:
+ * шапка «Сальдо на начало периода» накрывает пару «Дебет | Кредит», а имя
+ * номенклатуры — обе строки позиции, «БУ» и «Кол».
+ */
+function parseSheetMerges(xml: string): XlsxMerge[] {
+  const block = /<mergeCells\b[^>]*>([\s\S]*?)<\/mergeCells>/u.exec(xml)?.[1];
+
+  if (block === undefined) return [];
+
+  const merges: XlsxMerge[] = [];
+
+  for (const tag of block.match(/<mergeCell\b[^>]*>/gu) ?? []) {
+    const [from, to] = (readAttribute(tag, "ref") ?? "").split(":");
+    const column = readColumnIndex(from);
+    const lastColumn = readColumnIndex(to);
+    const row = readRowIndex(from);
+    const lastRow = readRowIndex(to);
+
+    if (
+      column === undefined || lastColumn === undefined ||
+      row === undefined || lastRow === undefined ||
+      lastColumn < column || lastRow < row
+    ) {
+      continue;
+    }
+
+    merges.push({
+      row,
+      column,
+      rowSpan: lastRow - row + 1,
+      columnSpan: lastColumn - column + 1,
+    });
+  }
+
+  return merges;
+}
+
+function readRowIndex(cellReference: string | undefined) {
+  const digits = /(\d+)$/u.exec(cellReference ?? "")?.[1];
+  const index = Number(digits);
+
+  return digits === undefined || !Number.isInteger(index) || index < 1
+    ? undefined
+    : index - 1;
 }
 
 function isDateFormatCode(code: string | undefined) {
@@ -286,7 +378,7 @@ function parseSheetRows(
   xml: string,
   reference: {
     sharedStrings: string[];
-    dateStyles: boolean[];
+    cellStyles: XlsxCellStyle[];
     isDate1904: boolean;
   },
 ) {
@@ -315,7 +407,7 @@ function parseSheetCells(
   row: string,
   reference: {
     sharedStrings: string[];
-    dateStyles: boolean[];
+    cellStyles: XlsxCellStyle[];
     isDate1904: boolean;
   },
 ) {
@@ -347,7 +439,7 @@ function readCell(
   content: string,
   reference: {
     sharedStrings: string[];
-    dateStyles: boolean[];
+    cellStyles: XlsxCellStyle[];
     isDate1904: boolean;
   },
 ): XlsxCell {
@@ -382,16 +474,20 @@ function readCell(
   if (!Number.isFinite(value)) return { text: rawValue };
 
   const styleIndex = Number(readAttribute(attributes, "s") ?? "0");
-  const isDate = Number.isInteger(styleIndex) &&
-    reference.dateStyles[styleIndex] === true;
-  const date = isDate
+  const style = Number.isInteger(styleIndex)
+    ? reference.cellStyles[styleIndex]
+    : undefined;
+  const date = style?.isDate === true
     ? readExcelSerialDate(value, reference.isDate1904)
     : undefined;
 
+  if (date !== undefined) return { text: date, number: value, date };
+
   return {
-    text: date ?? rawValue,
+    text: style?.decimals === undefined
+      ? rawValue
+      : value.toFixed(style.decimals).replace(".", ","),
     number: value,
-    ...(date === undefined ? {} : { date }),
   };
 }
 

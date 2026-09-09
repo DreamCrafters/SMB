@@ -186,6 +186,7 @@ function buildSheet(
 ): XlsxSheet {
   return {
     name,
+    merges: [],
     rows: rows.map((row) =>
       row.map((cell) =>
         typeof cell === "string"

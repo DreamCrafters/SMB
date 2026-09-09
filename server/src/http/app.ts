@@ -478,6 +478,10 @@ const warehouse1cUploadsPath = "/api/warehouse-1c/uploads";
 const defaultWarehouse1cUploadListSize = 50;
 const warehouse1cUploadFilePathPattern =
   /^\/api\/warehouse-1c\/uploads\/([a-zA-Z0-9-]{1,100})\/file$/u;
+const warehouse1cUploadSheetPathPattern =
+  /^\/api\/warehouse-1c\/uploads\/([a-zA-Z0-9-]{1,100})\/sheet$/u;
+/** Столько строк листа уходит в браузер: остальное показывать негде. */
+const maxWarehouse1cSheetRows = 5000;
 const unavailableProductionBrandsDataSource: ProductionBrandsDataSource = {
   async list() {
     throw new Error("Product brand repository is not configured.");
@@ -1076,6 +1080,23 @@ export function createApiServer({
           authService,
           accounts,
           warehouse1c,
+        });
+        return;
+      }
+
+      const warehouse1cUploadSheetMatch =
+        warehouse1cUploadSheetPathPattern.exec(url.pathname);
+
+      if (warehouse1cUploadSheetMatch !== null) {
+        await handleWarehouse1cUploadSheet({
+          req,
+          res,
+          config,
+          devSessions,
+          authService,
+          accounts,
+          warehouse1c,
+          uploadId: warehouse1cUploadSheetMatch[1] ?? "",
         });
         return;
       }
@@ -9595,6 +9616,31 @@ async function recordWarehouse1cUpload(
   }
 }
 
+/**
+ * 1С меняет структуру отчёта, и отказ на нераспознанный файл терял его целиком.
+ * Такой файл принимается и сохраняется: остатки не обновляются, но выгрузку
+ * видно в журнале и можно открыть как есть. Причина хранится там же, поэтому
+ * «принят» не значит «разобран».
+ */
+function warehouse1cUploadStored(
+  reason: string,
+  sender: Warehouse1cUploadSender,
+): Warehouse1cUploadResult {
+  return {
+    statusCode: 200,
+    payload: {
+      success: true,
+      parsed: false,
+      message: `Файл принят и сохранён, но остатки из него не разобраны: ${reason}`,
+      ...(sender.file === undefined
+        ? {}
+        : { filename: sender.file.fileName, size: sender.file.content.length }),
+    },
+    errorMessage: reason,
+    ...sender,
+  };
+}
+
 function warehouse1cUploadFailure(
   statusCode: number,
   code: "access_denied" | "server_error" | "unauthenticated" | "invalid_response",
@@ -9713,23 +9759,13 @@ async function readWarehouse1cUploadResult({
     parsed = parseWarehouse1cStockReport(readXlsxWorkbook(file.content));
   } catch (error) {
     if (error instanceof XlsxFormatError) {
-      return warehouse1cUploadFailure(
-        422,
-        "invalid_response",
-        error.message,
-        uploaded,
-      );
+      return warehouse1cUploadStored(error.message, uploaded);
     }
     throw error;
   }
 
   if (!parsed.ok) {
-    return warehouse1cUploadFailure(
-      422,
-      "invalid_response",
-      parsed.errors.join(" "),
-      uploaded,
-    );
+    return warehouse1cUploadStored(parsed.errors.join(" "), uploaded);
   }
 
   const report = parsed.value;
@@ -9768,6 +9804,7 @@ async function readWarehouse1cUploadResult({
     statusCode: 200,
     payload: {
       success: true,
+      parsed: true,
       message: `Остатки за ${report.reportDate}: ${
         saved
           .map((item) => `счёт ${item.accountCode} — ${item.rows} строк`)
@@ -9931,6 +9968,109 @@ async function handleWarehouse1cUploads({
         : defaultWarehouse1cUploadListSize,
     ),
     ...(warehouse1c.isReadOnly ? { isReadOnlySource: true } : {}),
+  });
+}
+
+/**
+ * Лист выгрузки как он составлен. Разбор в остатки здесь не участвует: 1С
+ * меняет структуру, и увидеть файл нужно раньше, чем мы научимся его читать.
+ * Лист собирается из сохранённого оригинала, поэтому отдельного хранилища для
+ * него нет.
+ */
+async function handleWarehouse1cUploadSheet({
+  req,
+  res,
+  config,
+  devSessions,
+  authService,
+  accounts,
+  warehouse1c,
+  uploadId,
+}: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  config: ServerConfig;
+  devSessions: Map<string, DevAccessSession>;
+  authService: AuthSessionService | undefined;
+  accounts?: AccountsRepository | undefined;
+  warehouse1c: Warehouse1cRepository | undefined;
+  uploadId: string;
+}) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, {
+      error: {
+        code: "access_denied",
+        message: "Лист выгрузки доступен только методом GET.",
+      },
+    });
+    return;
+  }
+
+  const access = await requireCapability(req, res, {
+    config,
+    devSessions,
+    authService,
+    accounts,
+    capability: "business.view_warehouse_1c",
+    message: "Просмотр журнала загрузок 1С недоступен.",
+  });
+
+  if (access === undefined) return;
+
+  if (warehouse1c === undefined) {
+    sendJson(res, 503, {
+      error: {
+        code: "server_error",
+        message: "Хранилище остатков 1С не настроено.",
+      },
+    });
+    return;
+  }
+
+  const file = await warehouse1c.readUploadFile(uploadId);
+
+  if (file === undefined) {
+    sendJson(res, 404, {
+      error: {
+        code: "not_found",
+        message: "Файл этой выгрузки не сохранён.",
+      },
+    });
+    return;
+  }
+
+  let sheets;
+
+  try {
+    sheets = readXlsxWorkbook(file.content);
+  } catch (error) {
+    if (error instanceof XlsxFormatError) {
+      sendJson(res, 422, {
+        error: { code: "invalid_response", message: error.message },
+      });
+      return;
+    }
+    throw error;
+  }
+
+  sendJson(res, 200, {
+    fileName: file.fileName,
+    sheets: sheets.map((sheet) => {
+      const rows = sheet.rows.slice(0, maxWarehouse1cSheetRows);
+
+      return {
+        name: sheet.name,
+        rows: rows.map((row) => row.map((cell) => cell.text)),
+        // Обрезанный лист не должен тянуть объединение за свой край.
+        merges: sheet.merges
+          .filter((merge) => merge.row < rows.length)
+          .map((merge) => ({
+            ...merge,
+            rowSpan: Math.min(merge.rowSpan, rows.length - merge.row),
+          })),
+        isTruncated: sheet.rows.length > maxWarehouse1cSheetRows,
+      };
+    }),
   });
 }
 
