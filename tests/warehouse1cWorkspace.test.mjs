@@ -75,13 +75,19 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
           balances: [
             {
               nomenclature: "ША-8",
+              warehouse: "Центральный Склад",
               openingBalance: "12500.5",
               closingBalance: "10",
+              openingQuantity: "1.5",
+              closingQuantity: "0.001",
             },
             {
               nomenclature: "ШБ-5",
+              warehouse: "Основной склад",
               openingBalance: "",
               closingBalance: "3",
+              openingQuantity: "",
+              closingQuantity: "0.5",
             },
           ],
         },
@@ -104,12 +110,22 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
     assert.deepEqual(
       Array.from(container.querySelectorAll("thead th"))
         .map((cell) => cell.textContent),
-      ["Номенклатура", "Ост. нач.", "Ост. кон."],
+      [
+        "Склад",
+        "Номенклатура",
+        "Ост. нач., ₽",
+        "Ост. нач., кол.",
+        "Ост. кон., ₽",
+        "Ост. кон., кол.",
+      ],
     );
     // Пустой остаток не превращается в ноль.
     assert.deepEqual(readTableRows(container), [
-      ["ША-8", "12 500,5", "10"],
-      ["ШБ-5", "—", "3"],
+      [
+        "Центральный Склад", "ША-8",
+        "12 500,5", "1,5", "10", "0,001",
+      ],
+      ["Основной склад", "ШБ-5", "—", "—", "3", "0,5"],
     ]);
     assert.deepEqual(requests, [{ accountCode: null, reportDate: null }]);
 
@@ -219,7 +235,9 @@ test("warehouse 1C tab reloads reports on demand and keeps the table meanwhile",
     // Кнопка перечитывает то же, что показано сейчас: фильтры не сбрасываются.
     assert.deepEqual(requests[1], { accountCode: null, reportDate: null });
     // Пока сервер отвечает, прежние остатки остаются на экране.
-    assert.deepEqual(readTableRows(container), [["ША-8", "1", "2"]]);
+    assert.deepEqual(readTableRows(container), [
+      ["ША-8", "1", "0,1", "2", "0,2"],
+    ]);
     assert.equal(refreshButton.disabled, true);
     assert.match(refreshButton.textContent, /Обновляем/u);
 
@@ -513,7 +531,13 @@ test("warehouse 1C tab says when it reads the production database", async () => 
           fileName: "Остатки.xlsx",
           importedAt: "2026-08-23 06:30:00.000",
           balances: [
-            { nomenclature: "ША-8", openingBalance: "1", closingBalance: "2" },
+            {
+              nomenclature: "ША-8",
+              openingBalance: "1",
+              closingBalance: "2",
+              openingQuantity: "0.1",
+              closingQuantity: "0.2",
+            },
           ],
         },
       });
@@ -601,7 +625,13 @@ function buildStockPayload({ availableDates, reportDate, nomenclature }) {
       fileName: `report_${reportDate.replaceAll("-", "")}.xlsx`,
       importedAt: `${reportDate} 06:30:00.000`,
       balances: [
-        { nomenclature, openingBalance: "1", closingBalance: "2" },
+        {
+          nomenclature,
+          openingBalance: "1",
+          closingBalance: "2",
+          openingQuantity: "0.1",
+          closingQuantity: "0.2",
+        },
       ],
     },
   };

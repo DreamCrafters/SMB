@@ -4250,6 +4250,23 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /**
+     * Новая сводная выгрузка 1С даёт по позиции две величины — рубли («БУ») и
+     * количество («Кол»), — и разрез по складам между счётом и номенклатурой.
+     * Прежние колонки остатка остаются суммой: у старых выгрузок количества и
+     * склада не было, поэтому у их строк здесь `null`.
+     */
+    id: "079_warehouse_1c_stock_quantities",
+    statements: [
+      `
+      alter table warehouse_1c_stock_balances
+        add column warehouse varchar(255) null after nomenclature,
+        add column opening_quantity decimal(18,3) null,
+        add column closing_quantity decimal(18,3) null;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

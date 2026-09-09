@@ -98,9 +98,20 @@ export type Warehouse1cAccount = {
 
 export type Warehouse1cStockBalance = {
   nomenclature: string;
+  /**
+   * Склад из иерархии «счёт → склад → номенклатура». Пусто у выгрузок старой
+   * структуры: там разреза по складам не было.
+   */
+  warehouse?: string;
   /** Десятичное число строкой; пустая строка — остаток в файле не указан. */
   openingBalance: string;
   closingBalance: string;
+  /**
+   * Количество: в новой выгрузке каждая позиция идёт двумя строками — «БУ»
+   * (рубли) и «Кол» (количество), поэтому у остатка две величины.
+   */
+  openingQuantity: string;
+  closingQuantity: string;
 };
 
 export type Warehouse1cStockReport = {

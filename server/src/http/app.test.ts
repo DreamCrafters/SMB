@@ -95,6 +95,7 @@ import { getDispatcherFormDefinition } from "../domain/dispatcherForms.js";
 import type { RefractoryCoshPayload } from "../domain/refractoryReport.js";
 import type {
   Warehouse1cRepository,
+  Warehouse1cStockReportImport,
   Warehouse1cUploadRecord,
 } from "../repositories/warehouse1cRepository.js";
 import type { RailwayWagonsRepository } from "../repositories/railwayWagonsRepository.js";
@@ -13567,11 +13568,15 @@ test("1C stock report upload is guarded by the integration api key", async () =>
               nomenclature: "ШБ-15 кер",
               openingBalance: "594262.58",
               closingBalance: "594262.58",
+              openingQuantity: "",
+              closingQuantity: "",
             },
             {
               nomenclature: "ША-22 (вес 1,32)",
               openingBalance: "-2045.53",
               closingBalance: "-2045.53",
+              openingQuantity: "",
+              closingQuantity: "",
             },
           ],
         },
@@ -13586,6 +13591,8 @@ test("1C stock report upload is guarded by the integration api key", async () =>
               nomenclature: "ГАС-порошок",
               openingBalance: "277693.47",
               closingBalance: "277693.47",
+              openingQuantity: "",
+              closingQuantity: "",
             },
           ],
         },
@@ -13644,6 +13651,85 @@ test("1C stock report upload is guarded by the integration api key", async () =>
   }
 });
 
+test("1C upload of the hierarchical report saves amounts and quantities", async () => {
+  const saved: Warehouse1cStockReportImport[] = [];
+  const uploadJournal: Warehouse1cUploadRecord[] = [];
+  const warehouse1c: Warehouse1cRepository = {
+    isReadOnly: false,
+    async recordUpload(input) { uploadJournal.push(input); },
+    async listUploads() { return []; },
+    async readUploadFile() { return undefined; },
+    async listAccounts() { return []; },
+    async listReportDates() { return []; },
+    async readStockReport() { return undefined; },
+    async saveStockReport(input) {
+      saved.push(input);
+      return {
+        reportId: `report-${input.accountCode}`,
+        rowCount: input.balances.length,
+        isReplaced: false,
+      };
+    },
+  };
+  const server = createApiServer({
+    config,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    warehouse1c,
+    audit: {
+      async record() {},
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const boundary = "----smb1cBoundary";
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/upload-report`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "x-api-key": "test-1c-upload-api-key",
+        },
+        body: buildStockReportUploadBody(
+          boundary,
+          buildUnknownStructureWorkbookFile(),
+        ),
+      },
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(isRecord(payload) ? payload.parsed : undefined, true);
+    // Дата берётся из конца периода отчёта.
+    assert.equal(
+      isRecord(payload) ? payload.reportDate : undefined,
+      "2026-09-09",
+    );
+    // Итог по счёту и строка склада в разрез не идут — только номенклатура.
+    assert.deepEqual(saved.map((report) => report.balances), [[
+      {
+        nomenclature: "Шамот бокситовый 69",
+        warehouse: "Центральный Склад",
+        openingBalance: "0",
+        closingBalance: "1257929.75",
+        openingQuantity: "0",
+        closingQuantity: "69.89",
+      },
+    ]]);
+    assert.equal(uploadJournal[0]?.outcome, "accepted");
+    assert.equal(uploadJournal[0]?.reportDate, "2026-09-09");
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("1C upload with an unknown structure is stored instead of refused", async () => {
   const saved: unknown[] = [];
   const uploadJournal: Warehouse1cUploadRecord[] = [];
@@ -13687,7 +13773,7 @@ test("1C upload with an unknown structure is stored instead of refused", async (
         },
         body: buildStockReportUploadBody(
           boundary,
-          buildUnknownStructureWorkbookFile(),
+          buildUnreadableWorkbookFile(),
         ),
       },
     );
@@ -13755,7 +13841,13 @@ test("1C stock balances open only for the warehouse tab capability", async () =>
         fileName: "Остатки.xlsx",
         importedAt: "2026-08-23T06:30:00.000Z",
         balances: [
-          { nomenclature: "ША-8", openingBalance: "12.5", closingBalance: "10" },
+          {
+            nomenclature: "ША-8",
+            openingBalance: "12.5",
+            closingBalance: "10",
+            openingQuantity: "1.5",
+            closingQuantity: "1",
+          },
         ],
       };
     },
@@ -13989,7 +14081,13 @@ test("read-only warehouse source serves balances but refuses uploads", async () 
         fileName: "Остатки.xlsx",
         importedAt: "2026-08-23T06:30:00.000Z",
         balances: [
-          { nomenclature: "ША-8", openingBalance: "12.5", closingBalance: "10" },
+          {
+            nomenclature: "ША-8",
+            openingBalance: "12.5",
+            closingBalance: "10",
+            openingQuantity: "1.5",
+            closingQuantity: "1",
+          },
         ],
       };
     },
@@ -14135,9 +14233,40 @@ function buildStockReportWorkbookFile() {
 }
 
 /**
+ * Лист, в котором шапки остатков нет вовсе: разбору не за что зацепиться,
+ * поэтому файл принимается и сохраняется, но остатки из него не выходят.
+ */
+function buildUnreadableWorkbookFile() {
+  return buildStoredZipArchive([
+    {
+      name: "xl/workbook.xml",
+      content:
+        '<workbook><sheets><sheet name="Лист_1" sheetId="1" r:id="rId1"/>' +
+        "</sheets></workbook>",
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content:
+        '<Relationships><Relationship Id="rId1" ' +
+        'Target="worksheets/sheet1.xml"/></Relationships>',
+    },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content:
+        "<worksheet><sheetData>" +
+        inlineRow(1, ["Сводный отчёт по материалам и готовой продукции"]) +
+        inlineRow(2, ["Период: 01.01.2020 - 09.09.2026"]) +
+        inlineRow(4, ["Позиция", "Штук"]) +
+        inlineRow(5, ["ША-8", "12"]) +
+        "</sheetData></worksheet>",
+    },
+  ]);
+}
+
+/**
  * Структура сводного отчёта, на которую 1С перешла: шапка
- * «Счет / Склад / Номенклатура» в две строки и иерархия склад → номенклатура.
- * Разбор её не читает — файл всё равно должен приниматься и сохраняться.
+ * «Счет / Склад / Номенклатура» в две строки, иерархия склад → номенклатура и
+ * пара строк «БУ» (рубли) и «Кол» (количество) на позицию.
  */
 function buildUnknownStructureWorkbookFile() {
   return buildStoredZipArchive([
@@ -14172,6 +14301,16 @@ function buildUnknownStructureWorkbookFile() {
           "43", "БУ", "130 559 980,47", "0", "3 083 452 670,55",
           "3 078 532 357,52", "135 480 293,50", "0",
         ]) +
+        inlineRow(9, ["", "Кол", "18 434,060", "0", "0", "0", "8 538,890", "0"]) +
+        inlineRow(10, [
+          "    Центральный Склад", "БУ", "0", "0", "0", "0", "1 257 929,75", "0",
+        ]) +
+        inlineRow(11, ["", "Кол", "0", "0", "0", "0", "69,890", "0"]) +
+        inlineRow(12, [
+          "        Шамот бокситовый 69", "БУ", "0", "0", "0", "0",
+          "1 257 929,75", "0",
+        ]) +
+        inlineRow(13, ["", "Кол", "0", "0", "0", "0", "69,890", "0"]) +
         "</sheetData>" +
         '<mergeCells count="2">' +
         '<mergeCell ref="C6:D6"/><mergeCell ref="A6:A7"/>' +

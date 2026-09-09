@@ -22,7 +22,23 @@ export const warehouse1cNomenclatureCaptions = [
   "материал",
 ];
 
+/**
+ * Эти же слова достаточно длинные, чтобы искать их подстрокой: сводная колонка
+ * называется «Счет / Склад / Номенклатура» и с самого слова не начинается.
+ */
+const warehouse1cNomenclatureInnerCaptions = ["номенклатура", "наименование"];
+
 export const warehouse1cAccountCaptions = ["счет"];
+
+/**
+ * Новая сводная выгрузка держит счёт, склад и номенклатуру в одной колонке
+ * «Счет / Склад / Номенклатура», а каждую позицию — двумя строками: «БУ»
+ * (рубли) и «Кол» (количество). Колонка «Показатели» и есть признак такой
+ * структуры: по ней разбор переходит на разбор иерархии.
+ */
+export const warehouse1cIndicatorCaptions = ["показатели"];
+const warehouse1cAmountIndicator = "бу";
+const warehouse1cQuantityIndicator = "кол";
 
 /**
  * Ищется как подстрока. Для счетов 43 и 10.01 остаток активный, и 1С сама
@@ -59,6 +75,7 @@ const maxHeaderScanRows = 60;
 const maxReportRows = 20_000;
 const maxNomenclatureLength = 255;
 const maxAccountCodeLength = 20;
+const maxWarehouseLength = 255;
 const maxAccountLabelLength = 160;
 
 export type ParsedWarehouse1cStockAccount = {
@@ -134,6 +151,14 @@ function parseStockReportSheet(
   );
   let skippedDuplicates = 0;
   let rowCount = 0;
+  /**
+   * Уровень строки задаёт отступ, а не отдельная колонка: самый глубокий
+   * отступ — номенклатура, всё, что мельче, — склад. Считается один раз по
+   * всему листу, потому что по одной строке уровень не определить, а зашивать
+   * «четыре пробела» нельзя — величину отступа выбирает 1С.
+   */
+  const nomenclatureIndent = readNomenclatureIndent(sheet.rows, firstHeader);
+  let warehouse = "";
 
   for (let index = firstHeader.headerRow + 1; index < sheet.rows.length; index += 1) {
     const section = readSectionHeadingAt(sheet.rows, index);
@@ -151,9 +176,30 @@ function parseStockReportSheet(
     }
 
     const row = sheet.rows[index];
+    const indicator = readIndicator(row, columns);
+
+    // Строка количества разбирается вместе со своей строкой «БУ».
+    if (indicator === warehouse1cQuantityIndicator) continue;
+
     const nomenclature = readNomenclature(row[columns.nomenclature]);
 
     if (nomenclature === undefined) continue;
+
+    if (columns.indicator !== undefined) {
+      if (indicator !== warehouse1cAmountIndicator) continue;
+
+      // Итог по счёту стоит такой же строкой, как позиция; в разрез он не идёт.
+      if (accountCodePattern.test(nomenclature)) {
+        sectionAccountCode = nomenclature.slice(0, maxAccountCodeLength);
+        warehouse = "";
+        continue;
+      }
+
+      if (readIndent(row[columns.nomenclature]) < nomenclatureIndent) {
+        warehouse = nomenclature.slice(0, maxWarehouseLength);
+        continue;
+      }
+    }
 
     const accountCode = readRowAccountCode(row, columns) ??
       sectionAccountCode ??
@@ -161,12 +207,16 @@ function parseStockReportSheet(
 
     if (accountCode === undefined) continue;
 
-    const identity = nomenclature.toLocaleLowerCase("ru-RU");
+    /**
+     * Повтор считается в пределах счёта и склада: одно наименование бывает и в
+     * 43, и в 10.01, и на разных складах одного счёта — это разные остатки.
+     */
+    const identity = `${warehouse}\u0000${nomenclature}`
+      .toLocaleLowerCase("ru-RU");
     const seen = seenByAccount.get(accountCode) ?? new Set<string>();
 
     seenByAccount.set(accountCode, seen);
 
-    // Повтор считается в пределах счёта: одно наименование бывает и в 43, и в 10.01.
     if (seen.has(identity)) {
       skippedDuplicates += 1;
       continue;
@@ -179,12 +229,16 @@ function parseStockReportSheet(
       accountLabel: accountLabels.get(accountCode) ?? `Счёт ${accountCode}`,
       balances: [],
     };
+    const quantities = readQuantityRow(sheet.rows[index + 1], columns);
 
     sections.set(accountCode, account);
     account.balances.push({
       nomenclature,
+      ...(warehouse === "" ? {} : { warehouse }),
       openingBalance: readWarehouse1cDecimal(row[columns.opening]),
       closingBalance: readWarehouse1cDecimal(row[columns.closing]),
+      openingQuantity: quantities?.opening ?? "",
+      closingQuantity: quantities?.closing ?? "",
     });
     rowCount += 1;
 
@@ -209,6 +263,8 @@ type StockReportColumns = {
   opening: number;
   closing: number;
   account?: number;
+  /** Колонка «Показатели»: её наличие означает строки «БУ» и «Кол». */
+  indicator?: number;
 };
 
 /**
@@ -238,7 +294,8 @@ function readStockReportColumns(
 
   const captions = readMergedCaptions(rows, row, span);
   const nomenclature = captions.findIndex((caption) =>
-    startsWithCaption(caption, warehouse1cNomenclatureCaptions));
+    startsWithCaption(caption, warehouse1cNomenclatureCaptions) ||
+    containsCaption(caption, warehouse1cNomenclatureInnerCaptions));
 
   if (nomenclature === -1) return undefined;
 
@@ -260,6 +317,11 @@ function readStockReportColumns(
     index !== opening &&
     index !== closing &&
     startsWithCaption(caption, warehouse1cAccountCaptions));
+  const indicator = captions.findIndex((caption, index) =>
+    index !== nomenclature &&
+    index !== opening &&
+    index !== closing &&
+    startsWithCaption(caption, warehouse1cIndicatorCaptions));
 
   return {
     headerRow: row + span - 1,
@@ -267,6 +329,7 @@ function readStockReportColumns(
     opening,
     closing,
     ...(account === -1 ? {} : { account }),
+    ...(indicator === -1 ? {} : { indicator }),
   };
 }
 
@@ -348,6 +411,61 @@ function readSectionHeadingAt(rows: readonly XlsxCell[][], index: number) {
   };
 }
 
+/** «Показатели» строки: «БУ» — рубли, «Кол» — количество. */
+function readIndicator(
+  row: readonly XlsxCell[],
+  columns: StockReportColumns,
+) {
+  if (columns.indicator === undefined) return undefined;
+
+  return normalizeCaption(row[columns.indicator]?.text ?? "");
+}
+
+function readIndent(cell: XlsxCell | undefined) {
+  const value = cell?.text ?? "";
+
+  return value.length - value.trimStart().length;
+}
+
+/**
+ * Количество лежит следующей строкой и своего имени не имеет: в файле ячейка
+ * наименования объединена на обе строки позиции.
+ */
+function readQuantityRow(
+  row: readonly XlsxCell[] | undefined,
+  columns: StockReportColumns,
+) {
+  if (row === undefined || columns.indicator === undefined) return undefined;
+  if (readIndicator(row, columns) !== warehouse1cQuantityIndicator) {
+    return undefined;
+  }
+  if ((row[columns.nomenclature]?.text ?? "").trim() !== "") return undefined;
+
+  return {
+    opening: readWarehouse1cDecimal(row[columns.opening]),
+    closing: readWarehouse1cDecimal(row[columns.closing]),
+  };
+}
+
+function readNomenclatureIndent(
+  rows: readonly XlsxCell[][],
+  header: StockReportColumns,
+) {
+  let deepest = 0;
+
+  for (let index = header.headerRow + 1; index < rows.length; index += 1) {
+    const value = rows[index]?.[header.nomenclature]?.text ?? "";
+    const trimmed = value.trim();
+
+    if (trimmed === "" || accountCodePattern.test(trimmed)) continue;
+    if (readSectionHeadingAt(rows, index) !== undefined) continue;
+
+    deepest = Math.max(deepest, value.length - value.trimStart().length);
+  }
+
+  return deepest;
+}
+
 function readRowAccountCode(
   row: readonly XlsxCell[],
   columns: StockReportColumns,
@@ -374,8 +492,14 @@ function readNomenclature(cell: XlsxCell | undefined) {
     return undefined;
   }
 
+  /**
+   * Повторную шапку отсекает только точное совпадение с подписью: «Материал
+   * высокоглиноземистый ШРС-75» — это номенклатура, а не заголовок колонки, и
+   * по началу строки такие позиции терялись. Сама строка-шапка до сюда обычно
+   * не доходит — её ловит поиск повторного заголовка выше.
+   */
   if (
-    startsWithCaption(normalized, warehouse1cNomenclatureCaptions) ||
+    warehouse1cNomenclatureCaptions.includes(normalized) ||
     containsCaption(normalized, warehouse1cOpeningBalanceCaptions) ||
     containsCaption(normalized, warehouse1cClosingBalanceCaptions)
   ) {

@@ -87,8 +87,11 @@ type ReportRow = {
 
 type BalanceRow = {
   nomenclature: string;
+  warehouse: string | null;
   opening_balance: string | number | null;
   closing_balance: string | number | null;
+  opening_quantity: string | number | null;
+  closing_quantity: string | number | null;
 } & RowDataPacket;
 
 type AccountRow = {
@@ -197,7 +200,12 @@ export function createWarehouse1cRepository(
       if (report === undefined) return undefined;
 
       const [balances] = await pool.query<BalanceRow[]>(
-        `select nomenclature, opening_balance, closing_balance
+        `select nomenclature,
+          warehouse,
+          opening_balance,
+          closing_balance,
+          opening_quantity,
+          closing_quantity
         from warehouse_1c_stock_balances
         where report_id = ?
         order by row_order asc`,
@@ -212,8 +220,11 @@ export function createWarehouse1cRepository(
         importedAt: toIsoString(report.imported_at),
         balances: balances.map((row) => ({
           nomenclature: row.nomenclature,
+          ...(row.warehouse ? { warehouse: row.warehouse } : {}),
           openingBalance: normalizeDecimal(row.opening_balance),
           closingBalance: normalizeDecimal(row.closing_balance),
+          openingQuantity: normalizeDecimal(row.opening_quantity),
+          closingQuantity: normalizeDecimal(row.closing_quantity),
         })),
       };
     },
@@ -315,16 +326,22 @@ export function createWarehouse1cRepository(
             report_id,
             row_order,
             nomenclature,
+            warehouse,
             opening_balance,
-            closing_balance
-          ) values ${chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ")}`,
+            closing_balance,
+            opening_quantity,
+            closing_quantity
+          ) values ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
           chunk.flatMap((balance, index) => [
             createId(),
             reportId,
             offset + index,
             balance.nomenclature,
+            emptyToNull(balance.warehouse ?? ""),
             emptyToNull(balance.openingBalance),
             emptyToNull(balance.closingBalance),
+            emptyToNull(balance.openingQuantity),
+            emptyToNull(balance.closingQuantity),
           ]),
         );
       }
@@ -461,8 +478,9 @@ function emptyToNull(value: string) {
   return value === "" ? null : value;
 }
 
-function normalizeDecimal(value: string | number | null) {
-  if (value === null) return "";
+/** Колонки количества появились позже суммы, поэтому пустое значение — норма. */
+function normalizeDecimal(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return "";
 
   const text = String(value);
 

@@ -667,22 +667,37 @@ function Warehouse1cStockTable({
     );
   }
 
+  /**
+   * Склад появился только в новой структуре выгрузки: у прежних отчётов
+   * колонка была бы пустой, поэтому она показывается по наличию данных.
+   */
+  const hasWarehouses = report.balances.some(
+    (balance) => (balance.warehouse ?? "") !== "",
+  );
+
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table warehouse-1c-table">
         <thead>
           <tr>
+            {hasWarehouses ? <th>Склад</th> : null}
             <th>Номенклатура</th>
-            <th>Ост. нач.</th>
-            <th>Ост. кон.</th>
+            <th>Ост. нач., ₽</th>
+            <th>Ост. нач., кол.</th>
+            <th>Ост. кон., ₽</th>
+            <th>Ост. кон., кол.</th>
           </tr>
         </thead>
         <tbody>
-          {report.balances.map((balance) => (
-            <tr key={balance.nomenclature}>
+          {report.balances.map((balance, index) => (
+            // Одно наименование лежит на разных складах — имени как ключа мало.
+            <tr key={`${balance.warehouse ?? ""}:${balance.nomenclature}:${index}`}>
+              {hasWarehouses ? <td>{balance.warehouse ?? "—"}</td> : null}
               <td>{balance.nomenclature}</td>
               <td>{formatBalance(balance.openingBalance)}</td>
+              <td>{formatBalance(balance.openingQuantity)}</td>
               <td>{formatBalance(balance.closingBalance)}</td>
+              <td>{formatBalance(balance.closingQuantity)}</td>
             </tr>
           ))}
         </tbody>

@@ -281,7 +281,10 @@ function isBalance(value: unknown): value is Warehouse1cStockBalance {
   return isRecord(value) &&
     typeof value.nomenclature === "string" &&
     typeof value.openingBalance === "string" &&
-    typeof value.closingBalance === "string";
+    typeof value.closingBalance === "string" &&
+    typeof value.openingQuantity === "string" &&
+    typeof value.closingQuantity === "string" &&
+    (value.warehouse === undefined || typeof value.warehouse === "string");
 }
 
 function readRemoteError(

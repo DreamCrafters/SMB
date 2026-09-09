@@ -24,7 +24,14 @@ test("stock report import inserts a new report with its balances", async () => {
       source: "1С:Предприятие",
       sentAt: "2026-08-23T06:29:00.000Z",
       balances: [
-        { nomenclature: "ША-8", openingBalance: "12.5", closingBalance: "" },
+        {
+          nomenclature: "ША-8",
+          warehouse: "Центральный Склад",
+          openingBalance: "12.5",
+          closingBalance: "",
+          openingQuantity: "1.5",
+          closingQuantity: "",
+        },
       ],
     }),
     { reportId: "id-1", rowCount: 1, isReplaced: false },
@@ -45,13 +52,16 @@ test("stock report import inserts a new report with its balances", async () => {
     "2026-08-23T06:30:00.000Z",
   ]);
   assert.match(queries[2]?.sql ?? "", /insert into warehouse_1c_stock_balances/u);
-  // Пустой остаток хранится как NULL, а не как ноль.
+  // Пустой остаток хранится как NULL, а не как ноль; склад и количество рядом.
   assert.deepEqual(queries[2]?.parameters, [
     "id-2",
     "id-1",
     0,
     "ША-8",
+    "Центральный Склад",
     "12.5",
+    null,
+    "1.5",
     null,
   ]);
 });
@@ -78,7 +88,13 @@ test("repeated import replaces the whole report for the same date", async () => 
       fileChecksum: "b".repeat(64),
       fileSize: 4096,
       balances: [
-        { nomenclature: "ШБ-5", openingBalance: "", closingBalance: "3" },
+        {
+          nomenclature: "ШБ-5",
+          openingBalance: "",
+          closingBalance: "3",
+          openingQuantity: "",
+          closingQuantity: "0.5",
+        },
       ],
     }),
     { reportId: "report-1", rowCount: 1, isReplaced: true },
@@ -102,7 +118,10 @@ test("stock report reads the latest date when none is asked for", async () => {
           ? [[
               {
                 nomenclature: "ША-8",
+                warehouse: "Центральный Склад",
                 opening_balance: "12.500",
+                opening_quantity: "1.500",
+                closing_quantity: null,
                 closing_balance: null,
               },
             ], []]
@@ -116,7 +135,14 @@ test("stock report reads the latest date when none is asked for", async () => {
     fileName: "Остатки.xlsx",
     importedAt: "2026-08-23 06:30:00.000",
     balances: [
-      { nomenclature: "ША-8", openingBalance: "12.5", closingBalance: "" },
+      {
+        nomenclature: "ША-8",
+        warehouse: "Центральный Склад",
+        openingBalance: "12.5",
+        closingBalance: "",
+        openingQuantity: "1.5",
+        closingQuantity: "",
+      },
     ],
   });
   assert.doesNotMatch(queries[0]?.sql ?? "", /and report_date = \?/u);
