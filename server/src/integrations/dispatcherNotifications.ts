@@ -203,7 +203,13 @@ export function buildDispatcherNotificationText(
           return [];
         }
 
-        const match = /^(forming|sorting)(Brand|Fact)([1-9]\d?)$/u.exec(key);
+        /**
+         * Задача 104: марка и факт одной строки уходят одной строкой рассылки.
+         * Доработка задачи 104 добавила сюда неформованную продукцию; шамот
+         * по-прежнему выводится отдельными полями.
+         */
+        const match =
+          /^(forming|sorting|unformed)(Brand|Fact)([1-9]\d?)$/u.exec(key);
 
         if (match !== null && Number(match[3]) <= 50) {
           const brand = readPayloadValue(submission, `${match[1]}Brand${match[3]}`);

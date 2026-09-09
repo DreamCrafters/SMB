@@ -51,6 +51,10 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
     sortingBrand2: "ШБ-22",
     sortingFact1: "9.31",
     sortingFact2: "7.72",
+    unformedBrand1: "Бетон БТ-1",
+    unformedBrand2: "Масса МЛ-2",
+    unformedFact1: "4.5",
+    unformedFact2: "0",
     chamotteBrand1: "Мертель МШ-28 (ШГР-28), т",
     chamotteFact1: "60",
     reportMonth: "2026-07",
@@ -80,6 +84,10 @@ test("buildDispatcherSubmissionEmail sends production reports to equipment recip
       "Формовка — Марка изделия 2: ША-8; 33.16 т.",
       "Сортировка — Марка изделия 1: ШБ-5 класс 4; 9.31 т.",
       "Сортировка — Марка изделия 2: ШБ-22; 7.72 т.",
+      // Доработка задачи 104: неформованная продукция сокращается так же.
+      "Неформованная продукция, контейнеры — Марка изделия 1: Бетон БТ-1; 4.5 т.",
+      "Неформованная продукция, контейнеры — Марка изделия 2: Масса МЛ-2; 0 т.",
+      // Шамот доработкой не затронут и остаётся отдельными полями.
       "Цех обжига шамота — Марка изделия 1: Мертель МШ-28 (ШГР-28), т",
       "Цех обжига шамота — Факт по марке 1: 60",
       "",
@@ -112,6 +120,9 @@ test("buildDispatcherSubmissionEmail pairs facts by row and preserves incomplete
     formingFact4: "",
     sortingBrand4: "",
     sortingFact4: "2",
+    unformedFact1: "12,3",
+    unformedBrand1: "Бетон БТ-1",
+    unformedBrand3: "Масса МЛ-2",
     reportMonth: "2026-08",
   });
   const originalPayload = { ...submission.payload };
@@ -133,6 +144,8 @@ test("buildDispatcherSubmissionEmail pairs facts by row and preserves incomplete
       "Формовка — Факт по марке 4: ",
       "Сортировка — Марка изделия 4: ",
       "Сортировка — Факт по марке 4: 2",
+      "Неформованная продукция, контейнеры — Марка изделия 1: Бетон БТ-1; 12,3 т.",
+      "Неформованная продукция, контейнеры — Марка изделия 3: Масса МЛ-2",
     ].join("\n"),
   );
   assert.deepEqual(submission.payload, originalPayload);

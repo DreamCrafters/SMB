@@ -205,6 +205,8 @@ test("createMaxNotificationService sends compact production rows for new and cor
     sortingBrand2: "ШБ-5 класс 4",
     sortingFact1: "5.44",
     sortingFact2: "34.75",
+    unformedBrand1: "Бетон БТ-1",
+    unformedFact1: "4.5",
     reportMonth: "2026-08",
   });
 
@@ -227,6 +229,9 @@ test("createMaxNotificationService sends compact production rows for new and cor
         "Формовка — Марка изделия 2: ШБ-8 класс 4; 30.26 т.",
         "Сортировка — Марка изделия 1: ШБ-5; 5.44 т.",
         "Сортировка — Марка изделия 2: ШБ-5 класс 4; 34.75 т.",
+        // Доработка задачи 104: и в исправлении неформованная продукция тоже
+        // уходит одной строкой.
+        "Неформованная продукция, контейнеры — Марка изделия 1: Бетон БТ-1; 4.5 т.",
       ].join("\n"),
     );
   }
