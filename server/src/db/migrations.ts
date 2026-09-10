@@ -4294,11 +4294,11 @@ const migrations: Migration[] = [
         updated_at timestamp(3) not null default current_timestamp(3)
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
       addPositionJsonValue("capabilities", "platform.manage_table_layouts",
-        "(code = 'administrator' or is_admin_protected = 1)"),
+        "(id = 'administrator' or is_admin_protected = 1)"),
       `update account_accesses accesses
-        join account_positions positions on positions.code = accesses.position_code
+        join account_positions positions on positions.id = accesses.position_code
         set accesses.capabilities = positions.capabilities
-        where accesses.is_active = 1 and (positions.code = 'administrator' or positions.is_admin_protected = 1);`,
+        where accesses.is_active = 1 and (positions.id = 'administrator' or positions.is_admin_protected = 1);`,
     ],
   },
 ];

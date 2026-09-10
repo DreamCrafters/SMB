@@ -3328,6 +3328,9 @@ test("table layouts migration grants the dedicated permission only to administra
   await runMigrations(pool);
   assert.match(statements[0], /create table if not exists app_table_layouts/u);
   assert.match(statements[1], /platform\.manage_table_layouts/u);
-  assert.match(statements[1], /code = 'administrator' or is_admin_protected = 1/u);
+  assert.match(statements[1], /\(id = 'administrator' or is_admin_protected = 1\)/u);
+  assert.match(statements[1], /and not json_contains/u);
+  assert.match(statements[2], /join account_positions positions on positions\.id = accesses\.position_code/u);
   assert.match(statements[2], /accesses\.is_active = 1/u);
+  assert.match(statements[2], /\(positions\.id = 'administrator' or positions\.is_admin_protected = 1\)/u);
 });
