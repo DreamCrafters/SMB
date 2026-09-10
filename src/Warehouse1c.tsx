@@ -733,25 +733,46 @@ function Warehouse1cStockTable({
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
       <table className="data-table laboratory-results-table warehouse-1c-table">
         <thead>
+          {/*
+            Колонки размечены по содержимому, а не по номеру: «Склад»
+            появляется не всегда, и позиционное правило разъезжается вместе
+            с ним.
+          */}
           <tr>
-            {hasWarehouses ? <th>Склад</th> : null}
-            <th>Номенклатура</th>
-            <th>Ост. нач., ₽</th>
-            <th>Ост. нач., кол.</th>
-            <th>Ост. кон., ₽</th>
-            <th>Ост. кон., кол.</th>
+            {hasWarehouses
+              ? <th className="warehouse-1c-name-cell">Склад</th>
+              : null}
+            <th className="warehouse-1c-name-cell">Номенклатура</th>
+            <th className="warehouse-1c-amount-cell">Ост. нач., ₽</th>
+            <th className="warehouse-1c-amount-cell">Ост. нач., кол.</th>
+            <th className="warehouse-1c-amount-cell">Ост. кон., ₽</th>
+            <th className="warehouse-1c-amount-cell">Ост. кон., кол.</th>
           </tr>
         </thead>
         <tbody>
           {report.balances.map((balance, index) => (
             // Одно наименование лежит на разных складах — имени как ключа мало.
             <tr key={`${balance.warehouse ?? ""}:${balance.nomenclature}:${index}`}>
-              {hasWarehouses ? <td>{balance.warehouse ?? "—"}</td> : null}
-              <td>{balance.nomenclature}</td>
-              <td>{formatBalance(balance.openingBalance)}</td>
-              <td>{formatBalance(balance.openingQuantity)}</td>
-              <td>{formatBalance(balance.closingBalance)}</td>
-              <td>{formatBalance(balance.closingQuantity)}</td>
+              {hasWarehouses
+                ? (
+                    <td className="warehouse-1c-name-cell">
+                      {balance.warehouse ?? "—"}
+                    </td>
+                  )
+                : null}
+              <td className="warehouse-1c-name-cell">{balance.nomenclature}</td>
+              <td className="warehouse-1c-amount-cell">
+                {formatBalance(balance.openingBalance)}
+              </td>
+              <td className="warehouse-1c-amount-cell">
+                {formatBalance(balance.openingQuantity)}
+              </td>
+              <td className="warehouse-1c-amount-cell">
+                {formatBalance(balance.closingBalance)}
+              </td>
+              <td className="warehouse-1c-amount-cell">
+                {formatBalance(balance.closingQuantity)}
+              </td>
             </tr>
           ))}
         </tbody>

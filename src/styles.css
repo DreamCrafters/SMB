@@ -8623,13 +8623,25 @@ p {
   color: var(--brick);
 }
 
-.warehouse-1c-table th:first-child,
-.warehouse-1c-table td:first-child {
-  min-width: 320px;
+/*
+ * Склад и номенклатура — единственные текстовые колонки таблицы остатков.
+ * Раньше первая держала 320px, а вторая попадала под правило числовых и не
+ * переносилась, поэтому обе забирали всю ширину. Теперь длинное имя
+ * переносится внутри узкой колонки, и растёт высота строки, а не ширина
+ * таблицы; `vertical-align: top` для этого уже задан общим стилем таблицы.
+ */
+.warehouse-1c-table th.warehouse-1c-name-cell,
+.warehouse-1c-table td.warehouse-1c-name-cell {
+  width: 180px;
+  min-width: 120px;
+  max-width: 240px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
-.warehouse-1c-table th:not(:first-child),
-.warehouse-1c-table td:not(:first-child) {
+.warehouse-1c-table th.warehouse-1c-amount-cell,
+.warehouse-1c-table td.warehouse-1c-amount-cell {
+  min-width: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
