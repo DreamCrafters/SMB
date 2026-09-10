@@ -129,6 +129,27 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
     ]);
     assert.deepEqual(requests, [{ accountCode: null, reportDate: null }]);
 
+    const search = container.querySelector('input[type="search"]');
+    assert.ok(search, "Expected nomenclature search");
+    async function searchFor(value) {
+      await React.act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")
+          .set.call(search, value);
+        search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+    }
+    await searchFor("  ша-  ");
+    assert.equal(readTableRows(container).length, 1);
+    assert.match(readTableRows(container)[0].join(" "), /ША-8/u);
+    assert.match(container.textContent, /строк: 1 из 2/u);
+    await searchFor("Центральный");
+    assert.equal(readTableRows(container).length, 0);
+    assert.match(container.textContent, /По заданной номенклатуре ничего не найдено/u);
+    await searchFor("   ");
+    assert.equal(readTableRows(container).length, 2);
+    await searchFor("шб");
+    assert.equal(requests.length, 1);
+
     const dateSelect = findSelectByLabel(container, "Дата");
     assert.deepEqual(
       Array.from(dateSelect.options).map((option) => option.textContent),
@@ -157,6 +178,9 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
     });
     await waitFor(React, () => requests.length > 2);
     assert.deepEqual(requests[2], { accountCode: "10.01", reportDate: null });
+    assert.equal(search.value, "шб");
+    assert.equal(readTableRows(container).length, 1);
+    assert.match(readTableRows(container)[0].join(" "), /ШБ-5/u);
   } finally {
     globalThis.fetch = previousFetch;
     await vite.close();

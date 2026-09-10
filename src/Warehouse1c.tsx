@@ -87,6 +87,7 @@ export function Warehouse1cWorkspace() {
 }
 
 function Warehouse1cStockBalancesView() {
+  const [nomenclatureQuery, setNomenclatureQuery] = useState("");
   const [accountCode, setAccountCode] = useState<string>();
   const [reportDate, setReportDate] = useState<string>();
   const [state, setState] = useState<StockState>({ status: "loading" });
@@ -141,6 +142,12 @@ function Warehouse1cStockBalancesView() {
     return () => controller.abort();
   }, [accountCode, reportDate, refreshVersion]);
 
+  const report = state.status === "ready" ? state.report : undefined;
+  const normalizedQuery = nomenclatureQuery.trim().toLocaleLowerCase("ru-RU");
+  const visibleBalances = report?.balances.filter((balance) =>
+    balance.nomenclature.toLocaleLowerCase("ru-RU").includes(normalizedQuery),
+  ) ?? [];
+
   const accounts = state.status === "ready" ? state.accounts : [];
   const availableDates = state.status === "ready" ? state.availableDates : [];
   const selectedAccount = state.status === "ready"
@@ -187,6 +194,15 @@ function Warehouse1cStockBalancesView() {
                   ))}
             </select>
           </label>
+          <label>
+            <span>Номенклатура</span>
+            <input
+              type="search"
+              placeholder="Поиск по наименованию"
+              value={nomenclatureQuery}
+              onChange={(event) => setNomenclatureQuery(event.currentTarget.value)}
+            />
+          </label>
           <button
             className="secondary-button warehouse-1c-refresh"
             type="button"
@@ -214,7 +230,7 @@ function Warehouse1cStockBalancesView() {
             <p className="warehouse-1c-source">
               {`Выгрузка «${state.report.fileName}» от ${
                 formatDateTime(state.report.importedAt)
-              } · строк: ${state.report.balances.length}`}
+              } · строк: ${visibleBalances.length}${normalizedQuery ? ` из ${state.report.balances.length}` : ""}`}
             </p>
           ) : null}
           {state.status === "ready" && state.isReadOnlySource ? (
@@ -232,7 +248,7 @@ function Warehouse1cStockBalancesView() {
           <p className="laboratory-empty-note">{state.message}</p>
         ) : null}
         {state.status === "ready" ? (
-          <Warehouse1cStockTable report={state.report} />
+          <Warehouse1cStockTable report={state.report} balances={visibleBalances} />
         ) : null}
       </section>
     </>
@@ -710,13 +726,23 @@ function describeUploadResult(upload: Warehouse1cUpload) {
 
 function Warehouse1cStockTable({
   report,
+  balances,
 }: {
   report?: Warehouse1cStockReport;
+  balances: Warehouse1cStockReport["balances"];
 }) {
   if (report === undefined || report.balances.length === 0) {
     return (
       <p className="laboratory-empty-note">
         Остатки из 1С за выбранную дату ещё не загружены.
+      </p>
+    );
+  }
+
+  if (balances.length === 0) {
+    return (
+      <p className="laboratory-empty-note">
+        По заданной номенклатуре ничего не найдено.
       </p>
     );
   }
@@ -750,7 +776,7 @@ function Warehouse1cStockTable({
           </tr>
         </thead>
         <tbody>
-          {report.balances.map((balance, index) => (
+          {balances.map((balance, index) => (
             // Одно наименование лежит на разных складах — имени как ключа мало.
             <tr key={`${balance.warehouse ?? ""}:${balance.nomenclature}:${index}`}>
               {hasWarehouses
