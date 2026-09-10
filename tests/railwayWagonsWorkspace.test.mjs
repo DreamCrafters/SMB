@@ -101,8 +101,11 @@ test("railway wagon list shows the derived status and hides passed stages", asyn
 
     await waitFor(React, () => container.querySelector(".railway-orders-table tbody tr") !== null);
 
-    const firstCell = container.querySelector(".railway-orders-table tbody td");
-    assert.equal(firstCell.textContent, "Согласовано логистом");
+    const cells = container.querySelectorAll(".railway-orders-table tbody td");
+    // Кнопка «Этапы» стоит в крайней левой колонке: до неё не нужно
+    // прокручивать таблицу вправо мимо пятнадцати этапов.
+    assert.equal(cells[0].textContent, "Этапы");
+    assert.equal(cells[1].textContent, "Согласовано логистом");
 
     await clickButton(React, container, "Этапы");
     await waitFor(React, () => container.querySelector(".railway-stage-panel") !== null);
@@ -117,7 +120,64 @@ test("railway wagon list shows the derived status and hides passed stages", asyn
   }
 });
 
-async function mountWorkspace({ roles, orders }) {
+test("railway wagon approval is decided by approve or decline with a reason", async () => {
+  const order = buildOrder({
+    orderedAt: "2026-09-07T08:00:00.000Z",
+    pricingStartedAt: "2026-09-07T09:00:00.000Z",
+  });
+  const context = await mountWorkspace({
+    roles: ["logistics"],
+    orders: [order],
+    savedOrder: {
+      ...order,
+      pricingStartedAt: null,
+      declineComment: "Дорого, пересогласуйте тариф",
+      declineStageId: "logistics_approval",
+    },
+  });
+
+  try {
+    const { React, container, dom } = context;
+
+    await waitFor(React, () => container.querySelector(".railway-orders-table tbody tr") !== null);
+    await clickButton(React, container, "Этапы");
+    await waitFor(React, () => container.querySelector(".railway-stage-panel") !== null);
+
+    const panel = container.querySelector(".railway-stage-panel");
+    assert.deepEqual(
+      Array.from(panel.querySelectorAll("button")).map((button) => button.textContent),
+      ["Закрыть", "Одобрить", "Отклонить"],
+    );
+
+    // Отклонение без комментария не отправляется: причина возврата обязательна.
+    const decline = findButton(panel, "Отклонить");
+    assert.equal(decline.disabled, true);
+
+    fillTextarea(React, dom.window, panel, "Дорого, пересогласуйте тариф");
+    assert.equal(decline.disabled, false);
+
+    await clickButton(React, panel, "Отклонить");
+
+    const request = context.requests.at(-1);
+    assert.equal(request.pathname, "/api/railway-wagons/order-1/stage");
+    assert.deepEqual(JSON.parse(request.body), {
+      stageId: "logistics_approval",
+      decision: "decline",
+      declineComment: "Дорого, пересогласуйте тариф",
+    });
+
+    // Причина возврата видна в таблице вместе с этапом, на котором её написали.
+    const cells = container.querySelectorAll(".railway-orders-table tbody td");
+    assert.equal(
+      cells[2].textContent,
+      "Согласование логистом: Дорого, пересогласуйте тариф",
+    );
+  } finally {
+    await context.dispose();
+  }
+});
+
+async function mountWorkspace({ roles, orders, savedOrder }) {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -133,9 +193,15 @@ async function mountWorkspace({ roles, orders }) {
     server: { middlewareMode: true },
   });
 
-  globalThis.fetch = async (input) => {
-    const url = new URL(String(input), "http://127.0.0.1:5173/");
+  const requests = [];
 
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input), "http://127.0.0.1:5173/");
+    requests.push({ pathname: url.pathname, method: init.method ?? "GET", body: init.body });
+
+    if (url.pathname.endsWith("/stage")) {
+      return jsonResponse({ order: savedOrder ?? orders[0] });
+    }
     if (url.pathname === "/api/railway-wagons") {
       return jsonResponse({ orders, carrierOptions: [], roles });
     }
@@ -173,6 +239,7 @@ async function mountWorkspace({ roles, orders }) {
     React,
     container,
     dom,
+    requests,
     async dispose() {
       globalThis.fetch = previousFetch;
       await vite.close();
@@ -197,6 +264,8 @@ function buildOrder(stages) {
     wagonNumber: null,
     expectedArrivalDate: null,
     currentLocation: null,
+    declineComment: null,
+    declineStageId: null,
     replacedByOrderId: null,
     cargoLines: [],
     createdAt: "2026-09-07T08:00:00.000Z",
@@ -219,13 +288,31 @@ function buildOrder(stages) {
   };
 }
 
-async function clickButton(React, root, label) {
+function findButton(root, label) {
   const button = Array.from(root.querySelectorAll("button")).find(
     (item) => item.textContent === label,
   );
   assert.ok(button, `Expected a button labelled ${label}`);
+  return button;
+}
+
+async function clickButton(React, root, label) {
+  const button = findButton(root, label);
   await React.act(async () => {
     button.dispatchEvent(new globalThis.window.MouseEvent("click", { bubbles: true }));
+  });
+}
+
+function fillTextarea(React, window, root, value) {
+  const textarea = root.querySelector("textarea");
+  assert.ok(textarea, "Expected a comment textarea");
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  )?.set;
+  React.act(() => {
+    setter.call(textarea, value);
+    textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
 }
 

@@ -1,8 +1,10 @@
 import { readCalendarDate } from "./calendarDate.js";
 import {
+  isRailwayWagonDecision,
   railwayWagonMovementDirections,
   railwayWagonTypes,
   type RailwayWagonCargoLine,
+  type RailwayWagonDecision,
   type RailwayWagonMovementDirection,
   type RailwayWagonType,
 } from "../contracts/railwayWagons.js";
@@ -41,6 +43,11 @@ export type RailwayWagonLocationSubmission = {
   currentLocation: string;
 };
 
+export type RailwayWagonApprovalSubmission = {
+  decision: RailwayWagonDecision;
+  declineComment: string | null;
+};
+
 export type RailwayWagonValidation<Value> =
   | { ok: true; value: Value }
   | { ok: false; errors: string[] };
@@ -58,6 +65,7 @@ const maxCarrierLength = 255;
 const maxPenaltyLength = 1000;
 const maxLocationLength = 255;
 const maxWagonNumberLength = 40;
+const maxDeclineCommentLength = 1000;
 const maxPalletCount = 1_000_000;
 const maxWeight = 1_000_000;
 const maxDimension = 100_000;
@@ -231,6 +239,41 @@ export function validateRailwayWagonDispatchSubmission(
       currentLocation: currentLocation!,
     },
   };
+}
+
+/**
+ * Этапы согласования решаются двумя кнопками. «Одобрить» полей не несёт,
+ * «Отклонить» без комментария не принимается: комментарий — единственное, что
+ * объясняет сотруднику по работе с РЖД, какие условия переписывать.
+ */
+export function validateRailwayWagonApprovalSubmission(
+  input: unknown,
+): RailwayWagonValidation<RailwayWagonApprovalSubmission> {
+  if (!isRecord(input)) {
+    return { ok: false, errors: ["Передайте решение по согласованию."] };
+  }
+
+  if (!isRailwayWagonDecision(input.decision)) {
+    return {
+      ok: false,
+      errors: ["Выберите решение «Одобрить» или «Отклонить»."],
+    };
+  }
+
+  if (input.decision === "approve") {
+    return { ok: true, value: { decision: "approve", declineComment: null } };
+  }
+
+  const declineComment = readText(input.declineComment, maxDeclineCommentLength);
+
+  if (declineComment === undefined) {
+    return {
+      ok: false,
+      errors: ["Отклонение сохраняется только с комментарием."],
+    };
+  }
+
+  return { ok: true, value: { decision: "decline", declineComment } };
 }
 
 /** Станцию стоянки переписывают столько раз, сколько вагон переезжает. */

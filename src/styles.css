@@ -8696,8 +8696,22 @@ p {
 }
 
 .railway-field input,
-.railway-field select {
+.railway-field select,
+.railway-field textarea {
   min-width: 0;
+}
+
+.railway-field textarea {
+  resize: vertical;
+  font: inherit;
+}
+
+.railway-decline-note {
+  margin: 0;
+  border-left: 3px solid var(--amber);
+  padding-left: var(--density-2);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .railway-form-actions {
@@ -8794,7 +8808,29 @@ p {
   font-weight: 800;
 }
 
-.railway-orders-table tr.is-active td {
+/*
+ * Столбец действий стоит первым и залипает слева: этапов в таблице пятнадцать,
+ * и без этого до кнопки «Этапы» пришлось бы прокручивать её вправо.
+ */
+.railway-orders-table thead th:first-child,
+.railway-orders-table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.railway-orders-table thead th:first-child {
+  z-index: 3;
+  background: var(--surface-subtle);
+}
+
+.railway-orders-table tbody td:first-child {
+  z-index: 1;
+  background: var(--surface-raised);
+}
+
+.railway-orders-table tr.is-active td,
+.railway-orders-table tr.is-active td:first-child {
   background: var(--surface-subtle);
 }
 

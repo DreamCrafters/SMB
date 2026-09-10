@@ -40,6 +40,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "077_railway_reference",
   "078_warehouse_1c_uploads",
   "079_warehouse_1c_stock_quantities",
+  "080_railway_wagon_decline_comment",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3234,6 +3235,31 @@ test("railway wagon migration creates the order, cargo and revision tables", asy
   assert.match(statements[2] ?? "", /create table if not exists railway_wagon_revisions/u);
   assert.match(statements[3] ?? "", /json_array_append/u);
   assert.match(statements[3] ?? "", /business\.railway_wagons/u);
+});
+
+test("railway decline migration adds the approval comment to the order row", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "080_railway_wagon_decline_comment" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+
+  await runMigrations(pool);
+
+  assert.match(statements[0] ?? "", /alter table railway_wagon_orders/u);
+  assert.match(statements[0] ?? "", /add column decline_comment varchar\(1000\) null/u);
+  assert.match(statements[0] ?? "", /add column decline_stage_id varchar\(60\) null/u);
+  assert.equal(statements[1], "insert into schema_migrations (id) values (?)");
 });
 
 test("railway reference migration imports the RZD workbook once, in chunks", async () => {

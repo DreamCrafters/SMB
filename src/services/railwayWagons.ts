@@ -266,6 +266,8 @@ function isOrder(value: unknown): value is RailwayWagonOrder {
     isOptionalString(value.wagonNumber) &&
     isOptionalString(value.expectedArrivalDate) &&
     isOptionalString(value.currentLocation) &&
+    isOptionalString(value.declineComment) &&
+    isOptionalString(value.declineStageId) &&
     isOptionalString(value.replacedByOrderId) &&
     typeof value.createdAt === "string" &&
     railwayWagonStageFields.every((field) => isOptionalString(value[field])) &&

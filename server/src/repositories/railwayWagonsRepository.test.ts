@@ -127,6 +127,7 @@ test("a stage whose predecessor is missing is refused under the row lock", async
       stageId: "logistics_approval",
       roles: ["logistics"],
       fields: {},
+      decision: "approve",
       actor,
     }),
     RailwayWagonStageNotAvailableError,
@@ -197,6 +198,104 @@ test("the location stage writes without stamping the ladder", async () => {
   const update = queries.find(({ sql }) =>
     /update railway_wagon_orders set/u.test(sql));
   assert.deepEqual(update?.parameters, ["Тайга", "order-1"]);
+});
+
+test("declining an approval clears the marks it names and saves the reason", async () => {
+  const queries: Query[] = [];
+  const repository = createRailwayWagonsRepository(
+    buildPool(
+      queries,
+      () => [[buildOrderRow([
+        "orderedAt",
+        "pricingStartedAt",
+        "logisticsApprovedAt",
+      ])], []],
+      [],
+    ),
+    { createId: buildIdSequence(), now: () => new Date(stamp) },
+  );
+
+  await repository.applyStage({
+    orderId: "order-1",
+    stageId: "manager_approval",
+    roles: ["sales"],
+    fields: {},
+    decision: "decline",
+    declineComment: "Дорого, пересогласуйте тариф",
+    actor,
+  });
+
+  const update = queries.find(({ sql }) =>
+    /update railway_wagon_orders set/u.test(sql));
+  // Отклонение возвращает заявку на условия перевозки и своей метки не ставит.
+  assert.match(update?.sql ?? "", /pricing_started_at = null/u);
+  assert.match(update?.sql ?? "", /logistics_approved_at = null/u);
+  assert.doesNotMatch(update?.sql ?? "", /manager_approved_at = \?/u);
+  assert.deepEqual(update?.parameters, [
+    "Дорого, пересогласуйте тариф",
+    "manager_approval",
+    "order-1",
+  ]);
+});
+
+test("approving an approval stamps the ladder and drops the earlier reason", async () => {
+  const queries: Query[] = [];
+  const repository = createRailwayWagonsRepository(
+    buildPool(
+      queries,
+      () => [[buildOrderRow(["orderedAt", "pricingStartedAt"])], []],
+      [],
+    ),
+    { createId: buildIdSequence(), now: () => new Date(stamp) },
+  );
+
+  await repository.applyStage({
+    orderId: "order-1",
+    stageId: "logistics_approval",
+    roles: ["logistics"],
+    fields: {},
+    decision: "approve",
+    actor,
+  });
+
+  const update = queries.find(({ sql }) =>
+    /update railway_wagon_orders set/u.test(sql));
+  assert.match(update?.sql ?? "", /logistics_approved_at = \?/u);
+  assert.match(update?.sql ?? "", /decline_comment = null/u);
+  assert.deepEqual(update?.parameters, [stamp, "order-1"]);
+});
+
+test("an approval stage without a decision and a plain stage with one are refused", async () => {
+  const repository = createRailwayWagonsRepository(
+    buildPool(
+      [],
+      () => [[buildOrderRow(["orderedAt", "pricingStartedAt"])], []],
+      [],
+    ),
+    { createId: buildIdSequence(), now: () => new Date(stamp) },
+  );
+
+  await assert.rejects(
+    () => repository.applyStage({
+      orderId: "order-1",
+      stageId: "logistics_approval",
+      roles: ["logistics"],
+      fields: {},
+      actor,
+    }),
+    RailwayWagonStageNotAvailableError,
+  );
+  await assert.rejects(
+    () => repository.applyStage({
+      orderId: "order-1",
+      stageId: "carriage_terms",
+      roles: ["carrier"],
+      fields: {},
+      decision: "approve",
+      actor,
+    }),
+    RailwayWagonStageNotAvailableError,
+  );
 });
 
 test("rejecting a wagon reissues the order with its cargo and links both", async () => {
@@ -310,6 +409,8 @@ function buildOrderRow(filled: readonly RailwayWagonStageField[]) {
     wagon_number: null,
     expected_arrival_date: null,
     current_location: null,
+    decline_comment: null,
+    decline_stage_id: null,
     replaced_by_order_id: null,
     created_at: stamp,
     ...stages,

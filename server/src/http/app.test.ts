@@ -14628,6 +14628,119 @@ test("railway wagon section gates each stage by the position role", async () => 
   }
 });
 
+test("railway wagon approval carries the decision and the location stays in the reference", async () => {
+  const profile: ServerUserProfile = {
+    ...buildProductionProfile("business_owner"),
+    activeAccess: {
+      ...buildProductionProfile("business_owner").activeAccess,
+      navigationItems: ["business.railway_wagons"],
+      capabilities: [
+        "business.view_railway_wagons",
+        "business.manage_railway_wagon_carriage",
+        "business.approve_railway_wagon_logistics",
+      ],
+    },
+  };
+  const auditEvents: Parameters<AuditRepository["record"]>[0][] = [];
+  const stageCalls: Record<string, unknown>[] = [];
+  const order = buildRailwayOrderFixture();
+  const railwayWagons: RailwayWagonsRepository = {
+    async list() { return [order]; },
+    async read() { return order; },
+    async listCarrierOptions() { return []; },
+    async createOrder() { return order; },
+    async correctOrder() { return { before: order, record: order }; },
+    async applyStage(input) {
+      stageCalls.push(input as unknown as Record<string, unknown>);
+      return { before: order, record: order };
+    },
+  };
+  const server = createApiServer({
+    config: productionConfig,
+    dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource,
+    authService: buildAuthService({ profile }),
+    railwayWagons,
+    railwayReference: buildRailwayReferenceFixture(),
+    audit: {
+      async record(event) { auditEvents.push(event); },
+      async listReport() { throw new Error("not used"); },
+    },
+    databaseTransaction: { async run(operation) { return operation(); } },
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}/api/railway-wagons`;
+  const headers = {
+    "Content-Type": "application/json",
+    Cookie: `${productionConfig.session.cookieName}=prod-session`,
+  };
+
+  try {
+    const declined = await fetch(`${baseUrl}/order-1/stage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        stageId: "logistics_approval",
+        decision: "decline",
+        declineComment: " Дорого, пересогласуйте тариф ",
+      }),
+    });
+
+    assert.equal(declined.status, 200);
+    assert.equal(stageCalls[0]?.decision, "decline");
+    assert.equal(stageCalls[0]?.declineComment, "Дорого, пересогласуйте тариф");
+    assert.match(String(auditEvents[0]?.summary), /отклонён/u);
+
+    // Отклонение без комментария не сохраняется: причину возврата читает
+    // сотрудник по работе с РЖД.
+    const withoutComment = await fetch(`${baseUrl}/order-1/stage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ stageId: "logistics_approval", decision: "decline" }),
+    });
+    assert.equal(withoutComment.status, 400);
+
+    const withoutDecision = await fetch(`${baseUrl}/order-1/stage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ stageId: "logistics_approval" }),
+    });
+    assert.equal(withoutDecision.status, 400);
+
+    // Местонахождение приводится к справочной подписи станции.
+    const dispatched = await fetch(`${baseUrl}/order-1/stage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        stageId: "dispatch",
+        expectedArrivalDate: "2026-09-15",
+        currentLocation: "Абагур-Лесной",
+      }),
+    });
+    assert.equal(dispatched.status, 200);
+    assert.deepEqual(stageCalls.at(-1)?.fields, {
+      expectedArrivalDate: "2026-09-15",
+      currentLocation: "Абагур-Лесной",
+    });
+    assert.equal(stageCalls.at(-1)?.decision, undefined);
+
+    const unknownStation = await fetch(`${baseUrl}/order-1/stage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        stageId: "location",
+        currentLocation: "Платформа без справочника",
+      }),
+    });
+    assert.equal(unknownStation.status, 409);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("railway wagon order is refused when the station is outside the reference", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),
@@ -14796,6 +14909,8 @@ function buildRailwayOrderFixture(): RailwayWagonOrder {
     wagonNumber: null,
     expectedArrivalDate: null,
     currentLocation: null,
+    declineComment: null,
+    declineStageId: null,
     replacedByOrderId: null,
     cargoLines: [],
     createdAt: "2026-09-07T08:00:00.000Z",

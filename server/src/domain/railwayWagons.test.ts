@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   maxRailwayWagonCargoLines,
+  validateRailwayWagonApprovalSubmission,
   validateRailwayWagonCarriageTermsSubmission,
   validateRailwayWagonDispatchSubmission,
   validateRailwayWagonLocationSubmission,
@@ -193,6 +194,46 @@ test("the location cannot be saved empty", () => {
   );
   assert.equal(
     validateRailwayWagonLocationSubmission({ currentLocation: "  " }).ok,
+    false,
+  );
+});
+
+test("approval passes without a comment, rejection does not", () => {
+  assert.deepEqual(
+    validateRailwayWagonApprovalSubmission({ decision: "approve" }),
+    { ok: true, value: { decision: "approve", declineComment: null } },
+  );
+  // Одобрение комментарий не хранит: колонка отвечает за причину возврата.
+  assert.deepEqual(
+    validateRailwayWagonApprovalSubmission({
+      decision: "approve",
+      declineComment: "лишний текст",
+    }),
+    { ok: true, value: { decision: "approve", declineComment: null } },
+  );
+  assert.deepEqual(
+    validateRailwayWagonApprovalSubmission({
+      decision: "decline",
+      declineComment: "  Дорого,  пересогласуйте тариф ",
+    }),
+    {
+      ok: true,
+      value: {
+        decision: "decline",
+        declineComment: "Дорого, пересогласуйте тариф",
+      },
+    },
+  );
+  assert.equal(
+    validateRailwayWagonApprovalSubmission({
+      decision: "decline",
+      declineComment: "   ",
+    }).ok,
+    false,
+  );
+  assert.equal(validateRailwayWagonApprovalSubmission({}).ok, false);
+  assert.equal(
+    validateRailwayWagonApprovalSubmission({ decision: "maybe" }).ok,
     false,
   );
 });

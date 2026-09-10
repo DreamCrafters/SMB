@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   buildRailwayWagonTotals,
   calculateRailwayCargoLineWeight,
+  findRailwayWagonStage,
+  isRailwayWagonDecisionStage,
   railwayWagonMovementDirections,
   railwayWagonStageFields,
   railwayWagonStatusLabels,
@@ -12,6 +14,7 @@ import {
   type RailwaySecuringMethodOption,
   type RailwayStationOption,
   type RailwayWagonCargoLine,
+  type RailwayWagonDecision,
   type RailwayWagonMovementDirection,
   type RailwayWagonOrder,
   type RailwayWagonRole,
@@ -55,6 +58,7 @@ type StageDraft = {
   wagonNumber: string;
   expectedArrivalDate: string;
   currentLocation: string;
+  declineComment: string;
 };
 
 const maxCargoRows = 50;
@@ -67,7 +71,26 @@ const emptyStageDraft: StageDraft = {
   wagonNumber: "",
   expectedArrivalDate: "",
   currentLocation: "",
+  declineComment: "",
 };
+
+/**
+ * Панель этапа открывается с уже сохранёнными значениями: после отклонения
+ * сотрудник по работе с РЖД переписывает те же условия перевозки, и пустая
+ * форма заставляла бы вводить их заново.
+ */
+function buildStageDraft(order: RailwayWagonOrder): StageDraft {
+  return {
+    rentCost: readDraftNumber(order.rentCost),
+    tariffCost: readDraftNumber(order.tariffCost),
+    demurragePenalty: order.demurragePenalty ?? "",
+    carrier: order.carrier ?? "",
+    wagonNumber: order.wagonNumber ?? "",
+    expectedArrivalDate: order.expectedArrivalDate ?? "",
+    currentLocation: order.currentLocation ?? "",
+    declineComment: "",
+  };
+}
 
 let nextCargoRowId = 1;
 
@@ -234,7 +257,10 @@ export function RailwayWagonsWorkspace({
     );
   }
 
-  async function applyStage(stage: RailwayWagonStage) {
+  async function applyStage(
+    stage: RailwayWagonStage,
+    decision?: RailwayWagonDecision,
+  ) {
     if (selectedOrder === undefined) return;
 
     setIsSubmitting(true);
@@ -243,6 +269,9 @@ export function RailwayWagonsWorkspace({
     const result = await submitRailwayWagonStage(selectedOrder.id, {
       stageId: stage.id,
       ...readStagePayload(stage.id, stageDraft),
+      ...(decision === undefined
+        ? {}
+        : { decision, declineComment: stageDraft.declineComment }),
     });
 
     setIsSubmitting(false);
@@ -256,13 +285,11 @@ export function RailwayWagonsWorkspace({
     }
 
     applySavedOrder(result.order, result.replacement);
-    setStageDraft(emptyStageDraft);
+    setStageDraft(buildStageDraft(result.order));
     setMessage("");
     onShowToast(
-      "Этап отмечен",
-      result.replacement === undefined
-        ? stage.label
-        : `${stage.label}. Создана новая заявка взамен забракованного вагона.`,
+      decision === "decline" ? "Согласование отклонено" : "Этап отмечен",
+      describeStageOutcome(stage, result.replacement !== undefined, decision),
       "success",
     );
   }
@@ -650,7 +677,11 @@ export function RailwayWagonsWorkspace({
           <caption>Заявки на вагоны</caption>
           <thead>
             <tr>
+              {/* Столбец действий стоит первым и залипает слева: до кнопки
+                  «Этапы» иначе пришлось бы прокручивать таблицу вправо. */}
+              <th aria-label="Действия" />
               <th scope="col">Статус нахождения</th>
+              <th scope="col">Комментарий согласования</th>
               <th scope="col">Договор</th>
               <th scope="col">Направление</th>
               <th scope="col">Станция назначения</th>
@@ -667,14 +698,13 @@ export function RailwayWagonsWorkspace({
               {railwayWagonStageFields.map((field) => (
                 <th key={field} scope="col">{railwayWagonStatusLabels[field]}</th>
               ))}
-              <th aria-label="Действия" />
             </tr>
           </thead>
           <tbody>
             {orders.length === 0
               ? (
                   <tr>
-                    <td colSpan={15 + railwayWagonStageFields.length}>
+                    <td colSpan={16 + railwayWagonStageFields.length}>
                       <p className="railway-empty-note">Заявок на вагоны пока нет.</p>
                     </td>
                   </tr>
@@ -687,7 +717,31 @@ export function RailwayWagonsWorkspace({
                       className={order.id === selectedOrderId ? "is-active" : undefined}
                       key={order.id}
                     >
+                      <td>
+                        <button
+                          className="board-assignment-link railway-order-link"
+                          onClick={() => {
+                            setSelectedOrderId(order.id);
+                            setStageDraft(buildStageDraft(order));
+                          }}
+                          type="button"
+                        >
+                          Этапы
+                        </button>
+                        {!canManageOrders || order.pricingStartedAt !== null
+                          ? null
+                          : (
+                              <button
+                                className="board-assignment-link railway-order-link"
+                                onClick={() => startCorrection(order)}
+                                type="button"
+                              >
+                                Исправить
+                              </button>
+                            )}
+                      </td>
                       <td>{resolveRailwayWagonStatus(order)}</td>
+                      <td>{describeDeclineComment(order)}</td>
                       <td>{order.contractReference}</td>
                       <td>{order.movementDirection}</td>
                       <td>
@@ -712,29 +766,6 @@ export function RailwayWagonsWorkspace({
                       {railwayWagonStageFields.map((field) => (
                         <td key={field}>{formatStamp(order[field])}</td>
                       ))}
-                      <td>
-                        <button
-                          className="board-assignment-link railway-order-link"
-                          onClick={() => {
-                            setSelectedOrderId(order.id);
-                            setStageDraft(emptyStageDraft);
-                          }}
-                          type="button"
-                        >
-                          Этапы
-                        </button>
-                        {!canManageOrders || order.pricingStartedAt !== null
-                          ? null
-                          : (
-                              <button
-                                className="board-assignment-link railway-order-link"
-                                onClick={() => startCorrection(order)}
-                                type="button"
-                              >
-                                Исправить
-                              </button>
-                            )}
-                      </td>
                     </tr>
                   );
                 })}
@@ -763,7 +794,7 @@ function RailwayWagonStagePanel({
   carrierOptions: readonly string[];
   draft: StageDraft;
   isSubmitting: boolean;
-  onApply: (stage: RailwayWagonStage) => void;
+  onApply: (stage: RailwayWagonStage, decision?: RailwayWagonDecision) => void;
   onChange: (draft: StageDraft) => void;
   onClose: () => void;
   order: RailwayWagonOrder;
@@ -780,6 +811,14 @@ function RailwayWagonStagePanel({
           Закрыть
         </button>
       </header>
+
+      {order.declineComment === null
+        ? null
+        : (
+            <p className="railway-decline-note">
+              {describeDeclineComment(order)}
+            </p>
+          )}
 
       {availableStages.length === 0
         ? (
@@ -889,47 +928,74 @@ function RailwayWagonStagePanel({
                                 value={draft.expectedArrivalDate}
                               />
                             </label>
-                            <label className="railway-field">
-                              <span>Местонахождение</span>
-                              <input
-                                maxLength={255}
-                                onChange={(event) =>
-                                  onChange({
-                                    ...draft,
-                                    currentLocation: event.currentTarget.value,
-                                  })}
+                            <div className="railway-field">
+                              <RailwayStationField
+                                onSelect={(station) =>
+                                  onChange({ ...draft, currentLocation: station })}
                                 value={draft.currentLocation}
                               />
-                            </label>
+                            </div>
                           </div>
                         )
                       : null}
 
                     {stage.id === "location"
                       ? (
-                          <label className="railway-field">
-                            <span>Местонахождение</span>
-                            <input
-                              maxLength={255}
-                              onChange={(event) =>
-                                onChange({
-                                  ...draft,
-                                  currentLocation: event.currentTarget.value,
-                                })}
-                              placeholder="Станция, на которой стоит вагон"
+                          <div className="railway-field">
+                            <RailwayStationField
+                              onSelect={(station) =>
+                                onChange({ ...draft, currentLocation: station })}
                               value={draft.currentLocation}
                             />
-                          </label>
+                          </div>
                         )
                       : null}
 
-                    <button
-                      className="primary-button"
-                      onClick={() => onApply(stage)}
-                      type="button"
-                    >
-                      {stage.stamps === null ? "Сохранить" : "Отметить"}
-                    </button>
+                    {!isRailwayWagonDecisionStage(stage)
+                      ? (
+                          <button
+                            className="primary-button"
+                            onClick={() => onApply(stage)}
+                            type="button"
+                          >
+                            {stage.stamps === null ? "Сохранить" : "Отметить"}
+                          </button>
+                        )
+                      : (
+                          <>
+                            <label className="railway-field">
+                              <span>Комментарий (нужен для отклонения)</span>
+                              <textarea
+                                maxLength={1000}
+                                onChange={(event) =>
+                                  onChange({
+                                    ...draft,
+                                    declineComment: event.currentTarget.value,
+                                  })}
+                                placeholder="Что не так с условиями перевозки"
+                                rows={2}
+                                value={draft.declineComment}
+                              />
+                            </label>
+                            <div className="railway-form-actions">
+                              <button
+                                className="primary-button"
+                                onClick={() => onApply(stage, "approve")}
+                                type="button"
+                              >
+                                Одобрить
+                              </button>
+                              <button
+                                className="secondary-button"
+                                disabled={draft.declineComment.trim() === ""}
+                                onClick={() => onApply(stage, "decline")}
+                                type="button"
+                              >
+                                Отклонить
+                              </button>
+                            </div>
+                          </>
+                        )}
                   </fieldset>
                 </li>
               ))}
@@ -942,6 +1008,37 @@ function RailwayWagonStagePanel({
         ))}
       </datalist>
     </section>
+  );
+}
+
+/**
+ * Местонахождение вагона — станция того же справочника РЖД, что и станция
+ * назначения: сервер приводит подпись к справочной и отклоняет значение вне
+ * справочника, поэтому поле ищет станцию, а не принимает произвольный текст.
+ */
+function RailwayStationField({
+  onSelect,
+  value,
+}: {
+  onSelect: (station: string) => void;
+  value: string;
+}) {
+  return (
+    <ReferenceSearchPicker<RailwayStationOption>
+      emptyLabel="Станции с таким названием нет в справочнике РЖД."
+      formatOption={(station) =>
+        station.road === null
+          ? station.name
+          : `${station.name} (${station.road})`}
+      label="Местонахождение"
+      onSearch={async (query, signal) => {
+        const result = await requestRailwayStations(query, { signal });
+        return result.status === "ready" ? result.stations : [];
+      }}
+      onSelect={(station) => onSelect(station?.name ?? "")}
+      placeholder="Начните вводить название станции"
+      value={value}
+    />
   );
 }
 
@@ -966,6 +1063,33 @@ const roleLabels: Record<RailwayWagonRole, string> = {
 
 function describeRoles(roles: readonly RailwayWagonRole[]) {
   return roles.map((role) => roleLabels[role]).join(", ");
+}
+
+/** Причина возврата читается вместе с этапом, на котором её написали. */
+function describeDeclineComment(order: RailwayWagonOrder) {
+  if (order.declineComment === null) return "—";
+
+  const stage = order.declineStageId === null
+    ? undefined
+    : findRailwayWagonStage(order.declineStageId);
+
+  return stage === undefined
+    ? order.declineComment
+    : `${stage.label}: ${order.declineComment}`;
+}
+
+function describeStageOutcome(
+  stage: RailwayWagonStage,
+  hasReplacement: boolean,
+  decision?: RailwayWagonDecision,
+) {
+  if (decision === "decline") {
+    return `${stage.label}. Заявка возвращена на условия перевозки.`;
+  }
+
+  return hasReplacement
+    ? `${stage.label}. Создана новая заявка взамен забракованного вагона.`
+    : stage.label;
 }
 
 function readCargoDraftLine(row: CargoDraftRow): RailwayWagonCargoLine {

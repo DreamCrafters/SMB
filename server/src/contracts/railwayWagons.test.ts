@@ -4,8 +4,10 @@ import {
   buildRailwayWagonTotals,
   calculateRailwayCargoLineWeight,
   findRailwayWagonStage,
+  isRailwayWagonDecisionStage,
   isRailwayWagonStageAvailable,
   railwayWagonStageFields,
+  railwayWagonStages,
   railwayWagonStatusLabels,
   railwayWagonStatuses,
   resolveRailwayWagonRoles,
@@ -113,23 +115,43 @@ test("the manager approves only after the logistics director", () => {
   );
 });
 
-test("rejection stays open until the wagon is accepted for carriage", () => {
+test("rejection stays open until the wagon reaches the shipper track", () => {
   const rejected = findRailwayWagonStage("rejected")!;
-  const beforeCarriage = buildStages([
+  const beforeShipperTrack = buildStages([
     "orderedAt",
     "pricingStartedAt",
     "logisticsApprovedAt",
     "managerApprovedAt",
     "specificationSignedAt",
     "enRouteAt",
+    "atLoadingStationAt",
   ]);
 
-  assert.equal(isRailwayWagonStageAvailable(beforeCarriage, rejected), true);
+  assert.equal(
+    isRailwayWagonStageAvailable(beforeShipperTrack, rejected),
+    true,
+  );
   assert.equal(
     isRailwayWagonStageAvailable(
-      { ...beforeCarriage, acceptedForCarriageAt: stamp },
+      { ...beforeShipperTrack, atShipperTrackAt: stamp },
       rejected,
     ),
+    false,
+  );
+});
+
+test("only the approval stages carry a decision", () => {
+  assert.deepEqual(
+    railwayWagonStages
+      .filter(isRailwayWagonDecisionStage)
+      .map(({ id, declines }) => [id, declines]),
+    [
+      ["logistics_approval", ["pricingStartedAt"]],
+      ["manager_approval", ["pricingStartedAt", "logisticsApprovedAt"]],
+    ],
+  );
+  assert.equal(
+    isRailwayWagonDecisionStage(findRailwayWagonStage("carriage_terms")!),
     false,
   );
 });

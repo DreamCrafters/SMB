@@ -396,11 +396,14 @@ import {
   buildRailwayWagonTotals,
   findRailwayWagonStage,
   isRailwayWagonAccess,
+  isRailwayWagonDecisionStage,
   resolveRailwayWagonRoles,
   selectAvailableRailwayWagonStages,
+  type RailwayWagonDecision,
   type RailwayWagonOrder,
 } from "../contracts/railwayWagons.js";
 import {
+  validateRailwayWagonApprovalSubmission,
   validateRailwayWagonCarriageTermsSubmission,
   validateRailwayWagonDispatchSubmission,
   validateRailwayWagonLocationSubmission,
@@ -10413,6 +10416,32 @@ async function handleRailwayWagonsRequest({
       return;
     }
 
+    let decision: RailwayWagonDecision | undefined;
+    let declineComment: string | null = null;
+
+    if (isRailwayWagonDecisionStage(stage)) {
+      const approval = validateRailwayWagonApprovalSubmission(payload);
+
+      if (!approval.ok) {
+        sendJson(res, 400, {
+          error: { code: "invalid_response", message: approval.errors.join(" ") },
+        });
+        return;
+      }
+
+      decision = approval.value.decision;
+      declineComment = approval.value.declineComment;
+    }
+
+    // Местонахождение — станция того же справочника, что и станция назначения.
+    const location = await readRailwayWagonLocation({
+      res,
+      value: fields.value.currentLocation,
+      railwayReference,
+    });
+    if (location === undefined) return;
+    if (location !== null) fields.value.currentLocation = location;
+
     try {
       const applied = await runAuditedMutation({
         transaction: databaseTransaction,
@@ -10422,13 +10451,16 @@ async function handleRailwayWagonsRequest({
           stageId: stage.id,
           roles,
           fields: fields.value,
+          ...(decision === undefined ? {} : { decision, declineComment }),
           actor,
         }),
         buildEvent: (result) => ({
           actor: buildAuditActor(access.profile),
           category: "form_submission",
           action: "railway_wagon.stage",
-          summary: `Вагон: этап «${stage.label}»`,
+          summary: decision === "decline"
+            ? `Вагон: этап «${stage.label}» отклонён`
+            : `Вагон: этап «${stage.label}»`,
           details: buildRailwayWagonAuditDetails(result.record),
           targetType: "railway_wagon",
           targetId: result.record.id,
@@ -10652,6 +10684,38 @@ async function readRailwayWagonOrderSubmission({
   };
 }
 
+/**
+ * Станция стоянки берётся из того же справочника, что и станция назначения:
+ * подпись приводится к справочной, значение вне справочника отклоняется. Поле
+ * необязательное, поэтому пустое значение проходит как `null`, а `undefined`
+ * возвращается только вместе с уже отправленным ответом об ошибке.
+ */
+async function readRailwayWagonLocation({
+  res,
+  value,
+  railwayReference,
+}: {
+  res: ServerResponse;
+  value: string | null | undefined;
+  railwayReference: RailwayReferenceRepository;
+}): Promise<string | null | undefined> {
+  if (value === undefined || value === null || value.length === 0) return null;
+
+  const station = await railwayReference.resolveStation(value);
+
+  if (station === undefined) {
+    sendJson(res, 409, {
+      error: {
+        code: "invalid_response",
+        message: "Местонахождение не найдено в справочнике станций РЖД.",
+      },
+    });
+    return undefined;
+  }
+
+  return station.name;
+}
+
 /** Отметка этапа несёт только свои поля; у флажков полей нет вовсе. */
 function validateRailwayWagonStageFields(
   stageId: string,
@@ -10715,6 +10779,7 @@ function buildRailwayWagonAuditDetails(
     { label: "Вид вагона", read: (order) => order.wagonType },
     { label: "Номер вагона", read: (order) => order.wagonNumber },
     { label: "Грузоперевозчик", read: (order) => order.carrier },
+    { label: "Комментарий согласования", read: (order) => order.declineComment },
     { label: "Строк груза", read: (order) => order.cargoLines.length },
   ];
 

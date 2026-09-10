@@ -4267,6 +4267,23 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    /**
+     * Доработка задачи 106: согласование стоимости вагона решается двумя
+     * кнопками, поэтому у заявки появилась причина возврата. Отдельной таблицы
+     * решений нет — отклонение снимает метки согласования, а комментарий
+     * живёт до следующего решения того же этапа, как и вся лестница, состояние
+     * которой выводится из самой строки.
+     */
+    id: "080_railway_wagon_decline_comment",
+    statements: [
+      `
+      alter table railway_wagon_orders
+        add column decline_comment varchar(1000) null after current_location,
+        add column decline_stage_id varchar(60) null after decline_comment;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import {
   findRailwayWagonStage,
+  isRailwayWagonDecisionStage,
   isRailwayWagonStageAvailable,
   railwayWagonStageFields,
   type RailwayWagonCargoLine,
+  type RailwayWagonDecision,
   type RailwayWagonOrder,
   type RailwayWagonRole,
   type RailwayWagonStageField,
@@ -53,6 +55,9 @@ export type ApplyRailwayWagonStageInput = {
   stageId: string;
   roles: readonly RailwayWagonRole[];
   fields: RailwayWagonStageFieldValues;
+  /** Есть только у этапов согласования: они решаются двумя кнопками. */
+  decision?: RailwayWagonDecision;
+  declineComment?: string | null;
   actor: RailwayWagonActor;
 };
 
@@ -95,6 +100,8 @@ type OrderRow = {
   wagon_number: string | null;
   expected_arrival_date: Date | string | null;
   current_location: string | null;
+  decline_comment: string | null;
+  decline_stage_id: string | null;
   replaced_by_order_id: string | null;
   created_at: Date | string;
 } & Record<StageColumn, Date | string | null> & RowDataPacket;
@@ -160,6 +167,8 @@ const orderColumns = `
   wagon_number,
   expected_arrival_date,
   current_location,
+  decline_comment,
+  decline_stage_id,
   replaced_by_order_id,
   ${Object.values(stageColumns).join(",\n  ")},
   created_at
@@ -446,7 +455,15 @@ export function createRailwayWagonsRepository(
      * Порядок этапов проверяется ещё раз здесь, под `for update`: список в
      * браузере мог устареть, а два редактора одного вагона — обычное дело.
      */
-    async applyStage({ orderId, stageId, roles, fields, actor }) {
+    async applyStage({
+      orderId,
+      stageId,
+      roles,
+      fields,
+      decision,
+      declineComment = null,
+      actor,
+    }) {
       const stage = findRailwayWagonStage(stageId);
       if (stage === undefined) {
         throw new RailwayWagonStageNotAvailableError("Неизвестный этап вагона.");
@@ -455,6 +472,14 @@ export function createRailwayWagonsRepository(
       if (!stage.editors.some((editor) => roles.includes(editor))) {
         throw new RailwayWagonStageNotAvailableError(
           "Этот этап заполняет другая должность.",
+        );
+      }
+
+      if (isRailwayWagonDecisionStage(stage) !== (decision !== undefined)) {
+        throw new RailwayWagonStageNotAvailableError(
+          isRailwayWagonDecisionStage(stage)
+            ? "Этап согласования решается кнопками «Одобрить» и «Отклонить»."
+            : "Этот этап решением не закрывается.",
         );
       }
 
@@ -479,9 +504,27 @@ export function createRailwayWagonsRepository(
         parameters.push(value);
       }
 
-      if (stage.stamps !== null) {
-        assignments.push(`${stageColumns[stage.stamps]} = ?`);
-        parameters.push(now().toISOString());
+      /**
+       * Отклонение не ставит свою метку, а снимает перечисленные контрактом:
+       * заявка возвращается на тот шаг, где условия ещё можно переписать, и
+       * получает причину возврата. Одобрение причину снимает — колонка
+       * отвечает на вопрос «почему заявка вернулась», а история решений лежит
+       * в ревизиях.
+       */
+      if (decision === "decline") {
+        for (const field of stage.declines ?? []) {
+          assignments.push(`${stageColumns[field]} = null`);
+        }
+        assignments.push("decline_comment = ?", "decline_stage_id = ?");
+        parameters.push(declineComment, stage.id);
+      } else {
+        if (stage.stamps !== null) {
+          assignments.push(`${stageColumns[stage.stamps]} = ?`);
+          parameters.push(now().toISOString());
+        }
+        if (decision === "approve") {
+          assignments.push("decline_comment = null", "decline_stage_id = null");
+        }
       }
 
       if (assignments.length > 0) {
@@ -570,6 +613,8 @@ function mapOrderRow(
     wagonNumber: row.wagon_number,
     expectedArrivalDate: toOptionalCalendarDate(row.expected_arrival_date),
     currentLocation: row.current_location,
+    declineComment: row.decline_comment,
+    declineStageId: row.decline_stage_id,
     replacedByOrderId: row.replaced_by_order_id,
     cargoLines,
     createdAt: toIsoString(row.created_at),

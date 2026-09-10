@@ -61,6 +61,17 @@ export function isRailwayWagonRole(value: unknown): value is RailwayWagonRole {
   return (railwayWagonRoles as readonly unknown[]).includes(value);
 }
 
+/** Решение этапа согласования: одобрить или отклонить с комментарием. */
+export const railwayWagonDecisions = ["approve", "decline"] as const;
+
+export type RailwayWagonDecision = (typeof railwayWagonDecisions)[number];
+
+export function isRailwayWagonDecision(
+  value: unknown,
+): value is RailwayWagonDecision {
+  return (railwayWagonDecisions as readonly unknown[]).includes(value);
+}
+
 /** Роли выводятся из capability, поэтому и сервер, и браузер читают их одинаково. */
 export function resolveRailwayWagonRoles(
   capabilities: readonly string[],
@@ -144,6 +155,14 @@ export type RailwayWagonOrder = {
   wagonNumber: string | null;
   expectedArrivalDate: string | null;
   currentLocation: string | null;
+  /**
+   * Причина последнего отклонения на согласовании и этап, на котором её
+   * написали. Пара живёт до следующего решения того же этапа: одобрение её
+   * снимает, потому что колонка отвечает на вопрос «почему заявка вернулась»,
+   * а не хранит историю — история лежит в `railway_wagon_revisions`.
+   */
+  declineComment: string | null;
+  declineStageId: string | null;
   /** Заявка, которой перевыставлен забракованный вагон. */
   replacedByOrderId: string | null;
   cargoLines: RailwayWagonCargoLine[];
@@ -162,7 +181,17 @@ export type RailwayWagonStage = {
   editors: readonly RailwayWagonRole[];
   requires: RailwayWagonStageField | null;
   stamps: RailwayWagonStageField | null;
+  /**
+   * Есть только у этапов согласования: они решаются двумя кнопками, и
+   * отклонение вместо своей метки снимает перечисленные здесь — заявка
+   * возвращается на тот шаг, где условия ещё можно переписать.
+   */
+  declines?: readonly RailwayWagonStageField[];
 };
+
+export function isRailwayWagonDecisionStage(stage: RailwayWagonStage) {
+  return stage.declines !== undefined;
+}
 
 export const railwayWagonStages: readonly RailwayWagonStage[] = [
   {
@@ -178,6 +207,7 @@ export const railwayWagonStages: readonly RailwayWagonStage[] = [
     editors: ["logistics"],
     requires: "pricingStartedAt",
     stamps: "logisticsApprovedAt",
+    declines: ["pricingStartedAt"],
   },
   {
     id: "manager_approval",
@@ -185,6 +215,9 @@ export const railwayWagonStages: readonly RailwayWagonStage[] = [
     editors: ["sales"],
     requires: "logisticsApprovedAt",
     stamps: "managerApprovedAt",
+    // Менеджер спорит о той же стоимости, поэтому отклонение снимает и
+    // согласование логиста: одобрять он будет уже другие условия.
+    declines: ["pricingStartedAt", "logisticsApprovedAt"],
   },
   {
     id: "wagon_number",
@@ -294,8 +327,8 @@ export function isRailwayWagonClosed(order: RailwayWagonStageState) {
 
 /**
  * Этап открыт, когда проставлена метка предыдущего этапа и ещё не проставлена
- * собственная. Брак — ветка лестницы: его отмечают, пока вагон не принят к
- * перевозке, дальше забраковать уже нечего.
+ * собственная. Брак — ветка лестницы: его отмечают, пока вагон не встал на ПНП
+ * грузоотправителя, дальше вагон уже принят и бракуют его не здесь.
  */
 export function isRailwayWagonStageAvailable(
   order: RailwayWagonStageState,
@@ -305,7 +338,7 @@ export function isRailwayWagonStageAvailable(
   if (stage.requires !== null && !isStamped(order, stage.requires)) return false;
 
   if (stage.stamps === "rejectedAt") {
-    return !isStamped(order, "acceptedForCarriageAt");
+    return !isStamped(order, "atShipperTrackAt");
   }
 
   if (stage.stamps === null) {
