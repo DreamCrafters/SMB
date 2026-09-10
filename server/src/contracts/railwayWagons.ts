@@ -1,10 +1,10 @@
 /**
  * Задача 106, раздел «ЖД Вагоны». Одна запись — одна заявка на вагон, которую
- * последовательно заполняют разные должности: менеджер по продажам создаёт
+ * заполняют разные должности: менеджер по продажам создаёт
  * заявку, сотрудник по работе с РЖД добавляет условия перевозки, директор по
- * логистике и менеджер согласовывают, дальше сотрудник по РЖД и диспетчер
- * отмечают движение. Следующий этап открывается, только когда заполнен
- * предыдущий, поэтому состояние выводится из заполненности полей — отдельной
+ * логистике и менеджер согласовывают параллельно, дальше сотрудник по РЖД
+ * и диспетчер отмечают движение. Следующий этап требует всех своих предшественников,
+ * поэтому состояние выводится из заполненности полей — отдельной
  * таблицы этапов нет, как и у вагонеток огнеупорного цеха.
  */
 
@@ -170,8 +170,8 @@ export type RailwayWagonOrder = {
 } & Record<RailwayWagonStageField, string | null>;
 
 /**
- * Этапы формы. `requires` — метка предыдущего этапа, без которой этап не
- * открывается; `stamps` — метка, которую этап проставляет текущим временем.
+ * Этапы формы. `requires` — метки, которые должны быть проставлены все;
+ * `stamps` — метка, которую этап проставляет текущим временем.
  * Этап «Местонахождение» меток не ставит: станцию стоянки сотрудник по РЖД
  * переписывает столько раз, сколько вагон переезжает.
  */
@@ -179,7 +179,7 @@ export type RailwayWagonStage = {
   id: string;
   label: string;
   editors: readonly RailwayWagonRole[];
-  requires: RailwayWagonStageField | null;
+  requires: readonly RailwayWagonStageField[];
   stamps: RailwayWagonStageField | null;
   /**
    * Есть только у этапов согласования: они решаются двумя кнопками, и
@@ -198,109 +198,107 @@ export const railwayWagonStages: readonly RailwayWagonStage[] = [
     id: "carriage_terms",
     label: "Условия перевозки",
     editors: ["carrier"],
-    requires: "orderedAt",
+    requires: ["orderedAt"],
     stamps: "pricingStartedAt",
   },
   {
     id: "logistics_approval",
     label: "Согласование логистом",
     editors: ["logistics"],
-    requires: "pricingStartedAt",
+    requires: ["pricingStartedAt"],
     stamps: "logisticsApprovedAt",
-    declines: ["pricingStartedAt"],
+    declines: ["pricingStartedAt", "logisticsApprovedAt", "managerApprovedAt"],
   },
   {
     id: "manager_approval",
     label: "Согласование менеджером",
     editors: ["sales"],
-    requires: "logisticsApprovedAt",
+    requires: ["pricingStartedAt"],
     stamps: "managerApprovedAt",
-    // Менеджер спорит о той же стоимости, поэтому отклонение снимает и
-    // согласование логиста: одобрять он будет уже другие условия.
-    declines: ["pricingStartedAt", "logisticsApprovedAt"],
+    declines: ["pricingStartedAt", "logisticsApprovedAt", "managerApprovedAt"],
   },
   {
     id: "wagon_number",
     label: "Номер вагона",
     editors: ["carrier"],
-    requires: "managerApprovedAt",
+    requires: ["logisticsApprovedAt", "managerApprovedAt"],
     stamps: "specificationSignedAt",
   },
   {
     id: "dispatch",
     label: "Подача на станцию погрузки",
     editors: ["carrier"],
-    requires: "specificationSignedAt",
+    requires: ["specificationSignedAt"],
     stamps: "enRouteAt",
   },
   {
     id: "location",
     label: "Местонахождение",
     editors: ["carrier"],
-    requires: "enRouteAt",
+    requires: ["enRouteAt"],
     stamps: null,
   },
   {
     id: "at_loading_station",
     label: "На станции погрузки",
     editors: ["carrier"],
-    requires: "enRouteAt",
+    requires: ["enRouteAt"],
     stamps: "atLoadingStationAt",
   },
   {
     id: "rejected",
     label: "Забракован",
     editors: ["carrier"],
-    requires: "specificationSignedAt",
+    requires: ["specificationSignedAt"],
     stamps: "rejectedAt",
   },
   {
     id: "at_shipper_track",
     label: "На ПНП грузоотправителя",
     editors: ["carrier"],
-    requires: "atLoadingStationAt",
+    requires: ["atLoadingStationAt"],
     stamps: "atShipperTrackAt",
   },
   {
     id: "at_loading",
     label: "На погрузке",
     editors: ["carrier"],
-    requires: "atShipperTrackAt",
+    requires: ["atShipperTrackAt"],
     stamps: "atLoadingAt",
   },
   {
     id: "loaded",
     label: "Загружен, на вывод с территории погрузки",
     editors: ["carrier", "dispatcher"],
-    requires: "atLoadingAt",
+    requires: ["atLoadingAt"],
     stamps: "loadedAt",
   },
   {
     id: "accepted_for_carriage",
     label: "Принято к перевозке в сторону грузополучателя",
     editors: ["carrier", "dispatcher"],
-    requires: "loadedAt",
+    requires: ["loadedAt"],
     stamps: "acceptedForCarriageAt",
   },
   {
     id: "delivered",
     label: "Доставлен на станцию назначения грузополучателя",
     editors: ["carrier"],
-    requires: "acceptedForCarriageAt",
+    requires: ["acceptedForCarriageAt"],
     stamps: "deliveredAt",
   },
   {
     id: "unloaded",
     label: "Вагон разгружен",
     editors: ["sales", "dispatcher"],
-    requires: "deliveredAt",
+    requires: ["deliveredAt"],
     stamps: "unloadedAt",
   },
   {
     id: "released",
     label: "Вагон выведен",
     editors: ["carrier", "dispatcher"],
-    requires: "unloadedAt",
+    requires: ["unloadedAt"],
     stamps: "releasedAt",
   },
 ];
@@ -326,7 +324,7 @@ export function isRailwayWagonClosed(order: RailwayWagonStageState) {
 }
 
 /**
- * Этап открыт, когда проставлена метка предыдущего этапа и ещё не проставлена
+ * Этап открыт, когда проставлены все обязательные метки и ещё не проставлена
  * собственная. Брак — ветка лестницы: его отмечают, пока вагон не встал на ПНП
  * грузоотправителя, дальше вагон уже принят и бракуют его не здесь.
  */
@@ -335,7 +333,7 @@ export function isRailwayWagonStageAvailable(
   stage: RailwayWagonStage,
 ) {
   if (isRailwayWagonRejected(order)) return false;
-  if (stage.requires !== null && !isStamped(order, stage.requires)) return false;
+  if (!stage.requires.every((field) => isStamped(order, field))) return false;
 
   if (stage.stamps === "rejectedAt") {
     return !isStamped(order, "atShipperTrackAt");

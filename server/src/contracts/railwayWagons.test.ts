@@ -96,23 +96,41 @@ test("a stamped stage does not open a second time", () => {
   );
 });
 
-test("the manager approves only after the logistics director", () => {
-  const managerApproval = findRailwayWagonStage("manager_approval")!;
+test("both approvers can decide independently after carriage terms", () => {
+  const pending = buildStages(["orderedAt", "pricingStartedAt"]);
+  assert.deepEqual(
+    selectAvailableRailwayWagonStages(pending, ["sales"]).map(({ id }) => id),
+    ["manager_approval"],
+  );
+  assert.deepEqual(
+    selectAvailableRailwayWagonStages(pending, ["logistics"]).map(({ id }) => id),
+    ["logistics_approval"],
+  );
+  for (const [first, second] of [
+    ["managerApprovedAt", "logistics_approval"],
+    ["logisticsApprovedAt", "manager_approval"],
+  ] as const) {
+    assert.equal(isRailwayWagonStageAvailable(
+      { ...pending, [first]: stamp }, findRailwayWagonStage(second)!,
+    ), true);
+  }
+});
 
-  assert.equal(
-    isRailwayWagonStageAvailable(
-      buildStages(["orderedAt", "pricingStartedAt"]),
-      managerApproval,
-    ),
-    false,
-  );
-  assert.equal(
-    isRailwayWagonStageAvailable(
-      buildStages(["orderedAt", "pricingStartedAt", "logisticsApprovedAt"]),
-      managerApproval,
-    ),
-    true,
-  );
+test("wagon number requires both approvals and neither opens before pricing", () => {
+  const wagonNumber = findRailwayWagonStage("wagon_number")!;
+  for (const fields of [[], ["logisticsApprovedAt"], ["managerApprovedAt"]] as const) {
+    assert.equal(isRailwayWagonStageAvailable(
+      buildStages(["orderedAt", "pricingStartedAt", ...fields]), wagonNumber,
+    ), false);
+  }
+  assert.equal(isRailwayWagonStageAvailable(buildStages([
+    "orderedAt", "pricingStartedAt", "logisticsApprovedAt", "managerApprovedAt",
+  ]), wagonNumber), true);
+  for (const id of ["logistics_approval", "manager_approval"]) {
+    assert.equal(isRailwayWagonStageAvailable(
+      buildStages(["orderedAt"]), findRailwayWagonStage(id)!,
+    ), false);
+  }
 });
 
 test("rejection stays open until the wagon reaches the shipper track", () => {
@@ -146,8 +164,8 @@ test("only the approval stages carry a decision", () => {
       .filter(isRailwayWagonDecisionStage)
       .map(({ id, declines }) => [id, declines]),
     [
-      ["logistics_approval", ["pricingStartedAt"]],
-      ["manager_approval", ["pricingStartedAt", "logisticsApprovedAt"]],
+      ["logistics_approval", ["pricingStartedAt", "logisticsApprovedAt", "managerApprovedAt"]],
+      ["manager_approval", ["pricingStartedAt", "logisticsApprovedAt", "managerApprovedAt"]],
     ],
   );
   assert.equal(

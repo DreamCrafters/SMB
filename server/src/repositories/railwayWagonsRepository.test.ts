@@ -238,6 +238,73 @@ test("declining an approval clears the marks it names and saves the reason", asy
   ]);
 });
 
+for (const [stageId, role, ownMark, otherMark] of [
+  ["logistics_approval", "logistics", "logisticsApprovedAt", "managerApprovedAt"],
+  ["manager_approval", "sales", "managerApprovedAt", "logisticsApprovedAt"],
+] as const) {
+  for (const otherApproved of [false, true]) {
+    test(`${stageId} can approve or decline with other approval=${otherApproved}`, async () => {
+      for (const decision of ["approve", "decline"] as const) {
+        const queries: Query[] = [];
+        const repository = createRailwayWagonsRepository(buildPool(
+          queries,
+          () => [[buildOrderRow([
+            "orderedAt", "pricingStartedAt", ...(otherApproved ? [otherMark] : []),
+          ])], []],
+          [],
+        ), { now: () => new Date(stamp) });
+        await repository.applyStage({
+          orderId: "order-1", stageId, roles: [role], fields: {}, decision,
+          declineComment: decision === "decline" ? "Измените тариф" : null, actor,
+        });
+        const update = queries.find(({ sql }) => /update railway_wagon_orders set/u.test(sql))!;
+        const lockIndex = queries.findIndex(({ sql }) => /for update/u.test(sql));
+        assert.ok(lockIndex >= 0 && lockIndex < queries.indexOf(update));
+        if (decision === "decline") {
+          for (const column of ["pricing_started_at", "logistics_approved_at", "manager_approved_at"]) {
+            assert.ok(update.sql.includes(`${column} = null`));
+          }
+          assert.deepEqual(update.parameters, ["Измените тариф", stageId, "order-1"]);
+        } else {
+          assert.ok(update.sql.includes(`${toColumn(ownMark)} = ?`));
+          assert.ok(!update.sql.includes(toColumn(otherMark)));
+        }
+        assert.ok(queries.some(({ sql }) => /insert into railway_wagon_revisions/u.test(sql)));
+      }
+    });
+  }
+
+  test(`${stageId} refuses a stale decision after the other approver returned the order`, async () => {
+    const queries: Query[] = [];
+    const repository = createRailwayWagonsRepository(buildPool(
+      queries, () => [[buildOrderRow(["orderedAt"])], []], [],
+    ));
+    for (const decision of ["approve", "decline"] as const) {
+      await assert.rejects(repository.applyStage({
+        orderId: "order-1", stageId, roles: [role], fields: {}, decision,
+        declineComment: "Измените тариф", actor,
+      }), RailwayWagonStageNotAvailableError);
+    }
+    assert.ok(queries.some(({ sql }) => /for update/u.test(sql)));
+    assert.ok(!queries.some(({ sql }) => /update railway_wagon_orders/u.test(sql)));
+  });
+}
+
+for (const approval of ["managerApprovedAt", "logisticsApprovedAt"] as const) {
+  test(`wagon number is refused under the lock with only ${approval}`, async () => {
+    const queries: Query[] = [];
+    const repository = createRailwayWagonsRepository(buildPool(
+      queries, () => [[buildOrderRow(["orderedAt", "pricingStartedAt", approval])], []], [],
+    ));
+    await assert.rejects(repository.applyStage({
+      orderId: "order-1", stageId: "wagon_number", roles: ["carrier"],
+      fields: { wagonNumber: "12345678" }, actor,
+    }), RailwayWagonStageNotAvailableError);
+    assert.ok(queries.some(({ sql }) => /for update/u.test(sql)));
+    assert.ok(!queries.some(({ sql }) => /update railway_wagon_orders/u.test(sql)));
+  });
+}
+
 test("approving an approval stamps the ladder and drops the earlier reason", async () => {
   const queries: Query[] = [];
   const repository = createRailwayWagonsRepository(

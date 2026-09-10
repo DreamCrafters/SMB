@@ -177,6 +177,37 @@ test("railway wagon approval is decided by approve or decline with a reason", as
   }
 });
 
+for (const [role, approvals, expected] of [
+  ["sales", {}, ["Согласование менеджером"]],
+  ["logistics", {}, ["Согласование логистом"]],
+  ["carrier", { managerApprovedAt: "2026-09-07T10:00:00.000Z" }, []],
+  ["carrier", { logisticsApprovedAt: "2026-09-07T10:00:00.000Z" }, []],
+  ["carrier", {
+    managerApprovedAt: "2026-09-07T10:00:00.000Z",
+    logisticsApprovedAt: "2026-09-07T11:00:00.000Z",
+  }, ["Номер вагона"]],
+  ["carrier", { pricingStartedAt: null, declineComment: "Измените тариф",
+    declineStageId: "manager_approval" }, ["Условия перевозки"]],
+]) {
+  test(`parallel approval panel for ${role} with ${JSON.stringify(approvals)}`, async () => {
+    const context = await mountWorkspace({ roles: [role], orders: [buildOrder({
+      orderedAt: "2026-09-07T08:00:00.000Z",
+      pricingStartedAt: "2026-09-07T09:00:00.000Z", ...approvals,
+    })] });
+    try {
+      const { React, container } = context;
+      await waitFor(React, () => container.querySelector(".railway-orders-table tbody tr") !== null);
+      await clickButton(React, container, "Этапы");
+      assert.deepEqual(
+        Array.from(container.querySelectorAll(".railway-stage-item legend"), (node) => node.textContent),
+        expected,
+      );
+    } finally {
+      await context.dispose();
+    }
+  });
+}
+
 async function mountWorkspace({ roles, orders, savedOrder }) {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
