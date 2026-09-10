@@ -189,6 +189,97 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
   }
 });
 
+test("warehouse 1C hides only four explicit zero balances and combines persistent filters", async () => {
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', {
+    url: "http://127.0.0.1:5173/",
+  });
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await createServer({
+    appType: "custom", logLevel: "silent", server: { middlewareMode: true },
+  });
+  const container = dom.window.document.querySelector("#root");
+  const root = createRoot(container);
+  let requests = 0;
+  const balances = [
+    ["Нули", "0", "0.00", "0.000", "-0.000"],
+    ["Начало рубли", "0.001", "0", "0", "0"],
+    ["Конец рубли", "0", "-0.001", "0", "0"],
+    ["Начало количество", "0", "0", "0.001", "0"],
+    ["Конец количество", "0", "0", "0", "-0.001"],
+    ["Без количества", "0", "0", "", ""],
+    ["Без суммы", "", "0", "0", "0"],
+  ].map(([nomenclature, openingBalance, closingBalance, openingQuantity, closingQuantity]) => ({
+    nomenclature, openingBalance, closingBalance, openingQuantity, closingQuantity,
+  }));
+  try {
+    const { Warehouse1cWorkspace } = await vite.ssrLoadModule("/src/Warehouse1c.tsx");
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      assert.equal(url.pathname, "/api/warehouse-1c/stock-balances");
+      requests += 1;
+      const payload = buildStockPayload({
+        availableDates: ["2026-09-10", "2026-09-09"],
+        reportDate: url.searchParams.get("reportDate") ?? "2026-09-10",
+        nomenclature: "",
+      });
+      payload.accounts.push({ code: "10.01", label: "Счёт 10.01" });
+      payload.accountCode = url.searchParams.get("accountCode") ?? "43";
+      payload.report.balances = balances;
+      return jsonResponse(payload);
+    };
+    await React.act(async () => root.render(React.createElement(Warehouse1cWorkspace)));
+    await waitFor(React, () => readTableRows(container).length === 7);
+    const checkbox = container.querySelector('input[type="checkbox"]');
+    assert.ok(checkbox, "Expected hide zero balances checkbox");
+    assert.match(checkbox.closest("label").textContent, /Скрыть нулевые остатки/u);
+    assert.equal(checkbox.checked, false);
+    await React.act(async () => checkbox.click());
+    assert.deepEqual(readTableRows(container).map((row) => row[0]), [
+      "Начало рубли", "Конец рубли", "Начало количество", "Конец количество",
+      "Без количества", "Без суммы",
+    ]);
+    assert.match(container.textContent, /строк: 6 из 7/u);
+    const search = container.querySelector('input[type="search"]');
+    async function searchFor(value) {
+      await React.act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")
+          .set.call(search, value);
+        search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+    }
+    await searchFor("  НУЛИ  ");
+    assert.equal(readTableRows(container).length, 0);
+    assert.match(container.textContent, /По заданным фильтрам ничего не найдено/u);
+    assert.match(container.textContent, /строк: 0 из 7/u);
+    await React.act(async () => checkbox.click());
+    assert.equal(readTableRows(container).length, 1);
+    assert.equal(readTableRows(container)[0][0], "Нули");
+    await React.act(async () => checkbox.click());
+    await searchFor("начало");
+    assert.equal(requests, 1);
+    await React.act(async () => selectOption(dom.window, findSelectByLabel(container, "Дата"), "2026-09-09"));
+    await React.act(async () => selectOption(dom.window, findSelectByLabel(container, "Счёт"), "10.01"));
+    await React.act(async () => container.querySelector("button.warehouse-1c-refresh").click());
+    assert.equal(requests, 4);
+    assert.equal(checkbox.checked, true);
+    assert.equal(search.value, "начало");
+    assert.deepEqual(readTableRows(container).map((row) => row[0]), ["Начало рубли", "Начало количество"]);
+    await searchFor("");
+    await React.act(async () => checkbox.click());
+    assert.equal(readTableRows(container).length, 7);
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = previousFetch;
+    await vite.close();
+    restoreDomGlobals(previousGlobals);
+    dom.window.close();
+  }
+});
+
 test("warehouse 1C tab reloads reports on demand and keeps the table meanwhile", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',

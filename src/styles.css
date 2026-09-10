@@ -8511,6 +8511,22 @@ p {
   justify-content: start;
 }
 
+.laboratory-filters .warehouse-1c-zero-filter {
+  display: flex;
+  align-items: center;
+  align-self: end;
+  gap: var(--density-2);
+  min-height: 42px;
+}
+
+.laboratory-filters .warehouse-1c-zero-filter input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+}
+
 .warehouse-1c-source {
   margin: 0;
   color: var(--muted);
