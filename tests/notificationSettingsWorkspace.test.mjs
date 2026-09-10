@@ -41,12 +41,12 @@ test("notification workspaces expose the position matrix and exact MAX onboardin
   assert.match(workspace, /account\.email === undefined/u);
   assert.match(workspace, /account\.maxUserId === undefined/u);
   assert.match(workspace, />Рассылка</u);
-  assert.match(workspace, />Вкл\.<\/th>/u);
+  assert.match(workspace, />Вкл\.<\/TableHeader>/u);
   assert.match(workspace, />емейл</u);
   assert.match(workspace, />Макс</u);
-  assert.match(workspace, /<th scope="col">Должность<\/th>/u);
-  assert.match(workspace, /<th scope="col">Аккаунтов<\/th>/u);
-  assert.equal(workspace.includes('<th scope="col">Имя</th>'), false);
+  assert.match(workspace, /<TableHeader scope="col">Должность<\/TableHeader>/u);
+  assert.match(workspace, /<TableHeader scope="col">Аккаунтов<\/TableHeader>/u);
+  assert.equal(workspace.includes('<TableHeader scope="col">Имя</TableHeader>'), false);
   assert.match(workspace, /!setting\.adminEnabled/u);
   assert.match(workspace, /settings\.email === undefined/u);
   assert.match(workspace, /settings\.maxUserId === undefined/u);

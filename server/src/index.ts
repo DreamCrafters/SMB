@@ -1,3 +1,4 @@
+import { createTableLayoutsRepository } from "./repositories/tableLayoutsRepository.js";
 import { readServerConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
 import {
@@ -151,6 +152,7 @@ const server = createApiServer({
   railwayReference: createRailwayReferenceRepository(pool),
   notificationSettings: createNotificationSettingsRepository(pool),
   navigationOrder: createNavigationOrderRepository(pool),
+  tableLayouts: createTableLayoutsRepository(pool),
   audit: createAuditRepository(pool),
   databaseTransaction: database.transaction,
   productionSnapshot,

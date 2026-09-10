@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { RefractoryWagonRecord } from "./contracts/refractoryWagons";
 import { LoadingIndicator } from "./LoadingIndicator";
@@ -139,24 +141,24 @@ export function RefractoryWagonCatalog({
         <p className="laboratory-empty-note">В каталоге пока нет вагонов.</p>
       ) : (
         <div className="refractory-table-wrap refractory-table-wrap-full-height">
-          <table className="refractory-input-table refractory-wagon-catalog-table">
+          <ManagedTable tableId="refractory.catalog" className="refractory-input-table refractory-wagon-catalog-table">
             <thead>
               <tr>
-                <th>Номер вагона</th>
-                <th>Счётчик обжига</th>
-                <th>Текущее состояние</th>
+                <TableHeader>Номер вагона</TableHeader>
+                <TableHeader>Счётчик обжига</TableHeader>
+                <TableHeader>Текущее состояние</TableHeader>
               </tr>
             </thead>
             <tbody>
               {sortedWagons.map((wagon) => (
                 <tr key={wagon.number}>
-                  <td>{wagon.number}</td>
-                  <td>{wagon.firingCount}</td>
-                  <td>{wagon.currentCondition ?? "—"}</td>
+                  <TableCell>{wagon.number}</TableCell>
+                  <TableCell>{wagon.firingCount}</TableCell>
+                  <TableCell>{wagon.currentCondition ?? "—"}</TableCell>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ManagedTable>
         </div>
       )}
     </section>

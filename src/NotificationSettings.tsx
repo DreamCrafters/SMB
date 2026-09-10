@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useState } from "react";
 import type {
   NotificationSetting,
@@ -111,19 +113,19 @@ export function NotificationSettingsWorkspace({
       </div>
       {enabledSettings.length > 0 ? (
         <div className="notification-settings-table-scroll">
-          <table className="notification-settings-table">
+          <ManagedTable tableId="notifications.personal" className="notification-settings-table">
             <thead>
               <tr>
-                <th scope="col">Рассылка</th>
-                <th scope="col">емейл</th>
-                <th scope="col">Макс</th>
+                <TableHeader scope="col">Рассылка</TableHeader>
+                <TableHeader scope="col">емейл</TableHeader>
+                <TableHeader scope="col">Макс</TableHeader>
               </tr>
             </thead>
             <tbody>
               {enabledSettings.map((setting) => (
               <tr key={setting.type}>
-                <th scope="row">{setting.label}</th>
-                <td>
+                <TableHeader scope="row">{setting.label}</TableHeader>
+                <TableCell>
                   <input
                     aria-label={`Email: ${setting.label}`}
                     checked={setting.emailEnabled}
@@ -138,8 +140,8 @@ export function NotificationSettingsWorkspace({
                       void saveSetting(setting.type, "email", checked);
                     }}
                   />
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <input
                     aria-label={`MAX: ${setting.label}`}
                     checked={setting.maxEnabled}
@@ -154,11 +156,11 @@ export function NotificationSettingsWorkspace({
                       void saveSetting(setting.type, "max", checked);
                     }}
                   />
-                </td>
+                </TableCell>
               </tr>
               ))}
             </tbody>
-          </table>
+          </ManagedTable>
         </div>
       ) : (
         <p className="notification-settings-note">
@@ -330,11 +332,11 @@ export function AdminNotificationSettingsWorkspace({
       {isLoading ? <LoadingIndicator label="Загружаем настройки уведомлений…" variant="page" /> : (
         <div className="notification-admin-layout">
           <div className="notification-admin-users" aria-label="Должности уведомлений">
-            <table className="notification-admin-user-table">
+            <ManagedTable tableId="notifications.positions" className="notification-admin-user-table">
               <thead>
                 <tr>
-                  <th scope="col">Должность</th>
-                  <th scope="col">Аккаунтов</th>
+                  <TableHeader scope="col">Должность</TableHeader>
+                  <TableHeader scope="col">Аккаунтов</TableHeader>
                 </tr>
               </thead>
               <tbody>
@@ -357,43 +359,43 @@ export function AdminNotificationSettingsWorkspace({
                       }
                     }}
                   >
-                    <td>{position.positionDisplayName}</td>
-                    <td>{position.accounts.length}</td>
+                    <TableCell>{position.positionDisplayName}</TableCell>
+                    <TableCell>{position.accounts.length}</TableCell>
                   </tr>
                 ))}
                 {positions.length === 0 ? (
                   <tr>
-                    <td colSpan={2}>Должностей пока нет.</td>
+                    <TableCell colSpan={2}>Должностей пока нет.</TableCell>
                   </tr>
                 ) : null}
               </tbody>
-            </table>
+            </ManagedTable>
           </div>
           {selected === undefined ? (
             <p className="dispatcher-status-line">Выберите должность, чтобы настроить её уведомления и контакты сотрудников.</p>
           ) : (
             <div className="notification-admin-detail">
               <div className="notification-settings-table-scroll">
-                <table className="notification-settings-table">
+                <ManagedTable tableId="notifications.permissions" className="notification-settings-table">
                   <caption>Разрешено должности</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Рассылка</th>
-                      <th scope="col">Вкл.</th>
+                      <TableHeader scope="col">Рассылка</TableHeader>
+                      <TableHeader scope="col">Вкл.</TableHeader>
                     </tr>
                   </thead>
                   <tbody>
                     {selected.permissions.map((permission) => (
                       <tr key={permission.type}>
-                        <th scope="row">{permission.label}</th>
-                        <td><input aria-label={`Включить: ${permission.label}`} type="checkbox" checked={permission.adminEnabled} disabled={savingKey !== undefined} onChange={(event) => {
+                        <TableHeader scope="row">{permission.label}</TableHeader>
+                        <TableCell><input aria-label={`Включить: ${permission.label}`} type="checkbox" checked={permission.adminEnabled} disabled={savingKey !== undefined} onChange={(event) => {
                           const checked = event.currentTarget.checked;
                           void savePermission(permission.type, checked);
-                        }} /></td>
+                        }} /></TableCell>
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ManagedTable>
               </div>
               {selected.accounts.length === 0 ? (
                 <p className="dispatcher-status-line">У должности пока нет учётных записей: разрешения сохранятся и применятся к будущим сотрудникам.</p>
@@ -486,13 +488,13 @@ function AccountNotificationChannels({
 
   return (
     <div className="notification-settings-table-scroll notification-admin-account-channels">
-      <table className="notification-settings-table">
+      <ManagedTable tableId="notifications.channels" className="notification-settings-table">
         <caption>Способы получения</caption>
         <thead>
           <tr>
-            <th scope="col">Рассылка</th>
-            <th scope="col">емейл</th>
-            <th scope="col">Макс</th>
+            <TableHeader scope="col">Рассылка</TableHeader>
+            <TableHeader scope="col">емейл</TableHeader>
+            <TableHeader scope="col">Макс</TableHeader>
           </tr>
         </thead>
         <tbody>
@@ -501,8 +503,8 @@ function AccountNotificationChannels({
 
             return (
               <tr key={permission.type}>
-                <th scope="row">{permission.label}</th>
-                <td>
+                <TableHeader scope="row">{permission.label}</TableHeader>
+                <TableCell>
                   <input
                     aria-label={`Email ${account.login}: ${permission.label}`}
                     checked={channel?.emailEnabled === true}
@@ -513,8 +515,8 @@ function AccountNotificationChannels({
                       onChange(permission.type, "email", checked);
                     }}
                   />
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <input
                     aria-label={`MAX ${account.login}: ${permission.label}`}
                     checked={channel?.maxEnabled === true}
@@ -525,12 +527,12 @@ function AccountNotificationChannels({
                       onChange(permission.type, "max", checked);
                     }}
                   />
-                </td>
+                </TableCell>
               </tr>
             );
           })}
         </tbody>
-      </table>
+      </ManagedTable>
       {account.email === undefined ? (
         <p className="notification-admin-account-note">
           Сохраните Email, чтобы включить этот канал.

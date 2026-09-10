@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useRef, useState } from "react";
 import {
   isParsedWarehouse1cUpload,
@@ -524,11 +526,17 @@ function Warehouse1cSheetTable({ sheet }: { sheet: Warehouse1cUploadSheet }) {
         } · колонок: ${columnCount}`}
       </p>
       <div className="table-scroll laboratory-table-scroll history-table-scroll">
-        <table className="data-table warehouse-1c-sheet-table">
+        <ManagedTable tableId="warehouse.sheet" columns={["rowNumber", ...Array.from({ length: columnCount }, (_, index) => `column.${index}` as const)]} className="data-table warehouse-1c-sheet-table">
+          <thead><tr>
+            <TableHeader>№</TableHeader>
+            {Array.from({ length: columnCount }, (_, index) => (
+              <TableHeader key={index}>{readSheetColumnLabel(index)}</TableHeader>
+            ))}
+          </tr></thead>
           <tbody>
             {sheet.rows.map((row, rowIndex) => (
               <tr key={rowIndex}>
-                <th scope="row">{rowIndex + 1}</th>
+                <TableHeader scope="row">{rowIndex + 1}</TableHeader>
                 {Array.from({ length: columnCount }, (_, columnIndex) => {
                   const span = spans.get(`${rowIndex}:${columnIndex}`);
 
@@ -537,7 +545,7 @@ function Warehouse1cSheetTable({ sheet }: { sheet: Warehouse1cUploadSheet }) {
                   if (span === "covered") return null;
 
                   return (
-                    <td
+                    <TableCell
                       key={columnIndex}
                       {...(span === undefined ? {} : {
                         colSpan: span.columnSpan,
@@ -545,13 +553,13 @@ function Warehouse1cSheetTable({ sheet }: { sheet: Warehouse1cUploadSheet }) {
                       })}
                     >
                       {row[columnIndex] ?? ""}
-                    </td>
+                    </TableCell>
                   );
                 })}
               </tr>
             ))}
           </tbody>
-        </table>
+        </ManagedTable>
       </div>
     </div>
   );
@@ -618,20 +626,20 @@ function Warehouse1cUploadsTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table warehouse-1c-uploads-table">
+      <ManagedTable tableId="warehouse.uploads" className="data-table laboratory-results-table warehouse-1c-uploads-table">
         <thead>
           <tr>
-            <th>Принято</th>
-            <th>Файл</th>
-            <th>Результат</th>
-            <th>Итог разбора</th>
+            <TableHeader>Принято</TableHeader>
+            <TableHeader>Файл</TableHeader>
+            <TableHeader>Результат</TableHeader>
+            <TableHeader>Итог разбора</TableHeader>
           </tr>
         </thead>
         <tbody>
           {uploads.map((upload) => (
             <tr key={upload.id}>
-              <td>{formatDateTime(upload.receivedAt)}</td>
-              <td>
+              <TableCell>{formatDateTime(upload.receivedAt)}</TableCell>
+              <TableCell>
                 <span className="warehouse-1c-upload-file">
                   {upload.fileName === "" ? "Файл не передан" : upload.fileName}
                 </span>
@@ -670,20 +678,20 @@ function Warehouse1cUploadsTable({
                     )}
                   </span>
                 ) : null}
-              </td>
-              <td>
+              </TableCell>
+              <TableCell>
                 <span className={readUploadStatus(upload).className}>
                   {readUploadStatus(upload).label}
                 </span>
                 <span className="warehouse-1c-upload-note">
                   {`код ${upload.statusCode}`}
                 </span>
-              </td>
-              <td>{describeUploadResult(upload)}</td>
+              </TableCell>
+              <TableCell>{describeUploadResult(upload)}</TableCell>
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -757,7 +765,7 @@ function Warehouse1cStockTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table warehouse-1c-table">
+      <ManagedTable tableId="warehouse.stock" columns={[...(hasWarehouses ? ["warehouse" as const] : []), "nomenclature", "openingBalance", "openingQuantity", "closingBalance", "closingQuantity"]} className="data-table laboratory-results-table warehouse-1c-table">
         <thead>
           {/*
             Колонки размечены по содержимому, а не по номеру: «Склад»
@@ -766,13 +774,13 @@ function Warehouse1cStockTable({
           */}
           <tr>
             {hasWarehouses
-              ? <th className="warehouse-1c-name-cell">Склад</th>
+              ? <TableHeader className="warehouse-1c-name-cell">Склад</TableHeader>
               : null}
-            <th className="warehouse-1c-name-cell">Номенклатура</th>
-            <th className="warehouse-1c-amount-cell">Ост. нач., ₽</th>
-            <th className="warehouse-1c-amount-cell">Ост. нач., кол.</th>
-            <th className="warehouse-1c-amount-cell">Ост. кон., ₽</th>
-            <th className="warehouse-1c-amount-cell">Ост. кон., кол.</th>
+            <TableHeader className="warehouse-1c-name-cell">Номенклатура</TableHeader>
+            <TableHeader className="warehouse-1c-amount-cell">Ост. нач., ₽</TableHeader>
+            <TableHeader className="warehouse-1c-amount-cell">Ост. нач., кол.</TableHeader>
+            <TableHeader className="warehouse-1c-amount-cell">Ост. кон., ₽</TableHeader>
+            <TableHeader className="warehouse-1c-amount-cell">Ост. кон., кол.</TableHeader>
           </tr>
         </thead>
         <tbody>
@@ -781,28 +789,28 @@ function Warehouse1cStockTable({
             <tr key={`${balance.warehouse ?? ""}:${balance.nomenclature}:${index}`}>
               {hasWarehouses
                 ? (
-                    <td className="warehouse-1c-name-cell">
+                    <TableCell className="warehouse-1c-name-cell">
                       {balance.warehouse ?? "—"}
-                    </td>
+                    </TableCell>
                   )
                 : null}
-              <td className="warehouse-1c-name-cell">{balance.nomenclature}</td>
-              <td className="warehouse-1c-amount-cell">
+              <TableCell className="warehouse-1c-name-cell">{balance.nomenclature}</TableCell>
+              <TableCell className="warehouse-1c-amount-cell">
                 {formatBalance(balance.openingBalance)}
-              </td>
-              <td className="warehouse-1c-amount-cell">
+              </TableCell>
+              <TableCell className="warehouse-1c-amount-cell">
                 {formatBalance(balance.openingQuantity)}
-              </td>
-              <td className="warehouse-1c-amount-cell">
+              </TableCell>
+              <TableCell className="warehouse-1c-amount-cell">
                 {formatBalance(balance.closingBalance)}
-              </td>
-              <td className="warehouse-1c-amount-cell">
+              </TableCell>
+              <TableCell className="warehouse-1c-amount-cell">
                 {formatBalance(balance.closingQuantity)}
-              </td>
+              </TableCell>
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -842,4 +850,16 @@ function formatDateTime(value: string) {
         dateStyle: "short",
         timeStyle: "short",
       }).format(date);
+}
+
+
+function readSheetColumnLabel(index: number) {
+  let number = index + 1;
+  let label = "";
+  while (number > 0) {
+    number--;
+    label = String.fromCharCode(65 + number % 26) + label;
+    number = Math.floor(number / 26);
+  }
+  return label;
 }

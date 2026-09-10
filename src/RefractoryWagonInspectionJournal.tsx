@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   isRefractoryWagonAwaitingInspection,
@@ -199,28 +201,28 @@ export function RefractoryWagonInspectionJournal({
             <p className="laboratory-empty-note">Осмотров пока не было.</p>
           ) : (
             <div className="refractory-table-wrap refractory-table-wrap-full-height">
-              <table className="refractory-input-table refractory-wagon-inspection-table">
+              <ManagedTable tableId="refractory.inspections" className="refractory-input-table refractory-wagon-inspection-table">
                 <thead>
                   <tr>
-                    <th>Номер вагона</th>
-                    <th>Дата сортировки</th>
-                    <th>Состояние вагона после обжига</th>
-                    <th>Дата осмотра</th>
-                    <th>Осмотр провёл</th>
+                    <TableHeader>Номер вагона</TableHeader>
+                    <TableHeader>Дата сортировки</TableHeader>
+                    <TableHeader>Состояние вагона после обжига</TableHeader>
+                    <TableHeader>Дата осмотра</TableHeader>
+                    <TableHeader>Осмотр провёл</TableHeader>
                   </tr>
                 </thead>
                 <tbody>
                   {inspections.map((inspection) => (
                     <tr key={inspection.id}>
-                      <td>{inspection.wagonNumber}</td>
-                      <td>{formatDate(inspection.sortingDate)}</td>
-                      <td>{inspection.condition}</td>
-                      <td>{formatDate(inspection.approvalDate)}</td>
-                      <td>{inspection.inspectedByDisplayName}</td>
+                      <TableCell>{inspection.wagonNumber}</TableCell>
+                      <TableCell>{formatDate(inspection.sortingDate)}</TableCell>
+                      <TableCell>{inspection.condition}</TableCell>
+                      <TableCell>{formatDate(inspection.approvalDate)}</TableCell>
+                      <TableCell>{inspection.inspectedByDisplayName}</TableCell>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ManagedTable>
             </div>
           )}
         </>

@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   isRefractoryWagonAvailableForLoading,
@@ -324,29 +326,29 @@ export function RefractoryWagonJournal({
         <p className="laboratory-empty-note">В журнале пока нет вагонов.</p>
       ) : loadState === "ready" ? (
         <div className="refractory-table-wrap refractory-table-wrap-full-height">
-          <table className="refractory-input-table refractory-wagon-table">
+          <ManagedTable tableId="refractory.wagons" className="refractory-input-table refractory-wagon-table">
             <thead>
               <tr>
-                <th>№ вагона</th>
-                <th>Дата садки</th>
-                <th>Марка</th>
-                <th>Дата пресса</th>
-                <th>Кол-во шт.</th>
-                <th>Садчик</th>
-                <th>Прессовщик</th>
-                <th>Дата контроля сырца</th>
-                <th>Обжигальщик</th>
-                <th>Даты обжига</th>
-                <th>Сортировщик</th>
-                <th>Дата сортировки</th>
-                <th>Состояние вагона после обжига</th>
-                <th>Дата осмотра</th>
+                <TableHeader>№ вагона</TableHeader>
+                <TableHeader>Дата садки</TableHeader>
+                <TableHeader>Марка</TableHeader>
+                <TableHeader>Дата пресса</TableHeader>
+                <TableHeader>Кол-во шт.</TableHeader>
+                <TableHeader>Садчик</TableHeader>
+                <TableHeader>Прессовщик</TableHeader>
+                <TableHeader>Дата контроля сырца</TableHeader>
+                <TableHeader>Обжигальщик</TableHeader>
+                <TableHeader>Даты обжига</TableHeader>
+                <TableHeader>Сортировщик</TableHeader>
+                <TableHeader>Дата сортировки</TableHeader>
+                <TableHeader>Состояние вагона после обжига</TableHeader>
+                <TableHeader>Дата осмотра</TableHeader>
               </tr>
             </thead>
             <tbody>
               {wagons.map((wagon) => (
                 <tr key={wagon.id}>
-                  <td>
+                  <TableCell>
                     <button
                       className="board-assignment-link refractory-wagon-edit-link"
                       type="button"
@@ -354,24 +356,24 @@ export function RefractoryWagonJournal({
                     >
                       {wagon.number}
                     </button>
-                  </td>
-                  <td>{formatDate(wagon.loadingDate)}</td>
-                  <td>{wagon.productBrand ?? "—"}</td>
-                  <td>{formatDate(wagon.pressDate)}</td>
-                  <td>{wagon.pieceCount === null ? "—" : wagon.pieceCount}</td>
-                  <td>{wagon.setter ?? "—"}</td>
-                  <td>{wagon.pressOperator ?? "—"}</td>
-                  <td>{formatDate(wagon.rawControlDate)}</td>
-                  <td>{wagon.firingOperator ?? "—"}</td>
-                  <td>{formatDates(wagon.firingDates)}</td>
-                  <td>{wagon.sorter ?? "—"}</td>
-                  <td>{formatDate(wagon.sortingDate)}</td>
-                  <td>{wagon.postFiringCondition ?? "—"}</td>
-                  <td>{formatDate(wagon.serviceApprovalDate)}</td>
+                  </TableCell>
+                  <TableCell>{formatDate(wagon.loadingDate)}</TableCell>
+                  <TableCell>{wagon.productBrand ?? "—"}</TableCell>
+                  <TableCell>{formatDate(wagon.pressDate)}</TableCell>
+                  <TableCell>{wagon.pieceCount === null ? "—" : wagon.pieceCount}</TableCell>
+                  <TableCell>{wagon.setter ?? "—"}</TableCell>
+                  <TableCell>{wagon.pressOperator ?? "—"}</TableCell>
+                  <TableCell>{formatDate(wagon.rawControlDate)}</TableCell>
+                  <TableCell>{wagon.firingOperator ?? "—"}</TableCell>
+                  <TableCell>{formatDates(wagon.firingDates)}</TableCell>
+                  <TableCell>{wagon.sorter ?? "—"}</TableCell>
+                  <TableCell>{formatDate(wagon.sortingDate)}</TableCell>
+                  <TableCell>{wagon.postFiringCondition ?? "—"}</TableCell>
+                  <TableCell>{formatDate(wagon.serviceApprovalDate)}</TableCell>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ManagedTable>
         </div>
       ) : null}
       <datalist id="refractory-wagon-setter-options">

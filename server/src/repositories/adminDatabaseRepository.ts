@@ -391,6 +391,14 @@ const databaseViews: AdminDatabaseView[] = [
 
 const databaseViewByName = new Map(databaseViews.map((view) => [view.name, view]));
 
+/** Layout settings may name only columns already exposed by the database editor. */
+export function isAdminDatabaseLayoutColumn(columnId: string) {
+  if (columnId === "actions") return true;
+  const [prefix, tableName, columnName, extra] = columnId.split(".");
+  return prefix === "field" && extra === undefined
+    && databaseViewByName.get(tableName)?.columns.some((column) => column.name === columnName) === true;
+}
+
 export function createAdminDatabaseRepository(pool: DatabasePool): AdminDatabaseRepository {
   async function listTables() {
     return Promise.all(databaseViews.map((view) => readPublicTable(view)));

@@ -84,6 +84,7 @@ export const auditEventActions = [
   "admin.position_order_update",
   "admin.position_navigation_access_update",
   "admin.navigation_order_update",
+  "admin.table_layout_update",
   "admin.position_delete",
 ] as const;
 
@@ -118,6 +119,7 @@ export const auditTargetTypes = [
   "laboratory_chemical_analysis",
   "board_assignment",
   "navigation_order",
+  "table_layout",
 ] as const;
 
 export type AuditTargetType = (typeof auditTargetTypes)[number];

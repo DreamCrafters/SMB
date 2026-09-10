@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   buildRailwayWagonTotals,
@@ -443,25 +445,25 @@ export function RailwayWagonsWorkspace({
                 </div>
 
                 <div className="railway-table-wrap">
-                  <table className="railway-cargo-table">
+                  <ManagedTable tableId="railway.cargo" className="railway-cargo-table">
                     <caption>Грузы в вагоне</caption>
                     <thead>
                       <tr>
-                        <th scope="col">Название груза</th>
-                        <th scope="col">Код груза по ЕТСНГ</th>
-                        <th scope="col">Кол-во паллет</th>
-                        <th scope="col">Вес каждой паллеты, т</th>
-                        <th scope="col">Итоговый вес груза, т</th>
-                        <th scope="col">Габариты паллеты, Ш×В×Д</th>
-                        <th scope="col">Способ крепления груза</th>
-                        <th scope="col">Вес крепежа, т</th>
-                        <th aria-label="Действия" />
+                        <TableHeader scope="col">Название груза</TableHeader>
+                        <TableHeader scope="col">Код груза по ЕТСНГ</TableHeader>
+                        <TableHeader scope="col">Кол-во паллет</TableHeader>
+                        <TableHeader scope="col">Вес каждой паллеты, т</TableHeader>
+                        <TableHeader scope="col">Итоговый вес груза, т</TableHeader>
+                        <TableHeader scope="col">Габариты паллеты, Ш×В×Д</TableHeader>
+                        <TableHeader scope="col">Способ крепления груза</TableHeader>
+                        <TableHeader scope="col">Вес крепежа, т</TableHeader>
+                        <TableHeader aria-label="Действия" />
                       </tr>
                     </thead>
                     <tbody>
                       {cargoRows.map((row, index) => (
                         <tr key={row.id}>
-                          <td>
+                          <TableCell>
                             <input
                               list="railway-cargo-name-options"
                               maxLength={255}
@@ -472,8 +474,8 @@ export function RailwayWagonsWorkspace({
                               required
                               value={row.cargoName}
                             />
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <ReferenceSearchPicker<RailwayEtsngOption>
                               emptyLabel="Код или наименование не найдены в ЕТСНГ."
                               formatOption={(option) =>
@@ -493,8 +495,8 @@ export function RailwayWagonsWorkspace({
                               placeholder="Код или наименование"
                               value={row.etsngCode}
                             />
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <input
                               inputMode="numeric"
                               min="0"
@@ -506,8 +508,8 @@ export function RailwayWagonsWorkspace({
                               type="number"
                               value={row.palletCount}
                             />
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <input
                               min="0"
                               onChange={(event) =>
@@ -518,8 +520,8 @@ export function RailwayWagonsWorkspace({
                               type="number"
                               value={row.palletWeight}
                             />
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <output className="railway-calculated">
                               {formatWeight(
                                 calculateRailwayCargoLineWeight(
@@ -527,8 +529,8 @@ export function RailwayWagonsWorkspace({
                                 ),
                               )}
                             </output>
-                          </td>
-                          <td className="railway-dimensions-cell">
+                          </TableCell>
+                          <TableCell className="railway-dimensions-cell">
                             {(["palletWidth", "palletHeight", "palletLength"] as const)
                               .map((field) => (
                                 <input
@@ -545,8 +547,8 @@ export function RailwayWagonsWorkspace({
                                   value={row[field]}
                                 />
                               ))}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <select
                               onChange={(event) =>
                                 updateCargoRow(row.id, {
@@ -565,8 +567,8 @@ export function RailwayWagonsWorkspace({
                                 </option>
                               ))}
                             </select>
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <input
                               min="0"
                               onChange={(event) =>
@@ -577,8 +579,8 @@ export function RailwayWagonsWorkspace({
                               type="number"
                               value={row.securingWeight}
                             />
-                          </td>
-                          <td className="railway-row-action">
+                          </TableCell>
+                          <TableCell className="railway-row-action">
                             <button
                               aria-label={`Удалить строку груза ${index + 1}`}
                               className="secondary-button"
@@ -590,24 +592,24 @@ export function RailwayWagonsWorkspace({
                             >
                               Удалить
                             </button>
-                          </td>
+                          </TableCell>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th scope="row">Итого</th>
-                        <td />
-                        <td>{draftTotals.palletCount}</td>
-                        <td>{formatWeight(draftTotals.palletWeight)}</td>
-                        <td>{formatWeight(draftTotals.cargoWeight)}</td>
-                        <td />
-                        <td />
-                        <td>{formatWeight(draftTotals.securingWeight)}</td>
-                        <td />
+                        <TableHeader scope="row">Итого</TableHeader>
+                        <TableCell />
+                        <TableCell>{draftTotals.palletCount}</TableCell>
+                        <TableCell>{formatWeight(draftTotals.palletWeight)}</TableCell>
+                        <TableCell>{formatWeight(draftTotals.cargoWeight)}</TableCell>
+                        <TableCell />
+                        <TableCell />
+                        <TableCell>{formatWeight(draftTotals.securingWeight)}</TableCell>
+                        <TableCell />
                       </tr>
                     </tfoot>
-                  </table>
+                  </ManagedTable>
                 </div>
 
                 <datalist id="railway-cargo-name-options">
@@ -673,30 +675,30 @@ export function RailwayWagonsWorkspace({
           )}
 
       <div className="railway-table-wrap railway-table-wrap-orders">
-        <table className="railway-orders-table">
+        <ManagedTable tableId="railway.orders" className="railway-orders-table">
           <caption>Заявки на вагоны</caption>
           <thead>
             <tr>
               {/* Столбец действий стоит первым и залипает слева: до кнопки
                   «Этапы» иначе пришлось бы прокручивать таблицу вправо. */}
-              <th aria-label="Действия" />
-              <th scope="col">Статус нахождения</th>
-              <th scope="col">Комментарий согласования</th>
-              <th scope="col">Договор</th>
-              <th scope="col">Направление</th>
-              <th scope="col">Станция назначения</th>
-              <th scope="col">Вид вагона</th>
-              <th scope="col">Грузы</th>
-              <th scope="col">Общий вес, т</th>
-              <th scope="col">Стоимость аренды, руб.</th>
-              <th scope="col">Тариф РЖД, руб.</th>
-              <th scope="col">Штраф за простой</th>
-              <th scope="col">Грузоперевозчик</th>
-              <th scope="col">Номер вагона</th>
-              <th scope="col">Ожидаемая дата прибытия</th>
-              <th scope="col">Местонахождение</th>
+              <TableHeader aria-label="Действия" />
+              <TableHeader scope="col">Статус нахождения</TableHeader>
+              <TableHeader scope="col">Комментарий согласования</TableHeader>
+              <TableHeader scope="col">Договор</TableHeader>
+              <TableHeader scope="col">Направление</TableHeader>
+              <TableHeader scope="col">Станция назначения</TableHeader>
+              <TableHeader scope="col">Вид вагона</TableHeader>
+              <TableHeader scope="col">Грузы</TableHeader>
+              <TableHeader scope="col">Общий вес, т</TableHeader>
+              <TableHeader scope="col">Стоимость аренды, руб.</TableHeader>
+              <TableHeader scope="col">Тариф РЖД, руб.</TableHeader>
+              <TableHeader scope="col">Штраф за простой</TableHeader>
+              <TableHeader scope="col">Грузоперевозчик</TableHeader>
+              <TableHeader scope="col">Номер вагона</TableHeader>
+              <TableHeader scope="col">Ожидаемая дата прибытия</TableHeader>
+              <TableHeader scope="col">Местонахождение</TableHeader>
               {railwayWagonStageFields.map((field) => (
-                <th key={field} scope="col">{railwayWagonStatusLabels[field]}</th>
+                <TableHeader key={field} scope="col">{railwayWagonStatusLabels[field]}</TableHeader>
               ))}
             </tr>
           </thead>
@@ -704,9 +706,9 @@ export function RailwayWagonsWorkspace({
             {orders.length === 0
               ? (
                   <tr>
-                    <td colSpan={16 + railwayWagonStageFields.length}>
+                    <TableCell colSpan={16 + railwayWagonStageFields.length}>
                       <p className="railway-empty-note">Заявок на вагоны пока нет.</p>
-                    </td>
+                    </TableCell>
                   </tr>
                 )
               : orders.map((order) => {
@@ -717,7 +719,7 @@ export function RailwayWagonsWorkspace({
                       className={order.id === selectedOrderId ? "is-active" : undefined}
                       key={order.id}
                     >
-                      <td>
+                      <TableCell>
                         <button
                           className="board-assignment-link railway-order-link"
                           onClick={() => {
@@ -739,38 +741,38 @@ export function RailwayWagonsWorkspace({
                                 Исправить
                               </button>
                             )}
-                      </td>
-                      <td>{resolveRailwayWagonStatus(order)}</td>
-                      <td>{describeDeclineComment(order)}</td>
-                      <td>{order.contractReference}</td>
-                      <td>{order.movementDirection}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell>{resolveRailwayWagonStatus(order)}</TableCell>
+                      <TableCell>{describeDeclineComment(order)}</TableCell>
+                      <TableCell>{order.contractReference}</TableCell>
+                      <TableCell>{order.movementDirection}</TableCell>
+                      <TableCell>
                         {order.destinationStationRoad === null
                           ? order.destinationStation
                           : `${order.destinationStation} (${order.destinationStationRoad})`}
-                      </td>
-                      <td>{order.wagonType}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell>{order.wagonType}</TableCell>
+                      <TableCell>
                         {order.cargoLines
                           .map((line) => line.cargoName)
                           .join("; ") || "—"}
-                      </td>
-                      <td>{formatWeight(totals.totalWeight)}</td>
-                      <td>{formatOptional(order.rentCost)}</td>
-                      <td>{formatOptional(order.tariffCost)}</td>
-                      <td>{formatOptional(order.demurragePenalty)}</td>
-                      <td>{formatOptional(order.carrier)}</td>
-                      <td>{formatOptional(order.wagonNumber)}</td>
-                      <td>{formatOptional(order.expectedArrivalDate)}</td>
-                      <td>{formatOptional(order.currentLocation)}</td>
+                      </TableCell>
+                      <TableCell>{formatWeight(totals.totalWeight)}</TableCell>
+                      <TableCell>{formatOptional(order.rentCost)}</TableCell>
+                      <TableCell>{formatOptional(order.tariffCost)}</TableCell>
+                      <TableCell>{formatOptional(order.demurragePenalty)}</TableCell>
+                      <TableCell>{formatOptional(order.carrier)}</TableCell>
+                      <TableCell>{formatOptional(order.wagonNumber)}</TableCell>
+                      <TableCell>{formatOptional(order.expectedArrivalDate)}</TableCell>
+                      <TableCell>{formatOptional(order.currentLocation)}</TableCell>
                       {railwayWagonStageFields.map((field) => (
-                        <td key={field}>{formatStamp(order[field])}</td>
+                        <TableCell key={field}>{formatStamp(order[field])}</TableCell>
                       ))}
                     </tr>
                   );
                 })}
           </tbody>
-        </table>
+        </ManagedTable>
       </div>
     </section>
   );

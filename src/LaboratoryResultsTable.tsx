@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useState } from "react";
 import type {
   LaboratoryIndicatorId,
@@ -61,44 +63,44 @@ export function LaboratoryResultsTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table">
+      <ManagedTable tableId="laboratory.results" columns={["date", ...(section === "all" ? ["section" as const] : []), "object", "identifier", ...indicators.map((indicator) => `indicator.${indicator.id}` as const), "assistant", "protocol"]} className="data-table laboratory-results-table">
         <thead>
           <tr>
-            <th>Дата анализа</th>
-            {section === "all" ? <th>Раздел</th> : null}
-            <th>{readObjectColumnLabel(section)}</th>
-            <th>{readIdentifierColumnLabel(section)}</th>
-            {indicators.map((indicator) => <th key={indicator.id}>{indicator.label}</th>)}
-            <th>Лаборант</th>
-            <th>Протокол</th>
+            <TableHeader>Дата анализа</TableHeader>
+            {section === "all" ? <TableHeader>Раздел</TableHeader> : null}
+            <TableHeader>{readObjectColumnLabel(section)}</TableHeader>
+            <TableHeader>{readIdentifierColumnLabel(section)}</TableHeader>
+            {indicators.map((indicator) => <TableHeader key={indicator.id}>{indicator.label}</TableHeader>)}
+            <TableHeader>Лаборант</TableHeader>
+            <TableHeader>Протокол</TableHeader>
           </tr>
         </thead>
         <tbody>
           {historyRows.map((row) => (
             <tr key={row.key}>
-              <td>{formatLaboratoryDate(row.result.analysisDate)}</td>
+              <TableCell>{formatLaboratoryDate(row.result.analysisDate)}</TableCell>
               {section === "all" ? (
-                <td>{sectionLabels[row.result.section]}</td>
+                <TableCell>{sectionLabels[row.result.section]}</TableCell>
               ) : null}
-              <td>{row.result.materialLabel}</td>
-              <td>{row.identifier}</td>
+              <TableCell>{row.result.materialLabel}</TableCell>
+              <TableCell>{row.identifier}</TableCell>
               {indicators.map((indicator) => (
-                <td key={indicator.id}>{row.values[indicator.id] ?? "—"}</td>
+                <TableCell key={indicator.id}>{row.values[indicator.id] ?? "—"}</TableCell>
               ))}
-              <td>{row.result.laboratoryAssistantDisplayName}</td>
+              <TableCell>{row.result.laboratoryAssistantDisplayName}</TableCell>
               {row.protocolRowSpan > 0 ? (
-                <td className="laboratory-protocol-cell" rowSpan={row.protocolRowSpan}>
+                <TableCell className="laboratory-protocol-cell" rowSpan={row.protocolRowSpan}>
                   <LaboratoryProtocolActions
                     disabled={false}
                     result={row.result}
                     onShowToast={onShowToast}
                   />
-                </td>
+                </TableCell>
               ) : null}
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }

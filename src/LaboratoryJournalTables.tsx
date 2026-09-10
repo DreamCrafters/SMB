@@ -1,3 +1,6 @@
+import type { TableColumnId } from "../server/src/contracts/tableLayouts";
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { Fragment, useState } from "react";
 import {
   laboratoryChemicalAnalysisFields,
@@ -77,11 +80,11 @@ export function LaboratorySampleRegistrationTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table sample-registration-journal-table">
+      <ManagedTable tableId="laboratory.samples" className="data-table laboratory-results-table sample-registration-journal-table">
         <thead>
           <tr>
             {laboratorySampleRegistrationFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
             <SampleChemicalAnalysisHeaders />
           </tr>
@@ -96,7 +99,7 @@ export function LaboratorySampleRegistrationTable({
               key={record.id}
             >
               {laboratorySampleRegistrationFields.map((field) => (
-                <td key={field.id}>
+                <TableCell key={field.id}>
                   {field.id === "laboratorySampleCode" &&
                       onEditRecord !== undefined
                     ? (
@@ -117,22 +120,22 @@ export function LaboratorySampleRegistrationTable({
                       : field.kind === "date"
                         ? formatLaboratoryDate(record[field.id])
                         : record[field.id]}
-                </td>
+                </TableCell>
               ))}
               <SampleChemicalAnalysisCells values={record} />
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
 
 function SampleChemicalAnalysisHeaders() {
   return laboratoryChemicalAnalysisFields.map((field) => (
-    <th key={field.id}>
+    <TableHeader key={field.id}>
       {field.id === "laboratoryAnalysisNumber" ? "№ Хим анализа" : field.label}
-    </th>
+    </TableHeader>
   ));
 }
 
@@ -144,13 +147,13 @@ function SampleChemicalAnalysisCells({
   return laboratoryChemicalAnalysisFields.map((field) => {
     const value = values?.[field.id];
     return (
-      <td key={field.id}>
+      <TableCell key={field.id}>
         {value === undefined
           ? "—"
           : field.kind === "date"
             ? formatLaboratoryDate(value)
             : value}
-      </td>
+      </TableCell>
     );
   });
 }
@@ -168,21 +171,21 @@ export function LaboratoryChemicalAnalysisTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table chemical-analysis-journal-table">
+      <ManagedTable tableId="laboratory.analyses" className="data-table laboratory-results-table chemical-analysis-journal-table">
         <thead>
           <tr>
-            <th>Код лабораторной пробы</th>
-            <th>№ пробы</th>
-            <th>Наименование пробы</th>
+            <TableHeader>Код лабораторной пробы</TableHeader>
+            <TableHeader>№ пробы</TableHeader>
+            <TableHeader>Наименование пробы</TableHeader>
             {laboratoryChemicalAnalysisFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
           </tr>
         </thead>
         <tbody>
           {records.map((record) => (
             <tr key={record.id}>
-              <td>
+              <TableCell>
                 {onEditRecord === undefined
                   ? record.laboratorySampleCode
                   : (
@@ -194,25 +197,25 @@ export function LaboratoryChemicalAnalysisTable({
                         {record.laboratorySampleCode}
                       </button>
                     )}
-              </td>
-              <td>{record.sampleNumber}</td>
-              <td>{record.sampleName}</td>
+              </TableCell>
+              <TableCell>{record.sampleNumber}</TableCell>
+              <TableCell>{record.sampleName}</TableCell>
               {laboratoryChemicalAnalysisFields.map((field) => {
                 const value = record[field.id];
                 return (
-                  <td key={field.id}>
+                  <TableCell key={field.id}>
                     {value === undefined
                       ? "—"
                       : field.kind === "date"
                         ? formatLaboratoryDate(value)
                         : value}
-                  </td>
+                  </TableCell>
                 );
               })}
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -234,11 +237,11 @@ export function LaboratoryUnshapedProductSampleTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table unshaped-product-sample-table">
+      <ManagedTable tableId="laboratory.unshaped" className="data-table laboratory-results-table unshaped-product-sample-table">
         <thead>
           <tr>
             {sampleFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
             <SampleChemicalAnalysisHeaders />
           </tr>
@@ -252,7 +255,7 @@ export function LaboratoryUnshapedProductSampleTable({
               {sampleFields.map((field) => {
                 const value = record[field.id];
                 return (
-                  <td key={field.id}>
+                  <TableCell key={field.id}>
                     {field.id === "sampleCode" && onEditRecord !== undefined
                       ? (
                           <button
@@ -272,7 +275,7 @@ export function LaboratoryUnshapedProductSampleTable({
                           : field.kind === "date"
                             ? formatLaboratoryDate(value)
                             : value}
-                  </td>
+                  </TableCell>
                 );
               })}
               <SampleChemicalAnalysisCells
@@ -283,7 +286,7 @@ export function LaboratoryUnshapedProductSampleTable({
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -301,11 +304,11 @@ export function LaboratoryFormedProductSampleTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table formed-product-sample-table">
+      <ManagedTable tableId="laboratory.formed" className="data-table laboratory-results-table formed-product-sample-table">
         <thead>
           <tr>
             {laboratoryFormedProductSampleFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
             <SampleChemicalAnalysisHeaders />
           </tr>
@@ -320,7 +323,7 @@ export function LaboratoryFormedProductSampleTable({
                 {laboratoryFormedProductSampleFields.map((field) => {
                   const value = record[field.id];
                   return (
-                    <td key={field.id}>
+                    <TableCell key={field.id}>
                       {field.id === editLinkField && onEditRecord !== undefined
                         ? (
                             <button
@@ -336,7 +339,7 @@ export function LaboratoryFormedProductSampleTable({
                           : field.kind === "date"
                             ? formatLaboratoryDate(value)
                             : value}
-                    </td>
+                    </TableCell>
                   );
                 })}
                 <SampleChemicalAnalysisCells values={record.chemicalAnalysis} />
@@ -344,7 +347,7 @@ export function LaboratoryFormedProductSampleTable({
             );
           })}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -362,11 +365,11 @@ export function LaboratoryVerificationTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table verification-table">
+      <ManagedTable tableId="laboratory.verification" className="data-table laboratory-results-table verification-table">
         <thead>
           <tr>
             {laboratoryVerificationFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
             <SampleChemicalAnalysisHeaders />
           </tr>
@@ -375,7 +378,7 @@ export function LaboratoryVerificationTable({
           {records.map((record) => (
             <tr key={record.id}>
               {laboratoryVerificationFields.map((field) => (
-                <td key={field.id}>
+                <TableCell key={field.id}>
                   {field.id === "sampleCode" && onEditRecord !== undefined
                     ? (
                         <button
@@ -389,13 +392,13 @@ export function LaboratoryVerificationTable({
                     : field.kind === "date"
                       ? formatLaboratoryDate(record[field.id])
                       : record[field.id]}
-                </td>
+                </TableCell>
               ))}
               <SampleChemicalAnalysisCells values={record.chemicalAnalysis} />
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -415,14 +418,14 @@ export function LaboratoryRawMaterialQualityTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table raw-material-quality-table">
+      <ManagedTable tableId="laboratory.rawQuality" className="data-table laboratory-results-table raw-material-quality-table">
         <thead>
           <tr>
-            <th>Дата</th>
-            <th>Лаборант</th>
-            <th>Мастер смены</th>
-            <th>Смена</th>
-            <th>Замеры</th>
+            <TableHeader>Дата</TableHeader>
+            <TableHeader>Лаборант</TableHeader>
+            <TableHeader>Мастер смены</TableHeader>
+            <TableHeader>Смена</TableHeader>
+            <TableHeader>Замеры</TableHeader>
           </tr>
         </thead>
         <tbody>
@@ -431,7 +434,7 @@ export function LaboratoryRawMaterialQualityTable({
             return (
               <Fragment key={record.id}>
                 <tr>
-                  <td>
+                  <TableCell>
                     {onEditRecord !== undefined ? (
                       <button
                         className="board-assignment-link raw-material-quality-edit-link"
@@ -441,11 +444,11 @@ export function LaboratoryRawMaterialQualityTable({
                         {formatLaboratoryDate(record.recordDate)}
                       </button>
                     ) : formatLaboratoryDate(record.recordDate)}
-                  </td>
-                  <td>{record.laboratoryAssistant}</td>
-                  <td>{record.shiftSupervisor}</td>
-                  <td>{laboratoryRawMaterialQualityShiftLabels[record.shift]}</td>
-                  <td>
+                  </TableCell>
+                  <TableCell>{record.laboratoryAssistant}</TableCell>
+                  <TableCell>{record.shiftSupervisor}</TableCell>
+                  <TableCell>{laboratoryRawMaterialQualityShiftLabels[record.shift]}</TableCell>
+                  <TableCell>
                     <button
                       aria-expanded={isExpanded}
                       className="raw-material-quality-expand-toggle"
@@ -454,11 +457,11 @@ export function LaboratoryRawMaterialQualityTable({
                     >
                       {isExpanded ? "Свернуть" : "Показать"}
                     </button>
-                  </td>
+                  </TableCell>
                 </tr>
                 {isExpanded ? (
                   <tr className="raw-material-quality-expanded-row">
-                    <td colSpan={5}>
+                    <TableCell colSpan={5}>
                       <div className="raw-material-quality-expanded">
                         <LaboratoryMeasurementTableSection
                           title="Контроль качества глины"
@@ -500,21 +503,21 @@ export function LaboratoryRawMaterialQualityTable({
                           ))}
                         </div>
                       </div>
-                    </td>
+                    </TableCell>
                   </tr>
                 ) : null}
               </Fragment>
             );
           })}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
 
 /** Общая таблица замеров: используется журналами сырья и сырцовой продукции. */
 function LaboratoryMeasurementTableSection<
-  Field extends { id: string; label: string; kind: string },
+  Field extends { id: TableColumnId<"laboratory.measurements">; label: string; kind: string },
 >({
   title,
   rows,
@@ -532,26 +535,26 @@ function LaboratoryMeasurementTableSection<
       {rows.length === 0 ? (
         <p className="laboratory-empty-note">Замеров нет.</p>
       ) : (
-        <table className="data-table raw-material-quality-expanded-table">
+        <ManagedTable tableId="laboratory.measurements" columns={[...(hasCounter ? ["counter" as const] : []), ...fields.map((field) => field.id)]} className="data-table raw-material-quality-expanded-table">
           <thead>
             <tr>
-              {hasCounter ? <th>№ Замера</th> : null}
-              {fields.map((field) => <th key={field.id}>{field.label}</th>)}
+              {hasCounter ? <TableHeader>№ Замера</TableHeader> : null}
+              {fields.map((field) => <TableHeader key={field.id}>{field.label}</TableHeader>)}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={index}>
-                {hasCounter ? <td>{index + 1}</td> : null}
+                {hasCounter ? <TableCell>{index + 1}</TableCell> : null}
                 {fields.map((field) => (
-                  <td key={field.id}>
+                  <TableCell key={field.id}>
                     {formatLaboratoryMeasurementValue(field.kind, row[field.id])}
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
             ))}
           </tbody>
-        </table>
+        </ManagedTable>
       )}
     </div>
   );
@@ -578,13 +581,13 @@ export function LaboratoryGreenProductQualityTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table green-product-quality-table">
+      <ManagedTable tableId="laboratory.greenQuality" className="data-table laboratory-results-table green-product-quality-table">
         <thead>
           <tr>
             {laboratoryGreenProductQualityGeneralFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
-            <th>Замеры</th>
+            <TableHeader>Замеры</TableHeader>
           </tr>
         </thead>
         <tbody>
@@ -603,7 +606,7 @@ export function LaboratoryGreenProductQualityTable({
                         ? formatLaboratoryDate(String(rawValue))
                         : rawValue;
                     return (
-                      <td key={field.id}>
+                      <TableCell key={field.id}>
                         {field.id === "recordDate" && onEditRecord !== undefined
                           ? (
                               <button
@@ -617,10 +620,10 @@ export function LaboratoryGreenProductQualityTable({
                           : field.id === "recordDate"
                             ? formatLaboratoryDate(record.recordDate)
                             : value}
-                      </td>
+                      </TableCell>
                     );
                   })}
-                  <td>
+                  <TableCell>
                     <button
                       aria-expanded={isExpanded}
                       className="raw-material-quality-expand-toggle"
@@ -629,11 +632,11 @@ export function LaboratoryGreenProductQualityTable({
                     >
                       {isExpanded ? "Свернуть" : "Показать"}
                     </button>
-                  </td>
+                  </TableCell>
                 </tr>
                 {isExpanded ? (
                   <tr className="raw-material-quality-expanded-row">
-                    <td colSpan={laboratoryGreenProductQualityGeneralFields.length + 1}>
+                    <TableCell colSpan={laboratoryGreenProductQualityGeneralFields.length + 1}>
                       <div className="raw-material-quality-expanded">
                         <LaboratoryMeasurementTableSection
                           title="Линейные размеры и показатели качества"
@@ -650,14 +653,14 @@ export function LaboratoryGreenProductQualityTable({
                           ))}
                         </div>
                       </div>
-                    </td>
+                    </TableCell>
                   </tr>
                 ) : null}
               </Fragment>
             );
           })}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -675,30 +678,30 @@ export function RotaryKiln2FiringTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table rotary-kiln-journal-table">
+      <ManagedTable tableId="laboratory.rotaryKiln" className="data-table laboratory-results-table rotary-kiln-journal-table">
         <thead>
           <tr>
-            <th>Дата</th>
-            <th>Время</th>
-            <th>{rotaryKiln2ProducedMaterialLabel}</th>
+            <TableHeader>Дата</TableHeader>
+            <TableHeader>Время</TableHeader>
+            <TableHeader>{rotaryKiln2ProducedMaterialLabel}</TableHeader>
             {rotaryKiln2EarlyNumericFields.map(([field, label]) => (
-              <th key={field}>{label}</th>
+              <TableHeader key={field}>{label}</TableHeader>
             ))}
-            <th>Мастер смены</th>
-            <th>Обжигальщик</th>
-            <th>Лаборант</th>
+            <TableHeader>Мастер смены</TableHeader>
+            <TableHeader>Обжигальщик</TableHeader>
+            <TableHeader>Лаборант</TableHeader>
             {rotaryKiln2LateNumericFields.map(([field, label]) => (
-              <th key={field}>{label}</th>
+              <TableHeader key={field}>{label}</TableHeader>
             ))}
-            <th>Примечание</th>
+            <TableHeader>Примечание</TableHeader>
           </tr>
         </thead>
         <tbody>
           {records.map((record) => (
             <tr key={record.id}>
-              <td>{formatLaboratoryDate(record.recordDate)}</td>
-              <td>{record.recordTime}</td>
-              <td>
+              <TableCell>{formatLaboratoryDate(record.recordDate)}</TableCell>
+              <TableCell>{record.recordTime}</TableCell>
+              <TableCell>
                 {onEditRecord === undefined
                   ? record.producedMaterial ?? "—"
                   : (
@@ -710,21 +713,21 @@ export function RotaryKiln2FiringTable({
                         {record.producedMaterial ?? "—"}
                       </button>
                     )}
-              </td>
+              </TableCell>
               {rotaryKiln2EarlyNumericFields.map(([field]) => (
-                <td key={field}>{formatLaboratoryNumber(record[field])}</td>
+                <TableCell key={field}>{formatLaboratoryNumber(record[field])}</TableCell>
               ))}
-              <td>{record.shiftSupervisor}</td>
-              <td>{record.burnerOperator}</td>
-              <td>{record.laboratoryAssistant}</td>
+              <TableCell>{record.shiftSupervisor}</TableCell>
+              <TableCell>{record.burnerOperator}</TableCell>
+              <TableCell>{record.laboratoryAssistant}</TableCell>
               {rotaryKiln2LateNumericFields.map(([field]) => (
-                <td key={field}>{formatLaboratoryNumber(record[field])}</td>
+                <TableCell key={field}>{formatLaboratoryNumber(record[field])}</TableCell>
               ))}
-              <td>{record.note ?? "—"}</td>
+              <TableCell>{record.note ?? "—"}</TableCell>
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }

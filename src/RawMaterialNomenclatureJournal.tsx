@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   rawMaterialNomenclatureFields,
@@ -241,11 +243,11 @@ function RawMaterialNomenclatureTable({
 
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="data-table laboratory-results-table product-brand-journal-table">
+      <ManagedTable tableId="catalog.materials" className="data-table laboratory-results-table product-brand-journal-table">
         <thead>
           <tr>
             {rawMaterialNomenclatureFields.map((field) => (
-              <th key={field.id}>{field.label}</th>
+              <TableHeader key={field.id}>{field.label}</TableHeader>
             ))}
           </tr>
         </thead>
@@ -253,7 +255,7 @@ function RawMaterialNomenclatureTable({
           {records.map((record) => (
             <tr key={record.id}>
               {rawMaterialNomenclatureFields.map((field) => (
-                <td key={field.id}>
+                <TableCell key={field.id}>
                   {field.id === "name" && onEditRecord !== undefined ? (
                     <button
                       className="board-assignment-link product-brand-edit-link"
@@ -263,12 +265,12 @@ function RawMaterialNomenclatureTable({
                       {record.name}
                     </button>
                   ) : record[field.id] === "" ? "—" : record[field.id]}
-                </td>
+                </TableCell>
               ))}
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }

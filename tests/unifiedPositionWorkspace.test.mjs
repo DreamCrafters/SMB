@@ -55,7 +55,7 @@ test("position form edits working tabs while admin rights are managed separately
   assert.match(appSource, /readPositionLevelPatch\(item\.id, isChecked, current\)/u);
   assert.equal(appSource.includes(">Админ<"), false);
   assert.equal(appSource.includes("Административные вкладки"), false);
-  assert.match(appSource, /<th>Права админа<\/th>/u);
+  assert.match(appSource, /<TableHeader>Права админа<\/TableHeader>/u);
   assert.match(appSource, /aria-label=\{`Права админа для должности/u);
   assert.doesNotMatch(appSource, /positionForm\.navigationItems\.length === 0/u);
   assert.doesNotMatch(
@@ -105,7 +105,7 @@ test("bulk tab access assigns the level next to the access checkbox", async () =
   // Столбец уровня появляется только у вкладок, где доступ делится на уровни.
   assert.match(
     appSource,
-    /selectedNavigationAccessLevels === undefined \? null : \(\s*<th>\{selectedNavigationAccessLevels\.title\}<\/th>/u,
+    /selectedNavigationAccessLevels === undefined \? null : \(\s*<TableHeader>\{selectedNavigationAccessLevels\.title\}<\/TableHeader>/u,
   );
   assert.match(appSource, /className="admin-position-navigation-access-level"/u);
   // Смена уровня сохраняет вкладку включённой и шлёт сам уровень.

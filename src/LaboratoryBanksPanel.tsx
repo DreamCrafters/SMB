@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type {
   BankNumber,
@@ -176,19 +178,19 @@ export function LaboratoryBanksPanel({
           <p className="laboratory-empty-note">Назначений пока нет.</p>
         ) : (
           <div className="table-scroll laboratory-table-scroll history-table-scroll">
-            <table className="data-table laboratory-results-table">
-              <thead><tr><th>Дата</th><th>Банка</th><th>Содержимое</th><th>Основание насыпного веса</th><th>Насыпной вес, т/м³</th><th>Лаборант</th></tr></thead>
+            <ManagedTable tableId="laboratory.banks" className="data-table laboratory-results-table">
+              <thead><tr><TableHeader>Дата</TableHeader><TableHeader>Банка</TableHeader><TableHeader>Содержимое</TableHeader><TableHeader>Основание насыпного веса</TableHeader><TableHeader>Насыпной вес, т/м³</TableHeader><TableHeader>Лаборант</TableHeader></tr></thead>
               <tbody>{state.history.map((assignment) => (
                 <tr key={assignment.assignmentId}>
-                  <td>{formatDateTime(assignment.assignedAt)}</td>
-                  <td>{bankLabels[assignment.bankNumber]}</td>
-                  <td>{assignment.materialLabel}</td>
-                  <td>{describeBulkDensitySource(assignment)}</td>
-                  <td>{formatNumber(assignment.bulkDensityTonsPerCubicMeter)}</td>
-                  <td>{assignment.assignedByDisplayName}</td>
+                  <TableCell>{formatDateTime(assignment.assignedAt)}</TableCell>
+                  <TableCell>{bankLabels[assignment.bankNumber]}</TableCell>
+                  <TableCell>{assignment.materialLabel}</TableCell>
+                  <TableCell>{describeBulkDensitySource(assignment)}</TableCell>
+                  <TableCell>{formatNumber(assignment.bulkDensityTonsPerCubicMeter)}</TableCell>
+                  <TableCell>{assignment.assignedByDisplayName}</TableCell>
                 </tr>
               ))}</tbody>
-            </table>
+            </ManagedTable>
           </div>
         )}
       </section>

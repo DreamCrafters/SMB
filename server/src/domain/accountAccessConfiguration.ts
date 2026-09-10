@@ -83,7 +83,7 @@ const capabilitiesByNavigationItem: Record<
   AccountCapability[]
 > = {
   "admin.account_preview": [],
-  "admin.accounts": ["platform.manage_users", "platform.manage_access"],
+  "admin.accounts": ["platform.manage_users", "platform.manage_access", "platform.manage_table_layouts"],
   "admin.navigation": ["platform.manage_navigation_order"],
   "admin.database": ["platform.manage_analytics_database"],
   "admin.user_actions": ["platform.view_audit"],

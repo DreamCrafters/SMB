@@ -7657,12 +7657,12 @@ p {
   color: var(--ink);
 }
 
-.refractory-bank-table thead span,
+.refractory-bank-table thead span:not(.table-cell-text),
 .refractory-bank-table thead strong {
   display: block;
 }
 
-.refractory-bank-table thead span {
+.refractory-bank-table thead span:not(.table-cell-text) {
   color: var(--muted);
   font-size: 10px;
   font-weight: 900;
@@ -8973,4 +8973,220 @@ p {
   .railway-dimensions-cell {
     flex-wrap: wrap;
   }
+}
+
+/* Shared table geometry. Leaf widths are explicit; content never widens a column. */
+.managed-table-shell {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.managed-table-scroll {
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.history-table-scroll:has(> .managed-table-shell) {
+  max-height: none;
+  overflow: visible;
+}
+
+.history-table-scroll > .managed-table-shell > .managed-table-scroll,
+.managed-table-history {
+  max-height: min(68vh, 720px);
+}
+
+.managed-table-scroll > table.managed-table,
+.managed-table-scroll > .managed-table-grid {
+  width: var(--table-width) !important;
+  min-width: var(--table-width) !important;
+  max-width: none;
+  table-layout: fixed !important;
+}
+
+.managed-table-grid.history-table-scroll {
+  max-height: none;
+  overflow: visible;
+}
+
+.managed-table-grid > [role="row"] {
+  grid-template-columns: var(--table-grid-columns) !important;
+}
+
+.managed-table :is(th, td, [role="cell"], [role="columnheader"]) {
+  box-sizing: border-box;
+  min-width: 0 !important;
+  max-width: none !important;
+  width: auto !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+:where(.managed-table th, .managed-table [role="columnheader"]) {
+  position: relative;
+}
+
+.managed-table .table-cell-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  max-height: 5.2em;
+  overflow: hidden;
+  line-height: 1.3;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.table-cell-text :where(*) {
+  white-space: inherit;
+  overflow-wrap: inherit;
+}
+
+.table-cell-text:focus-visible {
+  outline: 2px solid var(--accent, #42617a);
+  outline-offset: -2px;
+}
+
+.managed-table :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.table-layout-toolbar {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--line);
+}
+
+.table-layout-numeric {
+  flex-basis: 100%;
+}
+
+.table-layout-numeric > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.table-layout-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 8px 16px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 0;
+}
+
+.table-layout-fields > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px auto;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+}
+
+.table-layout-fields input {
+  width: 100%;
+  min-width: 0;
+}
+
+.managed-table .table-column-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 3;
+  width: 10px;
+  min-width: 10px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.table-column-resize::after {
+  position: absolute;
+  top: 10%;
+  bottom: 10%;
+  left: 4px;
+  width: 2px;
+  content: "";
+  background: var(--accent, #42617a);
+}
+
+.table-column-resize:hover,
+.table-column-resize:focus-visible {
+  outline: none;
+  background: #42617a33;
+}
+
+.table-text-tooltip {
+  position: fixed;
+  z-index: 10000;
+  width: min(480px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 12px;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px #0003;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+  user-select: text;
+}
+
+/* Preserve the stacked name/position and action summary inside the shared text block. */
+.admin-audit-actor > .table-cell-text > :is(strong, small),
+.admin-audit-action > .table-cell-text > strong {
+  display: block;
+}
+
+.admin-audit-action > .table-cell-text > strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+
+/* Keep the existing viewport limits on the element that now owns both scroll axes. */
+.refractory-table-wrap:has(> .managed-table-shell),
+.railway-table-wrap-orders:has(> .managed-table-shell),
+.notification-admin-users:has(> .managed-table-shell) {
+  max-height: none;
+  overflow: visible;
+}
+
+.refractory-table-wrap:not(.refractory-table-wrap-full-height):not(.history-table-scroll) > .managed-table-shell > .managed-table-scroll {
+  max-height: min(68vh, 760px);
+}
+
+.railway-table-wrap-orders > .managed-table-shell > .managed-table-scroll {
+  max-height: 60vh;
+}
+
+.notification-admin-users > .managed-table-shell > .managed-table-scroll {
+  max-height: 620px;
 }

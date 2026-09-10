@@ -1,3 +1,5 @@
+import { TableLayoutConflictError, type TableLayoutsRepository } from "../repositories/tableLayoutsRepository.js";
+import type { TableLayout } from "../contracts/tableLayouts.js";
 import { once } from "node:events";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -15095,3 +15097,72 @@ function formatScriptDateTime(value: Date) {
     value.getHours(),
   ).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
 }
+
+
+test("table layout API uses signed-in admin rights, versions and transactional audit", async () => {
+  let stored: TableLayout = { tableId: "warehouse.stock", revision: 0, widths: {} };
+  let inTransaction = false;
+  let auditFails = false;
+  const actions: string[] = [];
+  const layouts: TableLayoutsRepository = {
+    async read() { return [stored]; },
+    async set(layout) {
+      assert.equal(inTransaction, true);
+      if (layout.revision !== stored.revision) throw new TableLayoutConflictError();
+      const previous = stored;
+      stored = { ...layout, revision: layout.revision + 1 };
+      return { previous, updated: stored };
+    },
+  };
+  const server = createApiServer({
+    config, dispatcherSubmissions, referenceDataSource: emptyReferenceDataSource,
+    productionBrands: passthroughProductionBrands, tableLayouts: layouts,
+    audit: {
+      async record(event) {
+        if (event.action !== "admin.table_layout_update") return;
+        assert.equal(inTransaction, true);
+        if (auditFails) throw new Error("audit unavailable");
+        actions.push(event.action);
+        assert.equal(event.targetId, "warehouse.stock");
+      },
+      async listReport() { throw new Error("unused"); },
+    },
+    databaseTransaction: {
+      async run(operation) {
+        const before = stored;
+        inTransaction = true;
+        try { return await operation(); }
+        catch (error) { stored = before; throw error; }
+        finally { inTransaction = false; }
+      },
+    },
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const url = `${baseUrl}/api/table-layouts`;
+    assert.equal((await fetch(url)).status, 401);
+    const admin = await createDevSession(baseUrl, "admin");
+    const worker = await createDevSession(baseUrl, "worker");
+    const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": admin,
+      "X-SMB-Account-Preview": "navigation:business.warehouse_1c" };
+    const workerHeaders = { ...headers, "X-SMB-Dev-Session": worker, "X-SMB-Account-Preview": "position:administrator" };
+    const body = JSON.stringify({ tableId: "warehouse.stock", revision: 0, widths: { nomenclature: 240 } });
+    assert.equal((await fetch(url, { method: "PUT", headers: workerHeaders, body })).status, 403);
+    const workerRead = await fetch(url, { headers: workerHeaders });
+    assert.equal(workerRead.status, 200);
+    const workerPayload: unknown = await workerRead.json();
+    assert.ok(isRecord(workerPayload));
+    assert.equal(workerPayload.canManage, false);
+    assert.equal((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ tableId: "unknown", revision: 0, widths: {} }) })).status, 400);
+    assert.equal((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ tableId: "admin.database", revision: 0, widths: { "field.unknown.secret": 100 } }) })).status, 400);
+    assert.equal((await fetch(url, { method: "PUT", headers, body })).status, 200);
+    assert.equal((await fetch(url, { method: "PUT", headers, body })).status, 409);
+    assert.deepEqual(stored.widths, { nomenclature: 240 });
+    assert.deepEqual(actions, ["admin.table_layout_update"]);
+    auditFails = true;
+    assert.equal((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ ...stored, widths: {} }) })).status, 500);
+    assert.deepEqual(stored.widths, { nomenclature: 240 });
+    assert.equal(stored.revision, 1);
+  } finally { server.close(); await once(server, "close"); }
+});

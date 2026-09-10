@@ -94,6 +94,7 @@ test("position admin rights grant account management without root admin panels",
       "business.view_dispatcher_feed",
       "platform.manage_users",
       "platform.manage_access",
+      "platform.manage_table_layouts",
       "business.view_overview_visitors",
     ],
   );
@@ -117,6 +118,7 @@ test("system administrator keeps every navigation-derived root capability when r
     [
       "platform.manage_users",
       "platform.manage_access",
+      "platform.manage_table_layouts",
       "platform.manage_navigation_order",
       "platform.manage_analytics_database",
       "platform.view_audit",
@@ -129,6 +131,7 @@ test("navigation selection expands only to its server capabilities", () => {
   assert.deepEqual(resolveCapabilitiesForNavigation(["admin.accounts"]), [
     "platform.manage_users",
     "platform.manage_access",
+    "platform.manage_table_layouts",
   ]);
   assert.deepEqual(resolveCapabilitiesForNavigation(["admin.user_actions"]), [
     "platform.view_audit",

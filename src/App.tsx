@@ -1,3 +1,6 @@
+import { TableLayoutProvider } from "./TableLayoutProvider";
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell, AriaTableCell } from "./TableCell";
 import {
   useEffect,
   useLayoutEffect,
@@ -1983,6 +1986,7 @@ export default function App() {
   };
 
   return (
+    <TableLayoutProvider key={profile.activeAccess.accountId} canConfigure={hasCapability(profile, "platform.manage_table_layouts")}>
     <main
       className={`ops-shell ${
         isNavigationOpen
@@ -2138,6 +2142,7 @@ export default function App() {
         />
       </section>
     </main>
+    </TableLayoutProvider>
   );
 }
 
@@ -4266,21 +4271,21 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
         })}
       </dl>
       <div className="production-plan-table-wrap">
-        <table className="production-plan-table">
+        <ManagedTable tableId="production.plan" className="production-plan-table">
           <thead>
             <tr>
-              <th scope="col">Дата</th>
+              <TableHeader scope="col">Дата</TableHeader>
               {productionCategories.map((category) => (
-                <th scope="col" key={category}>
+                <TableHeader scope="col" key={category}>
                   {productionCategoryLabels[category]}
-                </th>
+                </TableHeader>
               ))}
             </tr>
           </thead>
           <tbody>
             {readProductionPlanScheduleDates(plan).map((date) => (
               <tr key={date}>
-                <td>{formatDateOnly(date)}</td>
+                <TableCell>{formatDateOnly(date)}</TableCell>
                 {productionCategories.map((category) => {
                   const schedule = plan.schedules[category];
                   const dailyPlan = schedule?.dailyPlans.find(
@@ -4290,18 +4295,18 @@ function ProductionPlanSavedPanel({ state }: { state: ProductionPlanLoadState })
                     schedule?.dailyPlans.at(-1)?.date === date;
 
                   return (
-                    <td
+                    <TableCell
                       className={isRemainder ? "is-remainder" : undefined}
                       key={category}
                     >
                       {dailyPlan === undefined ? "—" : formatNumber(dailyPlan.value)}
-                    </td>
+                    </TableCell>
                   );
                 })}
               </tr>
             ))}
           </tbody>
-        </table>
+        </ManagedTable>
       </div>
       <p className="production-plan-formula-note">
         До предпоследнего рабочего дня используется округление вверх; последний день — остаток.
@@ -5314,11 +5319,11 @@ function DispatcherProductionBankReportTable({
   ) {
     return (
       <tr className={className}>
-        <th scope="row">{label}</th>
+        <TableHeader scope="row">{label}</TableHeader>
         {bankColumns.map(({ bankNumber, calculation }) => (
-          <td key={bankNumber}>
+          <TableCell key={bankNumber}>
             <output>{formatDispatcherBankNumber(readValue(calculation?.value))}</output>
-          </td>
+          </TableCell>
         ))}
       </tr>
     );
@@ -5328,26 +5333,26 @@ function DispatcherProductionBankReportTable({
     <>
       <span className="production-report-section-note">{reportStatus}</span>
       <div className="refractory-table-wrap refractory-table-wrap-full-height refractory-bank-table-wrap">
-        <table className="refractory-bank-table dispatcher-bank-detail-table">
+        <ManagedTable tableId="production.banks" columns={["metric", ...bankColumns.map(({ bankNumber }) => `bank.${bankNumber}` as const)]} className="refractory-bank-table dispatcher-bank-detail-table">
           <thead>
             <tr>
-              <th scope="col">Показатель</th>
+              <TableHeader scope="col">Показатель</TableHeader>
               {bankColumns.map(({ bankNumber, material }) => {
                 return (
-                  <th key={bankNumber} scope="col">
+                  <TableHeader key={bankNumber} scope="col">
                     <span>Банка {readRomanBankNumber(bankNumber)}</span>
                     {" "}
                     <strong>{material ?? "Не назначено"}</strong>
-                  </th>
+                  </TableHeader>
                 );
               })}
             </tr>
           </thead>
           <tbody>
             <tr className="refractory-bank-empty-row">
-              <th scope="row">Банка пустая</th>
+              <TableHeader scope="row">Банка пустая</TableHeader>
               {bankColumns.map(({ bankNumber }) => (
-                <td key={bankNumber}>
+                <TableCell key={bankNumber}>
                   <label className="refractory-bank-empty-toggle">
                     <input
                       aria-label={`Банка ${readRomanBankNumber(bankNumber)}: банка пустая`}
@@ -5367,16 +5372,16 @@ function DispatcherProductionBankReportTable({
                         : `все замеры ${formatNumber(emptyBankHeightMeters)} м`}
                     </span>
                   </label>
-                </td>
+                </TableCell>
               ))}
             </tr>
             {Array.from({ length: 4 }, (_, index) => (
               <tr key={`measurement-${index}`}>
-                <th scope="row">
+                <TableHeader scope="row">
                   Замер {index + 1}, м
-                </th>
+                </TableHeader>
                 {bankColumns.map(({ bankNumber }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <input
                       aria-label={`Банка ${readRomanBankNumber(bankNumber)}: замер ${index + 1}`}
                       inputMode="decimal"
@@ -5392,7 +5397,7 @@ function DispatcherProductionBankReportTable({
                         updateMeasurement(bankNumber, index, rawValue);
                       }}
                     />
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
             ))}
@@ -5402,17 +5407,17 @@ function DispatcherProductionBankReportTable({
               "refractory-bank-calculated-row",
             )}
             <tr className="refractory-bank-calculated-row">
-              <th scope="row">Насыпная плотность, т/м³</th>
+              <TableHeader scope="row">Насыпная плотность, т/м³</TableHeader>
               {bankColumns.map(({ bankNumber, density, densityDate }) => {
                 return (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>{formatDispatcherBankNumber(density)}</output>
                     {densityDate === undefined ? null : (
                       <small>
                         данные на {formatDateOnly(densityDate)}
                       </small>
                     )}
-                  </td>
+                  </TableCell>
                 );
               })}
             </tr>
@@ -5428,11 +5433,11 @@ function DispatcherProductionBankReportTable({
             )}
             {(["loaded", "shipped"] as const).map((field) => (
               <tr key={field}>
-                <th scope="row">
+                <TableHeader scope="row">
                   {field === "loaded" ? "Засыпали, т" : "Отгрузили, т"}
-                </th>
+                </TableHeader>
                 {bankColumns.map(({ bankNumber }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <input
                       aria-label={`Банка ${readRomanBankNumber(bankNumber)}: ${field === "loaded" ? "засыпали" : "отгрузили"}, т`}
                       inputMode="decimal"
@@ -5447,7 +5452,7 @@ function DispatcherProductionBankReportTable({
                         updateMovement(bankNumber, field, rawValue);
                       }}
                     />
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
             ))}
@@ -5457,10 +5462,10 @@ function DispatcherProductionBankReportTable({
               "refractory-bank-calculated-row refractory-bank-mass-row",
             )}
             <tr className="refractory-bank-report-row">
-              <th scope="row">Отображение в отчётах, т</th>
+              <TableHeader scope="row">Отображение в отчётах, т</TableHeader>
               {bankColumns.map(({ bankNumber, calculation }) => {
                 return (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>
                       {formatDispatcherBankNumber(
                         calculation?.value?.materialMassTons,
@@ -5469,13 +5474,13 @@ function DispatcherProductionBankReportTable({
                         calculation?.value?.shipmentMassTons,
                       )}
                     </output>
-                  </td>
+                  </TableCell>
                 );
               })}
             </tr>
             <tr className="dispatcher-bank-master-row">
-              <th scope="row">Мастер ЦОШ</th>
-              <td colSpan={3}>
+              <TableHeader scope="row">Мастер ЦОШ</TableHeader>
+              <TableCell colSpan={3}>
                 <input
                   aria-label="Мастер ЦОШ"
                   list="dispatcher-cosh-master-options"
@@ -5488,10 +5493,10 @@ function DispatcherProductionBankReportTable({
                     setCoshMaster(value);
                   }}
                 />
-              </td>
+              </TableCell>
             </tr>
           </tbody>
-        </table>
+        </ManagedTable>
       </div>
       <datalist id="dispatcher-cosh-master-options">
         {Array.from(new Set([
@@ -5694,11 +5699,11 @@ export function ProductionCategoryTable({
   const content = (
     <div className="production-brand-columns">
       <div className="production-report-table-wrap">
-        <table className="production-report-table production-report-brand-columns-table">
+        <ManagedTable tableId="production.brands" columns={[...columns.map((column) => `brand.${column.id}` as const), "dayPlan", "monthPlan", "monthFact", "deviation"]} className="production-report-table production-report-brand-columns-table">
           <thead>
             <tr>
               {columns.map((column, index) => (
-                <th scope="col" key={column.id}>
+                <TableHeader scope="col" key={column.id} data-table-column-label={`Марка ${column.id}`}>
                   <ProductBrandPicker
                     labels={brandLabels}
                     name={`${prefix}Brand${column.id}`}
@@ -5718,26 +5723,26 @@ export function ProductionCategoryTable({
                       Удалить
                     </button>
                   ) : null}
-                </th>
+                </TableHeader>
               ))}
-              <th className="production-report-plan-heading" scope="col">
+              <TableHeader className="production-report-plan-heading" scope="col">
                 План за день
-              </th>
-              <th className="production-report-plan-heading" scope="col">
+              </TableHeader>
+              <TableHeader className="production-report-plan-heading" scope="col">
                 План за месяц
-              </th>
-              <th className="production-report-plan-heading" scope="col">
+              </TableHeader>
+              <TableHeader className="production-report-plan-heading" scope="col">
                 Факт за месяц
-              </th>
-              <th className="production-report-plan-heading" scope="col">
+              </TableHeader>
+              <TableHeader className="production-report-plan-heading" scope="col">
                 Отклонение
-              </th>
+              </TableHeader>
             </tr>
           </thead>
           <tbody>
             <tr>
               {columns.map((column) => (
-                <td key={column.id}>
+                <TableCell key={column.id}>
                   <label className="production-brand-fact-input">
                     <span>Факт по марке</span>
                     <input
@@ -5786,28 +5791,28 @@ export function ProductionCategoryTable({
                       }}
                     />
                   </label>
-                </td>
+                </TableCell>
               ))}
-              <td className="production-report-plan-cell">
+              <TableCell className="production-report-plan-cell">
                 {categoryPlan === undefined
                   ? "Не задан"
                   : formatNumber(categoryPlan)}
-              </td>
-              <td className="production-report-plan-cell">
+              </TableCell>
+              <TableCell className="production-report-plan-cell">
                 <ProductionCalculatedValue
                   ariaLabel={`${productionCategoryLabels[prefix]}: план за месяц`}
                   emptyLabel="Не задан"
                   value={monthToDate?.monthPlan}
                 />
-              </td>
-              <td className="production-report-plan-cell">
+              </TableCell>
+              <TableCell className="production-report-plan-cell">
                 <ProductionCalculatedValue
                   ariaLabel={`${productionCategoryLabels[prefix]}: факт за месяц`}
                   emptyLabel="Не рассчитан"
                   value={monthFact}
                 />
-              </td>
-              <td className="production-report-plan-cell">
+              </TableCell>
+              <TableCell className="production-report-plan-cell">
                 <ProductionCalculatedValue
                   ariaLabel={`${productionCategoryLabels[prefix]}: отклонение`}
                   emptyLabel="Не рассчитано"
@@ -5816,10 +5821,10 @@ export function ProductionCategoryTable({
                     monthFact,
                   )}
                 />
-              </td>
+              </TableCell>
             </tr>
           </tbody>
-        </table>
+        </ManagedTable>
       </div>
       <button
         className="production-brand-column-add"
@@ -5850,7 +5855,7 @@ function ProductionCalculatedValue({
   value?: number;
 }) {
   return (
-    <output aria-label={ariaLabel} className="production-report-calculated-value">
+    <output aria-label={ariaLabel} className="production-report-calculated-value table-cell-text">
       {value === undefined ? emptyLabel : formatNumber(value)}
     </output>
   );
@@ -5954,16 +5959,16 @@ function ProductionGranulationTable({
 }) {
   return (
     <div className="production-report-table-wrap">
-      <table className="production-report-table production-report-granulation-table">
+      <ManagedTable tableId="production.granulation" className="production-report-table production-report-granulation-table">
         <thead>
           <tr>
-            <th scope="col" rowSpan={2}>Количество тарелок в работе</th>
-            <th scope="col" rowSpan={2}>Время работы мельницы, часов</th>
-            <th scope="colgroup" colSpan={2}>Выпуск сырцовой гранулы, т</th>
+            <TableHeader scope="col" rowSpan={2}>Количество тарелок в работе</TableHeader>
+            <TableHeader scope="col" rowSpan={2}>Время работы мельницы, часов</TableHeader>
+            <TableHeader scope="colgroup" colSpan={2}>Выпуск сырцовой гранулы, т</TableHeader>
           </tr>
           <tr>
-            <th scope="col">Фракция 16/30</th>
-            <th scope="col">Фракция 12/18</th>
+            <TableHeader scope="col">Фракция 16/30</TableHeader>
+            <TableHeader scope="col">Фракция 12/18</TableHeader>
           </tr>
         </thead>
         <tbody>
@@ -5974,17 +5979,17 @@ function ProductionGranulationTable({
               "granulationFraction1630Day",
               "granulationFraction1218Day",
             ].map((fieldName) => (
-              <td key={fieldName}>
+              <TableCell key={fieldName}>
                 <ProductionReportCell
                   defaultValue={initialPayload?.[fieldName]}
                   fieldName={fieldName}
                   form={form}
                 />
-              </td>
+              </TableCell>
             ))}
           </tr>
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -8027,51 +8032,51 @@ function ProductionBrandDashboardTable({
 }) {
   return (
     <div className="production-dashboard-table-wrap history-table-scroll">
-      <table className="production-dashboard-table production-dashboard-brand-table">
+      <ManagedTable tableId="dashboard.brands" className="production-dashboard-table production-dashboard-brand-table">
         <thead>
           <tr className="production-dashboard-totals-row">
-            <th scope="row">Итого:</th>
-            <td>—</td>
-            <td>{formatOptionalNumber(totals.dayPlan)}</td>
-            <td>{formatOptionalNumber(totals.dayFact)}</td>
-            <td>{formatOptionalNumber(totals.monthPlan)}</td>
-            <td>{formatOptionalNumber(totals.monthFact)}</td>
-            <td>{formatOptionalNumber(totals.deviation)}</td>
+            <TableHeader scope="row">Итого:</TableHeader>
+            <TableCell>—</TableCell>
+            <TableCell>{formatOptionalNumber(totals.dayPlan)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.dayFact)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.monthPlan)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.monthFact)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.deviation)}</TableCell>
           </tr>
           <tr className="production-dashboard-headings-row">
-            <th scope="col">Дата</th>
-            <th scope="col">Марка</th>
-            <th scope="col">Сутки, план</th>
-            <th scope="col">Сутки, факт</th>
-            <th scope="col">Месяц, план</th>
-            <th scope="col">Месяц, факт</th>
-            <th scope="col">Разница</th>
+            <TableHeader scope="col">Дата</TableHeader>
+            <TableHeader scope="col">Марка</TableHeader>
+            <TableHeader scope="col">Сутки, план</TableHeader>
+            <TableHeader scope="col">Сутки, факт</TableHeader>
+            <TableHeader scope="col">Месяц, план</TableHeader>
+            <TableHeader scope="col">Месяц, факт</TableHeader>
+            <TableHeader scope="col">Разница</TableHeader>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.reportId}>
-              <td>
+              <TableCell>
                 <ProductionReportDateButton
                   row={row}
                   formAvailable={formAvailable}
                   onOpen={onOpen}
                 />
-              </td>
-              <td>
+              </TableCell>
+              <TableCell>
                 {row.facts.length === 0
                   ? "—"
                   : row.facts.map((fact) => fact.brand).join("; ")}
-              </td>
-              <td>{formatOptionalNumber(row.dayPlan)}</td>
-              <td>{formatOptionalNumber(row.dayFact)}</td>
-              <td>{formatOptionalNumber(row.monthPlan)}</td>
-              <td>{formatOptionalNumber(row.monthFact)}</td>
-              <td>{formatOptionalNumber(row.deviation)}</td>
+              </TableCell>
+              <TableCell>{formatOptionalNumber(row.dayPlan)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.dayFact)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.monthPlan)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.monthFact)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.deviation)}</TableCell>
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -8094,55 +8099,55 @@ function ProductionJarDashboardTable({
   );
   return (
     <div className="production-dashboard-table-wrap history-table-scroll">
-      <table className="production-dashboard-table">
+      <ManagedTable tableId="dashboard.banks" className="production-dashboard-table">
         <thead>
           <tr className="production-dashboard-totals-row">
-            <th scope="row">Итого:</th>
-            <td>—</td>
-            <td>—</td>
-            <td>{formatOptionalNumber(totals.start)}</td>
-            <td>{formatOptionalNumber(totals.shipmentStart)}</td>
-            <td>{formatOptionalNumber(totals.end)}</td>
-            <td>{formatOptionalNumber(totals.shipmentEnd)}</td>
-            <td>{formatOptionalNumber(totals.consumption)}</td>
-            <td>{formatOptionalNumber(totals.shipmentConsumption)}</td>
+            <TableHeader scope="row">Итого:</TableHeader>
+            <TableCell>—</TableCell>
+            <TableCell>—</TableCell>
+            <TableCell>{formatOptionalNumber(totals.start)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.shipmentStart)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.end)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.shipmentEnd)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.consumption)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.shipmentConsumption)}</TableCell>
           </tr>
           <tr className="production-dashboard-headings-row">
-            <th scope="col">Дата</th>
-            <th scope="col">Банка</th>
-            <th scope="col">Содержимое</th>
-            <th scope="col">Начало по замерам</th>
-            <th scope="col">Начало по отгрузкам</th>
-            <th scope="col">Конец по замерам</th>
-            <th scope="col">Конец по отгрузкам</th>
-            <th scope="col">Расход по замерам</th>
-            <th scope="col">Расход по отгрузкам</th>
+            <TableHeader scope="col">Дата</TableHeader>
+            <TableHeader scope="col">Банка</TableHeader>
+            <TableHeader scope="col">Содержимое</TableHeader>
+            <TableHeader scope="col">Начало по замерам</TableHeader>
+            <TableHeader scope="col">Начало по отгрузкам</TableHeader>
+            <TableHeader scope="col">Конец по замерам</TableHeader>
+            <TableHeader scope="col">Конец по отгрузкам</TableHeader>
+            <TableHeader scope="col">Расход по замерам</TableHeader>
+            <TableHeader scope="col">Расход по отгрузкам</TableHeader>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={`${row.reportId}-${row.jarNumber}`}>
-              <td>
+              <TableCell>
                 <ProductionReportDateButton
                   row={row}
                   formAvailable={formAvailable}
                   onOpen={onOpen}
                 />
-              </td>
-              <td>{row.jarNumber}</td>
-              <td>
+              </TableCell>
+              <TableCell>{row.jarNumber}</TableCell>
+              <TableCell>
                 {materialByBankNumber.get(row.jarNumber) ?? "Не назначено"}
-              </td>
-              <td>{formatOptionalNumber(row.start)}</td>
-              <td>{formatOptionalNumber(row.shipmentStart)}</td>
-              <td>{formatOptionalNumber(row.end)}</td>
-              <td>{formatOptionalNumber(row.shipmentEnd)}</td>
-              <td>{formatOptionalNumber(row.consumption)}</td>
-              <td>{formatOptionalNumber(row.shipmentConsumption)}</td>
+              </TableCell>
+              <TableCell>{formatOptionalNumber(row.start)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.shipmentStart)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.end)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.shipmentEnd)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.consumption)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.shipmentConsumption)}</TableCell>
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -8160,47 +8165,47 @@ function ProductionGranulationDashboardTable({
 }) {
   return (
     <div className="production-dashboard-table-wrap history-table-scroll">
-      <table className="production-dashboard-table production-dashboard-granulation-table">
+      <ManagedTable tableId="dashboard.granulation" className="production-dashboard-table production-dashboard-granulation-table">
         <thead>
           <tr className="production-dashboard-totals-row">
-            <th scope="row">Итого:</th>
-            <td>{formatOptionalNumber(totals.platesInOperation)}</td>
-            <td>{formatOptionalNumber(totals.millHours)}</td>
-            <td>{formatOptionalNumber(totals.fraction1630Day)}</td>
-            <td>{formatOptionalNumber(totals.fraction1630Month)}</td>
-            <td>{formatOptionalNumber(totals.fraction1218Day)}</td>
-            <td>{formatOptionalNumber(totals.fraction1218Month)}</td>
+            <TableHeader scope="row">Итого:</TableHeader>
+            <TableCell>{formatOptionalNumber(totals.platesInOperation)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.millHours)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.fraction1630Day)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.fraction1630Month)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.fraction1218Day)}</TableCell>
+            <TableCell>{formatOptionalNumber(totals.fraction1218Month)}</TableCell>
           </tr>
           <tr className="production-dashboard-headings-row">
-            <th scope="col">Дата</th>
-            <th scope="col">Тарелок в работе</th>
-            <th scope="col">Мельница, ч</th>
-            <th scope="col">16/30, сутки</th>
-            <th scope="col">16/30, месяц</th>
-            <th scope="col">12/18, сутки</th>
-            <th scope="col">12/18, месяц</th>
+            <TableHeader scope="col">Дата</TableHeader>
+            <TableHeader scope="col">Тарелок в работе</TableHeader>
+            <TableHeader scope="col">Мельница, ч</TableHeader>
+            <TableHeader scope="col">16/30, сутки</TableHeader>
+            <TableHeader scope="col">16/30, месяц</TableHeader>
+            <TableHeader scope="col">12/18, сутки</TableHeader>
+            <TableHeader scope="col">12/18, месяц</TableHeader>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.reportId}>
-              <td>
+              <TableCell>
                 <ProductionReportDateButton
                   row={row}
                   formAvailable={formAvailable}
                   onOpen={onOpen}
                 />
-              </td>
-              <td>{formatOptionalNumber(row.platesInOperation)}</td>
-              <td>{formatOptionalNumber(row.millHours)}</td>
-              <td>{formatOptionalNumber(row.fraction1630Day)}</td>
-              <td>{formatOptionalNumber(row.fraction1630Month)}</td>
-              <td>{formatOptionalNumber(row.fraction1218Day)}</td>
-              <td>{formatOptionalNumber(row.fraction1218Month)}</td>
+              </TableCell>
+              <TableCell>{formatOptionalNumber(row.platesInOperation)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.millHours)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.fraction1630Day)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.fraction1630Month)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.fraction1218Day)}</TableCell>
+              <TableCell>{formatOptionalNumber(row.fraction1218Month)}</TableCell>
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }
@@ -8227,7 +8232,7 @@ function ProductionReportDateButton({
       }
       onClick={() => onOpen(row.reportId)}
     >
-      {formatReportDateForDisplay(row.reportDate)}
+      <span className="table-cell-text">{formatReportDateForDisplay(row.reportDate)}</span>
     </button>
   );
 }
@@ -8379,12 +8384,12 @@ function EquipmentSummaryTable({
 
   return (
     <>
-      <div className="dispatcher-feed-table history-table-scroll" role="table">
+      <ManagedTable tableId="dispatcher.equipment" variant="grid" className="dispatcher-feed-table history-table-scroll" role="table">
         <div className="dispatcher-feed-row dispatcher-feed-row-equipment dispatcher-feed-head history-table-head" role="row">
-          <span role="columnheader">Оборудование</span>
-          <span role="columnheader">Выработка</span>
-          <span role="columnheader">Простой</span>
-          <span role="columnheader">Причины простоя</span>
+          <AriaTableCell role="columnheader">Оборудование</AriaTableCell>
+          <AriaTableCell role="columnheader">Выработка</AriaTableCell>
+          <AriaTableCell role="columnheader">Простой</AriaTableCell>
+          <AriaTableCell role="columnheader">Причины простоя</AriaTableCell>
         </div>
         {rows.map((row) => (
           <div
@@ -8392,7 +8397,7 @@ function EquipmentSummaryTable({
             role="row"
             key={row.equipment}
           >
-            <span role="cell">
+            <AriaTableCell role="cell">
               <button
                 className="equipment-detail-trigger"
                 type="button"
@@ -8401,13 +8406,13 @@ function EquipmentSummaryTable({
               >
                 {row.equipment}
               </button>
-            </span>
-            <span role="cell">{formatNumber(row.productionTons)} т</span>
-            <span role="cell">{formatNumber(row.downtimeHours)} ч</span>
-            <span role="cell">{formatDowntimeReasons(row.downtimeReasons)}</span>
+            </AriaTableCell>
+            <AriaTableCell role="cell">{formatNumber(row.productionTons)} т</AriaTableCell>
+            <AriaTableCell role="cell">{formatNumber(row.downtimeHours)} ч</AriaTableCell>
+            <AriaTableCell role="cell">{formatDowntimeReasons(row.downtimeReasons)}</AriaTableCell>
           </div>
         ))}
-      </div>
+      </ManagedTable>
 
       {detailEquipment !== undefined && detailSummary !== undefined ? (
         <EquipmentDetailModal
@@ -8478,33 +8483,33 @@ function EquipmentDetailModal({
             Нет дневных строк для выбранного оборудования.
           </p>
         ) : (
-          <div className="equipment-detail-table history-table-scroll" role="table">
+          <ManagedTable tableId="dispatcher.equipmentHistory" variant="grid" className="equipment-detail-table history-table-scroll" role="table">
             <div className="equipment-detail-row equipment-detail-head history-table-head" role="row">
-              <span role="columnheader">Дата отчета</span>
-              <span role="columnheader">Выработка</span>
-              <span role="columnheader">Простой</span>
-              <span role="columnheader">Причины</span>
-              <span role="columnheader">Примечание</span>
-              <span role="columnheader">Обновлено</span>
+              <AriaTableCell role="columnheader">Дата отчета</AriaTableCell>
+              <AriaTableCell role="columnheader">Выработка</AriaTableCell>
+              <AriaTableCell role="columnheader">Простой</AriaTableCell>
+              <AriaTableCell role="columnheader">Причины</AriaTableCell>
+              <AriaTableCell role="columnheader">Примечание</AriaTableCell>
+              <AriaTableCell role="columnheader">Обновлено</AriaTableCell>
             </div>
             {rows.map((row) => (
               <div className="equipment-detail-row" role="row" key={row.reportDate}>
-                <span role="cell">
+                <AriaTableCell role="cell">
                   <strong>{formatReportDateForDisplay(row.reportDate)}</strong>
                   {row.submissionCount > 1 ? (
                     <small>{row.submissionCount} записи</small>
                   ) : null}
-                </span>
-                <span role="cell">{formatNumber(row.productionTons)} т</span>
-                <span role="cell">{formatNumber(row.downtimeHours)} ч</span>
-                <span role="cell">{formatDowntimeReasons(row.downtimeReasons)}</span>
-                <span role="cell">
+                </AriaTableCell>
+                <AriaTableCell role="cell">{formatNumber(row.productionTons)} т</AriaTableCell>
+                <AriaTableCell role="cell">{formatNumber(row.downtimeHours)} ч</AriaTableCell>
+                <AriaTableCell role="cell">{formatDowntimeReasons(row.downtimeReasons)}</AriaTableCell>
+                <AriaTableCell role="cell">
                   {row.notes.length === 0 ? "Нет" : row.notes.join(" · ")}
-                </span>
-                <span role="cell">{formatDateTime(row.receivedAt)}</span>
+                </AriaTableCell>
+                <AriaTableCell role="cell">{formatDateTime(row.receivedAt)}</AriaTableCell>
               </div>
             ))}
-          </div>
+          </ManagedTable>
         )}
       </section>
     </div>
@@ -8559,13 +8564,13 @@ function IncidentSummaryTable({
   }
 
   return (
-    <div className="dispatcher-feed-table history-table-scroll" role="table">
+    <ManagedTable tableId="dispatcher.incidents" variant="grid" className="dispatcher-feed-table history-table-scroll" role="table">
       <div className="dispatcher-feed-row dispatcher-feed-row-incidents dispatcher-feed-head history-table-head" role="row">
-        <span role="columnheader">№</span>
-        <span role="columnheader">Статус</span>
-        <span role="columnheader">Открыт</span>
-        <span role="columnheader">Закрыт</span>
-        <span role="columnheader">Описание</span>
+        <AriaTableCell role="columnheader">№</AriaTableCell>
+        <AriaTableCell role="columnheader">Статус</AriaTableCell>
+        <AriaTableCell role="columnheader">Открыт</AriaTableCell>
+        <AriaTableCell role="columnheader">Закрыт</AriaTableCell>
+        <AriaTableCell role="columnheader">Описание</AriaTableCell>
       </div>
       {rows.map((row) => (
         <div
@@ -8573,20 +8578,20 @@ function IncidentSummaryTable({
           role="row"
           key={row.incidentNumber}
         >
-          <span role="cell">{row.incidentNumber}</span>
-          <span role="cell">
+          <AriaTableCell role="cell">{row.incidentNumber}</AriaTableCell>
+          <AriaTableCell role="cell">
             {row.status === "closed" ? "Закрыт" : "Открыт"}
-          </span>
-          <span role="cell">{row.openedAt}</span>
-          <span role="cell">{row.closedAt ?? "Ещё не закрыт"}</span>
-          <span role="cell">
+          </AriaTableCell>
+          <AriaTableCell role="cell">{row.openedAt}</AriaTableCell>
+          <AriaTableCell role="cell">{row.closedAt ?? "Ещё не закрыт"}</AriaTableCell>
+          <AriaTableCell role="cell">
             {[row.location, row.incidentType, row.criticality, row.description]
               .filter((value): value is string => value !== undefined)
               .join(" · ")}
-          </span>
+          </AriaTableCell>
         </div>
       ))}
-    </div>
+    </ManagedTable>
   );
 }
 
@@ -8596,13 +8601,13 @@ function VisitorSummaryTable({ rows }: { rows: ReturnType<typeof buildVisitorVis
   }
 
   return (
-    <div className="dispatcher-feed-table history-table-scroll" role="table">
+    <ManagedTable tableId="dispatcher.visitors" variant="grid" className="dispatcher-feed-table history-table-scroll" role="table">
       <div className="dispatcher-feed-row dispatcher-feed-row-visitors dispatcher-feed-head history-table-head" role="row">
-        <span role="columnheader">Посетитель</span>
-        <span role="columnheader">Организация</span>
-        <span role="columnheader">Кого посещает</span>
-        <span role="columnheader">Вход</span>
-        <span role="columnheader">Выход</span>
+        <AriaTableCell role="columnheader">Посетитель</AriaTableCell>
+        <AriaTableCell role="columnheader">Организация</AriaTableCell>
+        <AriaTableCell role="columnheader">Кого посещает</AriaTableCell>
+        <AriaTableCell role="columnheader">Вход</AriaTableCell>
+        <AriaTableCell role="columnheader">Выход</AriaTableCell>
       </div>
       {rows.map((row) => (
         <div
@@ -8610,14 +8615,14 @@ function VisitorSummaryTable({ rows }: { rows: ReturnType<typeof buildVisitorVis
           role="row"
           key={row.entryId}
         >
-          <span role="cell">{row.fio}</span>
-          <span role="cell">{row.organization ?? "Не указана"}</span>
-          <span role="cell">{row.whom ?? "Не указано"}</span>
-          <span role="cell">{row.entryAt}</span>
-          <span role="cell">{row.exitAt ?? "Время выхода не отмечено"}</span>
+          <AriaTableCell role="cell">{row.fio}</AriaTableCell>
+          <AriaTableCell role="cell">{row.organization ?? "Не указана"}</AriaTableCell>
+          <AriaTableCell role="cell">{row.whom ?? "Не указано"}</AriaTableCell>
+          <AriaTableCell role="cell">{row.entryAt}</AriaTableCell>
+          <AriaTableCell role="cell">{row.exitAt ?? "Время выхода не отмечено"}</AriaTableCell>
         </div>
       ))}
-    </div>
+    </ManagedTable>
   );
 }
 
@@ -9085,20 +9090,20 @@ function UserActionsWorkspace({
         </div>
       ) : null}
       {report !== undefined && report.events.length > 0 ? (
-        <div
+        <ManagedTable tableId="admin.audit" variant="grid"
           className="admin-audit-list history-table-scroll"
           role="table"
           aria-label="Журнал действий"
         >
           <div className="admin-audit-row admin-audit-row-head history-table-head" role="row">
-            <span role="columnheader">Когда</span>
-            <span role="columnheader">Кто</span>
-            <span role="columnheader">Что сделал</span>
+            <AriaTableCell role="columnheader">Когда</AriaTableCell>
+            <AriaTableCell role="columnheader">Кто</AriaTableCell>
+            <AriaTableCell role="columnheader">Что сделал</AriaTableCell>
           </div>
           {report.events.map((event) => (
             <AdminAuditEventRow event={event} key={event.id} />
           ))}
-        </div>
+        </ManagedTable>
       ) : null}
 
       {report !== undefined && (offset > 0 || canGoForward) ? (
@@ -9137,17 +9142,17 @@ function UserActionsWorkspace({
 function AdminAuditEventRow({ event }: { event: UserActivityEvent }) {
   return (
     <article className="admin-audit-row" role="row">
-      <time dateTime={event.occurredAt} role="cell">
+      <AriaTableCell as="time" dateTime={event.occurredAt} role="cell">
         {formatAuditOccurredAt(event.occurredAt)}
-      </time>
-      <div className="admin-audit-actor" role="cell">
+      </AriaTableCell>
+      <AriaTableCell as="div" className="admin-audit-actor" role="cell">
         <strong>{event.actor.displayName}</strong>
         <small>
           {event.actor.positionDisplayName}
           {event.actor.login ? ` · ${event.actor.login}` : ""}
         </small>
-      </div>
-      <div className="admin-audit-action" role="cell">
+      </AriaTableCell>
+      <AriaTableCell as="div" className="admin-audit-action" role="cell">
         <span className={`admin-audit-category admin-audit-category-${event.category}`}>
           {readAuditCategoryLabel(event.category)}
         </span>
@@ -9165,7 +9170,7 @@ function AdminAuditEventRow({ event }: { event: UserActivityEvent }) {
             </dl>
           </details>
         ) : null}
-      </div>
+      </AriaTableCell>
     </article>
   );
 }
@@ -10502,22 +10507,22 @@ export function AdminDatabaseRowsTable({
         </div>
       </div>
       <div className="admin-db-table-scroll">
-        <table className="admin-db-data-table">
+        <ManagedTable tableId="admin.database" columns={[...rowsState.table.columns.map((column) => `field.${rowsState.table.name}.${column.name}` as const), ...(hasActions ? ["actions" as const] : [])]} className="admin-db-data-table">
           <thead>
             <tr>
               {rowsState.table.columns.map((column) => (
-                <th
+                <TableHeader
                   className={readDatabaseCellClassName(column)}
                   scope="col"
                   key={column.name}
                 >
                   {column.label}
-                </th>
+                </TableHeader>
               ))}
               {hasActions ? (
-                <th className="admin-db-actions-column" scope="col">
+                <TableHeader className="admin-db-actions-column" scope="col">
                   Действия
-                </th>
+                </TableHeader>
               ) : null}
             </tr>
           </thead>
@@ -10531,7 +10536,7 @@ export function AdminDatabaseRowsTable({
                 ...(isGrouped
                   ? [(
                       <tr className="admin-db-group-row" key={`group-${group.key}`}>
-                        <td colSpan={columnCount}>
+                        <TableCell colSpan={columnCount}>
                           <button
                             aria-expanded={isExpanded}
                             className="admin-db-group-toggle"
@@ -10544,7 +10549,7 @@ export function AdminDatabaseRowsTable({
                             <strong>{group.label}</strong>
                             <small>{`${group.rows.length} записей`}</small>
                           </button>
-                        </td>
+                        </TableCell>
                       </tr>
                     )]
                   : []),
@@ -10554,7 +10559,7 @@ export function AdminDatabaseRowsTable({
                     key={formatPrimaryKey(row)}
                   >
                     {rowsState.table.columns.map((column) => (
-                      <td
+                      <TableCell
                         className={readDatabaseCellClassName(column)}
                         title={row.values[column.name] ?? "NULL"}
                         key={column.name}
@@ -10563,10 +10568,10 @@ export function AdminDatabaseRowsTable({
                           row.values[column.name],
                           column.format,
                         )}
-                      </td>
+                      </TableCell>
                     ))}
                     {hasActions ? (
-                      <td className="admin-db-actions-column">
+                      <TableCell className="admin-db-actions-column">
                         <div className="admin-db-actions">
                           {canEdit ? (
                             <button
@@ -10597,14 +10602,14 @@ export function AdminDatabaseRowsTable({
                             </button>
                           ) : null}
                         </div>
-                      </td>
+                      </TableCell>
                     ) : null}
                   </tr>
                 ))),
               ];
             })}
           </tbody>
-        </table>
+        </ManagedTable>
       </div>
     </>
   );
@@ -12213,16 +12218,16 @@ function AdminAccountsWorkspace({
 
         {accountsState.status === "ready" ? (
           <div className="admin-db-table-scroll">
-            <table className="admin-db-data-table admin-accounts-table">
+            <ManagedTable tableId="admin.accounts" className="admin-db-data-table admin-accounts-table">
               <thead>
                 <tr>
-                  <th scope="col">Должность</th>
-                  <th scope="col">Имя</th>
-                  <th scope="col">Логин</th>
-                  <th scope="col">Защита</th>
-                  <th scope="col">Пароль</th>
-                  <th scope="col">Вкладки слева</th>
-                  <th scope="col">Статус</th>
+                  <TableHeader scope="col">Должность</TableHeader>
+                  <TableHeader scope="col">Имя</TableHeader>
+                  <TableHeader scope="col">Логин</TableHeader>
+                  <TableHeader scope="col">Защита</TableHeader>
+                  <TableHeader scope="col">Пароль</TableHeader>
+                  <TableHeader scope="col">Вкладки слева</TableHeader>
+                  <TableHeader scope="col">Статус</TableHeader>
                 </tr>
               </thead>
               <tbody>
@@ -12279,7 +12284,7 @@ function AdminAccountsWorkspace({
 
                   return (
                     <tr key={account.accessId}>
-                      <td>
+                      <TableCell>
                         <div className="admin-account-position-cell">
                           <select
                             aria-label={`Должность для ${account.login}`}
@@ -12345,10 +12350,10 @@ function AdminAccountsWorkspace({
                             ) : "Сохранить"}
                           </button>
                         </div>
-                      </td>
-                      <td>{account.userDisplayName}</td>
-                      <td>{account.login}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell>{account.userDisplayName}</TableCell>
+                      <TableCell>{account.login}</TableCell>
+                      <TableCell>
                         <label
                           className="admin-account-protection-control"
                           title={
@@ -12387,8 +12392,8 @@ function AdminAccountsWorkspace({
                                 : "Обычный"}
                           </span>
                         </label>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <AdminAccountPasswordCell
                           revealedPassword={revealedPasswords[account.login]}
                           isResetting={resettingLogin === account.login}
@@ -12402,8 +12407,8 @@ function AdminAccountsWorkspace({
                             openPasswordResetModal(account.login, trigger)
                           }
                         />
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <div className="admin-account-navigation-cell">
                           <details className="admin-account-access-details">
                             <summary>
@@ -12422,8 +12427,8 @@ function AdminAccountsWorkspace({
                             </div>
                           </details>
                         </div>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <div className="admin-accounts-access-cell">
                           <span
                             className={`admin-accounts-status-badge ${
@@ -12480,17 +12485,17 @@ function AdminAccountsWorkspace({
                             ) : "Удалить"}
                           </button>
                         </div>
-                      </td>
+                      </TableCell>
                     </tr>
                   );
                 })}
                 {accounts.length === 0 ? (
                   <tr>
-                    <td colSpan={7}>Учётных записей пока нет.</td>
+                    <TableCell colSpan={7}>Учётных записей пока нет.</TableCell>
                   </tr>
                 ) : null}
               </tbody>
-            </table>
+            </ManagedTable>
           </div>
         ) : null}
           </div>
@@ -12560,15 +12565,15 @@ function AdminAccountsWorkspace({
         </div>
         {positionsState.status === "ready" ? (
           <div className="admin-db-table-scroll">
-            <table className="admin-db-data-table admin-positions-table">
+            <ManagedTable tableId="admin.positions" className="admin-db-data-table admin-positions-table">
               <thead>
                 <tr>
-                  <th>Порядок</th>
-                  <th>Должность</th>
-                  <th>Права админа</th>
-                  <th>Вкладки слева</th>
-                  <th>Аккаунты</th>
-                  <th />
+                  <TableHeader>Порядок</TableHeader>
+                  <TableHeader>Должность</TableHeader>
+                  <TableHeader>Права админа</TableHeader>
+                  <TableHeader>Вкладки слева</TableHeader>
+                  <TableHeader>Аккаунты</TableHeader>
+                  <TableHeader />
                 </tr>
               </thead>
               <tbody>
@@ -12588,7 +12593,7 @@ function AdminAccountsWorkspace({
                       nextPosition?.hasAdminRights === true);
                   return (
                   <tr key={position.id}>
-                    <td>
+                    <TableCell>
                       <div className="admin-position-order-cell">
                         <span aria-label={`Позиция ${index + 1}`}>
                           {index + 1}
@@ -12626,9 +12631,9 @@ function AdminAccountsWorkspace({
                           Ниже
                         </button>
                       </div>
-                    </td>
-                    <td>{position.displayName}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{position.displayName}</TableCell>
+                    <TableCell>
                       <label
                         className="admin-account-protection-control"
                         title={
@@ -12664,12 +12669,12 @@ function AdminAccountsWorkspace({
                               : "Нет"}
                         </span>
                       </label>
-                    </td>
-                    <td>{position.navigationItems
+                    </TableCell>
+                    <TableCell>{position.navigationItems
                       .map((id) => formatPositionNavigationItem(position, id))
-                      .join(", ")}</td>
-                    <td>{position.usageCount}</td>
-                    <td>
+                      .join(", ")}</TableCell>
+                    <TableCell>{position.usageCount}</TableCell>
+                    <TableCell>
                       <div className="admin-position-actions">
                         <button
                           className="secondary-button"
@@ -12715,12 +12720,12 @@ function AdminAccountsWorkspace({
                           ) : "Удалить"}
                         </button>
                       </div>
-                    </td>
+                    </TableCell>
                   </tr>
                   );
                 })}
               </tbody>
-            </table>
+            </ManagedTable>
           </div>
         ) : positionsState.status === "loading" ? (
           <LoadingIndicator label={positionsState.message} variant="panel" />
@@ -13083,13 +13088,13 @@ function AdminAccountsWorkspace({
               вход, но увидят пустую рабочую область.
             </p>
             <div className="admin-db-table-scroll admin-position-navigation-access-table-scroll">
-              <table className="admin-db-data-table admin-position-navigation-access-table">
+              <ManagedTable tableId="admin.navigationAccess" columns={["position", "access", ...(selectedNavigationAccessLevels === undefined ? [] : ["level" as const])]} className="admin-db-data-table admin-position-navigation-access-table">
                 <thead>
                   <tr>
-                    <th>Должность</th>
-                    <th>Доступ</th>
+                    <TableHeader>Должность</TableHeader>
+                    <TableHeader>Доступ</TableHeader>
                     {selectedNavigationAccessLevels === undefined ? null : (
-                      <th>{selectedNavigationAccessLevels.title}</th>
+                      <TableHeader>{selectedNavigationAccessLevels.title}</TableHeader>
                     )}
                   </tr>
                 </thead>
@@ -13104,8 +13109,8 @@ function AdminAccountsWorkspace({
                       : position.railwayWagonAccess;
                     return (
                       <tr key={position.id}>
-                        <td>{position.displayName}</td>
-                        <td>
+                        <TableCell>{position.displayName}</TableCell>
+                        <TableCell>
                           <label className="admin-account-protection-control">
                             <input
                               aria-label={`Доступ к вкладке для должности ${position.displayName}`}
@@ -13122,9 +13127,9 @@ function AdminAccountsWorkspace({
                             />
                             <span>{hasAccess ? "Вкл." : "Выкл."}</span>
                           </label>
-                        </td>
+                        </TableCell>
                         {selectedNavigationAccessLevels === undefined ? null : (
-                          <td>
+                          <TableCell>
                             <select
                               aria-label={`${selectedNavigationAccessLevels.title} для должности ${position.displayName}`}
                               className="admin-position-navigation-access-level"
@@ -13146,20 +13151,20 @@ function AdminAccountsWorkspace({
                                 </option>
                               ))}
                             </select>
-                          </td>
+                          </TableCell>
                         )}
                       </tr>
                     );
                   })}
                   {navigationAccessPositions.length === 0 ? (
                     <tr>
-                      <td colSpan={selectedNavigationAccessLevels === undefined ? 2 : 3}>
+                      <TableCell colSpan={selectedNavigationAccessLevels === undefined ? 2 : 3}>
                         Должностей пока нет.
-                      </td>
+                      </TableCell>
                     </tr>
                   ) : null}
                 </tbody>
-              </table>
+              </ManagedTable>
             </div>
             {positionNavigationAccessStatus.length > 0 ? (
               <p className="form-status" role="status">

@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import {
   laboratoryRawMaterialWarehouseStatusLabels,
@@ -382,35 +384,35 @@ function WarehouseTable({
   }
   return (
     <div className="table-scroll laboratory-table-scroll history-table-scroll">
-      <table className="laboratory-results-table raw-material-warehouse-table">
+      <ManagedTable tableId="laboratory.warehouse" columns={["date", "material", "location", "received", "supplier", "shipped", "recipient", "status", "actor", ...(canReview ? ["actions" as const] : [])]} className="laboratory-results-table raw-material-warehouse-table">
         <thead>
           <tr>
-            <th>Дата</th>
-            <th>Вид сырья</th>
-            <th>№ штабеля / место</th>
-            <th>Поступило, т</th>
-            <th>Поставщик</th>
-            <th>Отгружено, т</th>
-            <th>Кому отгружено</th>
-            <th>Статус</th>
-            <th>{isPending ? "Лаборант" : "Кладовщик"}</th>
-            {canReview ? <th>Действия</th> : null}
+            <TableHeader>Дата</TableHeader>
+            <TableHeader>Вид сырья</TableHeader>
+            <TableHeader>№ штабеля / место</TableHeader>
+            <TableHeader>Поступило, т</TableHeader>
+            <TableHeader>Поставщик</TableHeader>
+            <TableHeader>Отгружено, т</TableHeader>
+            <TableHeader>Кому отгружено</TableHeader>
+            <TableHeader>Статус</TableHeader>
+            <TableHeader>{isPending ? "Лаборант" : "Кладовщик"}</TableHeader>
+            {canReview ? <TableHeader>Действия</TableHeader> : null}
           </tr>
         </thead>
         <tbody>
           {records.map((record) => (
             <tr key={`${record.id}-${record.revisionNumber}`}>
-              <td>{formatLaboratoryDate(record.movementDate)}</td>
-              <td>{record.materialLabel}</td>
-              <td>{record.stackLocation}</td>
-              <td>{formatTons(record.receivedTons)}</td>
-              <td>{record.supplier || "—"}</td>
-              <td>{formatTons(record.shippedTons)}</td>
-              <td>{record.recipient || "—"}</td>
-              <td>{laboratoryRawMaterialWarehouseStatusLabels[record.status]}</td>
-              <td>{isPending ? record.submittedByDisplayName : record.warehouseKeeperDisplayName ?? "—"}</td>
+              <TableCell>{formatLaboratoryDate(record.movementDate)}</TableCell>
+              <TableCell>{record.materialLabel}</TableCell>
+              <TableCell>{record.stackLocation}</TableCell>
+              <TableCell>{formatTons(record.receivedTons)}</TableCell>
+              <TableCell>{record.supplier || "—"}</TableCell>
+              <TableCell>{formatTons(record.shippedTons)}</TableCell>
+              <TableCell>{record.recipient || "—"}</TableCell>
+              <TableCell>{laboratoryRawMaterialWarehouseStatusLabels[record.status]}</TableCell>
+              <TableCell>{isPending ? record.submittedByDisplayName : record.warehouseKeeperDisplayName ?? "—"}</TableCell>
               {canReview ? (
-                <td>
+                <TableCell>
                   <div className="raw-material-warehouse-actions">
                     {isPending ? (
                       <button className="primary-button" disabled={isSaving} type="button" onClick={() => onApprove(record)}>
@@ -421,12 +423,12 @@ function WarehouseTable({
                       Исправить
                     </button>
                   </div>
-                </td>
+                </TableCell>
               ) : null}
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }

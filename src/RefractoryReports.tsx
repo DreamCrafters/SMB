@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   refractoryEquipmentNames,
@@ -686,24 +688,24 @@ function CoshForm({
           лаборатории для назначенного содержимого.
         </p>
         <div className="refractory-table-wrap refractory-bank-table-wrap">
-          <table className="refractory-bank-table">
+          <ManagedTable tableId="refractory.banks" columns={["metric", ...bankColumns.map(({ bankNumber }) => `bank.${bankNumber}` as const)]} className="refractory-bank-table">
             <thead>
               <tr>
-                <th>Показатель</th>
+                <TableHeader>Показатель</TableHeader>
                 {bankColumns.map(({ bankNumber, material }) => (
-                  <th key={bankNumber}>
+                  <TableHeader key={bankNumber}>
                     <span>Банка {readBankLabel(bankNumber)}</span>
                     {" "}
                     <strong>{material ?? "Не назначено"}</strong>
-                  </th>
+                  </TableHeader>
                 ))}
               </tr>
             </thead>
             <tbody>
               <tr className="refractory-bank-empty-row">
-                <th>Банка пустая</th>
+                <TableHeader>Банка пустая</TableHeader>
                 {bankColumns.map(({ bankNumber }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <label className="refractory-bank-empty-toggle">
                       <input
                         aria-label={`Банка ${readBankLabel(bankNumber)}: банка пустая`}
@@ -721,18 +723,18 @@ function CoshForm({
                           : `все замеры ${emptyBankHeightMeters} м`}
                       </span>
                     </label>
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
               {Array.from(
                 { length: Math.max(...bankNumbers.map((bankNumber) => jarDrafts[bankNumber].length)) },
                 (_, index) => (
                   <tr key={`measurement-${index}`}>
-                    <th>
+                    <TableHeader>
                       Замер {index + 1}, м{index === 0 ? " *" : ""}
-                    </th>
+                    </TableHeader>
                     {bankColumns.map(({ bankNumber }) => (
-                      <td key={bankNumber}>
+                      <TableCell key={bankNumber}>
                         <input
                           aria-label={`Банка ${readBankLabel(bankNumber)}: замер ${index + 1}`}
                           data-bank-first-measurement={index === 0 ? "true" : undefined}
@@ -753,51 +755,51 @@ function CoshForm({
                             updateJarMeasurement(bankNumber, index, rawValue);
                           }}
                         />
-                      </td>
+                      </TableCell>
                     ))}
                   </tr>
                 ),
               )}
               <tr className="refractory-bank-calculated-row">
-                <th>Среднее значение, м</th>
+                <TableHeader>Среднее значение, м</TableHeader>
                 {bankColumns.map(({ bankNumber, calculation }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>{formatBankResult(calculation?.value?.averageHeightMeters)}</output>
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
               <tr className="refractory-bank-calculated-row">
-                <th>Насыпная плотность, т/м³</th>
+                <TableHeader>Насыпная плотность, т/м³</TableHeader>
                 {bankColumns.map(({ bankNumber, density, densityDate }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>{formatBankResult(density)}</output>
                     {densityDate === undefined ? null : (
                       <small>данные на {formatDate(densityDate)}</small>
                     )}
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
               <tr className="refractory-bank-calculated-row">
-                <th>Объём по замерам, м³</th>
+                <TableHeader>Объём по замерам, м³</TableHeader>
                 {bankColumns.map(({ bankNumber, calculation }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>{formatBankResult(calculation?.value?.volumeCubicMeters)}</output>
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
               <tr className="refractory-bank-calculated-row refractory-bank-mass-row">
-                <th>Расчётный вес по замерам, т</th>
+                <TableHeader>Расчётный вес по замерам, т</TableHeader>
                 {bankColumns.map(({ bankNumber, calculation }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>{formatBankResult(calculation?.value?.materialMassTons)}</output>
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
               {(["loadedTons", "shippedTons"] as const).map((field) => (
                 <tr key={field}>
-                  <th>{field === "loadedTons" ? "Засыпали, т" : "Отгрузили, т"}</th>
+                  <TableHeader>{field === "loadedTons" ? "Засыпали, т" : "Отгрузили, т"}</TableHeader>
                   {bankColumns.map(({ bankNumber }) => (
-                    <td key={bankNumber}>
+                    <TableCell key={bankNumber}>
                       <input
                         aria-label={`Банка ${readBankLabel(bankNumber)}: ${field === "loadedTons" ? "засыпали" : "отгрузили"}, т`}
                         data-refractory-label={`Банка ${readBankLabel(bankNumber)}: ${field === "loadedTons" ? "засыпали" : "отгрузили"}, т`}
@@ -815,28 +817,28 @@ function CoshForm({
                           updateJarMovement(bankNumber, field, rawValue);
                         }}
                       />
-                    </td>
+                    </TableCell>
                   ))}
                 </tr>
               ))}
               <tr className="refractory-bank-calculated-row refractory-bank-mass-row">
-                <th>Расчётный вес по отгрузкам, т</th>
+                <TableHeader>Расчётный вес по отгрузкам, т</TableHeader>
                 {bankColumns.map(({ bankNumber, calculation }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>{formatBankResult(calculation?.value?.shipmentMassTons)}</output>
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
               <tr className="refractory-bank-report-row">
-                <th>Отображение в отчётах, т</th>
+                <TableHeader>Отображение в отчётах, т</TableHeader>
                 {bankColumns.map(({ bankNumber, calculation }) => (
-                  <td key={bankNumber}>
+                  <TableCell key={bankNumber}>
                     <output>{formatBankReportValue(calculation?.value)}</output>
-                  </td>
+                  </TableCell>
                 ))}
               </tr>
             </tbody>
-          </table>
+          </ManagedTable>
         </div>
         <div className="bank-measurement-errors">
           {bankColumns.map(({ bankNumber, assignment, calculation }) =>
@@ -1025,21 +1027,21 @@ function ChamotteOutputRows({
   return (
     <div className="refractory-cosh-output">
       <div className="refractory-table-wrap refractory-table-wrap-full-height">
-        <table
+        <ManagedTable tableId="refractory.cosh"
           className="refractory-input-table refractory-input-table-cosh-output"
           data-refractory-unique-brands
         >
           <thead>
             <tr>
-              <th>Марка изделия</th>
-              <th>Выпуск, т</th>
-              <th aria-label="Действия" />
+              <TableHeader>Марка изделия</TableHeader>
+              <TableHeader>Выпуск, т</TableHeader>
+              <TableHeader aria-label="Действия" />
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={row.id}>
-                <td>
+                <TableCell>
                   <ProductBrandPicker
                     ariaLabel={`Марка изделия, строка ${index + 1}`}
                     isRefractoryRowBrand
@@ -1048,16 +1050,16 @@ function ChamotteOutputRows({
                     labels={brandLabels}
                     onInputChange={clearRefractoryFieldError}
                   />
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <RefractoryNumberInput
                     aria-label={`Выпуск, т, строка ${index + 1}`}
                     isRefractoryRowQuantity
                     name={`chamotteOutputRows.${index}.quantityTons`}
                     defaultValue={row.quantityTons ?? ""}
                   />
-                </td>
-                <td className="refractory-row-action">
+                </TableCell>
+                <TableCell className="refractory-row-action">
                   <button
                     aria-label={`Удалить строку выпуска шамота ${index + 1}`}
                     className="secondary-button"
@@ -1067,11 +1069,11 @@ function ChamotteOutputRows({
                   >
                     Удалить
                   </button>
-                </td>
+                </TableCell>
               </tr>
             ))}
           </tbody>
-        </table>
+        </ManagedTable>
       </div>
       <button
         aria-label="Добавить строку выпуска шамота"
@@ -1331,19 +1333,19 @@ function EquipmentForm({
     <div className="refractory-form-sections">
       <ReportSection title="Выпуск сырца формованных огнеупоров">
         <div className="refractory-table-wrap">
-          <table className="refractory-input-table refractory-input-table-equipment">
+          <ManagedTable tableId="refractory.equipment" className="refractory-input-table refractory-input-table-equipment">
             <thead>
               <tr>
-                <th className="refractory-equipment-column-name">
+                <TableHeader className="refractory-equipment-column-name">
                   Оборудование
-                </th>
+                </TableHeader>
                 {equipmentColumns.map(([, label, , width, group]) => (
-                  <th
+                  <TableHeader
                     className={`refractory-equipment-column-${width} refractory-cell-${group}`}
                     key={label}
                   >
                     {label}
-                  </th>
+                  </TableHeader>
                 ))}
               </tr>
             </thead>
@@ -1360,9 +1362,9 @@ function EquipmentForm({
                 );
                 return (
                   <tr key={equipment}>
-                    <th scope="row">{equipment}</th>
+                    <TableHeader scope="row">{equipment}</TableHeader>
                     {equipmentColumns.map(([field, label, kind, , group]) => (
-                      <td
+                      <TableCell
                         className={`refractory-cell-${group}${
                           kind === "calculated" ? " refractory-calculated" : ""
                         }`}
@@ -1402,7 +1404,7 @@ function EquipmentForm({
                             type="text"
                           />
                         )}
-                      </td>
+                      </TableCell>
                     ))}
                   </tr>
                 );
@@ -1410,44 +1412,44 @@ function EquipmentForm({
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={3}>ИТОГО выпуск формованных огнеупоров</th>
-                <td className="refractory-cell-production refractory-calculated">
+                <TableHeader colSpan={3}>ИТОГО выпуск формованных огнеупоров</TableHeader>
+                <TableCell className="refractory-cell-production refractory-calculated">
                   <output aria-label="Итого формованных огнеупоров, шт.">
                     {formatTableTotal(formedSummary.actualPieces)}
                   </output>
-                </td>
-                <td className="refractory-cell-production refractory-calculated">
+                </TableCell>
+                <TableCell className="refractory-cell-production refractory-calculated">
                   <output aria-label="Итого формованных огнеупоров, т">
                     {formatTableTotal(formedSummary.actualTons)}
                   </output>
-                </td>
-                <td className="refractory-calculated">
+                </TableCell>
+                <TableCell className="refractory-calculated">
                   <output aria-label="Итого отработано, ч">
                     {formatTableTotal(formedSummary.workedHours)}
                   </output>
-                </td>
-                <td className="refractory-cell-downtime refractory-calculated">
+                </TableCell>
+                <TableCell className="refractory-cell-downtime refractory-calculated">
                   <output aria-label="Итого простой, ч">
                     {formatTableTotal(formedSummary.downtimeHours)}
                   </output>
-                </td>
+                </TableCell>
                 {equipmentFooterTrailingColumns.map(([field]) => (
-                  <td key={field} />
+                  <TableCell key={field} />
                 ))}
               </tr>
             </tfoot>
-          </table>
+          </ManagedTable>
         </div>
       </ReportSection>
       <ReportSection title="Выпуск неформованных огнеупоров">
         <div className="refractory-table-wrap">
-          <table className="refractory-input-table refractory-input-table-compact">
+          <ManagedTable tableId="refractory.unformed" className="refractory-input-table refractory-input-table-compact">
             <thead>
               <tr>
-                <th>Марка изделия</th>
-                <th>Норма, контейнеры</th>
-                <th>Факт, контейнеры</th>
-                <th>Факт, т</th>
+                <TableHeader>Марка изделия</TableHeader>
+                <TableHeader>Норма, контейнеры</TableHeader>
+                <TableHeader>Факт, контейнеры</TableHeader>
+                <TableHeader>Факт, т</TableHeader>
               </tr>
             </thead>
             <tbody
@@ -1461,7 +1463,7 @@ function EquipmentForm({
                 const row = payload?.unformedRows[index];
                 return (
                   <tr key={index}>
-                    <td>
+                    <TableCell>
                       <ProductBrandPicker
                         ariaLabel={`Марка неформованных огнеупоров ${index + 1}`}
                         dataLabel={`Марка изделия, строка ${index + 1}`}
@@ -1471,49 +1473,49 @@ function EquipmentForm({
                         labels={brandLabels}
                         onInputChange={clearRefractoryFieldError}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <RefractoryNumberInput
                         aria-label={`Норма, контейнеры, строка ${index + 1}`}
                         name={`unformed.${index}.outputNormContainers`}
                         defaultValue={row?.outputNormContainers ?? ""}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <RefractoryNumberInput
                         aria-label={`Факт, контейнеры, строка ${index + 1}`}
                         integer
                         name={`unformed.${index}.actualContainers`}
                         defaultValue={row?.actualContainers ?? ""}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <RefractoryNumberInput
                         aria-label={`Факт, т, строка ${index + 1}`}
                         name={`unformed.${index}.actualTons`}
                         defaultValue={row?.actualTons ?? ""}
                       />
-                    </td>
+                    </TableCell>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={2}>ИТОГО выпуск неформованных огнеупоров</th>
-                <td className="refractory-calculated">
+                <TableHeader colSpan={2}>ИТОГО выпуск неформованных огнеупоров</TableHeader>
+                <TableCell className="refractory-calculated">
                   <output aria-label="Итого неформованных огнеупоров, контейнеры">
                     {formatTableTotal(unformedSummary.actualContainers)}
                   </output>
-                </td>
-                <td className="refractory-calculated">
+                </TableCell>
+                <TableCell className="refractory-calculated">
                   <output aria-label="Итого неформованных огнеупоров, т">
                     {formatTableTotal(unformedSummary.actualTons)}
                   </output>
-                </td>
+                </TableCell>
               </tr>
             </tfoot>
-          </table>
+          </ManagedTable>
         </div>
         <button
           className="secondary-button"
@@ -1715,18 +1717,18 @@ function FiringForm({
     <div className="refractory-form-sections">
       <ReportSection title="Выпуск обожжённых огнеупоров">
         <div className="refractory-table-wrap refractory-table-wrap-full-height">
-          <table className="refractory-input-table refractory-input-table-firing">
+          <ManagedTable tableId="refractory.firing" className="refractory-input-table refractory-input-table-firing">
             <thead>
               <tr>
-                <th>Дата обжига</th>
-                <th>Обжигальщик</th>
-                <th>Рассортированные вагоны</th>
-                <th>Дата сортировки</th>
-                <th>Сортировщик</th>
+                <TableHeader>Дата обжига</TableHeader>
+                <TableHeader>Обжигальщик</TableHeader>
+                <TableHeader>Рассортированные вагоны</TableHeader>
+                <TableHeader>Дата сортировки</TableHeader>
+                <TableHeader>Сортировщик</TableHeader>
                 {firingColumns.map(([, label]) => (
-                  <th key={label}>{label}</th>
+                  <TableHeader key={label}>{label}</TableHeader>
                 ))}
-                <th>Примечание</th>
+                <TableHeader>Примечание</TableHeader>
               </tr>
             </thead>
             <tbody
@@ -1740,7 +1742,7 @@ function FiringForm({
                 const row = payload?.rows[index];
                 return (
                   <tr key={index}>
-                    <td>
+                    <TableCell>
                       <input
                         aria-label={`Дата обжига, строка ${index + 1}`}
                         data-refractory-label={`Дата обжига, строка ${index + 1}`}
@@ -1748,8 +1750,8 @@ function FiringForm({
                         type="date"
                         defaultValue={row?.firingDate ?? defaultReportDate}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <input
                         aria-label={`Обжигальщик, строка ${index + 1}`}
                         data-refractory-label={`Обжигальщик, строка ${index + 1}`}
@@ -1758,16 +1760,16 @@ function FiringForm({
                         name={`firing.${index}.firingOperator`}
                         defaultValue={row?.firingOperator ?? ""}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <FiringWagonMultiSelect
                         ariaLabel={`Рассортированные вагоны, строка ${index + 1}`}
                         name={`firing.${index}.sortingWagons`}
                         options={firingWagonOptions}
                         saved={row?.sortingWagons}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <input
                         aria-label={`Дата сортировки, строка ${index + 1}`}
                         data-refractory-label={`Дата сортировки, строка ${index + 1}`}
@@ -1775,8 +1777,8 @@ function FiringForm({
                         type="date"
                         defaultValue={row?.sortingDate ?? defaultReportDate}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <input
                         aria-label={`Сортировщик, строка ${index + 1}`}
                         data-refractory-label={`Сортировщик, строка ${index + 1}`}
@@ -1785,9 +1787,9 @@ function FiringForm({
                         name={`firing.${index}.sorter`}
                         defaultValue={row?.sorter ?? ""}
                       />
-                    </td>
+                    </TableCell>
                     {firingColumns.map(([field, label, kind]) => (
-                      <td
+                      <TableCell
                         className={
                           kind === "calculated"
                             ? "refractory-calculated"
@@ -1807,9 +1809,9 @@ function FiringForm({
                             defaultValue={row?.[field] ?? ""}
                           />
                         )}
-                      </td>
+                      </TableCell>
                     ))}
-                    <td>
+                    <TableCell>
                       <input
                         aria-label={`Примечание, строка ${index + 1}`}
                         data-refractory-label={`Примечание, строка ${index + 1}`}
@@ -1817,29 +1819,29 @@ function FiringForm({
                         name={`firing.${index}.note`}
                         defaultValue={row?.note ?? ""}
                       />
-                    </td>
+                    </TableCell>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr>
-                <th>ИТОГО:</th>
-                <td />
-                <td />
-                <td />
-                <td />
+                <TableHeader>ИТОГО:</TableHeader>
+                <TableCell />
+                <TableCell />
+                <TableCell />
+                <TableCell />
                 {firingColumns.map(([field, label]) => (
-                  <td className="refractory-calculated" key={field}>
+                  <TableCell className="refractory-calculated" key={field}>
                     <output aria-label={`Итого: ${label}`}>
                       {formatTableTotal(summary[field])}
                     </output>
-                  </td>
+                  </TableCell>
                 ))}
-                <td />
+                <TableCell />
               </tr>
             </tfoot>
-          </table>
+          </ManagedTable>
         </div>
         <datalist id="refractory-firing-operator-options">
           {collectWagonCrewOptions(wagons, (wagon) => wagon.firingOperator)

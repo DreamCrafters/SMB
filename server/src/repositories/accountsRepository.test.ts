@@ -433,6 +433,7 @@ test("setPositionNavigationAccess lets synthetic dev admin clear an admin-rights
             "business.view_all_statistics",
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
           ]),
           is_protected: 0,
           is_admin_protected: 1,
@@ -566,6 +567,7 @@ test("setPositionProtected atomically grants delegated admin access and revokes 
         "business.view_dispatcher_feed",
         "platform.manage_users",
         "platform.manage_access",
+        "platform.manage_table_layouts",
       ]),
       "position-selected",
     ],
@@ -610,6 +612,7 @@ test("setPositionProtected keeps root panels for the system administrator", asyn
           capabilities: JSON.stringify([
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
             "platform.manage_analytics_database",
             "platform.manage_integrations",
             "platform.view_audit",
@@ -646,6 +649,7 @@ test("setPositionProtected keeps root panels for the system administrator", asyn
       JSON.stringify([
         "platform.manage_users",
         "platform.manage_access",
+        "platform.manage_table_layouts",
         "platform.manage_analytics_database",
         "platform.manage_integrations",
         "platform.view_audit",
@@ -677,6 +681,7 @@ test("setPositionProtected removes admin rights from a position without working 
           capabilities: JSON.stringify([
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
           ]),
         }], []];
       }
@@ -852,6 +857,7 @@ test("updatePosition preserves delegated admin access when original admin edits 
             "business.view_dispatcher_feed",
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
           ]),
           is_protected: 0,
           is_admin_protected: 1,
@@ -883,6 +889,7 @@ test("updatePosition preserves delegated admin access when original admin edits 
       "business.view_dispatcher_feed",
       "platform.manage_users",
       "platform.manage_access",
+      "platform.manage_table_layouts",
     ]),
     "position-admin-manager",
   ]);
@@ -1034,6 +1041,7 @@ test("setAccountPosition rejects a target position with admin rights inside the 
           capabilities: JSON.stringify([
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
           ]),
           is_protected: 0,
           is_admin_protected: 1,
@@ -1117,6 +1125,7 @@ test("setAccountPosition keeps the system administrator position exclusive to ad
           capabilities: JSON.stringify([
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
             "platform.manage_analytics_database",
           ]),
           is_protected: 1,
@@ -1593,6 +1602,7 @@ test("createAccount rejects a position with admin rights inside the lock", async
           capabilities: JSON.stringify([
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
           ]),
           is_protected: 0,
           is_admin_protected: 1,
@@ -1619,6 +1629,7 @@ test("createAccount rejects a position with admin rights inside the lock", async
           capabilities: JSON.stringify([
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
           ]),
           navigation_items: JSON.stringify(["admin.accounts"]),
           created_at: "2026-08-10T00:00:00.000Z",
@@ -1674,6 +1685,7 @@ test("createAccount keeps the system administrator position exclusive to admin",
           capabilities: JSON.stringify([
             "platform.manage_users",
             "platform.manage_access",
+            "platform.manage_table_layouts",
             "platform.manage_analytics_database",
           ]),
           is_protected: 1,

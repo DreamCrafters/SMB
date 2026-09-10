@@ -25,6 +25,7 @@ const accountCapabilitiesByType: Record<AccountType, AccountCapability[]> = {
     "platform.manage_users",
     "platform.manage_access",
     "platform.manage_navigation_order",
+    "platform.manage_table_layouts",
     "platform.manage_analytics_database",
     "platform.manage_integrations",
     "platform.view_audit",

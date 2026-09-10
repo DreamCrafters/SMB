@@ -1,3 +1,6 @@
+import type { TableColumnId } from "../server/src/contracts/tableLayouts";
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   laboratoryClayMeasurementFields,
@@ -502,20 +505,20 @@ export function LaboratoryRawMaterialQualityJournal({
         <section className="sample-registration-journal-section">
           <h3>Бегуны</h3>
           <div className="refractory-table-wrap refractory-table-wrap-full-height raw-material-quality-table-wrap">
-            <table className="refractory-input-table raw-material-quality-measurement-table">
+            <ManagedTable tableId="laboratory.measurementForm" columns={[...laboratoryRunnerMeasurementFields.map((field) => field.id), "actions"]} className="refractory-input-table raw-material-quality-measurement-table">
               <thead>
                 <tr>
                   {laboratoryRunnerMeasurementFields.map((field) => (
-                    <th key={field.id}>{field.label}</th>
+                    <TableHeader key={field.id}>{field.label}</TableHeader>
                   ))}
-                  <th />
+                  <TableHeader />
                 </tr>
               </thead>
               <tbody>
                 {runnerRows.map((row, index) => (
                   <tr key={index}>
                     {laboratoryRunnerMeasurementFields.map((field) => (
-                      <td key={field.id}>
+                      <TableCell key={field.id}>
                         {field.id === "isReserve" ? (
                           <input
                             aria-label={field.label}
@@ -538,9 +541,9 @@ export function LaboratoryRawMaterialQualityJournal({
                             value,
                           ),
                         })}
-                      </td>
+                      </TableCell>
                     ))}
-                    <td>
+                    <TableCell>
                       <button
                         aria-label="Удалить строку"
                         className="raw-material-quality-row-remove"
@@ -550,11 +553,11 @@ export function LaboratoryRawMaterialQualityJournal({
                       >
                         ✕
                       </button>
-                    </td>
+                    </TableCell>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ManagedTable>
           </div>
           <button
             className="secondary-button raw-material-quality-add-row"
@@ -669,7 +672,7 @@ export function LaboratoryRawMaterialQualityJournal({
   );
 }
 
-function renderMeasurementTable<Field extends { id: string; label: string; kind: string }>({
+function renderMeasurementTable<Field extends { id: TableColumnId<"laboratory.measurements">; label: string; kind: string }>({
   rows,
   fields,
   hasCounter,
@@ -686,20 +689,20 @@ function renderMeasurementTable<Field extends { id: string; label: string; kind:
 }) {
   return (
     <div className="refractory-table-wrap refractory-table-wrap-full-height raw-material-quality-table-wrap">
-      <table className="refractory-input-table raw-material-quality-measurement-table">
+      <ManagedTable tableId="laboratory.measurementForm" columns={[...(hasCounter ? ["counter" as const] : []), ...fields.map((field) => field.id), "actions"]} className="refractory-input-table raw-material-quality-measurement-table">
         <thead>
           <tr>
-            {hasCounter ? <th>№ Замера</th> : null}
-            {fields.map((field) => <th key={field.id}>{field.label}</th>)}
-            <th />
+            {hasCounter ? <TableHeader>№ Замера</TableHeader> : null}
+            {fields.map((field) => <TableHeader key={field.id}>{field.label}</TableHeader>)}
+            <TableHeader />
           </tr>
         </thead>
         <tbody>
           {rows.map((row, index) => (
             <tr key={index}>
-              {hasCounter ? <td>{index + 1}</td> : null}
+              {hasCounter ? <TableCell>{index + 1}</TableCell> : null}
               {fields.map((field) => (
-                <td key={field.id}>
+                <TableCell key={field.id}>
                   {renderControl({
                     kind: field.kind,
                     value: row[field.id] ?? "",
@@ -707,9 +710,9 @@ function renderMeasurementTable<Field extends { id: string; label: string; kind:
                     listId: listIds[field.id],
                     onChange: (value) => onUpdate(index, field.id as never, value),
                   })}
-                </td>
+                </TableCell>
               ))}
-              <td>
+              <TableCell>
                 <button
                   aria-label="Удалить строку"
                   className="raw-material-quality-row-remove"
@@ -718,11 +721,11 @@ function renderMeasurementTable<Field extends { id: string; label: string; kind:
                 >
                   ✕
                 </button>
-              </td>
+              </TableCell>
             </tr>
           ))}
         </tbody>
-      </table>
+      </ManagedTable>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   laboratoryGreenProductQualityMeasurementFields,
@@ -499,24 +501,24 @@ export function LaboratoryGreenProductQualityJournal({
         <section className="sample-registration-journal-section">
           <h3>Линейные размеры и показатели качества</h3>
           <div className="refractory-table-wrap refractory-table-wrap-full-height raw-material-quality-table-wrap">
-            <table className="refractory-input-table raw-material-quality-measurement-table">
+            <ManagedTable tableId="laboratory.measurementForm" columns={["counter", ...laboratoryGreenProductQualityMeasurementFields.map((field) => field.id), "actions"]} className="refractory-input-table raw-material-quality-measurement-table">
               <thead>
                 <tr>
-                  <th>№ Замера</th>
+                  <TableHeader>№ Замера</TableHeader>
                   {laboratoryGreenProductQualityMeasurementFields.map((field) => (
-                    <th key={field.id}>{field.label}</th>
+                    <TableHeader key={field.id}>{field.label}</TableHeader>
                   ))}
-                  <th />
+                  <TableHeader />
                 </tr>
               </thead>
               <tbody>
                 {measurementRows.map((row, index) => (
                   <tr key={index}>
-                    <td>{index + 1}</td>
+                    <TableCell>{index + 1}</TableCell>
                     {laboratoryGreenProductQualityMeasurementFields.map((field) => {
                       const pair = dimensionPairs.find((item) => item.second === field.id);
                       return (
-                        <td key={field.id}>
+                        <TableCell key={field.id}>
                           <input
                             aria-label={`${field.label}, строка ${index + 1}`}
                             disabled={isSubmitting}
@@ -532,10 +534,10 @@ export function LaboratoryGreenProductQualityJournal({
                               }
                             }}
                           />
-                        </td>
+                        </TableCell>
                       );
                     })}
-                    <td>
+                    <TableCell>
                       <button
                         aria-label="Удалить строку"
                         className="raw-material-quality-row-remove"
@@ -545,11 +547,11 @@ export function LaboratoryGreenProductQualityJournal({
                       >
                         ✕
                       </button>
-                    </td>
+                    </TableCell>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ManagedTable>
           </div>
           <button
             className="secondary-button raw-material-quality-add-row"

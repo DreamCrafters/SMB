@@ -1,3 +1,5 @@
+import { ManagedTable } from "./ManagedTable";
+import { TableHeader, TableCell } from "./TableCell";
 import {
   useEffect,
   useState,
@@ -826,21 +828,21 @@ export function BoardAssignmentsWorkspace({
           aria-label="История выполненных поручений"
         >
           <div className="board-assignment-table-wrap history-table-scroll">
-            <table className="board-assignment-table board-assignment-history-table">
+            <ManagedTable tableId="board.history" className="board-assignment-table board-assignment-history-table">
               <thead>
                 <tr>
-                  <th>Принято</th>
-                  <th>Краткое содержание поручения</th>
-                  <th>Дата исполнения</th>
-                  <th>Принял</th>
-                  <th>Статус</th>
+                  <TableHeader>Принято</TableHeader>
+                  <TableHeader>Краткое содержание поручения</TableHeader>
+                  <TableHeader>Дата исполнения</TableHeader>
+                  <TableHeader>Принял</TableHeader>
+                  <TableHeader>Статус</TableHeader>
                 </tr>
               </thead>
               <tbody>
                 {completionListState.completions.map((completion) => (
                   <tr key={completion.id}>
-                    <td>{formatTimestamp(completion.completedAt)}</td>
-                    <td>
+                    <TableCell>{formatTimestamp(completion.completedAt)}</TableCell>
+                    <TableCell>
                       <button
                         className="board-assignment-link"
                         type="button"
@@ -852,26 +854,26 @@ export function BoardAssignmentsWorkspace({
                         Протокол №{completion.assignment.protocolNumber},
                         {" "}пункт {completion.assignment.decisionNumber}
                       </small>
-                    </td>
-                    <td>{formatCalendarDate(completion.occurrenceDate)}</td>
-                    <td>{completion.completedByDisplayName}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{formatCalendarDate(completion.occurrenceDate)}</TableCell>
+                    <TableCell>{completion.completedByDisplayName}</TableCell>
+                    <TableCell>
                       <span className="board-assignment-status is-completed">
                         Завершено
                       </span>
-                    </td>
+                    </TableCell>
                   </tr>
                 ))}
                 {completionListState.status !== "loading" &&
                 completionListState.completions.length === 0 ? (
                   <tr>
-                    <td className="board-assignment-empty" colSpan={5}>
+                    <TableCell className="board-assignment-empty" colSpan={5}>
                       Выполненных поручений по выбранным фильтрам нет.
-                    </td>
+                    </TableCell>
                   </tr>
                 ) : null}
               </tbody>
-            </table>
+            </ManagedTable>
           </div>
         </section>
       ) : accessMode === "execute" ? (
@@ -996,14 +998,14 @@ export function BoardAssignmentsWorkspace({
             aria-label="Реестр поручений"
           >
             <div className="board-assignment-table-wrap">
-              <table className="board-assignment-table">
+              <ManagedTable tableId="board.assignments" className="board-assignment-table">
             <thead>
               <tr>
-                <th>Дата заседания Совета директоров</th>
-                <th>Краткое содержание поручения</th>
-                <th>Соисполнители</th>
-                <th>Срок исполнения</th>
-                <th>Статус</th>
+                <TableHeader>Дата заседания Совета директоров</TableHeader>
+                <TableHeader>Краткое содержание поручения</TableHeader>
+                <TableHeader>Соисполнители</TableHeader>
+                <TableHeader>Срок исполнения</TableHeader>
+                <TableHeader>Статус</TableHeader>
               </tr>
             </thead>
             <tbody>
@@ -1012,8 +1014,8 @@ export function BoardAssignmentsWorkspace({
                   className={assignment.isOverdue ? "is-overdue" : undefined}
                   key={assignment.id}
                 >
-                  <td>{formatCalendarDate(assignment.meetingDate)}</td>
-                  <td>
+                  <TableCell>{formatCalendarDate(assignment.meetingDate)}</TableCell>
+                  <TableCell>
                     <button
                       className="board-assignment-link"
                       type="button"
@@ -1025,13 +1027,13 @@ export function BoardAssignmentsWorkspace({
                       Протокол №{assignment.protocolNumber}, пункт{" "}
                       {assignment.decisionNumber}
                     </small>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {assignment.coExecutors.length === 0
                       ? "—"
                       : assignment.coExecutors.join(", ")}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <span className="board-assignment-schedule-summary">
                       <strong>{recurrenceLabels[assignment.recurrence]}</strong>
                       <small>
@@ -1044,8 +1046,8 @@ export function BoardAssignmentsWorkspace({
                         {formatCalendarDate(assignment.activeTo)}
                       </small>
                     </span>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <span
                       className={`board-assignment-status is-${assignment.status}${
                         assignment.isOverdue ? " is-overdue" : ""
@@ -1055,19 +1057,19 @@ export function BoardAssignmentsWorkspace({
                         ? "Просрочено"
                         : statusLabels[assignment.status]}
                     </span>
-                  </td>
+                  </TableCell>
                 </tr>
               ))}
               {listState.status !== "loading" &&
               listState.assignments.length === 0 ? (
                 <tr>
-                  <td className="board-assignment-empty" colSpan={5}>
+                  <TableCell className="board-assignment-empty" colSpan={5}>
                     По выбранным фильтрам поручений нет.
-                  </td>
+                  </TableCell>
                 </tr>
               ) : null}
             </tbody>
-              </table>
+              </ManagedTable>
             </div>
           </section>
         </>

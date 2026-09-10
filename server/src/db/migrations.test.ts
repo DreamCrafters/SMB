@@ -41,6 +41,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "078_warehouse_1c_uploads",
   "079_warehouse_1c_stock_quantities",
   "080_railway_wagon_decline_comment",
+  "081_table_layouts",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3306,4 +3307,27 @@ test("railway reference migration imports the RZD workbook once, in chunks", asy
   assert.match(stationInserts[0] ?? "", /\('Абагур-Лесной', 'З-Сиб'\)/u);
   assert.match(etsngInserts[0] ?? "", /\('01000', 'Зерновые и зернобобовые культуры'\)/u);
   assert.match(securingInserts[0] ?? "", /\('Растяжки', /u);
+});
+
+test("table layouts migration grants the dedicated permission only to administrator positions", async () => {
+  const statements: string[] = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "081_table_layouts" ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  assert.match(statements[0], /create table if not exists app_table_layouts/u);
+  assert.match(statements[1], /platform\.manage_table_layouts/u);
+  assert.match(statements[1], /code = 'administrator' or is_admin_protected = 1/u);
+  assert.match(statements[2], /accesses\.is_active = 1/u);
 });

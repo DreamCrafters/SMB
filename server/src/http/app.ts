@@ -1,3 +1,6 @@
+import { isAdminDatabaseLayoutColumn } from "../repositories/adminDatabaseRepository.js";
+import { tableDefinitions, validateTableLayout } from "../contracts/tableLayouts.js";
+import { TableLayoutConflictError, type TableLayoutsRepository } from "../repositories/tableLayoutsRepository.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { ServerConfig } from "../config/env.js";
@@ -430,6 +433,7 @@ type AppDependencies = {
   maxNotificationService?: MaxNotificationService;
   notificationSettings?: NotificationSettingsRepository;
   navigationOrder?: NavigationOrderRepository;
+  tableLayouts?: TableLayoutsRepository;
   dispatcherSpreadsheetImport?: DispatcherSpreadsheetImportService;
   productionPlans?: ProductionPlansRepository;
   productionBrands?: ProductionBrandsDataSource;
@@ -559,6 +563,7 @@ export function createApiServer({
   ),
   notificationSettings,
   navigationOrder,
+  tableLayouts,
   dispatcherSpreadsheetImport,
   productionPlans,
   productionBrands = unavailableProductionBrandsDataSource,
@@ -658,6 +663,65 @@ export function createApiServer({
           authService,
           accounts,
         });
+        return;
+      }
+
+      if (url.pathname === "/api/table-layouts") {
+        const signedIn = await readSignedInAccess(req, { config, devSessions, authService });
+        if (signedIn === undefined) {
+          sendJson(res, 401, { error: { code: "unauthenticated", message: "Требуется вход." } });
+          return;
+        }
+        const canManage = hasProfileCapability(signedIn.profile, "platform.manage_table_layouts");
+        if (req.method !== "GET" && req.method !== "PUT") {
+          sendJson(res, 405, { error: { code: "access_denied", message: "Используйте GET или PUT." } });
+          return;
+        }
+        if (req.method === "PUT" && !canManage) {
+          sendJson(res, 403, { error: { code: "access_denied", message: "Настройка колонок доступна администратору." } });
+          return;
+        }
+        if (tableLayouts === undefined) {
+          sendJson(res, 503, { error: { code: "server_error", message: "Настройки таблиц недоступны." } });
+          return;
+        }
+        if (req.method === "GET") {
+          sendJson(res, 200, { layouts: await tableLayouts.read(), canManage });
+          return;
+        }
+        const validation = validateTableLayout(await readJsonBody(req));
+        if (!validation.ok) {
+          sendJson(res, 400, { error: { code: "invalid_response", message: validation.message } });
+          return;
+        }
+        if (validation.value.tableId === "admin.database"
+          && !Object.keys(validation.value.widths).every(isAdminDatabaseLayoutColumn)) {
+          sendJson(res, 400, { error: { code: "invalid_response", message: "Неизвестная колонка редактора БД." } });
+          return;
+        }
+        try {
+          const change = await runAuditedMutation({
+            transaction: databaseTransaction,
+            audit,
+            mutate: () => tableLayouts.set(validation.value),
+            buildEvent: ({ previous, updated }) => ({
+              actor: buildAuditActor(signedIn.profile),
+              category: "administration",
+              action: "admin.table_layout_update",
+              summary: `Изменены ширины колонок: ${tableDefinitions[updated.tableId].label}`,
+              details: [
+                { label: "До", value: JSON.stringify(previous.widths) },
+                { label: "После", value: JSON.stringify(updated.widths) },
+              ],
+              targetType: "table_layout",
+              targetId: updated.tableId,
+            }),
+          });
+          sendJson(res, 200, change.updated);
+        } catch (error) {
+          if (!(error instanceof TableLayoutConflictError)) throw error;
+          sendJson(res, 409, { error: { code: "conflict", message: error.message } });
+        }
         return;
       }
 
