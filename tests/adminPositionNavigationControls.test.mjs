@@ -287,6 +287,22 @@ test("delegated manager edits working tabs and combines railway roles without lo
       ?.querySelector('input[type="checkbox"]');
     assert.ok(administratorCheckbox);
     assert.equal(administratorCheckbox.disabled, true);
+    const selectedPositionCheckbox = Array.from(
+      positionOptions.querySelectorAll("label"),
+    ).find((label) => label.textContent?.includes("Руководитель с БД"))
+      ?.querySelector('input[type="checkbox"]');
+    assert.ok(selectedPositionCheckbox?.checked);
+    assert.equal(
+      selectedPositionCheckbox?.nextElementSibling?.className,
+      "admin-account-position-picker-checkbox",
+    );
+    await React.act(async () => positionPicker.click());
+    assert.equal(
+      dom.window.document.body.querySelector(
+        "#admin-account-position-picker-options",
+      ),
+      null,
+    );
 
     await React.act(async () => root.unmount());
   } finally {

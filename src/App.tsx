@@ -11098,7 +11098,7 @@ function AdminAccountPositionPicker({
     onChange(nextPositions);
   }
 
-  const options = menuPosition === undefined
+  const options = !isOpen || menuPosition === undefined
     ? null
     : createPortal(
         <div
@@ -11129,6 +11129,10 @@ function AdminAccountPositionPicker({
                   checked={selectedSet.has(position.id)}
                   disabled={isDisabled}
                   onChange={() => togglePosition(position.id)}
+                />
+                <span
+                  aria-hidden="true"
+                  className="admin-account-position-picker-checkbox"
                 />
                 <strong>{position.displayName}</strong>
               </label>

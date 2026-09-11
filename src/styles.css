@@ -3119,6 +3119,7 @@ p {
 }
 
 .admin-account-position-picker-option {
+  position: relative;
   display: flex;
   min-height: 42px;
   align-items: flex-start;
@@ -3135,13 +3136,57 @@ p {
 }
 
 .admin-account-position-picker-option input {
-  width: auto;
-  min-width: 16px;
-  min-height: 16px;
-  height: 16px;
-  margin: 2px 0 0;
+  position: absolute;
+  z-index: 1;
+  top: 9px;
+  left: 10px;
+  width: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  height: 20px;
+  margin: 0;
   padding: 0;
-  accent-color: var(--blue-gray);
+  border: 0;
+  outline: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.admin-account-position-picker-checkbox {
+  display: grid;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: #fff;
+}
+
+.admin-account-position-picker-option input:checked + .admin-account-position-picker-checkbox {
+  border-color: var(--blue-gray);
+  background: var(--blue-gray);
+}
+
+.admin-account-position-picker-option input:checked + .admin-account-position-picker-checkbox::after {
+  width: 10px;
+  height: 6px;
+  border-bottom: 3px solid currentColor;
+  border-left: 3px solid currentColor;
+  content: "";
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.admin-account-position-picker-option input:disabled + .admin-account-position-picker-checkbox {
+  background: var(--surface-subtle);
+  cursor: not-allowed;
+}
+
+.admin-account-position-picker-option input:focus-visible + .admin-account-position-picker-checkbox {
+  outline: 2px solid var(--blue-gray);
+  outline-offset: 2px;
 }
 
 .admin-account-position-picker-option strong {
