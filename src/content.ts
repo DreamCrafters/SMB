@@ -4,7 +4,11 @@ import type {
   AccountType,
   BoardAssignmentAccess,
 } from "./contracts/accounts";
-import type { RailwayWagonAccess } from "./contracts/railwayWagons";
+import {
+  readRailwayWagonAccessRoles,
+  type RailwayWagonAccess,
+  type RailwayWagonAccessLevel,
+} from "./contracts/railwayWagons.js";
 
 export type NavigationItem = {
   id: AccountNavigationItem;
@@ -36,10 +40,10 @@ export const boardAssignmentAccessOptions: ReadonlyArray<{
 
 /**
  * Роль должности в разделе «ЖД Вагоны»: этапы заявки заполняют разные
- * должности, поэтому у вкладки есть ещё и уровень.
+ * должности; несколько ролей можно выдать одновременно.
  */
 export const railwayWagonAccessOptions: ReadonlyArray<{
-  id: Exclude<RailwayWagonAccess, "none">;
+  id: Exclude<RailwayWagonAccessLevel, "none">;
   label: string;
 }> = [
   { id: "view", label: "Только просмотр" },
@@ -49,9 +53,17 @@ export const railwayWagonAccessOptions: ReadonlyArray<{
   { id: "dispatcher", label: "Диспетчер" },
 ];
 
+export function formatRailwayWagonAccess(access: RailwayWagonAccess) {
+  const roles = readRailwayWagonAccessRoles(access);
+  return railwayWagonAccessOptions
+    .filter(({ id }) => id === "view" ? roles.length === 0 : roles.includes(id))
+    .map(({ label }) => label)
+    .join(", ");
+}
+
 /**
  * Вкладки, где доступ делится на уровни: галочка выдаёт саму вкладку, а
- * выпадающий список рядом — уровень внутри неё. Каталог общий для формы
+ * список или галочки рядом — полномочия внутри неё. Каталог общий для формы
  * должности и массового переключателя доступа.
  */
 export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
@@ -63,7 +75,7 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
     options: boardAssignmentAccessOptions,
   },
   "business.railway_wagons": {
-    title: "Роль в разделе",
+    title: "Роли в разделе",
     options: railwayWagonAccessOptions,
   },
 };

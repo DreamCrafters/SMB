@@ -1,4 +1,5 @@
 import { TableLayoutProvider } from "./TableLayoutProvider";
+import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
 import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell, AriaTableCell } from "./TableCell";
 import {
@@ -71,7 +72,7 @@ import {
   authOptions,
   boardAssignmentAccessOptions,
   navigationAccessLevels,
-  railwayWagonAccessOptions,
+  formatRailwayWagonAccess,
   defaultNavigationOrder,
   navigationItemsByAccountType,
   nonAdminNavigationItems,
@@ -11080,10 +11081,7 @@ function formatPositionNavigationItem(
   }
 
   if (navigationItemId === "business.railway_wagons") {
-    const level = railwayWagonAccessOptions.find(
-      ({ id }) => id === position.railwayWagonAccess,
-    )?.label;
-    return level === undefined ? label : `${label} — ${level}`;
+    return `${label} — ${formatRailwayWagonAccess(position.railwayWagonAccess)}`;
   }
 
   return label;
@@ -11539,7 +11537,7 @@ function AdminAccountsWorkspace({
     return {};
   }
 
-  function renderPositionAccessLevelSelect(
+  function renderPositionAccessControls(
     navigationItemId: AccountNavigationItem,
     hasTab: boolean,
   ) {
@@ -11548,9 +11546,21 @@ function AdminAccountsWorkspace({
       return null;
     }
 
-    const value = navigationItemId === "business.board_assignments"
-      ? positionForm.boardAssignmentAccess
-      : positionForm.railwayWagonAccess;
+    if (navigationItemId === "business.railway_wagons") {
+      return (
+        <RailwayWagonAccessPicker
+          label="Роли в разделе ЖД Вагоны"
+          value={positionForm.railwayWagonAccess}
+          disabled={isSubmitting || !hasTab}
+          onChange={(railwayWagonAccess) => setPositionForm((current) => ({
+            ...current,
+            railwayWagonAccess,
+          }))}
+        />
+      );
+    }
+
+    const value = positionForm.boardAssignmentAccess;
 
     return (
       <label className="admin-account-navigation-level">
@@ -11560,17 +11570,10 @@ function AdminAccountsWorkspace({
           value={value === "none" ? "view" : value}
           onChange={(event) => {
             const level = event.currentTarget.value;
-            setPositionForm((current) => (
-              navigationItemId === "business.board_assignments"
-                ? {
-                    ...current,
-                    boardAssignmentAccess: level as BoardAssignmentAccess,
-                  }
-                : {
-                    ...current,
-                    railwayWagonAccess: level as RailwayWagonAccess,
-                  }
-            ));
+            setPositionForm((current) => ({
+              ...current,
+              boardAssignmentAccess: level as BoardAssignmentAccess,
+            }));
           }}
         >
           {levels.options.map((option) => (
@@ -11745,7 +11748,7 @@ function AdminAccountsWorkspace({
   async function handleSetPositionNavigationAccess(
     positionIds: AccountPosition[],
     enabled: boolean,
-    accessLevel?: string,
+    accessLevel?: BoardAssignmentAccess | RailwayWagonAccess,
   ) {
     if (
       !canAssignAdminNavigation ||
@@ -11777,9 +11780,11 @@ function AdminAccountsWorkspace({
     );
     const levelLabel = accessLevel === undefined
       ? undefined
-      : navigationAccessLevels[selectedPositionNavigationItem]?.options.find(
-          ({ id }) => id === accessLevel,
-        )?.label;
+      : selectedPositionNavigationItem === "business.railway_wagons"
+        ? formatRailwayWagonAccess(accessLevel as RailwayWagonAccess)
+        : navigationAccessLevels[selectedPositionNavigationItem]?.options.find(
+            ({ id }) => id === accessLevel,
+          )?.label;
     const message = levelLabel === undefined
       ? `${enabled ? "Включён" : "Отключён"} доступ к вкладке «${navigationLabel}».`
       : `Назначен уровень «${levelLabel}» на вкладке «${navigationLabel}».`;
@@ -12943,7 +12948,7 @@ function AdminAccountsWorkspace({
                             />
                             <span>{formatNavigationItemLabel(item)}</span>
                           </label>
-                          {renderPositionAccessLevelSelect(item.id, hasTab)}
+                    {renderPositionAccessControls(item.id, hasTab)}
                         </div>
                       );
                     })}
@@ -13027,7 +13032,9 @@ function AdminAccountsWorkspace({
               сразу ко всем аккаунтам этой должности.
               {selectedNavigationAccessLevels === undefined
                 ? null
-                : " Галочка выдаёт саму вкладку, а список рядом — уровень внутри неё."}
+                : selectedPositionNavigationItem === "business.railway_wagons"
+                  ? " Можно выбрать несколько ролей одновременно."
+                  : " Галочка выдаёт саму вкладку, а список рядом — уровень внутри неё."}
             </p>
             <div className="admin-position-navigation-access-toolbar">
               <label>
@@ -13103,10 +13110,7 @@ function AdminAccountsWorkspace({
                     const hasAccess = position.navigationItems.includes(
                       selectedPositionNavigationItem,
                     );
-                    const level = selectedPositionNavigationItem ===
-                        "business.board_assignments"
-                      ? position.boardAssignmentAccess
-                      : position.railwayWagonAccess;
+                    const level = position.boardAssignmentAccess;
                     return (
                       <tr key={position.id}>
                         <TableCell>{position.displayName}</TableCell>
@@ -13130,27 +13134,38 @@ function AdminAccountsWorkspace({
                         </TableCell>
                         {selectedNavigationAccessLevels === undefined ? null : (
                           <TableCell>
-                            <select
-                              aria-label={`${selectedNavigationAccessLevels.title} для должности ${position.displayName}`}
-                              className="admin-position-navigation-access-level"
-                              disabled={
-                                isSavingPositionNavigationAccess || !hasAccess
-                              }
-                              value={level === "none" ? "view" : level}
-                              onChange={(event) => {
-                                void handleSetPositionNavigationAccess(
-                                  [position.id],
-                                  true,
-                                  event.currentTarget.value,
-                                );
-                              }}
-                            >
-                              {selectedNavigationAccessLevels.options.map((option) => (
-                                <option key={option.id} value={option.id}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
+                            {selectedPositionNavigationItem === "business.railway_wagons" ? (
+                              <RailwayWagonAccessPicker
+                                label={`Роли в разделе для должности ${position.displayName}`}
+                                value={position.railwayWagonAccess}
+                                disabled={isSavingPositionNavigationAccess || !hasAccess}
+                                onChange={(access) => {
+                                  void handleSetPositionNavigationAccess([position.id], true, access);
+                                }}
+                              />
+                            ) : (
+                              <select
+                                aria-label={`${selectedNavigationAccessLevels.title} для должности ${position.displayName}`}
+                                className="admin-position-navigation-access-level"
+                                disabled={
+                                  isSavingPositionNavigationAccess || !hasAccess
+                                }
+                                value={level === "none" ? "view" : level}
+                                onChange={(event) => {
+                                  void handleSetPositionNavigationAccess(
+                                    [position.id],
+                                    true,
+                                    event.currentTarget.value as BoardAssignmentAccess,
+                                  );
+                                }}
+                              >
+                                {selectedNavigationAccessLevels.options.map((option) => (
+                                  <option key={option.id} value={option.id}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </TableCell>
                         )}
                       </tr>

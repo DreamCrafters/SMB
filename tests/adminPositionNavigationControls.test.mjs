@@ -18,7 +18,18 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-test("delegated account manager edits only working tabs of ordinary positions", async () => {
+let sharedVite;
+async function getVite() {
+  sharedVite ??= await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+  return sharedVite;
+}
+test.after(async () => sharedVite?.close());
+
+test("delegated manager edits working tabs and combines railway roles without losing board access", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -42,11 +53,7 @@ test("delegated account manager edits only working tabs of ordinary positions", 
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
+  const vite = await getVite();
   const position = buildHybridPosition();
   let savedPosition;
 
@@ -79,6 +86,7 @@ test("delegated account manager edits only working tabs of ordinary positions", 
         method === "PATCH"
       ) {
         savedPosition = JSON.parse(String(init.body));
+        Object.assign(position, savedPosition);
         return jsonResponse({
           position: {
             ...position,
@@ -167,6 +175,30 @@ test("delegated account manager edits only working tabs of ordinary positions", 
     await React.act(async () => settingsToggle.click());
     assert.equal(settingsToggle.checked, true);
 
+    const roles = dialog.querySelector('[role="group"][aria-label="Роли в разделе ЖД Вагоны"]');
+    assert.ok(roles);
+    const sales = findCheckbox(roles, "Менеджер по продажам");
+    const carrier = findCheckbox(roles, "Сотрудник по работе с РЖД");
+    const view = findCheckbox(roles, "Только просмотр");
+    assert.equal(carrier.checked, true);
+    assert.equal(sales.checked, false);
+    await React.act(async () => sales.click());
+    assert.equal(sales.checked, true);
+    assert.equal(carrier.checked, true);
+    assert.equal(view.checked, false);
+    await React.act(async () => carrier.click());
+    assert.equal(carrier.checked, false);
+    assert.equal(sales.checked, true);
+    await React.act(async () => sales.click());
+    assert.equal(view.checked, true);
+    await React.act(async () => sales.click());
+    await React.act(async () => carrier.click());
+    await React.act(async () => view.click());
+    assert.equal(sales.checked, false);
+    assert.equal(carrier.checked, false);
+    await React.act(async () => sales.click());
+    await React.act(async () => carrier.click());
+
     const saveButton = dialog.querySelector('button[type="submit"]');
     assert.ok(saveButton);
     await React.act(async () => saveButton.click());
@@ -176,13 +208,26 @@ test("delegated account manager edits only working tabs of ordinary positions", 
       displayName: "Руководитель с БД",
       navigationItems: [
         "business.overview",
+        "business.board_assignments",
+        "business.railway_wagons",
         "business.dispatcher",
         "business.settings",
       ],
-      boardAssignmentAccess: "none",
-      railwayWagonAccess: "none",
+      boardAssignmentAccess: "create",
+      railwayWagonAccess: ["sales", "carrier"],
       showOverviewVisitors: true,
     });
+
+    const updatedRow = Array.from(rootElement.querySelectorAll(".admin-positions-table tbody tr"))
+      .find((row) => row.textContent?.includes("Руководитель с БД"));
+    assert.match(updatedRow.textContent, /Менеджер по продажам, Сотрудник по работе с РЖД/u);
+    await React.act(async () => Array.from(updatedRow.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Изменить").click());
+    const reopenedRoles = rootElement.querySelector('[role="group"][aria-label="Роли в разделе ЖД Вагоны"]');
+    assert.equal(findCheckbox(reopenedRoles, "Менеджер по продажам").checked, true);
+    assert.equal(findCheckbox(reopenedRoles, "Сотрудник по работе с РЖД").checked, true);
+    await React.act(async () => Array.from(rootElement.querySelectorAll('[role="dialog"] button'))
+      .find((button) => button.textContent?.trim() === "Отмена").click());
 
     const createPositionButton = Array.from(
       rootElement.querySelectorAll("button"),
@@ -212,7 +257,117 @@ test("delegated account manager edits only working tabs of ordinary positions", 
     } else {
       process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
     }
-    await vite.close();
+    dom.window.close();
+    restoreDomGlobals(previousGlobals);
+  }
+});
+
+test("tab access matrix saves multiple railway roles and keeps them when enabling all", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  dom.window.matchMedia = () => ({
+    matches: false, addEventListener() {}, removeEventListener() {},
+  });
+  const previousGlobals = captureDomGlobals();
+  const previousFetch = globalThis.fetch;
+  const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
+  process.env.VITE_SMB_REMOTE_API_URL = "http://127.0.0.1:5173";
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const vite = await getVite();
+  const position = buildHybridPosition();
+  position.navigationItems = position.navigationItems.filter((id) => id !== "admin.database");
+  position.railwayWagonAccess = ["sales", "carrier"];
+  const writes = [];
+  const positionsResponse = () => jsonResponse({
+    positions: [position], canAssignAdminNavigation: true, canManageProtectedPositions: true,
+  });
+  const rootElement = dom.window.document.getElementById("root");
+  const root = createRoot(rootElement);
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input), "http://127.0.0.1:5173/");
+      const method = init.method ?? "GET";
+      if (url.pathname === "/api/navigation-order") {
+        return jsonResponse({ navigationOrder: defaultNavigationOrder });
+      }
+      if (url.pathname === "/api/access/profile") {
+        const profile = buildDelegatedProfile();
+        profile.accountType = profile.activeAccess.accountType = "admin";
+        profile.activeAccess.position = "administrator";
+        return jsonResponse({ profile });
+      }
+      if (url.pathname === "/api/admin/accounts") {
+        return jsonResponse({ accounts: [], canManageProtectedAccounts: true });
+      }
+      if (url.pathname === "/api/admin/positions") return positionsResponse();
+      if (url.pathname === "/api/admin/positions/navigation-access" && method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        writes.push(body);
+        if (!body.enabled) {
+          position.navigationItems = position.navigationItems.filter((id) => id !== body.navigationItem);
+          position.railwayWagonAccess = "none";
+        } else {
+          position.navigationItems = [...new Set([...position.navigationItems, body.navigationItem])];
+          position.railwayWagonAccess = body.accessLevel ??
+            (position.railwayWagonAccess === "none" ? "view" : position.railwayWagonAccess);
+        }
+        return positionsResponse();
+      }
+      if (url.pathname === "/api/audit/events" && method === "POST") return jsonResponse({ ok: true });
+      throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+    };
+    const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
+    await React.act(async () => root.render(React.createElement(App)));
+    await waitFor(React, () => rootElement.querySelector(".admin-accounts-table tbody tr") !== null);
+    await React.act(async () => rootElement.querySelector(
+      'button[role="tab"][aria-controls="admin-accounts-panel-positions"]',
+    ).click());
+    await waitFor(React, () => rootElement.querySelector(".admin-positions-table tbody tr") !== null);
+    await React.act(async () => Array.from(rootElement.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Доступ по вкладке").click());
+    const dialog = rootElement.querySelector('[role="dialog"]');
+    const tabSelect = dialog.querySelector(".admin-position-navigation-access-toolbar select");
+    await React.act(async () => {
+      tabSelect.value = "business.railway_wagons";
+      tabSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    const roles = dialog.querySelector('[role="group"]');
+    const sales = findCheckbox(roles, "Менеджер по продажам");
+    const carrier = findCheckbox(roles, "Сотрудник по работе с РЖД");
+    const logistics = findCheckbox(roles, "Директор по логистике");
+    assert.equal(sales.checked, true);
+    assert.equal(carrier.checked, true);
+    await React.act(async () => logistics.click());
+    assert.deepEqual(writes.at(-1), {
+      navigationItem: "business.railway_wagons", positionIds: [position.id], enabled: true,
+      accessLevel: ["sales", "carrier", "logistics"],
+    });
+    assert.equal(sales.checked, true);
+    assert.equal(carrier.checked, true);
+    assert.equal(logistics.checked, true);
+    await React.act(async () => sales.click());
+    assert.deepEqual(writes.at(-1).accessLevel, ["carrier", "logistics"]);
+    await React.act(async () => Array.from(dialog.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Вкл. все").click());
+    assert.equal("accessLevel" in writes.at(-1), false);
+    assert.equal(carrier.checked, true);
+    assert.equal(logistics.checked, true);
+    const access = dialog.querySelector('input[aria-label^="Доступ к вкладке для должности"]');
+    await React.act(async () => access.click());
+    assert.equal(writes.at(-1).enabled, false);
+    assert.equal(carrier.disabled, true);
+    assert.equal(carrier.checked, false);
+    await React.act(async () => access.click());
+    assert.equal(carrier.disabled, false);
+    assert.equal(carrier.checked, false);
+    assert.equal(findCheckbox(roles, "Только просмотр").checked, true);
+    assert.equal(position.boardAssignmentAccess, "create");
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = previousFetch;
+    if (previousRemoteApiUrl === undefined) delete process.env.VITE_SMB_REMOTE_API_URL;
+    else process.env.VITE_SMB_REMOTE_API_URL = previousRemoteApiUrl;
     dom.window.close();
     restoreDomGlobals(previousGlobals);
   }
@@ -249,13 +404,17 @@ function buildHybridPosition() {
     id: "hybrid-position",
     displayName: "Руководитель с БД",
     accountType: "business_owner",
-    navigationItems: ["business.overview", "admin.database"],
+    navigationItems: ["business.overview", "admin.database", "business.board_assignments", "business.railway_wagons"],
     capabilities: [
       "business.view_all_statistics",
       "platform.manage_analytics_database",
+      "business.view_board_assignments",
+      "business.create_board_assignments",
+      "business.view_railway_wagons",
+      "business.manage_railway_wagon_carriage",
     ],
-    boardAssignmentAccess: "none",
-    railwayWagonAccess: "none",
+    boardAssignmentAccess: "create",
+    railwayWagonAccess: "carrier",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,

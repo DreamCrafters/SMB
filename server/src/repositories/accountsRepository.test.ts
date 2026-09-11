@@ -772,12 +772,22 @@ test("updatePosition preserves the technical account type and refreshes linked s
   const result = await repository.updatePosition({
     id: "position-manager",
     displayName: "Диспетчер участка",
-    navigationItems: ["business.dispatcher_form"],
-    capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
+    navigationItems: ["business.dispatcher_form", "business.railway_wagons", "business.board_assignments"],
+    capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed",
+      "business.view_railway_wagons", "business.manage_railway_wagon_orders",
+      "business.manage_railway_wagon_carriage", "business.view_board_assignments",
+      "business.create_board_assignments"],
   });
 
   assert.equal(didCommit, true);
   assert.equal(result?.accountType, "business_owner");
+  assert.deepEqual(result?.railwayWagonAccess, ["sales", "carrier"]);
+  assert.equal(result?.boardAssignmentAccess, "create");
+  assert.ok(result?.capabilities.includes("business.manage_railway_wagon_orders"));
+  assert.ok(result?.capabilities.includes("business.manage_railway_wagon_carriage"));
+  assert.ok(queries.some(({ sql }) => sql.startsWith("delete sessions from auth_sessions")));
+  const accessUpdate = queries.find(({ sql }) => sql.startsWith("update account_accesses accesses"));
+  assert.deepEqual(JSON.parse(String(accessUpdate?.params?.[1])), result?.capabilities);
   assert.equal(
     queries.some((query) => query.sql.startsWith("update account_accesses set account_type")),
     false,
@@ -2087,15 +2097,19 @@ function buildFakeDatabase({
   };
 }
 
-test("setPositionNavigationAccess keeps the railway wagon role when another tab is toggled", async () => {
+test("setPositionNavigationAccess keeps combined railway roles and board access when another tab is toggled", async () => {
   let navigationItems = [
     "business.railway_wagons",
     "business.laboratory_results",
+    "business.board_assignments",
   ];
   let capabilities = [
     "business.view_railway_wagons",
     "business.manage_railway_wagon_carriage",
     "business.manage_laboratory_results",
+    "business.manage_railway_wagon_orders",
+    "business.view_board_assignments",
+    "business.create_board_assignments",
   ];
   const connection = {
     async beginTransaction() {},
@@ -2144,9 +2158,32 @@ test("setPositionNavigationAccess keeps the railway wagon role when another tab 
     enabled: false,
   }, actor);
 
-  assert.deepEqual(navigationItems, ["business.railway_wagons"]);
+  assert.deepEqual(navigationItems, ["business.railway_wagons", "business.board_assignments"]);
   assert.ok(capabilities.includes("business.manage_railway_wagon_carriage"));
+  assert.ok(capabilities.includes("business.manage_railway_wagon_orders"));
+  assert.ok(capabilities.includes("business.create_board_assignments"));
   assert.ok(!capabilities.includes("business.manage_laboratory_results"));
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.railway_wagons", positionIds: ["railway-carrier"], enabled: true,
+  }, actor);
+  assert.ok(capabilities.includes("business.manage_railway_wagon_carriage"));
+  assert.ok(capabilities.includes("business.manage_railway_wagon_orders"));
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.railway_wagons", positionIds: ["railway-carrier"], enabled: true,
+    accessLevel: ["carrier", "logistics"],
+  }, actor);
+  assert.ok(!capabilities.includes("business.manage_railway_wagon_orders"));
+  assert.ok(capabilities.includes("business.manage_railway_wagon_carriage"));
+  assert.ok(capabilities.includes("business.approve_railway_wagon_logistics"));
+  assert.ok(capabilities.includes("business.create_board_assignments"));
+
+  await repository.setPositionNavigationAccess({
+    navigationItem: "business.railway_wagons", positionIds: ["railway-carrier"], enabled: false,
+  }, actor);
+  assert.deepEqual(navigationItems, ["business.board_assignments"]);
+  assert.deepEqual(capabilities, ["business.view_board_assignments", "business.create_board_assignments"]);
 });
 
 test("setPositionNavigationAccess grants the railway tab as view only", async () => {
@@ -2208,11 +2245,12 @@ test("setPositionNavigationAccess grants the railway tab as view only", async ()
   )));
 });
 
-test("setPositionProtected keeps the railway wagon role when admin rights change", async () => {
+test("setPositionProtected keeps combined railway roles when admin rights change", async () => {
   let navigationItems = ["business.railway_wagons"];
   let capabilities = [
     "business.view_railway_wagons",
     "business.manage_railway_wagon_orders",
+    "business.manage_railway_wagon_carriage",
   ];
   const connection = {
     async beginTransaction() {},
@@ -2250,6 +2288,7 @@ test("setPositionProtected keeps the railway wagon role when admin rights change
 
   assert.ok(navigationItems.includes("business.railway_wagons"));
   assert.ok(capabilities.includes("business.manage_railway_wagon_orders"));
+  assert.ok(capabilities.includes("business.manage_railway_wagon_carriage"));
 });
 
 test("setPositionNavigationAccess assigns the level of an already granted tab", async () => {

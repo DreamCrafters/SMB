@@ -20,7 +20,7 @@ export const railwayWagonTypes = ["КР (крытый)", "ПВ (полуваго
 
 export type RailwayWagonType = (typeof railwayWagonTypes)[number];
 
-/** Роли раздела. Должность получает ровно одну через уровень доступа вкладки. */
+/** Роли раздела. Должность может совмещать несколько ролей. */
 export const railwayWagonRoles = [
   "sales",
   "carrier",
@@ -44,7 +44,9 @@ export const railwayWagonAccessLevels = [
   "dispatcher",
 ] as const;
 
-export type RailwayWagonAccess = (typeof railwayWagonAccessLevels)[number];
+export type RailwayWagonAccessLevel = (typeof railwayWagonAccessLevels)[number];
+/** Одиночные строковые значения сохранены для совместимости. */
+export type RailwayWagonAccess = RailwayWagonAccessLevel | RailwayWagonRole[];
 
 export const railwayWagonRoleCapabilities: Record<RailwayWagonRole, string> = {
   sales: "business.manage_railway_wagon_orders",
@@ -54,11 +56,24 @@ export const railwayWagonRoleCapabilities: Record<RailwayWagonRole, string> = {
 };
 
 export function isRailwayWagonAccess(value: unknown): value is RailwayWagonAccess {
-  return (railwayWagonAccessLevels as readonly unknown[]).includes(value);
+  return Array.isArray(value)
+    ? value.length > 0 &&
+        value.length <= railwayWagonRoles.length &&
+        value.every(isRailwayWagonRole) &&
+        new Set(value).size === value.length
+    : (railwayWagonAccessLevels as readonly unknown[]).includes(value);
 }
 
 export function isRailwayWagonRole(value: unknown): value is RailwayWagonRole {
   return (railwayWagonRoles as readonly unknown[]).includes(value);
+}
+
+/** Канонический порядок ролей и единое чтение старого и нового формата. */
+export function readRailwayWagonAccessRoles(
+  access: RailwayWagonAccess,
+): RailwayWagonRole[] {
+  const selected = Array.isArray(access) ? access : [access];
+  return railwayWagonRoles.filter((role) => selected.includes(role));
 }
 
 /** Решение этапа согласования: одобрить или отклонить с комментарием. */

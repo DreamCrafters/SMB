@@ -41,8 +41,7 @@ test("position form edits working tabs while admin rights are managed separately
     appSource,
     /applyNavigationLabels\(nonAdminNavigationItems, navigationLabels\)\s*\.map\(\(item\) => \{/u,
   );
-  // Вкладки с уровнями больше не подменяются набором галочек уровней: каждая
-  // вкладка это одна галочка, а уровень выбирается списком рядом.
+  // Каждая вкладка выдаётся отдельно; роли настраиваются рядом с ней.
   assert.doesNotMatch(
     appSource,
     /\{boardAssignmentAccessOptions\.map\(\(option\) => \(/u,
@@ -51,7 +50,7 @@ test("position form edits working tabs while admin rights are managed separately
     appSource,
     /\{railwayWagonAccessOptions\.map\(\(option\) => \(/u,
   );
-  assert.match(appSource, /renderPositionAccessLevelSelect\(item\.id, hasTab\)/u);
+  assert.match(appSource, /renderPositionAccessControls\(item\.id, hasTab\)/u);
   assert.match(appSource, /readPositionLevelPatch\(item\.id, isChecked, current\)/u);
   assert.equal(appSource.includes(">Админ<"), false);
   assert.equal(appSource.includes("Административные вкладки"), false);
@@ -95,7 +94,7 @@ test("position form edits working tabs while admin rights are managed separately
   );
   assert.equal(
     navigationAccessLevels["business.railway_wagons"].title,
-    "Роль в разделе",
+    "Роли в разделе",
   );
 });
 
@@ -111,7 +110,7 @@ test("bulk tab access assigns the level next to the access checkbox", async () =
   // Смена уровня сохраняет вкладку включённой и шлёт сам уровень.
   assert.match(
     appSource,
-    /handleSetPositionNavigationAccess\(\s*\[position\.id\],\s*true,\s*event\.currentTarget\.value,\s*\)/u,
+    /handleSetPositionNavigationAccess\(\s*\[position\.id\],\s*true,\s*event\.currentTarget\.value as BoardAssignmentAccess,\s*\)/u,
   );
   // Список уровней недоступен, пока вкладка не выдана.
   assert.match(

@@ -6705,6 +6705,28 @@ test("working tab API carries the access level only where the tab has levels", a
     });
     assert.equal(accepted.status, 200);
 
+    const combined = await send({
+      navigationItem: "business.railway_wagons",
+      positionIds: ["business_owner"],
+      enabled: true,
+      accessLevel: ["sales", "carrier"],
+    });
+    assert.equal(combined.status, 200);
+    for (const accessLevel of [[], ["sales", "sales"], ["view", "carrier"], ["sales", "review"], [null]]) {
+      assert.equal((await send({
+        navigationItem: "business.railway_wagons",
+        positionIds: ["business_owner"], enabled: true, accessLevel,
+      })).status, 400);
+    }
+    assert.equal((await send({
+      navigationItem: "business.board_assignments",
+      positionIds: ["business_owner"], enabled: true, accessLevel: ["sales", "carrier"],
+    })).status, 400);
+    assert.equal((await send({
+      navigationItem: "business.railway_wagons",
+      positionIds: ["business_owner"], enabled: false, accessLevel: ["sales", "carrier"],
+    })).status, 400);
+
     // Уровень чужой вкладки не принимается.
     const foreignLevel = await send({
       navigationItem: "business.railway_wagons",
@@ -6738,7 +6760,61 @@ test("working tab API carries the access level only where the tab has levels", a
     positionIds: ["business_owner"],
     enabled: true,
     accessLevel: "carrier",
+  }, {
+    navigationItem: "business.railway_wagons",
+    positionIds: ["business_owner"],
+    enabled: true,
+    accessLevel: ["sales", "carrier"],
   }]);
+});
+
+test("position create and update accept combined railway roles with independent board access", async () => {
+  const writes: Parameters<AccountsRepository["createPosition"]>[0][] = [];
+  let stored: Awaited<ReturnType<AccountsRepository["createPosition"]>> | undefined;
+  const save: AccountsRepository["createPosition"] = async (input) => {
+    writes.push(input);
+    stored = {
+      ...input, id: "mixed-position", accountType: "business_owner",
+      boardAssignmentAccess: "create", railwayWagonAccess: ["sales", "carrier"],
+      showOverviewVisitors: false, isProtected: false, usageCount: 0,
+      createdAt: "2026-09-11T00:00:00.000Z",
+    };
+    return stored;
+  };
+  const repository: AccountsRepository = {
+    ...accounts, createPosition: save, updatePosition: save,
+    async listPositions() {
+      return [...await accounts.listPositions(), ...(stored === undefined ? [] : [stored])];
+    },
+  };
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const body = {
+      displayName: "Совмещённая должность",
+      navigationItems: ["business.board_assignments", "business.railway_wagons"],
+      boardAssignmentAccess: "create", railwayWagonAccess: ["carrier", "sales"],
+    };
+    for (const method of ["POST", "PATCH"]) {
+      const send = (payload: unknown) => fetch(
+        `${baseUrl}/api/admin/positions${method === "PATCH" ? "/mixed-position" : ""}`,
+        { method, headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
+          body: JSON.stringify(payload) },
+      );
+      const response = await send(body);
+      assert.equal(response.status, method === "POST" ? 201 : 200);
+      const payload = await response.json() as { position: { capabilities: string[] } };
+      assert.deepEqual(payload.position.capabilities, [
+        "business.view_board_assignments", "business.view_railway_wagons",
+        "business.create_board_assignments", "business.manage_railway_wagon_orders",
+        "business.manage_railway_wagon_carriage",
+      ]);
+      for (const railwayWagonAccess of [[], ["sales", "sales"], ["sales", "review"], ["view", "sales"], "none"]) {
+        assert.equal((await send({ ...body, railwayWagonAccess })).status, 400);
+      }
+      assert.equal((await send({ ...body, navigationItems: ["business.board_assignments"] })).status, 400);
+    }
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+  assert.equal(writes.length, 2);
 });
 
 test("admin preview grants the previewed position and refuses everyone else", async () => {

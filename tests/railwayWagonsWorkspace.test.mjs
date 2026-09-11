@@ -88,6 +88,22 @@ test("railway wagon stages are shown only to the role that fills them", async ()
   }
 });
 
+test("combined railway roles offer order creation and carriage stages in one workspace", async () => {
+  const order = buildOrder({ orderedAt: "2026-09-07T08:00:00.000Z" });
+  const context = await mountWorkspace({ roles: ["sales", "carrier"], orders: [order] });
+  try {
+    const { React, container } = context;
+    await waitFor(React, () => container.querySelector(".railway-orders-table tbody tr") !== null);
+    assert.ok(container.querySelector(".railway-wagon-form"));
+    await clickButton(React, container, "Этапы");
+    await waitFor(React, () => container.querySelector(".railway-stage-panel") !== null);
+    assert.deepEqual(Array.from(container.querySelectorAll(".railway-stage-item legend"),
+      (legend) => legend.textContent), ["Условия перевозки"]);
+  } finally {
+    await context.dispose();
+  }
+});
+
 test("railway wagon list shows the derived status and hides passed stages", async () => {
   const order = buildOrder({
     orderedAt: "2026-09-07T08:00:00.000Z",

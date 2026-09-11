@@ -1,5 +1,8 @@
 import {
   isRailwayWagonRole,
+  isRailwayWagonAccess,
+  readRailwayWagonAccessRoles,
+  resolveRailwayWagonRoles,
   railwayWagonAccessLevels,
   railwayWagonRoleCapabilities,
   railwayWagonRoles,
@@ -172,11 +175,11 @@ export function resolveCapabilitiesForPosition(
       : [];
 
   const railwayWagonCapabilities: AccountCapability[] =
-    !resolvedNavigationItems.includes("business.railway_wagons") ||
-      railwayWagonAccess === "none" ||
-      railwayWagonAccess === "view"
+    !resolvedNavigationItems.includes("business.railway_wagons")
       ? []
-      : [railwayWagonRoleCapabilities[railwayWagonAccess] as AccountCapability];
+      : readRailwayWagonAccessRoles(railwayWagonAccess).map(
+          (role) => railwayWagonRoleCapabilities[role] as AccountCapability,
+        );
 
   return Array.from(new Set([
     ...capabilities,
@@ -198,19 +201,8 @@ export function readRailwayWagonAccess(
   if (!navigationItems.includes("business.railway_wagons")) {
     return "none";
   }
-  if (capabilities.includes("business.manage_railway_wagon_orders")) {
-    return "sales";
-  }
-  if (capabilities.includes("business.manage_railway_wagon_carriage")) {
-    return "carrier";
-  }
-  if (capabilities.includes("business.approve_railway_wagon_logistics")) {
-    return "logistics";
-  }
-  if (capabilities.includes("business.confirm_railway_wagon_movement")) {
-    return "dispatcher";
-  }
-  return "view";
+  const roles = resolveRailwayWagonRoles(capabilities);
+  return roles.length > 1 ? roles : roles[0] ?? "view";
 }
 
 /**
@@ -240,6 +232,9 @@ export function isNavigationAccessLevel(
   navigationItem: AccountNavigationItem,
   value: unknown,
 ): value is NavigationAccessLevel {
+  if (navigationItem === "business.railway_wagons") {
+    return isRailwayWagonAccess(value);
+  }
   return (
     hasNavigationAccessLevels(navigationItem) &&
     (navigationAccessLevelsByItem[navigationItem] as readonly string[])
@@ -249,8 +244,7 @@ export function isNavigationAccessLevel(
 
 /**
  * Предпросмотр одной вкладки показывает её максимально: к правам самой вкладки
- * добавляются права всех её уровней. Реальная должность держит один уровень, но
- * здесь задача обратная — увидеть вкладку целиком, а не глазами одной роли.
+ * добавляются права всех её уровней, независимо от назначенных должности ролей.
  */
 export function resolveMaximumCapabilitiesForNavigation(
   navigationItem: AccountNavigationItem,

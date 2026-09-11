@@ -9552,7 +9552,12 @@ function buildPositionAuditDetails(position: AdminPositionSummary) {
 function readNavigationAccessLevelLabel(
   navigationItem: AccountNavigationItem,
   level: NavigationAccessLevel,
-) {
+): string {
+  if (Array.isArray(level)) {
+    return level
+      .map((role) => readNavigationAccessLevelLabel(navigationItem, role))
+      .join(", ");
+  }
   const labels: Record<string, string> = {
     "business.board_assignments:view": "Только просмотр",
     "business.board_assignments:create": "Создание поручений",
@@ -12875,7 +12880,7 @@ function validateCreatePositionRequest(input: unknown):
     );
   }
   if (!isRailwayWagonAccess(railwayWagonAccess)) {
-    errors.push("Выберите поддерживаемую роль в разделе «ЖД Вагоны».");
+    errors.push("Выберите поддерживаемые роли в разделе «ЖД Вагоны».");
   } else if ((railwayWagonAccess === "none") === hasRailwayWagons) {
     errors.push(
       "Роль в разделе «ЖД Вагоны» не соответствует выбранным вкладкам.",

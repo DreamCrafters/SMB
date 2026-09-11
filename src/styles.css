@@ -3126,6 +3126,47 @@ p {
   opacity: 0.72;
 }
 
+.admin-railway-role-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 9px 7px;
+}
+
+.admin-railway-role-picker-title {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-railway-role-picker .admin-account-protection-control {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  white-space: normal;
+}
+
+.admin-railway-role-picker .admin-account-protection-control span {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.admin-railway-role-picker input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  min-height: 14px;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.admin-railway-role-picker input:disabled + span {
+  color: var(--muted);
+}
+
 .admin-position-navigation-access-level {
   min-width: 200px;
   min-height: 32px;

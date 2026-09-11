@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accountTypeByPosition,
+  isNavigationAccessLevel,
   navigationItemsByAccountType,
   readBoardAssignmentAccess,
+  readRailwayWagonAccess,
   readRawMaterialWarehouseReviewAccess,
   resolveCapabilitiesForPosition,
   resolveCapabilitiesForNavigation,
@@ -12,6 +14,45 @@ import {
   resolveNavigationForPosition,
   validatePositionNavigationItems,
 } from "./accountAccessConfiguration.js";
+import { isRailwayWagonAccess } from "../contracts/railwayWagons.js";
+
+test("a position keeps every railway role alongside board access when recomputed", () => {
+  const navigationItems = [
+    "business.railway_wagons",
+    "business.board_assignments",
+  ] as const;
+  const capabilities = [
+    "business.view_railway_wagons",
+    "business.manage_railway_wagon_orders",
+    "business.manage_railway_wagon_carriage",
+    "business.view_board_assignments",
+    "business.create_board_assignments",
+  ] as const;
+  const railwayAccess = readRailwayWagonAccess([...capabilities], [...navigationItems]);
+  assert.deepEqual(railwayAccess, ["sales", "carrier"]);
+  const recomputed = resolveCapabilitiesForPosition(
+    "position-mixed", [...navigationItems], "create", false, false, false,
+    railwayAccess,
+  );
+  assert.deepEqual(new Set(recomputed), new Set(capabilities));
+});
+
+test("railway access accepts legacy levels and only nonempty unique role sets", () => {
+  for (const value of ["none", "view", "sales", "carrier", "logistics", "dispatcher",
+    ["sales"], ["sales", "carrier"], ["sales", "carrier", "logistics", "dispatcher"]]) {
+    assert.equal(isRailwayWagonAccess(value), true, JSON.stringify(value));
+  }
+  for (const value of [[], ["sales", "sales"], ["view", "sales"], ["none"],
+    ["review"], ["sales", "platform.manage_access"], [null], {}, null, true, 1]) {
+    assert.equal(isRailwayWagonAccess(value), false, JSON.stringify(value));
+  }
+  assert.equal(isNavigationAccessLevel("business.railway_wagons", ["sales", "carrier"]), true);
+  assert.equal(isNavigationAccessLevel("business.board_assignments", ["create", "review"]), false);
+  assert.equal(isNavigationAccessLevel("business.settings", ["sales"]), false);
+  assert.deepEqual(resolveCapabilitiesForPosition("custom", [], "none", false, false, false,
+    ["sales", "carrier"]), []);
+  assert.equal(readRailwayWagonAccess(["business.manage_railway_wagon_orders"], []), "none");
+});
 
 test("executive positions use the business owner workspace", () => {
   assert.equal(accountTypeByPosition.board_chair, "business_owner");
