@@ -81,7 +81,7 @@ test("delegated manager edits working tabs and combines railway roles without lo
       }
       if (url.pathname === "/api/admin/positions" && method === "GET") {
         return jsonResponse({
-          positions: [position],
+          positions: [buildAdministratorPosition(), position],
           canAssignAdminNavigation: false,
           canManageProtectedPositions: false,
         });
@@ -280,6 +280,7 @@ test("delegated manager edits working tabs and combines railway roles without lo
       positionOptions.querySelectorAll('input[type="checkbox"]').length,
       1,
     );
+    assert.doesNotMatch(positionOptions.textContent ?? "", /Администратор/u);
 
     await React.act(async () => root.unmount());
   } finally {
@@ -450,6 +451,23 @@ function buildHybridPosition() {
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
+    usageCount: 1,
+    createdAt: "2026-08-03T08:00:00.000Z",
+  };
+}
+
+function buildAdministratorPosition() {
+  return {
+    id: "administrator",
+    displayName: "Администратор",
+    accountType: "admin",
+    navigationItems: ["admin.accounts"],
+    capabilities: ["platform.manage_users", "platform.manage_access"],
+    boardAssignmentAccess: "none",
+    railwayWagonAccess: "none",
+    showOverviewVisitors: false,
+    isProtected: true,
+    hasAdminRights: true,
     usageCount: 1,
     createdAt: "2026-08-03T08:00:00.000Z",
   };

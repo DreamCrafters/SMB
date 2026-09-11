@@ -11496,6 +11496,9 @@ function AdminAccountsWorkspace({
   const canManageProtectedPositions =
     positionsState.status === "ready" &&
     positionsState.canManageProtectedPositions;
+  const creatableAccountPositions = positionsState.status === "ready"
+    ? positionsState.positions.filter((position) => position.accountType !== "admin")
+    : [];
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
   const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
@@ -11638,13 +11641,11 @@ function AdminAccountsWorkspace({
   ]);
 
   function openCreateModal() {
-    const firstPosition = positionsState.status === "ready"
-      ? positionsState.positions.find(
-          (position) =>
-            positionsState.canAssignAdminNavigation ||
-            !position.hasAdminRights,
-        )
-      : undefined;
+    const firstPosition = creatableAccountPositions.find(
+      (position) =>
+        canAssignAdminNavigation ||
+        !position.hasAdminRights,
+    );
     setForm((current) => ({
       ...emptyAdminAccountForm,
       positions: firstPosition === undefined
@@ -12382,7 +12383,7 @@ function AdminAccountsWorkspace({
                 type="button"
                 disabled={
                   positionsState.status !== "ready" ||
-                  !positionsState.positions.some(
+                  !creatableAccountPositions.some(
                     (position) =>
                       positionsState.canAssignAdminNavigation ||
                       !position.hasAdminRights,
@@ -13033,7 +13034,7 @@ function AdminAccountsWorkspace({
                 <span>Должности</span>
                 <AdminAccountPositionPicker
                   canAssignAdminNavigation={canAssignAdminNavigation}
-                  positions={positionsState.status === "ready" ? positionsState.positions : []}
+                  positions={creatableAccountPositions}
                   selectedPositions={form.positions}
                   onChange={(positions) => handleFormFieldChange({ positions })}
                 />
