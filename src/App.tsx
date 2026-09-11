@@ -67,6 +67,7 @@ import {
   type UserActivityActor,
   type UserActivityEvent,
 } from "./contracts";
+import { createPortal } from "react-dom";
 import {
   accountPositionLabels,
   authOptions,
@@ -10994,6 +10995,179 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   positions: ["worker"],
 };
 
+type AdminAccountPositionPickerProps = {
+  positions: AdminPositionSummary[];
+  selectedPositions: AccountPosition[];
+  canAssignAdminNavigation: boolean;
+  onChange: (positions: AccountPosition[]) => void;
+};
+
+function AdminAccountPositionPicker({
+  positions,
+  selectedPositions,
+  canAssignAdminNavigation,
+  onChange,
+}: AdminAccountPositionPickerProps) {
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  }>();
+
+  useLayoutEffect(() => {
+    if (!isOpen || triggerRef.current === null) {
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const trigger = triggerRef.current;
+      if (trigger === null) {
+        return;
+      }
+      const rect = trigger.getBoundingClientRect();
+      const viewportPadding = 8;
+      const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+      const spaceAbove = rect.top - viewportPadding;
+      const openBelow = spaceBelow >= 180 || spaceBelow >= spaceAbove;
+      const maxHeight = Math.min(
+        420,
+        Math.max(160, openBelow ? spaceBelow : spaceAbove),
+      );
+      const top = openBelow
+        ? rect.bottom + 4
+        : Math.max(viewportPadding, rect.top - maxHeight - 4);
+
+      setMenuPosition({
+        top,
+        left: rect.left,
+        width: rect.width,
+        maxHeight,
+      });
+    };
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (pickerRef.current?.contains(target) || optionsRef.current?.contains(target))
+      ) {
+        return;
+      }
+      setIsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+    };
+  }, [isOpen]);
+
+  const selectedSet = new Set(selectedPositions);
+  const selectedLabels = positions
+    .filter((position) => selectedSet.has(position.id))
+    .map((position) => position.displayName);
+  const summary = selectedLabels.length === 0
+    ? "Выберите должности"
+    : selectedLabels.length === 1
+      ? selectedLabels[0]
+      : `Выбрано должностей: ${selectedLabels.length}`;
+
+  function togglePosition(positionId: AccountPosition) {
+    const nextPositions = selectedSet.has(positionId)
+      ? selectedPositions.filter((selectedPosition) => selectedPosition !== positionId)
+      : [...selectedPositions, positionId];
+    onChange(nextPositions);
+  }
+
+  const options = menuPosition === undefined
+    ? null
+    : createPortal(
+        <div
+          ref={optionsRef}
+          aria-label="Варианты должностей"
+          className="admin-account-position-picker-options"
+          id="admin-account-position-picker-options"
+          role="listbox"
+          aria-multiselectable="true"
+          style={{
+            top: menuPosition.top,
+            left: menuPosition.left,
+            maxHeight: menuPosition.maxHeight,
+            width: menuPosition.width,
+          }}
+        >
+          {positions.map((position) => {
+            const isDisabled =
+              position.accountType === "admin" ||
+              (!canAssignAdminNavigation && position.hasAdminRights);
+            return (
+              <label
+                className="admin-account-position-picker-option"
+                key={position.id}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedSet.has(position.id)}
+                  disabled={isDisabled}
+                  onChange={() => togglePosition(position.id)}
+                />
+                <strong>{position.displayName}</strong>
+              </label>
+            );
+          })}
+        </div>,
+        document.body,
+      );
+
+  return (
+    <div
+      ref={pickerRef}
+      className="admin-account-position-picker"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setIsOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={triggerRef}
+        aria-controls="admin-account-position-picker-options"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        className="admin-account-position-picker-trigger"
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <div className="admin-account-position-picker-summary" title={selectedLabels.join(", ")}>
+          {summary}
+        </div>
+        <i aria-hidden="true" className="admin-account-position-picker-arrow" />
+      </button>
+      {options}
+    </div>
+  );
+}
+
 type AdminPositionFormState = {
   id?: string;
   displayName: string;
@@ -12857,33 +13031,14 @@ function AdminAccountsWorkspace({
 
               <label>
                 <span>Должности</span>
-                <select
-                  aria-label="Должности новой учётной записи"
-                  multiple
-                  size={Math.min(6, Math.max(3, positionsState.status === "ready" ? positionsState.positions.length : 3))}
-                  value={form.positions}
-                  onChange={(event) => {
-                    const positions = Array.from(event.currentTarget.selectedOptions)
-                      .map((option) => option.value as AccountPosition);
-                    handleFormFieldChange({ positions });
-                  }}
-                >
-                  {(positionsState.status === "ready" ? positionsState.positions : []).map((position) => (
-                    <option
-                      key={position.id}
-                      value={position.id}
-                      disabled={
-                        position.accountType === "admin" ||
-                        (!canAssignAdminNavigation &&
-                          position.hasAdminRights)
-                      }
-                    >
-                      {position.displayName}
-                    </option>
-                  ))}
-                </select>
+                <AdminAccountPositionPicker
+                  canAssignAdminNavigation={canAssignAdminNavigation}
+                  positions={positionsState.status === "ready" ? positionsState.positions : []}
+                  selectedPositions={form.positions}
+                  onChange={(positions) => handleFormFieldChange({ positions })}
+                />
                 <small className="admin-account-multiselect-hint">
-                  Удерживайте ⌘ или Ctrl, чтобы выбрать несколько должностей. Их права объединятся в одном кабинете.
+                  Откройте список и отметьте несколько должностей. Их права объединятся в одном кабинете.
                 </small>
               </label>
 

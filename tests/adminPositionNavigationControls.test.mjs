@@ -15,6 +15,8 @@ const DOM_GLOBAL_NAMES = [
   "navigator",
   "Node",
   "window",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
@@ -46,6 +48,9 @@ test("delegated manager edits working tabs and combines railway roles without lo
       return false;
     },
   });
+  dom.window.requestAnimationFrame = (callback) =>
+    setTimeout(() => callback(Date.now()), 0);
+  dom.window.cancelAnimationFrame = (frameId) => clearTimeout(frameId);
   const previousGlobals = captureDomGlobals();
   const previousFetch = globalThis.fetch;
   const previousRemoteApiUrl = process.env.VITE_SMB_REMOTE_API_URL;
@@ -247,6 +252,33 @@ test("delegated manager edits working tabs and combines railway roles without lo
         legend.textContent?.trim(),
       ),
       ["Рабочие вкладки"],
+    );
+    await React.act(async () => Array.from(createDialog.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Отмена")?.click());
+
+    await React.act(async () => {
+      rootElement.querySelector(
+        'button[role="tab"][aria-controls="admin-accounts-panel-accounts"]',
+      )?.click();
+    });
+    const createAccountButton = Array.from(rootElement.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Новая учётная запись");
+    assert.ok(createAccountButton);
+    await React.act(async () => createAccountButton.click());
+    const accountDialog = rootElement.querySelector("#admin-account-create-dialog");
+    assert.ok(accountDialog);
+    const positionPicker = accountDialog.querySelector(
+      ".admin-account-position-picker-trigger",
+    );
+    assert.ok(positionPicker);
+    await React.act(async () => positionPicker.click());
+    const positionOptions = dom.window.document.body.querySelector(
+      "#admin-account-position-picker-options",
+    );
+    assert.ok(positionOptions);
+    assert.equal(
+      positionOptions.querySelectorAll('input[type="checkbox"]').length,
+      1,
     );
 
     await React.act(async () => root.unmount());
@@ -459,6 +491,8 @@ function installDomGlobals(window) {
     navigator: window.navigator,
     Node: window.Node,
     window,
+    requestAnimationFrame: (callback) => setTimeout(() => callback(Date.now()), 0),
+    cancelAnimationFrame: (frameId) => clearTimeout(frameId),
     IS_REACT_ACT_ENVIRONMENT: true,
   };
   for (const [name, value] of Object.entries(domGlobals)) {

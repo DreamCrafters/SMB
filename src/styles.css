@@ -3058,6 +3058,106 @@ p {
   font-weight: 700;
 }
 
+.admin-account-position-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.admin-account-position-picker-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--density-2);
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-raised);
+  font: inherit;
+  text-align: left;
+}
+
+.admin-account-position-picker-trigger:hover,
+.admin-account-position-picker-trigger:focus-visible,
+.admin-account-position-picker-trigger[aria-expanded="true"] {
+  border-color: var(--blue-gray);
+  outline: 2px solid var(--blue-gray-soft);
+}
+
+.admin-account-position-picker-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-account-position-picker-arrow {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 8px;
+  border-right: 3px solid var(--muted);
+  border-bottom: 3px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 120ms ease;
+}
+
+.admin-account-position-picker-trigger[aria-expanded="true"] .admin-account-position-picker-arrow {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.admin-account-position-picker-options {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.admin-account-position-picker-option {
+  display: flex;
+  min-height: 42px;
+  align-items: flex-start;
+  gap: var(--density-2);
+  padding: 9px 10px;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.admin-account-position-picker-option:hover,
+.admin-account-position-picker-option:focus-within {
+  background: var(--surface-subtle);
+}
+
+.admin-account-position-picker-option input {
+  width: auto;
+  min-width: 16px;
+  min-height: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--blue-gray);
+}
+
+.admin-account-position-picker-option strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.admin-account-position-picker-option:has(input:disabled) {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .admin-account-position-summary {
   grid-column: 1 / -1;
   color: var(--muted);
