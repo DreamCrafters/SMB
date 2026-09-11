@@ -8849,10 +8849,12 @@ p {
   text-align: left;
 }
 
-.railway-orders-table caption {
-  position: sticky;
-  left: 0;
-  z-index: 4;
+.managed-table-caption {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--density-2);
+  font-weight: 800;
+  text-align: left;
   background: var(--surface-raised);
 }
 

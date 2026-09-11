@@ -675,7 +675,11 @@ export function RailwayWagonsWorkspace({
           )}
 
       <div className="railway-table-wrap railway-table-wrap-orders">
-        <ManagedTable tableId="railway.orders" className="railway-orders-table">
+        <ManagedTable
+          captionPlacement="outside-scroll"
+          className="railway-orders-table"
+          tableId="railway.orders"
+        >
           <caption>Заявки на вагоны</caption>
           <thead>
             <tr>

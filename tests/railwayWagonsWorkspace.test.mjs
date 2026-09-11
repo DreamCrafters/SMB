@@ -17,6 +17,29 @@ const DOM_GLOBAL_NAMES = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
+test("railway orders title stays outside the horizontally scrolling table", async () => {
+  const context = await mountWorkspace({ roles: ["carrier"], orders: [] });
+
+  try {
+    const { React, container } = context;
+
+    await waitFor(React, () => container.querySelector(".railway-orders-table") !== null);
+
+    const shell = container.querySelector(".railway-table-wrap-orders .managed-table-shell");
+    const scroll = shell?.querySelector(".managed-table-scroll");
+    const title = shell?.querySelector(".managed-table-caption");
+
+    assert.ok(shell);
+    assert.ok(scroll);
+    assert.ok(title);
+    assert.equal(title.textContent, "Заявки на вагоны");
+    assert.equal(title.parentElement, shell);
+    assert.equal(scroll.querySelector("caption"), null);
+  } finally {
+    await context.dispose();
+  }
+});
+
 test("railway wagon order form adds cargo rows and totals them", async () => {
   const context = await mountWorkspace({ roles: ["sales"], orders: [] });
 

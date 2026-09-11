@@ -8,12 +8,13 @@ import { TableLayoutRequestError } from "./services/tableLayouts";
 type Props<T extends TableId> = TableHTMLAttributes<HTMLTableElement> & {
   tableId: T;
   columns?: readonly TableColumnId<T>[];
+  captionPlacement?: "inside-scroll" | "outside-scroll";
   variant?: "html" | "grid";
 };
 type Header = { element: HTMLElement; index: number; label: string };
 type Drag = { pointerId: number; startX: number; startWidth: number; index: number; width: number; button: HTMLButtonElement };
 
-export function ManagedTable<T extends TableId>({ tableId, columns: selectedColumns, variant = "html", children, className = "", style, ...props }: Props<T>) {
+export function ManagedTable<T extends TableId>({ tableId, columns: selectedColumns, captionPlacement = "inside-scroll", variant = "html", children, className = "", style, ...props }: Props<T>) {
   const settings = useTableLayouts();
   const columns: readonly string[] = selectedColumns ?? tableDefinitions[tableId].columns;
   const columnsKey = columns.join("|");
@@ -143,13 +144,21 @@ export function ManagedTable<T extends TableId>({ tableId, columns: selectedColu
   ) : null;
   const caption = Children.toArray(children).filter((child) => isValidElement(child) && child.type === "caption");
   const content = Children.toArray(children).filter((child) => !isValidElement(child) || child.type !== "caption");
+  const outsideCaption = variant === "html" && captionPlacement === "outside-scroll"
+    ? caption.map((child, index) => (
+        <div className="managed-table-caption" key={isValidElement(child) ? child.key ?? index : index}>
+          {isValidElement<{ children?: ReactNode }>(child) ? child.props.children : child}
+        </div>
+      ))
+    : null;
   const common = { ...props, ref: root, style: css, "data-table-id": tableId,
     className: `managed-table ${variant === "grid" ? "managed-table-grid" : ""} ${className}` };
   return <div className="managed-table-shell">
     {toolbar}
+    {outsideCaption}
     <div className={`managed-table-scroll ${className.includes("history-table-scroll") ? "managed-table-history" : ""}`}>
       {variant === "grid" ? <div {...common} role="table">{children}</div> : <table {...common}>
-        {caption}
+        {captionPlacement === "inside-scroll" ? caption : null}
         <colgroup>{columns.map((id, index) => <col key={id} style={{ width: `var(--table-column-${index})` }} />)}</colgroup>
         {content}
       </table>}
