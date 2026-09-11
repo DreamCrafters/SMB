@@ -381,6 +381,10 @@ test("tab preview offers switching between the levels of that tab", async () => 
     new URL("../src/App.tsx", import.meta.url),
     "utf8",
   );
+  const stylesSource = await readFile(
+    new URL("../src/styles.css", import.meta.url),
+    "utf8",
+  );
 
   // Переключатель стоит рядом с плашкой режима, а не спрятан в выборе цели.
   assert.match(appSource, /className="admin-preview-mode-level"/u);
@@ -401,4 +405,12 @@ test("tab preview offers switching between the levels of that tab", async () => 
     appSource,
     /setWorkspaceNavigationVersion\(\(version\) => version \+ 1\)/u,
   );
+  // Нативный select на macOS периодически отрисовывался с глянцевыми
+  // артефактами, поэтому переключатель использует тот же стабильный chevron.
+  const previewLevelSelectStyles = stylesSource.match(
+    /\.admin-preview-mode-level select \{([^}]*)\}/u,
+  )?.[1];
+  assert.match(previewLevelSelectStyles ?? "", /-webkit-appearance: none;/u);
+  assert.match(previewLevelSelectStyles ?? "", /appearance: none;/u);
+  assert.match(previewLevelSelectStyles ?? "", /background-image: url\(/u);
 });
