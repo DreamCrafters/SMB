@@ -8849,6 +8849,13 @@ p {
   text-align: left;
 }
 
+.railway-orders-table caption {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--surface-raised);
+}
+
 .railway-cargo-table th,
 .railway-cargo-table td,
 .railway-orders-table th,
