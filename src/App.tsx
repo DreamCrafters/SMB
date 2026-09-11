@@ -11496,9 +11496,6 @@ function AdminAccountsWorkspace({
   const canManageProtectedPositions =
     positionsState.status === "ready" &&
     positionsState.canManageProtectedPositions;
-  const creatableAccountPositions = positionsState.status === "ready"
-    ? positionsState.positions.filter((position) => position.accountType !== "admin")
-    : [];
   const createAccountButtonRef = useRef<HTMLButtonElement>(null);
   const createLoginInputRef = useRef<HTMLInputElement>(null);
   const passwordResetButtonRef = useRef<HTMLButtonElement>(null);
@@ -11641,11 +11638,13 @@ function AdminAccountsWorkspace({
   ]);
 
   function openCreateModal() {
-    const firstPosition = creatableAccountPositions.find(
-      (position) =>
-        canAssignAdminNavigation ||
-        !position.hasAdminRights,
-    );
+    const firstPosition = positionsState.status === "ready"
+      ? positionsState.positions.find(
+          (position) =>
+            position.accountType !== "admin" &&
+            (canAssignAdminNavigation || !position.hasAdminRights),
+        )
+      : undefined;
     setForm((current) => ({
       ...emptyAdminAccountForm,
       positions: firstPosition === undefined
@@ -12383,10 +12382,11 @@ function AdminAccountsWorkspace({
                 type="button"
                 disabled={
                   positionsState.status !== "ready" ||
-                  !creatableAccountPositions.some(
+                  !positionsState.positions.some(
                     (position) =>
-                      positionsState.canAssignAdminNavigation ||
-                      !position.hasAdminRights,
+                      position.accountType !== "admin" &&
+                      (positionsState.canAssignAdminNavigation ||
+                        !position.hasAdminRights),
                   )
                 }
                 onClick={openCreateModal}
@@ -13034,7 +13034,7 @@ function AdminAccountsWorkspace({
                 <span>Должности</span>
                 <AdminAccountPositionPicker
                   canAssignAdminNavigation={canAssignAdminNavigation}
-                  positions={creatableAccountPositions}
+                  positions={positionsState.status === "ready" ? positionsState.positions : []}
                   selectedPositions={form.positions}
                   onChange={(positions) => handleFormFieldChange({ positions })}
                 />

@@ -278,9 +278,15 @@ test("delegated manager edits working tabs and combines railway roles without lo
     assert.ok(positionOptions);
     assert.equal(
       positionOptions.querySelectorAll('input[type="checkbox"]').length,
-      1,
+      2,
     );
-    assert.doesNotMatch(positionOptions.textContent ?? "", /Администратор/u);
+    assert.match(positionOptions.textContent ?? "", /Администратор/u);
+    const administratorCheckbox = Array.from(
+      positionOptions.querySelectorAll("label"),
+    ).find((label) => label.textContent?.includes("Администратор"))
+      ?.querySelector('input[type="checkbox"]');
+    assert.ok(administratorCheckbox);
+    assert.equal(administratorCheckbox.disabled, true);
 
     await React.act(async () => root.unmount());
   } finally {
