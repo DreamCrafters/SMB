@@ -10977,7 +10977,7 @@ type AdminAccountFormState = {
   login: string;
   password: string;
   displayName: string;
-  position: AccountPosition;
+  positions: AccountPosition[];
 };
 
 type AdminAccountsSection = "accounts" | "positions" | "notifications";
@@ -10991,7 +10991,7 @@ const emptyAdminAccountForm: AdminAccountFormState = {
   login: "",
   password: "",
   displayName: "",
-  position: "worker",
+  positions: ["worker"],
 };
 
 type AdminPositionFormState = {
@@ -11131,6 +11131,7 @@ function buildAdminPreviewAccountForPosition(
     accessDisplayName: `Превью: ${label}`,
     accountType,
     position,
+    positions: [position],
     positionDisplayName: label,
     scope: isAdmin
       ? { kind: "platform" }
@@ -11158,6 +11159,7 @@ function buildAdminPreviewAccountForDefinition(
     accessDisplayName: `Превью: ${position.displayName}`,
     accountType: position.accountType,
     position: position.id,
+    positions: [position.id],
     positionDisplayName: position.displayName,
     scope: isAdmin
       ? { kind: "platform" }
@@ -11234,6 +11236,7 @@ function buildAdminPreviewAccountForNavigationItem(
     accessDisplayName: `Предпросмотр: ${navigationItem.label}`,
     accountType,
     position: accountType,
+    positions: [accountType],
     positionDisplayName: navigationItem.label,
     scope: { kind: "organization" },
     capabilities: readAdminPreviewCapabilities([navigationItem.id]),
@@ -11470,7 +11473,9 @@ function AdminAccountsWorkspace({
       : undefined;
     setForm((current) => ({
       ...emptyAdminAccountForm,
-      position: firstPosition?.id ?? current.position,
+      positions: firstPosition === undefined
+        ? current.positions
+        : [firstPosition.id],
     }));
     setFormStatus("");
     setIsCreateModalOpen(true);
@@ -11848,9 +11853,10 @@ function AdminAccountsWorkspace({
     if (
       submittedLogin.length === 0 ||
       form.password.length < 8 ||
-      form.displayName.trim().length === 0
+      form.displayName.trim().length === 0 ||
+      form.positions.length === 0
     ) {
-      setFormStatus("Заполните логин, пароль (от 8 символов) и имя.");
+      setFormStatus("Заполните логин, пароль (от 8 символов), имя и выберите хотя бы одну должность.");
       return;
     }
 
@@ -11862,12 +11868,11 @@ function AdminAccountsWorkspace({
       return;
     }
 
-    const selectedPosition = positionsState.status === "ready"
-      ? positionsState.positions.find((position) => position.id === form.position)
-      : undefined;
+    const selectedPositions = positionsState.status === "ready"
+      ? positionsState.positions.filter((position) => form.positions.includes(position.id))
+      : [];
     if (
-      selectedPosition !== undefined &&
-      selectedPosition.hasAdminRights &&
+      selectedPositions.some((position) => position.hasAdminRights) &&
       !canAssignAdminNavigation
     ) {
       setFormStatus(
@@ -11875,7 +11880,7 @@ function AdminAccountsWorkspace({
       );
       return;
     }
-    if (selectedPosition?.accountType === "admin") {
+    if (selectedPositions.some((position) => position.accountType === "admin")) {
       setFormStatus(
         "Системная должность администратора закреплена за исходным аккаунтом admin.",
       );
@@ -11890,7 +11895,7 @@ function AdminAccountsWorkspace({
       login: submittedLogin,
       password: submittedPassword,
       displayName: form.displayName.trim(),
-      position: form.position,
+      positions: form.positions,
     });
 
     setIsSubmitting(false);
@@ -11912,7 +11917,7 @@ function AdminAccountsWorkspace({
     );
     setForm({
       ...emptyAdminAccountForm,
-      position: form.position,
+      positions: [...form.positions],
     });
     finishCreateModal();
     setRefreshVersion((version) => version + 1);
@@ -12337,6 +12342,17 @@ function AdminAccountsWorkspace({
                               </option>
                             ))}
                           </select>
+                          {(account.positions ?? [account.position]).length > 1 ? (
+                            <small className="admin-account-position-summary">
+                              {(account.positions ?? [account.position])
+                                .map((positionId) =>
+                                  positionsState.status === "ready"
+                                    ? positionsState.positions.find((position) => position.id === positionId)?.displayName ?? positionId
+                                    : positionId,
+                                )
+                                .join(", ")}
+                            </small>
+                          ) : null}
                           <button
                             className="secondary-button"
                             type="button"
@@ -12840,14 +12856,17 @@ function AdminAccountsWorkspace({
               </label>
 
               <label>
-                <span>Должность</span>
+                <span>Должности</span>
                 <select
-                  value={form.position}
-                  onChange={(event) =>
-                    handleFormFieldChange({
-                      position: event.currentTarget.value as AccountPosition,
-                    })
-                  }
+                  aria-label="Должности новой учётной записи"
+                  multiple
+                  size={Math.min(6, Math.max(3, positionsState.status === "ready" ? positionsState.positions.length : 3))}
+                  value={form.positions}
+                  onChange={(event) => {
+                    const positions = Array.from(event.currentTarget.selectedOptions)
+                      .map((option) => option.value as AccountPosition);
+                    handleFormFieldChange({ positions });
+                  }}
                 >
                   {(positionsState.status === "ready" ? positionsState.positions : []).map((position) => (
                     <option
@@ -12863,6 +12882,9 @@ function AdminAccountsWorkspace({
                     </option>
                   ))}
                 </select>
+                <small className="admin-account-multiselect-hint">
+                  Удерживайте ⌘ или Ctrl, чтобы выбрать несколько должностей. Их права объединятся в одном кабинете.
+                </small>
               </label>
 
               <div className="form-actions">

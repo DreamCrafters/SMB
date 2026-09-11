@@ -994,6 +994,7 @@ test("setAccountPosition applies position access and revokes user sessions", asy
     [
       "business_owner",
       "business_owner",
+      JSON.stringify(["business_owner"]),
       "organization",
       JSON.stringify(["business.view_all_statistics"]),
       JSON.stringify(["business.overview"]),
@@ -1553,9 +1554,10 @@ test("createAccount generates worker ids and commits all rows together", async (
     "worker-user-id",
     "worker",
     "worker",
+    JSON.stringify(["worker"]),
     "Работник Один access",
-    "organization",
   ]);
+  assert.equal(accessInsert?.params?.[6], "organization");
   assert.equal(accessInsert?.sql.includes("on duplicate key update"), false);
 });
 

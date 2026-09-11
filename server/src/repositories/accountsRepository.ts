@@ -17,6 +17,7 @@ import {
   nonAdminNavigationItems,
   readBoardAssignmentAccess,
   readOverviewVisitorsAccess,
+  combinePositionAccessDefinitions,
   readRailwayWagonAccess,
   resolveCapabilitiesForPosition,
   resolveNavigationForPosition,
@@ -27,6 +28,7 @@ import type { RailwayWagonAccess } from "../contracts/railwayWagons.js";
 import {
   hashPassword,
   isAccountNavigationItem,
+  isAccountPosition,
   type AccountCapability,
   type AccountNavigationItem,
   type AccountPosition,
@@ -47,6 +49,7 @@ export type AdminAccountSummary = {
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
+  positions?: AccountPosition[];
   positionDisplayName: string;
   scope: AccountScope;
   capabilities: AccountCapability[];
@@ -121,6 +124,7 @@ export type CreateAccountInput = {
   maxUserId?: string;
   accountType: AccountType;
   position?: AccountPosition;
+  positions?: AccountPosition[];
   capabilities: AccountCapability[];
   navigationItems?: AccountNavigationItem[];
   accessDisplayName?: string;
@@ -254,6 +258,7 @@ type AccountRow = RowDataPacket & {
   access_display_name: string;
   account_type: string;
   position_code: string;
+  position_codes: unknown;
   position_display_name: string;
   scope_kind: string;
   capabilities: unknown;
@@ -278,6 +283,13 @@ type AccountPositionAssignmentRow = RowDataPacket & {
   access_id: string;
   user_id: string;
   login: string;
+};
+
+type CombinedAccessRow = RowDataPacket & {
+  id: string;
+  user_id: string;
+  position_code: string;
+  position_codes: unknown;
 };
 
 type DeletePositionRow = RowDataPacket & {
@@ -328,7 +340,13 @@ const adminRightsAccessProtectionExpression = `
     select 1
     from account_accesses protected_accesses
     join account_positions protected_positions
-      on protected_positions.id = protected_accesses.position_code
+      on json_contains(
+        coalesce(
+          protected_accesses.position_codes,
+          json_array(protected_accesses.position_code)
+        ),
+        json_quote(protected_positions.id)
+      )
     where protected_accesses.user_id = users.id
       and protected_accesses.is_active = 1
       and protected_positions.is_admin_protected = 1
@@ -351,12 +369,13 @@ const accountRowSelect = `
     ${effectiveAccountProtectionExpression} as is_protected,
     ${adminRightsAccessProtectionExpression} as is_protected_by_admin_rights,
     accesses.display_name as access_display_name,
-    positions.account_type,
+    accesses.account_type,
     accesses.position_code,
     positions.display_name as position_display_name,
+    accesses.position_codes,
     accesses.scope_kind,
-    positions.capabilities,
-    positions.navigation_items,
+    accesses.capabilities,
+    accesses.navigation_items,
     accesses.created_at
   from account_accesses as accesses
   join app_users as users on users.id = accesses.user_id
@@ -390,7 +409,10 @@ export function createAccountsRepository(
         positions.can_review_raw_material_warehouse,
         positions.created_at,
         (select count(*) from account_accesses accesses
-          where accesses.position_code = positions.id) as usage_count
+          where json_contains(
+            coalesce(accesses.position_codes, json_array(accesses.position_code)),
+            json_quote(positions.id)
+          )) as usage_count
       from account_positions positions
       order by positions.sort_order asc, positions.display_name asc
     `);
@@ -444,7 +466,10 @@ export function createAccountsRepository(
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
-            where accesses.position_code = positions.id) as usage_count
+            where json_contains(
+              coalesce(accesses.position_codes, json_array(accesses.position_code)),
+              json_quote(positions.id)
+            )) as usage_count
         from account_positions positions where positions.id = ? limit 1 for update
       `, [input.id]);
       const current = rows[0];
@@ -500,13 +525,18 @@ export function createAccountsRepository(
       await connection.query(
         `update account_accesses accesses
          set accesses.navigation_items = ?, accesses.capabilities = ?
-         where accesses.position_code = ?`,
+         where accesses.position_code = ?
+           and json_length(coalesce(accesses.position_codes, json_array(accesses.position_code))) = 1`,
         [JSON.stringify(navigationItems), JSON.stringify(capabilities), input.id],
       );
+      await refreshCombinedAccessesForPosition(connection, input.id);
       await connection.query(
         `delete sessions from auth_sessions sessions
          join account_accesses accesses on accesses.user_id = sessions.user_id
-         where accesses.position_code = ?`,
+         where json_contains(
+           coalesce(accesses.position_codes, json_array(accesses.position_code)),
+           json_quote(?)
+         )`,
         [input.id],
       );
       await connection.commit();
@@ -540,7 +570,10 @@ export function createAccountsRepository(
       const [rows] = await connection.query<DeletePositionRow[]>(
         `select positions.account_type, positions.is_admin_protected,
           (select count(*) from account_accesses accesses
-            where accesses.position_code = positions.id) as usage_count
+            where json_contains(
+              coalesce(accesses.position_codes, json_array(accesses.position_code)),
+              json_quote(positions.id)
+            )) as usage_count
          from account_positions positions
          where positions.id = ?
          limit 1 for update`,
@@ -712,13 +745,18 @@ export function createAccountsRepository(
       await connection.query(
         `update account_accesses accesses
          set accesses.navigation_items = ?, accesses.capabilities = ?
-         where accesses.position_code = ?`,
+         where accesses.position_code = ?
+           and json_length(coalesce(accesses.position_codes, json_array(accesses.position_code))) = 1`,
         [JSON.stringify(navigationItems), JSON.stringify(capabilities), input.id],
       );
+      await refreshCombinedAccessesForPosition(connection, input.id);
       await connection.query(
         `delete sessions from auth_sessions sessions
          join account_accesses accesses on accesses.user_id = sessions.user_id
-         where accesses.position_code = ?`,
+         where json_contains(
+           coalesce(accesses.position_codes, json_array(accesses.position_code)),
+           json_quote(?)
+         )`,
         [input.id],
       );
       await connection.commit();
@@ -786,7 +824,10 @@ export function createAccountsRepository(
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
-            where accesses.position_code = positions.id) as usage_count
+            where json_contains(
+              coalesce(accesses.position_codes, json_array(accesses.position_code)),
+              json_quote(positions.id)
+            )) as usage_count
          from account_positions positions
          where positions.id in (${placeholders})
          order by positions.id
@@ -869,17 +910,22 @@ export function createAccountsRepository(
         await connection.query(
           `update account_accesses accesses
            set accesses.navigation_items = ?, accesses.capabilities = ?
-           where accesses.position_code = ?`,
+           where accesses.position_code = ?
+             and json_length(coalesce(accesses.position_codes, json_array(accesses.position_code))) = 1`,
           [
             JSON.stringify(navigationItems),
             JSON.stringify(capabilities),
             row.id,
           ],
         );
+        await refreshCombinedAccessesForPosition(connection, row.id);
         await connection.query(
           `delete sessions from auth_sessions sessions
            join account_accesses accesses on accesses.user_id = sessions.user_id
-           where accesses.position_code = ?`,
+           where json_contains(
+             coalesce(accesses.position_codes, json_array(accesses.position_code)),
+             json_quote(?)
+           )`,
           [row.id],
         );
         changedPositions.push({ id: row.id, displayName: row.display_name });
@@ -915,8 +961,10 @@ export function createAccountsRepository(
         throw new AccountLoginAlreadyExistsError();
       }
 
-      const positionId =
-        input.position ?? defaultPositionByAccountType[input.accountType];
+      const positionIds = input.positions?.length
+        ? [...new Set(input.positions)]
+        : [input.position ?? defaultPositionByAccountType[input.accountType]];
+      const positionPlaceholders = positionIds.map(() => "?").join(", ");
       const [positionRows] = await connection.query<PositionRow[]>(
         `select positions.id, positions.display_name, positions.account_type,
           positions.navigation_items, positions.capabilities,
@@ -924,32 +972,44 @@ export function createAccountsRepository(
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
-            where accesses.position_code = positions.id) as usage_count
+            where json_contains(
+              coalesce(accesses.position_codes, json_array(accesses.position_code)),
+              json_quote(positions.id)
+            )) as usage_count
          from account_positions positions
-         where positions.id = ?
-         limit 1 for update`,
-        [positionId],
+         where positions.id in (${positionPlaceholders})
+         order by positions.sort_order asc, positions.id asc
+         for update`,
+        positionIds,
       );
-      const targetPositionRow = positionRows[0];
-      if (targetPositionRow === undefined) {
+      const positionById = new Map(positionRows.map((row) => [row.id, row]));
+      if (
+        positionRows.length !== positionIds.length ||
+        positionIds.some((positionId) => !positionById.has(positionId))
+      ) {
         throw new Error("Выбранная должность не найдена.");
       }
-      assertProtectedPositionMutationAllowed({
-        isProtected:
-          targetPositionRow.is_admin_protected === true ||
-          targetPositionRow.is_admin_protected === 1,
-        allowProtected: allowProtected || isCanonicalAdminLogin(input.login),
-      });
-      const targetPosition = mapPositionRow(targetPositionRow);
+      const targetPositionRows = positionIds.map((positionId) => positionById.get(positionId)!);
+      for (const targetPositionRow of targetPositionRows) {
+        assertProtectedPositionMutationAllowed({
+          isProtected:
+            targetPositionRow.is_admin_protected === true ||
+            targetPositionRow.is_admin_protected === 1,
+          allowProtected: allowProtected || isCanonicalAdminLogin(input.login),
+        });
+      }
+      const targetPositions = targetPositionRows.map(mapPositionRow);
       if (
-        targetPosition.accountType === "admin" &&
+        targetPositions.some(({ accountType }) => accountType === "admin") &&
         !isCanonicalAdminLogin(input.login)
       ) {
         throw new SystemAdministratorPositionAssignmentError();
       }
 
+      const combinedAccess = combinePositionAccessDefinitions(targetPositions);
+
       const scope = resolveAccountProvisioningScope({
-        accountType: targetPosition.accountType,
+        accountType: combinedAccess.accountType,
       });
 
       const userId = createId();
@@ -995,23 +1055,25 @@ export function createAccountsRepository(
             user_id,
             account_type,
             position_code,
+            position_codes,
             display_name,
             scope_kind,
             capabilities,
             navigation_items,
             is_active
           )
-          values (?, ?, ?, ?, ?, ?, ?, ?, 1)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         `,
         [
           accessId,
           userId,
-          targetPosition.accountType,
-          targetPosition.id,
+          combinedAccess.accountType,
+          targetPositions[0].id,
+          JSON.stringify(positionIds),
           input.accessDisplayName ?? `${input.displayName} access`,
           scope.scopeKind,
-          JSON.stringify(targetPosition.capabilities),
-          JSON.stringify(targetPosition.navigationItems),
+          JSON.stringify(combinedAccess.capabilities),
+          JSON.stringify(combinedAccess.navigationItems),
         ],
       );
 
@@ -1327,7 +1389,10 @@ export function createAccountsRepository(
           positions.can_review_raw_material_warehouse,
           positions.created_at,
           (select count(*) from account_accesses accesses
-            where accesses.position_code = positions.id) as usage_count
+            where json_contains(
+              coalesce(accesses.position_codes, json_array(accesses.position_code)),
+              json_quote(positions.id)
+            )) as usage_count
          from account_positions positions
          where positions.id = ?
          limit 1 for update`,
@@ -1359,12 +1424,13 @@ export function createAccountsRepository(
 
       await connection.query(
         `update account_accesses
-         set account_type = ?, position_code = ?, scope_kind = ?,
+         set account_type = ?, position_code = ?, position_codes = ?, scope_kind = ?,
            capabilities = ?, navigation_items = ?
          where id = ? and is_active = 1`,
         [
           targetPosition.accountType,
           targetPosition.id,
+          JSON.stringify([targetPosition.id]),
           scope.scopeKind,
           JSON.stringify(targetPosition.capabilities),
           JSON.stringify(targetPosition.navigationItems),
@@ -1436,7 +1502,13 @@ async function readEffectiveAccountProtectionForUpdate(
     `select protected_positions.is_admin_protected
      from account_accesses protected_accesses
      join account_positions protected_positions
-       on protected_positions.id = protected_accesses.position_code
+       on json_contains(
+         coalesce(
+           protected_accesses.position_codes,
+           json_array(protected_accesses.position_code)
+         ),
+         json_quote(protected_positions.id)
+       )
      where protected_accesses.user_id = ?
        and protected_accesses.is_active = 1
      order by protected_accesses.id, protected_positions.id
@@ -1448,6 +1520,74 @@ async function readEffectiveAccountProtectionForUpdate(
     (row) =>
       row.is_admin_protected === true || row.is_admin_protected === 1,
   );
+}
+
+async function refreshCombinedAccessesForPosition(
+  connection: PoolConnection,
+  positionId: string,
+) {
+  const [accessRows] = await connection.query<CombinedAccessRow[]>(
+    `select id, user_id, position_code, position_codes
+     from account_accesses
+     where is_active = 1
+       and json_contains(
+         coalesce(position_codes, json_array(position_code)),
+         json_quote(?)
+       )
+     for update`,
+    [positionId],
+  );
+
+  for (const access of accessRows) {
+    const positionIds = readPositionCodes(
+      access.position_codes,
+      access.position_code,
+    );
+    if (positionIds.length < 2) {
+      continue;
+    }
+
+    const placeholders = positionIds.map(() => "?").join(", ");
+    const [positionRows] = await connection.query<PositionRow[]>(
+      `select positions.id, positions.display_name, positions.account_type,
+        positions.navigation_items, positions.capabilities,
+        positions.is_protected, positions.is_admin_protected,
+        positions.can_review_raw_material_warehouse,
+        positions.created_at, 0 as usage_count
+       from account_positions positions
+       where positions.id in (${placeholders})
+       for update`,
+      positionIds,
+    );
+    const positionById = new Map(positionRows.map((row) => [row.id, row]));
+    const selectedRows = positionIds.map((id) => positionById.get(id));
+    if (selectedRows.some((row) => row === undefined)) {
+      throw new Error("Selected account position was not found.");
+    }
+
+    const selectedPositions = selectedRows.map((row) => mapPositionRow(row!));
+    const combinedAccess = combinePositionAccessDefinitions(selectedPositions);
+    const scope = resolveAccountProvisioningScope({
+      accountType: combinedAccess.accountType,
+    });
+    await connection.query(
+      `update account_accesses
+       set account_type = ?, position_code = ?, scope_kind = ?,
+         capabilities = ?, navigation_items = ?
+       where id = ? and is_active = 1`,
+      [
+        combinedAccess.accountType,
+        selectedPositions[0].id,
+        scope.scopeKind,
+        JSON.stringify(combinedAccess.capabilities),
+        JSON.stringify(combinedAccess.navigationItems),
+        access.id,
+      ],
+    );
+    await connection.query("delete from auth_sessions where user_id = ?", [
+      access.user_id,
+    ]);
+  }
 }
 
 async function readUserIdByLoginInTransaction(
@@ -1463,6 +1603,8 @@ async function readUserIdByLoginInTransaction(
 }
 
 function mapAccountRow(row: AccountRow): AdminAccountSummary {
+  const positions = readPositionCodes(row.position_codes, row.position_code);
+  const accountType = row.account_type as AccountType;
   return {
     accessId: row.access_id,
     userId: row.user_id,
@@ -1476,14 +1618,23 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
       row.is_protected_by_admin_rights === true ||
       row.is_protected_by_admin_rights === 1,
     accessDisplayName: row.access_display_name,
-    accountType: row.account_type as AccountType,
-    position: readPosition(row.position_code, row.account_type as AccountType),
+    accountType,
+    position: readPosition(row.position_code, accountType),
+    positions,
     positionDisplayName: row.position_display_name,
     scope: buildScope(row),
     capabilities: readCapabilities(row.capabilities),
     navigationItems: readNavigationItems(row.navigation_items, row.account_type as AccountType),
     createdAt: toDate(row.created_at).toISOString(),
   };
+}
+
+function readPositionCodes(value: unknown, fallback: string): AccountPosition[] {
+  const parsed = typeof value === "string" ? safelyParseJson(value) : value;
+  if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(isAccountPosition)) {
+    return [...new Set(parsed)];
+  }
+  return [fallback];
 }
 
 function mapPositionRow(row: PositionRow): AdminPositionSummary {

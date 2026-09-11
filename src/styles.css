@@ -3052,6 +3052,19 @@ p {
   font-weight: 800;
 }
 
+.admin-account-multiselect-hint {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-account-position-summary {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .admin-accounts-status-message {
   margin: 0;
   padding: 8px 10px;

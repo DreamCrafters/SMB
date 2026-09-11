@@ -111,13 +111,13 @@ export function createAuthSessionService(
             users.status as user_status,
             credentials.password_hash,
             accesses.id as access_id,
-            positions.account_type,
+            accesses.account_type,
             accesses.position_code,
             positions.display_name as position_display_name,
             accesses.display_name as access_display_name,
             accesses.scope_kind,
-            positions.capabilities,
-            positions.navigation_items,
+            accesses.capabilities,
+            accesses.navigation_items,
             accesses.created_at as access_created_at,
             sessions.created_at as session_created_at,
             sessions.expires_at as session_expires_at
@@ -185,13 +185,13 @@ async function readLoginAccessRow(
         users.status as user_status,
         credentials.password_hash,
         accesses.id as access_id,
-        positions.account_type,
+        accesses.account_type,
         accesses.position_code,
         positions.display_name as position_display_name,
         accesses.display_name as access_display_name,
         accesses.scope_kind,
-        positions.capabilities,
-        positions.navigation_items,
+        accesses.capabilities,
+        accesses.navigation_items,
         accesses.created_at as access_created_at
       from app_users as users
       join auth_password_credentials as credentials

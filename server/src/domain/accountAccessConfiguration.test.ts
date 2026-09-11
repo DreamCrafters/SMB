@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accountTypeByPosition,
+  combinePositionAccessDefinitions,
   isNavigationAccessLevel,
   navigationItemsByAccountType,
   readBoardAssignmentAccess,
@@ -15,6 +16,28 @@ import {
   validatePositionNavigationItems,
 } from "./accountAccessConfiguration.js";
 import { isRailwayWagonAccess } from "../contracts/railwayWagons.js";
+
+test("multiple positions combine navigation and capabilities in one account", () => {
+  assert.deepEqual(
+    combinePositionAccessDefinitions([
+      {
+        accountType: "worker",
+        navigationItems: ["business.work"],
+        capabilities: ["business.submit_forms"],
+      },
+      {
+        accountType: "business_owner",
+        navigationItems: ["business.overview", "business.work"],
+        capabilities: ["business.view_all_statistics"],
+      },
+    ]),
+    {
+      accountType: "business_owner",
+      navigationItems: ["business.work", "business.overview"],
+      capabilities: ["business.submit_forms", "business.view_all_statistics"],
+    },
+  );
+});
 
 test("a position keeps every railway role alongside board access when recomputed", () => {
   const navigationItems = [

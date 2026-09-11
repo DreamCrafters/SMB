@@ -42,6 +42,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "079_warehouse_1c_stock_quantities",
   "080_railway_wagon_decline_comment",
   "081_table_layouts",
+  "082_account_multiple_positions",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {

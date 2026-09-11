@@ -79,6 +79,39 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.dispatcher_form",
 ];
 
+export type PositionAccessDefinition = {
+  accountType: AccountType;
+  navigationItems: AccountNavigationItem[];
+  capabilities: AccountCapability[];
+};
+
+/** Объединяет доступы нескольких должностей в один server-owned кабинет. */
+export function combinePositionAccessDefinitions(
+  definitions: readonly PositionAccessDefinition[],
+) {
+  if (definitions.length === 0) {
+    throw new Error("At least one position is required.");
+  }
+
+  const accountType = definitions.some(({ accountType }) => accountType === "admin")
+    ? "admin"
+    : definitions.some(({ accountType }) => accountType === "dispatcher")
+      ? "dispatcher"
+      : definitions.some(({ accountType }) => accountType === "business_owner")
+        ? "business_owner"
+        : "worker";
+
+  return {
+    accountType,
+    navigationItems: Array.from(new Set(
+      definitions.flatMap(({ navigationItems }) => navigationItems),
+    )),
+    capabilities: Array.from(new Set(
+      definitions.flatMap(({ capabilities }) => capabilities),
+    )),
+  } satisfies PositionAccessDefinition;
+}
+
 const delegatedAdminNavigationItem = "admin.accounts" as const;
 
 const capabilitiesByNavigationItem: Record<

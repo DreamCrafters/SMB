@@ -4301,6 +4301,24 @@ const migrations: Migration[] = [
         where accesses.is_active = 1 and (positions.id = 'administrator' or positions.is_admin_protected = 1);`,
     ],
   },
+  {
+    id: "082_account_multiple_positions",
+    statements: [
+      `
+      alter table account_accesses
+        add column position_codes json null after position_code;
+      `,
+      `
+      update account_accesses
+      set position_codes = json_array(position_code)
+      where position_codes is null;
+      `,
+      `
+      alter table account_accesses
+        modify position_codes json not null;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

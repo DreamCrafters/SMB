@@ -395,7 +395,6 @@ export async function requestAdminAccounts({
   const endpoint = resolveApiEndpoint(ADMIN_ACCOUNTS_PATH, ADMIN_ACCOUNTS_PATH, {
     baseUrl,
   });
-
   try {
     const response = await fetch(endpoint, {
       method: "GET",
@@ -476,6 +475,8 @@ export async function createAdminAccount(
     baseUrl,
   });
 
+  const positions = value.positions ?? (value.position === undefined ? [] : [value.position]);
+
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -491,7 +492,9 @@ export async function createAdminAccount(
         displayName: value.displayName,
         email: value.email,
         maxUserId: value.maxUserId,
-        position: value.position,
+        ...(value.positions === undefined
+          ? { position: positions[0] }
+          : { positions, position: positions[0] }),
       }),
     });
     const payload = await readJson(response);
@@ -947,6 +950,10 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     typeof value.accessDisplayName === "string" &&
     typeof value.accountType === "string" &&
     typeof value.position === "string" &&
+    (value.positions === undefined || (
+      Array.isArray(value.positions) &&
+      value.positions.every((position) => typeof position === "string")
+    )) &&
     typeof value.positionDisplayName === "string" &&
     isRecord(value.scope) &&
     Array.isArray(value.capabilities) &&

@@ -17,6 +17,7 @@ import {
 } from "../domain/auth.js";
 import {
   accountTypeByPosition,
+  combinePositionAccessDefinitions,
   hasAdminNavigationItems,
   hasSameAdminNavigationItems,
   isBoardAssignmentAccess,
@@ -12509,18 +12510,23 @@ async function handleAdminAccountsRequest({
 
     if (req.method === "POST") {
       const payload = await readJsonBody(req);
-      const requestedPosition = isRecord(payload) && typeof payload.position === "string"
-        ? (await accounts.listPositions()).find((position) => position.id === payload.position)
-        : undefined;
+      const availablePositions = await accounts.listPositions();
+      const requestedPositionIds = isRecord(payload) && Array.isArray(payload.positions)
+        ? payload.positions.filter((position): position is string => typeof position === "string")
+        : isRecord(payload) && typeof payload.position === "string"
+          ? [payload.position]
+          : [];
+      const requestedPositions = requestedPositionIds
+        .map((positionId) => availablePositions.find((position) => position.id === positionId))
+        .filter((position): position is AdminPositionSummary => position !== undefined);
       if (
-        requestedPosition !== undefined &&
-        hasAdminNavigationItems(requestedPosition.navigationItems) &&
+        requestedPositions.some(({ navigationItems }) => hasAdminNavigationItems(navigationItems)) &&
         !(await canAssignAdminNavigation())
       ) {
         sendAdminNavigationAssignmentDenied(res);
         return;
       }
-      if (requestedPosition?.accountType === "admin") {
+      if (requestedPositions.some(({ accountType }) => accountType === "admin")) {
         sendJson(res, 403, {
           error: {
             code: "access_denied",
@@ -12530,7 +12536,7 @@ async function handleAdminAccountsRequest({
         });
         return;
       }
-      const validation = validateCreateAccountRequest(payload, requestedPosition);
+      const validation = validateCreateAccountRequest(payload, requestedPositions);
 
       if (!validation.ok) {
         sendJson(res, 400, {
@@ -12730,7 +12736,10 @@ async function handleAdminAccountsRequest({
   }
 }
 
-function validateCreateAccountRequest(input: unknown, positionDefinition?: AdminPositionSummary):
+function validateCreateAccountRequest(
+  input: unknown,
+  positionDefinitions: AdminPositionSummary[],
+):
   | {
       ok: true;
       value: CreateAccountInput;
@@ -12751,7 +12760,11 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
   const password = typeof input.password === "string" ? input.password : "";
   const displayName =
     typeof input.displayName === "string" ? input.displayName.trim() : "";
-  const position = input.position;
+  const positions = Array.isArray(input.positions)
+    ? input.positions
+    : input.position === undefined
+      ? []
+      : [input.position];
   const contacts = validateNotificationContactsRequest({
     email: input.email ?? "",
     maxUserId: input.maxUserId ?? "",
@@ -12774,6 +12787,7 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
     "password",
     "displayName",
     "position",
+    "positions",
     "email",
     "maxUserId",
   ]);
@@ -12784,8 +12798,13 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
     }
   }
 
-  if (!isAccountPosition(position) || positionDefinition === undefined) {
-    errors.push("position is not supported.");
+  if (
+    positions.length === 0 ||
+    positions.some((position) => !isAccountPosition(position)) ||
+    positionDefinitions.length !== positions.length ||
+    new Set(positions).size !== positions.length
+  ) {
+    errors.push("positions must contain one or more unique supported positions.");
     return { ok: false, errors };
   }
 
@@ -12793,8 +12812,7 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
     errors.push(...contacts.errors);
   }
 
-  const accountType = positionDefinition.accountType;
-  const navigationItems = positionDefinition.navigationItems;
+  const combinedAccess = combinePositionAccessDefinitions(positionDefinitions);
 
   if (errors.length > 0) {
     return { ok: false, errors };
@@ -12806,11 +12824,12 @@ function validateCreateAccountRequest(input: unknown, positionDefinition?: Admin
       login,
       password,
       displayName,
-      accountType,
-      position,
+      accountType: combinedAccess.accountType,
+      position: positions[0] as string,
+      positions: positions as string[],
       ...(contacts.ok ? contacts.value : {}),
-      navigationItems,
-      capabilities: positionDefinition.capabilities,
+      navigationItems: combinedAccess.navigationItems,
+      capabilities: combinedAccess.capabilities,
     },
   };
 }

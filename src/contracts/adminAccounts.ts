@@ -21,6 +21,7 @@ export type AdminAccountSummary = {
   accessDisplayName: string;
   accountType: AccountType;
   position: AccountPosition;
+  positions?: AccountPosition[];
   positionDisplayName: string;
   scope: AccountScope;
   capabilities: AccountCapability[];
@@ -39,7 +40,9 @@ export type CreateAdminAccountRequest = {
   displayName: string;
   email?: string;
   maxUserId?: string;
-  position: AccountPosition;
+  positions?: AccountPosition[];
+  /** Legacy single-position payload accepted by older callers. */
+  position?: AccountPosition;
 };
 
 export type UpdateAdminAccountContactsRequest = {

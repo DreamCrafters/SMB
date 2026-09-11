@@ -7806,7 +7806,7 @@ test("admin accounts API creates accounts and resets passwords for admin session
           login: "dispatcher-1",
           password: "supersecret1",
           displayName: "Диспетчер Один",
-          position: "dispatcher",
+          positions: ["dispatcher", "business_owner"],
         }),
       });
       const resetResponse = await fetch(
@@ -7838,9 +7838,15 @@ test("admin accounts API creates accounts and resets passwords for admin session
 
   assert.equal(createInput?.login, "dispatcher-1");
   assert.equal(createInput?.password, "supersecret1");
+  assert.deepEqual(createInput?.positions, ["dispatcher", "business_owner"]);
+  assert.equal(createInput?.accountType, "dispatcher");
   assert.deepEqual(
     createInput?.capabilities,
-    ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
+    [
+      "business.submit_dispatcher_forms",
+      "business.view_dispatcher_feed",
+      "business.view_all_statistics",
+    ],
   );
   assert.deepEqual(resetInput, {
     login: "dispatcher-1",
