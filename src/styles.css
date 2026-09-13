@@ -9233,6 +9233,11 @@ p {
   scrollbar-gutter: stable;
 }
 
+/* Accounts expand to full height, so vertical scrolling belongs to the workspace. */
+.managed-table-scroll:has(> .admin-accounts-table) {
+  overscroll-behavior-y: auto;
+}
+
 .history-table-scroll:has(> .managed-table-shell) {
   max-height: none;
   overflow: visible;
