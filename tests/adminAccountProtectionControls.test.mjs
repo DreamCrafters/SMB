@@ -175,6 +175,7 @@ test("delegated account manager cannot change protected account controls", async
 
     const editablePicker = rootElement.querySelector('button[aria-label="Должности для editable"]');
     assert.ok(editablePicker);
+    assert.equal(editablePicker.querySelector(".admin-account-position-picker-summary").textContent, "worker + 1");
     assert.notEqual(editablePicker.getAttribute("aria-controls"), position.getAttribute("aria-controls"));
     const editableRow = editablePicker.closest("tr");
     const savePositions = Array.from(editableRow.querySelectorAll("button"))

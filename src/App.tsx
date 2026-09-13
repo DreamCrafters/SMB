@@ -11098,11 +11098,12 @@ function AdminAccountPositionPicker({
   const selectedLabels = positions
     .filter((position) => selectedSet.has(position.id))
     .map((position) => position.displayName);
-  const summary = selectedLabels.length === 0
-    ? (selectedPositions.length > 0 ? fallbackLabel ?? "Выберите должности" : "Выберите должности")
-    : selectedLabels.length === 1
-      ? selectedLabels[0]
-      : `Выбрано должностей: ${selectedLabels.length}`;
+  const primaryLabel = selectedLabels[0] ?? (selectedPositions.length > 0 ? fallbackLabel : undefined);
+  const summary = primaryLabel === undefined
+    ? "Выберите должности"
+    : selectedSet.size > 1
+      ? `${primaryLabel} + ${selectedSet.size - 1}`
+      : primaryLabel;
 
   function togglePosition(positionId: AccountPosition) {
     const nextPositions = selectedSet.has(positionId)

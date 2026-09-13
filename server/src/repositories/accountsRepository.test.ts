@@ -101,6 +101,12 @@ test("setPositionOrder atomically assigns every current position its requested o
     "administrator",
     "dispatcher",
   ]);
+  const primaryUpdate = queries.find((query) => query.sql.startsWith("update account_accesses"));
+  assert.ok(primaryUpdate);
+  assert.match(primaryUpdate.sql, /set position_code =/u);
+  assert.match(primaryUpdate.sql, /order by positions.sort_order asc, positions.display_name asc, positions.id asc limit 1/u);
+  assert.doesNotMatch(primaryUpdate.sql, /capabilities|navigation_items|auth_sessions|position_codes =/u);
+
 });
 
 test("setPositionOrder rejects an incomplete position list without writing", async () => {
@@ -1009,7 +1015,7 @@ test("setAccountPosition applies position access and revokes user sessions", asy
   );
 });
 
-test("setAccountPosition adds a secondary position and stores union access", async () => {
+test("setAccountPosition chooses the highest catalog position regardless of selection order", async () => {
   const queries: Array<{ sql: string; params?: unknown[] }> = [];
   let didCommit = false;
   let accountReadCount = 0;
@@ -1090,8 +1096,8 @@ test("setAccountPosition adds a secondary position and stores union access", asy
 
   const result = await repository.setAccountPosition({
     accessId: "access-dispatcher",
-    position: "dispatcher",
-    positions: ["dispatcher", "business_owner"],
+    position: "business_owner",
+    positions: ["business_owner", "dispatcher"],
   });
 
   assert.equal(didCommit, true);

@@ -415,7 +415,7 @@ export function createAccountsRepository(
             json_quote(positions.id)
           )) as usage_count
       from account_positions positions
-      order by positions.sort_order asc, positions.display_name asc
+      order by positions.sort_order asc, positions.display_name asc, positions.id asc
     `);
     return rows.map(mapPositionRow);
   }
@@ -664,6 +664,16 @@ export function createAccountsRepository(
           ...positionIds,
         ],
       );
+      await connection.query(`
+        update account_accesses accesses
+        set position_code = (
+          select positions.id from account_positions positions
+          where json_contains(accesses.position_codes, json_quote(positions.id))
+          order by positions.sort_order asc, positions.display_name asc, positions.id asc
+          limit 1
+        )
+        where json_length(accesses.position_codes) > 1
+      `);
       await connection.commit();
       return true;
     } catch (error) {
@@ -979,7 +989,7 @@ export function createAccountsRepository(
             )) as usage_count
          from account_positions positions
          where positions.id in (${positionPlaceholders})
-         order by positions.sort_order asc, positions.id asc
+         order by positions.sort_order asc, positions.display_name asc, positions.id asc
          for update`,
         positionIds,
       );
@@ -990,7 +1000,7 @@ export function createAccountsRepository(
       ) {
         throw new Error("Выбранная должность не найдена.");
       }
-      const targetPositionRows = positionIds.map((positionId) => positionById.get(positionId)!);
+      const targetPositionRows = positionRows;
       for (const targetPositionRow of targetPositionRows) {
         assertProtectedPositionMutationAllowed({
           isProtected:
@@ -1070,7 +1080,7 @@ export function createAccountsRepository(
           userId,
           combinedAccess.accountType,
           targetPositions[0].id,
-          JSON.stringify(positionIds),
+          JSON.stringify(targetPositions.map(({ id }) => id)),
           input.accessDisplayName ?? `${input.displayName} access`,
           scope.scopeKind,
           JSON.stringify(combinedAccess.capabilities),
@@ -1403,7 +1413,7 @@ export function createAccountsRepository(
             )) as usage_count
          from account_positions positions
          where positions.id in (${positionIds.map(() => "?").join(", ")})
-         order by positions.sort_order asc, positions.id asc
+         order by positions.sort_order asc, positions.display_name asc, positions.id asc
          for update`,
         positionIds,
       );
@@ -1426,7 +1436,7 @@ export function createAccountsRepository(
           throw new SystemAdministratorPositionAssignmentError();
         }
       }
-      const targetPositions = positionIds.map((id) => mapPositionRow(positionById.get(id)!));
+      const targetPositions = positionRows.map(mapPositionRow);
       const targetPosition = combinePositionAccessDefinitions(targetPositions);
       const scope = resolveAccountProvisioningScope({
         accountType: targetPosition.accountType,
@@ -1439,8 +1449,8 @@ export function createAccountsRepository(
          where id = ? and is_active = 1`,
         [
           targetPosition.accountType,
-          positionIds[0],
-          JSON.stringify(positionIds),
+          targetPositions[0].id,
+          JSON.stringify(targetPositions.map(({ id }) => id)),
           scope.scopeKind,
           JSON.stringify(targetPosition.capabilities),
           JSON.stringify(targetPosition.navigationItems),
@@ -1566,6 +1576,7 @@ async function refreshCombinedAccessesForPosition(
         positions.created_at, 0 as usage_count
        from account_positions positions
        where positions.id in (${placeholders})
+       order by positions.sort_order asc, positions.display_name asc, positions.id asc
        for update`,
       positionIds,
     );
@@ -1575,7 +1586,7 @@ async function refreshCombinedAccessesForPosition(
       throw new Error("Selected account position was not found.");
     }
 
-    const selectedPositions = selectedRows.map((row) => mapPositionRow(row!));
+    const selectedPositions = positionRows.map(mapPositionRow);
     const combinedAccess = combinePositionAccessDefinitions(selectedPositions);
     const scope = resolveAccountProvisioningScope({
       accountType: combinedAccess.accountType,

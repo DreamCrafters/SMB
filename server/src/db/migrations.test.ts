@@ -43,6 +43,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "080_railway_wagon_decline_comment",
   "081_table_layouts",
   "082_account_multiple_positions",
+  "083_account_primary_position_order",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3334,4 +3335,38 @@ test("table layouts migration grants the dedicated permission only to administra
   assert.match(statements[2], /join account_positions positions on positions\.id = accesses\.position_code/u);
   assert.match(statements[2], /accesses\.is_active = 1/u);
   assert.match(statements[2], /\(positions\.id = 'administrator' or positions\.is_admin_protected = 1\)/u);
+});
+
+
+test("primary position migration updates only the primary id and is applied once", async () => {
+  const statements: string[] = [];
+  let applied = false;
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) {
+      if (sql.includes("insert into schema_migrations")) applied = true;
+      else statements.push(normalizeSql(sql));
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = String(parameters?.[0]);
+        return [id === "083_account_primary_position_order" && !applied ? [] : [{ id }], []];
+      }
+      if (sql.includes("insert into schema_migrations")) applied = true;
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  assert.equal(statements.length, 1);
+  assert.match(statements[0], /update account_accesses accesses set position_code =/u);
+  assert.match(statements[0], /json_contains\(accesses.position_codes, json_quote\(positions.id\)\)/u);
+  assert.match(statements[0], /order by positions.sort_order asc, positions.display_name asc, positions.id asc limit 1/u);
+  assert.match(statements[0], /where json_length\(accesses.position_codes\) > 1/u);
+  assert.doesNotMatch(statements[0], /capabilities|navigation_items|auth_sessions|position_codes =/u);
+  await runMigrations(pool);
+  assert.equal(statements.length, 1);
 });

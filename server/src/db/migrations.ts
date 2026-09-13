@@ -4319,6 +4319,21 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "083_account_primary_position_order",
+    statements: [
+      `
+      update account_accesses accesses
+      set position_code = (
+        select positions.id from account_positions positions
+        where json_contains(accesses.position_codes, json_quote(positions.id))
+        order by positions.sort_order asc, positions.display_name asc, positions.id asc
+        limit 1
+      )
+      where json_length(accesses.position_codes) > 1;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(
