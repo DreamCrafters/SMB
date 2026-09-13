@@ -11507,6 +11507,7 @@ function AdminAccountsWorkspace({
   const [accountPositionDrafts, setAccountPositionDrafts] = useState<
     Record<string, AccountPosition[]>
   >({});
+  const [accountSearchQuery, setAccountSearchQuery] = useState("");
   const [deletingUserId, setDeletingUserId] = useState<string>();
   const canAssignAdminNavigation =
     positionsState.status === "ready" &&
@@ -12313,6 +12314,13 @@ function AdminAccountsWorkspace({
   }
 
   const accounts = accountsState.status === "ready" ? accountsState.accounts : [];
+  const normalizedAccountSearchQuery = accountSearchQuery.trim().toLocaleLowerCase("ru-RU");
+  const filteredAccounts = normalizedAccountSearchQuery.length === 0
+    ? accounts
+    : accounts.filter((account) =>
+      account.userDisplayName.toLocaleLowerCase("ru-RU").includes(normalizedAccountSearchQuery) ||
+      account.login.toLocaleLowerCase("en-US").includes(normalizedAccountSearchQuery),
+    );
   const displayedPositions = positionOrderDraft ??
     (positionsState.status === "ready" ? positionsState.positions : []);
   const positionById = new Map(
@@ -12380,6 +12388,16 @@ function AdminAccountsWorkspace({
             role="tabpanel"
           >
             <div className="admin-accounts-toolbar">
+              <label className="admin-accounts-search">
+                <span>Поиск по имени или логину</span>
+                <input
+                  aria-label="Поиск учётных записей по имени или логину"
+                  maxLength={120}
+                  placeholder="Например: Иванов, ivanov"
+                  value={accountSearchQuery}
+                  onChange={(event) => setAccountSearchQuery(event.currentTarget.value)}
+                />
+              </label>
               <button
                 ref={createAccountButtonRef}
                 aria-controls="admin-account-create-dialog"
@@ -12423,7 +12441,7 @@ function AdminAccountsWorkspace({
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((account) => {
+                {filteredAccounts.map((account) => {
                   const isLoginEnabled = account.userStatus === "active";
                   const isCurrentAccount = account.userId === profile.userId;
                   const isArchived = account.userStatus === "archived";
@@ -12883,6 +12901,11 @@ function AdminAccountsWorkspace({
                   </tr>
                   );
                 })}
+                {filteredAccounts.length === 0 ? (
+                  <tr>
+                    <TableCell colSpan={7}>Учётные записи не найдены.</TableCell>
+                  </tr>
+                ) : null}
               </tbody>
             </ManagedTable>
           </div>

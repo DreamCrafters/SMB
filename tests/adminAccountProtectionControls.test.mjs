@@ -48,6 +48,7 @@ test("delegated account manager cannot change protected account controls", async
   const account = buildProtectedAccount();
   let editableAccount = {
     ...account, accessId: "editable-access", userId: "editable-user", login: "editable",
+    userDisplayName: "Редактируемый пользователь",
     isProtected: false, isProtectedByAdminRights: false,
     position: "worker", positions: ["worker", "dispatcher"], positionDisplayName: "Работник",
   };
@@ -207,6 +208,28 @@ test("delegated account manager cannot change protected account controls", async
     await React.act(async () => savePositions.click());
     assert.deepEqual(savedPositions, ["worker", "dispatcher"]);
 
+    const accountSearch = rootElement.querySelector(
+      'input[aria-label="Поиск учётных записей по имени или логину"]',
+    );
+    assert.ok(accountSearch);
+    await React.act(async () => {
+      setNativeInputValue(accountSearch, "editable");
+      accountSearch.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(rootElement.querySelectorAll(".admin-accounts-table tbody tr").length, 1);
+    assert.match(rootElement.querySelector(".admin-accounts-table tbody tr")?.textContent ?? "", /editable/u);
+    await React.act(async () => {
+      setNativeInputValue(accountSearch, "Защищённый");
+      accountSearch.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(rootElement.querySelectorAll(".admin-accounts-table tbody tr").length, 1);
+    assert.match(rootElement.querySelector(".admin-accounts-table tbody tr")?.textContent ?? "", /Защищённый/u);
+    await React.act(async () => {
+      setNativeInputValue(accountSearch, "несуществующий");
+      accountSearch.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(rootElement.querySelectorAll(".admin-accounts-table tbody tr").length, 0);
+
     await React.act(async () => {
       rootElement.querySelector(
         'button[role="tab"][aria-controls="admin-accounts-panel-positions"]',
@@ -350,6 +373,14 @@ function jsonResponse(payload, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function setNativeInputValue(input, value) {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    input.ownerDocument.defaultView.HTMLInputElement.prototype,
+    "value",
+  );
+  descriptor.set.call(input, value);
 }
 
 async function waitFor(React, predicate) {
