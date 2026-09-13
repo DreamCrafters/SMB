@@ -46,6 +46,17 @@ test("delegated account manager cannot change protected account controls", async
     server: { middlewareMode: true },
   });
   const account = buildProtectedAccount();
+  let editableAccount = {
+    ...account, accessId: "editable-access", userId: "editable-user", login: "editable",
+    isProtected: false, isProtectedByAdminRights: false,
+    position: "worker", positions: ["worker", "dispatcher"], positionDisplayName: "Работник",
+  };
+  const ordinaryPositions = ["worker", "dispatcher"].map((id) => ({
+    ...buildPosition(), id, displayName: id, hasAdminRights: false,
+    navigationItems: ["business.work"], capabilities: ["business.submit_forms"],
+  }));
+  let savedPositions;
+
 
   try {
     globalThis.fetch = async (input, init = {}) => {
@@ -60,16 +71,21 @@ test("delegated account manager cannot change protected account controls", async
       }
       if (url.pathname === "/api/admin/accounts" && method === "GET") {
         return jsonResponse({
-          accounts: [account],
+          accounts: [account, editableAccount],
           canManageProtectedAccounts: false,
         });
       }
       if (url.pathname === "/api/admin/positions" && method === "GET") {
         return jsonResponse({
-          positions: [buildPosition()],
+          positions: [buildPosition(), ...ordinaryPositions],
           canAssignAdminNavigation: false,
           canManageProtectedPositions: false,
         });
+      }
+      if (url.pathname === "/api/admin/accounts/editable-access/position" && method === "PATCH") {
+        savedPositions = JSON.parse(init.body).positions;
+        editableAccount = { ...editableAccount, position: savedPositions[0], positions: savedPositions };
+        return jsonResponse({ account: editableAccount });
       }
       if (url.pathname === "/api/admin/notification-settings" && method === "GET") {
         return jsonResponse({
@@ -133,7 +149,7 @@ test("delegated account manager cannot change protected account controls", async
       `input[aria-label="Защитить аккаунт ${account.login}"]`,
     );
     const position = row.querySelector(
-      `select[aria-label="Должность для ${account.login}"]`,
+      `button[aria-label="Должности для ${account.login}"]`,
     );
     const reset = Array.from(row.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Сбросить",
@@ -156,6 +172,39 @@ test("delegated account manager cannot change protected account controls", async
     assert.equal(reset?.disabled, true);
     assert.equal(toggle?.disabled, true);
     assert.equal(remove?.disabled, true);
+
+    const editablePicker = rootElement.querySelector('button[aria-label="Должности для editable"]');
+    assert.ok(editablePicker);
+    assert.notEqual(editablePicker.getAttribute("aria-controls"), position.getAttribute("aria-controls"));
+    const editableRow = editablePicker.closest("tr");
+    const savePositions = Array.from(editableRow.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Сохранить");
+    assert.equal(savePositions.disabled, true);
+    await React.act(async () => editablePicker.click());
+    const options = dom.window.document.getElementById(editablePicker.getAttribute("aria-controls"));
+    assert.ok(options);
+    const checkboxes = Array.from(options.querySelectorAll("input"));
+    assert.equal(checkboxes[0].disabled, true);
+    assert.equal(checkboxes[1].checked, true);
+    assert.equal(checkboxes[2].checked, true);
+    await React.act(async () => checkboxes[2].click());
+    assert.equal(savedPositions, undefined);
+    assert.equal(savePositions.disabled, false);
+    await React.act(async () => checkboxes[1].click());
+    assert.equal(savePositions.disabled, true);
+    await React.act(async () => checkboxes[1].click());
+    await React.act(async () => editablePicker.click());
+    await React.act(async () => savePositions.click());
+    assert.deepEqual(savedPositions, ["worker"]);
+    await waitFor(React, () => savePositions.disabled);
+    await React.act(async () => editablePicker.click());
+    const reopened = dom.window.document.getElementById(editablePicker.getAttribute("aria-controls"));
+    assert.equal(reopened.querySelectorAll("input")[1].checked, true);
+    assert.equal(reopened.querySelectorAll("input")[2].checked, false);
+    await React.act(async () => reopened.querySelectorAll("input")[2].click());
+    await React.act(async () => editablePicker.click());
+    await React.act(async () => savePositions.click());
+    assert.deepEqual(savedPositions, ["worker", "dispatcher"]);
 
     await React.act(async () => {
       rootElement.querySelector(

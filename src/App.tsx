@@ -3,6 +3,7 @@ import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
 import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell, AriaTableCell } from "./TableCell";
 import {
+  useId,
   useEffect,
   useLayoutEffect,
   useReducer,
@@ -10996,6 +10997,11 @@ const emptyAdminAccountForm: AdminAccountFormState = {
 };
 
 type AdminAccountPositionPickerProps = {
+  id?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+  title?: string;
+  fallbackLabel?: string;
   positions: AdminPositionSummary[];
   selectedPositions: AccountPosition[];
   canAssignAdminNavigation: boolean;
@@ -11003,11 +11009,18 @@ type AdminAccountPositionPickerProps = {
 };
 
 function AdminAccountPositionPicker({
+  id,
+  disabled = false,
+  ariaLabel,
+  title,
+  fallbackLabel,
   positions,
   selectedPositions,
   canAssignAdminNavigation,
   onChange,
 }: AdminAccountPositionPickerProps) {
+  const generatedId = useId();
+  const optionsId = id ?? `admin-account-position-picker-${generatedId}`;
   const pickerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
@@ -11086,7 +11099,7 @@ function AdminAccountPositionPicker({
     .filter((position) => selectedSet.has(position.id))
     .map((position) => position.displayName);
   const summary = selectedLabels.length === 0
-    ? "Выберите должности"
+    ? (selectedPositions.length > 0 ? fallbackLabel ?? "Выберите должности" : "Выберите должности")
     : selectedLabels.length === 1
       ? selectedLabels[0]
       : `Выбрано должностей: ${selectedLabels.length}`;
@@ -11098,14 +11111,14 @@ function AdminAccountPositionPicker({
     onChange(nextPositions);
   }
 
-  const options = !isOpen || menuPosition === undefined
+  const options = disabled || !isOpen || menuPosition === undefined
     ? null
     : createPortal(
         <div
           ref={optionsRef}
           aria-label="Варианты должностей"
           className="admin-account-position-picker-options"
-          id="admin-account-position-picker-options"
+          id={optionsId}
           role="listbox"
           aria-multiselectable="true"
           style={{
@@ -11117,7 +11130,7 @@ function AdminAccountPositionPicker({
         >
           {positions.map((position) => {
             const isDisabled =
-              position.accountType === "admin" ||
+              disabled || position.accountType === "admin" ||
               (!canAssignAdminNavigation && position.hasAdminRights);
             return (
               <label
@@ -11155,8 +11168,11 @@ function AdminAccountPositionPicker({
     >
       <button
         ref={triggerRef}
-        aria-controls="admin-account-position-picker-options"
-        aria-expanded={isOpen}
+        aria-controls={optionsId}
+        aria-label={ariaLabel}
+        title={title}
+        disabled={disabled}
+        aria-expanded={!disabled && isOpen}
         aria-haspopup="listbox"
         className="admin-account-position-picker-trigger"
         type="button"
@@ -11488,7 +11504,7 @@ function AdminAccountsWorkspace({
     string | undefined
   >(undefined);
   const [accountPositionDrafts, setAccountPositionDrafts] = useState<
-    Record<string, AccountPosition>
+    Record<string, AccountPosition[]>
   >({});
   const [deletingUserId, setDeletingUserId] = useState<string>();
   const canAssignAdminNavigation =
@@ -12213,34 +12229,20 @@ function AdminAccountsWorkspace({
   }
 
   async function handleSetAccountPosition(account: AdminAccountSummary) {
-    const position = accountPositionDrafts[account.accessId] ?? account.position;
-
+    const positions = accountPositionDrafts[account.accessId] ?? account.positions ?? [account.position];
+    const currentPositions = account.positions ?? [account.position];
     if (
-      position === account.position ||
-      updatingPositionAccessId !== undefined
+      positions.length === 0 ||
+      (positions.length === currentPositions.length && positions.every((id) => currentPositions.includes(id))) ||
+      updatingPositionAccessId !== undefined || positionsState.status !== "ready"
     ) {
       return;
     }
-    const selectedPosition = positionsState.status === "ready"
-      ? positionsState.positions.find((candidate) => candidate.id === position)
-      : undefined;
-    if (
-      selectedPosition !== undefined &&
-      selectedPosition.hasAdminRights &&
-      !canAssignAdminNavigation
-    ) {
-      setWorkspaceStatus(
-        "Должность с правами админа может назначать только исходный аккаунт admin.",
-      );
-      return;
-    }
-    if (
-      selectedPosition?.accountType === "admin" &&
-      account.login.trim().toLocaleLowerCase("en-US") !== "admin"
-    ) {
-      setWorkspaceStatus(
-        "Системная должность администратора закреплена за исходным аккаунтом admin.",
-      );
+    const selectedPositions = positions.map((id) => positionsState.positions.find((position) => position.id === id));
+    if (selectedPositions.some((position) => position === undefined ||
+      (!canAssignAdminNavigation && position.hasAdminRights) ||
+      (position.accountType === "admin" && account.login.trim().toLocaleLowerCase("en-US") !== "admin"))) {
+      setWorkspaceStatus("Выбранная должность недоступна для назначения.");
       return;
     }
 
@@ -12249,7 +12251,7 @@ function AdminAccountsWorkspace({
 
     const result = await setAdminAccountPosition({
       accessId: account.accessId,
-      position,
+      positions,
     });
 
     setUpdatingPositionAccessId(undefined);
@@ -12265,8 +12267,8 @@ function AdminAccountsWorkspace({
       return next;
     });
     onShowToast(
-      "Должность изменена",
-      `Должность для «${account.login}» изменена на «${result.account.positionDisplayName}». Пользователю нужно войти заново.`,
+      "Должности изменены",
+      `Должности для «${account.login}» обновлены. Пользователю нужно войти заново.`,
       "success",
     );
     setRefreshVersion((version) => version + 1);
@@ -12431,21 +12433,17 @@ function AdminAccountsWorkspace({
                   const isUpdating = updatingUserId === account.userId;
                   const isUpdatingPosition =
                     updatingPositionAccessId === account.accessId;
-                  const selectedPosition =
-                    accountPositionDrafts[account.accessId] ?? account.position;
-                  const selectedPositionDefinition =
-                    positionsState.status === "ready"
-                      ? positionsState.positions.find(
-                          (position) => position.id === selectedPosition,
-                        )
-                      : undefined;
-                  const isSelectedPositionRestricted =
-                    positionsState.status === "ready" &&
-                    selectedPositionDefinition !== undefined &&
-                    ((!positionsState.canAssignAdminNavigation &&
-                      selectedPositionDefinition.hasAdminRights) ||
-                      (selectedPositionDefinition.accountType === "admin" &&
-                        !isOriginalAdmin));
+                  const currentPositions = account.positions ?? [account.position];
+                  const selectedPositions = accountPositionDrafts[account.accessId] ?? currentPositions;
+                  const hasPositionChanges = selectedPositions.length !== currentPositions.length ||
+                    selectedPositions.some((id) => !currentPositions.includes(id));
+                  const isSelectedPositionRestricted = selectedPositions.length === 0 ||
+                    (positionsState.status === "ready" && selectedPositions.some((id) => {
+                      const position = positionsState.positions.find((candidate) => candidate.id === id);
+                      return position === undefined ||
+                        (!canAssignAdminNavigation && position.hasAdminRights) ||
+                        (position.accountType === "admin" && !isOriginalAdmin);
+                    }));
                   const isPositionChangeDisabled =
                     !canManageAccess ||
                     isCurrentAccount ||
@@ -12475,70 +12473,30 @@ function AdminAccountsWorkspace({
                     <tr key={account.accessId}>
                       <TableCell>
                         <div className="admin-account-position-cell">
-                          <select
-                            aria-label={`Должность для ${account.login}`}
-                            value={selectedPosition}
+                          <AdminAccountPositionPicker
+                            ariaLabel={`Должности для ${account.login}`}
+                            fallbackLabel={account.positionDisplayName}
+                            canAssignAdminNavigation={canAssignAdminNavigation}
+                            positions={positionsState.status === "ready" ? positionsState.positions : []}
+                            selectedPositions={selectedPositions}
                             disabled={isPositionChangeDisabled}
-                            title={
-                              isCurrentAccount
-                                ? "Нельзя менять должность текущей учётной записи."
-                                : isProtectedMutationRestricted
-                                  ? "Должность защищённой учётной записи может менять только исходный аккаунт admin."
-                                : undefined
-                            }
-                            onChange={(event) => {
-                              const position = event.currentTarget
-                                .value as AccountPosition;
-                              setAccountPositionDrafts((current) => ({
-                                ...current,
-                                [account.accessId]: position,
-                              }));
-                            }}
-                          >
-                            {positionsState.status !== "ready" ||
-                            !positionsState.positions.some(
-                              (position) => position.id === account.position,
-                            ) ? (
-                              <option value={account.position}>
-                                {account.positionDisplayName}
-                              </option>
-                            ) : null}
-                            {(positionsState.status === "ready"
-                              ? positionsState.positions
-                              : []
-                            ).map((position) => (
-                              <option
-                                key={position.id}
-                                value={position.id}
-                                disabled={
-                                  (!canAssignAdminNavigation &&
-                                    position.hasAdminRights) ||
-                                  (position.accountType === "admin" &&
-                                    !isOriginalAdmin)
-                                }
-                              >
-                                {position.displayName}
-                              </option>
-                            ))}
-                          </select>
-                          {(account.positions ?? [account.position]).length > 1 ? (
-                            <small className="admin-account-position-summary">
-                              {(account.positions ?? [account.position])
-                                .map((positionId) =>
-                                  positionsState.status === "ready"
-                                    ? positionsState.positions.find((position) => position.id === positionId)?.displayName ?? positionId
-                                    : positionId,
-                                )
-                                .join(", ")}
-                            </small>
-                          ) : null}
+                            title={isCurrentAccount
+                              ? "Нельзя менять должности текущей учётной записи."
+                              : isProtectedMutationRestricted
+                                ? "Должности защищённой учётной записи может менять только исходный аккаунт admin."
+                                : undefined}
+                            onChange={(positions) => setAccountPositionDrafts((current) => ({
+                              ...current,
+                              [account.accessId]: positions,
+                            }))}
+                          />
                           <button
                             className="secondary-button"
                             type="button"
                             disabled={
                               isPositionChangeDisabled ||
                               isSelectedPositionRestricted ||
-                              selectedPosition === account.position
+                              !hasPositionChanges
                             }
                             onClick={() => handleSetAccountPosition(account)}
                           >
@@ -13037,6 +12995,7 @@ function AdminAccountsWorkspace({
               <label>
                 <span>Должности</span>
                 <AdminAccountPositionPicker
+                  id="admin-account-position-picker-options"
                   canAssignAdminNavigation={canAssignAdminNavigation}
                   positions={positionsState.status === "ready" ? positionsState.positions : []}
                   selectedPositions={form.positions}

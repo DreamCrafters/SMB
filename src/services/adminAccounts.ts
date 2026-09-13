@@ -662,7 +662,9 @@ export async function setAdminAccountPosition(
       }),
       credentials: "include",
       signal,
-      body: JSON.stringify({ position: value.position }),
+      body: JSON.stringify(value.positions === undefined
+        ? { position: value.position }
+        : { positions: value.positions }),
     });
     const payload = await readJson(response);
 

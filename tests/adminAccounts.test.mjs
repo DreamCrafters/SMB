@@ -488,6 +488,20 @@ test("admin accounts service assigns a new position to an existing access", asyn
   });
 });
 
+test("admin accounts service sends all selected positions", async () => {
+  let body;
+  globalThis.fetch = async (_url, init) => {
+    body = JSON.parse(init.body);
+    return jsonResponse({ account });
+  };
+  const result = await setAdminAccountPosition({
+    accessId: "access-id",
+    positions: ["worker", "dispatcher"],
+  });
+  assert.equal(result.status, "ready");
+  assert.deepEqual(body, { positions: ["worker", "dispatcher"] });
+});
+
 test("admin accounts service updates left navigation access", async () => {
   const calls = [];
 

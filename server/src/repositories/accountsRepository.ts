@@ -158,6 +158,7 @@ export type SetAccountNavigationInput = {
 export type SetAccountPositionInput = {
   accessId: string;
   position: AccountPosition;
+  positions?: AccountPosition[];
 };
 
 export type AccountPositionChange = {
@@ -1327,6 +1328,7 @@ export function createAccountsRepository(
   async function setAccountPosition({
     accessId,
     position,
+    positions,
   }: SetAccountPositionInput, allowProtected = false) {
     const connection = await pool.getConnection();
 
@@ -1377,7 +1379,13 @@ export function createAccountsRepository(
         throw new Error("Current account access was not returned by database.");
       }
 
-      if (previous.position === position) {
+      const positionIds = positions ?? [position];
+      if (positionIds.length === 0 || new Set(positionIds).size !== positionIds.length) {
+        throw new Error("Выберите одну или несколько разных должностей.");
+      }
+      const previousPositions = previous.positions ?? [previous.position];
+      if (previousPositions.length === positionIds.length &&
+          previousPositions.every((id) => positionIds.includes(id))) {
         await connection.commit();
         return { previous, updated: previous };
       }
@@ -1394,30 +1402,32 @@ export function createAccountsRepository(
               json_quote(positions.id)
             )) as usage_count
          from account_positions positions
-         where positions.id = ?
-         limit 1 for update`,
-        [position],
+         where positions.id in (${positionIds.map(() => "?").join(", ")})
+         order by positions.sort_order asc, positions.id asc
+         for update`,
+        positionIds,
       );
-      const targetPositionRow = positionRows[0];
-
-      if (targetPositionRow === undefined) {
+      const positionById = new Map(positionRows.map((row) => [row.id, row]));
+      if (positionRows.length !== positionIds.length || positionIds.some((id) => !positionById.has(id))) {
         await connection.rollback();
         return undefined;
       }
-      assertProtectedPositionMutationAllowed({
-        isProtected:
-          targetPositionRow.is_admin_protected === true ||
-          targetPositionRow.is_admin_protected === 1,
-        allowProtected,
-      });
-      if (
-        targetPositionRow.account_type === "admin" &&
-        !isCanonicalAdminLogin(existing.login)
-      ) {
-        throw new SystemAdministratorPositionAssignmentError();
+      for (const targetPositionRow of positionRows) {
+        assertProtectedPositionMutationAllowed({
+          isProtected:
+            targetPositionRow.is_admin_protected === true ||
+            targetPositionRow.is_admin_protected === 1,
+          allowProtected,
+        });
+        if (
+          targetPositionRow.account_type === "admin" &&
+          !isCanonicalAdminLogin(existing.login)
+        ) {
+          throw new SystemAdministratorPositionAssignmentError();
+        }
       }
-
-      const targetPosition = mapPositionRow(targetPositionRow);
+      const targetPositions = positionIds.map((id) => mapPositionRow(positionById.get(id)!));
+      const targetPosition = combinePositionAccessDefinitions(targetPositions);
       const scope = resolveAccountProvisioningScope({
         accountType: targetPosition.accountType,
       });
@@ -1429,8 +1439,8 @@ export function createAccountsRepository(
          where id = ? and is_active = 1`,
         [
           targetPosition.accountType,
-          targetPosition.id,
-          JSON.stringify([targetPosition.id]),
+          positionIds[0],
+          JSON.stringify(positionIds),
           scope.scopeKind,
           JSON.stringify(targetPosition.capabilities),
           JSON.stringify(targetPosition.navigationItems),

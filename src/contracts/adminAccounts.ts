@@ -138,8 +138,10 @@ export type SetAdminAccountProtectedResponse = SetAdminAccountProtectedRequest;
 
 export type SetAdminAccountPositionRequest = {
   accessId: string;
-  position: AccountPosition;
-};
+} & (
+  | { position: AccountPosition; positions?: never }
+  | { position?: never; positions: AccountPosition[] }
+);
 
 export type SetAdminAccountPositionResponse = {
   account: AdminAccountSummary;

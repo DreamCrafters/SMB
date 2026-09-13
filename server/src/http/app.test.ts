@@ -8379,6 +8379,108 @@ test("admin accounts API changes an existing account position and audits access"
   ]);
 });
 
+test("admin accounts API changes secondary positions and audits the full set", async () => {
+  let updateInput:
+    | Parameters<AccountsRepository["setAccountPosition"]>[0]
+    | undefined;
+  const recorded: Parameters<AuditRepository["record"]>[0][] = [];
+  const updatedAccount = {
+    ...adminAccount,
+    accountType: "business_owner" as const,
+    position: "dispatcher" as const,
+    positions: ["dispatcher", "business_owner"],
+    positionDisplayName: "Владелец бизнеса",
+    scope: { kind: "organization" as const },
+    capabilities: ["business.view_all_statistics" as const],
+    navigationItems: ["business.overview" as const],
+  };
+  const lockedPreviousAccount = {
+    ...adminAccount,
+    position: "dispatcher" as const,
+    positionDisplayName: "Диспетчер",
+  };
+  const repository: AccountsRepository = {
+    ...accounts,
+    async setAccountPosition(input) {
+      updateInput = input;
+      return {
+        previous: lockedPreviousAccount,
+        updated: updatedAccount,
+      };
+    },
+  };
+  const auditRepository: AuditRepository = {
+    async record(event) { recorded.push(event); },
+    async listReport() { throw new Error("not used"); },
+  };
+
+  await withApiServer(
+    async (baseUrl) => {
+      const sessionId = await createDevSession(baseUrl, "admin");
+      const response = await fetch(
+        `${baseUrl}/api/admin/accounts/access-id/position`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "X-SMB-Dev-Session": sessionId,
+          },
+          body: JSON.stringify({ positions: ["dispatcher", "business_owner"] }),
+        },
+      );
+      const payload = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(
+        isRecord(payload) && isRecord(payload.account)
+          ? payload.account.position
+          : undefined,
+        "dispatcher",
+      );
+      for (const positions of [[], ["dispatcher", "dispatcher"], ["dispatcher", "unknown-position"], "dispatcher", ["dispatcher", 123]]) {
+        const invalid = await fetch(`${baseUrl}/api/admin/accounts/access-id/position`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId },
+          body: JSON.stringify({ positions }),
+        });
+        assert.equal(invalid.status, 400);
+      }
+    },
+    dispatcherSubmissions,
+    emptyReferenceDataSource,
+    undefined,
+    undefined,
+    adminDatabase,
+    config,
+    undefined,
+    repository,
+    undefined,
+    auditRepository,
+  );
+
+  assert.deepEqual(updateInput, {
+    accessId: "access-id",
+    position: "dispatcher",
+    positions: ["dispatcher", "business_owner"],
+  });
+  assert.deepEqual(
+    recorded
+      .filter((event) => event.category === "administration")
+      .map((event) => event.action),
+    ["admin.account_position_update"],
+  );
+  const positionAudit = recorded.find(
+    (event) => event.action === "admin.account_position_update",
+  );
+  assert.deepEqual(positionAudit?.details?.slice(-2), [
+    { label: "Прежняя должность", value: "Диспетчер (dispatcher)" },
+    {
+      label: "Новая должность",
+      value: "Владелец бизнеса (dispatcher, business_owner)",
+    },
+  ]);
+});
+
 test("admin accounts API does not change another access of the current login", async () => {
   let didUpdate = false;
   const profile = buildProductionProfile("admin");

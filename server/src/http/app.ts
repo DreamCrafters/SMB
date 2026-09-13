@@ -9528,11 +9528,11 @@ function buildAccountPositionChangeAuditDetails(
     { label: "Логин", value: updated.login },
     {
       label: "Прежняя должность",
-      value: `${previous.positionDisplayName} (${previous.position})`,
+      value: `${previous.positionDisplayName} (${(previous.positions ?? [previous.position]).join(", ")})`,
     },
     {
       label: "Новая должность",
-      value: `${updated.positionDisplayName} (${updated.position})`,
+      value: `${updated.positionDisplayName} (${(updated.positions ?? [updated.position]).join(", ")})`,
     },
   ];
 }
@@ -11993,18 +11993,18 @@ async function handleAdminAccountsRequest({
       return;
     }
 
-    const targetPosition = (await accounts.listPositions()).find(
-      (position) => position.id === validation.value.position,
-    );
+    const positionIds = validation.value.positions ?? [validation.value.position];
+    const catalog = await accounts.listPositions();
+    const targetPositions = positionIds.map((id) => catalog.find((position) => position.id === id));
 
-    if (targetPosition === undefined) {
+    if (targetPositions.some((position) => position === undefined)) {
       sendJson(res, 400, {
         error: { code: "invalid_response", message: "Должность не найдена." },
       });
       return;
     }
     if (
-      targetPosition.accountType === "admin" &&
+      targetPositions.some((position) => position?.accountType === "admin") &&
       !isCanonicalAdminLogin(targetAccount.login)
     ) {
       sendJson(res, 403, {
@@ -12017,7 +12017,7 @@ async function handleAdminAccountsRequest({
       return;
     }
     if (
-      hasAdminNavigationItems(targetPosition.navigationItems) &&
+      targetPositions.some((position) => position !== undefined && hasAdminNavigationItems(position.navigationItems)) &&
       !(await canAssignAdminNavigation())
     ) {
       sendAdminNavigationAssignmentDenied(res);
@@ -12033,11 +12033,12 @@ async function handleAdminAccountsRequest({
         audit,
         mutate: async () => accounts.setAccountPosition({
           accessId: accountPositionAccessId,
-          position: targetPosition.id,
+          ...validation.value,
         }, await canAssignAdminNavigation()),
         buildEvent: (change) =>
           change === undefined ||
-          change.previous.position === change.updated.position
+          JSON.stringify(change.previous.positions ?? [change.previous.position]) ===
+            JSON.stringify(change.updated.positions ?? [change.updated.position])
           ? undefined
           : {
               actor: buildAuditActor(access.profile),
@@ -13262,7 +13263,7 @@ function validateSetPositionProtectionRequest(
 function validateSetAccountPositionRequest(input: unknown):
   | {
       ok: true;
-      value: Pick<SetAccountPositionInput, "position">;
+      value: Pick<SetAccountPositionInput, "position" | "positions">;
     }
   | {
       ok: false;
@@ -13275,16 +13276,18 @@ function validateSetAccountPositionRequest(input: unknown):
     };
   }
 
-  if (!isAccountPosition(input.position)) {
+  const positions = input.positions === undefined ? [input.position] : input.positions;
+  if (!Array.isArray(positions) || positions.length === 0 ||
+      !positions.every(isAccountPosition) || new Set(positions).size !== positions.length) {
     return {
       ok: false,
-      errors: ["position is not supported."],
+      errors: ["positions must contain one or more unique supported positions."],
     };
   }
 
   return {
     ok: true,
-    value: { position: input.position },
+    value: { position: positions[0], ...(input.positions === undefined ? {} : { positions }) },
   };
 }
 
