@@ -16,6 +16,7 @@ test("a complete order passes with its cargo lines", () => {
     movementDirection: "На погрузку",
     destinationStation: "Абагур-Лесной",
     destinationStationRoad: "З-Сиб",
+    requiredDate: "2026-09-20",
     wagonType: "КР (крытый)",
     cargoLines: [
       {
@@ -55,6 +56,7 @@ test("an order without cargo lines is rejected", () => {
     contractReference: "12/2026",
     movementDirection: "На погрузку",
     destinationStation: "Абагур-Лесной",
+    requiredDate: "2026-09-20",
     wagonType: "КР (крытый)",
     cargoLines: [],
   });
@@ -69,6 +71,7 @@ test("cargo lines are capped so one order cannot flood the child table", () => {
     contractReference: "12/2026",
     movementDirection: "На погрузку",
     destinationStation: "Абагур-Лесной",
+    requiredDate: "2026-09-20",
     wagonType: "КР (крытый)",
     cargoLines: Array.from(
       { length: maxRailwayWagonCargoLines + 1 },
@@ -86,6 +89,7 @@ test("an unknown field in a cargo line is rejected", () => {
     contractReference: "12/2026",
     movementDirection: "На погрузку",
     destinationStation: "Абагур-Лесной",
+    requiredDate: "2026-09-20",
     wagonType: "КР (крытый)",
     cargoLines: [{ cargoName: "ШБ-5", wagonNumber: "12345678" }],
   });
@@ -102,6 +106,7 @@ test("an unsupported direction or wagon type is rejected", () => {
     contractReference: "12/2026",
     movementDirection: "На вывоз",
     destinationStation: "Абагур-Лесной",
+    requiredDate: "2026-09-20",
     wagonType: "Платформа",
     cargoLines: [{ cargoName: "ШБ-5" }],
   });
@@ -119,6 +124,7 @@ test("an empty cargo line keeps only the required name", () => {
     contractReference: "12/2026",
     movementDirection: "На выгрузку",
     destinationStation: "Абагур-Лесной",
+    requiredDate: "2026-09-20",
     wagonType: "ПВ (полувагон)",
     cargoLines: [{ cargoName: "Глина Г-5" }],
   });
@@ -236,4 +242,24 @@ test("approval passes without a comment, rejection does not", () => {
     validateRailwayWagonApprovalSubmission({ decision: "maybe" }).ok,
     false,
   );
+});
+
+
+test("orders accept any wagon type and require a real calendar date", () => {
+  const order = {
+    contractReference: "12/2026",
+    movementDirection: "На погрузку",
+    destinationStation: "Абагур-Лесной",
+    wagonType: "Любой (КР или ПВ)",
+    requiredDate: "2028-02-29",
+    cargoLines: [{ cargoName: "ШБ-5" }],
+  };
+  const valid = validateRailwayWagonOrderSubmission(order);
+  assert.equal(valid.ok, true);
+  if (valid.ok) assert.equal(Reflect.get(valid.value, "requiredDate"), "2028-02-29");
+  for (const requiredDate of [undefined, null, "", "2026-02-29", "2026-13-01", "20.09.2026", 20260920]) {
+    const result = validateRailwayWagonOrderSubmission({ ...order, requiredDate });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.ok(result.errors.includes("Проверьте поле «Дата потребности в вагоне»."));
+  }
 });

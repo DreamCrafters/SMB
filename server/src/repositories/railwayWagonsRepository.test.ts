@@ -23,6 +23,7 @@ test("a new order is stamped as ordered and stores its cargo lines in order", as
       movementDirection: "На выгрузку",
       destinationStation: "Абагур-Лесной",
       destinationStationRoad: "З-Сиб",
+      requiredDate: "2026-09-20",
       wagonType: "ПВ (полувагон)",
       cargoLines: [
         buildCargoLine("Глина Г-5"),
@@ -35,7 +36,8 @@ test("a new order is stamped as ordered and stores its cargo lines in order", as
   const insertOrder = queries.find(({ sql }) =>
     /insert into railway_wagon_orders/u.test(sql));
   assert.equal(insertOrder?.parameters?.[0], "id-1");
-  assert.equal(insertOrder?.parameters?.[6], stamp);
+  assert.equal(insertOrder?.parameters?.[7], stamp);
+  assert.equal(insertOrder?.parameters?.[6], "2026-09-20");
 
   const insertCargo = queries.find(({ sql }) =>
     /insert into railway_wagon_cargo_lines/u.test(sql));
@@ -60,6 +62,7 @@ test("saving cargo lines replaces the previous ones instead of merging", async (
       movementDirection: "На выгрузку",
       destinationStation: "Абагур-Лесной",
       destinationStationRoad: "З-Сиб",
+      requiredDate: "2026-09-20",
       wagonType: "ПВ (полувагон)",
       cargoLines: [buildCargoLine("Глина Г-5")],
     },
@@ -71,6 +74,8 @@ test("saving cargo lines replaces the previous ones instead of merging", async (
   const insertIndex = queries.findIndex(({ sql }) =>
     /insert into railway_wagon_cargo_lines/u.test(sql));
   assert.ok(deleteIndex >= 0 && insertIndex > deleteIndex);
+  const update = queries.find(({ sql }) => /set contract_reference/u.test(sql));
+  assert.equal(update?.parameters?.[5], "2026-09-20");
 });
 
 test("an order cannot be corrected once carriage terms are under way", async () => {
@@ -87,6 +92,7 @@ test("an order cannot be corrected once carriage terms are under way", async () 
         movementDirection: "На выгрузку",
         destinationStation: "Абагур-Лесной",
         destinationStationRoad: "З-Сиб",
+        requiredDate: "2026-09-20",
         wagonType: "ПВ (полувагон)",
         cargoLines: [buildCargoLine("Глина Г-5")],
       },
@@ -398,7 +404,9 @@ test("rejecting a wagon reissues the order with its cargo and links both", async
   // Станция назначения переносится вместе с содержимым: без неё заявка
   // неработоспособна, хотя в перечне техзадания её нет.
   assert.equal(reissue?.parameters?.[3], "Абагур-Лесной");
-  assert.equal(reissue?.parameters?.[6], stamp);
+  assert.equal(reissue?.parameters?.[7], stamp);
+  assert.equal(reissue?.parameters?.[6], "2026-09-20");
+  assert.equal(result.replacement?.requiredDate, "2026-09-20");
   assert.ok(
     queries.some(({ sql }) => /set replaced_by_order_id = \?/u.test(sql)),
   );
@@ -468,6 +476,7 @@ function buildOrderRow(filled: readonly RailwayWagonStageField[]) {
     movement_direction: "На выгрузку",
     destination_station: "Абагур-Лесной",
     destination_station_road: "З-Сиб",
+    required_date: "2026-09-20",
     wagon_type: "ПВ (полувагон)",
     rent_cost: null,
     tariff_cost: null,

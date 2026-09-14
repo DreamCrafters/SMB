@@ -20,6 +20,7 @@ export type RailwayWagonOrderSubmission = {
   destinationStation: string;
   destinationStationRoad: string | null;
   wagonType: RailwayWagonType;
+  requiredDate: string;
   cargoLines: RailwayWagonCargoLine[];
 };
 
@@ -128,6 +129,11 @@ export function validateRailwayWagonOrderSubmission(
     errors.push("Проверьте поле «Вид вагона».");
   }
 
+  const requiredDate = readCalendarDate(input.requiredDate);
+  if (requiredDate === undefined) {
+    errors.push("Проверьте поле «Дата потребности в вагоне».");
+  }
+
   const cargoLines = readCargoLines(input.cargoLines, errors);
 
   if (errors.length > 0) {
@@ -142,6 +148,7 @@ export function validateRailwayWagonOrderSubmission(
       destinationStation: destinationStation!,
       destinationStationRoad: destinationStationRoad!,
       wagonType: wagonType!,
+      requiredDate: requiredDate!,
       cargoLines,
     },
   };

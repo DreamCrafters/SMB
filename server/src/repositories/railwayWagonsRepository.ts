@@ -93,6 +93,7 @@ type OrderRow = {
   destination_station: string;
   destination_station_road: string | null;
   wagon_type: string;
+  required_date: Date | string | null;
   rent_cost: string | number | null;
   tariff_cost: string | number | null;
   demurrage_penalty: string | null;
@@ -160,6 +161,7 @@ const orderColumns = `
   destination_station,
   destination_station_road,
   wagon_type,
+  required_date,
   rent_cost,
   tariff_cost,
   demurrage_penalty,
@@ -296,7 +298,7 @@ export function createRailwayWagonsRepository(
   }
 
   async function insertOrder(input: {
-    order: RailwayWagonOrderSubmission;
+    order: Omit<RailwayWagonOrderSubmission, "requiredDate"> & { requiredDate: string | null };
     actor: RailwayWagonActor;
     orderedAt: string;
   }) {
@@ -310,10 +312,11 @@ export function createRailwayWagonsRepository(
         destination_station,
         destination_station_road,
         wagon_type,
+        required_date,
         ordered_at,
         submitted_by_user_id,
         submitted_by_account_id
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         orderId,
         input.order.contractReference,
@@ -321,6 +324,7 @@ export function createRailwayWagonsRepository(
         input.order.destinationStation,
         input.order.destinationStationRoad,
         input.order.wagonType,
+        input.order.requiredDate,
         input.orderedAt,
         input.actor.userId,
         input.actor.accountId,
@@ -426,7 +430,8 @@ export function createRailwayWagonsRepository(
           movement_direction = ?,
           destination_station = ?,
           destination_station_road = ?,
-          wagon_type = ?
+          wagon_type = ?,
+          required_date = ?
         where id = ?`,
         [
           order.contractReference,
@@ -434,6 +439,7 @@ export function createRailwayWagonsRepository(
           order.destinationStation,
           order.destinationStationRoad,
           order.wagonType,
+          order.requiredDate,
           orderId,
         ],
       );
@@ -569,6 +575,7 @@ export function createRailwayWagonsRepository(
         destinationStation: source.destinationStation,
         destinationStationRoad: source.destinationStationRoad,
         wagonType: source.wagonType,
+        requiredDate: source.requiredDate,
         cargoLines: source.cargoLines,
       },
       actor,
@@ -606,6 +613,7 @@ function mapOrderRow(
     destinationStation: row.destination_station,
     destinationStationRoad: row.destination_station_road,
     wagonType: row.wagon_type as RailwayWagonOrder["wagonType"],
+    requiredDate: toOptionalCalendarDate(row.required_date),
     rentCost: toOptionalNumber(row.rent_cost),
     tariffCost: toOptionalNumber(row.tariff_cost),
     demurragePenalty: row.demurrage_penalty,

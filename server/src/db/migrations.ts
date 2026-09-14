@@ -4334,6 +4334,16 @@ const migrations: Migration[] = [
       `,
     ],
   },
+  {
+    id: "084_railway_wagon_required_date",
+    statements: [
+      `alter table railway_wagon_orders
+        add column required_date date null after wagon_type,
+        drop constraint chk_railway_wagon_orders_type,
+        add constraint chk_railway_wagon_orders_type
+          check (wagon_type in ('КР (крытый)', 'ПВ (полувагон)', 'Любой (КР или ПВ)'));`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

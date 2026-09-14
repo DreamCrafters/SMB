@@ -29,6 +29,7 @@ export type RailwayWagonOrderSubmission = {
   movementDirection: string;
   destinationStation: string;
   wagonType: string;
+  requiredDate: string;
   cargoLines: Array<Omit<RailwayWagonCargoLine, "etsngName">>;
 };
 
@@ -264,6 +265,7 @@ function isOrder(value: unknown): value is RailwayWagonOrder {
     isOptionalString(value.demurragePenalty) &&
     isOptionalString(value.carrier) &&
     isOptionalString(value.wagonNumber) &&
+    isOptionalString(value.requiredDate) &&
     isOptionalString(value.expectedArrivalDate) &&
     isOptionalString(value.currentLocation) &&
     isOptionalString(value.declineComment) &&

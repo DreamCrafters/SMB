@@ -247,6 +247,42 @@ for (const [role, approvals, expected] of [
   });
 }
 
+test("sales copies, corrects and submits the required date and any wagon type", async () => {
+  const order = buildOrder({ orderedAt: "2026-09-07T08:00:00.000Z" });
+  order.wagonType = "Любой (КР или ПВ)";
+  const context = await mountWorkspace({ roles: ["sales"], orders: [order] });
+  try {
+    const { React, container, dom, requests } = context;
+    await waitFor(React, () => container.querySelector(".railway-wagon-form") !== null);
+    const date = container.querySelector('.railway-wagon-form input[type="date"]');
+    assert.equal(date.required, true);
+    assert.equal(date.value, "");
+    await clickButton(React, container, "Заполнить по предыдущей");
+    assert.equal(date.value, "2026-09-20");
+    assert.match(container.querySelector(".railway-orders-table").textContent, /2026-09-20/u);
+    await React.act(async () => {
+      container.querySelector(".railway-wagon-form").dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    const created = requests.find((request) => request.method === "POST" && request.pathname === "/api/railway-wagons");
+    assert.equal(JSON.parse(created.body).requiredDate, "2026-09-20");
+    assert.equal(JSON.parse(created.body).wagonType, "Любой (КР или ПВ)");
+    assert.equal(date.value, "");
+    await clickButton(React, container, "Исправить");
+    assert.equal(date.value, "2026-09-20");
+    await React.act(async () => {
+      container.querySelector(".railway-wagon-form").dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    const corrected = requests.find((request) => request.method === "PATCH");
+    assert.equal(JSON.parse(corrected.body).requiredDate, "2026-09-20");
+  } finally {
+    await context.dispose();
+  }
+});
+
 async function mountWorkspace({ roles, orders, savedOrder }) {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
@@ -270,6 +306,9 @@ async function mountWorkspace({ roles, orders, savedOrder }) {
     requests.push({ pathname: url.pathname, method: init.method ?? "GET", body: init.body });
 
     if (url.pathname.endsWith("/stage")) {
+      return jsonResponse({ order: savedOrder ?? orders[0] });
+    }
+    if ((init.method === "POST" || init.method === "PATCH") && url.pathname.startsWith("/api/railway-wagons")) {
       return jsonResponse({ order: savedOrder ?? orders[0] });
     }
     if (url.pathname === "/api/railway-wagons") {
@@ -326,6 +365,7 @@ function buildOrder(stages) {
     movementDirection: "На погрузку",
     destinationStation: "Абагур-Лесной",
     destinationStationRoad: "З-Сиб",
+    requiredDate: "2026-09-20",
     wagonType: "КР (крытый)",
     rentCost: null,
     tariffCost: null,

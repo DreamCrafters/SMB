@@ -64,7 +64,7 @@ export const tableDefinitions = {
   "catalog.brands": defineTable("Марки", [...productBrandFields.map(({ id }) => id), "actions"]),
   "catalog.materials": defineTable("Номенклатура сырья", rawMaterialNomenclatureFields.map(({ id }) => id)),
   "railway.cargo": defineTable("Грузы заявки", ["name", "code", "palletCount", "palletWeight", "totalWeight", "dimensions", "fastening", "fasteningWeight", "actions"]),
-  "railway.orders": defineTable("Заявки на вагоны", ["actions", "status", "declineComment", "contract", "direction", "station", "wagonType", "cargo", "totalWeight", "rent", "tariff", "penalty", "carrier", "wagonNumber", "arrivalDate", "location", ...railwayWagonStageFields]),
+  "railway.orders": defineTable("Заявки на вагоны", ["actions", "status", "declineComment", "contract", "direction", "station", "wagonType", "requiredDate", "cargo", "totalWeight", "rent", "tariff", "penalty", "carrier", "wagonNumber", "arrivalDate", "location", ...railwayWagonStageFields]),
   "refractory.banks": defineTable("Банки: ввод", ["metric", "bank.1", "bank.2", "bank.3", "bank.4"]),
   "refractory.cosh": defineTable("Выпуск ЦОШ", ["brand", "output", "actions"]),
   "refractory.equipment": defineTable("Выпуск формованных огнеупоров", ["equipment", "productBrand", "outputNorm", "actualPieces", "actualTons", "workedHours", "totalDowntimeHours", "mechanicalRepairHours", "electricalRepairHours", "carriageReplacementHours", "brandReplacementHours", "moldReplacementHours", "reserveHours", "workerAbsenceHours", "rawMaterialAbsenceHours", "note"]),

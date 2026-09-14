@@ -130,6 +130,7 @@ export function RailwayWagonsWorkspace({
   >([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [requiredDate, setRequiredDate] = useState("");
   const [contractReference, setContractReference] = useState("");
   const [movementDirection, setMovementDirection] = useState<
     RailwayWagonMovementDirection
@@ -204,6 +205,7 @@ export function RailwayWagonsWorkspace({
   const isCorrection = editingOrderId !== undefined;
 
   function resetOrderForm() {
+    setRequiredDate("");
     setContractReference("");
     setMovementDirection(railwayWagonMovementDirections[0]);
     setDestinationStation("");
@@ -233,6 +235,7 @@ export function RailwayWagonsWorkspace({
       movementDirection,
       destinationStation,
       wagonType,
+      requiredDate,
       cargoLines: draftCargoLines.map(({ etsngName: _etsngName, ...line }) => line),
     };
     const result = editingOrderId === undefined
@@ -302,6 +305,7 @@ export function RailwayWagonsWorkspace({
     setMovementDirection(order.movementDirection);
     setDestinationStation(order.destinationStation);
     setWagonType(order.wagonType);
+    setRequiredDate(order.requiredDate ?? "");
     setCargoRows(
       order.cargoLines.length === 0
         ? [buildCargoRow()]
@@ -329,6 +333,7 @@ export function RailwayWagonsWorkspace({
     setMovementDirection(previous.movementDirection);
     setDestinationStation(previous.destinationStation);
     setWagonType(previous.wagonType);
+    setRequiredDate(previous.requiredDate ?? "");
     setCargoRows(
       previous.cargoLines.map((line) => ({
         ...buildCargoRow(),
@@ -429,6 +434,16 @@ export function RailwayWagonsWorkspace({
                       value={destinationStation}
                     />
                   </div>
+
+                  <label className="railway-field">
+                    <span>Дата потребности в вагоне</span>
+                    <input
+                      type="date"
+                      required
+                      value={requiredDate}
+                      onChange={(event) => setRequiredDate(event.currentTarget.value)}
+                    />
+                  </label>
 
                   <label className="railway-field">
                     <span>Вид вагона</span>
@@ -692,6 +707,7 @@ export function RailwayWagonsWorkspace({
               <TableHeader scope="col">Направление</TableHeader>
               <TableHeader scope="col">Станция назначения</TableHeader>
               <TableHeader scope="col">Вид вагона</TableHeader>
+              <TableHeader scope="col">Дата потребности в вагоне</TableHeader>
               <TableHeader scope="col">Грузы</TableHeader>
               <TableHeader scope="col">Общий вес, т</TableHeader>
               <TableHeader scope="col">Стоимость аренды, руб.</TableHeader>
@@ -710,7 +726,7 @@ export function RailwayWagonsWorkspace({
             {orders.length === 0
               ? (
                   <tr>
-                    <TableCell colSpan={16 + railwayWagonStageFields.length}>
+                    <TableCell colSpan={17 + railwayWagonStageFields.length}>
                       <p className="railway-empty-note">Заявок на вагоны пока нет.</p>
                     </TableCell>
                   </tr>
@@ -756,6 +772,7 @@ export function RailwayWagonsWorkspace({
                           : `${order.destinationStation} (${order.destinationStationRoad})`}
                       </TableCell>
                       <TableCell>{order.wagonType}</TableCell>
+                      <TableCell>{formatOptional(order.requiredDate)}</TableCell>
                       <TableCell>
                         {order.cargoLines
                           .map((line) => line.cargoName)

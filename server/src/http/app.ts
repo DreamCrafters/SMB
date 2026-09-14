@@ -10847,6 +10847,7 @@ function buildRailwayWagonAuditDetails(
     { label: "Направление движения", read: (order) => order.movementDirection },
     { label: "Станция назначения", read: (order) => order.destinationStation },
     { label: "Вид вагона", read: (order) => order.wagonType },
+    { label: "Дата потребности в вагоне", read: (order) => order.requiredDate },
     { label: "Номер вагона", read: (order) => order.wagonNumber },
     { label: "Грузоперевозчик", read: (order) => order.carrier },
     { label: "Комментарий согласования", read: (order) => order.declineComment },

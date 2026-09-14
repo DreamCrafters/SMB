@@ -14752,7 +14752,8 @@ test("railway wagon section gates each stage by the position role", async () => 
         contractReference: "12/2026",
         movementDirection: "На погрузку",
         destinationStation: "Абагур-Лесной",
-        wagonType: "КР (крытый)",
+        requiredDate: "2026-09-20",
+        wagonType: "Любой (КР или ПВ)",
         cargoLines: [
           { cargoName: "ШБ-5", etsngCode: "01000", securingMethod: "Растяжки" },
         ],
@@ -14765,6 +14766,8 @@ test("railway wagon section gates each stage by the position role", async () => 
       destinationStationRoad: string | null;
       cargoLines: { etsngName: string | null }[];
     };
+    assert.equal(Reflect.get(savedOrder, "requiredDate"), "2026-09-20");
+    assert.equal(Reflect.get(savedOrder, "wagonType"), "Любой (КР или ПВ)");
     assert.equal(savedOrder.destinationStationRoad, "З-Сиб");
     assert.equal(savedOrder.cargoLines[0].etsngName, "Зерновые культуры");
     assert.equal(auditEvents[0]?.action, "railway_wagon.create");
@@ -14978,6 +14981,7 @@ test("railway wagon order is refused when the station is outside the reference",
         contractReference: "12/2026",
         movementDirection: "На погрузку",
         destinationStation: "Станция без справочника",
+        requiredDate: "2026-09-20",
         wagonType: "КР (крытый)",
         cargoLines: [{ cargoName: "ШБ-5" }],
       }),
@@ -14991,6 +14995,7 @@ test("railway wagon order is refused when the station is outside the reference",
         contractReference: "12/2026",
         movementDirection: "На погрузку",
         destinationStation: "Абагур-Лесной",
+        requiredDate: "2026-09-20",
         wagonType: "КР (крытый)",
         cargoLines: [{ cargoName: "ШБ-5", etsngCode: "99999" }],
       }),
@@ -15087,6 +15092,7 @@ function buildRailwayOrderFixture(): RailwayWagonOrder {
     movementDirection: "На погрузку",
     destinationStation: "Абагур-Лесной",
     destinationStationRoad: "З-Сиб",
+    requiredDate: "2026-09-20",
     wagonType: "КР (крытый)",
     rentCost: null,
     tariffCost: null,

@@ -16,7 +16,7 @@ export const railwayWagonMovementDirections = [
 export type RailwayWagonMovementDirection =
   (typeof railwayWagonMovementDirections)[number];
 
-export const railwayWagonTypes = ["КР (крытый)", "ПВ (полувагон)"] as const;
+export const railwayWagonTypes = ["КР (крытый)", "ПВ (полувагон)", "Любой (КР или ПВ)"] as const;
 
 export type RailwayWagonType = (typeof railwayWagonTypes)[number];
 
@@ -163,6 +163,7 @@ export type RailwayWagonOrder = {
   destinationStation: string;
   destinationStationRoad: string | null;
   wagonType: RailwayWagonType;
+  requiredDate: string | null;
   rentCost: number | null;
   tariffCost: number | null;
   demurragePenalty: string | null;
