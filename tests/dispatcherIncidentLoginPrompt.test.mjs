@@ -138,6 +138,18 @@ test("dispatcher login reports open incidents and visitors without an exit", asy
     });
     await waitFor(React, () => rootElement.querySelector(".auth-login-form"));
 
+    const passwordInput = rootElement.querySelector('input[name="password"]');
+    const showPasswordCheckbox = rootElement.querySelector(
+      'input[name="show-password"]',
+    );
+    assert.ok(passwordInput);
+    assert.ok(showPasswordCheckbox);
+    assert.equal(passwordInput.type, "password");
+    await React.act(async () => showPasswordCheckbox.click());
+    assert.equal(passwordInput.type, "text");
+    await React.act(async () => showPasswordCheckbox.click());
+    assert.equal(passwordInput.type, "password");
+
     await login(React, dom.window, rootElement);
     await waitFor(
       React,

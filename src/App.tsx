@@ -2167,6 +2167,7 @@ function AuthScreen({
   const authShellRef = useRef<HTMLElement>(null);
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [devAccessOptions, setDevAccessOptions] =
     useState<DevAccessOptionsLoadState>({
       status: "loading",
@@ -2351,9 +2352,22 @@ function AuthScreen({
                 name="password"
                 onChange={(event) => setPassword(event.target.value)}
                 required
-                type="password"
+                type={isPasswordVisible ? "text" : "password"}
                 value={password}
               />
+            </label>
+            <label className="auth-password-visibility">
+              <input
+                checked={isPasswordVisible}
+                disabled={isBusy}
+                name="show-password"
+                onChange={(event) => {
+                  const isChecked = event.currentTarget.checked;
+                  setIsPasswordVisible(isChecked);
+                }}
+                type="checkbox"
+              />
+              <span>Посмотреть пароль</span>
             </label>
             <button className="auth-login-button" disabled={isBusy} type="submit">
               {sessionRequest.status === "loading" ? (

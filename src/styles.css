@@ -242,6 +242,21 @@ p {
   outline: 2px solid rgba(81, 106, 119, 0.18);
 }
 
+.auth-login-form .auth-password-visibility {
+  display: flex;
+  align-items: center;
+  gap: var(--density-2);
+  width: fit-content;
+  font-weight: 700;
+}
+
+.auth-login-form .auth-password-visibility input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+}
+
 .auth-login-button {
   min-height: 44px;
   padding: 10px 14px;
