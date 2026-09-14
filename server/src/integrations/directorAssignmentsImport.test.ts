@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { previewDirectorAssignmentImport } from "./directorAssignmentsImport.js";
+
+const header = ["Номер задачи", "Дата постановки задачи", "Суть задачи", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Срок выполнения", "Срочность", "Важность", "Этапы", "Факт", "Примечание", "Статус"];
+const people = [["Должность", "Фамилия", "Ф.И.О"], ["Инженер", "Тестов", "Тестов Тест Тестович"]];
+const row = ["1", "01.09.2026", "Проверить расчёт", "Участок", "Проект", "Тестов", "", "08.09.2026 12:00", "Срочно", "Важно", "Этап завершён", "08.09.2026", "Примечание", "Выполнено в срок", "", "", "", "", ""];
+
+test("import preserves completed assignments, legacy fields and stable source identity", () => {
+  const first = previewDirectorAssignmentImport([header, row], people, "2026-09-14T00:00:00Z");
+  const second = previewDirectorAssignmentImport([header, row], people, "2026-09-15T00:00:00Z");
+  assert.equal(first.records[0].status, "completed");
+  assert.equal(first.records[0].completedOn, "2026-09-08");
+  assert.equal(first.records[0].progress, "Этап завершён");
+  assert.deepEqual(first.records[0].source?.values, row);
+  assert.equal(first.records[0].id, second.records[0].id);
+  assert.equal(first.employees[0].userId, null);
+  assert.deepEqual(first.warnings, []);
+});
+
+test("same visible number on different dates retains both source assignments", () => {
+  const other = [...row]; other[1] = "02.09.2026";
+  const result = previewDirectorAssignmentImport([header, row, other], people, "2026-09-14T00:00:00Z");
+  assert.equal(result.records.length, 2);
+  assert.notEqual(result.records[0].id, result.records[1].id);
+});
+
+test("missing responsibility, deadline and broken status remain explicit legacy warnings", () => {
+  const incomplete = [...row]; incomplete[5] = ""; incomplete[7] = ""; incomplete[11] = ""; incomplete[13] = "#REF!";
+  const result = previewDirectorAssignmentImport([header, incomplete], people, "2026-09-14T00:00:00Z");
+  assert.equal(result.records[0].needsClarification, true);
+  assert.equal(result.records[0].responsible, null);
+  assert.equal(result.records[0].currentOccurrenceDate, "");
+  assert.equal(result.records[0].source?.originalStatus, "#REF!");
+  assert.equal(result.warnings[0].messages.length, 3);
+});

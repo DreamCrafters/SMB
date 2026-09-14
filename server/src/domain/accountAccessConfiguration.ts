@@ -73,6 +73,8 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.laboratory_results",
   "business.laboratory_review",
   "business.board_assignments",
+  "business.director_assignments",
+  "business.personnel",
   "business.warehouse_1c",
   "business.railway_wagons",
   "business.settings",
@@ -140,6 +142,8 @@ const capabilitiesByNavigationItem: Record<
   "business.laboratory_results": ["business.manage_laboratory_results"],
   "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
+  "business.director_assignments": ["business.view_director_assignments"],
+  "business.personnel": ["business.manage_personnel"],
   "business.warehouse_1c": ["business.view_warehouse_1c"],
   "business.railway_wagons": ["business.view_railway_wagons"],
   "business.settings": ["business.manage_notification_settings"],
@@ -217,6 +221,8 @@ export function resolveCapabilitiesForPosition(
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
+    ...(position === "general_director" && resolvedNavigationItems.includes("business.director_assignments")
+      ? ["business.manage_director_assignments" as AccountCapability] : []),
     ...overviewVisitorsCapabilities,
     ...rawMaterialWarehouseCapabilities,
     ...railwayWagonCapabilities,
@@ -283,6 +289,10 @@ export function resolveMaximumCapabilitiesForNavigation(
   navigationItem: AccountNavigationItem,
 ): AccountCapability[] {
   const base = resolveCapabilitiesForNavigation([navigationItem]);
+
+  if (navigationItem === "business.director_assignments") {
+    return Array.from(new Set([...base, "business.manage_director_assignments"]));
+  }
 
   if (navigationItem === "business.board_assignments") {
     return Array.from(new Set([

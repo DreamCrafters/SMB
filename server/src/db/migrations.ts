@@ -4344,6 +4344,45 @@ const migrations: Migration[] = [
           check (wagon_type in ('КР (крытый)', 'ПВ (полувагон)', 'Любой (КР или ПВ)'));`,
     ],
   },
+  {
+    id: "085_director_assignments",
+    statements: [
+      `create table if not exists personnel_employees (
+        id varchar(100) not null primary key,
+        full_name varchar(300) not null,
+        user_id varchar(100) null,
+        revision int unsigned not null,
+        payload longtext not null check (json_valid(payload)),
+        unique key uniq_personnel_user (user_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists director_assignments (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        assigned_on date not null,
+        revision int unsigned not null,
+        source_key varchar(512) null,
+        payload longtext not null check (json_valid(payload)),
+        unique key uniq_director_assignment_id (id),
+        unique key uniq_director_assignment_source (source_key)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists director_assignment_history (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        assignment_id varchar(100) not null,
+        event_type varchar(20) not null,
+        payload longtext not null check (json_valid(payload)),
+        unique key uniq_director_history_id (id),
+        key idx_director_history_assignment (assignment_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists director_assignment_documents (
+        id varchar(100) not null primary key,
+        assignment_id varchar(100) not null,
+        file_name varchar(255) not null,
+        pdf mediumblob not null,
+        key idx_director_document_assignment (assignment_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

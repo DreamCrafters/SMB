@@ -45,6 +45,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "082_account_multiple_positions",
   "083_account_primary_position_order",
   "084_railway_wagon_required_date",
+  "085_director_assignments",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {

@@ -1,3 +1,4 @@
+import { DirectorAssignmentsWorkspace, PersonnelWorkspace } from "./DirectorAssignments";
 import { TableLayoutProvider } from "./TableLayoutProvider";
 import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
 import { ManagedTable } from "./ManagedTable";
@@ -293,6 +294,8 @@ type BusinessTab =
   | "refractory_shop"
   | "laboratory_results"
   | "laboratory_review"
+  | "director_assignments"
+  | "personnel"
   | "board_assignments"
   | "warehouse_1c"
   | "railway_wagons"
@@ -314,6 +317,8 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   refractory_shop: "business.refractory_shop",
   laboratory_results: "business.laboratory_results",
   laboratory_review: "business.laboratory_review",
+  director_assignments: "business.director_assignments",
+  personnel: "business.personnel",
   board_assignments: "business.board_assignments",
   warehouse_1c: "business.warehouse_1c",
   railway_wagons: "business.railway_wagons",
@@ -628,6 +633,8 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
       return "laboratory_results";
     case "business.laboratory_review":
       return "laboratory_review";
+    case "business.director_assignments": return "director_assignments";
+    case "business.personnel": return "personnel";
     case "business.board_assignments":
       return "board_assignments";
     case "business.warehouse_1c":
@@ -3099,6 +3106,8 @@ function RoleWorkspace({
       />
     );
   }
+  if (effectiveOwnerTab === "director_assignments") return <DirectorAssignmentsWorkspace onShowToast={onShowToast} />;
+  if (effectiveOwnerTab === "personnel") return <PersonnelWorkspace onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "board_assignments") {
     return (
       <BoardAssignmentsWorkspace

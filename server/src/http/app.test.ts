@@ -104,6 +104,9 @@ import type { RailwayWagonsRepository } from "../repositories/railwayWagonsRepos
 import type { RailwayReferenceRepository } from "../repositories/railwayReferenceRepository.js";
 import type { RailwayWagonOrder } from "../contracts/railwayWagons.js";
 import { createApiServer } from "./app.js";
+import { createDirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
+import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
+
 
 const config: ServerConfig = {
   appEnv: "test",
@@ -15354,5 +15357,31 @@ test("table layout API uses signed-in admin rights, versions and transactional a
     assert.equal((await fetch(url, { method: "PUT", headers, body: JSON.stringify({ ...stored, widths: {} }) })).status, 500);
     assert.deepEqual(stored.widths, { nomenclature: 240 });
     assert.equal(stored.revision, 1);
+  } finally { server.close(); await once(server, "close"); }
+});
+
+test("director endpoints authenticate and reject personnel access and forged preview from an ordinary account", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.activeAccess.capabilities = [];
+  const audit: AuditRepository = { async record() {}, async listReport() { throw new Error("unused"); } };
+  const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
+  const repository = { async list() { return []; }, async listEmployees() { return []; } } as unknown as DirectorAssignmentsRepository;
+  const server = createApiServer({ config: productionConfig, dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource, authService: buildAuthService({ profile }), audit, databaseTransaction: transaction,
+    directorAssignments: createDirectorAssignmentsService({ repository, transaction, audit }),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const headers = { Cookie: `${productionConfig.session.cookieName}=prod-session`, "Content-Type": "application/json" };
+  try {
+    assert.equal((await fetch(`${baseUrl}/api/director-assignments`)).status, 401);
+    assert.equal((await fetch(`${baseUrl}/api/director-assignments`, { headers })).status, 403);
+    profile.activeAccess.capabilities = ["business.view_director_assignments"];
+    assert.equal((await fetch(`${baseUrl}/api/director-assignments`, { headers })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/personnel`, { headers })).status, 403);
+    assert.equal((await fetch(`${baseUrl}/api/director-assignments`, { method: "POST", headers, body: "{}" })).status, 403);
+    const forged = await fetch(`${baseUrl}/api/personnel`, { method: "POST", headers: { ...headers, "x-smb-account-preview": "navigation:business.personnel" }, body: "{}" });
+    assert.equal(forged.status, 403);
   } finally { server.close(); await once(server, "close"); }
 });

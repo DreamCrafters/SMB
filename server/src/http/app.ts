@@ -1,3 +1,5 @@
+import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
+import { DirectorAssignmentError } from "../domain/directorAssignment.js";
 import { isAdminDatabaseLayoutColumn } from "../repositories/adminDatabaseRepository.js";
 import { tableDefinitions, validateTableLayout } from "../contracts/tableLayouts.js";
 import { TableLayoutConflictError, type TableLayoutsRepository } from "../repositories/tableLayoutsRepository.js";
@@ -461,6 +463,7 @@ type AppDependencies = {
   laboratoryRawMaterialWarehouse?: LaboratoryRawMaterialWarehouseRepository;
   laboratoryGreenProductQualityJournal?:
     LaboratoryGreenProductQualityJournalRepository;
+  directorAssignments?: DirectorAssignmentsService;
   boardAssignments?: BoardAssignmentsRepository;
   warehouse1c?: Warehouse1cRepository;
   railwayWagons?: RailwayWagonsRepository;
@@ -587,6 +590,7 @@ export function createApiServer({
   laboratoryRawMaterialQualityJournal,
   laboratoryRawMaterialWarehouse,
   laboratoryGreenProductQualityJournal,
+  directorAssignments,
   boardAssignments,
   warehouse1c,
   railwayWagons,
@@ -923,6 +927,57 @@ export function createApiServer({
           laboratoryResults,
           now,
         });
+        return;
+      }
+
+      if (/^\/api\/(?:director-assignments|personnel)(?:\/|$)/u.test(url.pathname)) {
+        const access = await requireAuthentication(req, res, { config, devSessions, authService, accounts });
+        if (!access) return;
+        if (!directorAssignments) {
+          sendJson(res, 503, { error: { code: "server_error", message: "Раздел временно недоступен." } });
+          return;
+        }
+        try {
+          const documentMatch = /^\/api\/director-assignments\/([a-zA-Z0-9-]{1,100})\/documents(?:\/([a-zA-Z0-9-]{1,100}))?$/u.exec(url.pathname);
+          if (documentMatch) {
+            const [, assignmentId, documentId] = documentMatch;
+            if (req.method === "GET" && documentId) {
+              const document = await directorAssignments.document(access.profile, assignmentId, documentId);
+              sendPdf(res, document.pdf, document.fileName);
+            } else if (req.method === "POST" && !documentId) {
+              if ((req.headers["content-type"] ?? "").split(";")[0]?.trim() !== "application/pdf") throw new DirectorAssignmentError("Выберите PDF-файл.");
+              const fileName = readBoardAssignmentDocumentFileName(url.searchParams.get("fileName"));
+              if (!fileName) throw new DirectorAssignmentError("Проверьте имя PDF-файла.");
+              let pdf: Buffer;
+              try { pdf = await readBinaryBody(req, maxBoardAssignmentDocumentBytes); } catch (error) {
+                if (error instanceof RequestBodyTooLargeError) throw new DirectorAssignmentError("Размер PDF не должен превышать 10 МБ.", 413);
+                throw error;
+              }
+              sendJson(res, 200, { assignment: await directorAssignments.changeDocument(access.profile, assignmentId, { fileName, pdf }) });
+            } else if (req.method === "DELETE" && documentId) {
+              sendJson(res, 200, { assignment: await directorAssignments.changeDocument(access.profile, assignmentId, { removeId: documentId }) });
+            } else throw new DirectorAssignmentError("Действие недоступно.", 405);
+            return;
+          }
+          const match = /^\/api\/(director-assignments|personnel)(?:\/([a-zA-Z0-9-]{1,100}))?(?:\/(action))?$/u.exec(url.pathname);
+          if (!match) throw new DirectorAssignmentError("Страница не найдена.", 404);
+          const [, section, id, action] = match;
+          const profile = access.profile;
+          if (section === "personnel" && !action) {
+            if (req.method === "GET" && !id) sendJson(res, 200, await directorAssignments.personnel(profile));
+            else if ((req.method === "POST" && !id) || (req.method === "PATCH" && id)) sendJson(res, 200, { employee: await directorAssignments.saveEmployee(profile, await readJsonBody(req), id) });
+            else throw new DirectorAssignmentError("Действие недоступно.", 405);
+          } else if (!id && req.method === "GET") sendJson(res, 200, await directorAssignments.list(profile));
+          else if (!id && req.method === "POST") sendJson(res, 201, { assignment: await directorAssignments.save(profile, await readJsonBody(req)) });
+          else if (id === "completions" && req.method === "GET") sendJson(res, 200, { completions: await directorAssignments.completions(profile) });
+          else if (id && action === "action" && req.method === "POST") sendJson(res, 200, { assignment: await directorAssignments.action(profile, id, await readJsonBody(req)) });
+          else if (id && !action && req.method === "GET") sendJson(res, 200, { assignment: await directorAssignments.read(profile, id) });
+          else if (id && !action && req.method === "PATCH") sendJson(res, 200, { assignment: await directorAssignments.save(profile, await readJsonBody(req), id) });
+          else throw new DirectorAssignmentError("Действие недоступно.", 405);
+        } catch (error) {
+          if (!(error instanceof DirectorAssignmentError)) throw error;
+          sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
+        }
         return;
       }
 
@@ -9590,6 +9645,8 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.laboratory_results": "Результаты испытаний",
     "business.laboratory_review": "Лаборатория",
     "business.board_assignments": "Поручения Совета директоров",
+    "business.director_assignments": "Поручения генерального директора",
+    "business.personnel": "Сотрудники",
     "business.warehouse_1c": "Склад 1С",
     "business.railway_wagons": "ЖД Вагоны",
     "business.settings": "Настройки",

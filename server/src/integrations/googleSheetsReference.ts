@@ -1106,7 +1106,7 @@ function base64UrlEncode(value: string | Buffer) {
     .replaceAll("/", "_");
 }
 
-function parseCsvRows(csv: string) {
+export function parseCsvRows(csv: string) {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";

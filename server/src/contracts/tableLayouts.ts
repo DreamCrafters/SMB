@@ -26,6 +26,8 @@ const measurementColumns = [...new Set([
 
 /** Stable semantic column IDs; labels, filtering and optional columns never address stored widths. */
 export const tableDefinitions = {
+  "director.assignments": defineTable("Поручения генерального директора", ["number", "assignedOn", "summary", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
+  "director.personnel": defineTable("Сотрудники", ["fullName", "position", "department", "category", "user", "status"]),
   "production.plan": defineTable("План выработки", ["date", "forming", "sorting", "unformed", "chamotte"]),
   "production.banks": defineTable("Банки: отчёт", ["metric", "bank.1", "bank.2", "bank.3", "bank.4"]),
   "production.brands": defineTable("Выработка по маркам", ["dayPlan", "monthPlan", "monthFact", "deviation"]),

@@ -1,3 +1,5 @@
+import { createDirectorAssignmentsService } from "./domain/directorAssignmentsService.js";
+import { createDirectorAssignmentsRepository } from "./repositories/directorAssignmentsRepository.js";
 import { createTableLayoutsRepository } from "./repositories/tableLayoutsRepository.js";
 import { readServerConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
@@ -144,6 +146,7 @@ const server = createApiServer({
     createLaboratoryRawMaterialWarehouseRepository(pool),
   laboratoryGreenProductQualityJournal:
     createLaboratoryGreenProductQualityJournalRepository(pool),
+  directorAssignments: createDirectorAssignmentsService({ repository: createDirectorAssignmentsRepository(pool), boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   boardAssignments: createBoardAssignmentsRepository(pool),
   warehouse1c: warehouse1cReadOnlyPool === undefined
     ? createWarehouse1cRepository(pool)

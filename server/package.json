@@ -11,6 +11,7 @@
     "test": "npm run build && node --test dist/**/*.test.js",
     "test:jino": "npm run build && node --test --test-concurrency=1 dist/**/*.test.js",
     "db:migrate": "tsx src/db/migrate.ts",
+    "director:import": "tsx src/db/importDirectorAssignments.ts",
     "auth:create-user": "tsx src/db/createAuthUser.ts"
   },
   "dependencies": {

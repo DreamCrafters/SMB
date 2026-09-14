@@ -213,6 +213,8 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       description: "Просмотр результатов испытаний",
       state: "active",
     },
+    { id: "business.director_assignments", label: "Поручения генерального директора", description: "Поручения сотрудникам и контроль исполнения", state: "active" },
+    { id: "business.personnel", label: "Сотрудники", description: "Справочник АУП и ИТР", state: "active" },
     {
       id: "business.board_assignments",
       label: "Поручения Совета директоров",
