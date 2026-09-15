@@ -1,3 +1,4 @@
+import { directorAssignmentAccessOptions } from "../server/src/contracts/directorAssignments.js";
 import type {
   AccountNavigationItem,
   AccountPosition,
@@ -70,6 +71,7 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
   title: string;
   options: ReadonlyArray<{ id: string; label: string }>;
 }>> = {
+  "business.director_assignments": { title: "Режим работы", options: directorAssignmentAccessOptions },
   "business.board_assignments": {
     title: "Уровень доступа",
     options: boardAssignmentAccessOptions,

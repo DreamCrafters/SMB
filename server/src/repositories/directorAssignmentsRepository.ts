@@ -11,14 +11,44 @@ function payload<T>(row: JsonRow): T {
 
 /** Mutations must be called inside the application's audited transaction. */
 export function createDirectorAssignmentsRepository(pool: DatabasePool) {
+  async function accountEmployees(userId?: string, lock = false): Promise<PersonnelEmployee[]> {
+    const [rows] = await pool.query<(RowDataPacket & { user_id: string; full_name: string; position_name: string })[]>(`
+      select users.id as user_id, users.display_name as full_name, positions.display_name as position_name
+      from app_users users
+      join account_accesses accesses on accesses.user_id = users.id
+      join account_positions positions on json_contains(coalesce(accesses.position_codes, json_array(accesses.position_code)), json_quote(positions.id))
+      where users.status = 'active' and accesses.is_active = 1 and accesses.scope_kind = 'organization'
+        ${userId === undefined ? "" : "and users.id = ?"}
+      order by users.display_name, users.id, positions.sort_order, positions.id
+      ${lock ? "for update" : ""}`, userId === undefined ? [] : [userId]);
+    const employees = new Map<string, PersonnelEmployee>();
+    for (const row of rows) {
+      const current = employees.get(row.user_id);
+      if (current) {
+        if (!current.position.split(" / ").includes(row.position_name)) current.position += ` / ${row.position_name}`;
+      } else employees.set(row.user_id, { id: `account:${row.user_id}`, revision: 0, fullName: row.full_name, position: row.position_name, department: "", category: "", userId: row.user_id, active: true });
+    }
+    return [...employees.values()];
+  }
+  async function listEmployees() {
+    const [rows] = await pool.query<JsonRow[]>("select payload from personnel_employees order by full_name, id");
+    return rows.map(row => payload<PersonnelEmployee>(row));
+  }
+  async function readEmployee(id: string, lock = false) {
+    const [rows] = await pool.query<JsonRow[]>(`select payload from personnel_employees where id = ? ${lock ? "for update" : ""}`, [id]);
+    return rows[0] ? payload<PersonnelEmployee>(rows[0]) : undefined;
+  }
   return {
-    async listEmployees() {
-      const [rows] = await pool.query<JsonRow[]>("select payload from personnel_employees order by full_name, id");
-      return rows.map(row => payload<PersonnelEmployee>(row));
+    listEmployees,
+    readEmployee,
+    async listAssignableEmployees() {
+      const personnel = (await listEmployees()).filter(employee => employee.active);
+      const linkedUsers = new Set(personnel.map(employee => employee.userId).filter(Boolean));
+      return [...personnel, ...(await accountEmployees()).filter(employee => !linkedUsers.has(employee.userId))]
+        .sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
     },
-    async readEmployee(id: string, lock = false) {
-      const [rows] = await pool.query<JsonRow[]>(`select payload from personnel_employees where id = ? ${lock ? "for update" : ""}`, [id]);
-      return rows[0] ? payload<PersonnelEmployee>(rows[0]) : undefined;
+    async readAssignableEmployee(id: string, lock = false) {
+      return id.startsWith("account:") ? (await accountEmployees(id.slice(8), lock))[0] : readEmployee(id, lock);
     },
     async listUserOptions() {
       const [rows] = await pool.query<(RowDataPacket & { id: string; displayName: string; login: string })[]>(

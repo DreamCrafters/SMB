@@ -1,3 +1,4 @@
+import { directorAssignmentAccessOptions, readDirectorAssignmentAccess, type DirectorAssignmentAccess } from "../server/src/contracts/directorAssignments.js";
 import { DirectorAssignmentsWorkspace, PersonnelWorkspace } from "./DirectorAssignments";
 import { TableLayoutProvider } from "./TableLayoutProvider";
 import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
@@ -11213,6 +11214,7 @@ function AdminAccountPositionPicker({
 }
 
 type AdminPositionFormState = {
+  directorAssignmentAccess: DirectorAssignmentAccess;
   id?: string;
   displayName: string;
   navigationItems: AccountNavigationItem[];
@@ -11222,6 +11224,7 @@ type AdminPositionFormState = {
 };
 
 const emptyAdminPositionForm: AdminPositionFormState = {
+  directorAssignmentAccess: "receive",
   displayName: "",
   navigationItems: nonAdminNavigationItems
     .filter(
@@ -11288,6 +11291,11 @@ function formatPositionNavigationItem(
     [...navigationItemsByAccountType.admin, ...nonAdminNavigationItems],
     navigationLabels,
   ).find(({ id }) => id === navigationItemId)?.label ?? navigationItemId;
+
+  if (navigationItemId === "business.director_assignments") {
+    const mode = readDirectorAssignmentAccess(position.capabilities, position.navigationItems);
+    return `${label} — ${directorAssignmentAccessOptions.find(option => option.id === mode)?.label ?? "Нет доступа"}`;
+  }
 
   // У вкладки с уровнями подпись показывает и вкладку, и уровень: сама вкладка
   // без уровня ничего не говорит о том, что должность может внутри неё делать.
@@ -11720,6 +11728,7 @@ function AdminAccountsWorkspace({
           navigationItems: position.navigationItems.filter((id) =>
             nonAdminNavigationItems.some((item) => item.id === id),
           ),
+          directorAssignmentAccess: readDirectorAssignmentAccess(position.capabilities, position.navigationItems),
           boardAssignmentAccess: position.boardAssignmentAccess,
           railwayWagonAccess: position.railwayWagonAccess,
           showOverviewVisitors: position.showOverviewVisitors,
@@ -11738,6 +11747,9 @@ function AdminAccountsWorkspace({
     isChecked: boolean,
     current: AdminPositionFormState,
   ): Partial<AdminPositionFormState> {
+    if (navigationItemId === "business.director_assignments") {
+      return { directorAssignmentAccess: !isChecked ? "none" : current.directorAssignmentAccess === "none" ? "receive" : current.directorAssignmentAccess };
+    }
     if (navigationItemId === "business.board_assignments") {
       return {
         boardAssignmentAccess: !isChecked
@@ -11784,19 +11796,20 @@ function AdminAccountsWorkspace({
       );
     }
 
-    const value = positionForm.boardAssignmentAccess;
+    const isDirector = navigationItemId === "business.director_assignments";
+    const value = isDirector ? positionForm.directorAssignmentAccess : positionForm.boardAssignmentAccess;
 
     return (
       <label className="admin-account-navigation-level">
         <span>{levels.title}</span>
         <select
           disabled={isSubmitting || !hasTab}
-          value={value === "none" ? "view" : value}
+          value={value === "none" ? (isDirector ? "receive" : "view") : value}
           onChange={(event) => {
             const level = event.currentTarget.value;
             setPositionForm((current) => ({
               ...current,
-              boardAssignmentAccess: level as BoardAssignmentAccess,
+              ...(isDirector ? { directorAssignmentAccess: level as DirectorAssignmentAccess } : { boardAssignmentAccess: level as BoardAssignmentAccess }),
             }));
           }}
         >
@@ -11820,6 +11833,7 @@ function AdminAccountsWorkspace({
     const value = {
       displayName: positionForm.displayName.trim(),
       navigationItems: positionForm.navigationItems,
+      directorAssignmentAccess: positionForm.directorAssignmentAccess,
       boardAssignmentAccess: positionForm.boardAssignmentAccess,
       railwayWagonAccess: positionForm.railwayWagonAccess,
       showOverviewVisitors: positionForm.showOverviewVisitors,
@@ -11972,7 +11986,7 @@ function AdminAccountsWorkspace({
   async function handleSetPositionNavigationAccess(
     positionIds: AccountPosition[],
     enabled: boolean,
-    accessLevel?: BoardAssignmentAccess | RailwayWagonAccess,
+    accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | DirectorAssignmentAccess,
   ) {
     if (
       !canAssignAdminNavigation ||
@@ -13298,7 +13312,7 @@ function AdminAccountsWorkspace({
                     const hasAccess = position.navigationItems.includes(
                       selectedPositionNavigationItem,
                     );
-                    const level = position.boardAssignmentAccess;
+                    const level = selectedPositionNavigationItem === "business.director_assignments" ? readDirectorAssignmentAccess(position.capabilities, position.navigationItems) : position.boardAssignmentAccess;
                     return (
                       <tr key={position.id}>
                         <TableCell>{position.displayName}</TableCell>
@@ -13338,12 +13352,12 @@ function AdminAccountsWorkspace({
                                 disabled={
                                   isSavingPositionNavigationAccess || !hasAccess
                                 }
-                                value={level === "none" ? "view" : level}
+                                value={level === "none" ? (selectedPositionNavigationItem === "business.director_assignments" ? "receive" : "view") : level}
                                 onChange={(event) => {
                                   void handleSetPositionNavigationAccess(
                                     [position.id],
                                     true,
-                                    event.currentTarget.value as BoardAssignmentAccess,
+                                    event.currentTarget.value as BoardAssignmentAccess | DirectorAssignmentAccess,
                                   );
                                 }}
                               >

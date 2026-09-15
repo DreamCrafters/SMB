@@ -1,3 +1,4 @@
+import { readDirectorAssignmentAccess, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import { randomUUID } from "node:crypto";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
@@ -511,6 +512,7 @@ export function createAccountsRepository(
         current.can_review_raw_material_warehouse === true ||
           current.can_review_raw_material_warehouse === 1,
         railwayWagonAccess,
+        readDirectorAssignmentAccess(input.capabilities, input.navigationItems),
       );
       await connection.query(
         `update account_positions
@@ -741,6 +743,7 @@ export function createAccountsRepository(
             position.can_review_raw_material_warehouse === true ||
               position.can_review_raw_material_warehouse === 1,
             railwayWagonAccess,
+            readDirectorAssignmentAccess(storedCapabilities, storedNavigationItems),
           );
       await connection.query(
         `update account_positions
@@ -897,6 +900,9 @@ export function createAccountsRepository(
             accessLevel !== undefined
             ? accessLevel as RailwayWagonAccess
             : storedRailwayWagonAccess,
+          navigationItem === "business.director_assignments" && accessLevel !== undefined
+            ? accessLevel as DirectorAssignmentAccess
+            : readDirectorAssignmentAccess(storedCapabilities, navigationItems),
         );
         // Уровень внутри вкладки меняется без изменения списка вкладок,
         // поэтому одного сравнения вкладок мало.

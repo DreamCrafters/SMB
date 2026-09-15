@@ -1,3 +1,4 @@
+import type { DirectorAssignmentAccess } from "../../server/src/contracts/directorAssignments.js";
 import type {
   AccountCapability,
   BoardAssignmentAccess,
@@ -77,6 +78,7 @@ export type AdminPositionsListResponse = {
 };
 export type SaveAdminPositionOrderRequest = { positionIds: AccountPosition[] };
 export type SaveAdminPositionRequest = {
+  directorAssignmentAccess?: DirectorAssignmentAccess;
   displayName: string;
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;
@@ -90,7 +92,7 @@ export type SetAdminPositionNavigationAccessRequest = {
   positionIds: AccountPosition[];
   enabled: boolean;
   /** Уровень внутри вкладки; без него у должности сохраняется текущий. */
-  accessLevel?: BoardAssignmentAccess | RailwayWagonAccess;
+  accessLevel?: BoardAssignmentAccess | RailwayWagonAccess | DirectorAssignmentAccess;
 };
 
 export type SetAdminPositionProtectedRequest = {

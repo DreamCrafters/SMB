@@ -89,10 +89,10 @@ test("position form edits working tabs while admin rights are managed separately
     railwayWagonAccessOptions.map(({ id }) => id),
     ["view", "sales", "carrier", "logistics", "dispatcher"],
   );
-  // Уровни есть ровно у двух вкладок, и обе описаны одним каталогом.
+  // Режимы и уровни рабочих вкладок описаны одним каталогом.
   assert.deepEqual(
     Object.keys(navigationAccessLevels),
-    ["business.board_assignments", "business.railway_wagons"],
+    ["business.director_assignments", "business.board_assignments", "business.railway_wagons"],
   );
   assert.equal(
     navigationAccessLevels["business.railway_wagons"].title,
@@ -112,7 +112,7 @@ test("bulk tab access assigns the level next to the access checkbox", async () =
   // Смена уровня сохраняет вкладку включённой и шлёт сам уровень.
   assert.match(
     appSource,
-    /handleSetPositionNavigationAccess\(\s*\[position\.id\],\s*true,\s*event\.currentTarget\.value as BoardAssignmentAccess,\s*\)/u,
+    /handleSetPositionNavigationAccess\(\s*\[position\.id\],\s*true,\s*event\.currentTarget\.value as BoardAssignmentAccess \| DirectorAssignmentAccess,\s*\)/u,
   );
   // Список уровней недоступен, пока вкладка не выдана.
   assert.match(

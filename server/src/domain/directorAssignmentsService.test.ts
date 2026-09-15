@@ -14,6 +14,8 @@ function fixture() {
     list: async () => structuredClone([...records.values()]),
     read: async (id: string) => structuredClone(records.get(id)),
     listEmployees: async () => [structuredClone(employee)],
+    listAssignableEmployees: async () => [structuredClone(employee)],
+    readAssignableEmployee: async () => structuredClone(employee),
     readEmployee: async () => structuredClone(employee),
     create: async (record: DirectorAssignment) => { record.number = "1"; records.set(record.id, structuredClone(record)); return structuredClone(record); },
     update: async (record: DirectorAssignment) => { records.set(record.id, structuredClone(record)); return structuredClone(record); },
@@ -44,6 +46,21 @@ test("own assignment is visible only until submission; another employee cannot r
   await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: 1 });
   assert.equal((await service.list(profile("worker"))).assignments.length, 0);
   await assert.rejects(service.read(profile("worker"), record.id), /недоступно/u);
+});
+
+test("assignment directly addressed to an account survives linking that account to personnel", async () => {
+  const { service, profile, input, employee } = fixture();
+  employee.id = "account:worker";
+  const record = await service.save(profile("sender", true), { assignment: { ...input, responsibleId: employee.id }, comment: "Создано" });
+  employee.id = "new-personnel-entry";
+  assert.equal((await service.list(profile("worker"))).assignments[0]?.id, record.id);
+  assert.equal((await service.list(profile("other"))).assignments.length, 0);
+  await service.action(profile("worker"), record.id, { action: "submit_for_review", revision: record.revision, comment: "Готово" });
+});
+
+test("account and personnel aliases of the same user cannot be responsible and co-executor", async () => {
+  const { service, profile, input } = fixture();
+  await assert.rejects(service.save(profile("sender", true), { assignment: { ...input, coExecutorIds: ["account:worker"] }, comment: "Создано" }), /дважды/u);
 });
 
 test("accepted period is immutable and editing the next period does not rewind the schedule", async () => {

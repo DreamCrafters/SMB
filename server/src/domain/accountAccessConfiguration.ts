@@ -1,3 +1,4 @@
+import { directorAssignmentAccessLevels, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import {
   isRailwayWagonRole,
   isRailwayWagonAccess,
@@ -170,6 +171,7 @@ export function resolveCapabilitiesForPosition(
   showOverviewVisitors = true,
   canReviewRawMaterialWarehouse = false,
   railwayWagonAccess: RailwayWagonAccess = "view",
+  directorAssignmentAccess: DirectorAssignmentAccess = "receive",
 ) {
   const resolvedNavigationItems =
     position === defaultPositionByAccountType.admin
@@ -221,7 +223,7 @@ export function resolveCapabilitiesForPosition(
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
-    ...(position === "general_director" && resolvedNavigationItems.includes("business.director_assignments")
+    ...(directorAssignmentAccess === "send" && resolvedNavigationItems.includes("business.director_assignments")
       ? ["business.manage_director_assignments" as AccountCapability] : []),
     ...overviewVisitorsCapabilities,
     ...rawMaterialWarehouseCapabilities,
@@ -250,6 +252,7 @@ export function readRailwayWagonAccess(
  * массовому переключателю доступа.
  */
 export const navigationAccessLevelsByItem = {
+  "business.director_assignments": directorAssignmentAccessLevels,
   "business.board_assignments": boardAssignmentAccessLevels,
   "business.railway_wagons": railwayWagonAccessLevels,
 } as const satisfies Partial<
@@ -259,7 +262,7 @@ export const navigationAccessLevelsByItem = {
 export type NavigationAccessLevelItem =
   keyof typeof navigationAccessLevelsByItem;
 
-export type NavigationAccessLevel = BoardAssignmentAccess | RailwayWagonAccess;
+export type NavigationAccessLevel = BoardAssignmentAccess | RailwayWagonAccess | DirectorAssignmentAccess;
 
 export function hasNavigationAccessLevels(
   navigationItem: AccountNavigationItem,
@@ -337,6 +340,10 @@ export function resolveCapabilitiesForNavigationLevel(
 
   if (!isNavigationAccessLevel(navigationItem, level)) {
     return base;
+  }
+
+  if (navigationItem === "business.director_assignments") {
+    return level === "send" ? [...base, "business.manage_director_assignments"] : base;
   }
 
   if (navigationItem === "business.board_assignments") {

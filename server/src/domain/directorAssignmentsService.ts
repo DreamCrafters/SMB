@@ -12,7 +12,7 @@ export function directorAssignmentPermissions(profile: ServerUserProfile): Direc
   return {
     canView: hasProfileCapability(profile, "business.view_director_assignments"),
     canManage: hasProfileCapability(profile, "business.manage_director_assignments"),
-    canExecute: hasProfileCapability(profile, "business.view_director_assignments"),
+    canExecute: hasProfileCapability(profile, "business.view_director_assignments") && !hasProfileCapability(profile, "business.manage_director_assignments"),
     canManagePersonnel: hasProfileCapability(profile, "business.manage_personnel"),
   };
 }
@@ -32,7 +32,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
   });
   async function effectiveAssignment(assignment: DirectorAssignment) {
     // Account links are read live; renaming or relinking personnel never grants access by name.
-    const employee = await repository.readEmployee(assignment.responsibleId, true);
+    const employee = await repository.readAssignableEmployee(assignment.responsibleId, true);
     return { ...assignment, responsible: employee?.active ? employee : null };
   }
   async function requireAssignment(profile: ServerUserProfile, id: string, lock = false) {
@@ -51,19 +51,21 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     const ids = [...new Set([responsibleId, ...coExecutorIds])].sort();
     const found = new Map<string, PersonnelEmployee>();
     for (const id of ids) {
-      const employee = await repository.readEmployee(id, true);
+      const employee = await repository.readAssignableEmployee(id, true);
       if (!employee?.active) throw new DirectorAssignmentError("Выберите действующего сотрудника справочника.");
       found.set(id, employee);
     }
+    const assignedUsers = [...found.values()].flatMap(employee => employee.userId ? [employee.userId] : []);
+    if (new Set(assignedUsers).size !== assignedUsers.length) throw new DirectorAssignmentError("Один сотрудник не может быть указан среди исполнителей дважды.");
     return { responsible: found.get(responsibleId)!, coExecutors: coExecutorIds.map(id => found.get(id)!) };
   }
   return {
     async list(profile: ServerUserProfile) {
       const permissions = directorAssignmentPermissions(profile);
       requirePermission(permissions.canView);
-      const employees = await repository.listEmployees();
+      const employees = await repository.listAssignableEmployees();
       const assignments = (await repository.list()).filter(assignment => permissions.canManage || canExecuteDirectorAssignment({
-        ...assignment, responsible: employees.find(employee => employee.active && employee.id === assignment.responsibleId) ?? null,
+        ...assignment, responsible: employees.find(employee => employee.active && (employee.id === assignment.responsibleId || (assignment.responsibleId.startsWith("account:") && employee.userId === assignment.responsibleId.slice(8)))) ?? null,
       }, profile.userId, today()));
       const enriched = assignments.map(assignment => ({ ...assignment, durationWorkdays: directorWorkdays(assignment.assignedOn, assignment.currentOccurrenceDate), remainingWorkdays: directorWorkdays(assignment.completedOn || today(), assignment.currentOccurrenceDate) }));
       return { assignments: enriched, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
@@ -136,7 +138,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         const permissions = directorAssignmentPermissions(profile);
         const row = readDirectorRecord(value);
         if (row.revision !== previous.revision) throw new DirectorAssignmentError("Поручение уже изменено. Обновите список.", 409);
-        const canExecute = canExecuteDirectorAssignment(await effectiveAssignment(previous), profile.userId, today());
+        const canExecute = permissions.canExecute && canExecuteDirectorAssignment(await effectiveAssignment(previous), profile.userId, today());
         if (row.action === "record_progress") {
           requirePermission(canExecute);
           const text = readDirectorText(row.comment, true, 4000);

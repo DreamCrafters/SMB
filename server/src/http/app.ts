@@ -1,3 +1,4 @@
+import { directorAssignmentAccessLevels, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
 import { isAdminDatabaseLayoutColumn } from "../repositories/adminDatabaseRepository.js";
@@ -12908,6 +12909,7 @@ function validateCreatePositionRequest(input: unknown):
     (key) =>
       key !== "displayName" &&
       key !== "navigationItems" &&
+      key !== "directorAssignmentAccess" &&
       key !== "boardAssignmentAccess" &&
       key !== "railwayWagonAccess" &&
       key !== "showOverviewVisitors",
@@ -12925,6 +12927,8 @@ function validateCreatePositionRequest(input: unknown):
       ? "view"
       : "none"
     : input.boardAssignmentAccess;
+  const hasDirectorAssignments = navigationItems.includes("business.director_assignments");
+  const directorAccess = input.directorAssignmentAccess ?? (hasDirectorAssignments ? "receive" : "none");
   const hasRailwayWagons = navigationItems.includes("business.railway_wagons");
   const railwayWagonAccess = input.railwayWagonAccess === undefined
     ? hasRailwayWagons
@@ -12936,6 +12940,9 @@ function validateCreatePositionRequest(input: unknown):
     : input.showOverviewVisitors;
   const errors: string[] = [];
 
+  if (!directorAssignmentAccessLevels.includes(directorAccess as DirectorAssignmentAccess) || (directorAccess === "none") === hasDirectorAssignments) {
+    errors.push("Выберите режим поручений генерального директора.");
+  }
   if (unknownFields.length > 0) {
     errors.push("Запрос содержит неизвестные поля.");
   }
@@ -12993,6 +13000,7 @@ function validateCreatePositionRequest(input: unknown):
         showOverviewVisitors === true,
         false,
         validatedRailwayWagonAccess,
+        directorAccess as DirectorAssignmentAccess,
       ),
     },
   };

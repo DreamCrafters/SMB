@@ -218,6 +218,7 @@ test("delegated manager edits working tabs and combines railway roles without lo
         "business.dispatcher",
         "business.settings",
       ],
+      directorAssignmentAccess: "none",
       boardAssignmentAccess: "create",
       railwayWagonAccess: ["sales", "carrier"],
       showOverviewVisitors: true,

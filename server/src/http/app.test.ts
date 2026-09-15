@@ -15365,7 +15365,7 @@ test("director endpoints authenticate and reject personnel access and forged pre
   profile.activeAccess.capabilities = [];
   const audit: AuditRepository = { async record() {}, async listReport() { throw new Error("unused"); } };
   const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
-  const repository = { async list() { return []; }, async listEmployees() { return []; } } as unknown as DirectorAssignmentsRepository;
+  const repository = { async list() { return []; }, async listEmployees() { return []; }, async listAssignableEmployees() { return []; } } as unknown as DirectorAssignmentsRepository;
   const server = createApiServer({ config: productionConfig, dispatcherSubmissions,
     referenceDataSource: emptyReferenceDataSource, authService: buildAuthService({ profile }), audit, databaseTransaction: transaction,
     directorAssignments: createDirectorAssignmentsService({ repository, transaction, audit }),
@@ -15384,4 +15384,29 @@ test("director endpoints authenticate and reject personnel access and forged pre
     const forged = await fetch(`${baseUrl}/api/personnel`, { method: "POST", headers: { ...headers, "x-smb-account-preview": "navigation:business.personnel" }, body: "{}" });
     assert.equal(forged.status, 403);
   } finally { server.close(); await once(server, "close"); }
+});
+
+test("position API accepts sender and receiver modes independently of the position title", async () => {
+  const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createPosition(input) {
+      created.push(input);
+      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
+    },
+  };
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
+    for (const mode of ["send", "receive", "invalid"]) {
+      const response = await fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers,
+        body: JSON.stringify({ displayName: "Произвольная должность", navigationItems: ["business.director_assignments"], directorAssignmentAccess: mode }),
+      });
+      assert.equal(response.status, mode === "invalid" ? 400 : 201);
+    }
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+  assert.deepEqual(created.map(position => position.capabilities), [
+    ["business.view_director_assignments", "business.manage_director_assignments"],
+    ["business.view_director_assignments"],
+  ]);
 });

@@ -17,6 +17,17 @@ import {
 } from "./accountAccessConfiguration.js";
 import { isRailwayWagonAccess } from "../contracts/railwayWagons.js";
 
+test("director assignment modes are explicit and independent of position names", () => {
+  const navigation = ["business.director_assignments"] as const;
+  assert.equal(resolveCapabilitiesForPosition("general_director", [...navigation]).includes("business.manage_director_assignments"), false);
+  assert.deepEqual(resolveCapabilitiesForPosition("custom-sender", [...navigation], "none", false, false, false, "none", "send"), ["business.view_director_assignments", "business.manage_director_assignments"]);
+  assert.deepEqual(resolveCapabilitiesForNavigationLevel(navigation[0], "receive"), ["business.view_director_assignments"]);
+  assert.deepEqual(resolveCapabilitiesForNavigationLevel(navigation[0], "send"), ["business.view_director_assignments", "business.manage_director_assignments"]);
+  assert.equal(isNavigationAccessLevel(navigation[0], "send"), true);
+  assert.equal(isNavigationAccessLevel(navigation[0], "review"), false);
+  assert.equal(resolveCapabilitiesForPosition("custom-sender", [], "none", false, false, false, "none", "send").includes("business.manage_director_assignments"), false);
+});
+
 test("multiple positions combine navigation and capabilities in one account", () => {
   assert.deepEqual(
     combinePositionAccessDefinitions([

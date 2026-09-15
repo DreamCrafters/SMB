@@ -1,3 +1,4 @@
+import { readDirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { parseCsvRows } from "../integrations/googleSheetsReference.js";
@@ -53,22 +54,16 @@ async function main() {
         imported++;
       }
       const positions = await accounts.listPositions();
-      const director = positions.find(position => position.id === "general_director");
-      if (!director) throw new Error("General director position is missing.");
-      const directorNavigation = [...new Set([...director.navigationItems, "business.director_assignments" as const])];
-      await accounts.updatePosition({ id: director.id, displayName: director.displayName, navigationItems: directorNavigation,
-        capabilities: resolveCapabilitiesForPosition(director.id, directorNavigation, director.boardAssignmentAccess, director.hasAdminRights, director.showOverviewVisitors, director.capabilities.includes("business.review_raw_material_warehouse"), director.railwayWagonAccess),
-      }, true);
       const existingAccounts = await accounts.listAccounts();
       for (const [displayName, positionName, login, password] of credentials) {
         let position = positions.find(item => item.displayName === positionName);
         if (!position) {
-          position = await accounts.createPosition({ displayName: positionName, navigationItems: ["business.personnel", "business.director_assignments"], capabilities: ["business.manage_personnel", "business.view_director_assignments"] });
+          position = await accounts.createPosition({ displayName: positionName, navigationItems: ["business.personnel"], capabilities: ["business.manage_personnel"] });
           positions.push(position);
         } else if (!position.navigationItems.includes("business.personnel")) {
-          const navigationItems = [...new Set([...position.navigationItems, "business.personnel" as const, "business.director_assignments" as const])];
+          const navigationItems = [...new Set([...position.navigationItems, "business.personnel" as const])];
           position = await accounts.updatePosition({ id: position.id, displayName: position.displayName, navigationItems,
-            capabilities: resolveCapabilitiesForPosition(position.id, navigationItems, position.boardAssignmentAccess, position.hasAdminRights, position.showOverviewVisitors, position.capabilities.includes("business.review_raw_material_warehouse"), position.railwayWagonAccess),
+            capabilities: resolveCapabilitiesForPosition(position.id, navigationItems, position.boardAssignmentAccess, position.hasAdminRights, position.showOverviewVisitors, position.capabilities.includes("business.review_raw_material_warehouse"), position.railwayWagonAccess, readDirectorAssignmentAccess(position.capabilities, position.navigationItems)),
           }, true) ?? position;
         }
         if (!existingAccounts.some(account => account.login.toLocaleLowerCase("ru-RU") === login.toLocaleLowerCase("ru-RU"))) {
