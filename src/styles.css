@@ -5318,119 +5318,9 @@ p {
   box-shadow: var(--shadow-soft);
 }
 
-.board-assignment-executor-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
-  gap: var(--density-3);
-}
-
-.board-assignment-executor-card {
-  display: grid;
-  gap: var(--density-3);
-  min-width: 0;
-  padding: var(--density-4);
-  border: 1px solid var(--line);
-  border-top: 4px solid #9b6a22;
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-soft);
-}
-
-.board-assignment-executor-card.is-revision_requested {
-  border-top-color: var(--brick);
-}
-
-.board-assignment-executor-card.is-overdue {
-  border-color: rgba(169, 91, 67, 0.5);
-  border-top-color: var(--brick);
-  background: rgba(169, 91, 67, 0.055);
-}
-
-.board-assignment-executor-card.is-overdue
-  .board-assignment-executor-card-heading > span:last-child {
-  color: var(--brick);
-}
-
-.board-assignment-executor-card-heading {
-  display: flex;
-  gap: var(--density-2);
-  align-items: center;
-  justify-content: space-between;
-}
-
-.board-assignment-executor-card-heading > span:last-child {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 850;
-}
-
-.board-assignment-executor-card > .board-assignment-link {
-  color: var(--ink);
-  font-size: 18px;
-  line-height: 1.35;
-  text-decoration: none;
-}
-
-.board-assignment-executor-card > p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 750;
-}
-
-.board-assignment-executor-card dl {
-  display: grid;
-  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
-  gap: var(--density-3);
-  margin: 0;
-  padding: var(--density-3);
-  border-radius: var(--radius);
-  background: var(--surface-subtle);
-}
-
-.board-assignment-executor-card dl > div {
-  display: grid;
-  gap: 3px;
-}
-
-.board-assignment-executor-card dt {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.025em;
-  text-transform: uppercase;
-}
-
-.board-assignment-executor-card dd {
-  margin: 0;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1.4;
-}
-
-.board-assignment-executor-card > .secondary-button {
-  justify-self: start;
-}
-
-.board-assignment-executor-empty {
-  grid-column: 1 / -1;
-  padding: var(--density-6);
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--radius);
-  color: var(--muted);
-  background: var(--surface-subtle);
-  text-align: center;
-}
-
-.board-assignment-executor-empty strong {
-  color: var(--ink);
-  font-size: 18px;
-}
-
-.board-assignment-executor-empty p {
-  margin: var(--density-2) 0 0;
-  font-weight: 700;
+.board-assignment-execute-button {
+  display: block;
+  margin-top: var(--density-2);
 }
 
 .board-assignment-review-queue {
@@ -5995,7 +5885,6 @@ p {
   .board-assignment-create-overview,
   .board-assignment-review-overview,
   .board-assignment-history-overview,
-  .board-assignment-executor-card dl,
   .board-assignment-schedule-fields > div,
   .board-assignment-filters.is-compact {
     grid-template-columns: 1fr;

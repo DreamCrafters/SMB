@@ -876,75 +876,6 @@ export function BoardAssignmentsWorkspace({
             </ManagedTable>
           </div>
         </section>
-      ) : accessMode === "execute" ? (
-        <section
-          className="board-assignment-executor-list"
-          aria-label="Активные поручения"
-        >
-          {listState.assignments.map((assignment) => (
-            <article
-              className={`board-assignment-executor-card is-${assignment.status}${
-                assignment.isOverdue ? " is-overdue" : ""
-              }`}
-              key={assignment.id}
-            >
-              <div className="board-assignment-executor-card-heading">
-                <span
-                  className={`board-assignment-status is-${assignment.status}${
-                    assignment.isOverdue ? " is-overdue" : ""
-                  }`}
-                >
-                  {assignment.isOverdue
-                    ? "Просрочено"
-                    : statusLabels[assignment.status]}
-                </span>
-                <span>
-                  К исполнению{" "}
-                  {formatCalendarDate(assignment.currentOccurrenceDate)}
-                </span>
-              </div>
-              <button
-                className="board-assignment-link"
-                type="button"
-                onClick={() => setSelectedId(assignment.id)}
-              >
-                {assignment.summary}
-              </button>
-              <p>
-                Протокол №{assignment.protocolNumber}, пункт{" "}
-                {assignment.decisionNumber}
-              </p>
-              <dl>
-                <div>
-                  <dt>Повтор</dt>
-                  <dd>{recurrenceLabels[assignment.recurrence]}</dd>
-                </div>
-                <div>
-                  <dt>Соисполнители</dt>
-                  <dd>
-                    {assignment.coExecutors.length === 0
-                      ? "Не указаны"
-                      : assignment.coExecutors.join(", ")}
-                  </dd>
-                </div>
-              </dl>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => setSelectedId(assignment.id)}
-              >
-                Открыть и отчитаться
-              </button>
-            </article>
-          ))}
-          {listState.status !== "loading" &&
-          listState.assignments.length === 0 ? (
-            <div className="board-assignment-executor-empty">
-              <strong>Активных поручений сейчас нет</strong>
-              <p>Следующее повторяющееся поручение появится в нужную дату.</p>
-            </div>
-          ) : null}
-        </section>
       ) : (
         <>
           {accessMode === "review" && reviewAssignments.length > 0 ? (
@@ -995,7 +926,7 @@ export function BoardAssignmentsWorkspace({
           ) : null}
           <section
             className="board-assignment-register"
-            aria-label="Реестр поручений"
+            aria-label={accessMode === "execute" ? "Активные поручения" : "Реестр поручений"}
           >
             <div className="board-assignment-table-wrap">
               <ManagedTable tableId="board.assignments" className="board-assignment-table">
@@ -1057,6 +988,15 @@ export function BoardAssignmentsWorkspace({
                         ? "Просрочено"
                         : statusLabels[assignment.status]}
                     </span>
+                    {accessMode === "execute" ? (
+                      <button
+                        className="secondary-button board-assignment-execute-button"
+                        type="button"
+                        onClick={() => setSelectedId(assignment.id)}
+                      >
+                        Открыть и отчитаться
+                      </button>
+                    ) : null}
                   </TableCell>
                 </tr>
               ))}
@@ -1064,7 +1004,9 @@ export function BoardAssignmentsWorkspace({
               listState.assignments.length === 0 ? (
                 <tr>
                   <TableCell className="board-assignment-empty" colSpan={5}>
-                    По выбранным фильтрам поручений нет.
+                    {accessMode === "execute"
+                      ? "Активных поручений сейчас нет. Следующее повторяющееся поручение появится в нужную дату."
+                      : "По выбранным фильтрам поручений нет."}
                   </TableCell>
                 </tr>
               ) : null}

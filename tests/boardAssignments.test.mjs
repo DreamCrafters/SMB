@@ -291,7 +291,6 @@ test("board assignments workspace keeps the register, cancel flow, and distinct 
     "view-notice",
     "create-overview",
     "executor-overview",
-    "executor-list",
     "review-overview",
     "review-queue",
   ]) {

@@ -27,7 +27,7 @@ test.after(async () => {
   await vite.close();
 });
 
-test("board assignment executor sees active cards and submits without choosing a status", async () => {
+test("board assignment executor sees active rows and submits without choosing a status", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -151,22 +151,24 @@ test("board assignment executor sees active cards and submits without choosing a
       /Активные поручения/u,
     );
     assert.notEqual(
-      rootElement.querySelector(".board-assignment-executor-card"),
+      rootElement.querySelector(".board-assignment-table tbody tr"),
       null,
     );
     assert.equal(
-      rootElement.querySelector(".board-assignment-executor-card.is-overdue")
+      rootElement.querySelector(".board-assignment-table tbody tr.is-overdue")
         ?.querySelector(".board-assignment-status")?.textContent,
       "Просрочено",
     );
-    assert.equal(rootElement.querySelector("table"), null);
+    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 1);
     assert.equal(
       rootElement.querySelector(".board-assignment-filters select"),
       null,
     );
 
     await React.act(async () => {
-      rootElement.querySelector(".board-assignment-link").click();
+      Array.from(rootElement.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === "Открыть и отчитаться",
+      ).click();
     });
     await waitFor(React, () =>
       rootElement.querySelector(".board-assignment-comments pre") !== null
