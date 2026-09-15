@@ -2736,42 +2736,32 @@ p {
   line-height: 1.4;
 }
 
-/*
- * Таблица должностей должна умещаться в ширину экрана с запасом. Ограничение
- * ширины стояло на третьей колонке, то есть на флажке `Права админа`, где под
- * подпись «Включены» уходило до 620px, а самая длинная ячейка — перечень
- * вкладок слева — шла одной строкой без переноса и уводила таблицу за правый
- * край. Ширину ограничивают только текстовые колонки: колонки порядка и
- * действий держат кнопки, их переносить нельзя.
- */
-.admin-positions-table th:nth-child(2),
-.admin-positions-table td:nth-child(2) {
-  min-width: 150px;
-  max-width: 220px;
+/* Keep the positions scrollbar reachable and let ManagedTable own column widths. */
+.admin-db-table-scroll:has(.admin-positions-table) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
-.admin-positions-table th:nth-child(3),
-.admin-positions-table td:nth-child(3) {
-  width: 118px;
+.managed-table-scroll:has(> .admin-positions-table) {
+  max-height: min(68vh, 720px);
+  overscroll-behavior-y: auto;
 }
 
-.admin-positions-table th:nth-child(4),
-.admin-positions-table td:nth-child(4) {
-  min-width: 220px;
-  max-width: 380px;
+.admin-positions-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
-.admin-positions-table th:nth-child(5),
-.admin-positions-table td:nth-child(5) {
-  width: 84px;
+.admin-db-data-table.admin-positions-table :is(th, td) {
+  padding: 6px 8px;
 }
 
-.admin-positions-table td:nth-child(2),
-.admin-positions-table td:nth-child(4) {
-  overflow: visible;
-  overflow-wrap: break-word;
-  text-overflow: clip;
-  white-space: normal;
+.admin-positions-table .admin-position-actions .secondary-button {
+  min-height: 30px;
+  padding: 5px 7px;
+  font-size: 12px;
 }
 
 .admin-positions-table .admin-position-order-cell {

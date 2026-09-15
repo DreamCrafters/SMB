@@ -42,7 +42,7 @@ export const tableDefinitions = {
   "admin.audit": defineTable("Журнал действий", ["occurredAt", "actor", "action"]),
   "admin.database": defineTable("База данных", ["actions"]),
   "admin.accounts": defineTable("Учётные записи", ["position", "name", "login", "protection", "password", "navigation", "status"]),
-  "admin.positions": defineTable("Должности", ["order", "position", "adminRights", "navigation", "accounts"]),
+  "admin.positions": defineTable("Должности", ["order", "position", "adminRights", "navigation", "accounts", "actions"]),
   "admin.navigationAccess": defineTable("Доступ к вкладке", ["position", "access", "level"]),
   "board.history": defineTable("История исполнения поручения", ["acceptedAt", "description", "completedAt", "acceptedBy", "status"]),
   "board.assignments": defineTable("Поручения Совета директоров", ["meetingDate", "description", "coExecutors", "deadline", "status"]),
@@ -102,6 +102,10 @@ export function isTableColumnId<T extends TableId>(tableId: T, value: string): v
 }
 
 export function getTableColumnWidth(tableId: TableId, columnId: string) {
+  if (tableId === "admin.positions") {
+    const widths: Record<string, number> = { order: 150, position: 180, adminRights: 120, navigation: 260, accounts: 84, actions: 180 };
+    return widths[columnId] ?? tableLayoutLimits.defaultWidth;
+  }
   if (tableId === "warehouse.stock") return columnId === "warehouse" || columnId === "nomenclature" ? 180 : 140;
   if (columnId === "actions" || columnId === "counter" || columnId === "rowNumber") return 96;
   if (/description|note|summary|reasons|navigation|actor|action|nomenclature/iu.test(columnId)) return 240;

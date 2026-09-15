@@ -25,3 +25,27 @@ test("site tables and cells must use the shared typed rendering boundary", async
   }
   assert.deepEqual(violations, []);
 });
+
+test("positions register every rendered column, including row actions", async () => {
+  const { tableDefinitions } = await import("../.test-build/server/src/contracts/tableLayouts.js");
+  const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const file = ts.createSourceFile("App.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let headers = 0;
+  function visit(node) {
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(file) === "ManagedTable"
+      && node.openingElement.attributes.properties.some((prop) => prop.name?.getText(file) === "tableId"
+        && prop.initializer?.getText(file) === '"admin.positions"')) {
+      function count(child) {
+        if ((ts.isJsxOpeningElement(child) || ts.isJsxSelfClosingElement(child))
+          && child.tagName.getText(file) === "TableHeader") headers += 1;
+        ts.forEachChild(child, count);
+      }
+      count(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  assert.ok(headers > 0);
+  assert.equal(tableDefinitions["admin.positions"].columns.length, headers);
+  assert.equal(tableDefinitions["admin.positions"].columns.at(-1), "actions");
+});
