@@ -165,10 +165,10 @@ test("board assignment executor sees active rows and submits without choosing a 
     const statusFilter = rootElement.querySelector(".board-assignment-filters select");
     assert.deepEqual(
       Array.from(statusFilter.options, (option) => [option.value, option.textContent]),
-      [["", "Все статусы"], ["in_progress", "В работе"], ["revision_requested", "На доработке"]],
+      [["", "Все статусы"], ["overdue", "Просрочено"], ["in_progress", "В работе"]],
     );
     await React.act(async () => {
-      statusFilter.value = "revision_requested";
+      statusFilter.value = "in_progress";
       statusFilter.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
     await React.act(async () => {
@@ -176,7 +176,19 @@ test("board assignment executor sees active rows and submits without choosing a 
         new dom.window.Event("submit", { bubbles: true, cancelable: true }),
       );
     });
-    assert.equal(listSearchParams.get("status"), "revision_requested");
+    assert.equal(listSearchParams.has("status"), false);
+    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr.is-overdue").length, 0);
+    assert.equal(rootElement.querySelector(".board-assignment-execute-button"), null);
+    await React.act(async () => {
+      statusFilter.value = "overdue";
+      statusFilter.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await React.act(async () => {
+      rootElement.querySelector(".board-assignment-filters").dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr.is-overdue").length, 1);
     await React.act(async () => {
       Array.from(rootElement.querySelectorAll("button")).find(
         (button) => button.textContent?.trim() === "Сбросить",

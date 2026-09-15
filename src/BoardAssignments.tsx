@@ -114,7 +114,8 @@ export function BoardAssignmentsWorkspace({
   const [filters, setFilters] = useState<BoardAssignmentFilters>({});
   const [registerMode, setRegisterMode] = useState<"live" | "history">("live");
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<BoardAssignmentStatus | "">("");
+  const [status, setStatus] = useState<BoardAssignmentStatus | "overdue" | "">("");
+  const [displayStatus, setDisplayStatus] = useState<BoardAssignmentStatus | "overdue" | "">("");
   const [meetingDateFrom, setMeetingDateFrom] = useState("");
   const [meetingDateTo, setMeetingDateTo] = useState("");
   const [listVersion, setListVersion] = useState(0);
@@ -273,9 +274,10 @@ export function BoardAssignmentsWorkspace({
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setDisplayStatus(status);
     setFilters({
       ...(query.trim() === "" ? {} : { query: query.trim() }),
-      ...(status === "" ? {} : { status }),
+      ...(status === "" || status === "overdue" || accessMode === "execute" ? {} : { status }),
       ...(meetingDateFrom === "" ? {} : { meetingDateFrom }),
       ...(meetingDateTo === "" ? {} : { meetingDateTo }),
     });
@@ -284,6 +286,7 @@ export function BoardAssignmentsWorkspace({
   function resetFilters() {
     setQuery("");
     setStatus("");
+    setDisplayStatus("");
     setMeetingDateFrom("");
     setMeetingDateTo("");
     setFilters({});
@@ -555,6 +558,7 @@ export function BoardAssignmentsWorkspace({
     setSelectedId(undefined);
     setSelectedCompletionId(undefined);
     setStatus("");
+    setDisplayStatus("");
     setFilters((current) => {
       const { status: _status, ...remaining } = current;
       return remaining;
@@ -563,6 +567,12 @@ export function BoardAssignmentsWorkspace({
 
   const canCreate = permissions.canCreate;
   const accessMode = readBoardAssignmentAccessMode(permissions);
+  const visibleAssignments = listState.assignments.filter((assignment) =>
+    accessMode !== "execute" || displayStatus === ""
+    || (displayStatus === "overdue"
+      ? assignment.isOverdue
+      : !assignment.isOverdue && assignment.status === displayStatus)
+  );
   const reviewAssignments = listState.assignments.filter(
     (assignment) => assignment.status === "under_review",
   );
@@ -761,17 +771,16 @@ export function BoardAssignmentsWorkspace({
               value={status}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                setStatus(value as BoardAssignmentStatus | "");
+                setStatus(value as BoardAssignmentStatus | "overdue" | "");
               }}
             >
               <option value="">Все статусы</option>
-              {boardAssignmentStatuses
-                .filter((item) =>
-                  accessMode !== "execute"
-                  || item === "in_progress"
-                  || item === "revision_requested"
-                )
-                .map((item) => (
+              {accessMode === "execute" ? (
+                <>
+                  <option value="overdue">Просрочено</option>
+                  <option value="in_progress">В работе</option>
+                </>
+              ) : boardAssignmentStatuses.map((item) => (
                   <option key={item} value={item}>
                     {statusLabels[item]}
                   </option>
@@ -946,7 +955,7 @@ export function BoardAssignmentsWorkspace({
               </tr>
             </thead>
             <tbody>
-              {listState.assignments.map((assignment) => (
+              {visibleAssignments.map((assignment) => (
                 <tr
                   className={assignment.isOverdue ? "is-overdue" : undefined}
                   key={assignment.id}
@@ -1007,7 +1016,7 @@ export function BoardAssignmentsWorkspace({
                 </tr>
               ))}
               {listState.status !== "loading" &&
-              listState.assignments.length === 0 ? (
+              visibleAssignments.length === 0 ? (
                 <tr>
                   <TableCell className="board-assignment-empty" colSpan={5}>
                     {accessMode === "execute"
