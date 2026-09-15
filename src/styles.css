@@ -5239,7 +5239,7 @@ p {
 }
 
 .board-assignment-filters.is-compact {
-  grid-template-columns: minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(260px, 2fr) minmax(180px, 1fr) auto;
 }
 
 .board-assignment-filters.is-history {

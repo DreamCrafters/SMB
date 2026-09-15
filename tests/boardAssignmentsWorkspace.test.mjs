@@ -62,6 +62,7 @@ test("board assignment executor sees active rows and submits without choosing a 
     canReview: false,
   };
   let actionRequest;
+  let listSearchParams;
 
   try {
     const { BoardAssignmentsWorkspace } = await vite.ssrLoadModule(
@@ -71,6 +72,7 @@ test("board assignment executor sees active rows and submits without choosing a 
       const url = new URL(String(input), "http://127.0.0.1:5173/");
 
       if (url.pathname === "/api/board-assignments") {
+        listSearchParams = url.searchParams;
         return jsonResponse({
           assignments: [summary],
           permissions,
@@ -160,10 +162,28 @@ test("board assignment executor sees active rows and submits without choosing a 
       "Просрочено",
     );
     assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 1);
-    assert.equal(
-      rootElement.querySelector(".board-assignment-filters select"),
-      null,
+    const statusFilter = rootElement.querySelector(".board-assignment-filters select");
+    assert.deepEqual(
+      Array.from(statusFilter.options, (option) => [option.value, option.textContent]),
+      [["", "Все статусы"], ["in_progress", "В работе"], ["revision_requested", "На доработке"]],
     );
+    await React.act(async () => {
+      statusFilter.value = "revision_requested";
+      statusFilter.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await React.act(async () => {
+      rootElement.querySelector(".board-assignment-filters").dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    assert.equal(listSearchParams.get("status"), "revision_requested");
+    await React.act(async () => {
+      Array.from(rootElement.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === "Сбросить",
+      ).click();
+    });
+    assert.equal(statusFilter.value, "");
+    assert.equal(listSearchParams.has("status"), false);
 
     await React.act(async () => {
       Array.from(rootElement.querySelectorAll("button")).find(
@@ -182,7 +202,7 @@ test("board assignment executor sees active rows and submits without choosing a 
       /\d{2}\.\d{2}\.\d{4}.*Фридман Е\.М\.\nКомментарий один\.\n\n\d{2}\.\d{2}\.\d{4}.*Лариков А\.Т\.\nКомментарий два\./u,
     );
     assert.equal(findLabel(rootElement, "Комментарий") !== undefined, true);
-    assert.equal(findLabel(rootElement, "Статус"), undefined);
+    assert.equal(findLabel(rootElement.querySelector('[role="dialog"]'), "Статус"), undefined);
     const submitButton = Array.from(rootElement.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Отправить на проверку",
     );

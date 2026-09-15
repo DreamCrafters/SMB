@@ -754,27 +754,33 @@ export function BoardAssignmentsWorkspace({
             }}
           />
         </label>
+        {registerMode === "live" ? (
+          <label>
+            <span>Статус</span>
+            <select
+              value={status}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setStatus(value as BoardAssignmentStatus | "");
+              }}
+            >
+              <option value="">Все статусы</option>
+              {boardAssignmentStatuses
+                .filter((item) =>
+                  accessMode !== "execute"
+                  || item === "in_progress"
+                  || item === "revision_requested"
+                )
+                .map((item) => (
+                  <option key={item} value={item}>
+                    {statusLabels[item]}
+                  </option>
+                ))}
+            </select>
+          </label>
+        ) : null}
         {accessMode === "execute" && registerMode === "live" ? null : (
           <>
-            {registerMode === "live" ? (
-              <label>
-                <span>Статус</span>
-                <select
-                  value={status}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setStatus(value as BoardAssignmentStatus | "");
-                  }}
-                >
-                  <option value="">Все статусы</option>
-                  {boardAssignmentStatuses.map((item) => (
-                    <option key={item} value={item}>
-                      {statusLabels[item]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
             <label>
               <span>Заседание с</span>
               <input
