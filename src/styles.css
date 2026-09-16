@@ -5246,6 +5246,109 @@ p {
   grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
 }
 
+.board-assignment-status-filter {
+  position: relative;
+  display: grid;
+  gap: var(--density-2);
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.board-assignment-status-filter details {
+  position: relative;
+  min-width: 0;
+}
+
+.board-assignment-status-filter summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 9px 34px 9px 11px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  cursor: pointer;
+  font: inherit;
+  list-style: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-assignment-status-filter summary::-webkit-details-marker {
+  display: none;
+}
+
+.board-assignment-status-filter summary::after {
+  position: absolute;
+  right: 12px;
+  content: "▾";
+  transition: transform 150ms ease;
+}
+
+.board-assignment-status-filter summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-assignment-status-filter details[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.board-assignment-status-filter summary:hover,
+.board-assignment-status-filter summary:focus-visible,
+.board-assignment-status-filter details[open] summary {
+  border-color: var(--blue-gray);
+  outline: 2px solid rgba(81, 106, 119, 0.18);
+}
+
+.board-assignment-status-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(320px, calc(100vw - 48px));
+  padding: var(--density-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.board-assignment-filters .board-assignment-status-options label {
+  display: flex;
+  gap: var(--density-2);
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.board-assignment-filters .board-assignment-status-options label:hover {
+  background: var(--surface-subtle);
+}
+
+.board-assignment-filters .board-assignment-status-options input[type="checkbox"] {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
 .board-assignment-filters label,
 .board-assignment-form-grid label,
 .board-assignment-decision label {

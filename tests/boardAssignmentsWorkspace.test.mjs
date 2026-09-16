@@ -55,6 +55,19 @@ test("board assignment executor sees active rows and submits without choosing a 
     createdAt: "2026-07-10T08:00:00.000Z",
     updatedAt: "2026-07-10T08:00:00.000Z",
   };
+  const activeSummary = {
+    ...summary,
+    id: "assignment-2",
+    summary: "Подготовить план корректирующих мероприятий",
+    isOverdue: false,
+  };
+  const revisionSummary = {
+    ...summary,
+    id: "assignment-3",
+    summary: "Уточнить причины отклонения",
+    isOverdue: false,
+    status: "revision_requested",
+  };
   const permissions = {
     canView: true,
     canCreate: false,
@@ -74,7 +87,7 @@ test("board assignment executor sees active rows and submits without choosing a 
       if (url.pathname === "/api/board-assignments") {
         listSearchParams = url.searchParams;
         return jsonResponse({
-          assignments: [summary],
+          assignments: [summary, activeSummary, revisionSummary],
           permissions,
           boardMeetingReminder:
             "Необходимо подготовиться к Совету директоров на 15 число",
@@ -161,15 +174,24 @@ test("board assignment executor sees active rows and submits without choosing a 
         ?.querySelector(".board-assignment-status")?.textContent,
       "Просрочено",
     );
-    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 1);
-    const statusFilter = rootElement.querySelector(".board-assignment-filters select");
+    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 3);
+    const statusFilter = rootElement.querySelector(".board-assignment-status-filter");
+    const statusInputs = Array.from(
+      statusFilter.querySelectorAll('input[type="checkbox"]'),
+    );
     assert.deepEqual(
-      Array.from(statusFilter.options, (option) => [option.value, option.textContent]),
-      [["", "Все статусы"], ["overdue", "Просрочено"], ["in_progress", "В работе"]],
+      statusInputs.map((input) => [input.value, input.parentElement.textContent.trim()]),
+      [
+        ["overdue", "Просрочено"],
+        ["in_progress", "В работе"],
+        ["revision_requested", "На доработке"],
+      ],
     );
     await React.act(async () => {
-      statusFilter.value = "in_progress";
-      statusFilter.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      for (const value of ["overdue", "revision_requested"]) {
+        const input = statusInputs.find((item) => item.value === value);
+        input.click();
+      }
     });
     await React.act(async () => {
       rootElement.querySelector(".board-assignment-filters").dispatchEvent(
@@ -177,25 +199,26 @@ test("board assignment executor sees active rows and submits without choosing a 
       );
     });
     assert.equal(listSearchParams.has("status"), false);
-    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr.is-overdue").length, 0);
-    assert.equal(rootElement.querySelector(".board-assignment-execute-button"), null);
-    await React.act(async () => {
-      statusFilter.value = "overdue";
-      statusFilter.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    });
-    await React.act(async () => {
-      rootElement.querySelector(".board-assignment-filters").dispatchEvent(
-        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
-      );
-    });
+    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 2);
     assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr.is-overdue").length, 1);
+    assert.match(
+      rootElement.querySelector(".board-assignment-executor-overview")
+        .textContent,
+      /2сейчас/u,
+    );
+    assert.match(
+      rootElement.querySelector(".board-assignment-status-filter summary")
+        .textContent,
+      /Просрочено, На доработке/u,
+    );
     await React.act(async () => {
       Array.from(rootElement.querySelectorAll("button")).find(
         (button) => button.textContent?.trim() === "Сбросить",
       ).click();
     });
-    assert.equal(statusFilter.value, "");
+    assert.equal(statusInputs.every((input) => !input.checked), true);
     assert.equal(listSearchParams.has("status"), false);
+    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 3);
 
     await React.act(async () => {
       Array.from(rootElement.querySelectorAll("button")).find(
@@ -632,7 +655,7 @@ test("board assignment viewer gets a quiet read-only register", async () => {
     );
     assert.notEqual(rootElement.querySelector("table"), null);
     assert.notEqual(
-      rootElement.querySelector(".board-assignment-filters select"),
+      rootElement.querySelector(".board-assignment-status-filter"),
       null,
     );
     assert.equal(

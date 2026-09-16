@@ -2,6 +2,7 @@ import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell } from "./TableCell";
 import {
   useEffect,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -58,6 +59,18 @@ type BoardAssignmentMaterialReference =
   | { key: string; fileName: string };
 
 type BoardAssignmentAccessMode = "view" | "create" | "execute" | "review";
+type BoardAssignmentDisplayStatus = BoardAssignmentStatus | "overdue";
+
+const displayStatusLabels: Record<BoardAssignmentDisplayStatus, string> = {
+  ...statusLabels,
+  overdue: "Просрочено",
+};
+
+const executorDisplayStatuses: readonly BoardAssignmentDisplayStatus[] = [
+  "overdue",
+  "in_progress",
+  "revision_requested",
+];
 
 const emptyPermissions: BoardAssignmentPermissions = {
   canView: true,
@@ -114,8 +127,11 @@ export function BoardAssignmentsWorkspace({
   const [filters, setFilters] = useState<BoardAssignmentFilters>({});
   const [registerMode, setRegisterMode] = useState<"live" | "history">("live");
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<BoardAssignmentStatus | "overdue" | "">("");
-  const [displayStatus, setDisplayStatus] = useState<BoardAssignmentStatus | "overdue" | "">("");
+  const [statuses, setStatuses] = useState<BoardAssignmentDisplayStatus[]>([]);
+  const [appliedStatuses, setAppliedStatuses] = useState<
+    BoardAssignmentDisplayStatus[]
+  >([]);
+  const statusFilterRef = useRef<HTMLDetailsElement>(null);
   const [meetingDateFrom, setMeetingDateFrom] = useState("");
   const [meetingDateTo, setMeetingDateTo] = useState("");
   const [listVersion, setListVersion] = useState(0);
@@ -274,10 +290,10 @@ export function BoardAssignmentsWorkspace({
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setDisplayStatus(status);
+    setAppliedStatuses([...statuses]);
+    if (statusFilterRef.current !== null) statusFilterRef.current.open = false;
     setFilters({
       ...(query.trim() === "" ? {} : { query: query.trim() }),
-      ...(status === "" || status === "overdue" || accessMode === "execute" ? {} : { status }),
       ...(meetingDateFrom === "" ? {} : { meetingDateFrom }),
       ...(meetingDateTo === "" ? {} : { meetingDateTo }),
     });
@@ -285,11 +301,22 @@ export function BoardAssignmentsWorkspace({
 
   function resetFilters() {
     setQuery("");
-    setStatus("");
-    setDisplayStatus("");
+    setStatuses([]);
+    setAppliedStatuses([]);
+    if (statusFilterRef.current !== null) statusFilterRef.current.open = false;
     setMeetingDateFrom("");
     setMeetingDateTo("");
     setFilters({});
+  }
+
+  function toggleStatusFilter(
+    status: BoardAssignmentDisplayStatus,
+    checked: boolean,
+  ) {
+    setStatuses((current) => {
+      if (!checked) return current.filter((item) => item !== status);
+      return current.includes(status) ? current : [...current, status];
+    });
   }
 
   async function uploadDocuments(assignmentId: string, files: File[]) {
@@ -557,8 +584,8 @@ export function BoardAssignmentsWorkspace({
     setRegisterMode(mode);
     setSelectedId(undefined);
     setSelectedCompletionId(undefined);
-    setStatus("");
-    setDisplayStatus("");
+    setStatuses([]);
+    setAppliedStatuses([]);
     setFilters((current) => {
       const { status: _status, ...remaining } = current;
       return remaining;
@@ -567,13 +594,19 @@ export function BoardAssignmentsWorkspace({
 
   const canCreate = permissions.canCreate;
   const accessMode = readBoardAssignmentAccessMode(permissions);
+  const availableStatuses = accessMode === "execute"
+    ? executorDisplayStatuses
+    : boardAssignmentStatuses;
+  const statusFilterSummary = formatStatusFilterSummary(statuses);
   const visibleAssignments = listState.assignments.filter((assignment) =>
-    accessMode !== "execute" || displayStatus === ""
-    || (displayStatus === "overdue"
-      ? assignment.isOverdue
-      : !assignment.isOverdue && assignment.status === displayStatus)
+    appliedStatuses.length === 0
+    || appliedStatuses.some((status) => matchesDisplayStatus(
+      assignment,
+      status,
+      accessMode,
+    ))
   );
-  const reviewAssignments = listState.assignments.filter(
+  const reviewAssignments = visibleAssignments.filter(
     (assignment) => assignment.status === "under_review",
   );
   const selectedAssignmentIsOverdue = listState.assignments.some(
@@ -657,7 +690,7 @@ export function BoardAssignmentsWorkspace({
             </p>
           </div>
           <strong>
-            {listState.assignments.length}
+            {visibleAssignments.length}
             <small>сейчас</small>
           </strong>
         </section>
@@ -684,7 +717,7 @@ export function BoardAssignmentsWorkspace({
             ) : null}
           </div>
           <div className="board-assignment-create-count">
-            <strong>{listState.assignments.length}</strong>
+            <strong>{visibleAssignments.length}</strong>
             <span>показано в реестре</span>
           </div>
         </section>
@@ -730,8 +763,8 @@ export function BoardAssignmentsWorkspace({
             </p>
           </div>
           <strong>
-            {listState.assignments.length}{" "}
-            {formatAssignmentCount(listState.assignments.length)}
+            {visibleAssignments.length}{" "}
+            {formatAssignmentCount(visibleAssignments.length)}
           </strong>
         </section>
       )}
@@ -765,28 +798,33 @@ export function BoardAssignmentsWorkspace({
           />
         </label>
         {registerMode === "live" ? (
-          <label>
-            <span>Статус</span>
-            <select
-              value={status}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setStatus(value as BoardAssignmentStatus | "overdue" | "");
-              }}
-            >
-              <option value="">Все статусы</option>
-              {accessMode === "execute" ? (
-                <>
-                  <option value="overdue">Просрочено</option>
-                  <option value="in_progress">В работе</option>
-                </>
-              ) : boardAssignmentStatuses.map((item) => (
-                  <option key={item} value={item}>
-                    {statusLabels[item]}
-                  </option>
+          <div className="board-assignment-status-filter">
+            <span className="board-assignment-status-filter-label">Статус</span>
+            <details ref={statusFilterRef}>
+              <summary
+                aria-label={`Статус: ${statusFilterSummary}`}
+                title={statusFilterSummary}
+              >
+                <span>{statusFilterSummary}</span>
+              </summary>
+              <div className="board-assignment-status-options">
+                {availableStatuses.map((item) => (
+                  <label key={item}>
+                    <input
+                      type="checkbox"
+                      value={item}
+                      checked={statuses.includes(item)}
+                      onChange={(event) => {
+                        const checked = event.currentTarget.checked;
+                        toggleStatusFilter(item, checked);
+                      }}
+                    />
+                    <span>{displayStatusLabels[item]}</span>
+                  </label>
                 ))}
-            </select>
-          </label>
+              </div>
+            </details>
+          </div>
         ) : null}
         {accessMode === "execute" && registerMode === "live" ? null : (
           <>
@@ -1916,6 +1954,23 @@ function readBoardAssignmentAccessMode(
   if (permissions.canExecute) return "execute";
   if (permissions.canCreate) return "create";
   return "view";
+}
+
+function formatStatusFilterSummary(
+  statuses: readonly BoardAssignmentDisplayStatus[],
+) {
+  if (statuses.length === 0) return "Все статусы";
+  return statuses.map((status) => displayStatusLabels[status]).join(", ");
+}
+
+function matchesDisplayStatus(
+  assignment: BoardAssignmentListItem,
+  status: BoardAssignmentDisplayStatus,
+  accessMode: BoardAssignmentAccessMode,
+) {
+  if (status === "overdue") return assignment.isOverdue;
+  if (accessMode === "execute" && assignment.isOverdue) return false;
+  return assignment.status === status;
 }
 
 function readAssignmentDocuments(
