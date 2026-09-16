@@ -72,8 +72,8 @@ test("position form edits working tabs while admin rights are managed separately
     appSource,
     /admin-position-order-actions[\s\S]{0,500}Сохранить порядок/u,
   );
-  assert.match(appSource, />\s*Выше\s*</u);
-  assert.match(appSource, />\s*Ниже\s*</u);
+  assert.doesNotMatch(appSource, />\s*Выше\s*</u);
+  assert.doesNotMatch(appSource, />\s*Ниже\s*</u);
 
   // Подпись уровня не повторяет название вкладки: вкладку называет галочка.
   assert.deepEqual(

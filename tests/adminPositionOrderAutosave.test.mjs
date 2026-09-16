@@ -1,3 +1,4 @@
+import { startRowDrag } from "./helpers/rowDrag.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
@@ -38,7 +39,7 @@ test.after(async () => {
   await vite.close();
 });
 
-test("position order batches moves, survives refreshes, retries, and can be cancelled", async () => {
+test("position drag saves only on release, cancels without saving and rolls back failures", async () => {
   const dom = new JSDOM(
     '<!doctype html><html><body><div id="root"></div></body></html>',
     { url: "http://127.0.0.1:5173/" },
@@ -66,11 +67,12 @@ test("position order batches moves, survives refreshes, retries, and can be canc
     buildPosition("third", "Третья"),
   ];
   let account = buildAccount();
-  let accountRefreshCount = 0;
   const attemptedOrders = [];
   const savedOrders = [];
   let failedSaveCount = 0;
-  let invalidSaveResponseCount = 0;
+  let lockProtected = false;
+  let releaseSave;
+  let saveGate = new Promise(resolve => { releaseSave = resolve; });
 
   try {
     globalThis.fetch = async (input, init = {}) => {
@@ -84,7 +86,6 @@ test("position order batches moves, survives refreshes, retries, and can be canc
         return jsonResponse({ profile: buildAdminProfile() });
       }
       if (url.pathname === "/api/admin/accounts" && method === "GET") {
-        accountRefreshCount += 1;
         return jsonResponse({
           accounts: [account],
           canManageProtectedAccounts: true,
@@ -101,12 +102,13 @@ test("position order batches moves, survives refreshes, retries, and can be canc
         return jsonResponse({
           positions,
           canAssignAdminNavigation: true,
-          canManageProtectedPositions: true,
+          canManageProtectedPositions: !lockProtected,
         });
       }
       if (url.pathname === "/api/admin/positions/order" && method === "PUT") {
         const { positionIds } = JSON.parse(String(init.body));
         attemptedOrders.push(positionIds);
+        await saveGate;
         if (failedSaveCount > 0) {
           failedSaveCount -= 1;
           return jsonResponse(
@@ -114,18 +116,14 @@ test("position order batches moves, survives refreshes, retries, and can be canc
             503,
           );
         }
-        if (invalidSaveResponseCount > 0) {
-          invalidSaveResponseCount -= 1;
-          return jsonResponse({ unexpected: true });
-        }
         savedOrders.push(positionIds);
         positions = positionIds.map((positionId) =>
-          positions.find((position) => position.id === positionId)
+          ({ ...positions.find((position) => position.id === positionId), hasAdminRights: lockProtected && positionId === "second" })
         );
         return jsonResponse({
           positions,
           canAssignAdminNavigation: true,
-          canManageProtectedPositions: true,
+          canManageProtectedPositions: !lockProtected,
         });
       }
       if (url.pathname === "/api/audit/events" && method === "POST") {
@@ -156,93 +154,48 @@ test("position order batches moves, survives refreshes, retries, and can be canc
 
     assert.equal(findButton(rootElement, "Сохранить порядок"), undefined);
 
-    const clock = installWindowClock(dom.window);
-    try {
+    const handle = () => rootElement.querySelector('button[aria-label="Переместить должность «Первая»"]');
+    let drag;
+    await React.act(async () => { drag = startRowDrag(dom.window, handle(), 2, [60, 100, 80]); });
+    assert.deepEqual(attemptedOrders, []);
+    await React.act(async () => { drag.finish(); });
+    assert.equal(attemptedOrders.length, 1);
+    assert.equal(handle().disabled, true, "another drag is blocked while the request is pending");
+    await React.act(async () => {
+      handle().dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      dom.window.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles: true }));
+    });
+    assert.equal(attemptedOrders.length, 1);
+    await React.act(async () => { releaseSave(); });
+    await waitFor(React, () => savedOrders.length === 1);
+    assert.deepEqual(savedOrders, [["second", "third", "first"]]);
+    for (const cancellation of ['Escape', 'pointercancel', 'lostpointercapture']) {
+      await React.act(async () => { drag = startRowDrag(dom.window, handle(), 0); });
       await React.act(async () => {
-        findButton(rootElement, "Опустить должность «Первая» ниже")?.click();
+        if (cancellation === 'lostpointercapture') {
+          handle().dispatchEvent(new dom.window.Event('lostpointercapture'));
+          drag.finish();
+        } else drag.finish(cancellation);
       });
-      assert.equal(findButton(rootElement, "Новая должность")?.disabled, true);
-      assert.equal(
-        findPositionAction(rootElement, "Третья", "Удалить")?.disabled,
-        true,
-      );
-      await React.act(async () => {
-        findButton(rootElement, "Учётные записи")?.click();
-      });
-      await waitFor(
-        React,
-        () => findButton(rootElement, "Отключить вход для dispatcher-1") !== undefined,
-      );
-      await React.act(async () => {
-        findButton(rootElement, "Отключить вход для dispatcher-1")?.click();
-      });
-      await waitFor(React, () => accountRefreshCount === 2);
-      await React.act(async () => {
-        findButton(rootElement, "Должности")?.click();
-      });
-      await waitFor(
-        React,
-        () => rootElement.querySelectorAll(".admin-positions-table tbody tr").length === 3,
-      );
-      await React.act(async () => clock.advanceBy(4_000));
-      assert.deepEqual(savedOrders, []);
-
-      await React.act(async () => {
-        findButton(rootElement, "Опустить должность «Первая» ниже")?.click();
-      });
-      await React.act(async () => clock.advanceBy(1_000));
-      assert.deepEqual(savedOrders, []);
-
-      await React.act(async () => clock.advanceBy(3_999));
-      assert.deepEqual(savedOrders, []);
-
-      await React.act(async () => clock.advanceBy(1));
-      await waitFor(React, () => savedOrders.length === 1);
-      assert.deepEqual(savedOrders, [["second", "third", "first"]]);
-
-      await waitFor(
-        React,
-        () => !findButton(rootElement, "Поднять должность «Первая» выше")?.disabled,
-      );
-      await React.act(async () => {
-        findButton(rootElement, "Поднять должность «Первая» выше")?.click();
-      });
-      await React.act(async () => {
-        findButton(rootElement, "Отменить")?.click();
-      });
-      await React.act(async () => clock.advanceBy(5_000));
-      assert.equal(savedOrders.length, 1);
-
-      failedSaveCount = 1;
-      await React.act(async () => {
-        findButton(rootElement, "Поднять должность «Первая» выше")?.click();
-      });
-      await React.act(async () => clock.advanceBy(5_000));
-      await waitFor(React, () => attemptedOrders.length === 2);
-      assert.equal(savedOrders.length, 1);
-
-      await React.act(async () => clock.advanceBy(4_999));
-      assert.equal(attemptedOrders.length, 2);
-      await React.act(async () => clock.advanceBy(1));
-      await waitFor(React, () => attemptedOrders.length === 3);
-      assert.deepEqual(attemptedOrders.slice(1), [
-        ["second", "first", "third"],
-        ["second", "first", "third"],
-      ]);
-      assert.deepEqual(savedOrders.at(-1), ["second", "first", "third"]);
-
-      invalidSaveResponseCount = 1;
-      await React.act(async () => {
-        findButton(rootElement, "Опустить должность «Первая» ниже")?.click();
-      });
-      await React.act(async () => clock.advanceBy(5_000));
-      await waitFor(React, () => attemptedOrders.length === 4);
-      await React.act(async () => clock.advanceBy(5_000));
-      assert.equal(attemptedOrders.length, 4);
-    } finally {
-      await React.act(async () => root.unmount());
-      clock.restore();
+      assert.equal(attemptedOrders.length, 1);
     }
+    await React.act(async () => { drag = startRowDrag(dom.window, handle(), 2); drag.finish(); });
+    assert.equal(attemptedOrders.length, 1, "unchanged order does not save");
+    failedSaveCount = 1;
+    await React.act(async () => { drag = startRowDrag(dom.window, handle(), 0); drag.finish(); });
+    await waitFor(React, () => attemptedOrders.length === 2);
+    assert.equal(savedOrders.length, 1);
+    assert.deepEqual(Array.from(rootElement.querySelectorAll('.admin-positions-table tbody tr'), row => row.cells[1].textContent), ['Вторая', 'Третья', 'Первая']);
+    assert.equal(handle().disabled, false, "failure releases save lock");
+    lockProtected = true;
+    await React.act(async () => { drag = startRowDrag(dom.window, handle(), 0); drag.finish(); });
+    await waitFor(React, () => savedOrders.length === 2);
+    assert.deepEqual(savedOrders.at(-1), ['first', 'second', 'third']);
+    const attemptCount = attemptedOrders.length;
+    assert.equal(rootElement.querySelector('button[aria-label="Переместить должность «Вторая»"]').disabled, true);
+    await React.act(async () => { drag = startRowDrag(dom.window, handle(), 2); drag.finish(); });
+    assert.equal(attemptedOrders.length, attemptCount, "cannot cross a protected row");
+    await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
     dom.window.close();
@@ -494,64 +447,12 @@ test("original admin manages account access to a selected working tab by positio
   }
 });
 
-function installWindowClock(window) {
-  const originalSetTimeout = window.setTimeout;
-  const originalClearTimeout = window.clearTimeout;
-  const scheduled = new Map();
-  let currentTime = 0;
-  let nextId = 1;
-
-  window.setTimeout = (callback, delay = 0, ...args) => {
-    const id = nextId;
-    nextId += 1;
-    scheduled.set(id, {
-      callback: () => callback(...args),
-      dueAt: currentTime + Number(delay),
-    });
-    return id;
-  };
-  window.clearTimeout = (id) => {
-    scheduled.delete(id);
-  };
-
-  return {
-    advanceBy(duration) {
-      const targetTime = currentTime + duration;
-      while (true) {
-        const nextTask = Array.from(scheduled.entries())
-          .filter(([, task]) => task.dueAt <= targetTime)
-          .sort((left, right) => left[1].dueAt - right[1].dueAt)[0];
-        if (nextTask === undefined) {
-          break;
-        }
-        const [id, task] = nextTask;
-        scheduled.delete(id);
-        currentTime = task.dueAt;
-        task.callback();
-      }
-      currentTime = targetTime;
-    },
-    restore() {
-      window.setTimeout = originalSetTimeout;
-      window.clearTimeout = originalClearTimeout;
-    },
-  };
-}
-
 function findButton(rootElement, label) {
   return Array.from(rootElement.querySelectorAll("button")).find(
     (button) =>
       button.textContent?.trim() === label ||
       button.getAttribute("aria-label") === label,
   );
-}
-
-function findPositionAction(rootElement, positionName, actionLabel) {
-  const row = Array.from(
-    rootElement.querySelectorAll(".admin-positions-table tbody tr"),
-  ).find((candidate) => candidate.textContent?.includes(positionName));
-
-  return row === undefined ? undefined : findButton(row, actionLabel);
 }
 
 function buildPosition(id, displayName) {

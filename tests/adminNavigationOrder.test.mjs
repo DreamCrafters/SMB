@@ -1,3 +1,4 @@
+import { startRowDrag } from "./helpers/rowDrag.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
@@ -91,7 +92,7 @@ test("original administrator reorders the shared left navigation", async () => {
         savedLabels = body.navigationLabels;
         return jsonResponse({
           navigationOrder: savedOrder,
-          navigationLabels: { "admin.database": "База данных" },
+          navigationLabels: savedLabels["admin.database"] ? { "admin.database": "База данных" } : {},
         });
       }
       if (url.pathname === "/api/admin/accounts" && method === "GET") {
@@ -138,9 +139,14 @@ test("original administrator reorders the shared left navigation", async () => {
       () => rootElement.querySelector('[aria-label="Порядок вкладок"]') !== null,
     );
 
+    assert.equal(findButton(rootElement, "Сохранить порядок"), undefined);
+    let drag;
     await React.act(async () => {
-      rootElement.querySelector('button[aria-label="Переместить БД выше"]')?.click();
+      drag = startRowDrag(dom.window, rootElement.querySelector('button[aria-label="Переместить БД"]'), initialNavigationOrder.length - 2);
     });
+    assert.equal(savedOrder, undefined, "moving does not send requests");
+    await React.act(async () => drag.finish());
+    await waitFor(React, () => savedOrder !== undefined);
     // Раздел переименовывается прямо в строке порядка.
     const renameInput = Array.from(
       rootElement.querySelectorAll(".admin-navigation-order-rename input"),
@@ -151,7 +157,7 @@ test("original administrator reorders the shared left navigation", async () => {
       renameInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
     await React.act(async () => {
-      findButton(rootElement, "Сохранить порядок")?.click();
+      renameInput.dispatchEvent(new dom.window.FocusEvent("focusout", { bubbles: true }));
     });
     await waitFor(React, () => savedOrder !== undefined);
 

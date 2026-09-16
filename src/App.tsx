@@ -1,3 +1,4 @@
+import { RowDragHandle } from "./RowDragHandle";
 import { directorAssignmentAccessOptions, readDirectorAssignmentAccess, type DirectorAssignmentAccess } from "../server/src/contracts/directorAssignments.js";
 import { DirectorAssignmentsWorkspace, PersonnelWorkspace } from "./DirectorAssignments";
 import { TableLayoutProvider } from "./TableLayoutProvider";
@@ -8769,24 +8770,27 @@ function NavigationOrderWorkspace({
     setDraftLabels((current) => ({ ...current, [id]: label }));
   }
 
-  function moveItem(index: number, offset: -1 | 1) {
-    setError("");
-    setDraftOrder((current) => {
-      const targetIndex = index + offset;
-      if (targetIndex < 0 || targetIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-      return next;
-    });
+  const navigationSaveInFlight = useRef(false);
+
+  function moveItem(from: number, to: number) {
+    if (navigationSaveInFlight.current) return;
+    const next = [...draftOrder];
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    setDraftOrder(next);
+    void handleSave(next);
   }
 
-  async function handleSave() {
+  async function handleSave(order = draftOrder) {
+    if (navigationSaveInFlight.current) return;
+    navigationSaveInFlight.current = true;
     setIsSaving(true);
     setError("");
-    const result = await saveNavigationOrder(draftOrder, draftLabels);
+    const result = await saveNavigationOrder(order, draftLabels);
+    navigationSaveInFlight.current = false;
     setIsSaving(false);
 
     if (result.status === "error") {
+      setDraftOrder([...navigationOrder]);
       setError(readShortUserMessage(
         result.message,
         "Не удалось сохранить вкладки.",
@@ -8817,7 +8821,8 @@ function NavigationOrderWorkspace({
             Настройте общий порядок и названия вкладок в левой панели.
             Пользователь увидит только доступные ему вкладки, но в указанной
             здесь последовательности и с этими названиями. Пустое название
-            возвращает разделу имя по умолчанию.
+            возвращает разделу имя по умолчанию. Перетаскивайте за точки слева —
+            порядок сохраняется после отпускания. Название сохраняется после выхода из поля.
           </p>
         </div>
       </header>
@@ -8838,13 +8843,18 @@ function NavigationOrderWorkspace({
               const item = navigationItemById.get(id);
               if (item === undefined) return null;
               return (
-                <div className="admin-navigation-order-row" key={id}>
+                <div className="admin-navigation-order-row" data-reorder-row key={id}>
+                  <RowDragHandle label={item.label} disabled={isSaving} onMove={moveItem} />
                   <span className="admin-navigation-order-index">{index + 1}</span>
                   <span className="admin-navigation-order-copy">
                     <label className="admin-navigation-order-rename">
                       <span>Название раздела</span>
                       <input
                         disabled={isSaving}
+                        onBlur={() => {
+                          if ((draftLabels[id] ?? "") !== (navigationLabels[id] ?? "")) void handleSave();
+                        }}
+                        onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
                         maxLength={navigationLabelMaxLength}
                         placeholder={item.label}
                         value={draftLabels[id] ?? ""}
@@ -8860,40 +8870,13 @@ function NavigationOrderWorkspace({
                       {`по умолчанию «${item.label}»`}
                     </small>
                   </span>
-                  <span className="admin-position-order-actions">
-                    <button
-                      aria-label={`Переместить ${item.label} выше`}
-                      className="secondary-button"
-                      disabled={isSaving || index === 0}
-                      type="button"
-                      onClick={() => moveItem(index, -1)}
-                    >
-                      Выше
-                    </button>
-                    <button
-                      aria-label={`Переместить ${item.label} ниже`}
-                      className="secondary-button"
-                      disabled={isSaving || index === draftOrder.length - 1}
-                      type="button"
-                      onClick={() => moveItem(index, 1)}
-                    >
-                      Ниже
-                    </button>
-                  </span>
                 </div>
               );
             })}
           </div>
 
           <div className="admin-navigation-order-footer">
-            <button
-              className="primary-button"
-              disabled={isSaving}
-              type="button"
-              onClick={() => void handleSave()}
-            >
-              {isSaving ? "Сохраняем…" : "Сохранить порядок"}
-            </button>
+            {isSaving ? <LoadingIndicator label="Сохраняем вкладки…" variant="inline" /> : null}
             {error.length > 0 ? (
               <p className="form-status is-error">{error}</p>
             ) : null}
@@ -11240,8 +11223,6 @@ const emptyAdminPositionForm: AdminPositionFormState = {
   showOverviewVisitors: true,
 };
 
-const positionOrderAutosaveDelayMs = 5_000;
-
 const adminAccountPositionOptions: AccountPosition[] = [
   "administrator",
   "business_owner",
@@ -11311,31 +11292,6 @@ function formatPositionNavigationItem(
   }
 
   return label;
-}
-
-function moveAdminPosition(
-  positions: AdminPositionSummary[],
-  positionId: string,
-  direction: -1 | 1,
-) {
-  const currentIndex = positions.findIndex(
-    (position) => position.id === positionId,
-  );
-  const nextIndex = currentIndex + direction;
-  if (
-    currentIndex < 0 ||
-    nextIndex < 0 ||
-    nextIndex >= positions.length
-  ) {
-    return positions;
-  }
-
-  const next = [...positions];
-  [next[currentIndex], next[nextIndex]] = [
-    next[nextIndex],
-    next[currentIndex],
-  ];
-  return next;
 }
 
 function buildAdminPreviewAccountForPosition(
@@ -11493,8 +11449,7 @@ function AdminAccountsWorkspace({
   const [positionOrderDraft, setPositionOrderDraft] = useState<
     AdminPositionSummary[]
   >();
-  const [positionOrderAutosaveRetryVersion, setPositionOrderAutosaveRetryVersion] =
-    useState(0);
+  const positionSaveInFlight = useRef(false);
   const [isSavingPositionOrder, setIsSavingPositionOrder] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [revealedPasswords, setRevealedPasswords] = useState<
@@ -11590,20 +11545,6 @@ function AdminAccountsWorkspace({
       controller.abort();
     };
   }, [canManage, refreshVersion]);
-
-  useEffect(() => {
-    if (positionOrderDraft === undefined) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      void savePositionOrder(positionOrderDraft);
-    }, positionOrderAutosaveDelayMs);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [positionOrderDraft, positionOrderAutosaveRetryVersion]);
 
   useEffect(() => {
     if (!isCreateModalOpen) {
@@ -11887,62 +11828,36 @@ function AdminAccountsWorkspace({
     setRefreshVersion((version) => version + 1);
   }
 
-  function handleMovePosition(positionId: string, direction: -1 | 1) {
-    if (
-      positionsState.status !== "ready" ||
-      isSavingPositionOrder ||
-      deletingPositionId !== undefined ||
-      isSubmitting
-    ) {
-      return;
-    }
-
-    const currentPositions = positionOrderDraft ?? positionsState.positions;
-    const currentIndex = currentPositions.findIndex(
-      (position) => position.id === positionId,
-    );
-    const movedPositions = [
-      currentPositions[currentIndex],
-      currentPositions[currentIndex + direction],
-    ];
-    if (
-      !canManageProtectedPositions &&
-      movedPositions.some((position) => position?.hasAdminRights === true)
-    ) {
-      return;
-    }
-
-    setPositionOrderDraft((current) =>
-      moveAdminPosition(
-        current ?? positionsState.positions,
-        positionId,
-        direction,
-      )
-    );
-    setWorkspaceStatus("");
+  function handleMovePosition(from: number, to: number) {
+    if (positionsState.status !== "ready" || positionSaveInFlight.current ||
+      !canManageAccess || deletingPositionId !== undefined || isSubmitting || protectingPositionId !== undefined) return;
+    const current = positionsState.positions;
+    if (!canManageProtectedPositions && current.slice(Math.min(from, to), Math.max(from, to) + 1)
+      .some((position) => position.hasAdminRights)) return;
+    const next = [...current];
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    setPositionOrderDraft(next);
+    void savePositionOrder(next);
   }
 
   async function savePositionOrder(positions: AdminPositionSummary[]) {
+    if (positionSaveInFlight.current) return;
+    positionSaveInFlight.current = true;
     setIsSavingPositionOrder(true);
     setWorkspaceStatus("");
     const result = await saveAdminPositionOrder(
       positions.map((position) => position.id),
     );
+    positionSaveInFlight.current = false;
     setIsSavingPositionOrder(false);
+    setPositionOrderDraft(undefined);
     if (result.status !== "ready") {
       setWorkspaceStatus(result.message);
-      if (
-        result.code === "network_error" ||
-        (result.statusCode !== undefined && result.statusCode >= 500)
-      ) {
-        setPositionOrderAutosaveRetryVersion((version) => version + 1);
-      }
       return;
     }
 
     setPositionsState(result);
     setPositionOrderDraft(undefined);
-    setPositionOrderAutosaveRetryVersion(0);
     onShowToast(
       "Порядок сохранён",
       "Списки должностей и учётных записей обновлены.",
@@ -12726,8 +12641,8 @@ function AdminAccountsWorkspace({
           <div>
             <h3 className="admin-positions-title">Должности и доступы</h3>
             <p>
-              Перемещайте должности кнопками — порядок сохраняется автоматически
-              через 5 секунд после последнего изменения.
+              Перетаскивайте должности за точки слева — порядок сохраняется
+              только после отпускания. Escape отменяет перемещение.
             </p>
           </div>
           <div className="admin-position-order-actions">
@@ -12761,20 +12676,7 @@ function AdminAccountsWorkspace({
             >
               Новая должность
             </button>
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={
-                positionOrderDraft === undefined ||
-                isSavingPositionOrder
-              }
-              onClick={() => {
-                setPositionOrderDraft(undefined);
-                setPositionOrderAutosaveRetryVersion(0);
-              }}
-            >
-              Отменить
-            </button>
+
           </div>
         </div>
         {positionsState.status === "ready" ? (
@@ -12795,55 +12697,17 @@ function AdminAccountsWorkspace({
                   const isProtectedMutationRestricted =
                     position.hasAdminRights &&
                     !canManageProtectedPositions;
-                  const previousPosition = displayedPositions[index - 1];
-                  const nextPosition = displayedPositions[index + 1];
-                  const isMoveUpProtected =
-                    !canManageProtectedPositions &&
-                    (position.hasAdminRights ||
-                      previousPosition?.hasAdminRights === true);
-                  const isMoveDownProtected =
-                    !canManageProtectedPositions &&
-                    (position.hasAdminRights ||
-                      nextPosition?.hasAdminRights === true);
                   return (
-                  <tr key={position.id}>
+                  <tr key={position.id} data-reorder-row data-reorder-locked={isProtectedMutationRestricted}>
                     <TableCell>
                       <div className="admin-position-order-cell">
+                        <RowDragHandle label={`должность «${position.displayName}»`}
+                          disabled={!canManageAccess || isProtectedMutationRestricted || isSavingPositionOrder ||
+                            deletingPositionId !== undefined || isSubmitting || protectingPositionId !== undefined}
+                          onMove={handleMovePosition} />
                         <span aria-label={`Позиция ${index + 1}`}>
                           {index + 1}
                         </span>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          aria-label={`Поднять должность «${position.displayName}» выше`}
-                          disabled={
-                            !canManageAccess ||
-                            index === 0 ||
-                            isMoveUpProtected ||
-                            isSavingPositionOrder ||
-                            deletingPositionId !== undefined ||
-                            isSubmitting
-                          }
-                          onClick={() => handleMovePosition(position.id, -1)}
-                        >
-                          Выше
-                        </button>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          aria-label={`Опустить должность «${position.displayName}» ниже`}
-                          disabled={
-                            !canManageAccess ||
-                            index === displayedPositions.length - 1 ||
-                            isMoveDownProtected ||
-                            isSavingPositionOrder ||
-                            deletingPositionId !== undefined ||
-                            isSubmitting
-                          }
-                          onClick={() => handleMovePosition(position.id, 1)}
-                        >
-                          Ниже
-                        </button>
                       </div>
                     </TableCell>
                     <TableCell>{position.displayName}</TableCell>
