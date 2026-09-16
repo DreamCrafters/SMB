@@ -9539,3 +9539,13 @@ p {
   box-shadow: 0 4px 14px #26374033;
 }
 .is-row-dragging .row-drag-handle { cursor: grabbing; }
+
+/* Keep wide delegation columns inside their scroller, not the modal grid. */
+.board-assignment-dialog { grid-template-columns: minmax(0, 1fr); }
+.board-delegations { grid-template-columns: minmax(0, 1fr); max-width: 100%; }
+.board-delegations > .director-register-heading { min-width: 0; }
+.board-delegations .director-assignment-actions { min-width: 0; max-width: 100%; }
+.board-delegations .director-assignment-actions > button { white-space: normal; overflow-wrap: anywhere; }
+.board-delegation-history-row > td { padding: 14px; background: var(--surface-raised); }
+.board-delegation-history-row .table-cell-text { display: block; overflow: visible; -webkit-line-clamp: unset; }
+.board-delegation-events { overflow-wrap: anywhere; }

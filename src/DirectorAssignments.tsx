@@ -75,7 +75,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
       <button type="button" onClick={() => { setHistory(null); setSelected(undefined); setForm(undefined); }}>Текущие поручения</button>
       <button type="button" onClick={() => { setSelected(undefined); setForm(undefined); void openHistory(); }}>История исполнений</button>
     </div>}
-    {form && <DirectorAssignmentForm form={form} setForm={setForm} employees={data.employees} saving={saving} assignmentNumber={selected?.number} comment={comment} onCommentChange={setComment} onSubmit={save} onCancel={() => { setForm(undefined); setSelected(undefined); }} />}
+    {form && <DirectorAssignmentForm legacyEmployees={selected ? [...(selected.responsible ? [selected.responsible] : []), ...selected.coExecutors] : []} form={form} setForm={setForm} employees={data.employees} saving={saving} assignmentNumber={selected?.number} comment={comment} onCommentChange={setComment} onSubmit={save} onCancel={() => { setForm(undefined); setSelected(undefined); }} />}
     {selected && !form && <section className="director-assignment-detail">
       <h3>№{selected.number}: {selected.summary}</h3>
       <dl>{values(selected).map((value, index) => <div key={columns[index]}><dt>{columnLabels[index]}</dt><dd>{value || "—"}</dd></div>)}</dl>
@@ -107,7 +107,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   </section>;
 }
 
-export function DirectorAssignmentForm({ form, setForm, employees, saving, assignmentNumber, comment, onCommentChange, onCancel, onSubmit, sourceLocked = false }: {
+export function DirectorAssignmentForm({ form, setForm, employees, saving, assignmentNumber, comment, onCommentChange, onCancel, onSubmit, sourceLocked = false, legacyEmployees = [] }: {
   form: DirectorAssignmentInput;
   setForm: Dispatch<SetStateAction<DirectorAssignmentInput | undefined>>;
   employees: PersonnelEmployee[];
@@ -118,6 +118,7 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   sourceLocked?: boolean;
+  legacyEmployees?: PersonnelEmployee[];
 }) {
   const isEditing = assignmentNumber !== undefined;
   const [employeeSearch, setEmployeeSearch] = useState("");
@@ -137,9 +138,10 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
       <fieldset disabled={saving} className="board-assignment-form-grid director-compose-fields">
         <legend>Кому поручить</legend>
         <label>Поиск сотрудника<input type="search" placeholder="ФИО или должность" value={employeeSearch} onChange={event => setEmployeeSearch(event.currentTarget.value)} /></label>
-        <label>Ответственный<select required value={form.responsibleId} onChange={event => { const value = event.currentTarget.value; setForm(current => current && { ...current, responsibleId: value, coExecutorIds: current.coExecutorIds.filter(id => id !== value) }); }}><option value="">Выберите сотрудника</option>{employeeOptions.map(employee => <option key={employee.id} value={employee.id}>{employee.fullName} — {employee.position}</option>)}</select></label>
-        <p className="director-field-hint is-wide">Доступно сотрудников: {employees.length}. Учётные записи и кадровый справочник объединены в один список.</p>
-        {employees.length === 0 && <p className="is-wide" role="status">Список сотрудников пока пуст. Добавьте учётные записи или записи в кадровый справочник.</p>}
+        <label>Ответственный<select required value={form.responsibleId} onChange={event => { const value = event.currentTarget.value; setForm(current => current && { ...current, responsibleId: value, coExecutorIds: current.coExecutorIds.filter(id => id !== value) }); }}><option value="">Выберите сотрудника</option>{form.responsibleId && !employees.some(employee => employee.id === form.responsibleId) && <option value={form.responsibleId} disabled>Выберите аккаунт вместо прежнего ответственного</option>}{employeeOptions.map(employee => <option key={employee.id} value={employee.id}>{employee.fullName} — {employee.position}</option>)}</select></label>
+        <p className="director-field-hint is-wide">Доступно сотрудников: {employees.length}. Назначение доступно только действующим учётным записям сайта.</p>
+        {employees.length === 0 && <p className="is-wide" role="status">Список сотрудников пока пуст. Добавьте учётные записи сотрудников.</p>}
+        {form.coExecutorIds.filter(id => !employees.some(employee => employee.id === id)).map(id => <div key={id} className="is-wide director-assignment-actions"><span>{legacyEmployees.find(employee => employee.id === id)?.fullName ?? "Прежний соисполнитель"}: нет доступного аккаунта. Удалите участника и при необходимости выберите его аккаунт.</span><button type="button" disabled={saving} onClick={() => setForm(current => current && { ...current, coExecutorIds: current.coExecutorIds.filter(value => value !== id) })}>Убрать прежнего соисполнителя</button></div>)}
         <details className="is-wide director-coexecutors"><summary>Соисполнители{form.coExecutorIds.length ? `: ${form.coExecutorIds.length}` : " (необязательно)"}</summary><div>{employeeOptions.filter(employee => employee.id !== form.responsibleId).map(employee => <label key={employee.id}><input type="checkbox" checked={form.coExecutorIds.includes(employee.id)} onChange={event => { const checked = event.currentTarget.checked; setForm(current => current && { ...current, coExecutorIds: checked ? [...current.coExecutorIds, employee.id] : current.coExecutorIds.filter(id => id !== employee.id) }); }} /><span>{employee.fullName}<small>{employee.position}</small></span></label>)}</div></details>
       </fieldset>
       <fieldset disabled={saving} className="board-assignment-form-grid director-compose-fields">

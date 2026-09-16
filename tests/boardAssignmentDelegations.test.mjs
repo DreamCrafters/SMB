@@ -64,9 +64,19 @@ test("board delegation copies full content, supports multiple employees and disp
       { id: "revision", author: "Гендиректор", text: "Требуется дополнение", status: "revision_requested", createdAt: "2026-09-16T12:00:00Z", responsibleDisplayName: employees[0].fullName },
     );
     await React.act(async () => button("Обновить историю").click());
+    const eventsButton = button("События: 3");
+    assert.ok(eventsButton);
+    assert.equal(eventsButton.getAttribute("aria-expanded"), "false");
+    await React.act(async () => eventsButton.click());
+    const eventsRow = eventsButton.closest("tr").nextElementSibling;
+    assert.equal(eventsRow.querySelector("td").colSpan, 6);
+    assert.match(eventsRow.textContent, /Требуется дополнение/u);
+    assert.equal(eventsButton.getAttribute("aria-expanded"), "true");
     assert.match(rootElement.textContent, /Готово, на проверке/u);
     assert.match(rootElement.textContent, /На доработке/u);
     assert.match(rootElement.textContent, /Требуется дополнение/u);
+    await React.act(async () => eventsButton.click());
+    assert.equal(eventsButton.getAttribute("aria-expanded"), "false");
     assert.equal(source.details, "Полное содержание поручения СД\nВторая строка");
     await React.act(async () => root.render(React.createElement(BoardAssignmentDelegations, { assignment: source, onShowToast() {}, onBusyChange() {}, readOnly: true })));
     assert.equal(button("Назначить поручение"), undefined);

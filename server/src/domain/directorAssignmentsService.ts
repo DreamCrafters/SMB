@@ -57,8 +57,9 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     const ids = [...new Set([responsibleId, ...coExecutorIds])].sort();
     const found = new Map<string, PersonnelEmployee>();
     for (const id of ids) {
+      if (!id.startsWith("account:")) throw new DirectorAssignmentError("Выберите действующую учётную запись сотрудника.");
       const employee = await repository.readAssignableEmployee(id, true);
-      if (!employee?.active) throw new DirectorAssignmentError("Выберите действующего сотрудника справочника.");
+      if (!employee?.active || !employee.userId) throw new DirectorAssignmentError("Выберите действующую учётную запись сотрудника.");
       found.set(id, employee);
     }
     const assignedUsers = [...found.values()].flatMap(employee => employee.userId ? [employee.userId] : []);
@@ -90,9 +91,10 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       const permissions = directorAssignmentPermissions(profile);
       requirePermission(permissions.canView);
       const employees = await repository.listAssignableEmployees();
-      const assignments = (await repository.list()).filter(assignment => permissions.canManage || canExecuteDirectorAssignment({
-        ...assignment, responsible: employees.find(employee => employee.active && (employee.id === assignment.responsibleId || (assignment.responsibleId.startsWith("account:") && employee.userId === assignment.responsibleId.slice(8)))) ?? null,
-      }, profile.userId, today()));
+      const assignments: DirectorAssignment[] = [];
+      for (const assignment of await repository.list()) {
+        if (permissions.canManage || canExecuteDirectorAssignment(await effectiveAssignment(assignment), profile.userId, today())) assignments.push(assignment);
+      }
       const enriched = assignments.map(assignment => ({ ...assignment, durationWorkdays: directorWorkdays(assignment.assignedOn, assignment.currentOccurrenceDate), remainingWorkdays: directorWorkdays(assignment.completedOn || today(), assignment.currentOccurrenceDate) }));
       return { assignments: enriched, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
     },

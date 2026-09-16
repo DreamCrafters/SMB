@@ -42,13 +42,13 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool) {
     listEmployees,
     readEmployee,
     async listAssignableEmployees() {
-      const personnel = (await listEmployees()).filter(employee => employee.active);
-      const linkedUsers = new Set(personnel.map(employee => employee.userId).filter(Boolean));
-      return [...personnel, ...(await accountEmployees()).filter(employee => !linkedUsers.has(employee.userId))]
-        .sort((a, b) => a.fullName.localeCompare(b.fullName, "ru"));
+      return accountEmployees();
     },
     async readAssignableEmployee(id: string, lock = false) {
-      return id.startsWith("account:") ? (await accountEmployees(id.slice(8), lock))[0] : readEmployee(id, lock);
+      if (id.startsWith("account:")) return (await accountEmployees(id.slice(8), lock))[0];
+      // Legacy assignments keep their explicit link; names never resolve accounts.
+      const employee = await readEmployee(id, lock);
+      return employee?.active && employee.userId ? (await accountEmployees(employee.userId, lock))[0] : undefined;
     },
     async listUserOptions() {
       const [rows] = await pool.query<(RowDataPacket & { id: string; displayName: string; login: string })[]>(

@@ -13,7 +13,7 @@ function fixture() {
   let boardLocks = 0;
   const board = { id: "board-parent", summary: "Исходное поручение", details: "Полное содержание поручения", status: "in_progress", recurrence: "once", activeFrom: "2026-09-01", activeTo: "2026-09-01", currentOccurrenceDate: "2026-09-01" } as BoardAssignment;
   let auditFails = false;
-  const employee: PersonnelEmployee = { id: "person", revision: 1, fullName: "Исполнитель", position: "Инженер", department: "", category: "ИТР", userId: "worker", active: true };
+  const employee: PersonnelEmployee = { id: "account:worker", revision: 1, fullName: "Исполнитель", position: "Инженер", department: "", category: "ИТР", userId: "worker", active: true };
   const repository = {
     list: async () => structuredClone([...records.values()]),
     listByBoardAssignment: async (id: string) => structuredClone([...records.values()].filter(record => record.sourceBoardAssignmentId === id)),
@@ -43,7 +43,7 @@ function fixture() {
     activeAccess: { accountId: userId, accountType: "business_owner", position: "worker", positionDisplayName: "Сотрудник", displayName: userId, scope: { kind: "organization" }, issuedAt: "2026-09-14T00:00:00Z", navigationItems: ["business.director_assignments"], capabilities: ["business.view_director_assignments", ...(manager ? ["business.manage_director_assignments" as const] : [])] },
   });
   const input: DirectorAssignmentInput = { assignedOn: "2026-09-01", kind: "Поручение", summary: "Представить отчёт", department: "", project: "", responsibleId: employee.id, coExecutorIds: [], recurrence: "monthly", activeFrom: "2026-09-01", activeTo: "2026-12-31", urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null };
-  return { service, employee, profile, input, board, boardLocks: () => boardLocks, failAudit() { auditFails = true; } };
+  return { service, employee, profile, input, board, boardLocks: () => boardLocks, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, failAudit() { auditFails = true; } };
 }
 
 test("own assignment is visible only until submission; another employee cannot read or mutate it", async () => {
@@ -68,9 +68,9 @@ test("assignment directly addressed to an account survives linking that account 
   await service.action(profile("worker"), record.id, { action: "submit_for_review", revision: record.revision, comment: "Готово" });
 });
 
-test("account and personnel aliases of the same user cannot be responsible and co-executor", async () => {
+test("the responsible account cannot also be a co-executor", async () => {
   const { service, profile, input } = fixture();
-  await assert.rejects(service.save(profile("sender", true), { assignment: { ...input, coExecutorIds: ["account:worker"] }, comment: "Создано" }), /дважды/u);
+  await assert.rejects(service.save(profile("sender", true), { assignment: { ...input, coExecutorIds: ["account:worker"] }, comment: "Создано" }), /уже участвует/u);
 });
 
 test("accepted period is immutable and editing the next period does not rewind the schedule", async () => {
@@ -91,8 +91,9 @@ test("accepted period is immutable and editing the next period does not rewind t
 });
 
 test("personnel relinking immediately revokes the former executor's access", async () => {
-  const { service, profile, input, employee } = fixture();
+  const { service, profile, input, employee, makeLegacy } = fixture();
   const record = await service.save(profile("director", true), { assignment: input, comment: "Создано" });
+  makeLegacy(record.id);
   employee.userId = "replacement";
   await assert.rejects(service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: 1 }), /недоступно/u);
   assert.equal((await service.list(profile("replacement"))).assignments.length, 1);
@@ -165,3 +166,10 @@ test("delegation history preserves the responsible name at the time of assignmen
   const history = await service.delegations(sender, board.id);
   assert.deepEqual(history.assignments[0].comments.map(comment => comment.responsibleDisplayName), ["Исполнитель", "Новое имя сотрудника"]);
 });
+
+ test("new assignments reject personnel IDs for responsible and coexecutors", async () => {
+  const { service, profile, input } = fixture();
+  const sender = profile("sender", true);
+  await assert.rejects(service.save(sender, { assignment: { ...input, responsibleId: "person-imported" }, comment: "Назначено" }), /учётную запись/u);
+  await assert.rejects(service.save(sender, { assignment: { ...input, coExecutorIds: ["person-imported"] }, comment: "Назначено" }), /учётную запись/u);
+ });
