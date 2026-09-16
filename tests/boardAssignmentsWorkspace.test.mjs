@@ -76,6 +76,7 @@ test("board assignment executor sees active rows and submits without choosing a 
   };
   let actionRequest;
   let listSearchParams;
+  let pendingSearch;
 
   try {
     const { BoardAssignmentsWorkspace } = await vite.ssrLoadModule(
@@ -86,6 +87,11 @@ test("board assignment executor sees active rows and submits without choosing a 
 
       if (url.pathname === "/api/board-assignments") {
         listSearchParams = url.searchParams;
+        if (url.searchParams.get("query") === "ана") {
+          return new Promise((resolve) => {
+            pendingSearch = { resolve, signal: init.signal };
+          });
+        }
         return jsonResponse({
           assignments: [summary, activeSummary, revisionSummary],
           permissions,
@@ -193,11 +199,9 @@ test("board assignment executor sees active rows and submits without choosing a 
         input.click();
       }
     });
-    await React.act(async () => {
-      rootElement.querySelector(".board-assignment-filters").dispatchEvent(
-        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
-      );
-    });
+    assert.equal(Array.from(rootElement.querySelectorAll("button")).some(
+      (button) => button.textContent?.trim() === "Показать",
+    ), false);
     assert.equal(listSearchParams.has("status"), false);
     assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 2);
     assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr.is-overdue").length, 1);
@@ -212,12 +216,26 @@ test("board assignment executor sees active rows and submits without choosing a 
       /Просрочено, На доработке/u,
     );
     await React.act(async () => {
+      setInputValue(rootElement.querySelector(".board-assignment-search input"), "ана");
+    });
+    assert.equal(listSearchParams.get("query"), "ана");
+    await React.act(async () => {
+      setInputValue(rootElement.querySelector(".board-assignment-search input"), "анализ");
+    });
+    assert.equal(listSearchParams.get("query"), "анализ");
+    assert.equal(pendingSearch.signal.aborted, true);
+    await React.act(async () => {
+      pendingSearch.resolve(jsonResponse({ assignments: [], permissions }));
+    });
+    assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 2);
+    await React.act(async () => {
       Array.from(rootElement.querySelectorAll("button")).find(
         (button) => button.textContent?.trim() === "Сбросить",
       ).click();
     });
     assert.equal(statusInputs.every((input) => !input.checked), true);
     assert.equal(listSearchParams.has("status"), false);
+    assert.equal(listSearchParams.has("query"), false);
     assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 3);
 
     await React.act(async () => {
@@ -616,9 +634,11 @@ test("board assignment viewer gets a quiet read-only register", async () => {
     const { BoardAssignmentsWorkspace } = await vite.ssrLoadModule(
       "/src/BoardAssignments.tsx",
     );
+    const requestedFilters = [];
     globalThis.fetch = async (input) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
       if (url.pathname === "/api/board-assignments") {
+        requestedFilters.push(url.searchParams);
         return jsonResponse({ assignments: [assignment], permissions });
       }
       if (url.pathname === "/api/board-assignments/assignment-view") {
@@ -654,6 +674,15 @@ test("board assignment viewer gets a quiet read-only register", async () => {
       /Только просмотр.*1.*поручение/su,
     );
     assert.notEqual(rootElement.querySelector("table"), null);
+    await React.act(async () => {
+      setInputValue(findLabel(rootElement, "Заседание с").querySelector("input"), "2026-07-01");
+    });
+    assert.equal(requestedFilters.at(-1).get("meetingDateFrom"), "2026-07-01");
+    await React.act(async () => {
+      setInputValue(findLabel(rootElement, "Заседание по").querySelector("input"), "2026-07-31");
+    });
+    assert.equal(requestedFilters.at(-1).get("meetingDateFrom"), "2026-07-01");
+    assert.equal(requestedFilters.at(-1).get("meetingDateTo"), "2026-07-31");
     assert.notEqual(
       rootElement.querySelector(".board-assignment-status-filter"),
       null,

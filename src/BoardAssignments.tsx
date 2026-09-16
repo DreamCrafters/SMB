@@ -2,6 +2,7 @@ import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell } from "./TableCell";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -124,16 +125,17 @@ export function BoardAssignmentsWorkspace({
 }: {
   onShowToast: ShowToast;
 }) {
-  const [filters, setFilters] = useState<BoardAssignmentFilters>({});
   const [registerMode, setRegisterMode] = useState<"live" | "history">("live");
   const [query, setQuery] = useState("");
   const [statuses, setStatuses] = useState<BoardAssignmentDisplayStatus[]>([]);
-  const [appliedStatuses, setAppliedStatuses] = useState<
-    BoardAssignmentDisplayStatus[]
-  >([]);
   const statusFilterRef = useRef<HTMLDetailsElement>(null);
   const [meetingDateFrom, setMeetingDateFrom] = useState("");
   const [meetingDateTo, setMeetingDateTo] = useState("");
+  const filters = useMemo<BoardAssignmentFilters>(() => ({
+    ...(query.trim() === "" ? {} : { query: query.trim() }),
+    ...(meetingDateFrom === "" ? {} : { meetingDateFrom }),
+    ...(meetingDateTo === "" ? {} : { meetingDateTo }),
+  }), [query, meetingDateFrom, meetingDateTo]);
   const [listVersion, setListVersion] = useState(0);
   const [listState, setListState] = useState<ListState>({
     status: "loading",
@@ -288,25 +290,12 @@ export function BoardAssignmentsWorkspace({
     return () => controller.abort();
   }, [selectedCompletionId]);
 
-  function applyFilters(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setAppliedStatuses([...statuses]);
-    if (statusFilterRef.current !== null) statusFilterRef.current.open = false;
-    setFilters({
-      ...(query.trim() === "" ? {} : { query: query.trim() }),
-      ...(meetingDateFrom === "" ? {} : { meetingDateFrom }),
-      ...(meetingDateTo === "" ? {} : { meetingDateTo }),
-    });
-  }
-
   function resetFilters() {
     setQuery("");
     setStatuses([]);
-    setAppliedStatuses([]);
     if (statusFilterRef.current !== null) statusFilterRef.current.open = false;
     setMeetingDateFrom("");
     setMeetingDateTo("");
-    setFilters({});
   }
 
   function toggleStatusFilter(
@@ -585,11 +574,6 @@ export function BoardAssignmentsWorkspace({
     setSelectedId(undefined);
     setSelectedCompletionId(undefined);
     setStatuses([]);
-    setAppliedStatuses([]);
-    setFilters((current) => {
-      const { status: _status, ...remaining } = current;
-      return remaining;
-    });
   }
 
   const canCreate = permissions.canCreate;
@@ -599,8 +583,8 @@ export function BoardAssignmentsWorkspace({
     : boardAssignmentStatuses;
   const statusFilterSummary = formatStatusFilterSummary(statuses);
   const visibleAssignments = listState.assignments.filter((assignment) =>
-    appliedStatuses.length === 0
-    || appliedStatuses.some((status) => matchesDisplayStatus(
+    statuses.length === 0
+    || statuses.some((status) => matchesDisplayStatus(
       assignment,
       status,
       accessMode,
@@ -777,7 +761,7 @@ export function BoardAssignmentsWorkspace({
             ? " is-history"
             : ""
         }`}
-        onSubmit={applyFilters}
+        onSubmit={(event) => event.preventDefault()}
       >
         <label className="board-assignment-search">
           <span>
@@ -855,7 +839,6 @@ export function BoardAssignmentsWorkspace({
           </>
         )}
         <div className="board-assignment-filter-actions">
-          <button className="primary-button" type="submit">Показать</button>
           <button
             className="secondary-button"
             type="button"
