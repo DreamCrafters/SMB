@@ -1,3 +1,4 @@
+import { BoardAssignmentDelegations } from "./BoardAssignmentDelegations";
 import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell } from "./TableCell";
 import {
@@ -1124,6 +1125,7 @@ export function BoardAssignmentsWorkspace({
 
       {selectedId === undefined || isEditOpen ? null : (
         <BoardAssignmentDetailDialog
+          onShowToast={onShowToast}
           actionComment={actionComment}
           detailState={detailState}
           formMessage={formMessage}
@@ -1147,6 +1149,7 @@ export function BoardAssignmentsWorkspace({
 
       {selectedCompletionId === undefined ? null : (
         <BoardAssignmentDetailDialog
+          onShowToast={onShowToast}
           actionComment=""
           detailState={
             completionDetailState?.status === "ready"
@@ -1608,16 +1611,18 @@ function BoardAssignmentDetailDialog({
   permissions,
   isMaterialOpening,
   actionComment,
-  isSaving,
+  isSaving: isBoardSaving,
   formMessage,
   isOverdue,
   onCommentChange,
-  onCancel,
+  onCancel: onClose,
   onOpenMaterial,
   onEdit,
   onSubmit,
   snapshotMeta,
+  onShowToast,
 }: {
+  onShowToast: ShowToast;
   detailState: DetailState | undefined;
   permissions: BoardAssignmentPermissions;
   isMaterialOpening: boolean;
@@ -1635,6 +1640,9 @@ function BoardAssignmentDetailDialog({
     completedByDisplayName: string;
   };
 }) {
+  const [isDelegationSaving, setIsDelegationSaving] = useState(false);
+  const isSaving = isBoardSaving || isDelegationSaving;
+  const onCancel = () => { if (!isSaving) onClose(); };
   const assignment =
     detailState?.status === "ready" ? detailState.assignment : undefined;
   const documents = assignment === undefined
@@ -1813,6 +1821,8 @@ function BoardAssignmentDetailDialog({
               )}
             </dl>
 
+            <BoardAssignmentDelegations key={detailState.assignment.id} assignment={detailState.assignment} onShowToast={onShowToast} onBusyChange={setIsDelegationSaving} readOnly={snapshotMeta !== undefined} isParentSaving={isBoardSaving} />
+
             <section className="board-assignment-comments">
               <h3>Комментарии</h3>
               {detailState.assignment.comments.length === 0 ? (
@@ -1841,7 +1851,7 @@ function BoardAssignmentDetailDialog({
                     ? " is-review"
                     : ""
                 }`}
-                onSubmit={onSubmit}
+                onSubmit={(event) => { if (isSaving) { event.preventDefault(); return; } onSubmit(event); }}
               >
                 <label>
                   <span>

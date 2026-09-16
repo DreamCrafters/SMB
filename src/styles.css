@@ -9503,3 +9503,9 @@ p {
   .director-compose-fields, .director-compose-extra > div, .director-register > .director-assignment-filters { grid-template-columns: minmax(0, 1fr); }
   .director-assignment-actions > button { flex: 1 1 auto; }
 }
+
+.board-delegations { display: grid; gap: 14px; min-width: 0; padding-block: 18px; border-top: 1px solid var(--line); }
+.board-delegations .director-assignment-compose { width: 100%; box-sizing: border-box; }
+.board-delegation-events { display: grid; gap: 12px; margin: 10px 0; padding-left: 20px; }
+.board-delegation-events li > span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.board-delegation-events p { white-space: pre-wrap; margin: 6px 0 0; }

@@ -931,6 +931,20 @@ export function createApiServer({
         return;
       }
 
+      const boardDelegationsMatch = /^\/api\/board-assignments\/([a-zA-Z0-9-]{1,120})\/delegations$/u.exec(url.pathname);
+      if (boardDelegationsMatch) {
+        const access = await requireAuthentication(req, res, { config, devSessions, authService, accounts });
+        if (!access) return;
+        if (req.method !== "GET") { sendJson(res, 405, { error: { code: "invalid_response", message: "Используйте просмотр истории." } }); return; }
+        if (!directorAssignments) { sendJson(res, 503, { error: { code: "server_error", message: "История перепоручений временно недоступна." } }); return; }
+        try { sendJson(res, 200, await directorAssignments.delegations(access.profile, boardDelegationsMatch[1])); }
+        catch (error) {
+          if (!(error instanceof DirectorAssignmentError)) throw error;
+          sendJson(res, error.status, { error: { code: error.status === 403 ? "access_denied" : "invalid_response", message: error.message } });
+        }
+        return;
+      }
+
       if (/^\/api\/(?:director-assignments|personnel)(?:\/|$)/u.test(url.pathname)) {
         const access = await requireAuthentication(req, res, { config, devSessions, authService, accounts });
         if (!access) return;

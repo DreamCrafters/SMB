@@ -88,3 +88,14 @@ export type DirectorAssignmentPermissions = {
   canExecute: boolean;
   canManagePersonnel: boolean;
 };
+
+export type BoardAssignmentDelegation = Pick<DirectorAssignment,
+  "id" | "number" | "summary" | "responsible" | "coExecutors" | "currentOccurrenceDate" | "status" | "createdAt" | "updatedAt"
+> & { comments: Array<DirectorAssignmentComment & { responsibleDisplayName: string }> };
+
+export type BoardAssignmentDelegationsResponse = {
+  assignments: BoardAssignmentDelegation[];
+  canAssign: boolean;
+  employees: PersonnelEmployee[];
+  today: string;
+};

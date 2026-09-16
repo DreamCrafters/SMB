@@ -15365,10 +15365,10 @@ test("director endpoints authenticate and reject personnel access and forged pre
   profile.activeAccess.capabilities = [];
   const audit: AuditRepository = { async record() {}, async listReport() { throw new Error("unused"); } };
   const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
-  const repository = { async list() { return []; }, async listEmployees() { return []; }, async listAssignableEmployees() { return []; } } as unknown as DirectorAssignmentsRepository;
+  const repository = { async list() { return []; }, async listEmployees() { return []; }, async listAssignableEmployees() { return []; }, async listByBoardAssignment() { return []; }, async listBoardAssignmentRevisions() { return []; } } as unknown as DirectorAssignmentsRepository;
   const server = createApiServer({ config: productionConfig, dispatcherSubmissions,
     referenceDataSource: emptyReferenceDataSource, authService: buildAuthService({ profile }), audit, databaseTransaction: transaction,
-    directorAssignments: createDirectorAssignmentsService({ repository, transaction, audit }),
+    directorAssignments: createDirectorAssignmentsService({ repository, transaction, audit, boardAssignments: { async readById(id: string) { return id === "source" ? { id, status: "in_progress" } as BoardAssignment : undefined; } } as unknown as BoardAssignmentsRepository }),
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -15383,6 +15383,15 @@ test("director endpoints authenticate and reject personnel access and forged pre
     assert.equal((await fetch(`${baseUrl}/api/director-assignments`, { method: "POST", headers, body: "{}" })).status, 403);
     const forged = await fetch(`${baseUrl}/api/personnel`, { method: "POST", headers: { ...headers, "x-smb-account-preview": "navigation:business.personnel" }, body: "{}" });
     assert.equal(forged.status, 403);
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments/source/delegations`)).status, 401);
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments/source/delegations`, { headers })).status, 403);
+    profile.activeAccess.capabilities = ["business.view_board_assignments"];
+    const history = await fetch(`${baseUrl}/api/board-assignments/source/delegations`, { headers });
+    assert.equal(history.status, 200);
+    const historyBody: unknown = await history.json();
+    assert.ok(isRecord(historyBody));
+    assert.equal(historyBody.canAssign, false);
+    assert.equal((await fetch(`${baseUrl}/api/board-assignments/unknown/delegations`, { headers })).status, 404);
   } finally { server.close(); await once(server, "close"); }
 });
 

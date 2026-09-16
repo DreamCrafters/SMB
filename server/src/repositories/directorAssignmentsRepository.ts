@@ -74,6 +74,24 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool) {
       const [rows] = await pool.query<JsonRow[]>("select payload from director_assignments order by assigned_on desc, sequence_id desc");
       return rows.map(row => payload<DirectorAssignment>(row));
     },
+    async listByBoardAssignment(boardAssignmentId: string) {
+      const [rows] = await pool.query<JsonRow[]>(
+        `select payload from director_assignments
+         where json_unquote(json_extract(payload, '$.sourceBoardAssignmentId')) = ?
+         order by sequence_id desc`, [boardAssignmentId],
+      );
+      return rows.map(row => payload<DirectorAssignment>(row));
+    },
+    async listBoardAssignmentRevisions(boardAssignmentId: string) {
+      const [rows] = await pool.query<JsonRow[]>(
+        `select history.payload from director_assignment_history history
+         join director_assignments assignments on assignments.id = history.assignment_id
+         where history.event_type = 'revision'
+           and json_unquote(json_extract(assignments.payload, '$.sourceBoardAssignmentId')) = ?
+         order by history.sequence_id asc`, [boardAssignmentId],
+      );
+      return rows.map(row => payload<DirectorAssignment>(row));
+    },
     async read(id: string, lock = false) {
       const [rows] = await pool.query<JsonRow[]>(`select payload from director_assignments where id = ? ${lock ? "for update" : ""}`, [id]);
       return rows[0] ? payload<DirectorAssignment>(rows[0]) : undefined;
