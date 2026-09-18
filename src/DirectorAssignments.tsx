@@ -40,6 +40,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   const [form, setForm] = useState<DirectorAssignmentInput>();
   const [comment, setComment] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [history, setHistory] = useState<Array<{ id: string; assignment: DirectorAssignment }> | null>(null);
   const [showAllColumns, setShowAllColumns] = useState(false);
   async function refresh() { setData(await directorRequest<DirectorAssignmentListResponse>("/api/director-assignments")); }
@@ -65,7 +66,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   }
   if (!data) return <section className="workspace-panel">{error ? <p role="alert">{error}</p> : <LoadingIndicator label="Загрузка поручений" />}</section>;
   const rows = history ? history.map(item => item.assignment) : data.assignments;
-  const visible = rows.filter(row => values(row).join(" ").toLocaleLowerCase("ru-RU").includes((filters.query ?? "").toLocaleLowerCase("ru-RU")) && values(row).every((value, i) => value.toLocaleLowerCase("ru-RU").includes((filters[columns[i]] ?? "").toLocaleLowerCase("ru-RU"))));
+  const visible = rows.filter(row => (selectedStatuses.length === 0 || selectedStatuses.some(status => status === "Требует уточнения" ? row.needsClarification : statuses[row.status] === status)) && values(row).join(" ").toLocaleLowerCase("ru-RU").includes((filters.query ?? "").toLocaleLowerCase("ru-RU")) && values(row).every((value, i) => value.toLocaleLowerCase("ru-RU").includes((filters[columns[i]] ?? "").toLocaleLowerCase("ru-RU"))));
   const visibleColumns = showAllColumns ? [...columns] : (["number", "summary", "responsible", "deadline", "status", "progress"] as const);
   return <section className="board-assignments-workspace director-assignments">
     <header className="director-assignment-heading"><div><span className="eyebrow">{data.permissions.canManage ? "Отправка и контроль" : "Получение и выполнение"}</span><h2>Поручения генерального директора</h2><p>{data.permissions.canManage ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения." : "Ваши активные поручения. Сохраняйте промежуточные результаты и отправляйте готовую работу на проверку."}</p></div></header>
@@ -97,8 +98,24 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
     <section className="director-register"><div className="director-register-heading"><h3>{history ? "История исполнений" : data.permissions.canManage ? "Отправленные поручения" : "Мои поручения"}</h3><span>Найдено: {visible.length}</span></div>
     <div className="director-assignment-filters board-assignment-filters">
       <label>Поиск<input type="search" placeholder="Номер, содержание или сотрудник" value={filters.query ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, query: value })); }} /></label>
-      <label>Статус<select value={filters.status ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, status: value })); }}><option value="">Все статусы</option>{Object.values(statuses).map(status => <option key={status}>{status}</option>)}<option>Требует уточнения</option></select></label>
-      <button className="secondary-button" type="button" onClick={() => setFilters({})}>Сбросить</button>
+      <div className="board-assignment-status-filter">
+        <span className="board-assignment-status-filter-label">Статус</span>
+        <details>
+          <summary aria-label={`Статус: ${selectedStatuses.join(", ") || "Все статусы"}`} title={selectedStatuses.join(", ") || "Все статусы"}>
+            <span>{selectedStatuses.join(", ") || "Все статусы"}</span>
+          </summary>
+          <div className="board-assignment-status-options">
+            {[...Object.values(statuses), "Требует уточнения"].map(status => <label key={status}>
+              <input type="checkbox" value={status} checked={selectedStatuses.includes(status)} onChange={event => {
+                const checked = event.currentTarget.checked;
+                setSelectedStatuses(current => checked ? [...current, status] : current.filter(item => item !== status));
+              }} />
+              <span>{status}</span>
+            </label>)}
+          </div>
+        </details>
+      </div>
+      <button className="secondary-button" type="button" onClick={() => { setFilters({}); setSelectedStatuses([]); }}>Сбросить</button>
     </div>
     <details className="director-more-filters"><summary>Дополнительные фильтры</summary><div className="director-assignment-filters board-assignment-filters">{columns.filter(column => column !== "status").map(column => <label key={column}>{columnLabels[columns.indexOf(column)]}<input value={filters[column] ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, [column]: value })); }} /></label>)}</div></details>
     <label className="director-columns-toggle"><input type="checkbox" checked={showAllColumns} onChange={event => setShowAllColumns(event.currentTarget.checked)} />Все колонки реестра</label>
