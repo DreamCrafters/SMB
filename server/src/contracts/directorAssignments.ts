@@ -99,3 +99,9 @@ export type BoardAssignmentDelegationsResponse = {
   employees: PersonnelEmployee[];
   today: string;
 };
+
+export type DirectorAssignmentPdfRequest = {
+  mode: "register" | "assignment";
+  source: "current" | "history";
+  entries: Array<{ id: string; revision: number }>;
+};

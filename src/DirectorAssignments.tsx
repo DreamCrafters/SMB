@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type Dispatch, type SetStateAction } from "react";
 import type { DirectorAssignment, DirectorAssignmentInput, PersonnelEmployee } from "../server/src/contracts/directorAssignments";
-import { directorDocument, directorRequest, type DirectorAssignmentListResponse, type PersonnelResponse } from "./services/directorAssignments";
+import { directorAssignmentPdf, directorDocument, directorRequest, type DirectorAssignmentListResponse, type PersonnelResponse } from "./services/directorAssignments";
 import { requestBoardAssignments } from "./services/boardAssignments";
 import type { BoardAssignmentListItem } from "./contracts/boardAssignments";
 import { ManagedTable } from "./ManagedTable";
@@ -36,6 +36,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   const [data, setData] = useState<DirectorAssignmentListResponse>();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<DirectorAssignment>();
   const [form, setForm] = useState<DirectorAssignmentInput>();
   const [comment, setComment] = useState("");
@@ -61,8 +62,31 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   }
   async function openHistory() {
     setError("");
-    try { setHistory((await directorRequest<{ completions: Array<{ id: string; assignment: DirectorAssignment }> }>("/api/director-assignments/completions")).completions); }
+    try {
+      const result = await directorRequest<{ completions: Array<{ id: string; assignment: DirectorAssignment }> }>("/api/director-assignments/completions");
+      setSelected(undefined); setForm(undefined); setHistory(result.completions);
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить историю."); }
+  }
+  async function exportPdf(assignments: DirectorAssignment[], mode: "register" | "assignment") {
+    if (exporting || !assignments.length) return;
+    setExporting(true); setError("");
+    try {
+      const entries = assignments.map(row => {
+        const id = history ? history.find(item => item.assignment === row)?.id : row.id;
+        if (!id) throw new Error("Откройте поручение заново перед выгрузкой.");
+        return { id, revision: row.revision };
+      });
+      const blob = await directorAssignmentPdf({ mode, source: history ? "history" : "current", entries });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = mode === "register" ? "Журнал поручений.pdf" : `Поручение ${assignments[0].number}.pdf`;
+      document.body.append(link);
+      link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось сформировать PDF."); }
+    finally { setExporting(false); }
   }
   if (!data) return <section className="workspace-panel">{error ? <p role="alert">{error}</p> : <LoadingIndicator label="Загрузка поручений" />}</section>;
   const rows = history ? history.map(item => item.assignment) : data.assignments;
@@ -79,6 +103,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
     {form && <DirectorAssignmentForm legacyEmployees={selected ? [...(selected.responsible ? [selected.responsible] : []), ...selected.coExecutors] : []} form={form} setForm={setForm} employees={data.employees} saving={saving} assignmentNumber={selected?.number} comment={comment} onCommentChange={setComment} onSubmit={save} onCancel={() => { setForm(undefined); setSelected(undefined); }} />}
     {selected && !form && <section className="director-assignment-detail">
       <h3>№{selected.number}: {selected.summary}</h3>
+      <button type="button" className="secondary-button" disabled={saving || exporting} onClick={() => void exportPdf([selected], "assignment")}>Скачать поручение в PDF</button>
       <dl>{values(selected).map((value, index) => <div key={columns[index]}><dt>{columnLabels[index]}</dt><dd>{value || "—"}</dd></div>)}</dl>
       {selected.source && <details><summary>Исходная запись Google Sheets</summary><dl>{selected.source.values.map((value, index) => <div key={index}><dt>{["Номер задачи", "Дата постановки", "Суть задачи", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Исходный срок", "Срочность", "Важность", "Промежуточные этапы", "Фактическая дата", "Примечание", "Исходный статус", "Номер входящего", "Второй номер", "Длительность", "Осталось рабочих дней", "Перенос срока"][index] ?? "Исходное поле"}</dt><dd>{value || "—"}</dd></div>)}</dl></details>}
       <h4>Комментарии</h4>{selected.comments.map(item => <p key={item.id}>{item.createdAt} · {item.author}: {item.text}</p>)}
@@ -118,6 +143,8 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
       <button className="secondary-button" type="button" onClick={() => { setFilters({}); setSelectedStatuses([]); }}>Сбросить</button>
     </div>
     <details className="director-more-filters"><summary>Дополнительные фильтры</summary><div className="director-assignment-filters board-assignment-filters">{columns.filter(column => column !== "status").map(column => <label key={column}>{columnLabels[columns.indexOf(column)]}<input value={filters[column] ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, [column]: value })); }} /></label>)}</div></details>
+    <button type="button" className="secondary-button" disabled={saving || exporting || !visible.length} onClick={() => void exportPdf(visible, "register")}>Скачать журнал в PDF</button>
+    {exporting && <LoadingIndicator label="Формирование PDF" />}
     <label className="director-columns-toggle"><input type="checkbox" checked={showAllColumns} onChange={event => setShowAllColumns(event.currentTarget.checked)} />Все колонки реестра</label>
     {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : data.permissions.canManage ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId="director.assignments" columns={visibleColumns}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[columns.indexOf(column)]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = values(row)[columns.indexOf(column)]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action" onClick={() => { setSelected(row); setForm(undefined); setComment(""); }}>{value}</button> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
     </section>

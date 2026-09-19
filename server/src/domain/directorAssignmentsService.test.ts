@@ -173,3 +173,34 @@ test("delegation history preserves the responsible name at the time of assignmen
   await assert.rejects(service.save(sender, { assignment: { ...input, responsibleId: "person-imported" }, comment: "Назначено" }), /учётную запись/u);
   await assert.rejects(service.save(sender, { assignment: { ...input, coExecutorIds: ["person-imported"] }, comment: "Назначено" }), /учётную запись/u);
  });
+
+test("PDF selection preserves requested rows and rejects stale or inaccessible assignments", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("director", true);
+  const first = await service.save(manager, { assignment: input, comment: "Создано" });
+  const second = await service.save(manager, { assignment: { ...input, summary: "Второе поручение" }, comment: "Создано" });
+  const request = { mode: "register", source: "current", entries: [{ id: second.id, revision: 1 }] };
+  assert.deepEqual((await service.exportSelection(manager, request)).assignments.map(row => row.summary), ["Второе поручение"]);
+  await assert.rejects(service.exportSelection(profile("other"), request), /недоступно/u);
+  await assert.rejects(service.exportSelection(manager, { ...request, entries: [{ id: first.id, revision: 2 }] }), /Обновите/u);
+  await assert.rejects(service.exportSelection(manager, { ...request, entries: [] }), /выбор/u);
+  await assert.rejects(service.exportSelection(manager, { ...request, summary: "Подмена" }), /поля/u);
+});
+
+test("PDF history uses completion IDs and immutable data after the next occurrence changes", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  const review = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: 1 });
+  await service.action(manager, record.id, { action: "complete", comment: "Принято", revision: review.revision });
+  const [snapshot] = await service.completions(manager);
+  const current = await service.read(manager, record.id);
+  await service.save(manager, { assignment: { ...input, summary: "Изменённое поручение" }, revision: current.revision, comment: "Изменено" }, record.id);
+  const request = { mode: "assignment", source: "history", entries: [{ id: snapshot.id, revision: snapshot.assignment.revision }] };
+  const printed = await service.exportSelection(manager, request);
+  assert.equal(printed.assignments[0].summary, "Представить отчёт");
+  assert.equal(printed.assignments[0].status, "completed");
+  await assert.rejects(service.exportSelection(profile("worker"), request), /прав/u);
+  await assert.rejects(service.exportSelection(manager, { ...request, entries: [{ id: record.id, revision: 1 }] }), /недоступно/u);
+  await assert.rejects(service.exportSelection(manager, { ...request, entries: [...request.entries, ...request.entries] }), /выбор/u);
+});

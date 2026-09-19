@@ -15419,3 +15419,39 @@ test("position API accepts sender and receiver modes independently of the positi
     ["business.view_director_assignments"],
   ]);
 });
+
+test("director PDF endpoint authenticates, validates revisions and streams an actual PDF", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.activeAccess.capabilities = [];
+  const assignment = {
+    id: "print-1", number: "ГД-116", revision: 1, kind: "Поручение", assignedOn: "2026-09-19",
+    summary: "Проверить план", project: "Производство", responsibleId: "account:worker", responsible: null,
+    coExecutors: [], source: null, currentOccurrenceDate: "2026-09-30", status: "in_progress", progress: "", completedOn: "",
+  };
+  const audit: AuditRepository = { async record() {}, async listReport() { throw new Error("unused"); } };
+  const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
+  const repository = { async read(id: string) { return id === assignment.id ? assignment : undefined; } } as unknown as DirectorAssignmentsRepository;
+  const server = createApiServer({ config: productionConfig, dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource, authService: buildAuthService({ profile }), audit, databaseTransaction: transaction,
+    directorAssignments: createDirectorAssignmentsService({ repository, transaction, audit }),
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/director-assignments/export.pdf`;
+  const headers = { Cookie: `${productionConfig.session.cookieName}=prod-session`, "Content-Type": "application/json" };
+  const request = { mode: "assignment", source: "current", entries: [{ id: assignment.id, revision: 1 }] };
+  try {
+    assert.equal((await fetch(url, { method: "POST", body: JSON.stringify(request) })).status, 401);
+    assert.equal((await fetch(url, { method: "POST", headers: { ...headers, "x-smb-account-preview": "navigation:business.director_assignments" }, body: JSON.stringify(request) })).status, 403);
+    profile.activeAccess.capabilities = ["business.view_director_assignments", "business.manage_director_assignments"];
+    assert.equal((await fetch(url, { headers })).status, 405);
+    assert.equal((await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...request, entries: [] }) })).status, 400);
+    assert.equal((await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...request, entries: [{ id: assignment.id, revision: 2 }] }) })).status, 409);
+    for (const mode of ["register", "assignment"]) {
+      const response = await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...request, mode }) });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "application/pdf");
+      assert.match(response.headers.get("content-disposition") ?? "", /filename\*=UTF-8''/u);
+      assert.equal(Buffer.from(await response.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+    }
+  } finally { server.close(); await once(server, "close"); }
+});

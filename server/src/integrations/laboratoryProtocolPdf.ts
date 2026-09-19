@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import { renderPdfDocument } from "./pdfRenderer.js";
 import { laboratoryProtocolTemplate } from "../config/laboratoryProtocol.js";
 import type { LaboratoryProtocol } from "../domain/laboratoryProtocol.js";
 import {
@@ -8,23 +8,6 @@ import {
   type LaboratoryChemicalAnalysisValues,
 } from "../contracts/laboratoryChemicalAnalysisJournal.js";
 
-type PdfOutput = { getBuffer: () => Promise<Buffer> };
-type PdfMakeServer = {
-  addFonts: (fonts: Record<string, Record<string, string>>) => void;
-  setLocalAccessPolicy: (policy: (path: string) => boolean) => void;
-  setUrlAccessPolicy: (policy: (url: string) => boolean) => void;
-  createPdf: (definition: Record<string, unknown>) => PdfOutput;
-};
-
-const require = createRequire(import.meta.url);
-const pdfMake = require("pdfmake") as PdfMakeServer;
-const robotoFontPaths = {
-  normal: require.resolve("pdfmake/fonts/Roboto/Roboto-Regular.ttf"),
-  bold: require.resolve("pdfmake/fonts/Roboto/Roboto-Medium.ttf"),
-  italics: require.resolve("pdfmake/fonts/Roboto/Roboto-Italic.ttf"),
-  bolditalics: require.resolve("pdfmake/fonts/Roboto/Roboto-MediumItalic.ttf"),
-};
-const allowedFontPaths = new Set(Object.values(robotoFontPaths));
 const chemicalAnalysisProtocolMassShareFieldIds = ["al2o3", "fe2o3"] as const;
 const chemicalAnalysisProtocolMassChangeFieldId = "lossOnIgnition" as const;
 const chemicalAnalysisProtocolDirectResultFieldIds = new Set<
@@ -50,14 +33,10 @@ const chemicalAnalysisProtocolLabelOverrides: Partial<Record<
   notes: "Примечание",
 };
 
-pdfMake.addFonts({ Roboto: robotoFontPaths });
-pdfMake.setUrlAccessPolicy(() => false);
-pdfMake.setLocalAccessPolicy((path) => allowedFontPaths.has(path));
-
 export async function renderLaboratoryProtocolPdf(
   protocol: LaboratoryProtocol,
 ) {
-  return pdfMake.createPdf(buildDocumentDefinition(protocol)).getBuffer();
+  return renderPdfDocument(buildDocumentDefinition(protocol));
 }
 
 export async function renderLaboratoryChemicalAnalysisProtocolPdf({
@@ -72,11 +51,11 @@ export async function renderLaboratoryChemicalAnalysisProtocolPdf({
   >;
   generatedAt: Date;
 }) {
-  return pdfMake.createPdf(buildLaboratoryChemicalAnalysisProtocolDocument({
+  return renderPdfDocument(buildLaboratoryChemicalAnalysisProtocolDocument({
     records,
     filters,
     generatedAt,
-  })).getBuffer();
+  }));
 }
 
 function buildDocumentDefinition(protocol: LaboratoryProtocol) {

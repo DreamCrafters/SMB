@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { BoardAssignmentDelegationsResponse, DirectorAssignment, DirectorAssignmentPermissions, PersonnelEmployee } from "../contracts/directorAssignments.js";
+import type { BoardAssignmentDelegationsResponse, DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignmentPermissions, PersonnelEmployee } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 import type { BoardAssignmentsRepository } from "../repositories/boardAssignmentsRepository.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
@@ -97,6 +97,30 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       }
       const enriched = assignments.map(assignment => ({ ...assignment, durationWorkdays: directorWorkdays(assignment.assignedOn, assignment.currentOccurrenceDate), remainingWorkdays: directorWorkdays(assignment.completedOn || today(), assignment.currentOccurrenceDate) }));
       return { assignments: enriched, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
+    },
+    async exportSelection(profile: ServerUserProfile, value: unknown): Promise<{ mode: DirectorAssignmentPdfRequest["mode"]; assignments: DirectorAssignment[] }> {
+      const permissions = directorAssignmentPermissions(profile);
+      requirePermission(permissions.canView);
+      const request = readDirectorRecord(value);
+      if (Object.keys(request).some(key => !["mode", "source", "entries"].includes(key))) throw new DirectorAssignmentError("Неизвестные поля выгрузки.");
+      if ((request.mode !== "register" && request.mode !== "assignment") || (request.source !== "current" && request.source !== "history")) throw new DirectorAssignmentError("Проверьте формат выгрузки.");
+      if (!Array.isArray(request.entries) || !request.entries.length || (request.mode === "assignment" && request.entries.length !== 1)) throw new DirectorAssignmentError("Проверьте выбор поручений.");
+      const entries = request.entries.map(value => {
+        const entry = readDirectorRecord(value);
+        if (Object.keys(entry).some(key => !["id", "revision"].includes(key)) || typeof entry.id !== "string" || !/^[a-zA-Z0-9-]{1,100}$/u.test(entry.id) || !Number.isSafeInteger(entry.revision) || Number(entry.revision) < 1) throw new DirectorAssignmentError("Проверьте выбор поручений.");
+        return { id: entry.id, revision: entry.revision };
+      });
+      if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new DirectorAssignmentError("Проверьте выбор поручений.");
+      if (request.source === "history") requirePermission(permissions.canManage);
+      const snapshots = request.source === "history" ? new Map((await repository.listCompletions()).map(item => [item.id, item.assignment])) : null;
+      const assignments: DirectorAssignment[] = [];
+      for (const entry of entries) {
+        const assignment = snapshots ? snapshots.get(entry.id) : await requireAssignment(profile, entry.id);
+        if (!assignment) throw new DirectorAssignmentError("Поручение недоступно.", 404);
+        if (assignment.revision !== entry.revision) throw new DirectorAssignmentError("Поручение изменилось. Обновите список перед выгрузкой.", 409);
+        assignments.push(assignment);
+      }
+      return { mode: request.mode, assignments };
     },
     async personnel(profile: ServerUserProfile) {
       requirePermission(directorAssignmentPermissions(profile).canManagePersonnel);

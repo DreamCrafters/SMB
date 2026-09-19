@@ -1,4 +1,4 @@
-import type { DirectorAssignment, DirectorAssignmentPermissions, PersonnelEmployee } from "../../server/src/contracts/directorAssignments";
+import type { DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignmentPermissions, PersonnelEmployee } from "../../server/src/contracts/directorAssignments";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage";
 import { resolveApiEndpoint } from "./remoteServer";
 
@@ -28,4 +28,18 @@ export async function directorDocument(assignmentId: string, file: File | string
     throw new Error(payload?.error?.message ?? "Не удалось открыть документ.");
   }
   return typeof file === "string" ? response.blob() : undefined;
+}
+
+export async function directorAssignmentPdf(request: DirectorAssignmentPdfRequest) {
+  const path = "/api/director-assignments/export.pdf";
+  const response = await fetch(resolveApiEndpoint(path, path, {}), {
+    method: "POST", credentials: "include",
+    headers: buildDevAccessHeaders({ Accept: "application/pdf", "Content-Type": "application/json" }),
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const payload = await response.json();
+    throw new Error(payload?.error?.message ?? "Не удалось сформировать PDF.");
+  }
+  return response.blob();
 }

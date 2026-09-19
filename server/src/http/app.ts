@@ -1,3 +1,4 @@
+import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
 import { directorAssignmentAccessLevels, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
@@ -953,6 +954,13 @@ export function createApiServer({
           return;
         }
         try {
+          if (url.pathname === "/api/director-assignments/export.pdf") {
+            if (req.method !== "POST") throw new DirectorAssignmentError("Действие недоступно.", 405);
+            const selection = await directorAssignments.exportSelection(access.profile, await readJsonBody(req));
+            const pdf = await renderDirectorAssignmentsPdf(selection.assignments, selection.mode);
+            sendPdf(res, pdf, selection.mode === "register" ? "Журнал поручений.pdf" : `Поручение ${selection.assignments[0].number}.pdf`);
+            return;
+          }
           const documentMatch = /^\/api\/director-assignments\/([a-zA-Z0-9-]{1,100})\/documents(?:\/([a-zA-Z0-9-]{1,100}))?$/u.exec(url.pathname);
           if (documentMatch) {
             const [, assignmentId, documentId] = documentMatch;
