@@ -111,3 +111,10 @@ test("production snapshot refuses to point source and target at the same databas
     /must use different database names/u,
   );
 });
+
+test("director reminders default to production only and allow an explicit switch", () => {
+  assert.equal(readServerConfig(baseEnv).directorAssignmentRemindersEnabled, false);
+  assert.equal(readServerConfig({ ...baseEnv, SMB_APP_ENV: "production" }).directorAssignmentRemindersEnabled, true);
+  assert.equal(readServerConfig({ ...baseEnv, DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED: "true" }).directorAssignmentRemindersEnabled, true);
+  assert.equal(readServerConfig({ ...baseEnv, SMB_APP_ENV: "production", DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED: "false" }).directorAssignmentRemindersEnabled, false);
+});

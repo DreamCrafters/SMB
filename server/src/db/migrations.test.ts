@@ -46,6 +46,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "083_account_primary_position_order",
   "084_railway_wagon_required_date",
   "085_director_assignments",
+  "086_director_assignment_reminders",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3371,4 +3372,24 @@ test("primary position migration updates only the primary id and is applied once
   assert.doesNotMatch(statements[0], /capabilities|navigation_items|auth_sessions|position_codes =/u);
   await runMigrations(pool);
   assert.equal(statements.length, 1);
+});
+
+test("director reminder migration stores independent per-occurrence recipient and channel deliveries", async () => {
+  const statements: string[] = [];
+  const migration = "086_director_assignment_reminders";
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      return [sql.includes("select id from schema_migrations") && parameters?.[0] !== migration ? [{ id: parameters?.[0] }] : [], []];
+    },
+    async getConnection() { return {
+      async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+      async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+    }; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  assert.equal(statements.length, 2);
+  assert.match(statements[0], /primary key \(assignment_id, occurrence_date, days_before, user_id, channel\)/u);
+  assert.match(statements[0], /lease_until timestamp\(3\) null/u);
+  assert.match(statements[0], /delivered_at timestamp\(3\) null/u);
+  assert.match(statements[1], /insert into schema_migrations/u);
 });

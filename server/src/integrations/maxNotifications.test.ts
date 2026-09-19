@@ -954,3 +954,25 @@ function buildApprovedRefractoryReport() {
     reviewerDisplayName: "Диспетчер",
   };
 }
+
+test("text notification cancellation aborts its fetch request without retries", async () => {
+  const controller = new AbortController();
+  let started!: () => void;
+  const sending = new Promise<void>(resolve => { started = resolve; });
+  let attempts = 0;
+  const service = createMaxNotificationService({ enabled: true, botToken: "test-token", apiBaseUrl: "https://max.example.test", recipientIdType: "user_id", subjectPrefix: "" }, {
+    async fetchImpl(_input, init) {
+      attempts++;
+      assert.ok(init?.signal);
+      started();
+      return new Promise<Response>((_resolve, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true }));
+    },
+    async sleep() { assert.fail("An aborted delivery must not retry"); },
+  });
+  const delivery = service.sendTextNotification!(["recipient"], "Напоминание", controller.signal);
+  await sending;
+  const rejected = assert.rejects(delivery);
+  controller.abort();
+  await rejected;
+  assert.equal(attempts, 1);
+});

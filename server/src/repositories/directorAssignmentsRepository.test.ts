@@ -35,3 +35,21 @@ test("assignment roster contains only real accounts and deduplicates positions",
   userRows.splice(0, 1);
   assert.equal(await repository.readAssignableEmployee("person-a", true), undefined);
 });
+
+test("reminder delivery claim uses an atomic expiring lease and completion checks its owner", async () => {
+  const calls: Array<{ sql: string; parameters: unknown[] }> = [];
+  let affectedRows = 1;
+  const repository = createDirectorAssignmentsRepository({ async query(sql: string, parameters: unknown[]) {
+    calls.push({ sql, parameters }); return [{ affectedRows }, []];
+  } } as unknown as DatabasePool);
+  const delivery = { assignmentId: "assignment", occurrenceDate: "2026-09-30", daysBefore: 3, userId: "worker", channel: "email" as const };
+  assert.equal(await repository.claimReminder(delivery, "token-1"), true);
+  assert.match(calls[0].sql, /insert ignore/u);
+  assert.match(calls[1].sql, /delivered_at is null and \(lease_until is null or lease_until <= utc_timestamp\(3\)\)/u);
+  assert.deepEqual(calls[1].parameters, ["token-1", 900, "assignment", "2026-09-30", 3, "worker", "email"]);
+  affectedRows = 0;
+  assert.equal(await repository.claimReminder(delivery, "token-2"), false);
+  await repository.completeReminder(delivery, "token-1");
+  assert.match(calls.at(-1)!.sql, /and channel = \? and claim_token = \?/u);
+  assert.deepEqual(calls.at(-1)!.parameters, ["assignment", "2026-09-30", 3, "worker", "email", "token-1"]);
+});

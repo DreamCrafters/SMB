@@ -1,3 +1,6 @@
+import { createDirectorAssignmentReminderRunner, startDirectorAssignmentReminders } from "./integrations/directorAssignmentReminders.js";
+import { createEmailNotificationService } from "./integrations/emailNotifications.js";
+import { createMaxNotificationService } from "./integrations/maxNotifications.js";
 import { createDirectorAssignmentsService } from "./domain/directorAssignmentsService.js";
 import { createDirectorAssignmentsRepository } from "./repositories/directorAssignmentsRepository.js";
 import { createTableLayoutsRepository } from "./repositories/tableLayoutsRepository.js";
@@ -105,8 +108,14 @@ if (config.runMigrationsOnStart) {
   }
 }
 
+const emailNotifications = createEmailNotificationService(config.emailNotifications, {}, config.appEnv);
+const maxNotifications = createMaxNotificationService(config.maxNotifications, {}, config.appEnv);
+const directorAssignmentsRepository = createDirectorAssignmentsRepository(pool);
+const notificationSettings = createNotificationSettingsRepository(pool);
 const server = createApiServer({
   config,
+  emailNotificationService: emailNotifications,
+  maxNotificationService: maxNotifications,
   adminDatabase: createAdminDatabaseRepository(pool),
   accounts: createAccountsRepository(pool),
   authService: createAuthSessionService(pool, {
@@ -146,14 +155,14 @@ const server = createApiServer({
     createLaboratoryRawMaterialWarehouseRepository(pool),
   laboratoryGreenProductQualityJournal:
     createLaboratoryGreenProductQualityJournalRepository(pool),
-  directorAssignments: createDirectorAssignmentsService({ repository: createDirectorAssignmentsRepository(pool), boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
+  directorAssignments: createDirectorAssignmentsService({ repository: directorAssignmentsRepository, boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
   boardAssignments: createBoardAssignmentsRepository(pool),
   warehouse1c: warehouse1cReadOnlyPool === undefined
     ? createWarehouse1cRepository(pool)
     : createWarehouse1cRepository(warehouse1cReadOnlyPool, { isReadOnly: true }),
   railwayWagons: createRailwayWagonsRepository(pool),
   railwayReference: createRailwayReferenceRepository(pool),
-  notificationSettings: createNotificationSettingsRepository(pool),
+  notificationSettings,
   navigationOrder: createNavigationOrderRepository(pool),
   tableLayouts: createTableLayoutsRepository(pool),
   audit: createAuditRepository(pool),
@@ -169,7 +178,17 @@ server.listen(config.port, "0.0.0.0", () => {
   console.log(`SMB Monitor API listening on http://127.0.0.1:${config.port}`);
 });
 
+const stopReminders = config.directorAssignmentRemindersEnabled
+  ? startDirectorAssignmentReminders(createDirectorAssignmentReminderRunner({
+      repository: directorAssignmentsRepository,
+      notificationSettings,
+      ...(config.emailNotifications.enabled ? { sendEmail: (recipient, subject, text) => emailNotifications.sendTextNotification!([recipient], subject, text) } : {}),
+      ...(config.maxNotifications.enabled ? { sendMax: (recipient, _subject, text, signal) => maxNotifications.sendTextNotification!([recipient], text, signal) } : {}),
+    }))
+  : async () => {};
+
 async function shutdown() {
+  await stopReminders();
   server.close(() => {
     void Promise.all([
       applicationPool.end(),

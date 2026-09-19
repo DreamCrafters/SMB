@@ -4383,6 +4383,22 @@ const migrations: Migration[] = [
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
     ],
   },
+  {
+    id: "086_director_assignment_reminders",
+    statements: [
+      `create table if not exists director_assignment_reminder_deliveries (
+        assignment_id varchar(100) not null,
+        occurrence_date date not null,
+        days_before tinyint unsigned not null,
+        user_id varchar(100) not null,
+        channel varchar(10) not null,
+        claim_token varchar(36) null,
+        lease_until timestamp(3) null,
+        delivered_at timestamp(3) null,
+        primary key (assignment_id, occurrence_date, days_before, user_id, channel)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

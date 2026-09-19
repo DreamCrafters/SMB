@@ -26,6 +26,7 @@ export type MaxNotificationService = {
   sendTextNotification?: (
     recipients: readonly string[],
     text: string,
+    signal?: AbortSignal,
   ) => Promise<void>;
   sendDispatcherSubmissionNotification: (
     submission: DispatcherSubmission,
@@ -49,6 +50,7 @@ type MaxHttpRequest = {
   headers: Record<string, string>;
   body: string;
   ca?: string;
+  signal?: AbortSignal;
 };
 
 type MaxHttpResponse = {
@@ -70,6 +72,7 @@ export type MaxNotificationDependencies = {
 };
 
 const maxMessageLength = 4000;
+const maxRequestTimeoutMs = 30_000;
 const maxSendAttempts = 3;
 const maxRetryDelayMs = 1000;
 
@@ -109,7 +112,7 @@ export function createMaxNotificationService(
       : readTextFile(config.caCertFile);
 
   return {
-    async sendTextNotification(recipients, text) {
+    async sendTextNotification(recipients, text, signal) {
       const logContext = { notificationType: "account_notification" };
       const userIds = readMaxDeliveryTargets(
         Array.from(new Set(
@@ -126,7 +129,7 @@ export function createMaxNotificationService(
 
       const caCertificate = await caCertificatePromise;
       await deliverMaxMessages(
-        httpClient,
+        signal ? (url, request) => { signal.throwIfAborted(); return httpClient(url, { ...request, signal }); } : httpClient,
         config,
         userIds,
         buildMaxMessageTexts(
@@ -380,6 +383,7 @@ async function sendMaxMessageWithRetry(
 }
 
 function isRetryableMaxError(error: unknown) {
+  if (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name)) return false;
   if (error instanceof MaxResponseError) {
     return error.status === 429 || error.status >= 500;
   }
@@ -456,6 +460,7 @@ function createMaxFetchClient(fetchImpl: typeof fetch): MaxHttpClient {
       method: "POST",
       headers: request.headers,
       body: request.body,
+      signal: request.signal ? AbortSignal.any([request.signal, AbortSignal.timeout(maxRequestTimeoutMs)]) : AbortSignal.timeout(maxRequestTimeoutMs),
     });
 
     return {
@@ -477,9 +482,11 @@ function sendMaxHttpsRequest(
         method: "POST",
         headers: request.headers,
         ca: request.ca,
+        signal: request.signal ? AbortSignal.any([request.signal, AbortSignal.timeout(maxRequestTimeoutMs)]) : AbortSignal.timeout(maxRequestTimeoutMs),
       },
       (response) => {
         const chunks: Buffer[] = [];
+        response.on("error", reject);
 
         response.on("data", (chunk: Buffer | string) => {
           chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));

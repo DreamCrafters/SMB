@@ -1,3 +1,4 @@
+import { directorReminderLeaseSeconds, type DirectorReminderDelivery } from "../domain/directorAssignmentReminders.js";
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
@@ -49,6 +50,23 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool) {
       // Legacy assignments keep their explicit link; names never resolve accounts.
       const employee = await readEmployee(id, lock);
       return employee?.active && employee.userId ? (await accountEmployees(employee.userId, lock))[0] : undefined;
+    },
+    async claimReminder(delivery: DirectorReminderDelivery, token: string) {
+      const key = [delivery.assignmentId, delivery.occurrenceDate, delivery.daysBefore, delivery.userId, delivery.channel];
+      await pool.query(`insert ignore into director_assignment_reminder_deliveries
+        (assignment_id, occurrence_date, days_before, user_id, channel) values (?, ?, ?, ?, ?)`, key);
+      const [result] = await pool.query<ResultSetHeader>(`update director_assignment_reminder_deliveries
+        set claim_token = ?, lease_until = timestampadd(second, ?, utc_timestamp(3))
+        where assignment_id = ? and occurrence_date = ? and days_before = ? and user_id = ? and channel = ?
+          and delivered_at is null and (lease_until is null or lease_until <= utc_timestamp(3))`,
+        [token, directorReminderLeaseSeconds, ...key]);
+      return result.affectedRows === 1;
+    },
+    async completeReminder(delivery: DirectorReminderDelivery, token: string) {
+      await pool.query(`update director_assignment_reminder_deliveries
+        set delivered_at = utc_timestamp(3), lease_until = null
+        where assignment_id = ? and occurrence_date = ? and days_before = ? and user_id = ? and channel = ? and claim_token = ?`,
+        [delivery.assignmentId, delivery.occurrenceDate, delivery.daysBefore, delivery.userId, delivery.channel, token]);
     },
     async listUserOptions() {
       const [rows] = await pool.query<(RowDataPacket & { id: string; displayName: string; login: string })[]>(

@@ -285,6 +285,9 @@ export function buildEquipmentReportEmail(
 
 function createSmtpSendMail(config: EmailNotificationConfig) {
   const transporter = nodemailer.createTransport({
+    connectionTimeout: 30_000,
+    greetingTimeout: 30_000,
+    socketTimeout: 30_000,
     host: config.smtpHost,
     port: config.smtpPort,
     secure: config.smtpSecure,

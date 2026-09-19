@@ -12,6 +12,7 @@ loadDotenv({
 
 export type ServerConfig = {
   appEnv: SmbAppEnv;
+  directorAssignmentRemindersEnabled: boolean;
   port: number;
   databaseUrl: string;
   productionSnapshot: ProductionSnapshotConfig;
@@ -137,6 +138,7 @@ export function readServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
 
   return {
     appEnv,
+    directorAssignmentRemindersEnabled: env.DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED === undefined ? appEnv === "production" : env.DIRECTOR_ASSIGNMENT_REMINDERS_ENABLED === "true",
     port: readPort(env.PORT),
     databaseUrl,
     productionSnapshot: readProductionSnapshotConfig(
