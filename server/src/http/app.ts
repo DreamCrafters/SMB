@@ -1,3 +1,5 @@
+import { BoardAssignmentPdfError, selectBoardAssignmentsForPdf } from "../domain/boardAssignmentPdf.js";
+import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.js";
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
 import { directorAssignmentAccessLevels, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
@@ -2468,6 +2470,19 @@ async function handleBoardAssignmentsRequest({
         message: "Хранилище поручений Совета директоров не настроено.",
       },
     });
+    return;
+  }
+
+  if (url.pathname === "/api/board-assignments/export.pdf") {
+    if (req.method !== "POST") { sendJson(res, 405, { error: { code: "invalid_response", message: "Действие недоступно." } }); return; }
+    try {
+      const today = buildIncidentOverviewPeriod(now()).today;
+      const selection = await selectBoardAssignmentsForPdf(boardAssignments, await readJsonBody(req), permissions.canExecute, today);
+      sendPdf(res, await renderBoardAssignmentsPdf(selection.records, selection.mode, today), selection.mode === "register" ? "Журнал поручений СД.pdf" : "Поручение СД.pdf");
+    } catch (error) {
+      if (!(error instanceof BoardAssignmentPdfError)) throw error;
+      sendJson(res, error.status, { error: { code: "invalid_response", message: error.message } });
+    }
     return;
   }
 

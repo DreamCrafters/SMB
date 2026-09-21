@@ -1,3 +1,4 @@
+import type { BoardAssignmentPdfRequest } from "../../server/src/contracts/boardAssignmentPdf.js";
 import {
   boardAssignmentRecurrences,
   boardAssignmentStatuses,
@@ -614,4 +615,19 @@ function readDownloadFilename(header: string | null) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+export async function requestBoardAssignmentPdf(request: BoardAssignmentPdfRequest): Promise<BoardAssignmentMaterialResult> {
+  const path = `${assignmentsPath}/export.pdf`;
+  const fallback = "Не удалось сформировать PDF.";
+  try {
+    const response = await fetch(resolveApiEndpoint(path, path, {}), {
+      method: "POST", credentials: "include",
+      headers: buildDevAccessHeaders({ Accept: "application/pdf", "Content-Type": "application/json" }),
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) return readRemoteError(await readJson(response), fallback);
+    if (!(response.headers.get("content-type") ?? "").startsWith("application/pdf")) return invalidResponse(fallback);
+    return { status: "ready", blob: await response.blob(), fileName: request.mode === "register" ? "Журнал поручений СД.pdf" : "Поручение СД.pdf" };
+  } catch { return { status: "error", code: "network_error", message: fallback }; }
 }

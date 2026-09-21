@@ -260,21 +260,22 @@ test("board assignments workspace keeps the register, cancel flow, and distinct 
     new URL("../src/BoardAssignments.tsx", import.meta.url),
     "utf8",
   );
+  const register = await readFile(new URL("../src/BoardAssignmentRegister.tsx", import.meta.url), "utf8");
   const styles = await readFile(
     new URL("../src/styles.css", import.meta.url),
     "utf8",
   );
 
   for (const column of [
-    "Дата заседания Совета директоров",
-    "Краткое содержание поручения",
+    "Дата заседания",
+    "Суть поручения",
     "Соисполнители",
-    "Срок исполнения",
+    "Срок",
     "Статус",
   ]) {
-    assert.match(source, new RegExp(column, "u"));
+    assert.match(register, new RegExp(column, "u"));
   }
-  assert.match(source, /className="board-assignment-link"/u);
+  assert.match(register, /className="board-assignment-link"/u);
   assert.match(source, /Комментарий/u);
   assert.match(source, /Отправить/u);
   assert.match(source, /Отмена/u);

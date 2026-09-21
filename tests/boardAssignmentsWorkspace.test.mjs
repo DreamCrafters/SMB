@@ -77,6 +77,9 @@ test("board assignment executor sees active rows and submits without choosing a 
   let actionRequest;
   let listSearchParams;
   let pendingSearch;
+  const pdfRequests = [];
+  let failPdf = false;
+  dom.window.HTMLAnchorElement.prototype.click = function () {};
 
   try {
     const { BoardAssignmentsWorkspace } = await vite.ssrLoadModule(
@@ -85,6 +88,10 @@ test("board assignment executor sees active rows and submits without choosing a 
     globalThis.fetch = async (input, init) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
 
+      if (url.pathname === "/api/board-assignments/export.pdf") {
+        pdfRequests.push(JSON.parse(init.body));
+        return failPdf ? new Response(JSON.stringify({ error: { message: "Обновите список перед выгрузкой." } }), { status: 409 }) : new Response("%PDF-example", { headers: { "Content-Type": "application/pdf" } });
+      }
       if (url.pathname === "/api/board-assignments") {
         listSearchParams = url.searchParams;
         if (url.searchParams.get("query") === "ана") {
@@ -205,6 +212,21 @@ test("board assignment executor sees active rows and submits without choosing a 
     assert.equal(listSearchParams.has("status"), false);
     assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr").length, 2);
     assert.equal(rootElement.querySelectorAll(".board-assignment-table tbody tr.is-overdue").length, 1);
+    const printRegister = () => Array.from(rootElement.querySelectorAll("button")).find(button => button.textContent === "Скачать журнал в PDF");
+    await React.act(async () => printRegister().click());
+    assert.deepEqual(pdfRequests.at(-1), { mode: "register", source: "current", entries: [summary, revisionSummary].map(row => ({ id: row.id, expectedUpdatedAt: row.updatedAt })) });
+    const extraSummary = findLabel(rootElement.querySelector(".director-more-filters"), "Суть поручения").querySelector("input");
+    await React.act(async () => setInputValue(extraSummary, "Уточнить"));
+    await React.act(async () => printRegister().click());
+    assert.deepEqual(pdfRequests.at(-1).entries.map(row => row.id), ["assignment-3"]);
+    await React.act(async () => setInputValue(extraSummary, "Нет совпадений"));
+    assert.equal(printRegister().disabled, true);
+    await React.act(async () => setInputValue(extraSummary, ""));
+    failPdf = true;
+    await React.act(async () => printRegister().click());
+    assert.match(rootElement.querySelector('[role="alert"]').textContent, /Обновите список/u);
+    assert.equal(printRegister().disabled, false);
+    failPdf = false;
     assert.match(
       rootElement.querySelector(".board-assignment-executor-overview")
         .textContent,
@@ -246,6 +268,9 @@ test("board assignment executor sees active rows and submits without choosing a 
     await waitFor(React, () =>
       rootElement.querySelector(".board-assignment-comments pre") !== null
     );
+
+    await React.act(async () => Array.from(rootElement.querySelectorAll("button")).find(button => button.textContent === "Скачать поручение в PDF").click());
+    assert.deepEqual(pdfRequests.at(-1), { mode: "assignment", source: "current", entries: [{ id: summary.id, expectedUpdatedAt: summary.updatedAt }] });
 
     const comments = rootElement.querySelector(
       ".board-assignment-comments pre",
@@ -401,7 +426,7 @@ test("board assignment creation offers one-time and recurring schedule choices",
     );
 
     const meetingDateInput = findLabel(
-      rootElement,
+      rootElement.querySelector('[role="dialog"]'),
       "Дата заседания",
     )?.querySelector("input");
     assert.ok(meetingDateInput);
@@ -780,6 +805,8 @@ test("board assignment creator edits live tasks and opens immutable completion h
     assignment: completedSnapshot,
   };
   let updateRequest;
+  const pdfRequests = [];
+  dom.window.HTMLAnchorElement.prototype.click = function () {};
 
   try {
     const { BoardAssignmentsWorkspace } = await vite.ssrLoadModule(
@@ -788,6 +815,7 @@ test("board assignment creator edits live tasks and opens immutable completion h
     globalThis.fetch = async (input, init) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
 
+      if (url.pathname === "/api/board-assignments/export.pdf") { pdfRequests.push(JSON.parse(init.body)); return new Response("%PDF-example", { headers: { "Content-Type": "application/pdf" } }); }
       if (url.pathname === "/api/board-assignments" && init?.method === "GET") {
         return jsonResponse({ assignments: [summary], permissions });
       }
@@ -924,11 +952,19 @@ test("board assignment creator edits live tasks and opens immutable completion h
     assert.equal(findLabel(rootElement, "Заседание с") !== undefined, true);
     assert.equal(findLabel(rootElement, "Заседание по") !== undefined, true);
     assert.equal(findLabel(rootElement, "Статус"), undefined);
+    await React.act(async () => rootElement.querySelector(".director-columns-toggle input").click());
     assert.match(
       rootElement.querySelector(".board-assignment-history-table")
         ?.textContent ?? "",
       /Состояние первого выполненного периода.*10\.07\.2026.*Лариков А\.Т\./su,
     );
+    const printRegister = () => Array.from(rootElement.querySelectorAll("button")).find(button => button.textContent === "Скачать журнал в PDF");
+    const acceptedBy = findLabel(rootElement.querySelector(".director-more-filters"), "Принял").querySelector("input");
+    await React.act(async () => setInputValue(acceptedBy, "не найден"));
+    assert.equal(printRegister().disabled, true);
+    await React.act(async () => Array.from(rootElement.querySelectorAll("button")).find(button => button.textContent === "Сбросить").click());
+    await React.act(async () => printRegister().click());
+    assert.deepEqual(pdfRequests.at(-1), { mode: "register", source: "history", entries: [{ id: completion.id, expectedUpdatedAt: completedSnapshot.updatedAt }] });
     const historyLink = rootElement.querySelector(
       ".board-assignment-history-table .board-assignment-link",
     );
@@ -937,6 +973,8 @@ test("board assignment creator edits live tasks and opens immutable completion h
       rootElement.querySelector('[role="dialog"]')?.textContent
         ?.includes("Исполнение принято.")
     );
+    await React.act(async () => Array.from(rootElement.querySelectorAll("button")).find(button => button.textContent === "Скачать поручение в PDF").click());
+    assert.deepEqual(pdfRequests.at(-1), { mode: "assignment", source: "history", entries: [{ id: completion.id, expectedUpdatedAt: completedSnapshot.updatedAt }] });
     assert.match(
       rootElement.querySelector('[role="dialog"]')?.textContent ?? "",
       /Снимок выполненного поручения.*Завершено/u,

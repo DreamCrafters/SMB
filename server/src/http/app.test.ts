@@ -11851,6 +11851,22 @@ test("board assignment API enforces creation, execution and review capabilities"
   };
 
   try {
+    const pdfUrl = `${baseUrl}/api/board-assignments/export.pdf`;
+    const pdfRequest = { mode: "register", source: "current", entries: [{ id: current.id, expectedUpdatedAt: current.updatedAt }] };
+    assert.equal((await fetch(pdfUrl, { method: "POST", body: JSON.stringify(pdfRequest) })).status, 401);
+    const savedCapabilities = profile.activeAccess.capabilities;
+    profile.activeAccess.capabilities = [];
+    assert.equal((await fetch(pdfUrl, { method: "POST", headers, body: JSON.stringify(pdfRequest) })).status, 403);
+    profile.activeAccess.capabilities = savedCapabilities;
+    assert.equal((await fetch(pdfUrl, { method: "POST", headers, body: JSON.stringify({ ...pdfRequest, entries: [] }) })).status, 400);
+    assert.equal((await fetch(pdfUrl, { method: "POST", headers, body: JSON.stringify({ ...pdfRequest, entries: [{ id: current.id, expectedUpdatedAt: "stale" }] }) })).status, 409);
+    for (const mode of ["register", "assignment"]) {
+      const response = await fetch(pdfUrl, { method: "POST", headers, body: JSON.stringify({ ...pdfRequest, mode }) });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "application/pdf");
+      assert.equal(Buffer.from(await response.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+    }
+
     const listResponse = await fetch(
       `${baseUrl}/api/board-assignments?status=in_progress&meetingDateFrom=2026-07-01&query=анализ`,
       { headers },

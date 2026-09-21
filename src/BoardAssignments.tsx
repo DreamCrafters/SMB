@@ -1,6 +1,6 @@
 import { BoardAssignmentDelegations } from "./BoardAssignmentDelegations";
-import { ManagedTable } from "./ManagedTable";
-import { TableHeader, TableCell } from "./TableCell";
+import { BoardAssignmentRegister, boardRegisterLabels, matchesBoardColumnFilters, type BoardRegisterColumn } from "./BoardAssignmentRegister";
+import type { BoardAssignmentPdfRequest } from "../server/src/contracts/boardAssignmentPdf";
 import {
   useEffect,
   useMemo,
@@ -35,6 +35,7 @@ import {
   requestBoardAssignmentCompletions,
   requestBoardAssignmentMaterial,
   requestBoardAssignments,
+  requestBoardAssignmentPdf,
   uploadBoardAssignmentDocument,
   updateBoardAssignment,
 } from "./services/boardAssignments";
@@ -128,6 +129,10 @@ export function BoardAssignmentsWorkspace({
 }) {
   const [registerMode, setRegisterMode] = useState<"live" | "history">("live");
   const [query, setQuery] = useState("");
+  const [columnFilters, setColumnFilters] = useState<Partial<Record<BoardRegisterColumn, string>>>({});
+  const [showAllColumns, setShowAllColumns] = useState(false);
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState("");
   const [statuses, setStatuses] = useState<BoardAssignmentDisplayStatus[]>([]);
   const statusFilterRef = useRef<HTMLDetailsElement>(null);
   const [meetingDateFrom, setMeetingDateFrom] = useState("");
@@ -292,6 +297,7 @@ export function BoardAssignmentsWorkspace({
   }, [selectedCompletionId]);
 
   function resetFilters() {
+    setColumnFilters({});
     setQuery("");
     setStatuses([]);
     if (statusFilterRef.current !== null) statusFilterRef.current.open = false;
@@ -570,8 +576,25 @@ export function BoardAssignmentsWorkspace({
     setIsEditOpen(true);
   }
 
+  async function exportPdf(request: BoardAssignmentPdfRequest) {
+    if (isPdfLoading) return;
+    setIsPdfLoading(true); setPdfError("");
+    try {
+      const result = await requestBoardAssignmentPdf(request);
+      if (result.status === "error") { setPdfError(result.message); return; }
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = result.fileName;
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { setPdfError(error instanceof Error ? error.message : "Не удалось сформировать PDF."); }
+    finally { setIsPdfLoading(false); }
+  }
+
   function switchRegisterMode(mode: "live" | "history") {
     setRegisterMode(mode);
+    setColumnFilters({});
+    setPdfError("");
     setSelectedId(undefined);
     setSelectedCompletionId(undefined);
     setStatuses([]);
@@ -584,13 +607,10 @@ export function BoardAssignmentsWorkspace({
     : boardAssignmentStatuses;
   const statusFilterSummary = formatStatusFilterSummary(statuses);
   const visibleAssignments = listState.assignments.filter((assignment) =>
-    statuses.length === 0
-    || statuses.some((status) => matchesDisplayStatus(
-      assignment,
-      status,
-      accessMode,
-    ))
+    (statuses.length === 0 || statuses.some(status => matchesDisplayStatus(assignment, status, accessMode)))
+    && matchesBoardColumnFilters(assignment, columnFilters)
   );
+  const visibleCompletions = completionListState.completions.filter(item => matchesBoardColumnFilters(item.assignment, columnFilters, item));
   const reviewAssignments = visibleAssignments.filter(
     (assignment) => assignment.status === "under_review",
   );
@@ -657,7 +677,7 @@ export function BoardAssignmentsWorkspace({
             </p>
           </div>
           <strong>
-            {completionListState.completions.length}
+            {visibleCompletions.length}
             <small>выполнено</small>
           </strong>
         </section>
@@ -850,6 +870,15 @@ export function BoardAssignmentsWorkspace({
         </div>
       </form>
 
+      <details className="director-more-filters"><summary>Дополнительные фильтры</summary><div className="director-assignment-filters board-assignment-filters">
+        {(Object.keys(boardRegisterLabels) as BoardRegisterColumn[]).filter(column => column !== "status" && (registerMode === "history" || !["acceptedAt", "completedAt", "acceptedBy"].includes(column))).map(column => <label key={column}><span>{boardRegisterLabels[column]}</span><input value={columnFilters[column] ?? ""} onChange={event => { const value = event.currentTarget.value; setColumnFilters(current => ({ ...current, [column]: value })); }} /></label>)}
+      </div></details>
+      <div className="form-actions"><button className="secondary-button" type="button" disabled={isPdfLoading || activeListState.status !== "ready" || !(registerMode === "history" ? visibleCompletions.length : visibleAssignments.length)} onClick={() => void exportPdf({ mode: "register", source: registerMode === "history" ? "history" : "current", entries: registerMode === "history" ? visibleCompletions.map(item => ({ id: item.id, expectedUpdatedAt: item.assignment.updatedAt })) : visibleAssignments.map(item => ({ id: item.id, expectedUpdatedAt: item.updatedAt })) })}>Скачать журнал в PDF</button>
+        <label className="director-columns-toggle"><input type="checkbox" checked={showAllColumns} onChange={event => setShowAllColumns(event.currentTarget.checked)} />Все колонки реестра</label>
+      </div>
+      {isPdfLoading && <LoadingIndicator label="Формирование PDF" />}
+      {pdfError && <p role="alert" className="form-message is-error">{pdfError}</p>}
+
       {activeListState.status === "loading" ? (
         <LoadingIndicator label="Загружаем поручения…" variant="inline" />
       ) : null}
@@ -865,52 +894,7 @@ export function BoardAssignmentsWorkspace({
           aria-label="История выполненных поручений"
         >
           <div className="board-assignment-table-wrap history-table-scroll">
-            <ManagedTable tableId="board.history" className="board-assignment-table board-assignment-history-table">
-              <thead>
-                <tr>
-                  <TableHeader>Принято</TableHeader>
-                  <TableHeader>Краткое содержание поручения</TableHeader>
-                  <TableHeader>Дата исполнения</TableHeader>
-                  <TableHeader>Принял</TableHeader>
-                  <TableHeader>Статус</TableHeader>
-                </tr>
-              </thead>
-              <tbody>
-                {completionListState.completions.map((completion) => (
-                  <tr key={completion.id}>
-                    <TableCell>{formatTimestamp(completion.completedAt)}</TableCell>
-                    <TableCell>
-                      <button
-                        className="board-assignment-link"
-                        type="button"
-                        onClick={() => setSelectedCompletionId(completion.id)}
-                      >
-                        {completion.assignment.summary}
-                      </button>
-                      <small>
-                        Протокол №{completion.assignment.protocolNumber},
-                        {" "}пункт {completion.assignment.decisionNumber}
-                      </small>
-                    </TableCell>
-                    <TableCell>{formatCalendarDate(completion.occurrenceDate)}</TableCell>
-                    <TableCell>{completion.completedByDisplayName}</TableCell>
-                    <TableCell>
-                      <span className="board-assignment-status is-completed">
-                        Завершено
-                      </span>
-                    </TableCell>
-                  </tr>
-                ))}
-                {completionListState.status !== "loading" &&
-                completionListState.completions.length === 0 ? (
-                  <tr>
-                    <TableCell className="board-assignment-empty" colSpan={5}>
-                      Выполненных поручений по выбранным фильтрам нет.
-                    </TableCell>
-                  </tr>
-                ) : null}
-              </tbody>
-            </ManagedTable>
+            <BoardAssignmentRegister completions={visibleCompletions} allColumns={showAllColumns} loading={completionListState.status === "loading"} execute={false} onOpen={setSelectedCompletionId} />
           </div>
         </section>
       ) : (
@@ -965,90 +949,8 @@ export function BoardAssignmentsWorkspace({
             className="board-assignment-register"
             aria-label={accessMode === "execute" ? "Активные поручения" : "Реестр поручений"}
           >
-            <div className="board-assignment-table-wrap">
-              <ManagedTable tableId="board.assignments" className="board-assignment-table">
-            <thead>
-              <tr>
-                <TableHeader>Дата заседания Совета директоров</TableHeader>
-                <TableHeader>Краткое содержание поручения</TableHeader>
-                <TableHeader>Соисполнители</TableHeader>
-                <TableHeader>Срок исполнения</TableHeader>
-                <TableHeader>Статус</TableHeader>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleAssignments.map((assignment) => (
-                <tr
-                  className={assignment.isOverdue ? "is-overdue" : undefined}
-                  key={assignment.id}
-                >
-                  <TableCell>{formatCalendarDate(assignment.meetingDate)}</TableCell>
-                  <TableCell>
-                    <button
-                      className="board-assignment-link"
-                      type="button"
-                      onClick={() => setSelectedId(assignment.id)}
-                    >
-                      {assignment.summary}
-                    </button>
-                    <small>
-                      Протокол №{assignment.protocolNumber}, пункт{" "}
-                      {assignment.decisionNumber}
-                    </small>
-                  </TableCell>
-                  <TableCell>
-                    {assignment.coExecutors.length === 0
-                      ? "—"
-                      : assignment.coExecutors.join(", ")}
-                  </TableCell>
-                  <TableCell>
-                    <span className="board-assignment-schedule-summary">
-                      <strong>{recurrenceLabels[assignment.recurrence]}</strong>
-                      <small>
-                        Текущая дата:{" "}
-                        {formatCalendarDate(assignment.currentOccurrenceDate)}
-                      </small>
-                      <small>
-                        Период: {formatCalendarDate(assignment.activeFrom)}
-                        {" — "}
-                        {formatCalendarDate(assignment.activeTo)}
-                      </small>
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`board-assignment-status is-${assignment.status}${
-                        assignment.isOverdue ? " is-overdue" : ""
-                      }`}
-                    >
-                      {assignment.isOverdue
-                        ? "Просрочено"
-                        : statusLabels[assignment.status]}
-                    </span>
-                    {accessMode === "execute" ? (
-                      <button
-                        className="secondary-button board-assignment-execute-button"
-                        type="button"
-                        onClick={() => setSelectedId(assignment.id)}
-                      >
-                        Открыть и отчитаться
-                      </button>
-                    ) : null}
-                  </TableCell>
-                </tr>
-              ))}
-              {listState.status !== "loading" &&
-              visibleAssignments.length === 0 ? (
-                <tr>
-                  <TableCell className="board-assignment-empty" colSpan={5}>
-                    {accessMode === "execute"
-                      ? "Активных поручений сейчас нет. Следующее повторяющееся поручение появится в нужную дату."
-                      : "По выбранным фильтрам поручений нет."}
-                  </TableCell>
-                </tr>
-              ) : null}
-            </tbody>
-              </ManagedTable>
+            <div className="board-assignment-table-wrap history-table-scroll">
+              <BoardAssignmentRegister assignments={visibleAssignments} allColumns={showAllColumns} loading={listState.status === "loading"} execute={accessMode === "execute"} onOpen={setSelectedId} />
             </div>
           </section>
         </>
@@ -1126,6 +1028,9 @@ export function BoardAssignmentsWorkspace({
       {selectedId === undefined || isEditOpen ? null : (
         <BoardAssignmentDetailDialog
           onShowToast={onShowToast}
+          isPdfLoading={isPdfLoading}
+          pdfError={pdfError}
+          onPrint={() => { if (detailState?.status === "ready") void exportPdf({ mode: "assignment", source: "current", entries: [{ id: detailState.assignment.id, expectedUpdatedAt: detailState.assignment.updatedAt }] }); }}
           actionComment={actionComment}
           detailState={detailState}
           formMessage={formMessage}
@@ -1150,6 +1055,9 @@ export function BoardAssignmentsWorkspace({
       {selectedCompletionId === undefined ? null : (
         <BoardAssignmentDetailDialog
           onShowToast={onShowToast}
+          isPdfLoading={isPdfLoading}
+          pdfError={pdfError}
+          onPrint={() => { if (completionDetailState?.status === "ready") void exportPdf({ mode: "assignment", source: "history", entries: [{ id: completionDetailState.completion.id, expectedUpdatedAt: completionDetailState.completion.assignment.updatedAt }] }); }}
           actionComment=""
           detailState={
             completionDetailState?.status === "ready"
@@ -1607,6 +1515,7 @@ function BoardAssignmentEditorDialog({
 }
 
 function BoardAssignmentDetailDialog({
+  onPrint, isPdfLoading, pdfError,
   detailState,
   permissions,
   isMaterialOpening,
@@ -1622,6 +1531,9 @@ function BoardAssignmentDetailDialog({
   snapshotMeta,
   onShowToast,
 }: {
+  onPrint: () => void;
+  isPdfLoading: boolean;
+  pdfError: string;
   onShowToast: ShowToast;
   detailState: DetailState | undefined;
   permissions: BoardAssignmentPermissions;
@@ -1695,6 +1607,7 @@ function BoardAssignmentDetailDialog({
             </h2>
           </div>
           <div className="board-assignment-dialog-heading-actions">
+            <button className="secondary-button" type="button" disabled={!assignment || isSaving || isPdfLoading} onClick={onPrint}>Скачать поручение в PDF</button>
             {canEdit ? (
               <button
                 className="primary-button"
@@ -1716,6 +1629,8 @@ function BoardAssignmentDetailDialog({
           </div>
         </header>
 
+        {isPdfLoading && <LoadingIndicator label="Формирование PDF" />}
+        {pdfError && <p role="alert" className="form-message is-error">{pdfError}</p>}
         {detailState === undefined || detailState.status === "loading" ? (
           <LoadingIndicator label="Загружаем поручение…" variant="inline" />
         ) : detailState.status === "error" ? (
