@@ -158,6 +158,23 @@ export function buildProductionReportTables(
   };
 }
 
+/** Per-server, single-entry cache. Callers must treat the returned tables as read-only. */
+export function createProductionReportTablesCache() {
+  let previousInput: string | undefined;
+  let previousTables: ProductionReportTables | undefined;
+  return (submissions: DispatcherSubmission[], plans: ProductionPlan[]) => {
+    // IDs alone miss administrative corrections and changes to monthly plans.
+    // Snapshot values also detect in-place edits in repository implementations.
+    const input = JSON.stringify([submissions, plans]);
+    if (input !== previousInput || previousTables === undefined) {
+      const tables = buildProductionReportTables(submissions, plans);
+      previousInput = input;
+      previousTables = tables;
+    }
+    return previousTables;
+  };
+}
+
 export function buildProductionReportTableTotals(
   tables: ProductionReportTables,
   range: ProductionReportDateRange = {},

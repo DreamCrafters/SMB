@@ -54,6 +54,19 @@ test("dispatcher login reports open incidents and visitors without an exit", asy
     server: { middlewareMode: true },
   });
   let isAuthenticated = false;
+  const feedRequestHeaders = [];
+  const pollCallbacks = new Map();
+  const setInterval = dom.window.setInterval.bind(dom.window);
+  const clearInterval = dom.window.clearInterval.bind(dom.window);
+  dom.window.setInterval = (callback, delay, ...args) => {
+    const id = setInterval(callback, delay, ...args);
+    if (delay === 5_000) pollCallbacks.set(id, callback);
+    return id;
+  };
+  dom.window.clearInterval = (id) => {
+    pollCallbacks.delete(id);
+    clearInterval(id);
+  };
 
   try {
     globalThis.fetch = async (input, init = {}) => {
@@ -120,7 +133,12 @@ test("dispatcher login reports open incidents and visitors without an exit", asy
         url.pathname === "/api/dispatcher/submissions" &&
         method === "GET"
       ) {
-        return jsonResponse(buildDispatcherFeedResponse());
+        const etag = init.headers?.["If-None-Match"];
+        feedRequestHeaders.push(etag);
+        if (etag === 'W/"feed-version"') return new Response(null, { status: 304 });
+        const response = jsonResponse(buildDispatcherFeedResponse());
+        response.headers.set("ETag", 'W/"feed-version"');
+        return response;
       }
       if (url.pathname === "/api/audit/events" && method === "POST") {
         return jsonResponse({ ok: true });
@@ -189,6 +207,14 @@ test("dispatcher login reports open incidents and visitors without an exit", asy
       rootElement.querySelector('.dispatcher-form-choice[aria-label="Выбор формы"]'),
     );
 
+    await React.act(async () => {
+      for (const poll of pollCallbacks.values()) await poll();
+      for (const poll of pollCallbacks.values()) await poll();
+    });
+    assert.equal(feedRequestHeaders.at(-1), 'W/"feed-version"');
+    assert.equal(rootElement.querySelector('[role="dialog"]'), null);
+    assert.ok(rootElement.querySelector('.dispatcher-form-choice'));
+
     const logoutButton = findButton(rootElement, "Выйти из аккаунта");
     assert.ok(logoutButton);
     await React.act(async () => logoutButton.click());
@@ -201,6 +227,7 @@ test("dispatcher login reports open incidents and visitors without an exit", asy
     );
     const secondDialog = rootElement.querySelector('[role="dialog"]');
     assert.ok(secondDialog);
+    assert.equal(feedRequestHeaders.at(-1), undefined, "a new login must not reuse the previous session's cache");
 
     const backdrop = secondDialog.parentElement;
     assert.ok(backdrop?.classList.contains("admin-db-modal-backdrop"));

@@ -68,7 +68,7 @@ import {
   buildProductionMonthToDate,
   buildProductionMonthOverview,
   buildProductionReportTableTotals,
-  buildProductionReportTables,
+  createProductionReportTablesCache,
   type ProductionReportDateRange,
 } from "../domain/productionReportTables.js";
 import {
@@ -610,6 +610,7 @@ export function createApiServer({
 }: AppDependencies) {
   const devSessions = new Map<string, DevAccessSession>();
   const deliveredDevLoginNotificationSessions = new Set<string>();
+  const readProductionReportTables = createProductionReportTablesCache();
 
   return createServer(async (req, res) => {
     applyCors(req, res, config);
@@ -1503,7 +1504,7 @@ export function createApiServer({
                   productionPlans.readLatest(month),
                 ),
               )).filter((plan) => plan !== undefined);
-          const productionReportTables = buildProductionReportTables(
+          const productionReportTables = readProductionReportTables(
             productionSubmissions,
             productionPlanValues,
           );
@@ -1527,14 +1528,13 @@ export function createApiServer({
                 await laboratoryBankAssignments.listCurrent(),
               );
 
-          sendJson(res, 200, {
+          sendDispatcherFeed(req, res, {
             submissions,
             productionReportTables,
             productionReportTableTotals,
             productionMonthOverview: productionMonthOverview ?? null,
             openIncidents,
             bankContents,
-            receivedAt: new Date().toISOString(),
             summary,
           });
           return;
@@ -14254,8 +14254,9 @@ function applyCors(
   res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader(
     "access-control-allow-headers",
-    "Accept,Content-Type,X-SMB-Account-Id,X-SMB-Dev-Session",
+    "Accept,Content-Type,If-None-Match,X-SMB-Account-Id,X-SMB-Dev-Session",
   );
+  res.setHeader("access-control-expose-headers", "ETag");
 }
 
 function isCorsOriginAllowed(origin: string, allowedOrigins: string[]) {
@@ -14859,6 +14860,34 @@ function buildExpiredAuthCookie(config: ServerConfig) {
 
 function readAuthSessionId(req: IncomingMessage, config: ServerConfig) {
   return readCookie(req.headers.cookie, config.session.cookieName);
+}
+
+/** Revalidate only after authentication and fresh reads of every feed source. */
+function sendDispatcherFeed(
+  req: IncomingMessage,
+  res: ServerResponse,
+  payload: JsonPayload,
+) {
+  const serialized = JSON.stringify(payload);
+  // receivedAt describes delivery, not a business-data revision.
+  const etag = `W/"${createHash("sha256").update(serialized).digest("hex")}"`;
+  res.setHeader("etag", etag);
+  res.setHeader("cache-control", "private, no-store");
+  res.setHeader("vary", "Origin, Cookie, X-SMB-Dev-Session");
+  const matches = req.headers["if-none-match"]?.split(",").some((value) => {
+    const candidate = value.trim();
+    return candidate === "*" ||
+      candidate.replace(/^W\//, "") === etag.replace(/^W\//, "");
+  });
+  if (matches) {
+    res.writeHead(304);
+    res.end();
+    return;
+  }
+  res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+  // Serialize the large data object once; add the delivery timestamp separately.
+  const receivedAt = JSON.stringify(new Date().toISOString());
+  res.end(`{"receivedAt":${receivedAt},${serialized.slice(1)}`);
 }
 
 function sendJson(res: ServerResponse, statusCode: number, payload: JsonPayload) {

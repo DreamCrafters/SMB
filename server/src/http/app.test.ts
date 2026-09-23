@@ -200,6 +200,56 @@ const dispatcherSubmissions: DispatcherSubmissionsRepository = {
   },
 };
 
+test("dispatcher feed revalidates unchanged data but detects edits with the same ID", async () => {
+  type FeedPayload = { submissions: { payload: { productionTons: string } }[] };
+  const submission = await dispatcherSubmissions.create({
+    draft: { formId: "equipment", payload: { productionTons: "12" } },
+    summary: "Equipment report",
+  }, "test-access");
+  const repository: DispatcherSubmissionsRepository = {
+    ...dispatcherSubmissions,
+    async listLatest(filters) {
+      return filters?.formId === undefined ? [submission] : [];
+    },
+    async readSummary() {
+      return { total: 1, byForm: [] };
+    },
+  };
+  await withApiServer(async (baseUrl) => {
+    const session = await createDevSession(baseUrl, "business_owner");
+    const headers = { "X-SMB-Dev-Session": session };
+    const url = `${baseUrl}/api/dispatcher/submissions`;
+    const first = await fetch(url, { headers });
+    assert.equal(first.status, 200);
+    const etag = first.headers.get("etag");
+    assert.ok(etag);
+    const firstPayload = await first.json() as FeedPayload;
+    assert.equal(firstPayload.submissions[0]!.payload.productionTons, "12");
+    const repeated = await fetch(url, { headers: { ...headers, "If-None-Match": etag } });
+    assert.equal(repeated.status, 304);
+    assert.equal(await repeated.text(), "");
+    const filtered = await fetch(`${url}?formId=incident`, {
+      headers: { ...headers, "If-None-Match": etag },
+    });
+    assert.equal(filtered.status, 200);
+    const filteredPayload = await filtered.json() as FeedPayload;
+    assert.equal(filteredPayload.submissions.length, 0);
+    submission.payload.productionTons = "19";
+    const updated = await fetch(url, { headers: { ...headers, "If-None-Match": etag } });
+    assert.equal(updated.status, 200);
+    assert.notEqual(updated.headers.get("etag"), etag);
+    const updatedPayload = await updated.json() as FeedPayload;
+    assert.equal(updatedPayload.submissions[0]!.payload.productionTons, "19");
+    const denied = await fetch(url, { headers: { "If-None-Match": etag } });
+    assert.equal(denied.status, 401);
+    const forbiddenSession = await createDevSession(baseUrl, "worker");
+    const forbidden = await fetch(url, {
+      headers: { "X-SMB-Dev-Session": forbiddenSession, "If-None-Match": etag },
+    });
+    assert.equal(forbidden.status, 403);
+  }, repository);
+});
+
 const adminDatabaseTable = {
   name: "dispatcher_submissions",
   label: "Диспетчерские записи",

@@ -107,6 +107,15 @@ export type DispatcherFeedReadyState = {
   source?: "remote" | "local_test";
 };
 
+/** One response in memory, owned by a single screen/session lifecycle. */
+export type DispatcherFeedCache = {
+  entry?: {
+    key: string;
+    etag: string;
+    value: DispatcherFeedReadyState;
+  };
+};
+
 export type DispatcherRemoteErrorState = {
   status: "error";
   message: string;
@@ -808,7 +817,10 @@ export async function requestDispatcherFeed({
   reportDate,
   limit,
   offset,
-}: DispatcherRemoteOptions & DispatcherFeedFilters = {}): Promise<DispatcherFeedResult> {
+  cache,
+}: DispatcherRemoteOptions & DispatcherFeedFilters & {
+  cache?: DispatcherFeedCache;
+} = {}): Promise<DispatcherFeedResult> {
   const endpoint = buildRemoteEndpoint(DISPATCHER_SUBMISSIONS_PATH, { baseUrl });
 
   if (endpoint.status === "missing") {
@@ -844,16 +856,26 @@ export async function requestDispatcherFeed({
     offset,
   });
 
+  const headers: Record<string, string> = buildDevAccessHeaders({
+    Accept: "application/json",
+  });
+  const cacheKey = JSON.stringify([feedEndpoint, headers]);
+  const cached = cache?.entry?.key === cacheKey ? cache.entry : undefined;
+  if (cached !== undefined) headers["If-None-Match"] = cached.etag;
+
   try {
     const response = await fetch(feedEndpoint, {
       method: "GET",
-      headers: buildDevAccessHeaders({
-        Accept: "application/json",
-      }),
+      headers,
+      cache: "no-store",
       credentials: "include",
       signal,
     });
 
+    if (response.status === 304 && cached !== undefined) {
+      return cached.value;
+    }
+    if (cache !== undefined) delete cache.entry;
     const payload = await readJson(response);
 
     if (!response.ok) {
@@ -865,7 +887,7 @@ export async function requestDispatcherFeed({
     }
 
     if (isDispatcherFeedResponse(payload)) {
-      return {
+      const value: DispatcherFeedReadyState = {
         status: "ready",
         submissions: payload.submissions,
         productionReportTables: payload.productionReportTables,
@@ -876,6 +898,11 @@ export async function requestDispatcherFeed({
         receivedAt: payload.receivedAt,
         summary: payload.summary,
       };
+      const etag = response.headers.get("etag");
+      if (cache !== undefined && etag !== null) {
+        cache.entry = { key: cacheKey, etag, value };
+      }
+      return value;
     }
 
     return {
@@ -885,6 +912,7 @@ export async function requestDispatcherFeed({
       statusCode: response.status,
     };
   } catch (error) {
+    if (cache !== undefined) delete cache.entry;
     if (isAbortError(error)) {
       return {
         status: "error",
@@ -918,7 +946,9 @@ export async function requestDispatcherFeed({
 }
 
 export async function requestCompleteDispatcherFeed(
-  options: DispatcherRemoteOptions & Omit<DispatcherFeedFilters, "offset"> = {},
+  options: DispatcherRemoteOptions & Omit<DispatcherFeedFilters, "offset"> & {
+    cache?: DispatcherFeedCache;
+  } = {},
 ): Promise<DispatcherFeedResult> {
   const pageLimit = Math.min(
     Math.max(Math.trunc(options.limit ?? dispatcherFeedPageLimit), 1),

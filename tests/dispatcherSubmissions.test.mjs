@@ -833,6 +833,44 @@ test("requestDispatcherFeed reads live history from remote server", async () => 
   assert.equal(request.init.method, "GET");
 });
 
+test("dispatcher feed cache revalidates, preserves objects on 304 and isolates filters and failures", async () => {
+  const cache = {};
+  const requests = [];
+  let status = 200;
+  const body = {
+    submissions: [submission],
+    productionReportTables: emptyProductionReportTables,
+    productionReportTableTotals: emptyProductionReportTableTotals,
+    productionMonthOverview: null,
+    openIncidents: [], bankContents: [],
+    receivedAt: "2026-06-18T00:00:02.000Z",
+    summary: { total: 1, byForm: [] },
+  };
+  globalThis.fetch = async (_endpoint, init) => {
+    requests.push(init);
+    return new Response(status === 304 ? null : JSON.stringify(body), {
+      status, headers: { "content-type": "application/json", ETag: 'W/"revision-1"' },
+    });
+  };
+  const options = { baseUrl: "https://api.example.test", cache };
+  const first = await requestDispatcherFeed(options);
+  assert.equal(first.status, "ready");
+  status = 304;
+  const second = await requestDispatcherFeed(options);
+  assert.equal(requests[1].headers["If-None-Match"], 'W/"revision-1"');
+  assert.equal(second, first);
+  status = 200;
+  await requestDispatcherFeed({ ...options, formId: "equipment" });
+  assert.equal(requests[2].headers["If-None-Match"], undefined);
+  status = 403;
+  assert.equal((await requestDispatcherFeed(options)).status, "error");
+  status = 200;
+  await requestDispatcherFeed(options);
+  assert.equal(requests[4].headers["If-None-Match"], undefined);
+  await requestDispatcherFeed({ ...options, cache: {} });
+  assert.equal(requests[5].headers["If-None-Match"], undefined);
+});
+
 test("requestCompleteDispatcherFeed reads every history page", async () => {
   const requestedEndpoints = [];
 

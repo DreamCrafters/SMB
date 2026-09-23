@@ -7,7 +7,28 @@ import {
   buildProductionMonthToDate,
   buildProductionReportTableTotals,
   buildProductionReportTables,
+  createProductionReportTablesCache,
 } from "./productionReportTables.js";
+
+test("production tables cache reuses unchanged data and detects edits without new IDs", () => {
+  const read = createProductionReportTablesCache();
+  const submissions = [buildSubmission("same-id", {
+    reportDate: "01.07.2026", formingBrand1: "ФЛ-1", formingFact1: "8",
+  })];
+  const plan = structuredClone(productionPlan);
+  const first = read(submissions, [plan]);
+  assert.equal(read(structuredClone(submissions), [structuredClone(plan)]), first);
+  submissions[0]!.payload.formingFact1 = "11";
+  const edited = read(submissions, [plan]);
+  assert.equal(edited.forming[0]!.dayFact, 11);
+  assert.notEqual(edited, first);
+  plan.schedules.forming!.dailyPlans[0]!.value = 17;
+  const replanned = read(submissions, [plan]);
+  assert.equal(replanned.forming[0]!.dayPlan, 17);
+  assert.notEqual(replanned, edited);
+  assert.equal(read([], [plan]).forming.length, 0);
+  assert.equal(read(submissions, [plan]).forming[0]!.dayFact, 11);
+});
 
 test("buildProductionReportTables calculates server-owned production analytics", () => {
   const tables = buildProductionReportTables([

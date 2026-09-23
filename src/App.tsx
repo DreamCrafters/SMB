@@ -114,6 +114,7 @@ import {
   requestDispatcherFeed,
   submitDispatcherEquipmentReport,
   submitDispatcherSubmission,
+  type DispatcherFeedCache,
   type DispatcherFeedResult,
   type DispatcherFormsResult,
 } from "./services/dispatcherSubmissions";
@@ -996,6 +997,8 @@ export default function App() {
     let isLoading = false;
     let currentController: AbortController | undefined;
     let completeHistory: DispatcherSubmission[] | undefined;
+    const feedCache: DispatcherFeedCache = {};
+    let previousPage: DispatcherFeedResult | undefined;
     let reloadTimeoutId: number | undefined;
 
     async function loadDispatcherFeed() {
@@ -1024,6 +1027,8 @@ export default function App() {
           signal: currentController.signal,
           localFallback: isLocalTestFallbackEnabled,
           limit: dispatcherFeedPageLimit,
+          offset: 0,
+          cache: feedCache,
           productionDateFrom,
           productionDateTo,
         });
@@ -1036,6 +1041,15 @@ export default function App() {
           setDispatcherFeed(result);
           return;
         }
+
+        if (result === previousPage && completeHistory !== undefined) {
+          const submissions = completeHistory;
+          setDispatcherFeed((current) =>
+            current.status === "ready" ? current : { ...result, submissions },
+          );
+          return;
+        }
+        previousPage = result;
 
         if (completeHistory === undefined) {
           completeHistory = result.submissions;
