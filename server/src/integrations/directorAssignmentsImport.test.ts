@@ -35,3 +35,12 @@ test("missing responsibility, deadline and broken status remain explicit legacy 
   assert.equal(result.records[0].source?.originalStatus, "#REF!");
   assert.equal(result.warnings[0].messages.length, 3);
 });
+
+test("incomplete completed imports retain warnings and source fields without a parallel status", () => {
+  const incomplete = [...row]; incomplete[7] = ""; incomplete[11] = "";
+  const result = previewDirectorAssignmentImport([header, incomplete], "2026-09-23T00:00:00Z");
+  assert.equal(result.records[0].status, "completed");
+  assert.equal(result.records[0].needsClarification, false);
+  assert.equal(result.warnings[0].messages.length, 2);
+  assert.deepEqual(result.records[0].source?.values, incomplete);
+});

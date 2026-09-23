@@ -23,6 +23,8 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
     let delayHistory = false;
     let releaseHistory;
     const downloads = [];
+    const scrolled = [];
+    dom.window.HTMLElement.prototype.scrollIntoView = function (options) { scrolled.push({ element: this, options }); };
     dom.window.HTMLAnchorElement.prototype.click = function () { downloads.push(this.download); };
     const employees = [{ id: "account:employee-1", userId: "employee-1", fullName: "Сотрудник первый", position: "Инженер", active: true }, { id: "account:employee-2", fullName: "Сотрудник второй", position: "Экономист", active: true }];
     const oldAssignment = { id: "old-assignment", number: "ГД-1", revision: 1, assignedOn: "2026-09-15", kind: "Поручение", summary: "Ранее назначенная задача", department: "", project: "", responsibleId: "person-linked", responsible: { ...employees[0], id: "person-linked" }, coExecutorIds: mode === "send-unlinked" ? ["person-unlinked"] : [], coExecutors: mode === "send-unlinked" ? [{ id: "person-unlinked", fullName: "Прежний сотрудник", userId: null }] : [], recurrence: "once", activeFrom: "2026-09-16", activeTo: "2026-09-16", currentOccurrenceDate: "2026-09-16", urgency: "", importance: "", progress: "", note: "", incomingNumber: "", completedOn: "", status: "in_progress", comments: [], documents: [], source: null, sourceBoardAssignmentId: null, postponedUntil: "" };
@@ -41,7 +43,7 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
       }
       assert.ok(["/api/director-assignments", "/api/director-assignments/old-assignment"].includes(new URL(String(url), "http://127.0.0.1:5173").pathname));
       if (options.method === "POST" || options.method === "PATCH") submitted = JSON.parse(options.body);
-      return new Response(JSON.stringify({ assignments: mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "completed", needsClarification: true }] : mode.startsWith("send-") ? [oldAssignment] : [], employees: mode !== "receive" ? employees : [], permissions: { canView: true, canManage: mode !== "receive", canExecute: mode === "receive", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ assignments: mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "in_progress", needsClarification: true }] : mode.startsWith("send-") ? [oldAssignment] : [], employees: mode !== "receive" ? employees : [], permissions: { canView: true, canManage: mode !== "receive", canExecute: mode === "receive", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
     };
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
@@ -52,10 +54,10 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
         const checkbox = label => [...rootElement.querySelectorAll(".board-assignment-status-options input")].find(input => input.value === label);
         assert.deepEqual(visibleNumbers(), ["ГД-1", "ГД-2", "ГД-3"]);
         await React.act(async () => checkbox("В работе").click());
-        assert.deepEqual(visibleNumbers(), ["ГД-1"]);
+        assert.deepEqual(visibleNumbers(), ["ГД-1", "ГД-3"]);
         await React.act(async () => checkbox("На проверке").click());
-        assert.deepEqual(visibleNumbers(), ["ГД-1", "ГД-2"]);
-        assert.match(rootElement.querySelector(".director-register-heading").textContent, /Найдено: 2/u);
+        assert.deepEqual(visibleNumbers(), ["ГД-1", "ГД-2", "ГД-3"]);
+        assert.match(rootElement.querySelector(".director-register-heading").textContent, /Найдено: 3/u);
         await React.act(async () => checkbox("В работе").click());
         assert.deepEqual(visibleNumbers(), ["ГД-2"]);
         await React.act(async () => checkbox("Требует уточнения").click());
@@ -85,9 +87,17 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
         await React.act(async () => exportRegister().click());
         assert.deepEqual(exports.at(-1).entries, [{ id: "completion-old", revision: 2 }, { id: "completion-new", revision: 5 }]);
         await React.act(async () => rootElement.querySelectorAll(".table-text-action")[1].click());
+        const detail = rootElement.querySelector(".director-assignment-detail");
+        assert.equal(scrolled.at(-1).element, detail);
+        assert.equal(scrolled.at(-1).options.block, "start");
+        assert.equal(document.activeElement, detail);
+        assert.match(detail.textContent, /Снимок второго периода/u);
+        const scrollCount = scrolled.length;
+        await React.act(async () => rootElement.querySelectorAll(".table-text-action")[1].click());
+        assert.equal(scrolled.length, scrollCount + 1, "reopening the same snapshot scrolls again");
         await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Скачать поручение в PDF").click());
         assert.deepEqual(exports.at(-1), { mode: "assignment", source: "history", entries: [{ id: "completion-new", revision: 5 }] });
-        await React.act(async () => checkbox("В работе").click());
+        await React.act(async () => checkbox("Требует уточнения").click());
         assert.equal(exportRegister().disabled, true);
         await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Сбросить").click());
         await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Текущие поручения").click());

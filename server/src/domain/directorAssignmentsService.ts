@@ -220,11 +220,12 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           comments: [...previous.comments, comment(profile, actionComment, status)] };
         if (status === "completed") {
           assignment.completedOn = today();
+          assignment.needsClarification = false;
           await repository.addCompletion(assignment);
           // An early completion must advance beyond that occurrence, not only beyond today.
           const completedThrough = assignment.currentOccurrenceDate > assignment.completedOn ? assignment.currentOccurrenceDate : assignment.completedOn;
           const next = getNextBoardAssignmentOccurrenceDate({ ...assignment, completedOn: completedThrough });
-          if (next) { assignment.status = "in_progress"; assignment.currentOccurrenceDate = next; assignment.completedOn = ""; }
+          if (next) { assignment.needsClarification = previous.needsClarification; assignment.status = "in_progress"; assignment.currentOccurrenceDate = next; assignment.completedOn = ""; }
         }
         await repository.update(assignment, previous);
         await recordAudit(profile, "Изменён статус поручения генерального директора", id);

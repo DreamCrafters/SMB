@@ -43,7 +43,7 @@ function fixture() {
     activeAccess: { accountId: userId, accountType: "business_owner", position: "worker", positionDisplayName: "Сотрудник", displayName: userId, scope: { kind: "organization" }, issuedAt: "2026-09-14T00:00:00Z", navigationItems: ["business.director_assignments"], capabilities: ["business.view_director_assignments", ...(manager ? ["business.manage_director_assignments" as const] : [])] },
   });
   const input: DirectorAssignmentInput = { assignedOn: "2026-09-01", kind: "Поручение", summary: "Представить отчёт", department: "", project: "", responsibleId: employee.id, coExecutorIds: [], recurrence: "monthly", activeFrom: "2026-09-01", activeTo: "2026-12-31", urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null };
-  return { service, employee, profile, input, board, boardLocks: () => boardLocks, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, failAudit() { auditFails = true; } };
+  return { service, employee, profile, input, board, boardLocks: () => boardLocks, markUnclear(id: string) { records.get(id)!.needsClarification = true; }, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, failAudit() { auditFails = true; } };
 }
 
 test("responsible executor can complete a one-time assignment directly with an immutable history entry", async () => {
@@ -305,3 +305,16 @@ test("PDF history uses completion IDs and immutable data after the next occurren
   await assert.rejects(service.exportSelection(manager, { ...request, entries: [{ id: record.id, revision: 1 }] }), /недоступно/u);
   await assert.rejects(service.exportSelection(manager, { ...request, entries: [...request.entries, ...request.entries] }), /выбор/u);
 });
+
+for (const recurring of [false, true]) {
+  test(`completion clears clarification in the accepted snapshot (recurring: ${recurring})`, async () => {
+    const { service, profile, input, markUnclear } = fixture();
+    const manager = profile("director", true);
+    const record = await service.save(manager, { assignment: recurring ? input : { ...input, recurrence: "once", activeTo: input.activeFrom }, comment: "Создано" });
+    markUnclear(record.id);
+    const result = await service.action(manager, record.id, { action: "complete", comment: "Выполнено", revision: 1 });
+    assert.equal((await service.completions(manager))[0].assignment.needsClarification, false);
+    assert.equal(result.needsClarification, recurring);
+    assert.equal(result.status, recurring ? "in_progress" : "completed");
+  });
+}

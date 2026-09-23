@@ -53,3 +53,26 @@ test("reminder delivery claim uses an atomic expiring lease and completion check
   assert.match(calls.at(-1)!.sql, /and channel = \? and claim_token = \?/u);
   assert.deepEqual(calls.at(-1)!.parameters, ["assignment", "2026-09-30", 3, "worker", "email", "token-1"]);
 });
+
+for (const status of ["completed", "in_progress", "under_review", "revision_requested"]) {
+  test(`stored ${status} assignments expose consistent clarification across all readers`, async () => {
+    const stored = { id: "legacy", status, needsClarification: true, source: { values: ["Original source"] } };
+    for (const value of [stored, JSON.stringify(stored)]) {
+      const repository = createDirectorAssignmentsRepository({ async query() {
+        return [[{ id: "snapshot", payload: value }], []];
+      } } as unknown as DatabasePool);
+      const results = [
+        ...(await repository.list()),
+        (await repository.read("legacy"))!,
+        ...(await repository.listByBoardAssignment("board")),
+        ...(await repository.listBoardAssignmentRevisions("board")),
+        ...(await repository.listCompletions()).map(item => item.assignment),
+      ];
+      for (const assignment of results) {
+        assert.equal(assignment.needsClarification, status !== "completed");
+        assert.deepEqual(assignment.source, stored.source);
+      }
+      assert.equal(stored.needsClarification, true, "immutable stored history is not rewritten");
+    }
+  });
+}

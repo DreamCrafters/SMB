@@ -40,7 +40,7 @@ export function previewDirectorAssignmentImport(rows: string[][], timestamp: str
       urgency: row[8] ?? "", importance: row[9] ?? "", progress: row[10] ?? "", completedOn,
       note: row[12] ?? "", status: completed ? "completed" : "in_progress", incomingNumber: row[14] ?? "",
       sourceBoardAssignmentId: null, comments: [], documents: [], createdAt: timestamp, updatedAt: timestamp,
-      needsClarification: messages.length > 0, postponedUntil,
+      needsClarification: !completed && messages.length > 0, postponedUntil,
       source: { key, originalStatus, originalDueDate, postponedUntil, values: [...row] },
     });
     if (messages.length) warnings.push({ number, messages: [...new Set(messages)] });

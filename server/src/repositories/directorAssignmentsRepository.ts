@@ -10,6 +10,12 @@ function payload<T>(row: JsonRow): T {
   return (typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload) as T;
 }
 
+// Apply the current status rule without rewriting immutable legacy snapshots.
+function assignmentPayload(row: JsonRow): DirectorAssignment {
+  const assignment = payload<DirectorAssignment>(row);
+  return assignment.status === "completed" ? { ...assignment, needsClarification: false } : assignment;
+}
+
 /** Mutations must be called inside the application's audited transaction. */
 export function createDirectorAssignmentsRepository(pool: DatabasePool) {
   async function accountEmployees(userId?: string, lock = false): Promise<PersonnelEmployee[]> {
@@ -90,7 +96,7 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool) {
     },
     async list() {
       const [rows] = await pool.query<JsonRow[]>("select payload from director_assignments order by assigned_on desc, sequence_id desc");
-      return rows.map(row => payload<DirectorAssignment>(row));
+      return rows.map(assignmentPayload);
     },
     async listByBoardAssignment(boardAssignmentId: string) {
       const [rows] = await pool.query<JsonRow[]>(
@@ -98,7 +104,7 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool) {
          where json_unquote(json_extract(payload, '$.sourceBoardAssignmentId')) = ?
          order by sequence_id desc`, [boardAssignmentId],
       );
-      return rows.map(row => payload<DirectorAssignment>(row));
+      return rows.map(assignmentPayload);
     },
     async listBoardAssignmentRevisions(boardAssignmentId: string) {
       const [rows] = await pool.query<JsonRow[]>(
@@ -108,11 +114,11 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool) {
            and json_unquote(json_extract(assignments.payload, '$.sourceBoardAssignmentId')) = ?
          order by history.sequence_id asc`, [boardAssignmentId],
       );
-      return rows.map(row => payload<DirectorAssignment>(row));
+      return rows.map(assignmentPayload);
     },
     async read(id: string, lock = false) {
       const [rows] = await pool.query<JsonRow[]>(`select payload from director_assignments where id = ? ${lock ? "for update" : ""}`, [id]);
-      return rows[0] ? payload<DirectorAssignment>(rows[0]) : undefined;
+      return rows[0] ? assignmentPayload(rows[0]) : undefined;
     },
     async create(assignment: DirectorAssignment) {
       const [result] = await pool.query<ResultSetHeader>("insert into director_assignments (id, assigned_on, revision, source_key, payload) values (?, ?, ?, ?, ?)",
@@ -135,7 +141,7 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool) {
     },
     async listCompletions() {
       const [rows] = await pool.query<(JsonRow & { id: string })[]>("select id, payload from director_assignment_history where event_type = 'completion' order by sequence_id desc");
-      return rows.map(row => ({ id: row.id, assignment: payload<DirectorAssignment>(row) }));
+      return rows.map(row => ({ id: row.id, assignment: assignmentPayload(row) }));
     },
     async addDocument(assignmentId: string, id: string, fileName: string, pdf: Buffer) {
       await pool.query("insert into director_assignment_documents (id, assignment_id, file_name, pdf) values (?, ?, ?, ?)", [id, assignmentId, fileName, pdf]);
