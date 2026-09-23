@@ -4399,6 +4399,14 @@ const migrations: Migration[] = [
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
     ],
   },
+  {
+    id: "087_root_admin_identity",
+    statements: [
+      `alter table app_users add column is_root_admin tinyint(1) not null default 0;`,
+      // One-time preservation of the previous canonical identity, never a runtime rule.
+      `update app_users set is_root_admin = 1, is_admin_protected = 1 where lower(trim(login)) = 'admin';`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(

@@ -12024,13 +12024,13 @@ function AdminAccountsWorkspace({
       !canAssignAdminNavigation
     ) {
       setFormStatus(
-        "Должность с правами админа может назначать только исходный аккаунт admin.",
+        "Должность с правами админа может назначать только корневой администратор.",
       );
       return;
     }
     if (selectedPositions.some((position) => position.accountType === "admin")) {
       setFormStatus(
-        "Системная должность администратора закреплена за исходным аккаунтом admin.",
+        "Системная должность администратора закреплена за корневым администратором.",
       );
       return;
     }
@@ -12195,7 +12195,7 @@ function AdminAccountsWorkspace({
     const selectedPositions = positions.map((id) => positionsState.positions.find((position) => position.id === id));
     if (selectedPositions.some((position) => position === undefined ||
       (!canAssignAdminNavigation && position.hasAdminRights) ||
-      (position.accountType === "admin" && account.login.trim().toLocaleLowerCase("en-US") !== "admin"))) {
+      (position.accountType === "admin" && account.isRootAdmin !== true))) {
       setWorkspaceStatus("Выбранная должность недоступна для назначения.");
       return;
     }
@@ -12397,8 +12397,8 @@ function AdminAccountsWorkspace({
                   const isLoginEnabled = account.userStatus === "active";
                   const isCurrentAccount = account.userId === profile.userId;
                   const isArchived = account.userStatus === "archived";
-                  const isOriginalAdmin =
-                    account.login.trim().toLocaleLowerCase("en-US") === "admin";
+                  const isRootAccount =
+                    account.isRootAdmin === true;
                   const isProtectedMutationRestricted =
                     account.isProtected && !canManageProtectedAccounts;
                   const isUpdating = updatingUserId === account.userId;
@@ -12413,7 +12413,7 @@ function AdminAccountsWorkspace({
                       const position = positionsState.positions.find((candidate) => candidate.id === id);
                       return position === undefined ||
                         (!canAssignAdminNavigation && position.hasAdminRights) ||
-                        (position.accountType === "admin" && !isOriginalAdmin);
+                        (position.accountType === "admin" && !isRootAccount);
                     }));
                   const isPositionChangeDisabled =
                     !canManageAccess ||
@@ -12435,7 +12435,7 @@ function AdminAccountsWorkspace({
                     : isCurrentAccount
                       ? "Нельзя отключить текущую учётную запись."
                       : isProtectedMutationRestricted
-                        ? "Защищённую учётную запись может отключить только исходный аккаунт admin."
+                        ? "Защищённую учётную запись может отключить только корневой администратор."
                       : isArchived
                         ? "Архивную учётную запись нельзя включить."
                         : undefined;
@@ -12454,7 +12454,7 @@ function AdminAccountsWorkspace({
                             title={isCurrentAccount
                               ? "Нельзя менять должности текущей учётной записи."
                               : isProtectedMutationRestricted
-                                ? "Должности защищённой учётной записи может менять только исходный аккаунт admin."
+                                ? "Должности защищённой учётной записи может менять только корневой администратор."
                                 : undefined}
                             onChange={(positions) => setAccountPositionDrafts((current) => ({
                               ...current,
@@ -12486,12 +12486,12 @@ function AdminAccountsWorkspace({
                         <label
                           className="admin-account-protection-control"
                           title={
-                            isOriginalAdmin
-                              ? "Защиту исходного аккаунта admin нельзя отключить."
+                            isRootAccount
+                              ? "Защиту корневого администратора нельзя отключить."
                               : account.isProtectedByAdminRights
                                 ? "Аккаунт защищён автоматически правами админа его должности."
                               : !canManageProtectedAccounts
-                                ? "Защиту может изменять только исходный аккаунт admin."
+                                ? "Защиту может изменять только корневой администратор."
                                 : undefined
                           }
                         >
@@ -12501,7 +12501,7 @@ function AdminAccountsWorkspace({
                             checked={account.isProtected}
                             disabled={
                               !canManageProtectedAccounts ||
-                              isOriginalAdmin ||
+                              isRootAccount ||
                               account.isProtectedByAdminRights ||
                               protectingUserId !== undefined
                             }
@@ -12529,7 +12529,7 @@ function AdminAccountsWorkspace({
                           isResetDisabled={isProtectedMutationRestricted}
                           resetTitle={
                             isProtectedMutationRestricted
-                              ? "Пароль защищённой учётной записи может менять только исходный аккаунт admin."
+                              ? "Пароль защищённой учётной записи может менять только корневой администратор."
                               : undefined
                           }
                           onReset={(trigger) =>
@@ -12594,7 +12594,7 @@ function AdminAccountsWorkspace({
                               isCurrentAccount
                                 ? "Нельзя удалить текущую учётную запись."
                                 : isProtectedMutationRestricted
-                                  ? "Защищённую учётную запись может удалить только исходный аккаунт admin."
+                                  ? "Защищённую учётную запись может удалить только корневой администратор."
                                   : undefined
                             }
                             disabled={

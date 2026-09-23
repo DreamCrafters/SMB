@@ -47,6 +47,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "084_railway_wagon_required_date",
   "085_director_assignments",
   "086_director_assignment_reminders",
+  "087_root_admin_identity",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3392,4 +3393,35 @@ test("director reminder migration stores independent per-occurrence recipient an
   assert.match(statements[0], /lease_until timestamp\(3\) null/u);
   assert.match(statements[0], /delivered_at timestamp\(3\) null/u);
   assert.match(statements[1], /insert into schema_migrations/u);
+});
+
+test("root authority migration preserves the previous identity once without changing assigned access", async () => {
+  const statements: string[] = [];
+  let applied = false;
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) {
+      statements.push(normalizeSql(sql));
+      if (sql.includes("insert into schema_migrations")) applied = true;
+      return [[], []];
+    },
+  };
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      if (sql.includes("select id from schema_migrations")) {
+        const id = parameters?.[0];
+        return [id === "087_root_admin_identity" && !applied ? [] : [{ id }], []];
+      }
+      return [[], []];
+    },
+    async getConnection() { return connection; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  const sql = statements.join("\n");
+  assert.match(sql, /add column is_root_admin tinyint\(1\) not null default 0/u);
+  assert.match(sql, /set is_root_admin = 1, is_admin_protected = 1 where lower\(trim\(login\)\) = 'admin'/u);
+  assert.doesNotMatch(sql, /update account_accesses|update account_positions|delete from/u);
+  const count = statements.length;
+  await runMigrations(pool);
+  assert.equal(statements.length, count);
 });

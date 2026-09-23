@@ -12,7 +12,7 @@ import type {
 } from "../domain/auth.js";
 import { defaultCapabilitiesByAccountType } from "../domain/auth.js";
 import { resolveCapabilitiesForPosition } from "../domain/accountAccessConfiguration.js";
-import { CanonicalAdminMutationRequiredError } from "../domain/adminAccountProtection.js";
+import { RootAdminMutationRequiredError } from "../domain/adminAccountProtection.js";
 import type { DispatcherSubmissionsRepository } from "../repositories/dispatcherSubmissionsRepository.js";
 import type { AdminDatabaseRepository } from "../repositories/adminDatabaseRepository.js";
 import { AdminDatabaseRowMutationError } from "../repositories/adminDatabaseRepository.js";
@@ -5862,6 +5862,7 @@ const adminAccount = {
 };
 
 const accounts: AccountsRepository = {
+  async recoverRootPassword() { return "root-user"; },
   async listAccounts() {
     return [adminAccount];
   },
@@ -6622,13 +6623,11 @@ test("only original admin can change a working tab for multiple positions", asyn
   assert.deepEqual(actors, [
     {
       userId: "dev-user-admin",
-      accessId: "dev-access-admin",
-      devAccessEnabled: true,
+      isDevRootAdmin: true,
     },
     {
       userId: "dev-user-admin",
-      accessId: "dev-access-admin",
-      devAccessEnabled: true,
+      isDevRootAdmin: true,
     },
   ]);
   assert.equal(transactionRuns, 2);
@@ -6642,7 +6641,7 @@ test("working-tab mutation returns 403 when original admin status changes under 
   const repository: AccountsRepository = {
     ...accounts,
     async setPositionNavigationAccess() {
-      throw new CanonicalAdminMutationRequiredError();
+      throw new RootAdminMutationRequiredError();
     },
   };
 
@@ -7127,13 +7126,14 @@ test("primary admin cannot assign root admin panels directly to a custom positio
   assert.equal(created[0]?.navigationItems.includes("admin.database"), false);
 });
 
-test("production account with canonical admin login cannot assign root panels to a custom position", async () => {
+test("renamed production root cannot assign root panels to a custom position", async () => {
   const profile = buildProductionProfile("admin");
   const actorAccount = {
     ...adminAccount,
     accessId: profile.activeAccess.accountId,
     userId: profile.userId,
-    login: "admin",
+    login: "renamed-root",
+    isRootAdmin: true,
     accountType: profile.accountType,
     position: profile.activeAccess.position,
     positionDisplayName: profile.activeAccess.positionDisplayName,
@@ -8190,7 +8190,8 @@ test("original admin account protection cannot be removed", async () => {
     ...adminAccount,
     accessId: profile.activeAccess.accountId,
     userId: profile.userId,
-    login: "admin",
+    login: "renamed-root",
+    isRootAdmin: true,
     accountType: profile.accountType,
     position: profile.activeAccess.position,
     positionDisplayName: profile.activeAccess.positionDisplayName,
@@ -15471,4 +15472,41 @@ test("director PDF endpoint authenticates, validates revisions and streams an ac
       assert.equal(Buffer.from(await response.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
     }
   } finally { server.close(); await once(server, "close"); }
+});
+
+for (const isRootAdmin of [false, true]) {
+  test(`production root authority is read from the database flag (${isRootAdmin}) rather than login or client headers`, async () => {
+    const profile = buildProductionProfile("admin");
+    const actor = { ...adminAccount, userId: profile.userId, accessId: profile.activeAccess.accountId,
+      login: isRootAdmin ? "renamed-root" : "admin", isRootAdmin };
+    let changed = false;
+    const repository: AccountsRepository = { ...accounts,
+      async listAccounts() { return [actor, { ...adminAccount, userId: "target-user", accessId: "target-access", login: "target", isRootAdmin: false }]; },
+      async setAccountProtected(input) { changed = true; return input; },
+    };
+    await withApiServer(async baseUrl => {
+      const headers = { "Content-Type": "application/json", Cookie: `${productionConfig.session.cookieName}=prod-session`, "X-SMB-Is-Root-Admin": "true" };
+      const list = await fetch(`${baseUrl}/api/admin/accounts`, { headers });
+      assert.equal(list.status, 200);
+      assert.equal(((await list.json()) as { canManageProtectedAccounts: boolean }).canManageProtectedAccounts, isRootAdmin);
+      const mutation = await fetch(`${baseUrl}/api/admin/accounts/target-user/protection`, { method: "PATCH", headers, body: JSON.stringify({ isProtected: true }) });
+      assert.equal(mutation.status, isRootAdmin ? 200 : 403);
+    }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, productionConfig, buildAuthService({ profile }), repository);
+    assert.equal(changed, isRootAdmin);
+  });
+}
+
+test("delegated dev session cannot inherit root from a colliding production user ID", async () => {
+  const repository: AccountsRepository = { ...accounts,
+    async listPositions() { return [{ id: "delegated-dev", displayName: "Управление аккаунтами", accountType: "business_owner", navigationItems: ["admin.accounts"], capabilities: ["platform.manage_users", "platform.manage_access"], boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: true, usageCount: 0, createdAt: "2026-09-23T00:00:00Z" }]; },
+    async listAccounts() { return [{ ...adminAccount, userId: "dev-user-owner", isRootAdmin: true }]; },
+  };
+  await withApiServer(async baseUrl => {
+    const sessionResponse = await fetch(`${baseUrl}/api/dev/access-session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ position: "delegated-dev" }) });
+    assert.equal(sessionResponse.status, 200);
+    const { sessionId } = await sessionResponse.json() as { sessionId: string };
+    const response = await fetch(`${baseUrl}/api/admin/accounts`, { headers: { "X-SMB-Dev-Session": sessionId } });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as { canManageProtectedAccounts: boolean }).canManageProtectedAccounts, false);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });

@@ -17,6 +17,7 @@ export type AdminAccountSummary = {
   email?: string;
   maxUserId?: string;
   userStatus: string;
+  isRootAdmin?: boolean;
   isProtected: boolean;
   isProtectedByAdminRights: boolean;
   accessDisplayName: string;

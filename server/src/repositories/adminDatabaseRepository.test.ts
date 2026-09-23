@@ -609,7 +609,7 @@ test("user editor exposes no archive option and revokes active sessions", async 
     async query(sql: string, values?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, values });
-      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+      if (normalized.startsWith("select status, greatest(is_admin_protected, is_root_admin) as is_admin_protected from app_users")) {
         return [[{ status: "active", is_admin_protected: 0 }], []];
       }
       return [{ affectedRows: 1 }, []];
@@ -640,7 +640,7 @@ test("archived user cannot be changed through a forged database mutation", async
   const pool = {
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+      if (normalized.startsWith("select status, greatest(is_admin_protected, is_root_admin) as is_admin_protected from app_users")) {
         return [[{ status: "archived", is_admin_protected: 0 }], []];
       }
       if (normalized.startsWith("update app_users")) didUpdate = true;
@@ -664,7 +664,7 @@ test("protected user cannot be changed through a forged database mutation", asyn
   const pool = {
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select status, is_admin_protected from app_users")) {
+      if (normalized.startsWith("select status, greatest(is_admin_protected, is_root_admin) as is_admin_protected from app_users")) {
         return [[{ status: "active", is_admin_protected: 1 }], []];
       }
       if (normalized.startsWith("update app_users")) didUpdate = true;

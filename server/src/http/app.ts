@@ -216,8 +216,8 @@ import {
   isDispatcherFormId,
 } from "../domain/dispatcherForms.js";
 import {
-  CanonicalAdminMutationRequiredError,
-  isCanonicalAdminLogin,
+  RootAdminMutationRequiredError,
+  canUseRootDevAccess,
   ProtectedAccountMutationError,
 } from "../domain/adminAccountProtection.js";
 import {
@@ -11471,6 +11471,7 @@ async function handleAdminDatabaseRequest({
           !(await readCanAssignAdminNavigation({
             profile: access.profile,
             accounts,
+            source: access.source,
             devAccessEnabled: config.devAccessEnabled,
           }))
         ) {
@@ -11528,6 +11529,7 @@ async function handleAdminDatabaseRequest({
               await readCanAssignAdminNavigation({
                 profile: access.profile,
                 accounts,
+                source: access.source,
                 devAccessEnabled: config.devAccessEnabled,
               }),
           }),
@@ -11856,6 +11858,7 @@ async function handleAdminAccountsRequest({
     canAssignAdminNavigationPromise ??= readCanAssignAdminNavigation({
       profile: access.profile,
       accounts,
+      source: access.source,
       devAccessEnabled: config.devAccessEnabled,
     });
     return canAssignAdminNavigationPromise;
@@ -11873,7 +11876,7 @@ async function handleAdminAccountsRequest({
         error: {
           code: "access_denied",
           message:
-            "Права админа может изменять только исходный аккаунт admin.",
+            "Права админа может изменять только корневой администратор.",
         },
       });
       return;
@@ -11964,7 +11967,7 @@ async function handleAdminAccountsRequest({
         error: {
           code: "access_denied",
           message:
-            "Защиту учётных записей может изменять только исходный аккаунт admin.",
+            "Защиту учётных записей может изменять только корневой администратор.",
         },
       });
       return;
@@ -11989,13 +11992,13 @@ async function handleAdminAccountsRequest({
     );
     if (
       targetAccount !== undefined &&
-      isCanonicalAdminLogin(targetAccount.login) &&
+      targetAccount.isRootAdmin === true &&
       !validation.value.isProtected
     ) {
       sendJson(res, 409, {
         error: {
           code: "invalid_response",
-          message: "Защиту исходного аккаунта admin нельзя отключить.",
+          message: "Защиту корневого администратора нельзя отключить.",
         },
       });
       return;
@@ -12101,13 +12104,13 @@ async function handleAdminAccountsRequest({
     }
     if (
       targetPositions.some((position) => position?.accountType === "admin") &&
-      !isCanonicalAdminLogin(targetAccount.login)
+      targetAccount.isRootAdmin !== true
     ) {
       sendJson(res, 403, {
         error: {
           code: "access_denied",
           message:
-            "Системная должность администратора доступна только исходному аккаунту admin.",
+            "Системная должность администратора доступна только корневому администратору.",
         },
       });
       return;
@@ -12365,7 +12368,7 @@ async function handleAdminAccountsRequest({
         error: {
           code: "access_denied",
           message:
-            "Доступ по выбранной вкладке может менять только исходный аккаунт admin.",
+            "Доступ по выбранной вкладке может менять только корневой администратор.",
         },
       });
       return;
@@ -12397,8 +12400,7 @@ async function handleAdminAccountsRequest({
               validation.value,
               {
                 userId: access.profile.userId,
-                accessId: access.profile.activeAccess.accountId,
-                devAccessEnabled: config.devAccessEnabled,
+                isDevRootAdmin: canUseRootDevAccess(access.profile, access.source, config.devAccessEnabled),
               },
             ),
             buildEvent: (updated) =>
@@ -12461,7 +12463,7 @@ async function handleAdminAccountsRequest({
         canManageProtectedPositions: true,
       });
     } catch (error) {
-      if (error instanceof CanonicalAdminMutationRequiredError) {
+      if (error instanceof RootAdminMutationRequiredError) {
         sendJson(res, 403, {
           error: { code: "access_denied", message: error.message },
         });
@@ -12628,7 +12630,7 @@ async function handleAdminAccountsRequest({
           error: {
             code: "access_denied",
             message:
-              "Системная должность администратора доступна только исходному аккаунту admin.",
+              "Системная должность администратора доступна только корневому администратору.",
           },
         });
         return;
@@ -13046,25 +13048,23 @@ function validateCreatePositionRequest(input: unknown):
 async function readCanAssignAdminNavigation({
   profile,
   accounts,
+  source,
   devAccessEnabled,
 }: {
   profile: ServerUserProfile;
   accounts: AccountsRepository;
+  source: "auth" | "dev";
   devAccessEnabled: boolean;
 }) {
-  if (
-    devAccessEnabled &&
-    profile.userId === "dev-user-admin" &&
-    profile.activeAccess.accountId === "dev-access-admin"
-  ) {
-    return true;
+  if (source === "dev") {
+    return canUseRootDevAccess(profile, source, devAccessEnabled);
   }
 
   const actorAccounts = await accounts.listAccounts();
   return actorAccounts.some(
     (account) =>
       account.userId === profile.userId &&
-      isCanonicalAdminLogin(account.login),
+      account.isRootAdmin === true && account.userStatus === "active",
   );
 }
 
@@ -13072,7 +13072,7 @@ function sendAdminNavigationAssignmentDenied(res: ServerResponse) {
   sendJson(res, 403, {
     error: {
       code: "access_denied",
-      message: "Корневые админские панели доступны только исходному аккаунту admin.",
+      message: "Корневые админские панели доступны только корневому администратору.",
     },
   });
 }
@@ -13082,7 +13082,7 @@ function sendProtectedAccountMutationDenied(res: ServerResponse) {
     error: {
       code: "access_denied",
       message:
-        "Защищённую учётную запись может изменить только исходный аккаунт admin.",
+        "Защищённую учётную запись может изменить только корневой администратор.",
     },
   });
 }
@@ -13092,7 +13092,7 @@ function sendProtectedPositionMutationDenied(res: ServerResponse) {
     error: {
       code: "access_denied",
       message:
-        "Должность с правами админа может изменить только исходный аккаунт admin.",
+        "Должность с правами админа может изменить только корневой администратор.",
     },
   });
 }

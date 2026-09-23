@@ -12,7 +12,8 @@
     "test:jino": "npm run build && node --test --test-concurrency=1 dist/**/*.test.js",
     "db:migrate": "tsx src/db/migrate.ts",
     "director:import": "tsx src/db/importDirectorAssignments.ts",
-    "auth:create-user": "tsx src/db/createAuthUser.ts"
+    "auth:create-user": "tsx src/db/createAuthUser.ts",
+    "auth:recover-root": "tsx src/db/recoverRootPassword.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.3",

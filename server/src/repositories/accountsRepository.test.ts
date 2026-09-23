@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { DatabasePool } from "../db/pool.js";
 import {
-  CanonicalAdminMutationRequiredError,
+  RootAdminMutationRequiredError,
   ProtectedAccountMutationError,
 } from "../domain/adminAccountProtection.js";
 import {
@@ -190,8 +190,8 @@ test("setPositionNavigationAccess atomically updates selected working tabs and l
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       queries.push({ sql: normalized, params });
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "renamed-root", is_root_admin: 1, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[
@@ -242,8 +242,7 @@ test("setPositionNavigationAccess atomically updates selected working tabs and l
     enabled: true,
   }, {
     userId: "root-admin-user",
-    accessId: "root-admin-access",
-    devAccessEnabled: false,
+    isDevRootAdmin: false,
   });
 
   assert.equal(didCommit, true);
@@ -302,8 +301,8 @@ test("setPositionNavigationAccess clears the last working tab of an ordinary pos
     release() {},
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "renamed-root", is_root_admin: 1, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
@@ -337,8 +336,7 @@ test("setPositionNavigationAccess clears the last working tab of an ordinary pos
       enabled: false,
     }, {
       userId: "root-admin-user",
-      accessId: "root-admin-access",
-      devAccessEnabled: false,
+      isDevRootAdmin: false,
     });
 
   assert.deepEqual(change?.positions, [
@@ -362,8 +360,8 @@ test("setPositionNavigationAccess preserves warehouse review assignment across a
     release() {},
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "renamed-root", is_root_admin: 1, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
@@ -392,8 +390,7 @@ test("setPositionNavigationAccess preserves warehouse review assignment across a
   const repository = createAccountsRepository(pool);
   const actor = {
     userId: "root-admin-user",
-    accessId: "root-admin-access",
-    devAccessEnabled: false,
+    isDevRootAdmin: false,
   };
 
   await repository.setPositionNavigationAccess({
@@ -423,7 +420,7 @@ test("setPositionNavigationAccess lets synthetic dev admin clear an admin-rights
     release() {},
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
         throw new Error("Synthetic dev admin must not require an app_users row.");
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
@@ -463,8 +460,7 @@ test("setPositionNavigationAccess lets synthetic dev admin clear an admin-rights
     enabled: false,
   }, {
     userId: "dev-user-admin",
-    accessId: "dev-access-admin",
-    devAccessEnabled: true,
+    isDevRootAdmin: true,
   });
 
   assert.equal(didUpdate, true);
@@ -485,8 +481,8 @@ test("setPositionNavigationAccess rechecks the original admin under lock", async
     release() {},
     async query(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "delegated-admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "admin", is_root_admin: 0, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         didReadPositions = true;
@@ -505,10 +501,9 @@ test("setPositionNavigationAccess rechecks the original admin under lock", async
       enabled: true,
     }, {
       userId: "delegated-user",
-      accessId: "delegated-access",
-      devAccessEnabled: false,
+      isDevRootAdmin: false,
     }),
-    CanonicalAdminMutationRequiredError,
+    RootAdminMutationRequiredError,
   );
 
   assert.equal(didReadPositions, false);
@@ -1858,7 +1853,7 @@ test("createAccount rejects a position with admin rights inside the lock", async
     createAccountsRepository(pool, {
       createId: () => ids.shift() ?? "unexpected-id",
     }).createAccount({
-      login: "new-admin",
+      login: "admin",
       password: "supersecret1",
       displayName: "Новый администратор",
       accountType: "business_owner",
@@ -1871,7 +1866,7 @@ test("createAccount rejects a position with admin rights inside the lock", async
   assert.equal(didInsert, false);
 });
 
-test("createAccount keeps the system administrator position exclusive to admin", async () => {
+test("createAccount cannot gain the system administrator position just by choosing login admin", async () => {
   let didInsert = false;
   const connection = {
     async beginTransaction() {},
@@ -1918,7 +1913,7 @@ test("createAccount keeps the system administrator position exclusive to admin",
 
   await assert.rejects(
     createAccountsRepository(pool).createAccount({
-      login: "new-admin",
+      login: "admin",
       password: "supersecret1",
       displayName: "Новый администратор",
       accountType: "admin",
@@ -2320,8 +2315,8 @@ test("setPositionNavigationAccess keeps combined railway roles and board access 
     release() {},
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "renamed-root", is_root_admin: 1, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
@@ -2350,8 +2345,7 @@ test("setPositionNavigationAccess keeps combined railway roles and board access 
   const repository = createAccountsRepository(pool);
   const actor = {
     userId: "root-admin-user",
-    accessId: "root-admin-access",
-    devAccessEnabled: false,
+    isDevRootAdmin: false,
   };
 
   await repository.setPositionNavigationAccess({
@@ -2398,8 +2392,8 @@ test("setPositionNavigationAccess grants the railway tab as view only", async ()
     release() {},
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "renamed-root", is_root_admin: 1, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
@@ -2433,8 +2427,7 @@ test("setPositionNavigationAccess grants the railway tab as view only", async ()
     enabled: true,
   }, {
     userId: "root-admin-user",
-    accessId: "root-admin-access",
-    devAccessEnabled: false,
+    isDevRootAdmin: false,
   });
 
   assert.ok(navigationItems.includes("business.railway_wagons"));
@@ -2503,8 +2496,8 @@ test("setPositionNavigationAccess assigns the level of an already granted tab", 
     release() {},
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "renamed-root", is_root_admin: 1, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
@@ -2539,8 +2532,7 @@ test("setPositionNavigationAccess assigns the level of an already granted tab", 
       accessLevel: "logistics",
     }, {
       userId: "root-admin-user",
-      accessId: "root-admin-access",
-      devAccessEnabled: false,
+      isDevRootAdmin: false,
     });
 
   // Список вкладок не изменился, поэтому запись обязана опираться на capability.
@@ -2565,8 +2557,8 @@ test("setPositionNavigationAccess replaces the previously assigned level", async
     release() {},
     async query(sql: string, params?: unknown[]) {
       const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("select login, status from app_users")) {
-        return [[{ login: "admin", status: "active" }], []];
+      if (normalized.startsWith("select is_root_admin, status from app_users")) {
+        return [[{ login: "renamed-root", is_root_admin: 1, status: "active" }], []];
       }
       if (normalized.startsWith("select positions.id, positions.display_name")) {
         return [[{
@@ -2600,10 +2592,58 @@ test("setPositionNavigationAccess replaces the previously assigned level", async
     accessLevel: "review",
   }, {
     userId: "root-admin-user",
-    accessId: "root-admin-access",
-    devAccessEnabled: false,
+    isDevRootAdmin: false,
   });
 
   assert.ok(capabilities.includes("business.review_board_assignments"));
   assert.ok(!capabilities.includes("business.execute_board_assignments"));
+});
+
+test("server bootstrap creates the first root with an arbitrary login and cannot create a second root", async () => {
+  let rootId: string | undefined;
+  let createdUserId: string | undefined;
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string, parameters: unknown[] = []) {
+      const normalized = sql.replace(/\s+/gu, " ").trim();
+      if (normalized.startsWith("select id from app_users where is_root_admin")) return [rootId ? [{ id: rootId }] : [], []];
+      if (normalized.startsWith("select id from app_users")) return [[], []];
+      if (normalized.startsWith("select positions.id")) return [[{
+        id: "administrator", display_name: "Администратор", account_type: "admin", navigation_items: '["admin.accounts"]', capabilities: '["platform.manage_access"]',
+        is_protected: 1, is_admin_protected: 1, usage_count: 0, created_at: "2026-09-23T00:00:00Z",
+      }], []];
+      if (normalized.startsWith("insert into app_users")) createdUserId = String(parameters[0]);
+      if (normalized.startsWith("update app_users set is_root_admin")) rootId = String(parameters[0]);
+      if (normalized.startsWith("select") && normalized.includes("users.login,")) return [[{
+        access_id: "access", user_id: createdUserId, login: "initial-owner", user_display_name: "Root", user_status: "active", is_root_admin: 1, is_protected: 1,
+        is_protected_by_admin_rights: 1, access_display_name: "Root", account_type: "admin", position_code: "administrator", position_display_name: "Администратор",
+        scope_kind: "platform", capabilities: '["platform.manage_access"]', navigation_items: '["admin.accounts"]', created_at: "2026-09-23T00:00:00Z",
+      }], []];
+      return [[], []];
+    },
+  };
+  const pool = { async getConnection() { return connection; } } as unknown as DatabasePool;
+  const repository = createAccountsRepository(pool);
+  const input = { login: "initial-owner", password: "bootstrap-password", displayName: "Root", accountType: "admin" as const, capabilities: [] };
+  const account = await repository.createAccount(input, false, true);
+  assert.equal(account.isRootAdmin, true);
+  assert.equal(account.login, "initial-owner");
+  const firstRoot = rootId;
+  await assert.rejects(repository.createAccount({ ...input, login: "another" }, false, true), /уже создан/u);
+  assert.equal(rootId, firstRoot);
+});
+
+test("root account protection cannot be removed under the repository lock after renaming", async () => {
+  let updated = false;
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async query(sql: string) {
+      if (sql.startsWith("select status, is_root_admin")) return [[{ status: "active", is_root_admin: 1 }], []];
+      updated = true;
+      return [[], []];
+    },
+  };
+  const repository = createAccountsRepository({ async getConnection() { return connection; } } as unknown as DatabasePool);
+  await assert.rejects(repository.setAccountProtected({ userId: "renamed-user", isProtected: false }), /нельзя отключить/u);
+  assert.equal(updated, false);
 });

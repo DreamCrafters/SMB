@@ -4,9 +4,8 @@ import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
 import { resolveAccountProvisioningScope } from "../domain/accountProvisioning.js";
 import {
-  CanonicalAdminMutationRequiredError,
+  RootAdminMutationRequiredError,
   assertProtectedAccountMutationAllowed,
-  isCanonicalAdminLogin,
 } from "../domain/adminAccountProtection.js";
 import {
   assertAdministratorPositionProtectionAllowed,
@@ -45,6 +44,7 @@ export type AdminAccountSummary = {
   email?: string;
   maxUserId?: string;
   userStatus: AdminUserStatus;
+  isRootAdmin?: boolean;
   isProtected: boolean;
   isProtectedByAdminRights: boolean;
   accessDisplayName: string;
@@ -101,8 +101,8 @@ export type SetPositionNavigationAccessInput = {
 
 export type PositionNavigationAccessActor = {
   userId: string;
-  accessId: string;
-  devAccessEnabled: boolean;
+  /** Trusted server decision; never read from a request payload. */
+  isDevRootAdmin: boolean;
 };
 
 export type PositionNavigationAccessChange = {
@@ -179,7 +179,9 @@ export type AccountsRepository = {
   createAccount: (
     input: CreateAccountInput,
     allowProtected?: boolean,
+    bootstrapRootAdmin?: boolean,
   ) => Promise<AdminAccountSummary>;
+  recoverRootPassword: (input: ResetPasswordInput) => Promise<string | undefined>;
   resetPassword: (
     input: ResetPasswordInput,
     allowProtected?: boolean,
@@ -238,7 +240,7 @@ export class ArchivedAccountLoginStatusError extends Error {
 
 export class SystemAdministratorPositionAssignmentError extends Error {
   constructor() {
-    super("Системная должность администратора доступна только исходному аккаунту admin.");
+    super("Системная должность администратора доступна только корневому администратору.");
     this.name = "SystemAdministratorPositionAssignmentError";
   }
 }
@@ -255,6 +257,7 @@ type AccountRow = RowDataPacket & {
   email: string | null;
   max_user_id: string | null;
   user_status: string;
+  is_root_admin: number | boolean;
   is_protected: number | boolean;
   is_protected_by_admin_rights: number | boolean;
   access_display_name: string;
@@ -282,6 +285,7 @@ type PositionRow = RowDataPacket & {
 };
 
 type AccountPositionAssignmentRow = RowDataPacket & {
+  is_root_admin: number | boolean;
   access_id: string;
   user_id: string;
   login: string;
@@ -324,12 +328,13 @@ type PositionProtectionRow = RowDataPacket & {
 };
 
 type UserStatusRow = RowDataPacket & {
+  is_root_admin: number | boolean;
   status: string;
   is_admin_protected: number | boolean;
 };
 
-type CanonicalAdminMutationActorRow = RowDataPacket & {
-  login: string;
+type RootAdminMutationActorRow = RowDataPacket & {
+  is_root_admin: number | boolean;
   status: string;
 };
 
@@ -356,7 +361,7 @@ const adminRightsAccessProtectionExpression = `
 `;
 
 const effectiveAccountProtectionExpression = `
-  greatest(users.is_admin_protected, ${adminRightsAccessProtectionExpression})
+  greatest(users.is_root_admin, users.is_admin_protected, ${adminRightsAccessProtectionExpression})
 `;
 
 const accountRowSelect = `
@@ -364,6 +369,7 @@ const accountRowSelect = `
     accesses.id as access_id,
     users.id as user_id,
     users.login,
+    users.is_root_admin,
     users.display_name as user_display_name,
     users.email,
     users.max_user_id,
@@ -806,15 +812,12 @@ export function createAccountsRepository(
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const isSyntheticDevAdmin =
-        actor.devAccessEnabled &&
-        actor.userId === "dev-user-admin" &&
-        actor.accessId === "dev-access-admin";
+      const isSyntheticDevAdmin = actor.isDevRootAdmin;
       if (!isSyntheticDevAdmin) {
         const [actorRows] = await connection.query<
-          CanonicalAdminMutationActorRow[]
+          RootAdminMutationActorRow[]
         >(
-          `select login, status
+          `select is_root_admin, status
            from app_users
            where id = ?
            limit 1
@@ -825,9 +828,9 @@ export function createAccountsRepository(
         if (
           storedActor === undefined ||
           storedActor.status !== "active" ||
-          !isCanonicalAdminLogin(storedActor.login)
+          !(storedActor.is_root_admin === true || storedActor.is_root_admin === 1)
         ) {
-          throw new CanonicalAdminMutationRequiredError();
+          throw new RootAdminMutationRequiredError();
         }
       }
       const placeholders = positionIds.map(() => "?").join(", ");
@@ -965,6 +968,7 @@ export function createAccountsRepository(
   async function createAccount(
     input: CreateAccountInput,
     allowProtected = false,
+    bootstrapRootAdmin = false,
   ) {
     const connection = await pool.getConnection();
 
@@ -1006,19 +1010,25 @@ export function createAccountsRepository(
       ) {
         throw new Error("Выбранная должность не найдена.");
       }
+      if (bootstrapRootAdmin) {
+        if (!positionRows.some(row => row.account_type === "admin")) throw new SystemAdministratorPositionAssignmentError();
+        // The selected administrator position is already locked, serializing bootstrap attempts.
+        const [roots] = await connection.query<IdRow[]>("select id from app_users where is_root_admin = 1 limit 1 for update");
+        if (roots.length > 0) throw new Error("Корневой администратор уже создан. Используйте восстановление пароля.");
+      }
       const targetPositionRows = positionRows;
       for (const targetPositionRow of targetPositionRows) {
         assertProtectedPositionMutationAllowed({
           isProtected:
             targetPositionRow.is_admin_protected === true ||
             targetPositionRow.is_admin_protected === 1,
-          allowProtected: allowProtected || isCanonicalAdminLogin(input.login),
+          allowProtected: allowProtected || bootstrapRootAdmin,
         });
       }
       const targetPositions = targetPositionRows.map(mapPositionRow);
       if (
         targetPositions.some(({ accountType }) => accountType === "admin") &&
-        !isCanonicalAdminLogin(input.login)
+        !bootstrapRootAdmin
       ) {
         throw new SystemAdministratorPositionAssignmentError();
       }
@@ -1055,6 +1065,9 @@ export function createAccountsRepository(
         throw error;
       }
 
+      if (bootstrapRootAdmin) {
+        await connection.query("update app_users set is_root_admin = 1, is_admin_protected = 1 where id = ?", [userId]);
+      }
       await connection.query(
         `
           insert into auth_password_credentials (user_id, password_hash)
@@ -1111,16 +1124,17 @@ export function createAccountsRepository(
     }
   }
 
-  async function resetPassword(
+  async function changePassword(
     { login, password }: ResetPasswordInput,
     allowProtected = false,
+    rootOnly = false,
   ) {
     const connection = await pool.getConnection();
 
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<UserMutationRow[]>(
-        `select users.id, users.status, ${effectiveAccountProtectionSelect}
+        `select users.id, users.status, users.is_root_admin, ${effectiveAccountProtectionSelect}
          from app_users users
          where users.login = ?
          limit 1 for update`,
@@ -1128,9 +1142,9 @@ export function createAccountsRepository(
       );
       const user = rows[0];
 
-      if (user === undefined || user.status === "archived") {
+      if (user === undefined || user.status === "archived" || (rootOnly && (user.status !== "active" || !(user.is_root_admin === true || user.is_root_admin === 1)))) {
         await connection.rollback();
-        return false;
+        return undefined;
       }
       assertProtectedAccountMutationAllowed({
         isProtected: await readEffectiveAccountProtectionForUpdate(
@@ -1147,8 +1161,9 @@ export function createAccountsRepository(
          on duplicate key update password_hash = values(password_hash)`,
         [user.id, await hashPassword(password)],
       );
+      await connection.query("delete from auth_sessions where user_id = ?", [user.id]);
       await connection.commit();
-      return true;
+      return user.id;
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -1237,7 +1252,7 @@ export function createAccountsRepository(
     try {
       await connection.beginTransaction();
       const [rows] = await connection.query<UserStatusRow[]>(
-        `select status from app_users where id = ? limit 1 for update`,
+        `select status, is_root_admin from app_users where id = ? limit 1 for update`,
         [userId],
       );
       const currentStatus = rows[0]?.status;
@@ -1247,6 +1262,9 @@ export function createAccountsRepository(
         return undefined;
       }
 
+      if (!isProtected && (rows[0]?.is_root_admin === true || rows[0]?.is_root_admin === 1)) {
+        throw new Error("Защиту корневого администратора нельзя отключить.");
+      }
       await connection.query(
         "update app_users set is_admin_protected = ? where id = ?",
         [isProtected ? 1 : 0, userId],
@@ -1354,7 +1372,7 @@ export function createAccountsRepository(
       const [accessRows] = await connection.query<
         AccountPositionAssignmentRow[]
       >(
-        `select accesses.id as access_id, accesses.user_id, users.login
+        `select accesses.id as access_id, accesses.user_id, users.login, users.is_root_admin
          from account_accesses accesses
          join app_users users on users.id = accesses.user_id
          where accesses.id = ? and accesses.is_active = 1
@@ -1437,7 +1455,7 @@ export function createAccountsRepository(
         });
         if (
           targetPositionRow.account_type === "admin" &&
-          !isCanonicalAdminLogin(existing.login)
+          !(existing.is_root_admin === true || existing.is_root_admin === 1)
         ) {
           throw new SystemAdministratorPositionAssignmentError();
         }
@@ -1503,7 +1521,8 @@ export function createAccountsRepository(
   return {
     listAccounts,
     createAccount,
-    resetPassword,
+    resetPassword: async (input, allowProtected = false) => (await changePassword(input, allowProtected)) !== undefined,
+    recoverRootPassword: input => changePassword(input, true, true),
     setAccountLoginEnabled,
     setAccountProtected,
     deleteAccount,
@@ -1640,6 +1659,7 @@ function mapAccountRow(row: AccountRow): AdminAccountSummary {
     ...optionalText("email", row.email),
     ...optionalText("maxUserId", row.max_user_id),
     userStatus: readAdminUserStatus(row.user_status),
+    isRootAdmin: row.is_root_admin === true || row.is_root_admin === 1,
     isProtected: row.is_protected === true || row.is_protected === 1,
     isProtectedByAdminRights:
       row.is_protected_by_admin_rights === true ||

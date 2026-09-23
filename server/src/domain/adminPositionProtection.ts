@@ -1,7 +1,7 @@
 export class ProtectedPositionMutationError extends Error {
   constructor() {
     super(
-      "Должность с правами админа может изменить только исходный аккаунт admin.",
+      "Должность с правами админа может изменить только корневой администратор.",
     );
     this.name = "ProtectedPositionMutationError";
   }

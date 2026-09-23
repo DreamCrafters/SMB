@@ -572,7 +572,7 @@ async function assertUserIsEditable(
     status: string;
     is_admin_protected: number | boolean;
   }>>(
-    `select status, is_admin_protected
+    `select status, greatest(is_admin_protected, is_root_admin) as is_admin_protected
      from app_users where id = ? limit 1 for update`,
     [id],
   );

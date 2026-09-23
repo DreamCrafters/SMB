@@ -949,6 +949,7 @@ function isAdminAccountSummary(value: unknown): value is AdminAccountSummary {
     typeof value.userStatus === "string" &&
     typeof value.isProtected === "boolean" &&
     typeof value.isProtectedByAdminRights === "boolean" &&
+    (value.isRootAdmin === undefined || typeof value.isRootAdmin === "boolean") &&
     typeof value.accessDisplayName === "string" &&
     typeof value.accountType === "string" &&
     typeof value.position === "string" &&

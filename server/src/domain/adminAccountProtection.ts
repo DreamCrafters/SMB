@@ -1,21 +1,25 @@
+import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
+
 export class ProtectedAccountMutationError extends Error {
   constructor() {
     super(
-      "Защищённую учётную запись может изменить только исходный аккаунт admin.",
+      "Защищённую учётную запись может изменить только корневой администратор.",
     );
     this.name = "ProtectedAccountMutationError";
   }
 }
 
-export class CanonicalAdminMutationRequiredError extends Error {
+export class RootAdminMutationRequiredError extends Error {
   constructor() {
-    super("Действие доступно только исходному аккаунту admin.");
-    this.name = "CanonicalAdminMutationRequiredError";
+    super("Действие доступно только корневому администратору.");
+    this.name = "RootAdminMutationRequiredError";
   }
 }
 
-export function isCanonicalAdminLogin(login: string) {
-  return login.trim().toLocaleLowerCase("en-US") === "admin";
+export function canUseRootDevAccess(profile: ServerUserProfile, source: "auth" | "dev", enabled: boolean) {
+  return enabled && source === "dev" && profile.activeAccess.accountType === "admin"
+    && hasProfileCapability(profile, "platform.manage_access")
+    && hasProfileCapability(profile, "platform.manage_navigation_order");
 }
 
 export function assertProtectedAccountMutationAllowed({

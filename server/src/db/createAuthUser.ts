@@ -3,7 +3,8 @@ import { createDatabasePool } from "./pool.js";
 import {
   testDatabaseMutationLockName,
 } from "./productionSnapshot.js";
-import { runWithDatabaseMutationLock } from "./transactionContext.js";
+import { createDatabaseTransactionContext, runWithDatabaseMutationLock } from "./transactionContext.js";
+import { createAuditRepository } from "../repositories/auditRepository.js";
 import { createAccountsRepository } from "../repositories/accountsRepository.js";
 import {
   defaultCapabilitiesByAccountType,
@@ -30,19 +31,29 @@ type AuthUserInput = {
 
 const config = readServerConfig();
 const pool = createDatabasePool(config.databaseUrl);
-const accounts = createAccountsRepository(pool);
+const database = createDatabaseTransactionContext(pool);
+const accounts = createAccountsRepository(database.pool);
+const audit = createAuditRepository(database.pool);
 
 try {
   const input = readAuthUserInput(process.env);
+  const create = () => database.transaction.run(async () => {
+    const account = await accounts.createAccount(input, false, process.env.SMB_AUTH_BOOTSTRAP_ROOT === "true");
+    await audit.record({
+      actor: { userId: "system-server-console", accountId: "system-server-console", displayName: "Консоль сервера", positionDisplayName: "Создание аккаунта" },
+      category: "administration", action: "admin.account_create", targetType: "user_account", targetId: account.userId,
+      summary: account.isRootAdmin ? "Создан первый корневой администратор через консоль сервера." : "Создана учётная запись через консоль сервера.",
+    });
+  });
 
   if (config.productionSnapshot.enabled) {
     await runWithDatabaseMutationLock({
       pool,
       lockName: testDatabaseMutationLockName,
-      operation: () => accounts.createAccount(input),
+      operation: create,
     });
   } else {
-    await accounts.createAccount(input);
+    await create();
   }
   console.log(
     `auth_user.ready login=${input.login} accountType=${input.accountType}`,
