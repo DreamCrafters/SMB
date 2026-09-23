@@ -168,7 +168,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         const people = await resolveEmployees(input.responsibleId, input.coExecutorIds);
         const scheduleUnchanged = previous && previous.recurrence === input.recurrence && previous.activeFrom === input.activeFrom && previous.activeTo === input.activeTo;
         const accepted = previous ? (await repository.listCompletions()).filter(item => item.assignment.id === previous.id) : [];
-        const lastAcceptedOn = accepted.map(item => item.assignment.completedOn).sort().at(-1);
+        const lastAcceptedOn = accepted.flatMap(item => [item.assignment.completedOn, item.assignment.currentOccurrenceDate]).sort().at(-1);
         const afterLastAccepted = lastAcceptedOn ? new Date(Date.parse(`${lastAcceptedOn}T00:00:00Z`) + 86400000).toISOString().slice(0, 10) : input.activeFrom;
         const currentOccurrenceDate = getBoardAssignmentOccurrenceOnOrAfter({ ...input, targetDate: scheduleUnchanged ? previous.currentOccurrenceDate : afterLastAccepted });
         if (!currentOccurrenceDate) throw new DirectorAssignmentError("Период не содержит текущего или будущего исполнения.");
@@ -201,16 +201,29 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           await recordAudit(profile, "Сохранён промежуточный результат поручения генерального директора", id);
           return assignment;
         }
-        const validation = validateBoardAssignmentAction({ action: row.action, comment: row.comment }, previous.status, {
-          canView: true, canCreate: permissions.canManage, canReview: permissions.canManage, canExecute,
-        });
-        if (!validation.ok) throw new DirectorAssignmentError(validation.errors.join(" "));
-        const assignment = { ...previous, status: validation.value.status, revision: previous.revision + 1, updatedAt: now().toISOString(),
-          comments: [...previous.comments, comment(profile, validation.value.comment, validation.value.status)] };
-        if (validation.value.status === "completed") {
+        let status: DirectorAssignment["status"];
+        let actionComment: string;
+        if (row.action === "complete") {
+          requirePermission(permissions.canManage || canExecute);
+          if (previous.status === "completed") throw new DirectorAssignmentError("Поручение уже завершено.", 409);
+          status = "completed";
+          actionComment = readDirectorText(row.comment, true, 4000);
+        } else {
+          const validation = validateBoardAssignmentAction({ action: row.action, comment: row.comment }, previous.status, {
+            canView: true, canCreate: permissions.canManage, canReview: permissions.canManage, canExecute,
+          });
+          if (!validation.ok) throw new DirectorAssignmentError(validation.errors.join(" "));
+          status = validation.value.status;
+          actionComment = validation.value.comment;
+        }
+        const assignment = { ...previous, status, revision: previous.revision + 1, updatedAt: now().toISOString(),
+          comments: [...previous.comments, comment(profile, actionComment, status)] };
+        if (status === "completed") {
           assignment.completedOn = today();
           await repository.addCompletion(assignment);
-          const next = getNextBoardAssignmentOccurrenceDate({ ...assignment, completedOn: today() });
+          // An early completion must advance beyond that occurrence, not only beyond today.
+          const completedThrough = assignment.currentOccurrenceDate > assignment.completedOn ? assignment.currentOccurrenceDate : assignment.completedOn;
+          const next = getNextBoardAssignmentOccurrenceDate({ ...assignment, completedOn: completedThrough });
           if (next) { assignment.status = "in_progress"; assignment.currentOccurrenceDate = next; assignment.completedOn = ""; }
         }
         await repository.update(assignment, previous);

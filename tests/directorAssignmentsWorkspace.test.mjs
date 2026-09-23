@@ -150,3 +150,74 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
     }
   });
 }
+
+for (const canManage of [false, true]) {
+  test(`direct completion ${canManage ? "manager" : "executor"} sends a comment and revision and refreshes the journal`, async () => {
+    const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+    const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+    const oldFetch = globalThis.fetch;
+    for (const name of globalNames) Object.defineProperty(globalThis, name, { value: name === "IS_REACT_ACT_ENVIRONMENT" ? true : dom.window[name], configurable: true, writable: true });
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const rootElement = document.getElementById("root");
+    const root = createRoot(rootElement);
+    const toasts = [];
+    let submitted;
+    let releaseAction;
+    let failAction = true;
+    const assignment = { department: "", project: "", urgency: "", importance: "", progress: "", completedOn: "", note: "", incomingNumber: "", postponedUntil: "", id: "test-completion", number: "ГД-1", revision: 3, summary: "Задача для завершения", assignedOn: "2026-09-14", responsible: { fullName: "Исполнитель" }, coExecutors: [], currentOccurrenceDate: "2026-09-14", status: "in_progress", comments: [], documents: [] };
+    globalThis.fetch = async (url, options = {}) => {
+      const path = new URL(String(url), "http://127.0.0.1:5173").pathname;
+      if (path === "/api/director-assignments/test-completion/action") {
+        assert.equal(options.method, "POST");
+        submitted = JSON.parse(options.body);
+        if (failAction) return new Response(JSON.stringify({ error: { message: "Поручение уже изменено. Обновите список." } }), { status: 409 });
+        await new Promise(resolve => { releaseAction = resolve; });
+        assignment.status = "completed";
+        return new Response(JSON.stringify(assignment));
+      }
+      assert.equal(path, "/api/director-assignments");
+      return new Response(JSON.stringify({ assignments: canManage || assignment.status !== "completed" ? [assignment] : [], employees: [], permissions: { canView: true, canManage, canExecute: !canManage }, today: "2026-09-15" }));
+    };
+    try {
+      const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
+      await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { onShowToast: (...args) => toasts.push(args) })));
+      await React.act(async () => rootElement.querySelector(".table-text-action").click());
+      const complete = () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Завершить");
+      assert.ok(complete());
+      assert.equal(complete().disabled, true);
+      const comment = rootElement.querySelector(".director-assignment-detail textarea");
+      await React.act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(comment, "Работа выполнена");
+        comment.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+      await React.act(async () => complete().click());
+      assert.deepEqual(submitted, { action: "complete", comment: "Работа выполнена", revision: 3 });
+      assert.match(rootElement.querySelector('[role="alert"]').textContent, /уже изменено/u);
+      assert.equal(comment.value, "Работа выполнена");
+      assert.equal(complete().disabled, false);
+      assert.equal(toasts.length, 0);
+      failAction = false;
+      await React.act(async () => complete().click());
+      assert.equal(complete().disabled, true);
+      await React.act(async () => releaseAction());
+      assert.equal(rootElement.querySelector(".director-assignment-detail"), null);
+      assert.equal(toasts.at(-1)[2], "success");
+      if (canManage) {
+        assert.match(rootElement.querySelector("tbody").textContent, /Завершено/u);
+        await React.act(async () => rootElement.querySelector(".table-text-action").click());
+        assert.equal(complete(), undefined);
+      } else {
+        assert.equal(rootElement.querySelector(".table-text-action"), null);
+      }
+    } finally {
+      await React.act(async () => root.unmount());
+      globalThis.fetch = oldFetch;
+      for (const [name, descriptor] of descriptors) {
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+        else delete globalThis[name];
+      }
+      dom.window.close();
+    }
+  });
+}
