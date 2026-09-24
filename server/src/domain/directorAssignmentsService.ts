@@ -5,7 +5,7 @@ import type { BoardAssignmentsRepository } from "../repositories/boardAssignment
 import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
-import { canExecuteDirectorAssignment, directorWorkdays, DirectorAssignmentError, readDirectorAssignmentInput, readDirectorRecord, readDirectorText } from "./directorAssignment.js";
+import { canViewDirectorAssignment, canExecuteDirectorAssignment, directorWorkdays, DirectorAssignmentError, readDirectorAssignmentInput, readDirectorRecord, readDirectorText } from "./directorAssignment.js";
 import { getBoardAssignmentOccurrenceOnOrAfter, getNextBoardAssignmentOccurrenceDate, isBoardAssignmentActiveOn, validateBoardAssignmentAction } from "./boardAssignment.js";
 
 export function directorAssignmentPermissions(profile: ServerUserProfile): DirectorAssignmentPermissions {
@@ -45,7 +45,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     const permissions = directorAssignmentPermissions(profile);
     requirePermission(permissions.canView);
     const assignment = await repository.read(id, lock);
-    if (!assignment || (!permissions.canManage && !canExecuteDirectorAssignment(await effectiveAssignment(assignment), profile.userId, today()))) {
+    if (!assignment || (!permissions.canManage && !canViewDirectorAssignment(await effectiveAssignment(assignment), profile.userId))) {
       throw new DirectorAssignmentError("Поручение недоступно.", 404);
     }
     return assignment;
@@ -94,10 +94,9 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       const assignments: DirectorAssignment[] = [];
       const executableAssignmentIds: string[] = [];
       for (const assignment of await repository.list()) {
-        const isOwnActive = (!permissions.canManage || permissions.canExecute)
-          && canExecuteDirectorAssignment(await effectiveAssignment(assignment), profile.userId, today());
-        if (permissions.canExecute && isOwnActive) executableAssignmentIds.push(assignment.id);
-        if (permissions.canManage || isOwnActive) assignments.push(assignment);
+        const effective = !permissions.canManage || permissions.canExecute ? await effectiveAssignment(assignment) : assignment;
+        if (permissions.canExecute && canExecuteDirectorAssignment(effective, profile.userId, today())) executableAssignmentIds.push(assignment.id);
+        if (permissions.canManage || canViewDirectorAssignment(effective, profile.userId)) assignments.push(assignment);
       }
       const enriched = assignments.map(assignment => ({ ...assignment, durationWorkdays: directorWorkdays(assignment.assignedOn, assignment.currentOccurrenceDate), remainingWorkdays: directorWorkdays(assignment.completedOn || today(), assignment.currentOccurrenceDate) }));
       return { assignments: enriched, executableAssignmentIds, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
@@ -197,6 +196,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         const row = readDirectorRecord(value);
         if (row.revision !== previous.revision) throw new DirectorAssignmentError("Поручение уже изменено. Обновите список.", 409);
         const canExecute = permissions.canExecute && canExecuteDirectorAssignment(await effectiveAssignment(previous), profile.userId, today());
+        if (!permissions.canManage && !canExecute) throw new DirectorAssignmentError("Поручение недоступно для исполнения.", 403);
         if (row.action === "record_progress") {
           requirePermission(canExecute);
           const text = readDirectorText(row.comment, true, 4000);

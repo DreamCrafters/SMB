@@ -43,7 +43,7 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
       }
       assert.ok(["/api/director-assignments", "/api/director-assignments/old-assignment"].includes(new URL(String(url), "http://127.0.0.1:5173").pathname));
       if (options.method === "POST" || options.method === "PATCH") submitted = JSON.parse(options.body);
-      return new Response(JSON.stringify({ assignments: mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "in_progress", needsClarification: true }] : mode.startsWith("send-") ? [oldAssignment] : [], employees: mode !== "receive" ? employees : [], permissions: { canView: true, canManage: mode !== "receive", canExecute: mode === "receive", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ assignments: mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "in_progress", needsClarification: true }] : (mode.startsWith("send-") || mode === "receive") ? [oldAssignment] : [], executableAssignmentIds: [], employees: mode !== "receive" ? employees : [], permissions: { canView: true, canManage: mode !== "receive", canExecute: mode === "receive", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
     };
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
@@ -129,6 +129,11 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
         assert.equal(form, null);
         assert.doesNotMatch(rootElement.textContent, /Создать поручение/u);
         assert.match(rootElement.textContent, /Мои поручения/u);
+        assert.match(rootElement.querySelector("tbody").textContent, /Ранее назначенная задача/u);
+        await React.act(async () => rootElement.querySelector(".table-text-action").click());
+        assert.ok(rootElement.querySelector(".director-assignment-detail"));
+        assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
+        assert.ok([...rootElement.querySelectorAll("button")].some(button => button.textContent === "Скачать поручение в PDF"));
         return;
       }
       assert.ok(form);

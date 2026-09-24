@@ -56,6 +56,10 @@ export function readDirectorText(value: unknown, required = false, max = 300): s
   return value.trim();
 }
 
+export function canViewDirectorAssignment(assignment: DirectorAssignment, userId: string) {
+  return assignment.status !== "completed" && assignment.responsible?.userId === userId;
+}
+
 export function canExecuteDirectorAssignment(
   assignment: DirectorAssignment,
   userId: string,

@@ -5511,6 +5511,7 @@ p {
 
 .history-table-scroll table thead,
 .history-table-scroll > .history-table-head {
+  background: var(--surface-subtle);
   position: sticky;
   top: 0;
   z-index: 2;
@@ -5578,6 +5579,7 @@ p {
 }
 
 .board-assignment-link {
+  appearance: none;
   display: block;
   padding: 0;
   border: 0;
