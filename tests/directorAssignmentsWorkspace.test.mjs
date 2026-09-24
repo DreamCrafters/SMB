@@ -89,7 +89,7 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
         assert.deepEqual(exports.at(-1).entries, [{ id: "completion-old", revision: 2 }, { id: "completion-new", revision: 5 }]);
         await React.act(async () => rootElement.querySelectorAll(".table-text-action")[1].click());
         const detail = rootElement.querySelector(".director-assignment-detail");
-        assert.equal(scrolled.at(-1).element, detail);
+        assert.equal(scrolled.at(-1).element, rootElement.querySelector(".director-assignments"));
         assert.equal(scrolled.at(-1).options.block, "start");
         assert.equal(document.activeElement, detail);
         assert.match(detail.textContent, /Снимок второго периода/u);
@@ -105,7 +105,12 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
       }
       if (mode.startsWith("send-")) {
         await React.act(async () => rootElement.querySelector(".table-text-action").click());
+        const beforeEditScrolls = scrolled.length;
         await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Редактировать").click());
+        assert.equal(scrolled.length, beforeEditScrolls + 1);
+        assert.equal(scrolled.at(-1).element, rootElement.querySelector(".director-assignments"));
+        assert.equal(scrolled.at(-1).options.block, "start");
+        assert.equal(document.activeElement, rootElement.querySelector("form"));
         const picker = [...rootElement.querySelectorAll("label")].find(label => label.textContent.startsWith("Ответственный")).querySelector("select");
         assert.equal(picker.value, "account:employee-1");
         if (mode === "send-unlinked") {

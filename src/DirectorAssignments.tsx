@@ -46,13 +46,15 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<DirectorAssignment>();
+  const workspaceRef = useRef<HTMLElement>(null);
   const detailRef = useRef<HTMLElement>(null);
-  const [detailOpenCount, setDetailOpenCount] = useState(0);
+  const [contentOpenCount, setContentOpenCount] = useState(0);
   useEffect(() => {
-    if (!detailOpenCount) return;
-    detailRef.current?.focus({ preventScroll: true });
-    detailRef.current?.scrollIntoView?.({ block: "start", behavior: "instant" });
-  }, [detailOpenCount]);
+    if (!contentOpenCount) return;
+    const content = detailRef.current ?? workspaceRef.current?.querySelector<HTMLFormElement>(".director-assignment-compose");
+    content?.focus({ preventScroll: true });
+    workspaceRef.current?.scrollIntoView?.({ block: "start", behavior: "instant" });
+  }, [contentOpenCount]);
   const [form, setForm] = useState<DirectorAssignmentInput>();
   const [comment, setComment] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -108,7 +110,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   const rows = history ? history.map(item => item.assignment) : data.assignments;
   const visible = rows.filter(row => (selectedStatuses.length === 0 || selectedStatuses.some(status => status === "Требует уточнения" ? row.needsClarification : statuses[row.status] === status)) && values(row).join(" ").toLocaleLowerCase("ru-RU").includes((filters.query ?? "").toLocaleLowerCase("ru-RU")) && values(row).every((value, i) => value.toLocaleLowerCase("ru-RU").includes((filters[columns[i]] ?? "").toLocaleLowerCase("ru-RU"))));
   const visibleColumns = showAllColumns ? [...columns] : (["number", "summary", "responsible", "deadline", "status", "progress"] as const);
-  return <section className="board-assignments-workspace director-assignments">
+  return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
     <header className="director-assignment-heading"><div><span className="eyebrow">{data.permissions.canManage ? "Отправка и контроль" : "Получение и выполнение"}</span><h2>Поручения генерального директора</h2><p>{data.permissions.canManage ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения." : "Ваши активные поручения. Сохраняйте промежуточные результаты, завершайте работу или отправляйте её на проверку."}</p></div></header>
     {error && <p role="alert">{error}</p>}
     {data.permissions.canManage && <div className="form-actions director-assignment-actions">
@@ -148,7 +150,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
         </div>
       </section>}
       <footer className="board-assignment-dialog-actions">
-        {!history && selected.status !== "completed" && data.permissions.canManage && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees)); setComment(""); }}>Редактировать</button>}
+        {!history && selected.status !== "completed" && data.permissions.canManage && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
         <button type="button" className="secondary-button" disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
       </footer>
     </section>}
@@ -178,7 +180,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
     <button type="button" className="secondary-button" disabled={saving || exporting || !visible.length} onClick={() => void exportPdf(visible, "register")}>Скачать журнал в PDF</button>
     {exporting && <LoadingIndicator label="Формирование PDF" />}
     <label className="director-columns-toggle"><input type="checkbox" checked={showAllColumns} onChange={event => setShowAllColumns(event.currentTarget.checked)} />Все колонки реестра</label>
-    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : data.permissions.canManage ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId="director.assignments" columns={visibleColumns}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[columns.indexOf(column)]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = values(row)[columns.indexOf(column)]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => { setSelected(row); setForm(undefined); setComment(""); setDetailOpenCount(count => count + 1); }}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
+    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : data.permissions.canManage ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId="director.assignments" columns={visibleColumns}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[columns.indexOf(column)]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = values(row)[columns.indexOf(column)]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => { setSelected(row); setForm(undefined); setComment(""); setContentOpenCount(count => count + 1); }}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
     </section>
   </section>;
 }
@@ -203,7 +205,7 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
     setForm(current => current && { ...current, [key]: value });
   }
   const employeeOptions = employees.filter(employee => !employeeSearch || `${employee.fullName} ${employee.position}`.toLocaleLowerCase("ru-RU").includes(employeeSearch.toLocaleLowerCase("ru-RU")) || employee.id === form?.responsibleId || form?.coExecutorIds.includes(employee.id));
-  return <form onSubmit={onSubmit} className="director-assignment-compose">
+  return <form onSubmit={onSubmit} className="director-assignment-compose" tabIndex={-1}>
       <div className="director-compose-heading"><span className="eyebrow">{isEditing ? `Поручение №${assignmentNumber}` : "Новое поручение"}</span><h3>{isEditing ? "Изменить поручение" : "Что нужно сделать?"}</h3></div>
       <fieldset disabled={saving} className="board-assignment-form-grid director-compose-fields">
         <legend className="sr-only">Содержание поручения</legend>
