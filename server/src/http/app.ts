@@ -1,3 +1,5 @@
+import { runWithAccountPreviewContext, setAccountPreviewActor } from "../domain/accountPreviewContext.js";
+import { AccountPreviewError, buildConcreteAccountPreview } from "../domain/accountPreview.js";
 import { BoardAssignmentPdfError, selectBoardAssignmentsForPdf } from "../domain/boardAssignmentPdf.js";
 import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.js";
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
@@ -612,7 +614,7 @@ export function createApiServer({
   const deliveredDevLoginNotificationSessions = new Set<string>();
   const readProductionReportTables = createProductionReportTablesCache();
 
-  return createServer(async (req, res) => {
+  return createServer((req, res) => runWithAccountPreviewContext(async () => {
     applyCors(req, res, config);
 
     if (req.method === "OPTIONS") {
@@ -677,7 +679,9 @@ export function createApiServer({
       }
 
       if (url.pathname === "/api/table-layouts") {
-        const signedIn = await readSignedInAccess(req, { config, devSessions, authService });
+        const signedIn = String(req.headers[accountPreviewHeader] ?? "").startsWith("account:")
+          ? await readRequestAccess(req, { config, devSessions, authService, accounts })
+          : await readSignedInAccess(req, { config, devSessions, authService });
         if (signedIn === undefined) {
           sendJson(res, 401, { error: { code: "unauthenticated", message: "Требуется вход." } });
           return;
@@ -1802,6 +1806,10 @@ export function createApiServer({
         },
       });
     } catch (error) {
+      if (error instanceof AccountPreviewError) {
+        sendJson(res, 403, { error: { code: "access_denied", message: error.message } });
+        return;
+      }
       console.error("api.request_error", error);
       sendJson(res, 500, {
         error: {
@@ -1810,7 +1818,7 @@ export function createApiServer({
         },
       });
     }
-  });
+  }));
 }
 
 async function handleBusinessOverviewRequest({
@@ -14577,14 +14585,27 @@ async function applyAccountPreview(
   req: IncomingMessage,
   access: RequestAccess,
   accounts: AccountsRepository | undefined,
+  devAccessEnabled: boolean,
 ): Promise<RequestAccess> {
   const target = parseAccountPreviewTarget(
     req.headers[accountPreviewHeader],
   );
 
-  if (target === undefined || !canPreviewAccounts(access.profile)) {
-    return access;
+  const rawTarget = req.headers[accountPreviewHeader];
+  if (typeof rawTarget === "string" && rawTarget.startsWith("account:") && !target) throw new AccountPreviewError();
+  if (target?.kind === "account") {
+    if (!accounts || !canPreviewAccounts(access.profile)) throw new AccountPreviewError();
+    const available = await accounts.listAccounts();
+    const canImpersonate = access.source === "dev" ? canUseRootDevAccess(access.profile, access.source, devAccessEnabled)
+      : available.some(account => account.userId === access.profile.userId && account.isRootAdmin === true && account.userStatus === "active");
+    if (!canImpersonate) throw new AccountPreviewError();
+    const account = available.find(item => item.accessId === target.accessId && item.userStatus === "active");
+    if (!account) throw new AccountPreviewError();
+    const profile = buildConcreteAccountPreview(account);
+    setAccountPreviewActor(buildAuditActor(access.profile), buildAuditActor(profile, account.login));
+    return { ...access, profile, previewPositionDisplayName: account.positionDisplayName };
   }
+  if (target === undefined || !canPreviewAccounts(access.profile)) return access;
 
   if (target.kind === "navigation") {
     const label = target.level === undefined
@@ -14739,7 +14760,7 @@ async function readRequestAccess(
     return undefined;
   }
 
-  return applyAccountPreview(req, access, accounts);
+  return applyAccountPreview(req, access, accounts, config.devAccessEnabled);
 }
 
 async function readSignedInAccess(

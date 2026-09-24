@@ -1,3 +1,4 @@
+import type { AdminAccountSummary } from "../repositories/accountsRepository.js";
 import {
   isAccountNavigationItem,
   type AccountCapability,
@@ -13,7 +14,11 @@ import {
  * разрешает сервер — клиент присылает только её адрес, а права берутся из
  * той же должности, что и у настоящего сотрудника.
  *
- * Это не повышение прав: у админа есть `platform.manage_access`, то есть он и
+ * Для конкретного аккаунта используется отдельная цель account:<accessId>:
+ * сервер проверяет настоящий root и подменяет рабочую личность, сохраняя
+ * администратора в request-local контексте аудита.
+ *
+ * Предпросмотр должности не является повышением прав: у админа есть `platform.manage_access`, то есть он и
  * так может выдать себе любую вкладку через `Учётные записи`. Предпросмотр лишь
  * избавляет от этого крюка. Личность при этом не подменяется: `userId`,
  * `accountId` и имя остаются админскими, поэтому запись, сделанная в
@@ -25,6 +30,7 @@ export const accountPreviewNavigationItem: AccountNavigationItem =
 export const accountPreviewHeader = "x-smb-account-preview";
 
 export type AccountPreviewTarget =
+  | { kind: "account"; accessId: string }
   | { kind: "position"; positionId: string }
   | {
       kind: "navigation";
@@ -65,6 +71,10 @@ export function parseAccountPreviewTarget(
 
   const kind = raw.slice(0, separator);
   const target = raw.slice(separator + 1).trim();
+
+  if (kind === "account") {
+    return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,119}$/u.test(target) ? { kind: "account", accessId: target } : undefined;
+  }
 
   if (kind === "position") {
     return positionIdPattern.test(target)
@@ -121,6 +131,26 @@ export function applyAccountPreviewAccess(
       positionDisplayName: `${preview.positionDisplayName} (предпросмотр)`,
       navigationItems: [...preview.navigationItems],
       capabilities: [...preview.capabilities],
+    },
+  };
+}
+
+export class AccountPreviewError extends Error {
+  constructor(message = "Просмотр выбранного аккаунта недоступен.") { super(message); }
+}
+
+export function buildConcreteAccountPreview(account: AdminAccountSummary): ServerUserProfile {
+  return {
+    userId: account.userId,
+    displayName: account.userDisplayName,
+    accountType: account.accountType,
+    receivedAt: new Date().toISOString(),
+    activeAccess: {
+      accountId: account.accessId, accountType: account.accountType,
+      position: account.position, positionDisplayName: account.positionDisplayName,
+      displayName: account.accessDisplayName, scope: account.scope,
+      capabilities: [...account.capabilities], navigationItems: [...account.navigationItems],
+      issuedAt: account.createdAt,
     },
   };
 }

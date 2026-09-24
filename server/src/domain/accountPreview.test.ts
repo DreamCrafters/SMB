@@ -122,3 +122,8 @@ test("preview swaps the working context but never the identity", () => {
     "Диспетчер (предпросмотр)",
   );
 });
+
+test("created-account preview targets a specific access rather than its position", () => {
+  assert.deepEqual(parseAccountPreviewTarget("account:access-123"), { kind: "account", accessId: "access-123" });
+  assert.equal(parseAccountPreviewTarget("account:../../other"), undefined);
+});

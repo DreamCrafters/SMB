@@ -743,6 +743,10 @@ export default function App() {
     useState(0);
   const [adminViewedAccount, setAdminViewedAccount] =
     useState<AdminAccountSummary>();
+  const [concretePreviewProfile, setConcretePreviewProfile] = useState<ServerUserProfile>();
+  const [isStartingAccountPreview, setIsStartingAccountPreview] = useState(false);
+  const accountPreviewRequest = useRef(0);
+  const effectiveRequestProfile = concretePreviewProfile ?? (accessProfile.status === "ready" ? accessProfile.profile : undefined);
   const [adminViewedOwnerTab, setAdminViewedOwnerTab] =
     useState<BusinessTab>("overview");
   /** Уровень, глазами которого показывается предпросмотр вкладки. */
@@ -984,7 +988,6 @@ export default function App() {
       accessProfile.profile.activeAccess.navigationItems.includes(
         "admin.account_preview",
       ) &&
-      adminTab === "account_preview" &&
       adminViewedAccount !== undefined;
     const activeDispatcherFeedFilters = isAdminViewedFeed
       ? adminViewedDispatcherFeedFilters
@@ -1162,17 +1165,17 @@ export default function App() {
   }, [accessProfile, adminViewedAccount]);
 
   useEffect(() => {
+    knownOwnRefractoryStatusesRef.current = new Map();
+    hasLoadedOwnRefractoryRef.current = false;
+    setReturnedRefractoryCounts(emptyReturnedRefractoryReportCounts);
+    setReturnedRefractoryShifts([]);
     if (
-      accessProfile.status !== "ready" ||
+      effectiveRequestProfile === undefined ||
       !hasCapability(
-        accessProfile.profile,
+        effectiveRequestProfile,
         "business.submit_refractory_reports",
       )
     ) {
-      knownOwnRefractoryStatusesRef.current = new Map();
-      hasLoadedOwnRefractoryRef.current = false;
-      setReturnedRefractoryCounts(emptyReturnedRefractoryReportCounts);
-      setReturnedRefractoryShifts([]);
       return;
     }
 
@@ -1229,20 +1232,20 @@ export default function App() {
       controller?.abort();
       window.clearInterval(intervalId);
     };
-  }, [accessProfile]);
+  }, [effectiveRequestProfile]);
 
   useEffect(() => {
+    setPendingRefractoryReports([]);
+    setRefractoryQueueError("");
+    knownPendingRefractoryIdsRef.current = new Set();
+    hasLoadedPendingRefractoryRef.current = false;
     if (
-      accessProfile.status !== "ready" ||
+      effectiveRequestProfile === undefined ||
       !hasCapability(
-        accessProfile.profile,
+        effectiveRequestProfile,
         "business.review_refractory_reports",
       )
     ) {
-      setPendingRefractoryReports([]);
-      setRefractoryQueueError("");
-      knownPendingRefractoryIdsRef.current = new Set();
-      hasLoadedPendingRefractoryRef.current = false;
       return;
     }
 
@@ -1305,7 +1308,7 @@ export default function App() {
       controller?.abort();
       window.clearInterval(intervalId);
     };
-  }, [accessProfile]);
+  }, [effectiveRequestProfile]);
 
   useEffect(() => {
     if (
@@ -1313,11 +1316,15 @@ export default function App() {
       !accessProfile.profile.activeAccess.navigationItems.includes(
         "admin.account_preview",
       ) ||
-      adminTab !== "account_preview"
+      (adminTab !== "account_preview" && concretePreviewProfile === undefined)
     ) {
+      accountPreviewRequest.current++;
+      clearStoredAccountPreviewTarget();
       setAdminViewedAccount(undefined);
+      setConcretePreviewProfile(undefined);
+      setIsStartingAccountPreview(false);
     }
-  }, [accessProfile, adminTab]);
+  }, [accessProfile, adminTab, concretePreviewProfile]);
 
   useEffect(() => {
     if (accessProfile.status !== "ready") {
@@ -1432,11 +1439,11 @@ export default function App() {
   }, [accessProfile, dispatcherFeed, dispatcherIncidentLoginPrompt]);
 
   useEffect(() => {
-    if (accessProfile.status !== "ready") {
+    if (effectiveRequestProfile === undefined || isStartingAccountPreview) {
       return;
     }
 
-    const profile = accessProfile.profile;
+    const profile = effectiveRequestProfile;
     const previewTab = adminViewedAccount === undefined
       ? undefined
       : resolveAllowedNavigationTab(
@@ -1458,13 +1465,14 @@ export default function App() {
       workspaceKind,
       profile.activeAccess.navigationItems,
     );
-    const screenId = adminViewedAccount !== undefined && previewTab !== undefined
+    const visibleBusinessTab = previewTab ?? activeBusinessTab;
+    const screenId = concretePreviewProfile === undefined && adminViewedAccount !== undefined && previewTab !== undefined
       ? getBusinessAuditScreenId(previewTab)
       : activeWorkspaceKind === "admin" && activeAdminTab !== undefined
         ? getAdminNavigationItem(activeAdminTab)
-        : activeBusinessTab === undefined
+        : visibleBusinessTab === undefined
           ? undefined
-          : getBusinessAuditScreenId(activeBusinessTab);
+          : getBusinessAuditScreenId(visibleBusinessTab);
 
     if (screenId === undefined) {
       return;
@@ -1479,7 +1487,9 @@ export default function App() {
     lastRecordedScreenRef.current = screenKey;
     void recordAuditScreenView(screenId);
   }, [
-    accessProfile,
+    effectiveRequestProfile,
+    concretePreviewProfile,
+    isStartingAccountPreview,
     adminTab,
     adminViewedAccount,
     adminViewedOwnerTab,
@@ -1779,8 +1789,26 @@ export default function App() {
     );
   }
 
-  function handleStartAdminAccountView(account: AdminAccountSummary) {
+  async function handleStartAdminAccountView(account: AdminAccountSummary) {
+    const request = ++accountPreviewRequest.current;
+    setAdminViewedAccount(undefined);
+    setWorkspaceKind("admin");
+    setAdminTab("account_preview");
     storeAccountPreviewTarget(readAdminPreviewTargetAddress(account));
+    setConcretePreviewProfile(undefined);
+    if (isConcretePreviewAccount(account)) {
+      setIsStartingAccountPreview(true);
+      const result = await requestAccessProfile({ localDevFallback: false });
+      if (request !== accountPreviewRequest.current) return;
+      setIsStartingAccountPreview(false);
+      if (result.status !== "ready" || result.profile.activeAccess.accountId !== account.accessId) {
+        clearStoredAccountPreviewTarget();
+        handleShowToast("Просмотр аккаунта", "Не удалось открыть выбранный аккаунт. Обновите список и повторите.", "warning");
+        return;
+      }
+      setConcretePreviewProfile(result.profile);
+      account = { ...account, userDisplayName: result.profile.displayName, navigationItems: result.profile.activeAccess.navigationItems, capabilities: result.profile.activeAccess.capabilities };
+    }
     setAdminViewedNavigationLevel(undefined);
     setWorkspaceKind("business");
     setAdminViewedAccount(account);
@@ -1807,6 +1835,10 @@ export default function App() {
   }
 
   function handleStopAdminAccountView() {
+    accountPreviewRequest.current++;
+    setIsStartingAccountPreview(false);
+    setConcretePreviewProfile(undefined);
+    setAdminTab("account_preview");
     clearStoredAccountPreviewTarget();
     setAdminViewedNavigationLevel(undefined);
     setWorkspaceKind("admin");
@@ -1984,14 +2016,13 @@ export default function App() {
   const profile = accessProfile.profile;
   const viewedProfile =
     profile.activeAccess.navigationItems.includes("admin.account_preview") &&
-    adminTab === "account_preview" &&
     adminViewedAccount !== undefined
-      ? buildAdminPreviewProfile(adminViewedAccount)
+      ? concretePreviewProfile ?? buildAdminPreviewProfile(adminViewedAccount)
       : undefined;
   const isAdminPreviewMode = viewedProfile !== undefined;
   const visibleProfile = viewedProfile ?? profile;
   const visibleWorkspaceKind = resolveAllowedWorkspaceKind(
-    viewedProfile === undefined ? workspaceKind : "business",
+    viewedProfile === undefined || concretePreviewProfile !== undefined ? workspaceKind : "business",
     visibleProfile.activeAccess.navigationItems,
   ) ?? workspaceKind;
   const hasVisibleNavigationAccess =
@@ -2033,7 +2064,7 @@ export default function App() {
   };
 
   return (
-    <TableLayoutProvider key={profile.activeAccess.accountId} canConfigure={hasCapability(profile, "platform.manage_table_layouts")}>
+    <TableLayoutProvider key={visibleProfile.activeAccess.accountId} canConfigure={hasCapability(concretePreviewProfile ?? profile, "platform.manage_table_layouts")}>
     <main
       className={`ops-shell ${
         isNavigationOpen
@@ -2043,7 +2074,7 @@ export default function App() {
     >
       <SideRail
         profile={visibleProfile}
-        signedInDisplayName={profile.displayName}
+        signedInDisplayName={concretePreviewProfile?.displayName ?? profile.displayName}
         isAdminPreviewMode={isAdminPreviewMode}
         previewLevel={adminViewedNavigationLevel}
         previewLevels={
@@ -2117,6 +2148,7 @@ export default function App() {
         />
       ) : null}
 
+      {isStartingAccountPreview ? <div className="app-session-loading"><LoadingIndicator label="Открываем аккаунт…" variant="inline" /></div> : null}
       {viewedProfile === undefined && sessionRequest.status === "loading" ? (
         <div className="app-session-loading">
           <LoadingIndicator label="Выходим из аккаунта…" variant="inline" />
@@ -2849,7 +2881,7 @@ export function SideRail({
               <div
                 className="admin-preview-mode-badge"
                 role="status"
-                title={`Вы работаете от лица должности «${profile.activeAccess.positionDisplayName}». Раздел работает полностью: отправленные формы сохраняются и рассылаются как обычно, а в журнале действий запись подписана вашим аккаунтом.`}
+                title={`Просмотр: ${profile.displayName}, ${profile.activeAccess.positionDisplayName}. Действия сохраняются и отправляют уведомления. В журнале отмечается администратор, выполнивший действие.`}
               >
                 АДМИН ПРЕВЬЮ МОД
               </div>
@@ -9444,29 +9476,28 @@ function AdminAccountPreviewButton({
   isTypePreview: boolean;
   onSelectAccountView: (account: AdminAccountSummary) => void;
 }) {
-  const hasBusinessNavigation = account.navigationItems.some((item) =>
-    item.startsWith("business."),
-  );
+  const canOpenPreview = account.userStatus === "active" && (isConcretePreviewAccount(account)
+    || account.navigationItems.some(item => item.startsWith("business.")));
 
   return (
     <button
       className="admin-account-button"
       type="button"
-      disabled={!hasBusinessNavigation}
+      disabled={!canOpenPreview}
       title={
-        !hasBusinessNavigation
-          ? "У аккаунта нет рабочих вкладок для превью."
+        !canOpenPreview
+          ? account.userStatus === "active" ? "У должности нет рабочих вкладок для превью." : "Учётная запись отключена."
           : undefined
       }
       onClick={() => {
-        if (hasBusinessNavigation) onSelectAccountView(account);
+        if (canOpenPreview) onSelectAccountView(account);
       }}
     >
       <span>{account.positionDisplayName}</span>
       {description !== undefined ? <small>{description}</small> : null}
       {!isTypePreview ? <strong>{account.userDisplayName}</strong> : null}
       {isTypePreview ? (
-        !hasBusinessNavigation ? <small>Без превью</small> : null
+        !canOpenPreview ? <small>Без превью</small> : null
       ) : (
         <small>{account.login}</small>
       )}
@@ -11398,6 +11429,7 @@ function readAdminPreviewTargetAddress(
   account: AdminAccountSummary,
   level?: string,
 ) {
+  if (isConcretePreviewAccount(account)) return `account:${account.accessId}`;
   if (!account.accessId.startsWith(adminPreviewNavigationAccessPrefix)) {
     return `position:${account.position}`;
   }
@@ -13618,6 +13650,10 @@ async function copyTextToClipboard(value: string) {
   return didCopy;
 }
 
+function isConcretePreviewAccount(account: AdminAccountSummary) {
+  return !account.accessId.startsWith("admin-preview-");
+}
+
 export function buildAdminPreviewProfile(
   account: AdminAccountSummary,
 ): ServerUserProfile {
@@ -13626,7 +13662,7 @@ export function buildAdminPreviewProfile(
     account.navigationItems,
     account.capabilities,
   );
-  const businessNavigationItems = account.navigationItems.filter((item) =>
+  const businessNavigationItems = isConcretePreviewAccount(account) ? [...account.navigationItems] : account.navigationItems.filter((item) =>
     item.startsWith("business."),
   );
 

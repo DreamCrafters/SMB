@@ -47,6 +47,8 @@ test("admin preview separates account types, created accounts, and working tabs"
     server: { middlewareMode: true },
   });
 
+  const ownReportTargets = [];
+  const auditViews = [];
   try {
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
@@ -54,8 +56,19 @@ test("admin preview separates account types, created accounts, and working tabs"
         return jsonResponse({ navigationOrder: defaultNavigationOrder });
       }
       const method = init.method ?? "GET";
+      if (url.pathname === "/api/refractory-reports/own") {
+        ownReportTargets.push(init.headers?.["X-SMB-Account-Preview"]);
+        return jsonResponse({ reports: [] });
+      }
 
       if (url.pathname === "/api/access/profile") {
+        if (init.headers?.["X-SMB-Account-Preview"] === "account:created-access") {
+          const account = buildCreatedAccount();
+          return jsonResponse({ profile: { userId: account.userId, displayName: account.userDisplayName, accountType: account.accountType,
+            activeAccess: { accountId: account.accessId, accountType: account.accountType, position: account.position, positionDisplayName: account.positionDisplayName,
+              displayName: account.accessDisplayName, scope: account.scope, capabilities: account.capabilities, navigationItems: account.navigationItems, issuedAt: account.createdAt },
+            receivedAt: account.createdAt } });
+        }
         return jsonResponse({ profile: buildAdminProfile() });
       }
       if (url.pathname === "/api/admin/accounts" && method === "GET") {
@@ -72,6 +85,7 @@ test("admin preview separates account types, created accounts, and working tabs"
         });
       }
       if (url.pathname === "/api/audit/events" && method === "POST") {
+        auditViews.push({ target: init.headers?.["X-SMB-Account-Preview"], ...JSON.parse(init.body) });
         return jsonResponse({ ok: true });
       }
       if (url.pathname === "/api/admin/audit-events" && method === "GET") {
@@ -132,6 +146,19 @@ test("admin preview separates account types, created accounts, and working tabs"
     });
     assert.ok(findButtonContaining(rootElement, "Созданный руководитель"));
     assert.equal(findButton(rootElement, "Руководитель производства"), undefined);
+    await React.act(async () => findButtonContaining(rootElement, "Созданный руководитель").click());
+    await waitFor(React, () => rootElement.querySelector('[aria-label="Рабочие данные"]') !== null);
+    assert.equal(dom.window.sessionStorage.getItem("smb.accountPreviewTarget"), "account:created-access");
+    assert.ok(ownReportTargets.includes("account:created-access"));
+    assert.match(rootElement.querySelector(".admin-preview-mode-badge").title, /Созданный руководитель/u);
+    await React.act(async () => findButtonContaining(rootElement.querySelector(".side-rail"), "Учётные записи").click());
+    await waitFor(React, () => rootElement.querySelector('[aria-label="Учётные записи"]') !== null || rootElement.textContent.includes("Создать учётную запись"));
+    assert.ok(rootElement.querySelector(".admin-preview-mode-badge"));
+    assert.equal(dom.window.sessionStorage.getItem("smb.accountPreviewTarget"), "account:created-access");
+    assert.deepEqual(auditViews.at(-1), { target: "account:created-access", screenId: "admin.accounts" });
+    await React.act(async () => findButton(rootElement, "Выйти из превью мода").click());
+    await waitFor(React, () => rootElement.querySelector('[role="tablist"][aria-label="Разделы предпросмотра"]') !== null);
+    assert.equal(dom.window.sessionStorage.getItem("smb.accountPreviewTarget"), null);
 
     await React.act(async () => {
       findButton(rootElement, "Вкладки")?.click();
@@ -223,8 +250,8 @@ function buildCreatedAccount() {
     position: "production-owner",
     positionDisplayName: "Руководитель производства",
     scope: { kind: "organization" },
-    capabilities: ["business.view_own_statistics"],
-    navigationItems: ["business.work"],
+    capabilities: ["business.view_own_submissions", "business.submit_refractory_reports", "platform.manage_users", "platform.manage_access"],
+    navigationItems: ["business.work", "admin.accounts"],
     createdAt: "2026-08-10T08:00:00.000Z",
   };
 }
@@ -235,7 +262,7 @@ function buildPosition() {
     displayName: "Руководитель производства",
     accountType: "business_owner",
     navigationItems: ["business.work"],
-    capabilities: ["business.view_own_statistics"],
+    capabilities: ["business.view_own_submissions"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
     showOverviewVisitors: true,

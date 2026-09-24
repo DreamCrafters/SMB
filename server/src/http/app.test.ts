@@ -15561,3 +15561,77 @@ test("delegated dev session cannot inherit root from a colliding production user
     assert.equal((await response.json() as { canManageProtectedAccounts: boolean }).canManageProtectedAccounts, false);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
 });
+
+test("concrete account preview uses live target identity, permissions and administrator audit", async () => {
+  const { createAuditRepository } = await import("../repositories/auditRepository.js");
+  const actor = buildProductionProfile("admin");
+  const target: Awaited<ReturnType<AccountsRepository["listAccounts"]>>[number] = {
+    ...adminAccount, accessId: "target-access", userId: "target-user", login: "target", userDisplayName: "Получатель",
+    accountType: "worker", capabilities: ["business.view_director_assignments"], navigationItems: ["business.director_assignments"],
+  };
+  const rootAccount = { ...adminAccount, userId: actor.userId, accessId: actor.activeAccess.accountId, isRootAdmin: true };
+  const accountRepository: AccountsRepository = { ...accounts, async listAccounts() { return [rootAccount, target]; } };
+  const auditRows: unknown[][] = [];
+  const audit = createAuditRepository({ async query(_sql: string, values: unknown[]) { auditRows.push(values); return [[], []]; } } as unknown as Parameters<typeof createAuditRepository>[0]);
+  const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
+  const assignment = {
+    id: "own-task", revision: 1, number: "1", summary: "Личное поручение", responsibleId: "account:target-user",
+    responsible: { id: "account:target-user", userId: target.userId, active: true, fullName: target.userDisplayName },
+    coExecutors: [], comments: [], documents: [], status: "in_progress", needsClarification: false,
+    assignedOn: "2026-09-01", currentOccurrenceDate: "2026-09-24", activeFrom: "2026-09-24", activeTo: "2026-09-24", recurrence: "once", progress: "", completedOn: "",
+  };
+  const repository = {
+    async list() { return [assignment]; }, async listAssignableEmployees() { return [assignment.responsible]; },
+    async readAssignableEmployee() { return assignment.responsible; }, async read() { return assignment; },
+    async update(record: typeof assignment) { Object.assign(assignment, record); return assignment; },
+  } as unknown as DirectorAssignmentsRepository;
+  const server = createApiServer({ config: productionConfig, dispatcherSubmissions, referenceDataSource: emptyReferenceDataSource,
+    accounts: accountRepository, authService: buildAuthService({ profile: actor }), audit, databaseTransaction: transaction,
+    directorAssignments: createDirectorAssignmentsService({ repository, audit, transaction, now: () => new Date("2026-09-24T10:00:00Z") }),
+  });
+  server.listen(0, "127.0.0.1"); await once(server, "listening");
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const headers = { Cookie: `${productionConfig.session.cookieName}=prod-session`, "X-SMB-Account-Preview": "account:target-access", "Content-Type": "application/json" };
+  try {
+    const profileResponse = await fetch(`${url}/api/access/profile`, { headers });
+    assert.equal(profileResponse.status, 200);
+    const payload = await profileResponse.json() as { profile: ServerUserProfile };
+    assert.equal(payload.profile.userId, target.userId);
+    assert.deepEqual(payload.profile.activeAccess.capabilities, target.capabilities);
+    assert.equal((await fetch(`${url}/api/admin/accounts`, { headers })).status, 403);
+    const list = await (await fetch(`${url}/api/director-assignments`, { headers })).json() as { ownAssignmentIds: string[] };
+    assert.deepEqual(list.ownAssignmentIds, [assignment.id]);
+    const changed = await fetch(`${url}/api/director-assignments/${assignment.id}/action`, { method: "POST", headers, body: JSON.stringify({ action: "record_progress", revision: 1, comment: "Проверено администратором" }) });
+    assert.equal(changed.status, 200);
+    assert.equal(auditRows.at(-1)?.[1], actor.userId);
+    assert.match(String(auditRows.at(-1)?.[10]), /target-user/u);
+    assert.equal(assignment.comments.length, 1);
+    target.capabilities = [];
+    assert.equal((await fetch(`${url}/api/director-assignments`, { headers })).status, 403);
+    target.userStatus = "suspended";
+    assert.equal((await fetch(`${url}/api/access/profile`, { headers })).status, 403);
+    target.userStatus = "active";
+    assert.equal((await fetch(`${url}/api/access/profile`, { headers: { ...headers, "X-SMB-Account-Preview": "account:missing" } })).status, 403);
+    rootAccount.isRootAdmin = false;
+    assert.equal((await fetch(`${url}/api/access/profile`, { headers })).status, 403);
+    rootAccount.isRootAdmin = true;
+    actor.activeAccess.navigationItems = ["business.director_assignments"];
+    assert.equal((await fetch(`${url}/api/access/profile`, { headers })).status, 403);
+    const original = await (await fetch(`${url}/api/access/profile`, { headers: { Cookie: headers.Cookie } })).json() as { profile: ServerUserProfile };
+    assert.equal(original.profile.userId, actor.userId);
+  } finally { server.close(); await once(server, "close"); }
+});
+
+test("a delegated dev preview cannot inherit impersonation from a colliding production root ID", async () => {
+  const repository: AccountsRepository = { ...accounts,
+    async listPositions() { return [{ id: "delegated-preview", displayName: "Предпросмотр", accountType: "business_owner", navigationItems: ["admin.account_preview"], capabilities: [], boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: false, usageCount: 0, createdAt: "2026-09-24T00:00:00Z" }]; },
+    async listAccounts() { return [{ ...adminAccount, userId: "dev-user-owner", isRootAdmin: true }]; },
+  };
+  await withApiServer(async baseUrl => {
+    const session = await fetch(`${baseUrl}/api/dev/access-session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ position: "delegated-preview" }) });
+    assert.equal(session.status, 200);
+    const { sessionId } = await session.json() as { sessionId: string };
+    const response = await fetch(`${baseUrl}/api/access/profile`, { headers: { "X-SMB-Dev-Session": sessionId, "X-SMB-Account-Preview": "account:access-id" } });
+    assert.equal(response.status, 403);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+});

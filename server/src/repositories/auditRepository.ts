@@ -1,3 +1,4 @@
+import { annotateAccountPreviewAudit } from "../domain/accountPreviewContext.js";
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
@@ -110,6 +111,7 @@ export function createAuditRepository(
 ): AuditRepository {
   return {
     async record(event) {
+      event = annotateAccountPreviewAudit(event);
       const occurredAt = event.occurredAt ?? now();
       const details = sanitizeDetails(event.details ?? []);
 
