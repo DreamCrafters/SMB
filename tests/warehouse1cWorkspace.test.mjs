@@ -4,6 +4,13 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
 
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+test.after(() => vite.close());
+
 const DOM_GLOBAL_NAMES = [
   "document",
   "Element",
@@ -34,13 +41,9 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const requests = [];
 
+  let root;
   try {
     const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
       "/src/Warehouse1c.tsx",
@@ -95,7 +98,7 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
     };
 
     const container = dom.window.document.querySelector("#root");
-    const root = createRoot(container);
+    root = createRoot(container);
     await React.act(async () => {
       root.render(React.createElement(Warehouse1cWorkspace));
     });
@@ -182,8 +185,8 @@ test("warehouse 1C tab shows the loaded stock report and switches date and accou
     assert.equal(readTableRows(container).length, 1);
     assert.match(readTableRows(container)[0].join(" "), /ШБ-5/u);
   } finally {
+    if (root) await React.act(async () => root.unmount());
     globalThis.fetch = previousFetch;
-    await vite.close();
     restoreDomGlobals(previousGlobals);
     dom.window.close();
   }
@@ -198,9 +201,6 @@ test("warehouse 1C hides only four explicit zero balances and combines persisten
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom", logLevel: "silent", server: { middlewareMode: true },
-  });
   const container = dom.window.document.querySelector("#root");
   const root = createRoot(container);
   let requests = 0;
@@ -274,7 +274,6 @@ test("warehouse 1C hides only four explicit zero balances and combines persisten
   } finally {
     await React.act(async () => root.unmount());
     globalThis.fetch = previousFetch;
-    await vite.close();
     restoreDomGlobals(previousGlobals);
     dom.window.close();
   }
@@ -290,14 +289,10 @@ test("warehouse 1C tab reloads reports on demand and keeps the table meanwhile",
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const requests = [];
   let releaseSecondResponse;
 
+  let root;
   try {
     const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
       "/src/Warehouse1c.tsx",
@@ -330,7 +325,7 @@ test("warehouse 1C tab reloads reports on demand and keeps the table meanwhile",
     };
 
     const container = dom.window.document.querySelector("#root");
-    const root = createRoot(container);
+    root = createRoot(container);
     await React.act(async () => {
       root.render(React.createElement(Warehouse1cWorkspace));
     });
@@ -368,8 +363,8 @@ test("warehouse 1C tab reloads reports on demand and keeps the table meanwhile",
     assert.equal(refreshButton.disabled, false);
     assert.equal(refreshButton.textContent, "Обновить отчёты");
   } finally {
+    if (root) await React.act(async () => root.unmount());
     globalThis.fetch = previousFetch;
-    await vite.close();
     restoreDomGlobals(previousGlobals);
     dom.window.close();
   }
@@ -387,15 +382,11 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
   const requests = [];
   const clicked = [];
   const previousClick = dom.window.HTMLElement.prototype.click;
 
+  let root;
   try {
     const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
       "/src/Warehouse1c.tsx",
@@ -499,7 +490,7 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
     };
 
     const container = dom.window.document.querySelector("#root");
-    const root = createRoot(container);
+    root = createRoot(container);
     await React.act(async () => {
       root.render(React.createElement(Warehouse1cWorkspace));
     });
@@ -635,11 +626,11 @@ test("warehouse 1C journal lists upload attempts and downloads the stored file",
       ["1", "2", "3"],
     );
   } finally {
+    if (root) await React.act(async () => root.unmount());
     dom.window.HTMLElement.prototype.click = previousClick;
     URL.createObjectURL = previousCreateObjectUrl;
     URL.revokeObjectURL = previousRevokeObjectUrl;
     globalThis.fetch = previousFetch;
-    await vite.close();
     restoreDomGlobals(previousGlobals);
     dom.window.close();
   }
@@ -655,12 +646,8 @@ test("warehouse 1C tab says when it reads the production database", async () => 
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
 
+  let root;
   try {
     const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
       "/src/Warehouse1c.tsx",
@@ -690,7 +677,7 @@ test("warehouse 1C tab says when it reads the production database", async () => 
       });
 
     const container = dom.window.document.querySelector("#root");
-    const root = createRoot(container);
+    root = createRoot(container);
     await React.act(async () => {
       root.render(React.createElement(Warehouse1cWorkspace));
     });
@@ -702,8 +689,8 @@ test("warehouse 1C tab says when it reads the production database", async () => 
       /Данные основной базы/u,
     );
   } finally {
+    if (root) await React.act(async () => root.unmount());
     globalThis.fetch = previousFetch;
-    await vite.close();
     restoreDomGlobals(previousGlobals);
     dom.window.close();
   }
@@ -719,12 +706,8 @@ test("warehouse 1C tab explains an empty store instead of an empty table", async
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
 
+  let root;
   try {
     const { Warehouse1cWorkspace } = await vite.ssrLoadModule(
       "/src/Warehouse1c.tsx",
@@ -737,7 +720,7 @@ test("warehouse 1C tab explains an empty store instead of an empty table", async
       });
 
     const container = dom.window.document.querySelector("#root");
-    const root = createRoot(container);
+    root = createRoot(container);
     await React.act(async () => {
       root.render(React.createElement(Warehouse1cWorkspace));
     });
@@ -753,8 +736,8 @@ test("warehouse 1C tab explains an empty store instead of an empty table", async
     assert.equal(findSelectByLabel(container, "Дата").disabled, true);
     assert.equal(container.querySelector("table"), null);
   } finally {
+    if (root) await React.act(async () => root.unmount());
     globalThis.fetch = previousFetch;
-    await vite.close();
     restoreDomGlobals(previousGlobals);
     dom.window.close();
   }

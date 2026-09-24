@@ -3,6 +3,13 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createServer } from "vite";
 
+const vite = await createServer({
+  appType: "custom",
+  logLevel: "silent",
+  server: { middlewareMode: true },
+});
+test.after(() => vite.close());
+
 const DOM_GLOBAL_NAMES = [
   "document",
   "Element",
@@ -293,11 +300,6 @@ async function mountWorkspace({ roles, orders, savedOrder }) {
   installDomGlobals(dom.window);
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  const vite = await createServer({
-    appType: "custom",
-    logLevel: "silent",
-    server: { middlewareMode: true },
-  });
 
   const requests = [];
 
@@ -350,8 +352,8 @@ async function mountWorkspace({ roles, orders, savedOrder }) {
     dom,
     requests,
     async dispose() {
+      await React.act(async () => root.unmount());
       globalThis.fetch = previousFetch;
-      await vite.close();
       restoreDomGlobals(previousGlobals);
       dom.window.close();
     },

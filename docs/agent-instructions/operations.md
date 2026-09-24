@@ -21,3 +21,5 @@
 - Для обоих Jino-доменов принудительный HTTP → HTTPS redirect выполнять на Apache/Jino boundary через tracked `public/.htaccess` с `X-Forwarded-Protocol`; deploy обязан публиковать dotfiles. Не разрешать HTTP-origin в production CORS и не снимать `Secure` с auth-cookie: отсутствие redirect нужно исправлять на уровне хостинга и проверять для `/`, `/health` и `/api/*`.
 
 - Рабочая Jino managed DB — `j53403317_bot1` с пользователем `j53403317_robot`; при запуске backend на Jino использовать DB host `localhost`, а если TCP-подключение даёт `user@127.0.0.1` access denied, подключать backend через `socketPath=/var/lib/mysql/mysql.sock` в `DATABASE_URL`; при внешней проверке/VPS использовать `mysql.584e7697571.hosting.myjino.ru` с IP allowlist.
+
+- В dual deploy общий набор тестов можно переиспользовать только в текущем процессе для одинакового commit, чистых checkout и зависимостей после `npm ci`. При пропуске установки зависимостей тестировать каждую среду. Не переносить результат между запусками и не подменять им проверки env, миграции, сборки и smoke каждой среды. Backend-артефакт от успешных тестов переиспользовать только в том же checkout.

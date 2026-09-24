@@ -8,6 +8,11 @@ SKIP_CHECKS="${SMB_SKIP_CHECKS:-false}"
 SKIP_NPM_CI="${SMB_SKIP_NPM_CI:-false}"
 NPM_REGISTRY="${SMB_NPM_REGISTRY:-https://registry.npmmirror.com/}"
 
+# Successful tests are reusable only within this invocation, never across deploys.
+TESTED_COMMIT=""
+DEPLOY_COMMIT=""
+TESTS_BUILT_BACKEND="false"
+
 PROD_DOMAIN="${SMB_PROD_DOMAIN:-smb.aonmou.ru}"
 TEST_DOMAIN="${SMB_TEST_DOMAIN:-test.smb.aonmou.ru}"
 
@@ -98,6 +103,7 @@ prepare_git_checkout() {
   local app_dir="$1"
 
   cd "$app_dir"
+  [[ -z "$(git status --porcelain)" ]] || die "Remote checkout is dirty: $app_dir"
   git fetch origin "$DEPLOY_BRANCH"
 
   if [[ "$(git branch --show-current)" != "$DEPLOY_BRANCH" ]]; then
@@ -105,6 +111,11 @@ prepare_git_checkout() {
   fi
 
   git pull --ff-only origin "$DEPLOY_BRANCH"
+  local commit
+  commit="$(git rev-parse HEAD)"
+  [[ -z "$DEPLOY_COMMIT" || "$commit" == "$DEPLOY_COMMIT" ]] ||
+    die "Deployment commit changed between environments; refusing to publish different code."
+  DEPLOY_COMMIT="$commit"
 }
 
 install_dependencies() {
@@ -131,11 +142,21 @@ run_checks() {
 }
 
 run_optional_tests() {
+  TESTS_BUILT_BACKEND="false"
   if [[ "$RUN_TESTS" != "true" ]]; then
     return
   fi
 
-  npm run test:jino
+  if [[ "$TESTED_COMMIT" == "$DEPLOY_COMMIT" && "$SKIP_NPM_CI" != "true" ]]; then
+    log "tests" "Reusing successful tests for commit $DEPLOY_COMMIT from this deployment."
+    return
+  fi
+
+  log "tests" "Running the complete serial test suite for commit $DEPLOY_COMMIT."
+  VITE_SMB_APP_ENV=test VITE_SMB_REMOTE_API_URL=http://127.0.0.1:5173 npm run test:jino
+  require_file "$PWD/server/dist/index.js"
+  TESTED_COMMIT="$DEPLOY_COMMIT"
+  TESTS_BUILT_BACKEND="true"
 }
 
 write_deploy_state() {
@@ -170,10 +191,15 @@ deploy_environment() {
   prepare_git_checkout "$app_dir"
   install_dependencies
   run_checks
+  [[ -z "$(git status --porcelain)" ]] || die "Checkout changed during preparation: $app_dir"
   run_optional_tests
 
   SMB_SERVER_ENV_FILE="$app_dir/server/.env" npm --workspace server run db:migrate
-  npm --workspace server run build
+  if [[ "$TESTS_BUILT_BACKEND" == "true" ]]; then
+    log "build" "Using backend build produced by the successful tests in $label."
+  else
+    npm --workspace server run build
+  fi
   npm run "build:web:$mode"
   require_file "$app_dir/dist/.htaccess"
 
