@@ -42,6 +42,8 @@ function inputFrom(row: DirectorAssignment, employees: PersonnelEmployee[]): Dir
 
 export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: ShowToast }) {
   const [data, setData] = useState<DirectorAssignmentListResponse>();
+  const [view, setView] = useState<"send" | "receive">("receive");
+  const historyRequest = useRef(0);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -64,7 +66,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   async function refresh() { setData(await directorRequest<DirectorAssignmentListResponse>("/api/director-assignments")); }
   useEffect(() => {
     const abort = new AbortController();
-    void directorRequest<DirectorAssignmentListResponse>("/api/director-assignments", "GET", undefined, abort.signal).then(next => { setData(next); if (next.permissions.canManage) setForm(createDirectorAssignmentInput(next.today)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
+    void directorRequest<DirectorAssignmentListResponse>("/api/director-assignments", "GET", undefined, abort.signal).then(next => { setData(next); if (next.permissions.canManage && !next.permissions.canExecute) setForm(createDirectorAssignmentInput(next.today)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
     return () => abort.abort();
   }, []);
   async function mutate(operation: () => Promise<unknown>) {
@@ -77,13 +79,20 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
     event.preventDefault();
     if (form) void mutate(() => directorRequest(`/api/director-assignments${selected ? `/${selected.id}` : ""}`, selected ? "PATCH" : "POST", { assignment: form, revision: selected?.revision, comment: selected ? comment : "Поручение создано." }));
   }
+  function changeView(next: "send" | "receive") {
+    historyRequest.current++;
+    setView(next); setSelected(undefined); setForm(undefined); setHistory(null);
+    setComment(""); setError(""); setFilters({}); setSelectedStatuses([]);
+  }
   async function openHistory() {
+    const request = ++historyRequest.current;
     setError("");
     try {
       const result = await directorRequest<{ completions: Array<{ id: string; assignment: DirectorAssignment }> }>("/api/director-assignments/completions");
+      if (request !== historyRequest.current) return;
       setSelected(undefined); setForm(undefined); setHistory(result.completions);
     }
-    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить историю."); }
+    catch (e) { if (request === historyRequest.current) setError(e instanceof Error ? e.message : "Не удалось загрузить историю."); }
   }
   async function exportPdf(assignments: DirectorAssignment[], mode: "register" | "assignment") {
     if (exporting || !assignments.length) return;
@@ -106,14 +115,21 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
     finally { setExporting(false); }
   }
   if (!data) return <section className="workspace-panel">{error ? <p role="alert">{error}</p> : <LoadingIndicator label="Загрузка поручений" />}</section>;
+  const combinedAccess = data.permissions.canManage && data.permissions.canExecute;
+  const isSending = data.permissions.canManage && (!combinedAccess || view === "send");
   const canExecuteSelected = selected !== undefined && (data.executableAssignmentIds?.includes(selected.id) ?? (!data.permissions.canManage && data.permissions.canExecute));
-  const rows = history ? history.map(item => item.assignment) : data.assignments;
+  const rows = history ? history.map(item => item.assignment) : combinedAccess && !isSending
+    ? data.assignments.filter(assignment => data.ownAssignmentIds?.includes(assignment.id)) : data.assignments;
   const visible = rows.filter(row => (selectedStatuses.length === 0 || selectedStatuses.some(status => status === "Требует уточнения" ? row.needsClarification : statuses[row.status] === status)) && values(row).join(" ").toLocaleLowerCase("ru-RU").includes((filters.query ?? "").toLocaleLowerCase("ru-RU")) && values(row).every((value, i) => value.toLocaleLowerCase("ru-RU").includes((filters[columns[i]] ?? "").toLocaleLowerCase("ru-RU"))));
   const visibleColumns = showAllColumns ? [...columns] : (["number", "summary", "responsible", "deadline", "status", "progress"] as const);
   return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
-    <header className="director-assignment-heading"><div><span className="eyebrow">{data.permissions.canManage ? "Отправка и контроль" : "Получение и выполнение"}</span><h2>Поручения генерального директора</h2><p>{data.permissions.canManage ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения." : "Ваши активные поручения. Сохраняйте промежуточные результаты, завершайте работу или отправляйте её на проверку."}</p></div></header>
+    <header className="director-assignment-heading"><div><span className="eyebrow">{isSending ? "Отправка и контроль" : "Получение и выполнение"}</span><h2>Поручения генерального директора</h2><p>{isSending ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения." : "Ваши активные поручения. Сохраняйте промежуточные результаты, завершайте работу или отправляйте её на проверку."}</p></div></header>
+    {combinedAccess && <div className="form-actions director-assignment-actions director-assignment-view-switch" role="group" aria-label="Режим поручений">
+      <button type="button" className={!isSending ? "primary-button" : "secondary-button"} aria-pressed={!isSending} disabled={saving} onClick={() => changeView("receive")}>Мои поручения</button>
+      <button type="button" className={isSending ? "primary-button" : "secondary-button"} aria-pressed={isSending} disabled={saving} onClick={() => changeView("send")}>Отправка и контроль</button>
+    </div>}
     {error && <p role="alert">{error}</p>}
-    {data.permissions.canManage && <div className="form-actions director-assignment-actions">
+    {isSending && <div className="form-actions director-assignment-actions">
       <button className="primary-button" type="button" disabled={saving} onClick={() => { setSelected(undefined); setForm(createDirectorAssignmentInput(data.today)); setComment(""); setHistory(null); }}>Создать поручение</button>
       <button type="button" onClick={() => { setHistory(null); setSelected(undefined); setForm(undefined); }}>Текущие поручения</button>
       <button type="button" onClick={() => { setSelected(undefined); setForm(undefined); void openHistory(); }}>История исполнений</button>
@@ -133,11 +149,11 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
         {!selected.documents.length && <p className="director-field-hint">Документов пока нет.</p>}
         {selected.documents.map(document => <div className="director-assignment-actions" key={document.id}>
           <button type="button" className="secondary-button" disabled={saving} onClick={() => { void directorDocument(selected.id, document.id).then(blob => { if (blob) { const url = URL.createObjectURL(blob); const link = window.document.createElement("a"); link.href = url; link.download = document.fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }).catch(e => setError(e.message)); }}>{document.fileName}</button>
-          {!history && data.permissions.canManage && selected.status !== "completed" && <button type="button" className="secondary-button" disabled={saving} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/documents/${document.id}`, "DELETE"))}>Убрать документ</button>}
+          {!history && isSending && selected.status !== "completed" && <button type="button" className="secondary-button" disabled={saving} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/documents/${document.id}`, "DELETE"))}>Убрать документ</button>}
         </div>)}
-        {!history && data.permissions.canManage && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file)); }} /></label>}
+        {!history && isSending && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file)); }} /></label>}
       </section>
-      {!history && selected.status !== "completed" && (data.permissions.canManage || canExecuteSelected) && <section className="board-assignment-decision is-execute">
+      {!history && selected.status !== "completed" && (isSending || canExecuteSelected) && <section className="board-assignment-decision is-execute">
         <label>
           <span>Комментарий</span>
           <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-action-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
@@ -145,16 +161,16 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
         <p className="director-field-hint" id="director-action-comment-hint">Для сохранения результата или изменения статуса укажите комментарий.</p>
         <div className="board-assignment-dialog-actions">
           {canExecuteSelected && <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action: "record_progress", comment, revision: selected.revision }))}>Сохранить промежуточный результат</button>}
-          {data.permissions.canManage && canExecuteSelected && <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action: "submit_for_review", comment, revision: selected.revision }))}>Отправить на проверку</button>}
-          {(data.permissions.canManage ? selected.status === "under_review" ? [["complete", "Завершить"], ["return_for_revision", "Вернуть на доработку"]] : [["complete", "Завершить"]] : canExecuteSelected ? [["complete", "Завершить"], ["submit_for_review", "Отправить на проверку"]] : []).map(([action, label]) => <button type="button" className={action === "complete" ? "primary-button" : action === "return_for_revision" ? "secondary-button board-assignment-return-button" : "secondary-button"} key={action} disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action, comment, revision: selected.revision }))}>{label}</button>)}
+          {isSending && canExecuteSelected && <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action: "submit_for_review", comment, revision: selected.revision }))}>Отправить на проверку</button>}
+          {(isSending ? selected.status === "under_review" ? [["complete", "Завершить"], ["return_for_revision", "Вернуть на доработку"]] : [["complete", "Завершить"]] : canExecuteSelected ? [["complete", "Завершить"], ["submit_for_review", "Отправить на проверку"]] : []).map(([action, label]) => <button type="button" className={action === "complete" ? "primary-button" : action === "return_for_revision" ? "secondary-button board-assignment-return-button" : "secondary-button"} key={action} disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action, comment, revision: selected.revision }))}>{label}</button>)}
         </div>
       </section>}
       <footer className="board-assignment-dialog-actions">
-        {!history && selected.status !== "completed" && data.permissions.canManage && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
+        {!history && selected.status !== "completed" && isSending && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
         <button type="button" className="secondary-button" disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
       </footer>
     </section>}
-    <section className="director-register"><div className="director-register-heading"><h3>{history ? "История исполнений" : data.permissions.canManage ? "Отправленные поручения" : "Мои поручения"}</h3><span>Найдено: {visible.length}</span></div>
+    <section className="director-register"><div className="director-register-heading"><h3>{history ? "История исполнений" : isSending ? "Отправленные поручения" : "Мои поручения"}</h3><span>Найдено: {visible.length}</span></div>
     <div className="director-assignment-filters board-assignment-filters">
       <label>Поиск<input type="search" placeholder="Номер, содержание или сотрудник" value={filters.query ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, query: value })); }} /></label>
       <div className="board-assignment-status-filter">
@@ -180,7 +196,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
     <button type="button" className="secondary-button" disabled={saving || exporting || !visible.length} onClick={() => void exportPdf(visible, "register")}>Скачать журнал в PDF</button>
     {exporting && <LoadingIndicator label="Формирование PDF" />}
     <label className="director-columns-toggle"><input type="checkbox" checked={showAllColumns} onChange={event => setShowAllColumns(event.currentTarget.checked)} />Все колонки реестра</label>
-    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : data.permissions.canManage ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId="director.assignments" columns={visibleColumns}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[columns.indexOf(column)]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = values(row)[columns.indexOf(column)]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => { setSelected(row); setForm(undefined); setComment(""); setContentOpenCount(count => count + 1); }}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
+    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : isSending ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId="director.assignments" columns={visibleColumns}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[columns.indexOf(column)]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = values(row)[columns.indexOf(column)]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => { setSelected(row); setForm(undefined); setComment(""); setContentOpenCount(count => count + 1); }}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
     </section>
   </section>;
 }

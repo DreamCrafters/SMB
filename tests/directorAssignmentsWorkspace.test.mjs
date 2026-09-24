@@ -7,7 +7,7 @@ const vite = await createServer({ appType: "custom", logLevel: "silent", server:
 test.after(() => vite.close());
 const globalNames = ["window", "document", "navigator", "Element", "HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "Event", "Node", "IS_REACT_ACT_ENVIRONMENT"];
 
-for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
+for (const mode of ["send", "receive", "send-linked", "send-unlinked", "both"]) {
   test(`director workspace ${mode} uses server permissions and offers the appropriate workflow`, async () => {
     const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
     const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
@@ -43,12 +43,35 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked"]) {
       }
       assert.ok(["/api/director-assignments", "/api/director-assignments/old-assignment"].includes(new URL(String(url), "http://127.0.0.1:5173").pathname));
       if (options.method === "POST" || options.method === "PATCH") submitted = JSON.parse(options.body);
-      return new Response(JSON.stringify({ assignments: mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "in_progress", needsClarification: true }] : (mode.startsWith("send-") || mode === "receive") ? [oldAssignment] : [], executableAssignmentIds: [], responsibleAccountLinks: { "old-assignment": "linked", review: "unlinked", clarify: "unavailable" }, employees: mode !== "receive" ? employees : [], permissions: { canView: true, canManage: mode !== "receive", canExecute: mode === "receive", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ assignments: mode === "both" ? [oldAssignment, { ...oldAssignment, id: "foreign", number: "ГД-2" }, { ...oldAssignment, id: "own-future", number: "ГД-3" }] : mode === "send-linked" ? [oldAssignment, { ...oldAssignment, id: "review", number: "ГД-2", status: "under_review" }, { ...oldAssignment, id: "clarify", number: "ГД-3", status: "in_progress", needsClarification: true }] : (mode.startsWith("send-") || mode === "receive") ? [oldAssignment] : [], ownAssignmentIds: mode === "both" ? ["old-assignment", "own-future"] : [], executableAssignmentIds: [], responsibleAccountLinks: { "old-assignment": "linked", review: "unlinked", clarify: "unavailable" }, employees: mode !== "receive" ? employees : [], permissions: { canView: true, canManage: mode !== "receive", canExecute: mode === "receive" || mode === "both", canManagePersonnel: false }, today: "2026-09-15" }), { headers: { "Content-Type": "application/json" } });
     };
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
       await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { onShowToast() {} })));
-      assert.match(rootElement.textContent, mode !== "receive" ? /Отправка и контроль/u : /Получение и выполнение/u);
+      assert.match(rootElement.textContent, mode !== "receive" && mode !== "both" ? /Отправка и контроль/u : /Получение и выполнение/u);
+      if (mode === "both") {
+        const numbers = () => [...rootElement.querySelectorAll("tbody tr")].map(row => row.querySelector("td").textContent);
+        const switchView = async label => React.act(async () => [...rootElement.querySelectorAll(".director-assignment-view-switch button")].find(button => button.textContent === label).click());
+        assert.deepEqual(numbers(), ["ГД-1", "ГД-3"]);
+        assert.equal(rootElement.querySelector("form"), null);
+        assert.match(rootElement.querySelector(".director-register-heading").textContent, /Мои поручения/u);
+        await switchView("Отправка и контроль");
+        assert.deepEqual(numbers(), ["ГД-1", "ГД-2", "ГД-3"]);
+        await React.act(async () => rootElement.querySelector(".table-text-action").click());
+        assert.ok(rootElement.querySelector(".director-assignment-detail"));
+        await switchView("Мои поручения");
+        assert.equal(rootElement.querySelector(".director-assignment-detail"), null);
+        assert.deepEqual(numbers(), ["ГД-1", "ГД-3"]);
+        assert.equal(rootElement.querySelector('[aria-pressed="true"]').textContent, "Мои поручения");
+        await switchView("Отправка и контроль");
+        delayHistory = true;
+        await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "История исполнений").click());
+        await switchView("Мои поручения");
+        await React.act(async () => releaseHistory());
+        assert.deepEqual(numbers(), ["ГД-1", "ГД-3"]);
+        assert.match(rootElement.querySelector(".director-register-heading").textContent, /Мои поручения/u);
+        return;
+      }
       if (mode === "send-linked") {
         const visibleNumbers = () => [...rootElement.querySelectorAll("tbody tr")].map(row => row.querySelector("td").textContent);
         const checkbox = label => [...rootElement.querySelectorAll(".board-assignment-status-options input")].find(input => input.value === label);

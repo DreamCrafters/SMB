@@ -331,9 +331,11 @@ test("combined mode executes own assignments without allowing execution for othe
   assert.equal(list.permissions.canManage, true);
   assert.equal(list.permissions.canExecute, true);
   assert.deepEqual(list.executableAssignmentIds, [record.id]);
+  assert.deepEqual(list.ownAssignmentIds, [record.id]);
   const outsider = profile("other", true);
   outsider.activeAccess.capabilities.push("business.execute_director_assignments");
   assert.deepEqual((await service.list(outsider)).executableAssignmentIds, []);
+  assert.deepEqual((await service.list(outsider)).ownAssignmentIds, []);
   await assert.rejects(service.action(outsider, record.id, { action: "record_progress", comment: "Результат", revision: 1 }));
   await assert.rejects(service.action(profile("worker", true), record.id, { action: "record_progress", comment: "Результат", revision: 1 }));
   await service.action(manager, record.id, { action: "record_progress", comment: "Результат", revision: 1 });
@@ -347,6 +349,7 @@ test("responsible account sees an assigned future deadline without receiving ear
   const record = await service.save(profile("director", true), { assignment, comment: "Назначено" });
   const list = await service.list(profile("worker"));
   assert.deepEqual(list.assignments.map(item => item.id), [record.id]);
+  assert.deepEqual(list.ownAssignmentIds, [record.id]);
   assert.deepEqual(list.executableAssignmentIds, []);
   assert.equal((await service.read(profile("worker"), record.id)).id, record.id);
   assert.deepEqual((await service.list(profile("other"))).assignments, []);
@@ -398,4 +401,19 @@ test("an unlinked named responsible gains visibility only after an explicit acco
   assert.deepEqual(received.assignments.map(item => item.id), [record.id]);
   assert.equal(received.responsibleAccountLinks[record.id], "linked");
   assert.equal(received.assignments[0].needsClarification, false);
+});
+
+test("previewed permissions do not turn another account's tasks into the administrator's own tasks", async () => {
+  const { applyAccountPreviewAccess } = await import("./accountPreview.js");
+  const { service, profile, input } = fixture();
+  const record = await service.save(profile("director", true), { assignment: input, comment: "Назначено" });
+  const preview = applyAccountPreviewAccess(profile("admin"), {
+    position: "worker", positionDisplayName: "Исполнитель",
+    navigationItems: ["business.director_assignments"],
+    capabilities: ["business.view_director_assignments", "business.manage_director_assignments", "business.execute_director_assignments"],
+  });
+  const result = await service.list(preview);
+  assert.deepEqual(result.assignments.map(item => item.id), [record.id]);
+  assert.deepEqual(result.ownAssignmentIds, []);
+  assert.deepEqual(result.executableAssignmentIds, []);
 });

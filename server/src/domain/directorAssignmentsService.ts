@@ -93,6 +93,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       const employees = await repository.listAssignableEmployees();
       const assignments: DirectorAssignment[] = [];
       const executableAssignmentIds: string[] = [];
+      const ownAssignmentIds: string[] = [];
       const responsibleAccountLinks: Record<string, DirectorAssignmentAccountLink> = {};
       const responsibleAccounts = new Map<string, { employee: PersonnelEmployee | null; link: DirectorAssignmentAccountLink }>();
       for (const assignment of await repository.list()) {
@@ -110,13 +111,15 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         }
         const effective = { ...assignment, responsible: account.employee };
         if (permissions.canExecute && canExecuteDirectorAssignment(effective, profile.userId, today())) executableAssignmentIds.push(assignment.id);
-        if (permissions.canManage || canViewDirectorAssignment(effective, profile.userId)) {
+        const isOwn = canViewDirectorAssignment(effective, profile.userId);
+        if (isOwn) ownAssignmentIds.push(assignment.id);
+        if (permissions.canManage || isOwn) {
           assignments.push(assignment);
           responsibleAccountLinks[assignment.id] = account.link;
         }
       }
       const enriched = assignments.map(assignment => ({ ...assignment, durationWorkdays: directorWorkdays(assignment.assignedOn, assignment.currentOccurrenceDate), remainingWorkdays: directorWorkdays(assignment.completedOn || today(), assignment.currentOccurrenceDate) }));
-      return { assignments: enriched, executableAssignmentIds, responsibleAccountLinks, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
+      return { assignments: enriched, ownAssignmentIds, executableAssignmentIds, responsibleAccountLinks, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
     },
     async exportSelection(profile: ServerUserProfile, value: unknown): Promise<{ mode: DirectorAssignmentPdfRequest["mode"]; assignments: DirectorAssignment[] }> {
       const permissions = directorAssignmentPermissions(profile);
