@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { BoardAssignmentDelegationsResponse, DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignmentPermissions, PersonnelEmployee } from "../contracts/directorAssignments.js";
+import type { BoardAssignmentDelegationsResponse, DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignmentPermissions, DirectorAssignmentAccountLink, PersonnelEmployee } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 import type { BoardAssignmentsRepository } from "../repositories/boardAssignmentsRepository.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
@@ -36,9 +36,9 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     actor: { userId: profile.userId, accountId: profile.activeAccess.accountId, displayName: profile.displayName, positionDisplayName: profile.activeAccess.positionDisplayName },
     category: "data_change", action: "data.update", targetType: "database_row", targetId, summary,
   });
-  async function effectiveAssignment(assignment: DirectorAssignment) {
+  async function effectiveAssignment(assignment: DirectorAssignment, lock = true) {
     // Account links are read live; renaming or relinking personnel never grants access by name.
-    const employee = await repository.readAssignableEmployee(assignment.responsibleId, true);
+    const employee = await repository.readAssignableEmployee(assignment.responsibleId, lock);
     return { ...assignment, responsible: employee?.active ? employee : null };
   }
   async function requireAssignment(profile: ServerUserProfile, id: string, lock = false) {
@@ -93,13 +93,30 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       const employees = await repository.listAssignableEmployees();
       const assignments: DirectorAssignment[] = [];
       const executableAssignmentIds: string[] = [];
+      const responsibleAccountLinks: Record<string, DirectorAssignmentAccountLink> = {};
+      const responsibleAccounts = new Map<string, { employee: PersonnelEmployee | null; link: DirectorAssignmentAccountLink }>();
       for (const assignment of await repository.list()) {
-        const effective = !permissions.canManage || permissions.canExecute ? await effectiveAssignment(assignment) : assignment;
+        let account = responsibleAccounts.get(assignment.responsibleId);
+        if (!account) {
+          const effective = await effectiveAssignment(assignment, false);
+          const legacy = !effective.responsible && assignment.responsibleId && !assignment.responsibleId.startsWith("account:")
+            ? await repository.readEmployee(assignment.responsibleId) : undefined;
+          account = {
+            employee: effective.responsible,
+            link: effective.responsible?.userId ? "linked"
+              : assignment.responsibleId.startsWith("account:") || legacy?.userId ? "unavailable" : "unlinked",
+          };
+          responsibleAccounts.set(assignment.responsibleId, account);
+        }
+        const effective = { ...assignment, responsible: account.employee };
         if (permissions.canExecute && canExecuteDirectorAssignment(effective, profile.userId, today())) executableAssignmentIds.push(assignment.id);
-        if (permissions.canManage || canViewDirectorAssignment(effective, profile.userId)) assignments.push(assignment);
+        if (permissions.canManage || canViewDirectorAssignment(effective, profile.userId)) {
+          assignments.push(assignment);
+          responsibleAccountLinks[assignment.id] = account.link;
+        }
       }
       const enriched = assignments.map(assignment => ({ ...assignment, durationWorkdays: directorWorkdays(assignment.assignedOn, assignment.currentOccurrenceDate), remainingWorkdays: directorWorkdays(assignment.completedOn || today(), assignment.currentOccurrenceDate) }));
-      return { assignments: enriched, executableAssignmentIds, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
+      return { assignments: enriched, executableAssignmentIds, responsibleAccountLinks, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
     },
     async exportSelection(profile: ServerUserProfile, value: unknown): Promise<{ mode: DirectorAssignmentPdfRequest["mode"]; assignments: DirectorAssignment[] }> {
       const permissions = directorAssignmentPermissions(profile);

@@ -1,8 +1,8 @@
-import type { DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignmentPermissions, PersonnelEmployee } from "../../server/src/contracts/directorAssignments";
+import type { DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignmentPermissions, DirectorAssignmentAccountLink, PersonnelEmployee } from "../../server/src/contracts/directorAssignments";
 import { buildDevAccessHeaders } from "./devAccessSessionStorage";
 import { resolveApiEndpoint } from "./remoteServer";
 
-export type DirectorAssignmentListResponse = { assignments: DirectorAssignment[]; executableAssignmentIds?: string[]; employees: PersonnelEmployee[]; permissions: DirectorAssignmentPermissions; today: string };
+export type DirectorAssignmentListResponse = { assignments: DirectorAssignment[]; executableAssignmentIds?: string[]; responsibleAccountLinks?: Record<string, DirectorAssignmentAccountLink>; employees: PersonnelEmployee[]; permissions: DirectorAssignmentPermissions; today: string };
 export type PersonnelResponse = { employees: PersonnelEmployee[]; users: Array<{ id: string; displayName: string; login: string }> };
 
 export async function directorRequest<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {

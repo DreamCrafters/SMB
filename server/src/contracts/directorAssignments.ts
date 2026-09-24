@@ -83,6 +83,8 @@ export type DirectorAssignment = DirectorAssignmentInput & {
   };
 };
 
+export type DirectorAssignmentAccountLink = "linked" | "unlinked" | "unavailable";
+
 export type DirectorAssignmentPermissions = {
   canView: boolean;
   canManage: boolean;

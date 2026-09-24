@@ -21,8 +21,8 @@ function fixture() {
     read: async (id: string) => structuredClone(records.get(id)),
     listEmployees: async () => [structuredClone(employee)],
     listAssignableEmployees: async () => [structuredClone(employee)],
-    readAssignableEmployee: async () => structuredClone(employee),
-    readEmployee: async () => structuredClone(employee),
+    readAssignableEmployee: async (id: string) => id && employee.active && employee.userId ? structuredClone(employee) : undefined,
+    readEmployee: async (id: string) => id ? structuredClone(employee) : undefined,
     create: async (record: DirectorAssignment) => { record.number = "1"; records.set(record.id, structuredClone(record)); return structuredClone(record); },
     update: async (record: DirectorAssignment, previous: DirectorAssignment) => { revisions.push(structuredClone(previous)); records.set(record.id, structuredClone(record)); return structuredClone(record); },
     addCompletion: async (record: DirectorAssignment) => { completions.push(structuredClone(record)); },
@@ -43,7 +43,7 @@ function fixture() {
     activeAccess: { accountId: userId, accountType: "business_owner", position: "worker", positionDisplayName: "Сотрудник", displayName: userId, scope: { kind: "organization" }, issuedAt: "2026-09-14T00:00:00Z", navigationItems: ["business.director_assignments"], capabilities: ["business.view_director_assignments", ...(manager ? ["business.manage_director_assignments" as const] : [])] },
   });
   const input: DirectorAssignmentInput = { assignedOn: "2026-09-01", kind: "Поручение", summary: "Представить отчёт", department: "", project: "", responsibleId: employee.id, coExecutorIds: [], recurrence: "monthly", activeFrom: "2026-09-01", activeTo: "2026-12-31", urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null };
-  return { service, employee, profile, input, board, boardLocks: () => boardLocks, markUnclear(id: string) { records.get(id)!.needsClarification = true; }, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, failAudit() { auditFails = true; } };
+  return { service, employee, profile, input, board, boardLocks: () => boardLocks, markUnclear(id: string) { records.get(id)!.needsClarification = true; }, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, unassign(id: string) { records.get(id)!.responsibleId = ""; }, failAudit() { auditFails = true; } };
 }
 
 test("responsible executor can complete a one-time assignment directly with an immutable history entry", async () => {
@@ -365,4 +365,37 @@ test("clarification does not hide an explicitly assigned task or allow execution
   employee.active = false;
   assert.deepEqual((await service.list(profile("worker"))).assignments, []);
   await assert.rejects(service.read(profile("worker"), record.id), /недоступно/u);
+});
+
+test("responsible account badges use live links rather than the saved name or user ID", async () => {
+  const { service, profile, input, employee, makeLegacy, unassign } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  const badge = async () => (await service.list(manager)).responsibleAccountLinks[record.id];
+  assert.equal(await badge(), "linked");
+  employee.active = false;
+  assert.equal(await badge(), "unavailable");
+  employee.active = true;
+  makeLegacy(record.id);
+  assert.equal(await badge(), "linked");
+  employee.userId = null;
+  assert.equal(await badge(), "unlinked");
+  assert.deepEqual((await service.list(profile("worker"))).assignments, []);
+  unassign(record.id);
+  assert.equal(await badge(), "unlinked");
+});
+
+test("an unlinked named responsible gains visibility only after an explicit account assignment", async () => {
+  const { service, profile, input, unassign, markUnclear } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  unassign(record.id);
+  markUnclear(record.id);
+  assert.deepEqual((await service.list(profile("worker"))).assignments, []);
+  assert.equal((await service.list(manager)).responsibleAccountLinks[record.id], "unlinked");
+  await service.save(manager, { assignment: input, revision: 1, comment: "Выбран аккаунт ответственного" }, record.id);
+  const received = await service.list(profile("worker"));
+  assert.deepEqual(received.assignments.map(item => item.id), [record.id]);
+  assert.equal(received.responsibleAccountLinks[record.id], "linked");
+  assert.equal(received.assignments[0].needsClarification, false);
 });
