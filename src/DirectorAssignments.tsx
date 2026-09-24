@@ -113,19 +113,34 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
       <button type="button" className="secondary-button" disabled={saving || exporting} onClick={() => void exportPdf([selected], "assignment")}>Скачать поручение в PDF</button>
       <dl className="board-assignment-details">{values(selected).map((value, index) => <div key={columns[index]}><dt>{columnLabels[index]}</dt><dd>{value || "—"}</dd></div>)}</dl>
       {selected.source && <details><summary>Исходная запись Google Sheets</summary><dl className="board-assignment-details">{selected.source.values.map((value, index) => <div key={index}><dt>{["Номер задачи", "Дата постановки", "Суть задачи", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Исходный срок", "Срочность", "Важность", "Промежуточные этапы", "Фактическая дата", "Примечание", "Исходный статус", "Номер входящего", "Второй номер", "Длительность", "Осталось рабочих дней", "Перенос срока"][index] ?? "Исходное поле"}</dt><dd>{value || "—"}</dd></div>)}</dl></details>}
-      <h4>Комментарии</h4>{selected.comments.map(item => <p key={item.id}>{item.createdAt} · {item.author}: {item.text}</p>)}
-      <h4>Документы</h4>{selected.documents.map(document => <div key={document.id}>
-        <button disabled={saving} onClick={() => { void directorDocument(selected.id, document.id).then(blob => { if (blob) { const url = URL.createObjectURL(blob); const link = window.document.createElement("a"); link.href = url; link.download = document.fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }).catch(e => setError(e.message)); }}>{document.fileName}</button>
-        {!history && data.permissions.canManage && selected.status !== "completed" && <button disabled={saving} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/documents/${document.id}`, "DELETE"))}>Убрать документ</button>}
-      </div>)}
-      {!history && data.permissions.canManage && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file)); }} /></label>}
-      {!history && selected.status !== "completed" && <>
-        {data.permissions.canManage && <button disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees)); setComment(""); }}>Редактировать</button>}
-        <label>Комментарий<textarea maxLength={4000} value={comment} onChange={event => setComment(event.currentTarget.value)} /></label>
-        {!data.permissions.canManage && <button disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action: "record_progress", comment, revision: selected.revision }))}>Сохранить промежуточный результат</button>}
-        {(data.permissions.canManage ? selected.status === "under_review" ? [["complete", "Завершить"], ["return_for_revision", "Вернуть на доработку"]] : [["complete", "Завершить"]] : data.permissions.canExecute ? [["complete", "Завершить"], ["submit_for_review", "Отправить на проверку"]] : []).map(([action, label]) => <button key={action} disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action, comment, revision: selected.revision }))}>{label}</button>)}
-      </>}
-      <button disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
+      <section className="board-assignment-comments">
+        <h4>Комментарии</h4>
+        {selected.comments.length ? selected.comments.map(item => <pre key={item.id}>{item.createdAt} · {item.author}: {item.text}</pre>) : <p>Комментариев пока нет.</p>}
+      </section>
+      <section className="director-assignment-documents">
+        <h4>Документы</h4>
+        {!selected.documents.length && <p className="director-field-hint">Документов пока нет.</p>}
+        {selected.documents.map(document => <div className="director-assignment-actions" key={document.id}>
+          <button type="button" className="secondary-button" disabled={saving} onClick={() => { void directorDocument(selected.id, document.id).then(blob => { if (blob) { const url = URL.createObjectURL(blob); const link = window.document.createElement("a"); link.href = url; link.download = document.fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }).catch(e => setError(e.message)); }}>{document.fileName}</button>
+          {!history && data.permissions.canManage && selected.status !== "completed" && <button type="button" className="secondary-button" disabled={saving} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/documents/${document.id}`, "DELETE"))}>Убрать документ</button>}
+        </div>)}
+        {!history && data.permissions.canManage && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file)); }} /></label>}
+      </section>
+      {!history && selected.status !== "completed" && <section className="board-assignment-decision is-execute">
+        <label>
+          <span>Комментарий</span>
+          <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-action-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
+        </label>
+        <p className="director-field-hint" id="director-action-comment-hint">Для сохранения результата или изменения статуса укажите комментарий.</p>
+        <div className="board-assignment-dialog-actions">
+          {!data.permissions.canManage && <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action: "record_progress", comment, revision: selected.revision }))}>Сохранить промежуточный результат</button>}
+          {(data.permissions.canManage ? selected.status === "under_review" ? [["complete", "Завершить"], ["return_for_revision", "Вернуть на доработку"]] : [["complete", "Завершить"]] : data.permissions.canExecute ? [["complete", "Завершить"], ["submit_for_review", "Отправить на проверку"]] : []).map(([action, label]) => <button type="button" className={action === "complete" ? "primary-button" : action === "return_for_revision" ? "secondary-button board-assignment-return-button" : "secondary-button"} key={action} disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action, comment, revision: selected.revision }))}>{label}</button>)}
+        </div>
+      </section>}
+      <footer className="board-assignment-dialog-actions">
+        {!history && selected.status !== "completed" && data.permissions.canManage && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees)); setComment(""); }}>Редактировать</button>}
+        <button type="button" className="secondary-button" disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
+      </footer>
     </section>}
     <section className="director-register"><div className="director-register-heading"><h3>{history ? "История исполнений" : data.permissions.canManage ? "Отправленные поручения" : "Мои поручения"}</h3><span>Найдено: {visible.length}</span></div>
     <div className="director-assignment-filters board-assignment-filters">

@@ -9467,7 +9467,15 @@ p {
   gap: 4px;
 }
 .director-assignment-form fieldset, .director-assignment-form h3 { grid-column: 1 / -1; }
-.director-assignment-detail { padding: 16px; border: 1px solid var(--border-color, #cbd5e1); }
+.director-assignment-detail { display: grid; gap: 20px; min-width: 0; padding: clamp(14px, 2vw, 24px); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.director-assignment-detail h3, .director-assignment-detail h4 { margin: 0; overflow-wrap: anywhere; }
+.director-assignment-detail > .secondary-button { justify-self: start; }
+.director-assignment-documents { display: grid; gap: var(--density-3); min-width: 0; padding-top: var(--density-3); border-top: 1px solid var(--line); }
+.director-assignment-documents > label { display: grid; gap: var(--density-2); min-width: 0; color: var(--muted); font-size: 12px; }
+.director-assignment-documents input { max-width: 100%; }
+.director-assignment-detail .board-assignment-dialog-actions { flex-wrap: wrap; }
+.director-assignment-detail .board-assignment-dialog-actions > button,
+.director-assignment-detail .director-assignment-actions > button { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .director-assignment-detail .board-assignment-details { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 1100px) {
   .director-assignment-detail .board-assignment-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
