@@ -552,3 +552,38 @@ function restoreDomGlobals(previousGlobals) {
     else Object.defineProperty(globalThis, name, descriptor);
   }
 }
+
+test("director access checkboxes select both modes and retain either single mode", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  const previousGlobals = captureDomGlobals();
+  installDomGlobals(dom.window);
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { DirectorAssignmentAccessPicker } = await (await getVite()).ssrLoadModule("/src/DirectorAssignmentAccessPicker.tsx");
+  const root = createRoot(dom.window.document.getElementById("root"));
+  let selected;
+  function Harness() {
+    const [value, setValue] = React.useState("receive");
+    selected = value;
+    return React.createElement(DirectorAssignmentAccessPicker, { value, disabled: false, label: "Режим", onChange: setValue });
+  }
+  try {
+    await React.act(async () => root.render(React.createElement(Harness)));
+    const send = findCheckbox(dom.window.document, "Отправка и контроль исполнения");
+    const receive = findCheckbox(dom.window.document, "Получение и выполнение");
+    assert.equal(receive.checked, true);
+    await React.act(async () => send.click());
+    assert.equal(selected, "both");
+    assert.equal(send.checked && receive.checked, true);
+    await React.act(async () => receive.click());
+    assert.equal(selected, "send");
+    assert.equal(send.disabled, true);
+    await React.act(async () => receive.click());
+    await React.act(async () => send.click());
+    assert.equal(selected, "receive");
+  } finally {
+    await React.act(async () => root.unmount());
+    restoreDomGlobals(previousGlobals);
+    dom.window.close();
+  }
+});

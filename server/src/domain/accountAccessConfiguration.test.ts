@@ -378,3 +378,13 @@ test("tab preview shows every level at once, a chosen level shows only its own",
   assert.ok(reviewer.includes("business.create_board_assignments"));
   assert.ok(!reviewer.includes("business.execute_board_assignments"));
 });
+
+test("combined director mode survives capability round trip", async () => {
+  const { readDirectorAssignmentAccess } = await import("../contracts/directorAssignments.js");
+  const navigation = ["business.director_assignments"] as const;
+  const capabilities = resolveCapabilitiesForPosition("custom", [...navigation], "none", false, false, false, "none", "both");
+  assert.equal(readDirectorAssignmentAccess(capabilities, navigation), "both");
+  assert.deepEqual(resolveCapabilitiesForNavigationLevel(navigation[0], "both"), capabilities);
+  assert.equal(isNavigationAccessLevel(navigation[0], "both"), true);
+  assert.equal(readDirectorAssignmentAccess(capabilities, []), "none");
+});

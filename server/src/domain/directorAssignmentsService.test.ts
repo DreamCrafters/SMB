@@ -318,3 +318,22 @@ for (const recurring of [false, true]) {
     assert.equal(result.status, recurring ? "in_progress" : "completed");
   });
 }
+
+test("combined mode executes own assignments without allowing execution for others", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("worker", true);
+  manager.activeAccess.capabilities.push("business.execute_director_assignments");
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  const list = await service.list(manager);
+  assert.equal(list.permissions.canManage, true);
+  assert.equal(list.permissions.canExecute, true);
+  assert.deepEqual(list.executableAssignmentIds, [record.id]);
+  const outsider = profile("other", true);
+  outsider.activeAccess.capabilities.push("business.execute_director_assignments");
+  assert.deepEqual((await service.list(outsider)).executableAssignmentIds, []);
+  await assert.rejects(service.action(outsider, record.id, { action: "record_progress", comment: "Результат", revision: 1 }));
+  await assert.rejects(service.action(profile("worker", true), record.id, { action: "record_progress", comment: "Результат", revision: 1 }));
+  await service.action(manager, record.id, { action: "record_progress", comment: "Результат", revision: 1 });
+  const submitted = await service.action(manager, record.id, { action: "submit_for_review", comment: "Готово", revision: 2 });
+  assert.equal(submitted.status, "under_review");
+});

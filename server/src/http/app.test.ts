@@ -15475,7 +15475,7 @@ test("position API accepts sender and receiver modes independently of the positi
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "admin");
     const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
-    for (const mode of ["send", "receive", "invalid"]) {
+    for (const mode of ["send", "receive", "both", "invalid"]) {
       const response = await fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers,
         body: JSON.stringify({ displayName: "Произвольная должность", navigationItems: ["business.director_assignments"], directorAssignmentAccess: mode }),
       });
@@ -15485,6 +15485,7 @@ test("position API accepts sender and receiver modes independently of the positi
   assert.deepEqual(created.map(position => position.capabilities), [
     ["business.view_director_assignments", "business.manage_director_assignments"],
     ["business.view_director_assignments"],
+    ["business.view_director_assignments", "business.manage_director_assignments", "business.execute_director_assignments"],
   ]);
 });
 

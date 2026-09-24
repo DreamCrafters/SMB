@@ -2,7 +2,7 @@ import type { DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignme
 import { buildDevAccessHeaders } from "./devAccessSessionStorage";
 import { resolveApiEndpoint } from "./remoteServer";
 
-export type DirectorAssignmentListResponse = { assignments: DirectorAssignment[]; employees: PersonnelEmployee[]; permissions: DirectorAssignmentPermissions; today: string };
+export type DirectorAssignmentListResponse = { assignments: DirectorAssignment[]; executableAssignmentIds?: string[]; employees: PersonnelEmployee[]; permissions: DirectorAssignmentPermissions; today: string };
 export type PersonnelResponse = { employees: PersonnelEmployee[]; users: Array<{ id: string; displayName: string; login: string }> };
 
 export async function directorRequest<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {

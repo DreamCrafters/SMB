@@ -1,3 +1,4 @@
+import { DirectorAssignmentAccessPicker } from "./DirectorAssignmentAccessPicker";
 import { RowDragHandle } from "./RowDragHandle";
 import { directorAssignmentAccessOptions, readDirectorAssignmentAccess, type DirectorAssignmentAccess } from "../server/src/contracts/directorAssignments.js";
 import { WorkspaceBoundary } from "./WorkspaceBoundary";
@@ -11311,7 +11312,7 @@ function formatPositionNavigationItem(
 
   if (navigationItemId === "business.director_assignments") {
     const mode = readDirectorAssignmentAccess(position.capabilities, position.navigationItems);
-    return `${label} — ${directorAssignmentAccessOptions.find(option => option.id === mode)?.label ?? "Нет доступа"}`;
+    return `${label} — ${mode === "both" ? directorAssignmentAccessOptions.map(option => option.label).join("; ") : directorAssignmentAccessOptions.find(option => option.id === mode)?.label ?? "Нет доступа"}`;
   }
 
   // У вкладки с уровнями подпись показывает и вкладку, и уровень: сама вкладка
@@ -11773,20 +11774,24 @@ function AdminAccountsWorkspace({
       );
     }
 
-    const isDirector = navigationItemId === "business.director_assignments";
-    const value = isDirector ? positionForm.directorAssignmentAccess : positionForm.boardAssignmentAccess;
+    if (navigationItemId === "business.director_assignments") {
+      return <DirectorAssignmentAccessPicker label="Режим работы с поручениями генерального директора"
+        value={positionForm.directorAssignmentAccess} disabled={isSubmitting || !hasTab}
+        onChange={directorAssignmentAccess => setPositionForm(current => ({ ...current, directorAssignmentAccess }))} />;
+    }
+    const value = positionForm.boardAssignmentAccess;
 
     return (
       <label className="admin-account-navigation-level">
         <span>{levels.title}</span>
         <select
           disabled={isSubmitting || !hasTab}
-          value={value === "none" ? (isDirector ? "receive" : "view") : value}
+          value={value === "none" ? "view" : value}
           onChange={(event) => {
             const level = event.currentTarget.value;
             setPositionForm((current) => ({
               ...current,
-              ...(isDirector ? { directorAssignmentAccess: level as DirectorAssignmentAccess } : { boardAssignmentAccess: level as BoardAssignmentAccess }),
+              boardAssignmentAccess: level as BoardAssignmentAccess,
             }));
           }}
         >
@@ -13245,6 +13250,11 @@ function AdminAccountsWorkspace({
                                   void handleSetPositionNavigationAccess([position.id], true, access);
                                 }}
                               />
+                            ) : selectedPositionNavigationItem === "business.director_assignments" ? (
+                              <DirectorAssignmentAccessPicker label={`Режим работы для должности ${position.displayName}`}
+                                value={readDirectorAssignmentAccess(position.capabilities, position.navigationItems)}
+                                disabled={isSavingPositionNavigationAccess || !hasAccess}
+                                onChange={access => { void handleSetPositionNavigationAccess([position.id], true, access); }} />
                             ) : (
                               <select
                                 aria-label={`${selectedNavigationAccessLevels.title} для должности ${position.displayName}`}
@@ -13252,7 +13262,7 @@ function AdminAccountsWorkspace({
                                 disabled={
                                   isSavingPositionNavigationAccess || !hasAccess
                                 }
-                                value={level === "none" ? (selectedPositionNavigationItem === "business.director_assignments" ? "receive" : "view") : level}
+                                value={level === "none" ? "view" : level}
                                 onChange={(event) => {
                                   void handleSetPositionNavigationAccess(
                                     [position.id],

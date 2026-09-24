@@ -1,6 +1,6 @@
 import type { BoardAssignmentRecurrence, BoardAssignmentStatus } from "./assignmentStates.js";
 
-export const directorAssignmentAccessLevels = ["none", "send", "receive"] as const;
+export const directorAssignmentAccessLevels = ["none", "send", "receive", "both"] as const;
 export type DirectorAssignmentAccess = (typeof directorAssignmentAccessLevels)[number];
 export const directorAssignmentAccessOptions = [
   { id: "send", label: "Отправка и контроль исполнения" },
@@ -8,7 +8,8 @@ export const directorAssignmentAccessOptions = [
 ] as const;
 export function readDirectorAssignmentAccess(capabilities: readonly string[], navigation: readonly string[]): DirectorAssignmentAccess {
   if (!navigation.includes("business.director_assignments")) return "none";
-  return capabilities.includes("business.manage_director_assignments") ? "send" : "receive";
+  if (!capabilities.includes("business.manage_director_assignments")) return "receive";
+  return capabilities.includes("business.execute_director_assignments") ? "both" : "send";
 }
 
 export type PersonnelEmployee = {

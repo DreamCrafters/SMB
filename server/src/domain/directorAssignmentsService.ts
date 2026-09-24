@@ -12,7 +12,7 @@ export function directorAssignmentPermissions(profile: ServerUserProfile): Direc
   return {
     canView: hasProfileCapability(profile, "business.view_director_assignments"),
     canManage: hasProfileCapability(profile, "business.manage_director_assignments"),
-    canExecute: hasProfileCapability(profile, "business.view_director_assignments") && !hasProfileCapability(profile, "business.manage_director_assignments"),
+    canExecute: hasProfileCapability(profile, "business.view_director_assignments") && (!hasProfileCapability(profile, "business.manage_director_assignments") || hasProfileCapability(profile, "business.execute_director_assignments")),
     canManagePersonnel: hasProfileCapability(profile, "business.manage_personnel"),
   };
 }
@@ -92,11 +92,15 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       requirePermission(permissions.canView);
       const employees = await repository.listAssignableEmployees();
       const assignments: DirectorAssignment[] = [];
+      const executableAssignmentIds: string[] = [];
       for (const assignment of await repository.list()) {
-        if (permissions.canManage || canExecuteDirectorAssignment(await effectiveAssignment(assignment), profile.userId, today())) assignments.push(assignment);
+        const isOwnActive = (!permissions.canManage || permissions.canExecute)
+          && canExecuteDirectorAssignment(await effectiveAssignment(assignment), profile.userId, today());
+        if (permissions.canExecute && isOwnActive) executableAssignmentIds.push(assignment.id);
+        if (permissions.canManage || isOwnActive) assignments.push(assignment);
       }
       const enriched = assignments.map(assignment => ({ ...assignment, durationWorkdays: directorWorkdays(assignment.assignedOn, assignment.currentOccurrenceDate), remainingWorkdays: directorWorkdays(assignment.completedOn || today(), assignment.currentOccurrenceDate) }));
-      return { assignments: enriched, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
+      return { assignments: enriched, executableAssignmentIds, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
     },
     async exportSelection(profile: ServerUserProfile, value: unknown): Promise<{ mode: DirectorAssignmentPdfRequest["mode"]; assignments: DirectorAssignment[] }> {
       const permissions = directorAssignmentPermissions(profile);

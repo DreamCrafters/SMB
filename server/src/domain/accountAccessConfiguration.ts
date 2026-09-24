@@ -223,8 +223,10 @@ export function resolveCapabilitiesForPosition(
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
-    ...(directorAssignmentAccess === "send" && resolvedNavigationItems.includes("business.director_assignments")
+    ...((directorAssignmentAccess === "send" || directorAssignmentAccess === "both") && resolvedNavigationItems.includes("business.director_assignments")
       ? ["business.manage_director_assignments" as AccountCapability] : []),
+    ...(directorAssignmentAccess === "both" && resolvedNavigationItems.includes("business.director_assignments")
+      ? ["business.execute_director_assignments" as AccountCapability] : []),
     ...overviewVisitorsCapabilities,
     ...rawMaterialWarehouseCapabilities,
     ...railwayWagonCapabilities,
@@ -294,7 +296,7 @@ export function resolveMaximumCapabilitiesForNavigation(
   const base = resolveCapabilitiesForNavigation([navigationItem]);
 
   if (navigationItem === "business.director_assignments") {
-    return Array.from(new Set([...base, "business.manage_director_assignments"]));
+    return Array.from(new Set([...base, "business.manage_director_assignments", "business.execute_director_assignments"]));
   }
 
   if (navigationItem === "business.board_assignments") {
@@ -343,7 +345,8 @@ export function resolveCapabilitiesForNavigationLevel(
   }
 
   if (navigationItem === "business.director_assignments") {
-    return level === "send" ? [...base, "business.manage_director_assignments"] : base;
+    return level === "both" ? [...base, "business.manage_director_assignments", "business.execute_director_assignments"]
+      : level === "send" ? [...base, "business.manage_director_assignments"] : base;
   }
 
   if (navigationItem === "business.board_assignments") {
