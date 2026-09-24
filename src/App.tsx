@@ -1,11 +1,12 @@
 import { RowDragHandle } from "./RowDragHandle";
 import { directorAssignmentAccessOptions, readDirectorAssignmentAccess, type DirectorAssignmentAccess } from "../server/src/contracts/directorAssignments.js";
-import { DirectorAssignmentsWorkspace, PersonnelWorkspace } from "./DirectorAssignments";
+import { WorkspaceBoundary } from "./WorkspaceBoundary";
 import { TableLayoutProvider } from "./TableLayoutProvider";
 import { RailwayWagonAccessPicker } from "./RailwayWagonAccessPicker";
 import { ManagedTable } from "./ManagedTable";
 import { TableHeader, TableCell, AriaTableCell } from "./TableCell";
 import {
+  lazy,
   useId,
   useEffect,
   useLayoutEffect,
@@ -278,16 +279,35 @@ import {
   requestPendingRefractoryReports,
   type ReturnedRefractoryShift,
 } from "./services/refractoryReports";
-import { LaboratoryResultsWorkspace } from "./LaboratoryResults";
-import { LaboratoryReviewWorkspace } from "./LaboratoryReview";
-import { BoardAssignmentsWorkspace } from "./BoardAssignments";
-import { Warehouse1cWorkspace } from "./Warehouse1c";
-import { RailwayWagonsWorkspace } from "./RailwayWagons";
-import {
-  AdminNotificationSettingsWorkspace,
-  NotificationSettingsWorkspace,
-} from "./NotificationSettings";
 import { requestLoginNotifications } from "./services/notificationSettings";
+
+const DirectorAssignmentsWorkspace = lazy(() =>
+  import("./DirectorAssignments").then((module) => ({ default: module.DirectorAssignmentsWorkspace })),
+);
+const PersonnelWorkspace = lazy(() =>
+  import("./DirectorAssignments").then((module) => ({ default: module.PersonnelWorkspace })),
+);
+const LaboratoryResultsWorkspace = lazy(() =>
+  import("./LaboratoryResults").then((module) => ({ default: module.LaboratoryResultsWorkspace })),
+);
+const LaboratoryReviewWorkspace = lazy(() =>
+  import("./LaboratoryReview").then((module) => ({ default: module.LaboratoryReviewWorkspace })),
+);
+const BoardAssignmentsWorkspace = lazy(() =>
+  import("./BoardAssignments").then((module) => ({ default: module.BoardAssignmentsWorkspace })),
+);
+const Warehouse1cWorkspace = lazy(() =>
+  import("./Warehouse1c").then((module) => ({ default: module.Warehouse1cWorkspace })),
+);
+const RailwayWagonsWorkspace = lazy(() =>
+  import("./RailwayWagons").then((module) => ({ default: module.RailwayWagonsWorkspace })),
+);
+const AdminNotificationSettingsWorkspace = lazy(() =>
+  import("./NotificationSettings").then((module) => ({ default: module.AdminNotificationSettingsWorkspace })),
+);
+const NotificationSettingsWorkspace = lazy(() =>
+  import("./NotificationSettings").then((module) => ({ default: module.NotificationSettingsWorkspace })),
+);
 
 type BusinessTab =
   | "overview"
@@ -2108,64 +2128,66 @@ export default function App() {
         }`}
         aria-label="Рабочая область"
       >
-        <RoleWorkspace
-          key={`${visibleProfile.activeAccess.accountId}:${workspaceNavigationVersion}`}
-          profile={visibleProfile}
-          dataEntryStatus={visibleDataEntryStatus}
-          isDataEntrySubmitting={isVisibleDataEntrySubmitting}
-          onDataEntrySubmit={handleVisibleDataEntrySubmit}
-          ownerTab={visibleOwnerTab}
-          adminTab={adminTab}
-          workspaceKind={visibleWorkspaceKind}
-          dispatcherFeed={dispatcherFeed}
-          businessOverview={businessOverview}
-          dispatcherForms={dispatcherForms}
-          dispatcherSubmissionVersion={dispatcherSubmissionVersion}
-          dispatcherFeedFilters={visibleDispatcherFeedFilters}
-          onDispatcherFeedFiltersChange={
-            viewedProfile === undefined
-              ? handleDispatcherFeedFiltersChange
-              : handleAdminViewedDispatcherFeedFiltersChange
-          }
-          onDataEntryStatusReset={
-            viewedProfile !== undefined
-              ? () => setAdminViewedDataEntryStatus("")
-              : () => setDataEntryStatus("")
-          }
-          onShowToast={handleShowToast}
-          onProductionSnapshotSynchronized={() => {
-            void handleClearSession();
-          }}
-          onSelectAdminAccountView={handleStartAdminAccountView}
-          navigationOrder={navigationOrder}
-          navigationLabels={navigationLabels}
-          navigationOrderLoadState={navigationOrderLoadState}
-          onNavigationOrderChange={handleNavigationOrderChange}
-          onNavigationOrderRetry={() =>
-            setNavigationOrderRequestVersion((version) => version + 1)
-          }
-          pendingRefractoryReports={pendingRefractoryReports}
-          refractoryQueueError={refractoryQueueError}
-          refractoryDecisionVersion={refractoryDecisionVersion}
-          onRefractoryReportResolved={handleRefractoryReportResolved}
-          requestedDispatcherFormId={
-            viewedProfile === undefined ? requestedDispatcherFormId : undefined
-          }
-          onRequestedDispatcherFormHandled={() =>
-            setRequestedDispatcherFormId(undefined)
-          }
-          requestedLaboratoryReviewDateFrom={requestedLaboratoryReviewDateFrom}
-          onOverviewNavigateToDispatcherGroup={
-            viewedProfile === undefined
-              ? handleOverviewDispatcherNavigate
-              : handleAdminViewedOverviewDispatcherNavigate
-          }
-          onOverviewNavigateToLaboratoryReview={
-            viewedProfile === undefined
-              ? handleOverviewLaboratoryNavigate
-              : handleAdminViewedOverviewLaboratoryNavigate
-          }
-        />
+        <WorkspaceBoundary key={`${visibleProfile.activeAccess.accountId}:${workspaceNavigationVersion}:${visibleWorkspaceKind}:${visibleOwnerTab}:${adminTab}`}>
+          <RoleWorkspace
+            key={`${visibleProfile.activeAccess.accountId}:${workspaceNavigationVersion}`}
+            profile={visibleProfile}
+            dataEntryStatus={visibleDataEntryStatus}
+            isDataEntrySubmitting={isVisibleDataEntrySubmitting}
+            onDataEntrySubmit={handleVisibleDataEntrySubmit}
+            ownerTab={visibleOwnerTab}
+            adminTab={adminTab}
+            workspaceKind={visibleWorkspaceKind}
+            dispatcherFeed={dispatcherFeed}
+            businessOverview={businessOverview}
+            dispatcherForms={dispatcherForms}
+            dispatcherSubmissionVersion={dispatcherSubmissionVersion}
+            dispatcherFeedFilters={visibleDispatcherFeedFilters}
+            onDispatcherFeedFiltersChange={
+              viewedProfile === undefined
+                ? handleDispatcherFeedFiltersChange
+                : handleAdminViewedDispatcherFeedFiltersChange
+            }
+            onDataEntryStatusReset={
+              viewedProfile !== undefined
+                ? () => setAdminViewedDataEntryStatus("")
+                : () => setDataEntryStatus("")
+            }
+            onShowToast={handleShowToast}
+            onProductionSnapshotSynchronized={() => {
+              void handleClearSession();
+            }}
+            onSelectAdminAccountView={handleStartAdminAccountView}
+            navigationOrder={navigationOrder}
+            navigationLabels={navigationLabels}
+            navigationOrderLoadState={navigationOrderLoadState}
+            onNavigationOrderChange={handleNavigationOrderChange}
+            onNavigationOrderRetry={() =>
+              setNavigationOrderRequestVersion((version) => version + 1)
+            }
+            pendingRefractoryReports={pendingRefractoryReports}
+            refractoryQueueError={refractoryQueueError}
+            refractoryDecisionVersion={refractoryDecisionVersion}
+            onRefractoryReportResolved={handleRefractoryReportResolved}
+            requestedDispatcherFormId={
+              viewedProfile === undefined ? requestedDispatcherFormId : undefined
+            }
+            onRequestedDispatcherFormHandled={() =>
+              setRequestedDispatcherFormId(undefined)
+            }
+            requestedLaboratoryReviewDateFrom={requestedLaboratoryReviewDateFrom}
+            onOverviewNavigateToDispatcherGroup={
+              viewedProfile === undefined
+                ? handleOverviewDispatcherNavigate
+                : handleAdminViewedOverviewDispatcherNavigate
+            }
+            onOverviewNavigateToLaboratoryReview={
+              viewedProfile === undefined
+                ? handleOverviewLaboratoryNavigate
+                : handleAdminViewedOverviewLaboratoryNavigate
+            }
+          />
+        </WorkspaceBoundary>
       </section>
     </main>
     </TableLayoutProvider>

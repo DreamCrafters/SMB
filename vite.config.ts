@@ -357,4 +357,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export default defineConfig({
   plugins: [accessProfileApi(), react()],
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: "react-vendor", test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
 });

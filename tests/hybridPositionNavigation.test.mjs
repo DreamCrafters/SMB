@@ -61,6 +61,7 @@ test("hybrid position switches between business and admin navigation", async () 
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
 
+  let warehouseRequests = 0;
   try {
     globalThis.fetch = async (input) => {
       const url = new URL(String(input), "http://127.0.0.1:5173/");
@@ -70,7 +71,10 @@ test("hybrid position switches between business and admin navigation", async () 
       }
 
       if (url.pathname === "/api/access/profile") {
-        return jsonResponse({ profile: buildHybridPositionProfile() });
+        const profile = buildHybridPositionProfile();
+        profile.activeAccess.capabilities.push("business.view_warehouse_1c");
+        profile.activeAccess.navigationItems.push("business.warehouse_1c");
+        return jsonResponse({ profile });
       }
       if (url.pathname === "/api/business/overview") {
         return jsonResponse({
@@ -91,6 +95,10 @@ test("hybrid position switches between business and admin navigation", async () 
           receivedAt: "2026-08-03T08:00:00.000Z",
         });
       }
+      if (url.pathname === "/api/warehouse-1c/stock-balances") {
+        warehouseRequests += 1;
+        return jsonResponse({ accounts: [{ code: "43", label: "Счёт 43" }], accountCode: "43", availableDates: [] });
+      }
       if (url.pathname === "/api/admin/database") {
         return jsonResponse({ tables: [] });
       }
@@ -105,7 +113,7 @@ test("hybrid position switches between business and admin navigation", async () 
     await React.act(async () => {
       root.render(React.createElement(App));
     });
-    await waitFor(React, () => readNavigationButtons(rootElement).length === 2);
+    await waitFor(React, () => readNavigationButtons(rootElement).length === 3);
 
     const navigationButtons = readNavigationButtons(rootElement);
     const overviewButton = navigationButtons.find(
@@ -135,6 +143,19 @@ test("hybrid position switches between business and admin navigation", async () 
     assert.equal(rootElement.querySelector('section[aria-label="БД"]'), null);
     assertSingleActiveNavigation(rootElement, "Обзор");
 
+    assert.equal(warehouseRequests, 0, "unopened lazy sections must not request their data");
+    const warehouseButton = readNavigationButtons(rootElement).find(
+      (button) => button.querySelector("span")?.textContent === "Склад 1С",
+    );
+    assert.ok(warehouseButton);
+    await React.act(async () => warehouseButton.click());
+    await waitFor(React, () => rootElement.querySelector(".laboratory-empty-note") !== null);
+    assert.ok(warehouseRequests > 0);
+    assertSingleActiveNavigation(rootElement, "Склад 1С");
+    assert.equal(rootElement.querySelector('section[aria-label="Обзор"]'), null);
+    await React.act(async () => overviewButton.click());
+    await waitFor(React, () => rootElement.querySelector('section[aria-label="Обзор"]') !== null);
+    assertSingleActiveNavigation(rootElement, "Обзор");
     await React.act(async () => root.unmount());
   } finally {
     globalThis.fetch = previousFetch;
@@ -262,9 +283,10 @@ function buildHybridPositionProfile() {
 }
 
 async function waitFor(React, predicate) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
     if (predicate()) return;
-    await React.act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await React.act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
   }
   assert.fail("Timed out waiting for hybrid position navigation.");
 }
