@@ -9511,6 +9511,8 @@ p {
 .director-edit-comment textarea { width: 100%; min-height: 70px; border: 1px solid var(--line-strong); padding: 10px; font: inherit; }
 .director-register-heading { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .director-register-heading h3 { margin: 0; font-size: 18px; }
+.managed-table[data-table-id="director.assignments"] { border-spacing: 0; }
+.managed-table[data-table-id="director.assignments"] > tbody > tr > td { border-bottom: 1px solid var(--line-strong); }
 .director-register-heading > span, .director-columns-toggle { font-size: 12px; color: var(--muted); }
 .director-register > .director-assignment-filters { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; align-items: end; }
 .director-assignment-filters label { font-size: 12px; font-weight: 700; min-width: 0; }
