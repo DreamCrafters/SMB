@@ -11274,21 +11274,15 @@ type AdminPositionFormState = {
   showOverviewVisitors: boolean;
 };
 
+// Новая должность стартует только с «Настройками»: остальные вкладки и уровни
+// администратор включает явно, чтобы не выдать лишний доступ по умолчанию.
 const emptyAdminPositionForm: AdminPositionFormState = {
-  directorAssignmentAccess: "receive",
+  directorAssignmentAccess: "none",
   displayName: "",
-  navigationItems: nonAdminNavigationItems
-    .filter(
-      ({ id }) =>
-        id !== "business.dispatcher_form" &&
-        id !== "business.user_actions" &&
-        id !== "business.production_plan" &&
-        id !== "business.settings",
-    )
-    .map(({ id }) => id),
-  boardAssignmentAccess: "view",
-  railwayWagonAccess: "view",
-  showOverviewVisitors: true,
+  navigationItems: ["business.settings"],
+  boardAssignmentAccess: "none",
+  railwayWagonAccess: "none",
+  showOverviewVisitors: false,
 };
 
 const adminAccountPositionOptions: AccountPosition[] = [

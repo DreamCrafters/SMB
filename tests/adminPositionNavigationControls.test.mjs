@@ -254,6 +254,13 @@ test("delegated manager edits working tabs and combines railway roles without lo
       ),
       ["Рабочие вкладки"],
     );
+    const checkedByDefault = Array.from(
+      createDialog.querySelectorAll('.admin-account-navigation-option input[type="checkbox"]'),
+    )
+      .filter((input) => input.checked)
+      .map((input) => input.closest("label")?.textContent?.trim());
+    assert.equal(checkedByDefault.length, 1);
+    assert.match(checkedByDefault[0], /^Настройки/u);
     await React.act(async () => Array.from(createDialog.querySelectorAll("button"))
       .find((button) => button.textContent?.trim() === "Отмена")?.click());
 
