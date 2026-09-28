@@ -178,6 +178,7 @@ import {
   type BoardAssignmentAction,
   type BoardAssignmentStatus,
 } from "../domain/boardAssignment.js";
+import { buildAssignmentOverviewSummary } from "../domain/assignmentOverview.js";
 import {
   boardAssignmentOverdueLoginDeliveryKey,
   buildBoardAssignmentReviewNotification,
@@ -934,6 +935,8 @@ export function createApiServer({
           accounts,
           dispatcherSubmissions,
           laboratoryResults,
+          boardAssignments,
+          directorAssignments,
           now,
         });
         return;
@@ -1830,6 +1833,8 @@ async function handleBusinessOverviewRequest({
   accounts,
   dispatcherSubmissions,
   laboratoryResults,
+  boardAssignments,
+  directorAssignments,
   now,
 }: {
   req: IncomingMessage;
@@ -1840,6 +1845,8 @@ async function handleBusinessOverviewRequest({
     accounts?: AccountsRepository | undefined;
   dispatcherSubmissions: DispatcherSubmissionsRepository;
   laboratoryResults: LaboratoryResultsRepository | undefined;
+  boardAssignments: BoardAssignmentsRepository | undefined;
+  directorAssignments: DirectorAssignmentsService | undefined;
   now: () => Date;
 }) {
   if (req.method !== "GET") {
@@ -1874,10 +1881,17 @@ async function handleBusinessOverviewRequest({
 
   const currentDate = now();
   const period = buildIncidentOverviewPeriod(currentDate);
-  const [incidentSubmissions, laboratory] = await Promise.all([
-    listAllIncidentSubmissions(dispatcherSubmissions),
-    laboratoryResults.readOverviewSummary(period),
-  ]);
+  const [incidentSubmissions, laboratory, directorSummary, boardSummary] =
+    await Promise.all([
+      listAllIncidentSubmissions(dispatcherSubmissions),
+      laboratoryResults.readOverviewSummary(period),
+      directorAssignments?.overviewSummary(access.profile, period),
+      readBoardAssignmentOverviewSummary(
+        boardAssignments,
+        access.profile,
+        period,
+      ),
+    ]);
 
   sendJson(res, 200, {
     period,
@@ -1886,8 +1900,35 @@ async function handleBusinessOverviewRequest({
       currentDate,
     ),
     laboratory,
+    ...(directorSummary === undefined
+      ? {}
+      : { directorAssignments: directorSummary }),
+    ...(boardSummary === undefined ? {} : { boardAssignments: boardSummary }),
     receivedAt: currentDate.toISOString(),
   });
+}
+
+// Executors see only active board assignments, so registry-wide counts stay
+// limited to users who can read the whole register.
+async function readBoardAssignmentOverviewSummary(
+  boardAssignments: BoardAssignmentsRepository | undefined,
+  profile: ServerUserProfile,
+  period: { monthStart: string; today: string },
+) {
+  const permissions = getBoardAssignmentPermissions(profile);
+  if (
+    boardAssignments === undefined ||
+    !permissions.canView ||
+    permissions.canExecute
+  ) {
+    return undefined;
+  }
+
+  const [liveRows, completions] = await Promise.all([
+    boardAssignments.list(),
+    boardAssignments.listCompletions(),
+  ]);
+  return buildAssignmentOverviewSummary({ liveRows, completions, period });
 }
 
 async function handleNotificationSettingsRequest({

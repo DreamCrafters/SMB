@@ -625,6 +625,106 @@ test("business overview returns server-owned incident and laboratory counts", as
   );
 });
 
+test("business overview adds assignment summaries only for full register readers", async () => {
+  const laboratoryResults = {
+    async readOverviewSummary() {
+      return {
+        monthTotal: 0,
+        todayTotal: 0,
+        sampled: { monthTotal: 0, todayTotal: 0 },
+        chemicalAnalyses: { monthTotal: 0, todayTotal: 0 },
+        rotaryKiln2Readings: { monthTotal: 0, todayTotal: 0 },
+      };
+    },
+  } as unknown as LaboratoryResultsRepository;
+  const boardAssignments = {
+    async list() {
+      return [
+        { id: "board-1", status: "completed", currentOccurrenceDate: "2026-09-02" },
+        { id: "board-2", status: "in_progress", currentOccurrenceDate: "2026-08-20" },
+        { id: "board-3", status: "in_progress", currentOccurrenceDate: "2026-09-28" },
+      ];
+    },
+    async listCompletions() {
+      return [
+        { assignmentId: "board-1", occurrenceDate: "2026-09-02" },
+        { assignmentId: "board-3", occurrenceDate: "2026-08-25" },
+      ];
+    },
+  } as unknown as BoardAssignmentsRepository;
+  const directorPeriods: unknown[] = [];
+  const directorAssignments = {
+    async overviewSummary(
+      _profile: ServerUserProfile,
+      period: { monthStart: string; today: string },
+    ) {
+      directorPeriods.push(period);
+      return { total: 5, completed: 3, overdue: 1, month: { total: 2, completed: 1, overdue: 0 } };
+    },
+  } as unknown as ReturnType<typeof createDirectorAssignmentsService>;
+  const readOverview = async (capabilities: ServerUserProfile["activeAccess"]["capabilities"]) => {
+    const baseProfile = buildProductionProfile("business_owner");
+    const server = createApiServer({
+      config: productionConfig,
+      dispatcherSubmissions,
+      referenceDataSource: emptyReferenceDataSource,
+      productionBrands: passthroughProductionBrands,
+      authService: buildAuthService({
+        profile: {
+          ...baseProfile,
+          activeAccess: { ...baseProfile.activeAccess, capabilities },
+        },
+      }),
+      laboratoryResults,
+      boardAssignments,
+      directorAssignments,
+      audit: { async record() {}, async listReport() { throw new Error("not used"); } },
+      databaseTransaction: { async run(operation) { return operation(); } },
+      now: () => new Date("2026-09-28T09:00:00.000Z"),
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/business/overview`,
+        { headers: { Cookie: "smb_session=prod-session" } },
+      );
+      assert.equal(response.status, 200);
+      return await response.json() as Record<string, unknown>;
+    } finally {
+      server.close();
+      await once(server, "close");
+    }
+  };
+
+  const fullReader = await readOverview([
+    "business.view_all_statistics",
+    "business.view_board_assignments",
+    "business.view_director_assignments",
+    "business.manage_director_assignments",
+  ]);
+  assert.deepEqual(fullReader.boardAssignments, {
+    total: 4,
+    completed: 2,
+    overdue: 1,
+    month: { total: 2, completed: 1, overdue: 0 },
+  });
+  assert.deepEqual(fullReader.directorAssignments, {
+    total: 5,
+    completed: 3,
+    overdue: 1,
+    month: { total: 2, completed: 1, overdue: 0 },
+  });
+  assert.deepEqual(directorPeriods, [{ monthStart: "2026-09-01", today: "2026-09-28" }]);
+
+  const boardExecutor = await readOverview([
+    "business.view_all_statistics",
+    "business.view_board_assignments",
+    "business.execute_board_assignments",
+  ]);
+  assert.equal("boardAssignments" in boardExecutor, false);
+});
+
 test("laboratory API reads the live matrix and saves the session-authored result", async () => {
   const profile: ServerUserProfile = {
     ...buildProductionProfile("business_owner"),

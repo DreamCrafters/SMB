@@ -1,3 +1,14 @@
+export type AssignmentOverviewCounts = {
+  total: number;
+  completed: number;
+  overdue: number;
+};
+
+/** Executions of the register: all time and with a due date from month start to today. */
+export type AssignmentOverviewSummary = AssignmentOverviewCounts & {
+  month: AssignmentOverviewCounts;
+};
+
 export type BusinessOverview = {
   period: {
     monthStart: string;
@@ -25,5 +36,8 @@ export type BusinessOverview = {
       todayTotal: number;
     };
   };
+  /** Present only when the account can read the whole register. */
+  directorAssignments?: AssignmentOverviewSummary;
+  boardAssignments?: AssignmentOverviewSummary;
   receivedAt: string;
 };

@@ -63,6 +63,22 @@ test("responsible executor can complete a one-time assignment directly with an i
   assert.equal((await service.list(profile("worker"))).assignments.length, 0);
 });
 
+test("overview summary counts accepted periods for managers and is hidden from executors", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  await service.action(profile("worker"), record.id, { action: "complete", comment: "Готово", revision: record.revision });
+  await service.save(manager, { assignment: { ...input, activeFrom: "2026-09-10", activeTo: "2026-09-10", recurrence: "once" }, comment: "Создано" });
+
+  assert.deepEqual(await service.overviewSummary(manager, { monthStart: "2026-09-01", today: "2026-09-14" }), {
+    total: 3,
+    completed: 1,
+    overdue: 1,
+    month: { total: 2, completed: 1, overdue: 1 },
+  });
+  assert.equal(await service.overviewSummary(profile("worker"), { monthStart: "2026-09-01", today: "2026-09-14" }), undefined);
+});
+
 for (const actor of ["worker", "director", "assistant"]) {
   for (const initialStatus of ["in_progress", "revision_requested", "under_review"]) {
     if (actor === "worker" && initialStatus === "under_review") continue;

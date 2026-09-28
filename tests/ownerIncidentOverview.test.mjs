@@ -170,6 +170,94 @@ test("owner overview renders every operational section as glanceable metrics", a
     ]) {
       assert.doesNotMatch(html, new RegExp(removedIncidentCard, "u"));
     }
+    // Без серверной сводки реестров плашки поручений не показываются.
+    assert.equal(
+      document.querySelector('section[aria-label="Поручения ГД"]'),
+      null,
+    );
+    assert.equal(
+      document.querySelector('section[aria-label="Поручения СД → ГД"]'),
+      null,
+    );
+  } finally {
+    await vite.close();
+  }
+});
+
+test("owner overview shows director and board assignment tiles that open their sections", async () => {
+  const vite = await createServer({
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+  });
+
+  try {
+    const { OwnerOverviewPanel } = await vite.ssrLoadModule("/src/App.tsx");
+    const html = renderToStaticMarkup(
+      React.createElement(OwnerOverviewPanel, {
+        businessOverview: {
+          status: "ready",
+          overview: {
+            period: { monthStart: "2026-09-01", today: "2026-09-28" },
+            incidents: {
+              monthTotal: 0,
+              monthClosed: 0,
+              todayTotal: 0,
+              openNow: 0,
+            },
+            laboratory: {
+              monthTotal: 0,
+              todayTotal: 0,
+              sampled: { monthTotal: 0, todayTotal: 0 },
+              chemicalAnalyses: { monthTotal: 0, todayTotal: 0 },
+              rotaryKiln2Readings: { monthTotal: 0, todayTotal: 0 },
+            },
+            directorAssignments: {
+              total: 124,
+              completed: 110,
+              overdue: 12,
+              month: { total: 85, completed: 70, overdue: 0 },
+            },
+            boardAssignments: {
+              total: 40,
+              completed: 31,
+              overdue: 0,
+              month: { total: 6, completed: 4, overdue: 2 },
+            },
+            receivedAt: "2026-09-28T12:00:00.000Z",
+          },
+        },
+        dispatcherFeed: { status: "error", message: "Недоступно" },
+        dispatcherOverview: {},
+        onNavigateToAssignments: () => {},
+      }),
+    );
+    const document = new JSDOM(html).window.document;
+
+    assert.deepEqual(readOverviewMetrics(document, "Поручения ГД"), [
+      ["Всего поручений", "124"],
+      ["Выполнено", "110"],
+      ["Просрочено", "12"],
+      ["Всего с начала месяца", "85"],
+      ["Выполнено с начала месяца", "70"],
+      ["Просрочено с начала месяца", "0"],
+    ]);
+    assert.deepEqual(readOverviewMetrics(document, "Поручения СД → ГД"), [
+      ["Всего поручений", "40"],
+      ["Выполнено", "31"],
+      ["Просрочено", "0"],
+      ["Всего с начала месяца", "6"],
+      ["Выполнено с начала месяца", "4"],
+      ["Просрочено с начала месяца", "2"],
+    ]);
+    for (const label of ["Поручения ГД", "Поручения СД → ГД"]) {
+      const section = document.querySelector(`section[aria-label="${label}"]`);
+      assert.equal(section?.getAttribute("role"), "button");
+      assert.equal(
+        section?.querySelectorAll(".owner-overview-metric-attention").length,
+        1,
+      );
+    }
   } finally {
     await vite.close();
   }

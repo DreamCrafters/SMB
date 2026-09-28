@@ -6,6 +6,7 @@ import type { AuditRepository } from "../repositories/auditRepository.js";
 import type { DatabaseTransactionRunner } from "../db/transactionContext.js";
 import { hasProfileCapability, type ServerUserProfile } from "./auth.js";
 import { canViewDirectorAssignment, canExecuteDirectorAssignment, directorWorkdays, DirectorAssignmentError, readDirectorAssignmentInput, readDirectorRecord, readDirectorText } from "./directorAssignment.js";
+import { buildAssignmentOverviewSummary } from "./assignmentOverview.js";
 import { getBoardAssignmentOccurrenceOnOrAfter, getNextBoardAssignmentOccurrenceDate, isBoardAssignmentActiveOn, validateBoardAssignmentAction } from "./boardAssignment.js";
 
 export function directorAssignmentPermissions(profile: ServerUserProfile): DirectorAssignmentPermissions {
@@ -263,6 +264,17 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
         durationWorkdays: directorWorkdays(item.assignment.assignedOn, item.assignment.currentOccurrenceDate),
         remainingWorkdays: directorWorkdays(item.assignment.completedOn, item.assignment.currentOccurrenceDate),
       } }));
+    },
+    /** Registry-wide counts only for users who see the whole registry; otherwise undefined. */
+    async overviewSummary(profile: ServerUserProfile, period: { monthStart: string; today: string }) {
+      const permissions = directorAssignmentPermissions(profile);
+      if (!permissions.canView || !permissions.canManage) return undefined;
+      const [assignments, completions] = await Promise.all([repository.list(), repository.listCompletions()]);
+      return buildAssignmentOverviewSummary({
+        liveRows: assignments,
+        completions: completions.map(({ assignment }) => ({ assignmentId: assignment.id, occurrenceDate: assignment.currentOccurrenceDate })),
+        period,
+      });
     },
     async document(profile: ServerUserProfile, id: string, documentId: string) {
       const assignment = await requireAssignment(profile, id);

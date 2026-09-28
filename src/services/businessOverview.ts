@@ -96,7 +96,21 @@ function isBusinessOverview(value: unknown): value is BusinessOverview {
     isOverviewCount(value.laboratory.sampled) &&
     isOverviewCount(value.laboratory.chemicalAnalyses) &&
     isOverviewCount(value.laboratory.rotaryKiln2Readings) &&
+    isOptionalAssignmentSummary(value.directorAssignments) &&
+    isOptionalAssignmentSummary(value.boardAssignments) &&
     typeof value.receivedAt === "string";
+}
+
+function isOptionalAssignmentSummary(value: unknown) {
+  return value === undefined ||
+    (isAssignmentCounts(value) && isAssignmentCounts(value.month));
+}
+
+function isAssignmentCounts(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) &&
+    isNonNegativeInteger(value.total) &&
+    isNonNegativeInteger(value.completed) &&
+    isNonNegativeInteger(value.overdue);
 }
 
 function isOverviewCount(value: unknown) {

@@ -237,6 +237,7 @@ import {
   requestBusinessOverview,
   type BusinessOverviewResult,
 } from "./services/businessOverview";
+import type { AssignmentOverviewSummary } from "./contracts/businessOverview";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import {
   requestProductionDailyPlan,
@@ -2219,6 +2220,11 @@ export default function App() {
                 ? handleOverviewLaboratoryNavigate
                 : handleAdminViewedOverviewLaboratoryNavigate
             }
+            onOverviewNavigateToAssignments={
+              viewedProfile === undefined
+                ? handleOwnerTabNavigation
+                : handleAdminViewedOwnerTabNavigation
+            }
           />
         </WorkspaceBoundary>
       </section>
@@ -3068,6 +3074,7 @@ function RoleWorkspace({
   requestedLaboratoryReviewDateFrom,
   onOverviewNavigateToDispatcherGroup,
   onOverviewNavigateToLaboratoryReview,
+  onOverviewNavigateToAssignments,
 }: {
   profile: ServerUserProfile;
   dataEntryStatus: string;
@@ -3108,6 +3115,7 @@ function RoleWorkspace({
     productionSection?: ProductionReportSection,
   ) => void;
   onOverviewNavigateToLaboratoryReview: () => void;
+  onOverviewNavigateToAssignments: (tab: OverviewAssignmentsTab) => void;
 }) {
   const effectiveOwnerTab = resolveAllowedNavigationTab(
     ownerTab,
@@ -3248,6 +3256,7 @@ function RoleWorkspace({
       onDispatcherFeedFiltersChange={onDispatcherFeedFiltersChange}
       onNavigateToDispatcherGroup={onOverviewNavigateToDispatcherGroup}
       onNavigateToLaboratoryReview={onOverviewNavigateToLaboratoryReview}
+      onNavigateToAssignments={onOverviewNavigateToAssignments}
       canViewVisitors={hasCapability(
         profile,
         "business.view_overview_visitors",
@@ -3265,6 +3274,7 @@ function OwnerWorkspace({
   onDispatcherFeedFiltersChange,
   onNavigateToDispatcherGroup,
   onNavigateToLaboratoryReview,
+  onNavigateToAssignments,
   canViewVisitors,
 }: {
   activeTab: Extract<BusinessTab, "overview" | "dispatcher">;
@@ -3280,6 +3290,7 @@ function OwnerWorkspace({
     productionSection?: ProductionReportSection,
   ) => void;
   onNavigateToLaboratoryReview: () => void;
+  onNavigateToAssignments: (tab: OverviewAssignmentsTab) => void;
   canViewVisitors: boolean;
 }) {
   if (activeTab === "overview") {
@@ -3301,6 +3312,7 @@ function OwnerWorkspace({
         dispatcherOverview={dispatcherOverview}
         onNavigateToDispatcherGroup={onNavigateToDispatcherGroup}
         onNavigateToLaboratoryReview={onNavigateToLaboratoryReview}
+        onNavigateToAssignments={onNavigateToAssignments}
         canViewVisitors={canViewVisitors}
       />
     );
@@ -3323,6 +3335,7 @@ export function OwnerOverviewPanel({
   dispatcherOverview,
   onNavigateToDispatcherGroup,
   onNavigateToLaboratoryReview,
+  onNavigateToAssignments,
   canViewVisitors,
 }: {
   businessOverview: BusinessOverviewLoadState;
@@ -3333,6 +3346,7 @@ export function OwnerOverviewPanel({
     productionSection?: ProductionReportSection,
   ) => void;
   onNavigateToLaboratoryReview?: () => void;
+  onNavigateToAssignments?: (tab: OverviewAssignmentsTab) => void;
   canViewVisitors?: boolean;
 }) {
   const isLocalTestMode =
@@ -3477,6 +3491,28 @@ export function OwnerOverviewPanel({
                   },
                 ]}
               />
+              {businessOverview.overview.directorAssignments === undefined
+                ? null
+                : (
+                    <OwnerAssignmentsOverviewBlock
+                      title="Поручения ГД"
+                      summary={businessOverview.overview.directorAssignments}
+                      onNavigate={onNavigateToAssignments === undefined
+                        ? undefined
+                        : () => onNavigateToAssignments("director_assignments")}
+                    />
+                  )}
+              {businessOverview.overview.boardAssignments === undefined
+                ? null
+                : (
+                    <OwnerAssignmentsOverviewBlock
+                      title="Поручения СД → ГД"
+                      summary={businessOverview.overview.boardAssignments}
+                      onNavigate={onNavigateToAssignments === undefined
+                        ? undefined
+                        : () => onNavigateToAssignments("board_assignments")}
+                    />
+                  )}
             </>
           ) : null}
           {dispatcherFeed.status === "ready" ? (
@@ -3607,6 +3643,44 @@ function OwnerOverviewMetrics({
         ))}
       </dl>
     </OwnerOverviewCard>
+  );
+}
+
+type OverviewAssignmentsTab = Extract<
+  BusinessTab,
+  "director_assignments" | "board_assignments"
+>;
+
+function OwnerAssignmentsOverviewBlock({
+  title,
+  summary,
+  onNavigate,
+}: {
+  title: string;
+  summary: AssignmentOverviewSummary;
+  onNavigate?: () => void;
+}) {
+  return (
+    <OwnerOverviewMetrics
+      title={title}
+      onNavigate={onNavigate}
+      metrics={[
+        { label: "Всего поручений", value: summary.total },
+        { label: "Выполнено", value: summary.completed },
+        {
+          label: "Просрочено",
+          value: summary.overdue,
+          tone: summary.overdue > 0 ? "attention" : undefined,
+        },
+        { label: "Всего с начала месяца", value: summary.month.total },
+        { label: "Выполнено с начала месяца", value: summary.month.completed },
+        {
+          label: "Просрочено с начала месяца",
+          value: summary.month.overdue,
+          tone: summary.month.overdue > 0 ? "attention" : undefined,
+        },
+      ]}
+    />
   );
 }
 
