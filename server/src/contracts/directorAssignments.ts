@@ -6,10 +6,60 @@ export const directorAssignmentAccessOptions = [
   { id: "send", label: "Отправка и контроль исполнения" },
   { id: "receive", label: "Получение и выполнение" },
 ] as const;
-export function readDirectorAssignmentAccess(capabilities: readonly string[], navigation: readonly string[]): DirectorAssignmentAccess {
-  if (!navigation.includes("business.director_assignments")) return "none";
-  if (!capabilities.includes("business.manage_director_assignments")) return "receive";
-  return capabilities.includes("business.execute_director_assignments") ? "both" : "send";
+
+/**
+ * Employee assignment registries share one workflow and differ only in these details.
+ * Each registry keeps its own tables, capabilities, tab and notification type.
+ */
+export const assignmentRegistries = {
+  director: {
+    id: "director",
+    navigationItem: "business.director_assignments",
+    viewCapability: "business.view_director_assignments",
+    manageCapability: "business.manage_director_assignments",
+    executeCapability: "business.execute_director_assignments",
+    notificationType: "general_director_assignments",
+    apiPath: "/api/director-assignments",
+    tableId: "director.assignments",
+    title: "Поручения генерального директора",
+    ownerGenitive: "генерального директора",
+    managerTitle: "Генеральный директор",
+    numberPrefix: "ГД",
+    hasProtocol: false,
+    canLinkBoardAssignment: true,
+  },
+  collegium: {
+    id: "collegium",
+    navigationItem: "business.collegium_assignments",
+    viewCapability: "business.view_collegium_assignments",
+    manageCapability: "business.manage_collegium_assignments",
+    executeCapability: "business.execute_collegium_assignments",
+    notificationType: "collegium_assignments",
+    apiPath: "/api/collegium-assignments",
+    tableId: "collegium.assignments",
+    title: "Поручения Коллегии",
+    ownerGenitive: "Коллегии",
+    managerTitle: "Председатель Коллегии",
+    numberPrefix: "К",
+    hasProtocol: true,
+    canLinkBoardAssignment: false,
+  },
+} as const;
+export type AssignmentRegistryId = keyof typeof assignmentRegistries;
+export type AssignmentRegistry = (typeof assignmentRegistries)[AssignmentRegistryId];
+export const assignmentRegistryIds = Object.keys(assignmentRegistries) as AssignmentRegistryId[];
+
+/** Fails loudly instead of silently falling back to another registry's data. */
+export function readAssignmentRegistry(registryId: unknown): AssignmentRegistry {
+  if (!assignmentRegistryIds.includes(registryId as AssignmentRegistryId)) throw new Error("Unknown assignment registry.");
+  return assignmentRegistries[registryId as AssignmentRegistryId];
+}
+
+export function readDirectorAssignmentAccess(capabilities: readonly string[], navigation: readonly string[], registryId: AssignmentRegistryId = "director"): DirectorAssignmentAccess {
+  const registry = assignmentRegistries[registryId];
+  if (!navigation.includes(registry.navigationItem)) return "none";
+  if (!capabilities.includes(registry.manageCapability)) return "receive";
+  return capabilities.includes(registry.executeCapability) ? "both" : "send";
 }
 
 export type PersonnelEmployee = {
@@ -21,6 +71,8 @@ export type PersonnelEmployee = {
   category: "АУП" | "ИТР" | "";
   userId: string | null;
   active: boolean;
+  /** Account can receive and execute assignments of the current registry through its positions. */
+  canReceive?: boolean;
 };
 
 export type DirectorAssignmentInput = {
@@ -40,6 +92,10 @@ export type DirectorAssignmentInput = {
   progress: string;
   incomingNumber: string;
   sourceBoardAssignmentId: string | null;
+  /** Collegium protocol reference; absent in director assignments. */
+  meetingDate?: string;
+  protocolNumber?: string;
+  decisionNumber?: string;
 };
 
 export type DirectorAssignmentComment = {

@@ -24,6 +24,7 @@ test("notification catalog follows the administrator and user rows from List9", 
       ["laboratory_analyses", "Лабораторные анализы"],
       [boardAssignmentNotificationType, "Поручения Совета директоров"],
       ["general_director_assignments", "Поручения Гендиректора"],
+      ["collegium_assignments", "Поручения Коллегии"],
     ],
   );
 });

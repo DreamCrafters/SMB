@@ -28,6 +28,7 @@ const measurementColumns = [...new Set([
 export const tableDefinitions = {
   "board.delegations": defineTable("Перепоручения по поручению СД", ["createdAt", "assignment", "responsible", "deadline", "status", "history"]),
   "director.assignments": defineTable("Поручения генерального директора", ["number", "assignedOn", "summary", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
+  "collegium.assignments": defineTable("Поручения Коллегии", ["number", "assignedOn", "summary", "meetingDate", "protocolNumber", "decisionNumber", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
   "director.personnel": defineTable("Сотрудники", ["fullName", "position", "department", "category", "user", "status"]),
   "production.plan": defineTable("План выработки", ["date", "forming", "sorting", "unformed", "chamotte"]),
   "production.banks": defineTable("Банки: отчёт", ["metric", "bank.1", "bank.2", "bank.3", "bank.4"]),

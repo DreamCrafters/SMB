@@ -48,6 +48,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "085_director_assignments",
   "086_director_assignment_reminders",
   "087_root_admin_identity",
+  "088_collegium_assignments",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3393,6 +3394,28 @@ test("director reminder migration stores independent per-occurrence recipient an
   assert.match(statements[0], /lease_until timestamp\(3\) null/u);
   assert.match(statements[0], /delivered_at timestamp\(3\) null/u);
   assert.match(statements[1], /insert into schema_migrations/u);
+});
+
+test("collegium migration creates separate assignment, history, document and reminder tables", async () => {
+  const statements: string[] = [];
+  const migration = "088_collegium_assignments";
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      return [sql.includes("select id from schema_migrations") && parameters?.[0] !== migration ? [{ id: parameters?.[0] }] : [], []];
+    },
+    async getConnection() { return {
+      async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+      async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+    }; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  assert.equal(statements.length, 5);
+  for (const [index, table] of ["collegium_assignments", "collegium_assignment_history", "collegium_assignment_documents", "collegium_assignment_reminder_deliveries"].entries()) {
+    assert.match(statements[index], new RegExp(`^create table if not exists ${table} \\(`, "u"));
+  }
+  assert.doesNotMatch(statements.slice(0, 4).join("\n"), /director_|account_positions|app_users/u);
+  assert.match(statements[3], /primary key \(assignment_id, occurrence_date, days_before, user_id, channel\)/u);
+  assert.match(statements[4], /insert into schema_migrations/u);
 });
 
 test("root authority migration preserves the previous identity once without changing assigned access", async () => {

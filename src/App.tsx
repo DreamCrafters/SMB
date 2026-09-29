@@ -320,6 +320,7 @@ type BusinessTab =
   | "laboratory_results"
   | "laboratory_review"
   | "director_assignments"
+  | "collegium_assignments"
   | "personnel"
   | "board_assignments"
   | "warehouse_1c"
@@ -343,6 +344,7 @@ const navigationByBusinessTab: Record<BusinessTab, AccountNavigationItem> = {
   laboratory_results: "business.laboratory_results",
   laboratory_review: "business.laboratory_review",
   director_assignments: "business.director_assignments",
+  collegium_assignments: "business.collegium_assignments",
   personnel: "business.personnel",
   board_assignments: "business.board_assignments",
   warehouse_1c: "business.warehouse_1c",
@@ -659,6 +661,7 @@ function getBusinessTabForNavigationItem(item: NavigationItem): BusinessTab | un
     case "business.laboratory_review":
       return "laboratory_review";
     case "business.director_assignments": return "director_assignments";
+    case "business.collegium_assignments": return "collegium_assignments";
     case "business.personnel": return "personnel";
     case "business.board_assignments":
       return "board_assignments";
@@ -3185,7 +3188,8 @@ function RoleWorkspace({
       />
     );
   }
-  if (effectiveOwnerTab === "director_assignments") return <DirectorAssignmentsWorkspace onShowToast={onShowToast} />;
+  if (effectiveOwnerTab === "director_assignments") return <DirectorAssignmentsWorkspace key="director" registryId="director" onShowToast={onShowToast} />;
+  if (effectiveOwnerTab === "collegium_assignments") return <DirectorAssignmentsWorkspace key="collegium" registryId="collegium" onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "personnel") return <PersonnelWorkspace onShowToast={onShowToast} />;
   if (effectiveOwnerTab === "board_assignments") {
     return (
@@ -11340,6 +11344,7 @@ function AdminAccountPositionPicker({
 
 type AdminPositionFormState = {
   directorAssignmentAccess: DirectorAssignmentAccess;
+  collegiumAssignmentAccess: DirectorAssignmentAccess;
   id?: string;
   displayName: string;
   navigationItems: AccountNavigationItem[];
@@ -11352,6 +11357,7 @@ type AdminPositionFormState = {
 // администратор включает явно, чтобы не выдать лишний доступ по умолчанию.
 const emptyAdminPositionForm: AdminPositionFormState = {
   directorAssignmentAccess: "none",
+  collegiumAssignmentAccess: "none",
   displayName: "",
   navigationItems: ["business.settings"],
   boardAssignmentAccess: "none",
@@ -11409,8 +11415,8 @@ function formatPositionNavigationItem(
     navigationLabels,
   ).find(({ id }) => id === navigationItemId)?.label ?? navigationItemId;
 
-  if (navigationItemId === "business.director_assignments") {
-    const mode = readDirectorAssignmentAccess(position.capabilities, position.navigationItems);
+  if (navigationItemId === "business.director_assignments" || navigationItemId === "business.collegium_assignments") {
+    const mode = readDirectorAssignmentAccess(position.capabilities, position.navigationItems, navigationItemId === "business.collegium_assignments" ? "collegium" : "director");
     return `${label} — ${mode === "both" ? directorAssignmentAccessOptions.map(option => option.label).join("; ") : directorAssignmentAccessOptions.find(option => option.id === mode)?.label ?? "Нет доступа"}`;
   }
 
@@ -11807,6 +11813,7 @@ function AdminAccountsWorkspace({
             nonAdminNavigationItems.some((item) => item.id === id),
           ),
           directorAssignmentAccess: readDirectorAssignmentAccess(position.capabilities, position.navigationItems),
+          collegiumAssignmentAccess: readDirectorAssignmentAccess(position.capabilities, position.navigationItems, "collegium"),
           boardAssignmentAccess: position.boardAssignmentAccess,
           railwayWagonAccess: position.railwayWagonAccess,
           showOverviewVisitors: position.showOverviewVisitors,
@@ -11827,6 +11834,9 @@ function AdminAccountsWorkspace({
   ): Partial<AdminPositionFormState> {
     if (navigationItemId === "business.director_assignments") {
       return { directorAssignmentAccess: !isChecked ? "none" : current.directorAssignmentAccess === "none" ? "receive" : current.directorAssignmentAccess };
+    }
+    if (navigationItemId === "business.collegium_assignments") {
+      return { collegiumAssignmentAccess: !isChecked ? "none" : current.collegiumAssignmentAccess === "none" ? "receive" : current.collegiumAssignmentAccess };
     }
     if (navigationItemId === "business.board_assignments") {
       return {
@@ -11879,6 +11889,11 @@ function AdminAccountsWorkspace({
         value={positionForm.directorAssignmentAccess} disabled={isSubmitting || !hasTab}
         onChange={directorAssignmentAccess => setPositionForm(current => ({ ...current, directorAssignmentAccess }))} />;
     }
+    if (navigationItemId === "business.collegium_assignments") {
+      return <DirectorAssignmentAccessPicker label="Режим работы с поручениями Коллегии"
+        value={positionForm.collegiumAssignmentAccess} disabled={isSubmitting || !hasTab}
+        onChange={collegiumAssignmentAccess => setPositionForm(current => ({ ...current, collegiumAssignmentAccess }))} />;
+    }
     const value = positionForm.boardAssignmentAccess;
 
     return (
@@ -11916,6 +11931,7 @@ function AdminAccountsWorkspace({
       displayName: positionForm.displayName.trim(),
       navigationItems: positionForm.navigationItems,
       directorAssignmentAccess: positionForm.directorAssignmentAccess,
+      collegiumAssignmentAccess: positionForm.collegiumAssignmentAccess,
       boardAssignmentAccess: positionForm.boardAssignmentAccess,
       railwayWagonAccess: positionForm.railwayWagonAccess,
       showOverviewVisitors: positionForm.showOverviewVisitors,
@@ -13317,7 +13333,8 @@ function AdminAccountsWorkspace({
                     const hasAccess = position.navigationItems.includes(
                       selectedPositionNavigationItem,
                     );
-                    const level = selectedPositionNavigationItem === "business.director_assignments" ? readDirectorAssignmentAccess(position.capabilities, position.navigationItems) : position.boardAssignmentAccess;
+                    const employeeRegistryId = selectedPositionNavigationItem === "business.director_assignments" ? "director" : selectedPositionNavigationItem === "business.collegium_assignments" ? "collegium" : undefined;
+                    const level = employeeRegistryId ? readDirectorAssignmentAccess(position.capabilities, position.navigationItems, employeeRegistryId) : position.boardAssignmentAccess;
                     return (
                       <tr key={position.id}>
                         <TableCell>{position.displayName}</TableCell>
@@ -13350,9 +13367,9 @@ function AdminAccountsWorkspace({
                                   void handleSetPositionNavigationAccess([position.id], true, access);
                                 }}
                               />
-                            ) : selectedPositionNavigationItem === "business.director_assignments" ? (
+                            ) : employeeRegistryId ? (
                               <DirectorAssignmentAccessPicker label={`Режим работы для должности ${position.displayName}`}
-                                value={readDirectorAssignmentAccess(position.capabilities, position.navigationItems)}
+                                value={readDirectorAssignmentAccess(position.capabilities, position.navigationItems, employeeRegistryId)}
                                 disabled={isSavingPositionNavigationAccess || !hasAccess}
                                 onChange={access => { void handleSetPositionNavigationAccess([position.id], true, access); }} />
                             ) : (

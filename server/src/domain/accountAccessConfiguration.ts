@@ -1,4 +1,4 @@
-import { directorAssignmentAccessLevels, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
+import { assignmentRegistries, directorAssignmentAccessLevels, type AssignmentRegistryId, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
 import {
   isRailwayWagonRole,
   isRailwayWagonAccess,
@@ -75,6 +75,7 @@ export const nonAdminNavigationItems: AccountNavigationItem[] = [
   "business.laboratory_review",
   "business.board_assignments",
   "business.director_assignments",
+  "business.collegium_assignments",
   "business.personnel",
   "business.warehouse_1c",
   "business.railway_wagons",
@@ -144,6 +145,7 @@ const capabilitiesByNavigationItem: Record<
   "business.laboratory_review": ["business.view_laboratory_results"],
   "business.board_assignments": ["business.view_board_assignments"],
   "business.director_assignments": ["business.view_director_assignments"],
+  "business.collegium_assignments": ["business.view_collegium_assignments"],
   "business.personnel": ["business.manage_personnel"],
   "business.warehouse_1c": ["business.view_warehouse_1c"],
   "business.railway_wagons": ["business.view_railway_wagons"],
@@ -163,6 +165,24 @@ export function resolveCapabilitiesForNavigation(
   );
 }
 
+/** Mode capabilities of an employee assignment tab; `receive` adds nothing to the tab's own view right. */
+function resolveEmployeeAssignmentCapabilities(
+  registryId: AssignmentRegistryId,
+  access: DirectorAssignmentAccess,
+  navigationItems: readonly AccountNavigationItem[],
+): AccountCapability[] {
+  const registry = assignmentRegistries[registryId];
+  if (!navigationItems.includes(registry.navigationItem)) return [];
+  return [
+    ...(access === "send" || access === "both" ? [registry.manageCapability] : []),
+    ...(access === "both" ? [registry.executeCapability] : []),
+  ];
+}
+
+function isEmployeeAssignmentNavigationItem(navigationItem: AccountNavigationItem) {
+  return Object.values(assignmentRegistries).find((registry) => registry.navigationItem === navigationItem);
+}
+
 export function resolveCapabilitiesForPosition(
   position: AccountPosition,
   navigationItems: AccountNavigationItem[],
@@ -172,6 +192,7 @@ export function resolveCapabilitiesForPosition(
   canReviewRawMaterialWarehouse = false,
   railwayWagonAccess: RailwayWagonAccess = "view",
   directorAssignmentAccess: DirectorAssignmentAccess = "receive",
+  collegiumAssignmentAccess: DirectorAssignmentAccess = "receive",
 ) {
   const resolvedNavigationItems =
     position === defaultPositionByAccountType.admin
@@ -223,10 +244,8 @@ export function resolveCapabilitiesForPosition(
   return Array.from(new Set([
     ...capabilities,
     ...boardCapabilities,
-    ...((directorAssignmentAccess === "send" || directorAssignmentAccess === "both") && resolvedNavigationItems.includes("business.director_assignments")
-      ? ["business.manage_director_assignments" as AccountCapability] : []),
-    ...(directorAssignmentAccess === "both" && resolvedNavigationItems.includes("business.director_assignments")
-      ? ["business.execute_director_assignments" as AccountCapability] : []),
+    ...resolveEmployeeAssignmentCapabilities("director", directorAssignmentAccess, resolvedNavigationItems),
+    ...resolveEmployeeAssignmentCapabilities("collegium", collegiumAssignmentAccess, resolvedNavigationItems),
     ...overviewVisitorsCapabilities,
     ...rawMaterialWarehouseCapabilities,
     ...railwayWagonCapabilities,
@@ -255,6 +274,7 @@ export function readRailwayWagonAccess(
  */
 export const navigationAccessLevelsByItem = {
   "business.director_assignments": directorAssignmentAccessLevels,
+  "business.collegium_assignments": directorAssignmentAccessLevels,
   "business.board_assignments": boardAssignmentAccessLevels,
   "business.railway_wagons": railwayWagonAccessLevels,
 } as const satisfies Partial<
@@ -295,8 +315,9 @@ export function resolveMaximumCapabilitiesForNavigation(
 ): AccountCapability[] {
   const base = resolveCapabilitiesForNavigation([navigationItem]);
 
-  if (navigationItem === "business.director_assignments") {
-    return Array.from(new Set([...base, "business.manage_director_assignments", "business.execute_director_assignments"]));
+  const employeeRegistry = isEmployeeAssignmentNavigationItem(navigationItem);
+  if (employeeRegistry) {
+    return Array.from(new Set([...base, employeeRegistry.manageCapability, employeeRegistry.executeCapability]));
   }
 
   if (navigationItem === "business.board_assignments") {
@@ -344,9 +365,9 @@ export function resolveCapabilitiesForNavigationLevel(
     return base;
   }
 
-  if (navigationItem === "business.director_assignments") {
-    return level === "both" ? [...base, "business.manage_director_assignments", "business.execute_director_assignments"]
-      : level === "send" ? [...base, "business.manage_director_assignments"] : base;
+  const employeeRegistry = isEmployeeAssignmentNavigationItem(navigationItem);
+  if (employeeRegistry) {
+    return [...base, ...resolveEmployeeAssignmentCapabilities(employeeRegistry.id, level as DirectorAssignmentAccess, [navigationItem])];
   }
 
   if (navigationItem === "business.board_assignments") {

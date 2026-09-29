@@ -519,6 +519,7 @@ export function createAccountsRepository(
           current.can_review_raw_material_warehouse === 1,
         railwayWagonAccess,
         readDirectorAssignmentAccess(input.capabilities, input.navigationItems),
+        readDirectorAssignmentAccess(input.capabilities, input.navigationItems, "collegium"),
       );
       await connection.query(
         `update account_positions
@@ -750,6 +751,7 @@ export function createAccountsRepository(
               position.can_review_raw_material_warehouse === 1,
             railwayWagonAccess,
             readDirectorAssignmentAccess(storedCapabilities, storedNavigationItems),
+            readDirectorAssignmentAccess(storedCapabilities, storedNavigationItems, "collegium"),
           );
       await connection.query(
         `update account_positions
@@ -906,6 +908,9 @@ export function createAccountsRepository(
           navigationItem === "business.director_assignments" && accessLevel !== undefined
             ? accessLevel as DirectorAssignmentAccess
             : readDirectorAssignmentAccess(storedCapabilities, navigationItems),
+          navigationItem === "business.collegium_assignments" && accessLevel !== undefined
+            ? accessLevel as DirectorAssignmentAccess
+            : readDirectorAssignmentAccess(storedCapabilities, navigationItems, "collegium"),
         );
         // Уровень внутри вкладки меняется без изменения списка вкладок,
         // поэтому одного сравнения вкладок мало.

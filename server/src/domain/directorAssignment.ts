@@ -1,4 +1,4 @@
-import type { DirectorAssignment, DirectorAssignmentInput } from "../contracts/directorAssignments.js";
+import { assignmentRegistries, type AssignmentRegistryId, type DirectorAssignment, type DirectorAssignmentInput } from "../contracts/directorAssignments.js";
 import { isBoardAssignmentActiveOn, isBoardAssignmentRecurrence } from "./boardAssignment.js";
 import { readCalendarDate } from "./calendarDate.js";
 
@@ -6,9 +6,12 @@ export class DirectorAssignmentError extends Error {
   constructor(message: string, public readonly status = 400) { super(message); }
 }
 
-export function readDirectorAssignmentInput(value: unknown): DirectorAssignmentInput {
+const protocolFields = ["meetingDate", "protocolNumber", "decisionNumber"] as const;
+
+export function readDirectorAssignmentInput(value: unknown, registryId: AssignmentRegistryId = "director"): DirectorAssignmentInput {
+  const registry = assignmentRegistries[registryId];
   const row = readDirectorRecord(value);
-  const fields = ["assignedOn", "kind", "summary", "department", "project", "responsibleId", "coExecutorIds", "recurrence", "activeFrom", "activeTo", "urgency", "importance", "note", "progress", "incomingNumber", "sourceBoardAssignmentId"];
+  const fields: string[] = ["assignedOn", "kind", "summary", "department", "project", "responsibleId", "coExecutorIds", "recurrence", "activeFrom", "activeTo", "urgency", "importance", "note", "progress", "incomingNumber", "sourceBoardAssignmentId", ...(registry.hasProtocol ? protocolFields : [])];
   if (Object.keys(row).some(key => !fields.includes(key))) throw new DirectorAssignmentError("Неизвестные поля поручения.");
   const text = (key: string, required = false, max = 300) => readDirectorText(row[key], required, max);
   const assignedOn = text("assignedOn", true, 10);
@@ -23,6 +26,13 @@ export function readDirectorAssignmentInput(value: unknown): DirectorAssignmentI
   const responsibleId = text("responsibleId", true, 100);
   const coExecutorIds = [...new Set(row.coExecutorIds.map(id => readDirectorText(id, true, 100)))];
   if (coExecutorIds.includes(responsibleId)) throw new DirectorAssignmentError("Ответственный уже участвует в поручении.");
+  if (!registry.canLinkBoardAssignment && row.sourceBoardAssignmentId !== null) throw new DirectorAssignmentError("Связь с поручением Совета директоров здесь недоступна.");
+  const protocol = registry.hasProtocol ? {
+    meetingDate: text("meetingDate", false, 10),
+    protocolNumber: text("protocolNumber", false, 100),
+    decisionNumber: text("decisionNumber", false, 100),
+  } : {};
+  if (protocol.meetingDate && !readCalendarDate(protocol.meetingDate)) throw new DirectorAssignmentError("Проверьте дату заседания.");
   return {
     assignedOn, activeFrom, activeTo, kind: kind as DirectorAssignmentInput["kind"],
     summary: text("summary", true, 20000), department: text("department"), project: text("project"),
@@ -30,6 +40,7 @@ export function readDirectorAssignmentInput(value: unknown): DirectorAssignmentI
     urgency: text("urgency", false, 100), importance: text("importance", false, 100),
     note: text("note", false, 4000), progress: text("progress", false, 4000), incomingNumber: text("incomingNumber", false, 100),
     sourceBoardAssignmentId: row.sourceBoardAssignmentId === null ? null : text("sourceBoardAssignmentId", true, 100),
+    ...protocol,
   };
 }
 
@@ -60,6 +71,10 @@ export function canViewDirectorAssignment(assignment: DirectorAssignment, userId
   return assignment.status !== "completed" && assignment.responsible?.userId === userId;
 }
 
+/**
+ * Without a direct completion, the executor must be able to report before the deadline:
+ * work opens on the assignment date, not on the due date of the current occurrence.
+ */
 export function canExecuteDirectorAssignment(
   assignment: DirectorAssignment,
   userId: string,
@@ -67,5 +82,6 @@ export function canExecuteDirectorAssignment(
 ) {
   return !assignment.needsClarification
     && assignment.responsible?.userId === userId
-    && isBoardAssignmentActiveOn(assignment, today);
+    && assignment.assignedOn <= today
+    && isBoardAssignmentActiveOn(assignment, assignment.currentOccurrenceDate);
 }

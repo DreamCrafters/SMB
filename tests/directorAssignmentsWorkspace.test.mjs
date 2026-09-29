@@ -196,7 +196,7 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked", "both"]) 
 }
 
 for (const canManage of [false, true]) {
-  test(`direct completion ${canManage ? "manager" : "executor"} sends a comment and revision and refreshes the journal`, async () => {
+  test(`review cycle ${canManage ? "controller accepts a submitted result" : "executor submits the result for review"} with a comment and revision`, async () => {
     const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
     const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
     const oldFetch = globalThis.fetch;
@@ -209,51 +209,67 @@ for (const canManage of [false, true]) {
     let submitted;
     let releaseAction;
     let failAction = true;
-    const assignment = { department: "", project: "", urgency: "", importance: "", progress: "", completedOn: "", note: "", incomingNumber: "", postponedUntil: "", id: "test-completion", number: "ГД-1", revision: 3, summary: "Задача для завершения", assignedOn: "2026-09-14", responsible: { fullName: "Исполнитель" }, coExecutors: [], currentOccurrenceDate: "2026-09-14", status: "in_progress", comments: [], documents: [] };
+    const assignment = { department: "", project: "", urgency: "", importance: "", progress: "", completedOn: "", note: "", incomingNumber: "", postponedUntil: "", id: "test-review", number: "ГД-1", revision: 3, summary: "Задача для проверки", assignedOn: "2026-09-14", responsible: { fullName: "Исполнитель" }, coExecutors: [], currentOccurrenceDate: "2026-09-14", status: canManage ? "under_review" : "in_progress", comments: [], documents: [] };
+    const other = { ...assignment, id: "in-work", number: "ГД-2", summary: "Поручение у исполнителя", status: "in_progress" };
     globalThis.fetch = async (url, options = {}) => {
       const path = new URL(String(url), "http://127.0.0.1:5173").pathname;
-      if (path === "/api/director-assignments/test-completion/action") {
+      if (path === "/api/director-assignments/test-review/action") {
         assert.equal(options.method, "POST");
         submitted = JSON.parse(options.body);
         if (failAction) return new Response(JSON.stringify({ error: { message: "Поручение уже изменено. Обновите список." } }), { status: 409 });
         await new Promise(resolve => { releaseAction = resolve; });
-        assignment.status = "completed";
+        assignment.status = canManage ? "completed" : "under_review";
         return new Response(JSON.stringify(assignment));
       }
       assert.equal(path, "/api/director-assignments");
-      return new Response(JSON.stringify({ assignments: canManage || assignment.status !== "completed" ? [assignment] : [], employees: [], permissions: { canView: true, canManage, canExecute: !canManage }, today: "2026-09-15" }));
+      return new Response(JSON.stringify({ assignments: canManage ? [assignment, other] : [assignment], executableAssignmentIds: canManage || assignment.status !== "in_progress" ? [] : [assignment.id], employees: [], permissions: { canView: true, canManage, canExecute: !canManage }, today: "2026-09-15" }));
     };
+    const button = label => [...rootElement.querySelectorAll("button")].find(item => item.textContent === label);
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
       await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { onShowToast: (...args) => toasts.push(args) })));
-      await React.act(async () => rootElement.querySelector(".table-text-action").click());
-      const complete = () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "Завершить");
-      assert.ok(complete());
-      assert.equal(complete().disabled, true);
+      if (canManage) {
+        const queue = rootElement.querySelector(".board-assignment-review-queue");
+        assert.ok(queue);
+        assert.match(queue.textContent, /Ожидают решения/u);
+        assert.doesNotMatch(queue.textContent, /Поручение у исполнителя/u);
+        const inWork = [...rootElement.querySelectorAll(".table-text-action")].find(item => item.textContent === "Поручение у исполнителя");
+        await React.act(async () => inWork.click());
+        assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
+        assert.match(rootElement.querySelector(".director-assignment-detail").textContent, /после того, как исполнитель отправит результат на проверку/u);
+        await React.act(async () => button("Проверить исполнение").click());
+        assert.ok(button("Вернуть на доработку"));
+      } else {
+        assert.equal(rootElement.querySelector(".board-assignment-review-queue"), null);
+        await React.act(async () => rootElement.querySelector(".table-text-action").click());
+        assert.ok(button("Сохранить промежуточный результат"));
+      }
+      assert.equal(button("Завершить"), undefined);
+      const label = canManage ? "Принять исполнение" : "Отправить на проверку";
+      assert.equal(button(canManage ? "Отправить на проверку" : "Принять исполнение"), undefined);
+      assert.equal(button(label).className, "primary-button");
+      assert.equal(button(label).disabled, true);
       const comment = rootElement.querySelector(".director-assignment-detail textarea");
       await React.act(async () => {
         Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(comment, "Работа выполнена");
         comment.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
       });
-      await React.act(async () => complete().click());
-      assert.deepEqual(submitted, { action: "complete", comment: "Работа выполнена", revision: 3 });
+      await React.act(async () => button(label).click());
+      assert.deepEqual(submitted, { action: canManage ? "complete" : "submit_for_review", comment: "Работа выполнена", revision: 3 });
       assert.match(rootElement.querySelector('[role="alert"]').textContent, /уже изменено/u);
       assert.equal(comment.value, "Работа выполнена");
-      assert.equal(complete().disabled, false);
+      assert.equal(button(label).disabled, false);
       assert.equal(toasts.length, 0);
       failAction = false;
-      await React.act(async () => complete().click());
-      assert.equal(complete().disabled, true);
+      await React.act(async () => button(label).click());
+      assert.equal(button(label).disabled, true);
       await React.act(async () => releaseAction());
       assert.equal(rootElement.querySelector(".director-assignment-detail"), null);
       assert.equal(toasts.at(-1)[2], "success");
-      if (canManage) {
-        assert.match(rootElement.querySelector("tbody").textContent, /Завершено/u);
-        await React.act(async () => rootElement.querySelector(".table-text-action").click());
-        assert.equal(complete(), undefined);
-      } else {
-        assert.equal(rootElement.querySelector(".table-text-action"), null);
-      }
+      assert.match(rootElement.querySelector("tbody").textContent, canManage ? /Завершено/u : /На проверке/u);
+      await React.act(async () => rootElement.querySelector(".table-text-action").click());
+      assert.equal(button(label), undefined);
+      if (canManage) assert.equal(rootElement.querySelector(".board-assignment-review-queue"), null);
     } finally {
       await React.act(async () => root.unmount());
       globalThis.fetch = oldFetch;
@@ -265,3 +281,53 @@ for (const canManage of [false, true]) {
     }
   });
 }
+
+test("collegium workspace uses its own API, title and protocol fields without a board link", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
+  const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const oldFetch = globalThis.fetch;
+  for (const name of globalNames) Object.defineProperty(globalThis, name, { value: name === "IS_REACT_ACT_ENVIRONMENT" ? true : dom.window[name], configurable: true, writable: true });
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const rootElement = document.getElementById("root");
+  const root = createRoot(rootElement);
+  const paths = [];
+  let submitted;
+  globalThis.fetch = async (url, options = {}) => {
+    const path = new URL(String(url), "http://127.0.0.1:5173").pathname;
+    paths.push(path);
+    if (options.method === "POST") submitted = JSON.parse(options.body);
+    return new Response(JSON.stringify({ assignments: [], employees: [{ id: "account:employee-1", userId: "employee-1", fullName: "Сотрудник", position: "Инженер", active: true, canReceive: true }, { id: "account:chair", userId: "chair", fullName: "Председатель", position: "Председатель Коллегии", active: true, canReceive: false }], permissions: { canView: true, canManage: true, canExecute: false }, today: "2026-09-15" }));
+  };
+  try {
+    const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
+    await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { registryId: "collegium", onShowToast() {} })));
+    assert.match(rootElement.querySelector("h2").textContent, /Поручения Коллегии/u);
+    const form = rootElement.querySelector("form");
+    assert.doesNotMatch(form.textContent, /Исходное поручение Совета директоров/u);
+    const field = label => [...form.querySelectorAll("label")].find(item => item.textContent.startsWith(label)).querySelector("input, select, textarea");
+    assert.deepEqual([...field("Ответственный").options].map(option => option.value), ["", "account:employee-1"]);
+    assert.equal(form.querySelectorAll(".director-coexecutors input").length, 2, "any active account can still be a co-executor");
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(field("Суть поручения"), "Подготовить справку");
+      field("Суть поручения").dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(field("Протокол №"), "12");
+      field("Протокол №").dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      field("Ответственный").value = "account:employee-1";
+      field("Ответственный").dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await React.act(async () => form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(submitted.assignment.protocolNumber, "12");
+    assert.equal(submitted.assignment.meetingDate, "");
+    assert.equal(submitted.assignment.sourceBoardAssignmentId, null);
+    assert.ok(paths.length > 0 && paths.every(path => path.startsWith("/api/collegium-assignments")));
+  } finally {
+    await React.act(async () => root.unmount());
+    globalThis.fetch = oldFetch;
+    for (const [name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+    dom.window.close();
+  }
+});

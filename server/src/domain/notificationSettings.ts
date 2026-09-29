@@ -11,6 +11,7 @@ export const notificationTypes = [
   { id: "laboratory_analyses", label: "Лабораторные анализы" },
   { id: "board_assignments", label: "Поручения Совета директоров" },
   { id: "general_director_assignments", label: "Поручения Гендиректора" },
+  { id: "collegium_assignments", label: "Поручения Коллегии" },
 ] as const;
 
 export type NotificationType = (typeof notificationTypes)[number]["id"];
@@ -222,6 +223,40 @@ export function buildBoardAssignmentReviewNotification({
       `Дата заседания: ${formatCalendarDate(meetingDate)}`,
       `Протокол: ${protocolNumber}`,
       `Пункт решения: ${decisionNumber}`,
+      `Передал: ${submittedByDisplayName}`,
+    ].join("\n"),
+  };
+}
+
+export function buildEmployeeAssignmentReviewNotification({
+  registryOwnerGenitive,
+  number,
+  summary,
+  deadline,
+  responsibleDisplayName,
+  protocolNumber,
+  decisionNumber,
+  submittedByDisplayName,
+}: {
+  registryOwnerGenitive: string;
+  number: string;
+  summary: string;
+  deadline: string;
+  responsibleDisplayName: string;
+  protocolNumber?: string;
+  decisionNumber?: string;
+  submittedByDisplayName: string;
+}) {
+  return {
+    subject: `Поручение ${registryOwnerGenitive} №${number} передано на проверку`,
+    text: [
+      `Поручение ${registryOwnerGenitive} №${number} передано на проверку.`,
+      "Проверьте результат и примите исполнение или верните поручение на доработку.",
+      `Краткое содержание: ${summary}`,
+      ...(protocolNumber ? [`Протокол: ${protocolNumber}`] : []),
+      ...(decisionNumber ? [`Пункт решения: ${decisionNumber}`] : []),
+      `Срок: ${formatCalendarDate(deadline)}`,
+      `Ответственный: ${responsibleDisplayName || "—"}`,
       `Передал: ${submittedByDisplayName}`,
     ].join("\n"),
   };

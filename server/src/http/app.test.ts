@@ -88,6 +88,7 @@ import type {
   BoardAssignmentsRepository,
 } from "../repositories/boardAssignmentsRepository.js";
 import type { NotificationSettingsRepository } from "../repositories/notificationSettingsRepository.js";
+import type { DirectorAssignment } from "../contracts/directorAssignments.js";
 import type {
   NavigationOrderRepository,
   NavigationSettings,
@@ -15533,7 +15534,7 @@ test("director endpoints authenticate and reject personnel access and forged pre
   profile.activeAccess.capabilities = [];
   const audit: AuditRepository = { async record() {}, async listReport() { throw new Error("unused"); } };
   const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
-  const repository = { async list() { return []; }, async listEmployees() { return []; }, async listAssignableEmployees() { return []; }, async listByBoardAssignment() { return []; }, async listBoardAssignmentRevisions() { return []; } } as unknown as DirectorAssignmentsRepository;
+  const repository = { registryId: "director", async list() { return []; }, async listEmployees() { return []; }, async listAssignableEmployees() { return []; }, async listByBoardAssignment() { return []; }, async listBoardAssignmentRevisions() { return []; } } as unknown as DirectorAssignmentsRepository;
   const server = createApiServer({ config: productionConfig, dispatcherSubmissions,
     referenceDataSource: emptyReferenceDataSource, authService: buildAuthService({ profile }), audit, databaseTransaction: transaction,
     directorAssignments: createDirectorAssignmentsService({ repository, transaction, audit, boardAssignments: { async readById(id: string) { return id === "source" ? { id, status: "in_progress" } as BoardAssignment : undefined; } } as unknown as BoardAssignmentsRepository }),
@@ -15589,6 +15590,107 @@ test("position API accepts sender and receiver modes independently of the positi
   ]);
 });
 
+test("collegium endpoints use their own registry, capabilities and review signal recipients", async () => {
+  const profile = buildProductionProfile("worker");
+  profile.activeAccess.capabilities = ["business.view_director_assignments", "business.manage_director_assignments"];
+  const audit: AuditRepository = { async record() {}, async listReport() { throw new Error("unused"); } };
+  const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
+  const executor = { id: `account:${profile.userId}`, revision: 0, fullName: "Исполнитель коллегии", position: "Инженер", department: "", category: "", userId: profile.userId, active: true };
+  let assignment = {
+    id: "collegium-1", number: "К-1", revision: 1, kind: "Поручение", assignedOn: "2026-09-01", summary: "Подготовить справку",
+    department: "", project: "", responsibleId: executor.id, responsible: executor, coExecutorIds: [], coExecutors: [],
+    recurrence: "once", activeFrom: "2026-09-01", activeTo: "2026-09-01", currentOccurrenceDate: "2026-09-01",
+    urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null,
+    meetingDate: "2026-08-28", protocolNumber: "12", decisionNumber: "3", status: "in_progress", completedOn: "",
+    comments: [], documents: [], createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z", needsClarification: false, postponedUntil: "", source: null,
+  } as DirectorAssignment;
+  const repository = {
+    registryId: "collegium",
+    async list() { return [assignment]; }, async listAssignableEmployees() { return [executor]; },
+    async read(id: string) { return id === assignment.id ? structuredClone(assignment) : undefined; },
+    async readAssignableEmployee(id: string) { return id === executor.id ? executor : undefined; },
+    async update(next: DirectorAssignment) { assignment = next; return next; },
+    async listManagerUserIds() { return ["collegium-chair"]; },
+  } as unknown as DirectorAssignmentsRepository;
+  const deliveryTypes: string[] = [];
+  const notificationSettings = {
+    async listDeliveryRecipients(type: string) {
+      deliveryTypes.push(type);
+      return [
+        { userId: "collegium-chair", position: "position-chair", email: "chair@example.com", maxUserId: "201" },
+        { userId: profile.userId, position: "position-worker", email: "worker@example.com", maxUserId: "202" },
+      ];
+    },
+  } as unknown as NotificationSettingsRepository;
+  const sentEmail: string[] = [];
+  const sentSubjects: string[] = [];
+  const sentMax: string[] = [];
+  const emailNotificationService = {
+    async sendTextNotification(recipients: readonly string[], subject: string) { sentEmail.push(...recipients); sentSubjects.push(subject); },
+    async sendDispatcherSubmissionNotification() {}, async sendEquipmentReportNotification() {}, async sendRefractoryReportNotification() {},
+  } satisfies EmailNotificationService;
+  const maxNotificationService = {
+    async sendTextNotification(recipients: readonly string[]) { sentMax.push(...recipients); },
+    async sendDispatcherSubmissionNotification() {}, async sendEquipmentReportNotification() {}, async sendRefractoryReportNotification() {},
+  } satisfies MaxNotificationService;
+  const server = createApiServer({ config: productionConfig, dispatcherSubmissions,
+    referenceDataSource: emptyReferenceDataSource, authService: buildAuthService({ profile }), audit, databaseTransaction: transaction,
+    notificationSettings, emailNotificationService, maxNotificationService,
+    collegiumAssignments: createDirectorAssignmentsService({ repository, transaction, audit, now: () => new Date("2026-09-14T10:00:00Z") }),
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const headers = { Cookie: `${productionConfig.session.cookieName}=prod-session`, "Content-Type": "application/json" };
+  try {
+    assert.equal((await fetch(`${baseUrl}/api/collegium-assignments`)).status, 401);
+    // Director rights never open the collegium registry.
+    assert.equal((await fetch(`${baseUrl}/api/collegium-assignments`, { headers })).status, 403);
+    assert.equal((await fetch(`${baseUrl}/api/director-assignments`, { headers })).status, 503);
+    profile.activeAccess.capabilities = ["business.view_collegium_assignments"];
+    const list = await fetch(`${baseUrl}/api/collegium-assignments`, { headers });
+    assert.equal(list.status, 200);
+    const body: unknown = await list.json();
+    assert.ok(isRecord(body) && Array.isArray(body.executableAssignmentIds));
+    assert.deepEqual(body.executableAssignmentIds, ["collegium-1"]);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-assignments/collegium-1/action`, { method: "POST", headers, body: JSON.stringify({ action: "complete", comment: "Сам закрыл", revision: 1 }) })).status, 403);
+    assert.equal(sentEmail.length + sentMax.length, 0);
+    const submitted = await fetch(`${baseUrl}/api/collegium-assignments/collegium-1/action`, { method: "POST", headers, body: JSON.stringify({ action: "submit_for_review", comment: "Справка готова", revision: 1 }) });
+    assert.equal(submitted.status, 200);
+    assert.equal(assignment.status, "under_review");
+    assert.deepEqual(deliveryTypes, ["collegium_assignments"]);
+    assert.deepEqual(sentEmail, ["chair@example.com"]);
+    assert.deepEqual(sentMax, ["201"]);
+    assert.match(sentSubjects[0] ?? "", /Коллегии №К-1 передано на проверку/u);
+    assert.equal((await fetch(`${baseUrl}/api/collegium-assignments/collegium-1/action`, { method: "POST", headers, body: JSON.stringify({ action: "record_progress", comment: "Ещё", revision: 2 }) })).status, 403);
+    assert.equal(sentEmail.length, 1);
+  } finally { server.close(); await once(server, "close"); }
+});
+
+test("position API stores the collegium mode separately from the director mode", async () => {
+  const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
+  const repository: AccountsRepository = {
+    ...accounts,
+    async createPosition(input) {
+      created.push(input);
+      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
+    },
+  };
+  await withApiServer(async (baseUrl) => {
+    const sessionId = await createDevSession(baseUrl, "admin");
+    const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
+    const create = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers, body: JSON.stringify({ displayName: "Председатель Коллегии", ...body }) });
+    assert.equal((await create({ navigationItems: ["business.collegium_assignments"], collegiumAssignmentAccess: "send" })).status, 201);
+    assert.equal((await create({ navigationItems: ["business.collegium_assignments", "business.director_assignments"], collegiumAssignmentAccess: "both", directorAssignmentAccess: "receive" })).status, 201);
+    assert.equal((await create({ navigationItems: [], collegiumAssignmentAccess: "send" })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.collegium_assignments"], collegiumAssignmentAccess: "review" })).status, 400);
+  }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
+  assert.deepEqual(created.map(position => position.capabilities), [
+    ["business.view_collegium_assignments", "business.manage_collegium_assignments"],
+    ["business.view_collegium_assignments", "business.view_director_assignments", "business.manage_collegium_assignments", "business.execute_collegium_assignments"],
+  ]);
+});
+
 test("director PDF endpoint authenticates, validates revisions and streams an actual PDF", async () => {
   const profile = buildProductionProfile("worker");
   profile.activeAccess.capabilities = [];
@@ -15599,7 +15701,7 @@ test("director PDF endpoint authenticates, validates revisions and streams an ac
   };
   const audit: AuditRepository = { async record() {}, async listReport() { throw new Error("unused"); } };
   const transaction: DatabaseTransactionRunner = { async run(operation) { return operation(); } };
-  const repository = { async read(id: string) { return id === assignment.id ? assignment : undefined; } } as unknown as DirectorAssignmentsRepository;
+  const repository = { registryId: "director", async read(id: string) { return id === assignment.id ? assignment : undefined; } } as unknown as DirectorAssignmentsRepository;
   const server = createApiServer({ config: productionConfig, dispatcherSubmissions,
     referenceDataSource: emptyReferenceDataSource, authService: buildAuthService({ profile }), audit, databaseTransaction: transaction,
     directorAssignments: createDirectorAssignmentsService({ repository, transaction, audit }),
@@ -15681,6 +15783,7 @@ test("concrete account preview uses live target identity, permissions and admini
     assignedOn: "2026-09-01", currentOccurrenceDate: "2026-09-24", activeFrom: "2026-09-24", activeTo: "2026-09-24", recurrence: "once", progress: "", completedOn: "",
   };
   const repository = {
+    registryId: "director",
     async list() { return [assignment]; }, async listAssignableEmployees() { return [assignment.responsible]; },
     async readAssignableEmployee() { return assignment.responsible; }, async read() { return assignment; },
     async update(record: typeof assignment) { Object.assign(assignment, record); return assignment; },

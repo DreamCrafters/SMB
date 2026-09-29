@@ -1,20 +1,21 @@
 import type { BoardAssignment, BoardAssignmentsRepository } from "../repositories/boardAssignmentsRepository.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { DirectorAssignment, DirectorAssignmentInput, PersonnelEmployee } from "../contracts/directorAssignments.js";
+import type { AssignmentRegistryId, DirectorAssignment, DirectorAssignmentInput, PersonnelEmployee } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 import type { ServerUserProfile } from "./auth.js";
 import { createDirectorAssignmentsService } from "./directorAssignmentsService.js";
 
-function fixture() {
+function fixture(registryId: AssignmentRegistryId = "director") {
   let records = new Map<string, DirectorAssignment>();
   let completions: DirectorAssignment[] = [];
   let revisions: DirectorAssignment[] = [];
   let boardLocks = 0;
   const board = { id: "board-parent", summary: "Исходное поручение", details: "Полное содержание поручения", status: "in_progress", recurrence: "once", activeFrom: "2026-09-01", activeTo: "2026-09-01", currentOccurrenceDate: "2026-09-01" } as BoardAssignment;
   let auditFails = false;
-  const employee: PersonnelEmployee = { id: "account:worker", revision: 1, fullName: "Исполнитель", position: "Инженер", department: "", category: "ИТР", userId: "worker", active: true };
+  const employee: PersonnelEmployee = { id: "account:worker", revision: 1, fullName: "Исполнитель", position: "Инженер", department: "", category: "ИТР", userId: "worker", active: true, canReceive: true };
   const repository = {
+    registryId,
     list: async () => structuredClone([...records.values()]),
     listByBoardAssignment: async (id: string) => structuredClone([...records.values()].filter(record => record.sourceBoardAssignmentId === id)),
     listBoardAssignmentRevisions: async (id: string) => structuredClone(revisions.filter(record => record.sourceBoardAssignmentId === id)),
@@ -40,21 +41,34 @@ function fixture() {
   });
   const profile = (userId: string, manager = false): ServerUserProfile => ({
     userId, displayName: userId, accountType: "business_owner", receivedAt: "2026-09-14T00:00:00Z",
-    activeAccess: { accountId: userId, accountType: "business_owner", position: "worker", positionDisplayName: "Сотрудник", displayName: userId, scope: { kind: "organization" }, issuedAt: "2026-09-14T00:00:00Z", navigationItems: ["business.director_assignments"], capabilities: ["business.view_director_assignments", ...(manager ? ["business.manage_director_assignments" as const] : [])] },
+    activeAccess: { accountId: userId, accountType: "business_owner", position: "worker", positionDisplayName: "Сотрудник", displayName: userId, scope: { kind: "organization" }, issuedAt: "2026-09-14T00:00:00Z",
+      navigationItems: [registryId === "collegium" ? "business.collegium_assignments" : "business.director_assignments"],
+      capabilities: registryId === "collegium"
+        ? ["business.view_collegium_assignments", ...(manager ? ["business.manage_collegium_assignments" as const] : [])]
+        : ["business.view_director_assignments", ...(manager ? ["business.manage_director_assignments" as const] : [])] },
   });
-  const input: DirectorAssignmentInput = { assignedOn: "2026-09-01", kind: "Поручение", summary: "Представить отчёт", department: "", project: "", responsibleId: employee.id, coExecutorIds: [], recurrence: "monthly", activeFrom: "2026-09-01", activeTo: "2026-12-31", urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null };
+  const input: DirectorAssignmentInput = { assignedOn: "2026-09-01", kind: "Поручение", summary: "Представить отчёт", department: "", project: "", responsibleId: employee.id, coExecutorIds: [], recurrence: "monthly", activeFrom: "2026-09-01", activeTo: "2026-12-31", urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null,
+    ...(registryId === "collegium" ? { meetingDate: "2026-09-10", protocolNumber: "7", decisionNumber: "2.1" } : {}) };
   return { service, employee, profile, input, board, boardLocks: () => boardLocks, markUnclear(id: string) { records.get(id)!.needsClarification = true; }, makeLegacy(id: string) { records.get(id)!.responsibleId = "person-legacy"; }, unassign(id: string) { records.get(id)!.responsibleId = ""; }, failAudit() { auditFails = true; } };
 }
 
-test("responsible executor can complete a one-time assignment directly with an immutable history entry", async () => {
+async function submitAndAccept(service: ReturnType<typeof fixture>["service"], manager: ServerUserProfile, executor: ServerUserProfile, record: DirectorAssignment, comment = "Принято") {
+  const review = await service.action(executor, record.id, { action: "submit_for_review", comment: "Готово", revision: record.revision });
+  return service.action(manager, record.id, { action: "complete", comment, revision: review.revision });
+}
+
+test("executor submits a one-time assignment and the controller accepts it with an immutable history entry", async () => {
   const { service, profile, input } = fixture();
   const manager = profile("director", true);
   const record = await service.save(manager, { assignment: { ...input, recurrence: "once", activeTo: input.activeFrom }, comment: "Создано" });
-  const completed = await service.action(profile("worker"), record.id, { action: "complete", comment: "  Выполнено  ", revision: 1 });
+  const review = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "  Выполнено  ", revision: 1 });
+  assert.equal(review.status, "under_review");
+  assert.equal(review.comments.at(-1)?.text, "Выполнено");
+  const completed = await service.action(manager, record.id, { action: "complete", comment: "Принято", revision: review.revision });
   assert.equal(completed.status, "completed");
   assert.equal(completed.completedOn, "2026-09-14");
-  assert.equal(completed.revision, 2);
-  assert.deepEqual(completed.comments.at(-1), { id: completed.comments.at(-1)!.id, userId: "worker", author: "worker", text: "Выполнено", status: "completed", createdAt: "2026-09-14T10:00:00.000Z" });
+  assert.equal(completed.revision, 3);
+  assert.deepEqual(completed.comments.at(-1), { id: completed.comments.at(-1)!.id, userId: "director", author: "director", text: "Принято", status: "completed", createdAt: "2026-09-14T10:00:00.000Z" });
   const snapshot = (await service.completions(manager))[0].assignment;
   assert.equal(snapshot.status, "completed");
   assert.equal(snapshot.completedOn, "2026-09-14");
@@ -67,7 +81,7 @@ test("overview summary counts accepted periods for managers and is hidden from e
   const { service, profile, input } = fixture();
   const manager = profile("director", true);
   const record = await service.save(manager, { assignment: input, comment: "Создано" });
-  await service.action(profile("worker"), record.id, { action: "complete", comment: "Готово", revision: record.revision });
+  await submitAndAccept(service, manager, profile("worker"), record);
   await service.save(manager, { assignment: { ...input, activeFrom: "2026-09-10", activeTo: "2026-09-10", recurrence: "once" }, comment: "Создано" });
 
   assert.deepEqual(await service.overviewSummary(manager, { monthStart: "2026-09-01", today: "2026-09-14" }), {
@@ -79,21 +93,26 @@ test("overview summary counts accepted periods for managers and is hidden from e
   assert.equal(await service.overviewSummary(profile("worker"), { monthStart: "2026-09-01", today: "2026-09-14" }), undefined);
 });
 
-for (const actor of ["worker", "director", "assistant"]) {
-  for (const initialStatus of ["in_progress", "revision_requested", "under_review"]) {
-    if (actor === "worker" && initialStatus === "under_review") continue;
-    test(`${actor} directly completes ${initialStatus} and advances a recurring assignment once`, async () => {
+for (const actor of ["director", "assistant"]) {
+  for (const resubmitted of [false, true]) {
+    test(`${actor} accepts a ${resubmitted ? "resubmitted" : "submitted"} result and advances a recurring assignment once`, async () => {
       const { service, profile, input } = fixture();
-      const manager = profile("director", true);
+      const manager = profile(actor, true);
+      const worker = profile("worker");
       let record = await service.save(manager, { assignment: input, comment: "Создано" });
-      if (initialStatus !== "in_progress") record = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Проверить", revision: record.revision });
-      if (initialStatus === "revision_requested") record = await service.action(manager, record.id, { action: "return_for_revision", comment: "Исправить", revision: record.revision });
-      const completed = await service.action(profile(actor, actor !== "worker"), record.id, { action: "complete", comment: "Готово", revision: record.revision });
+      record = await service.action(worker, record.id, { action: "submit_for_review", comment: "Проверить", revision: record.revision });
+      if (resubmitted) {
+        record = await service.action(manager, record.id, { action: "return_for_revision", comment: "Исправить", revision: record.revision });
+        assert.equal(record.status, "revision_requested");
+        record = await service.action(worker, record.id, { action: "submit_for_review", comment: "Исправлено", revision: record.revision });
+      }
+      const completed = await service.action(manager, record.id, { action: "complete", comment: "Готово", revision: record.revision });
       assert.equal(completed.status, "in_progress");
       assert.equal(completed.currentOccurrenceDate, "2026-10-01");
       assert.equal(completed.completedOn, "");
-      assert.equal((await service.list(profile("worker"))).assignments.length, 1);
-      assert.deepEqual((await service.list(profile("worker"))).executableAssignmentIds, []);
+      assert.equal((await service.list(worker)).assignments.length, 1);
+      // The next period opens for early reporting right away.
+      assert.deepEqual((await service.list(worker)).executableAssignmentIds, [record.id]);
       const history = await service.completions(manager);
       assert.equal(history.length, 1);
       assert.equal(history[0].assignment.status, "completed");
@@ -105,13 +124,43 @@ for (const actor of ["worker", "director", "assistant"]) {
   }
 }
 
-test("early manager completion advances past the completed occurrence without duplicating a period", async () => {
+for (const status of ["in_progress", "revision_requested"] as const) {
+  test(`controller cannot accept or return an assignment that is ${status} without a submitted result`, async () => {
+    const { service, profile, input } = fixture();
+    const manager = profile("director", true);
+    let record = await service.save(manager, { assignment: input, comment: "Создано" });
+    if (status === "revision_requested") {
+      record = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Проверить", revision: record.revision });
+      record = await service.action(manager, record.id, { action: "return_for_revision", comment: "Исправить", revision: record.revision });
+    }
+    for (const action of ["complete", "return_for_revision"]) {
+      await assert.rejects(service.action(manager, record.id, { action, comment: "Решение", revision: record.revision }), /на проверке/u);
+    }
+    assert.equal((await service.read(manager, record.id)).status, status);
+    assert.equal((await service.completions(manager)).length, 0);
+  });
+}
+
+test("executor only reports: completing, returning and unknown actions are rejected", async () => {
   const { service, profile, input } = fixture();
   const manager = profile("director", true);
   const record = await service.save(manager, { assignment: input, comment: "Создано" });
-  const first = await service.action(manager, record.id, { action: "complete", comment: "Сентябрь готов", revision: 1 });
+  for (const action of ["complete", "return_for_revision"]) {
+    await assert.rejects(service.action(profile("worker"), record.id, { action, comment: "Готово", revision: 1 }), /руководитель/u);
+  }
+  await assert.rejects(service.action(profile("worker"), record.id, { action: "archive", comment: "Готово", revision: 1 }), /действие/u);
+  const review = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: 1 });
+  await assert.rejects(service.action(profile("worker"), record.id, { action: "complete", comment: "Готово", revision: review.revision }), /недоступно/u);
+  assert.equal((await service.completions(manager)).length, 0);
+});
+
+test("early submission and acceptance advance past the accepted occurrence without duplicating a period", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("director", true);
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  const first = await submitAndAccept(service, manager, profile("worker"), record, "Сентябрь готов");
   assert.equal(first.currentOccurrenceDate, "2026-10-01");
-  const early = await service.action(manager, record.id, { action: "complete", comment: "Октябрь готов досрочно", revision: first.revision });
+  const early = await submitAndAccept(service, manager, profile("worker"), first, "Октябрь готов досрочно");
   assert.equal(early.currentOccurrenceDate, "2026-11-01");
   const history = await service.completions(manager);
   assert.deepEqual(history.map(item => item.assignment.currentOccurrenceDate), ["2026-09-01", "2026-10-01"]);
@@ -121,47 +170,87 @@ test("early manager completion advances past the completed occurrence without du
   assert.deepEqual(await service.completions(manager), history);
 });
 
-test("direct completion enforces visibility, active account links, comments and revision without partial writes", async () => {
+test("a one-time assignment can be reported before its deadline but not before it is assigned", async () => {
+  const { service, profile, input } = fixture();
+  const manager = profile("director", true);
+  const due = await service.save(manager, { assignment: { ...input, recurrence: "once", activeFrom: "2026-09-30", activeTo: "2026-09-30" }, comment: "Создано" });
+  assert.deepEqual((await service.list(profile("worker"))).executableAssignmentIds, [due.id]);
+  const review = await service.action(profile("worker"), due.id, { action: "submit_for_review", comment: "Сделано раньше срока", revision: 1 });
+  const accepted = await service.action(manager, due.id, { action: "complete", comment: "Принято", revision: review.revision });
+  assert.equal(accepted.status, "completed");
+  assert.equal(accepted.completedOn, "2026-09-14");
+  const future = await service.save(manager, { assignment: { ...input, assignedOn: "2026-09-20", recurrence: "once", activeFrom: "2026-09-30", activeTo: "2026-09-30" }, comment: "Создано" });
+  await assert.rejects(service.action(profile("worker"), future.id, { action: "submit_for_review", comment: "Готово", revision: 1 }), /недоступно/u);
+});
+
+test("the responsible account must be able to receive assignments of this registry", async () => {
+  const { service, profile, input, employee } = fixture();
+  const manager = profile("director", true);
+  employee.canReceive = false;
+  await assert.rejects(service.save(manager, { assignment: input, comment: "Создано" }), /нет доступа к вкладке «Поручения генерального директора»/u);
+  employee.canReceive = true;
+  const record = await service.save(manager, { assignment: input, comment: "Создано" });
+  employee.canReceive = false;
+  // Editing other fields keeps an existing responsible; reassignment is checked again.
+  const edited = await service.save(manager, { assignment: { ...input, note: "Уточнение" }, comment: "Поправка", revision: record.revision }, record.id);
+  assert.equal(edited.note, "Уточнение");
+});
+
+test("a controller cannot accept or return an assignment where they are the responsible executor", async () => {
+  const { service, profile, input } = fixture();
+  const own = profile("worker", true);
+  own.activeAccess.capabilities.push("business.execute_director_assignments");
+  const record = await service.save(own, { assignment: input, comment: "Создано" });
+  const review = await service.action(own, record.id, { action: "submit_for_review", comment: "Готово", revision: record.revision });
+  for (const action of ["complete", "return_for_revision"]) {
+    await assert.rejects(service.action(own, record.id, { action, comment: "Сам принял", revision: review.revision }), /другой руководитель/u);
+  }
+  const accepted = await service.action(profile("director", true), record.id, { action: "complete", comment: "Принято", revision: review.revision });
+  assert.equal(accepted.currentOccurrenceDate, "2026-10-01");
+});
+
+test("review actions enforce visibility, active account links, comments and revision without partial writes", async () => {
   const { service, profile, input, employee } = fixture();
   const manager = profile("director", true);
   const record = await service.save(manager, { assignment: { ...input, recurrence: "once", activeTo: input.activeFrom }, comment: "Создано" });
-  const action = { action: "complete", comment: "Готово", revision: 1 };
+  const action = { action: "submit_for_review", comment: "Готово", revision: 1 };
   await assert.rejects(service.action(profile("other"), record.id, action), /недоступно/u);
   const noAccess = profile("director", true);
   noAccess.activeAccess.capabilities = [];
   await assert.rejects(service.action(noAccess, record.id, action), /прав/u);
-  for (const comment of ["", "  ", null, 42, "а".repeat(4001)]) await assert.rejects(service.action(profile("worker"), record.id, { ...action, comment }), /заполнение/u);
-  await assert.rejects(service.action(manager, record.id, { ...action, revision: 0 }), /изменено/u);
+  for (const comment of ["", "  ", null, 42, "а".repeat(4001)]) await assert.rejects(service.action(profile("worker"), record.id, { ...action, comment }), /Комментарий/u);
+  await assert.rejects(service.action(profile("worker"), record.id, { ...action, revision: 0 }), /изменено/u);
   employee.active = false;
   await assert.rejects(service.action(profile("worker"), record.id, action), /недоступно/u);
   employee.active = true;
   assert.equal((await service.read(manager, record.id)).revision, 1);
+  const review = await service.action(profile("worker"), record.id, action);
+  for (const comment of ["", "  "]) await assert.rejects(service.action(manager, record.id, { action: "complete", comment, revision: review.revision }), /Комментарий/u);
   assert.equal((await service.completions(manager)).length, 0);
-  const completed = await service.action(manager, record.id, action);
-  await assert.rejects(service.action(manager, record.id, { ...action, revision: completed.revision }), /уже завершено/u);
+  const completed = await service.action(manager, record.id, { action: "complete", comment: "Принято", revision: review.revision });
+  await assert.rejects(service.action(manager, record.id, { action: "complete", comment: "Повтор", revision: completed.revision }), /уже завершено/u);
   assert.equal((await service.completions(manager)).length, 1);
 });
 
-test("executor cannot directly complete a future assignment or one already submitted for review", async () => {
+test("executor cannot submit an assignment dated in the future or one already submitted for review", async () => {
   const { service, profile, input } = fixture();
   const manager = profile("director", true);
-  const future = await service.save(manager, { assignment: { ...input, activeFrom: "2026-10-01" }, comment: "Создано" });
-  await assert.rejects(service.action(profile("worker"), future.id, { action: "complete", comment: "Готово", revision: 1 }), /недоступно/u);
+  const future = await service.save(manager, { assignment: { ...input, assignedOn: "2026-10-01", activeFrom: "2026-10-01" }, comment: "Создано" });
+  await assert.rejects(service.action(profile("worker"), future.id, { action: "submit_for_review", comment: "Готово", revision: 1 }), /недоступно/u);
   const record = await service.save(manager, { assignment: input, comment: "Создано" });
   await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Проверить", revision: 1 });
-  await assert.rejects(service.action(profile("worker"), record.id, { action: "complete", comment: "Готово", revision: 2 }), /недоступно/u);
+  await assert.rejects(service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Ещё раз", revision: 2 }), /недоступно/u);
   assert.equal((await service.completions(manager)).length, 0);
 });
 
-test("direct completion rolls back both current assignment and snapshot when audit fails", async () => {
+test("submission rolls back when audit fails", async () => {
   const { service, profile, input, failAudit } = fixture();
   const manager = profile("director", true);
   const record = await service.save(manager, { assignment: input, comment: "Создано" });
   failAudit();
-  await assert.rejects(service.action(profile("worker"), record.id, { action: "complete", comment: "Готово", revision: 1 }), /audit/u);
+  await assert.rejects(service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: 1 }), /audit/u);
   assert.equal((await service.read(manager, record.id)).revision, 1);
   assert.equal((await service.read(manager, record.id)).status, "in_progress");
-  assert.equal((await service.completions(manager)).length, 0);
 });
 
 test("own assignment remains visible after submission; another employee cannot read or mutate it", async () => {
@@ -206,7 +295,7 @@ test("accepted period is immutable and editing the next period does not rewind t
   assert.equal(history[0].assignment.note, "");
   assert.equal(history[0].assignment.currentOccurrenceDate, "2026-09-01");
   assert.equal((await service.list(profile("worker"))).assignments.length, 1);
-  assert.deepEqual((await service.list(profile("worker"))).executableAssignmentIds, []);
+  assert.deepEqual((await service.list(profile("worker"))).executableAssignmentIds, [record.id]);
   await assert.rejects(service.action(manager, record.id, { action: "complete", comment: "Повтор", revision: 2 }), /изменено/u);
 });
 
@@ -326,12 +415,13 @@ test("PDF history uses completion IDs and immutable data after the next occurren
 });
 
 for (const recurring of [false, true]) {
-  test(`completion clears clarification in the accepted snapshot (recurring: ${recurring})`, async () => {
+  test(`acceptance clears clarification in the accepted snapshot (recurring: ${recurring})`, async () => {
     const { service, profile, input, markUnclear } = fixture();
     const manager = profile("director", true);
     const record = await service.save(manager, { assignment: recurring ? input : { ...input, recurrence: "once", activeTo: input.activeFrom }, comment: "Создано" });
+    const review = await service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: 1 });
     markUnclear(record.id);
-    const result = await service.action(manager, record.id, { action: "complete", comment: "Выполнено", revision: 1 });
+    const result = await service.action(manager, record.id, { action: "complete", comment: "Выполнено", revision: review.revision });
     assert.equal((await service.completions(manager))[0].assignment.needsClarification, false);
     assert.equal(result.needsClarification, recurring);
     assert.equal(result.status, recurring ? "in_progress" : "completed");
@@ -359,9 +449,9 @@ test("combined mode executes own assignments without allowing execution for othe
   assert.equal(submitted.status, "under_review");
 });
 
-test("responsible account sees an assigned future deadline without receiving early execution rights", async () => {
+test("responsible account sees an assignment dated in the future without receiving execution rights yet", async () => {
   const { service, profile, input } = fixture();
-  const assignment = { ...input, recurrence: "once", activeFrom: "2026-09-25", activeTo: "2026-09-25" } as DirectorAssignmentInput;
+  const assignment = { ...input, assignedOn: "2026-09-20", recurrence: "once", activeFrom: "2026-09-25", activeTo: "2026-09-25" } as DirectorAssignmentInput;
   const record = await service.save(profile("director", true), { assignment, comment: "Назначено" });
   const list = await service.list(profile("worker"));
   assert.deepEqual(list.assignments.map(item => item.id), [record.id]);
@@ -380,7 +470,7 @@ test("clarification does not hide an explicitly assigned task or allow execution
   const list = await service.list(profile("worker"));
   assert.equal(list.assignments[0].needsClarification, true);
   assert.deepEqual(list.executableAssignmentIds, []);
-  await assert.rejects(service.action(profile("worker"), record.id, { action: "complete", comment: "Готово", revision: 1 }));
+  await assert.rejects(service.action(profile("worker"), record.id, { action: "submit_for_review", comment: "Готово", revision: 1 }));
   employee.active = false;
   assert.deepEqual((await service.list(profile("worker"))).assignments, []);
   await assert.rejects(service.read(profile("worker"), record.id), /недоступно/u);
@@ -432,4 +522,31 @@ test("previewed permissions do not turn another account's tasks into the adminis
   assert.deepEqual(result.assignments.map(item => item.id), [record.id]);
   assert.deepEqual(result.ownAssignmentIds, []);
   assert.deepEqual(result.executableAssignmentIds, []);
+});
+
+test("collegium registry runs the same review cycle with its own capabilities and protocol fields", async () => {
+  const { service, profile, input } = fixture("collegium");
+  const chair = profile("chair", true);
+  const record = await service.save(chair, { assignment: input, comment: "Создано" });
+  assert.deepEqual([record.meetingDate, record.protocolNumber, record.decisionNumber], ["2026-09-10", "7", "2.1"]);
+  assert.equal((await service.list(profile("worker"))).assignments.length, 1);
+  const accepted = await submitAndAccept(service, chair, profile("worker"), record);
+  assert.equal(accepted.currentOccurrenceDate, "2026-10-01");
+  assert.equal((await service.completions(chair))[0].assignment.protocolNumber, "7");
+  await assert.rejects(service.save(chair, { assignment: { ...input, meetingDate: "10.09.2026" }, comment: "Создано" }), /заседания/u);
+});
+
+test("registries do not share permissions or board links", async () => {
+  const collegium = fixture("collegium");
+  const director = fixture("director");
+  // A director-assignment controller has no rights in the collegium registry, and vice versa.
+  await assert.rejects(collegium.service.list(director.profile("director", true)), /прав/u);
+  await assert.rejects(director.service.list(collegium.profile("chair", true)), /прав/u);
+  const chair = collegium.profile("chair", true);
+  chair.activeAccess.capabilities.push("business.view_board_assignments");
+  await assert.rejects(collegium.service.save(chair, { assignment: { ...collegium.input, sourceBoardAssignmentId: collegium.board.id }, comment: "Создано" }), /Совета директоров/u);
+  await assert.rejects(collegium.service.delegations(chair, collegium.board.id), /недоступно/u);
+  const { meetingDate: _meetingDate, protocolNumber: _protocolNumber, decisionNumber: _decisionNumber, ...collegiumFields } = collegium.input;
+  await assert.rejects(director.service.save(director.profile("director", true), { assignment: { ...director.input, protocolNumber: "7" }, comment: "Создано" }), /Неизвестные поля/u);
+  await assert.rejects(collegium.service.save(chair, { assignment: collegiumFields, comment: "Создано" }), /заполнение/u);
 });

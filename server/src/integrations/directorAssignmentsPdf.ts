@@ -1,4 +1,4 @@
-import type { DirectorAssignment, DirectorAssignmentPdfRequest } from "../contracts/directorAssignments.js";
+import { assignmentRegistries, type AssignmentRegistryId, type DirectorAssignment, type DirectorAssignmentPdfRequest } from "../contracts/directorAssignments.js";
 import { renderPdfDocument } from "./pdfRenderer.js";
 
 const statuses: Record<DirectorAssignment["status"], string> = {
@@ -14,7 +14,12 @@ function coExecutors(row: DirectorAssignment) {
   return row.source && row.revision === 1 ? row.source.values[6] ?? "" : row.coExecutors.map(employee => employee.fullName).join(", ");
 }
 
-export function buildDirectorAssignmentsPdfDocument(assignments: DirectorAssignment[], mode: DirectorAssignmentPdfRequest["mode"]) {
+function protocol(row: DirectorAssignment) {
+  return [row.meetingDate ? `заседание ${date(row.meetingDate)}` : "", row.protocolNumber ? `протокол №${row.protocolNumber}` : "", row.decisionNumber ? `пункт ${row.decisionNumber}` : ""].filter(Boolean).join(", ");
+}
+
+export function buildDirectorAssignmentsPdfDocument(assignments: DirectorAssignment[], mode: DirectorAssignmentPdfRequest["mode"], registryId: AssignmentRegistryId = "director") {
+  const registry = assignmentRegistries[registryId];
   const base = {
     pageSize: "A4",
     defaultStyle: { font: "Roboto", fontSize: mode === "register" ? 9 : 11, lineHeight: 1.2 },
@@ -22,12 +27,12 @@ export function buildDirectorAssignmentsPdfDocument(assignments: DirectorAssignm
   };
   if (mode === "register") return {
     ...base, pageOrientation: "landscape", pageMargins: [30, 30, 30, 40],
-    info: { title: "Журнал поручений генерального директора" },
+    info: { title: `Журнал поручений ${registry.ownerGenitive}` },
     content: [
-      { text: "Поручения генерального директора", bold: true, fontSize: 15, margin: [0, 0, 0, 12] },
+      { text: registry.title, bold: true, fontSize: 15, margin: [0, 0, 0, 12] },
       { table: { headerRows: 1, widths: [60, "*", 110, 110, 60, 85], body: [
         ["Дата", "Суть поручения", "Исполнитель", "Соисполнители", "Срок", "Статус"].map(text => ({ text, bold: true, fillColor: "#eeeeee" })),
-        ...assignments.map(row => [date(row.assignedOn) || "—", row.summary || "—", responsible(row) || "—", coExecutors(row) || "—", date(row.currentOccurrenceDate) || "—", `${statuses[row.status]}${row.needsClarification ? " · Требует уточнения" : ""}`]),
+        ...assignments.map(row => [date(row.assignedOn) || "—", [row.summary || "—", protocol(row)].filter(Boolean).join("\n"), responsible(row) || "—", coExecutors(row) || "—", date(row.currentOccurrenceDate) || "—", `${statuses[row.status]}${row.needsClarification ? " · Требует уточнения" : ""}`]),
       ] }, layout: { paddingTop: () => 6, paddingBottom: () => 6 } },
     ],
   };
@@ -41,11 +46,12 @@ export function buildDirectorAssignmentsPdfDocument(assignments: DirectorAssignm
       { text: `${row.kind} №${row.number}`, alignment: "center", bold: true, fontSize: 14, margin: [0, 0, 0, 12] },
       { text: `От ${date(row.assignedOn) || "________________"}`, alignment: "center", margin: [0, 0, 0, 12] },
       { text: row.project || "Проект ________________________________", alignment: "center", margin: [0, 0, 0, 36] },
+      ...(registry.hasProtocol ? [field("Решение", protocol(row))] : []),
       field("Исполнитель", responsible(row)),
       field("Соисполнители", coExecutors(row)),
       field("Содержание (суть поручения)", row.summary, 20),
       field("Срок выполнения (дата)", date(row.currentOccurrenceDate), 32),
-      { text: "Генеральный директор ____________________ место для подписи", margin: [0, 0, 0, 44] },
+      { text: `${registry.managerTitle} ____________________ место для подписи`, margin: [0, 0, 0, 44] },
       field("Комментарии по выполнению", row.progress),
       blankLine,
       field("Фактически выполнено (дата)", date(row.completedOn)),
@@ -53,6 +59,6 @@ export function buildDirectorAssignmentsPdfDocument(assignments: DirectorAssignm
   };
 }
 
-export async function renderDirectorAssignmentsPdf(assignments: DirectorAssignment[], mode: DirectorAssignmentPdfRequest["mode"]) {
-  return renderPdfDocument(buildDirectorAssignmentsPdfDocument(assignments, mode));
+export async function renderDirectorAssignmentsPdf(assignments: DirectorAssignment[], mode: DirectorAssignmentPdfRequest["mode"], registryId: AssignmentRegistryId = "director") {
+  return renderPdfDocument(buildDirectorAssignmentsPdfDocument(assignments, mode, registryId));
 }

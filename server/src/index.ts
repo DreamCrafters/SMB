@@ -110,7 +110,8 @@ if (config.runMigrationsOnStart) {
 
 const emailNotifications = createEmailNotificationService(config.emailNotifications, {}, config.appEnv);
 const maxNotifications = createMaxNotificationService(config.maxNotifications, {}, config.appEnv);
-const directorAssignmentsRepository = createDirectorAssignmentsRepository(pool);
+const directorAssignmentsRepository = createDirectorAssignmentsRepository(pool, "director");
+const collegiumAssignmentsRepository = createDirectorAssignmentsRepository(pool, "collegium");
 const notificationSettings = createNotificationSettingsRepository(pool);
 const server = createApiServer({
   config,
@@ -156,6 +157,7 @@ const server = createApiServer({
   laboratoryGreenProductQualityJournal:
     createLaboratoryGreenProductQualityJournalRepository(pool),
   directorAssignments: createDirectorAssignmentsService({ repository: directorAssignmentsRepository, boardAssignments: createBoardAssignmentsRepository(pool), transaction: database.transaction, audit: createAuditRepository(pool) }),
+  collegiumAssignments: createDirectorAssignmentsService({ repository: collegiumAssignmentsRepository, transaction: database.transaction, audit: createAuditRepository(pool) }),
   boardAssignments: createBoardAssignmentsRepository(pool),
   warehouse1c: warehouse1cReadOnlyPool === undefined
     ? createWarehouse1cRepository(pool)
@@ -178,14 +180,15 @@ server.listen(config.port, "0.0.0.0", () => {
   console.log(`SMB Monitor API listening on http://127.0.0.1:${config.port}`);
 });
 
-const stopReminders = config.directorAssignmentRemindersEnabled
-  ? startDirectorAssignmentReminders(createDirectorAssignmentReminderRunner({
-      repository: directorAssignmentsRepository,
+const reminderStops = config.directorAssignmentRemindersEnabled
+  ? [directorAssignmentsRepository, collegiumAssignmentsRepository].map(repository => startDirectorAssignmentReminders(createDirectorAssignmentReminderRunner({
+      repository,
       notificationSettings,
       ...(config.emailNotifications.enabled ? { sendEmail: (recipient, subject, text) => emailNotifications.sendTextNotification!([recipient], subject, text) } : {}),
       ...(config.maxNotifications.enabled ? { sendMax: (recipient, _subject, text, signal) => maxNotifications.sendTextNotification!([recipient], text, signal) } : {}),
-    }))
-  : async () => {};
+    })))
+  : [];
+const stopReminders = async () => { await Promise.all(reminderStops.map(stop => stop())); };
 
 async function shutdown() {
   await stopReminders();

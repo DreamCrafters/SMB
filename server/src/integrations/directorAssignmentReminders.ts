@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { buildDirectorAssignmentReminder, directorAssignmentReminderDays, directorReminderPollMs, type DirectorReminderDelivery } from "../domain/directorAssignmentReminders.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 import type { NotificationSettingsRepository } from "../repositories/notificationSettingsRepository.js";
+import { readAssignmentRegistry } from "../contracts/directorAssignments.js";
 
-type ReminderRepository = Pick<DirectorAssignmentsRepository, "list" | "read" | "readAssignableEmployee" | "claimReminder" | "completeReminder">;
+type ReminderRepository = Pick<DirectorAssignmentsRepository, "registryId" | "list" | "read" | "readAssignableEmployee" | "claimReminder" | "completeReminder">;
 type SendReminder = (recipient: string, subject: string, text: string, signal: AbortSignal) => Promise<void>;
 
-export function createDirectorAssignmentReminderRunner({ repository, notificationSettings, sendEmail, sendMax, now = () => new Date(), onError = () => console.warn("director_assignment_reminders.delivery_failed") }: {
+export function createDirectorAssignmentReminderRunner({ repository, notificationSettings, sendEmail, sendMax, now = () => new Date(), onError = () => console.warn(`${repository.registryId}_assignment_reminders.delivery_failed`) }: {
   repository: ReminderRepository;
   notificationSettings: Pick<NotificationSettingsRepository, "listDeliveryRecipients">;
   sendEmail?: SendReminder;
@@ -14,6 +15,7 @@ export function createDirectorAssignmentReminderRunner({ repository, notificatio
   now?: () => Date;
   onError?: () => void;
 }) {
+  const { notificationType } = readAssignmentRegistry(repository.registryId);
   let running: Promise<void> | undefined;
   const controller = new AbortController();
   async function deliver() {
@@ -33,7 +35,7 @@ export function createDirectorAssignmentReminderRunner({ repository, notificatio
           const employee = await repository.readAssignableEmployee(id);
           if (employee?.active && employee.userId) userIds.add(employee.userId);
         }
-        const recipients = await notificationSettings.listDeliveryRecipients("general_director_assignments");
+        const recipients = await notificationSettings.listDeliveryRecipients(notificationType);
         const message = buildDirectorAssignmentReminder(assignment, daysBefore);
         for (const recipient of recipients) {
           if (!userIds.has(recipient.userId)) continue;

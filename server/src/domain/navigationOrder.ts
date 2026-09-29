@@ -15,6 +15,7 @@ export const defaultNavigationOrder: AccountNavigationItem[] = [
   "business.director_assignments",
   "business.personnel",
   "business.board_assignments",
+  "business.collegium_assignments",
   "business.warehouse_1c",
   "business.railway_wagons",
   "business.settings",

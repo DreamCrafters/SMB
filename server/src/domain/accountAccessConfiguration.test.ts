@@ -388,3 +388,24 @@ test("combined director mode survives capability round trip", async () => {
   assert.equal(isNavigationAccessLevel(navigation[0], "both"), true);
   assert.equal(readDirectorAssignmentAccess(capabilities, []), "none");
 });
+
+test("collegium assignment modes use their own tab and capabilities", async () => {
+  const { readDirectorAssignmentAccess } = await import("../contracts/directorAssignments.js");
+  const navigation = ["business.collegium_assignments"] as const;
+  for (const mode of ["receive", "send", "both"] as const) {
+    const capabilities = resolveCapabilitiesForPosition("custom", [...navigation], "none", false, false, false, "none", "both", mode);
+    assert.equal(readDirectorAssignmentAccess(capabilities, navigation, "collegium"), mode);
+    assert.deepEqual(resolveCapabilitiesForNavigationLevel(navigation[0], mode), capabilities);
+    // The director mode argument never leaks into the collegium tab.
+    assert.equal(capabilities.some(capability => capability.includes("director")), false);
+  }
+  assert.deepEqual(
+    resolveCapabilitiesForPosition("custom", ["business.director_assignments", ...navigation], "none", false, false, false, "none", "send", "receive"),
+    ["business.view_director_assignments", "business.view_collegium_assignments", "business.manage_director_assignments"],
+  );
+  assert.equal(isNavigationAccessLevel(navigation[0], "both"), true);
+  assert.deepEqual(resolveMaximumCapabilitiesForNavigation(navigation[0]), [
+    "business.view_collegium_assignments", "business.manage_collegium_assignments", "business.execute_collegium_assignments",
+  ]);
+  assert.equal(resolveCapabilitiesForPosition("custom", [], "none", false, false, false, "none", "receive", "both").length, 0);
+});

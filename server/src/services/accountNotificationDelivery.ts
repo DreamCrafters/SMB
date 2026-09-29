@@ -1,5 +1,5 @@
 import type { AccountPosition } from "../domain/auth.js";
-import { boardAssignmentNotificationType } from "../domain/notificationSettings.js";
+import { boardAssignmentNotificationType, type NotificationType } from "../domain/notificationSettings.js";
 import type { EmailNotificationService } from "../integrations/emailNotifications.js";
 import type { MaxNotificationService } from "../integrations/maxNotifications.js";
 import type {
@@ -30,6 +30,35 @@ export async function sendBoardAssignmentReviewNotification({
   const recipients = await repository.listDeliveryRecipients(
     boardAssignmentNotificationType,
   );
+
+  await deliverTextNotification({
+    emailService,
+    maxService,
+    recipients,
+    subject: notification.subject,
+    text: notification.text,
+  });
+}
+
+/**
+ * The same message type also carries deadline reminders to executors, so the review
+ * signal is limited to accounts whose positions control the registry.
+ */
+export async function sendEmployeeAssignmentReviewNotification({
+  repository,
+  emailService,
+  maxService,
+  notificationType,
+  reviewerUserIds,
+  notification,
+}: DeliveryDependencies & {
+  notificationType: NotificationType;
+  reviewerUserIds: readonly string[];
+  notification: { subject: string; text: string };
+}) {
+  const reviewers = new Set(reviewerUserIds);
+  const recipients = (await repository.listDeliveryRecipients(notificationType))
+    .filter(({ userId }) => reviewers.has(userId));
 
   await deliverTextNotification({
     emailService,

@@ -110,7 +110,8 @@ export const localDevAccessOptions: DevAccessOption[] =
               (id) =>
                 id !== "business.user_actions" &&
                 id !== "business.production_plan" &&
-                id !== "business.laboratory_results",
+                id !== "business.laboratory_results" &&
+                id !== "business.collegium_assignments",
             ),
             capabilities: [
               ...resolveLocalBoardAssignmentCapabilities(
@@ -129,7 +130,8 @@ export const localDevAccessOptions: DevAccessOption[] =
                 id !== "business.production_plan" &&
                 id !== "business.laboratory_results" &&
                 id !== "business.laboratory_review" &&
-                id !== "business.board_assignments",
+                id !== "business.board_assignments" &&
+                id !== "business.collegium_assignments",
             )
             .map(({ id }) => id),
           capabilities: [...accountCapabilitiesByType[definition.accountType]],

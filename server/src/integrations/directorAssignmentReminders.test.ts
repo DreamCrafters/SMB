@@ -19,6 +19,7 @@ function fixture() {
   let emailFails = false;
   const dependencies = {
     repository: {
+      registryId: "director" as const,
       async list() { return [structuredClone(assignment)]; },
       async read() { return structuredClone(assignment); },
       async readAssignableEmployee(id: string) { return employees.get(id); },

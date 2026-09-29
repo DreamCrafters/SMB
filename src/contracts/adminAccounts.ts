@@ -80,6 +80,7 @@ export type AdminPositionsListResponse = {
 export type SaveAdminPositionOrderRequest = { positionIds: AccountPosition[] };
 export type SaveAdminPositionRequest = {
   directorAssignmentAccess?: DirectorAssignmentAccess;
+  collegiumAssignmentAccess?: DirectorAssignmentAccess;
   displayName: string;
   navigationItems: AccountNavigationItem[];
   boardAssignmentAccess: BoardAssignmentAccess;

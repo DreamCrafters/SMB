@@ -3,10 +3,11 @@ import test from "node:test";
 import { canExecuteDirectorAssignment, directorWorkdays, readDirectorAssignmentInput } from "./directorAssignment.js";
 import type { DirectorAssignment } from "../contracts/directorAssignments.js";
 
-test("execution belongs to the linked user and requires an active occurrence", () => {
+test("execution belongs to the linked user and opens on the assignment date", () => {
   const assignment = {
     responsible: { userId: "employee-a", fullName: "Сотрудник" },
     coExecutors: [],
+    assignedOn: "2026-09-14",
     status: "in_progress",
     currentOccurrenceDate: "2026-09-14",
     activeFrom: "2026-09-14",
@@ -17,6 +18,10 @@ test("execution belongs to the linked user and requires an active occurrence", (
   assert.equal(canExecuteDirectorAssignment(assignment, "employee-b", "2026-09-14"), false);
   assert.equal(canExecuteDirectorAssignment(assignment, "employee-a", "2026-09-13"), false);
   assert.equal(canExecuteDirectorAssignment({ ...assignment, status: "under_review" }, "employee-a", "2026-09-14"), false);
+  // The deadline may still be ahead: the executor reports before it.
+  assert.equal(canExecuteDirectorAssignment({ ...assignment, currentOccurrenceDate: "2026-09-30", activeFrom: "2026-09-30", activeTo: "2026-09-30" }, "employee-a", "2026-09-14"), true);
+  assert.equal(canExecuteDirectorAssignment({ ...assignment, currentOccurrenceDate: "2026-12-31" }, "employee-a", "2026-09-14"), false);
+  assert.equal(canExecuteDirectorAssignment({ ...assignment, needsClarification: true }, "employee-a", "2026-09-14"), false);
 });
 
 test("workday counters include weekdays at both ends and handle overdue dates", () => {

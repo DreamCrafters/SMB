@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { BoardAssignmentDelegationsResponse, DirectorAssignment, DirectorAssignmentPdfRequest, DirectorAssignmentPermissions, DirectorAssignmentAccountLink, PersonnelEmployee } from "../contracts/directorAssignments.js";
+import { assignmentRegistries, readAssignmentRegistry, type AssignmentRegistryId, type BoardAssignmentDelegationsResponse, type DirectorAssignment, type DirectorAssignmentPdfRequest, type DirectorAssignmentPermissions, type DirectorAssignmentAccountLink, type PersonnelEmployee } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 import type { BoardAssignmentsRepository } from "../repositories/boardAssignmentsRepository.js";
 import type { AuditRepository } from "../repositories/auditRepository.js";
@@ -9,14 +9,19 @@ import { canViewDirectorAssignment, canExecuteDirectorAssignment, directorWorkda
 import { buildAssignmentOverviewSummary } from "./assignmentOverview.js";
 import { getBoardAssignmentOccurrenceOnOrAfter, getNextBoardAssignmentOccurrenceDate, isBoardAssignmentActiveOn, validateBoardAssignmentAction } from "./boardAssignment.js";
 
-export function directorAssignmentPermissions(profile: ServerUserProfile): DirectorAssignmentPermissions {
+export function directorAssignmentPermissions(profile: ServerUserProfile, registryId: AssignmentRegistryId = "director"): DirectorAssignmentPermissions {
+  const registry = assignmentRegistries[registryId];
+  const canView = hasProfileCapability(profile, registry.viewCapability);
+  const canManage = hasProfileCapability(profile, registry.manageCapability);
   return {
-    canView: hasProfileCapability(profile, "business.view_director_assignments"),
-    canManage: hasProfileCapability(profile, "business.manage_director_assignments"),
-    canExecute: hasProfileCapability(profile, "business.view_director_assignments") && (!hasProfileCapability(profile, "business.manage_director_assignments") || hasProfileCapability(profile, "business.execute_director_assignments")),
+    canView,
+    canManage,
+    canExecute: canView && (!canManage || hasProfileCapability(profile, registry.executeCapability)),
     canManagePersonnel: hasProfileCapability(profile, "business.manage_personnel"),
   };
 }
+
+export const directorAssignmentActions = ["record_progress", "submit_for_review", "return_for_revision", "complete"] as const;
 
 export function createDirectorAssignmentsService({ repository, boardAssignments, transaction, audit, now = () => new Date() }: {
   repository: DirectorAssignmentsRepository;
@@ -25,9 +30,13 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
   audit: AuditRepository;
   now?: () => Date;
 }) {
+  const { registryId } = repository;
+  const registry = readAssignmentRegistry(registryId);
+  const permissionsOf = (profile: ServerUserProfile) => directorAssignmentPermissions(profile, registryId);
   const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(now());
   const requirePermission = (allowed: boolean) => { if (!allowed) throw new DirectorAssignmentError("Недостаточно прав.", 403); };
   async function requireBoardSource(profile: ServerUserProfile, id: string, lock = false) {
+    if (!registry.canLinkBoardAssignment) throw new DirectorAssignmentError("Исходное поручение недоступно.", 404);
     requirePermission(hasProfileCapability(profile, "business.view_board_assignments"));
     const source = lock ? await boardAssignments?.readByIdForUpdate(id) : await boardAssignments?.readById(id);
     if (!source || (hasProfileCapability(profile, "business.execute_board_assignments") && !isBoardAssignmentActiveOn(source, today()))) throw new DirectorAssignmentError("Исходное поручение недоступно.", 404);
@@ -43,7 +52,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     return { ...assignment, responsible: employee?.active ? employee : null };
   }
   async function requireAssignment(profile: ServerUserProfile, id: string, lock = false) {
-    const permissions = directorAssignmentPermissions(profile);
+    const permissions = permissionsOf(profile);
     requirePermission(permissions.canView);
     const assignment = await repository.read(id, lock);
     if (!assignment || (!permissions.canManage && !canViewDirectorAssignment(await effectiveAssignment(assignment), profile.userId))) {
@@ -54,7 +63,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
   function comment(profile: ServerUserProfile, text: string, status: DirectorAssignment["status"]) {
     return { id: randomUUID(), userId: profile.userId, author: profile.displayName, text, status, createdAt: now().toISOString() };
   }
-  async function resolveEmployees(responsibleId: string, coExecutorIds: string[]) {
+  async function resolveEmployees(responsibleId: string, coExecutorIds: string[], requireReceiver: boolean) {
     const ids = [...new Set([responsibleId, ...coExecutorIds])].sort();
     const found = new Map<string, PersonnelEmployee>();
     for (const id of ids) {
@@ -65,12 +74,14 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     }
     const assignedUsers = [...found.values()].flatMap(employee => employee.userId ? [employee.userId] : []);
     if (new Set(assignedUsers).size !== assignedUsers.length) throw new DirectorAssignmentError("Один сотрудник не может быть указан среди исполнителей дважды.");
+    // Only a controller can close an assignment after review, so the responsible must be able to submit it.
+    if (requireReceiver && !found.get(responsibleId)!.canReceive) throw new DirectorAssignmentError(`У ответственного нет доступа к вкладке «${registry.title}» в режиме получения поручений.`);
     return { responsible: found.get(responsibleId)!, coExecutors: coExecutorIds.map(id => found.get(id)!) };
   }
   return {
     async delegations(profile: ServerUserProfile, boardAssignmentId: string): Promise<BoardAssignmentDelegationsResponse> {
       const source = await requireBoardSource(profile, boardAssignmentId);
-      const permissions = directorAssignmentPermissions(profile);
+      const permissions = permissionsOf(profile);
       const canAssign = permissions.canView && permissions.canManage && source.status !== "completed";
       const linkedAssignments = await repository.listByBoardAssignment(boardAssignmentId);
       const responsibleByComment = new Map<string, string>();
@@ -89,7 +100,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       return { assignments, canAssign, employees: canAssign ? await repository.listAssignableEmployees() : [], today: today() };
     },
     async list(profile: ServerUserProfile) {
-      const permissions = directorAssignmentPermissions(profile);
+      const permissions = permissionsOf(profile);
       requirePermission(permissions.canView);
       const employees = await repository.listAssignableEmployees();
       const assignments: DirectorAssignment[] = [];
@@ -123,7 +134,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       return { assignments: enriched, ownAssignmentIds, executableAssignmentIds, responsibleAccountLinks, permissions, today: today(), employees: permissions.canManage ? employees.filter(e => e.active) : [] };
     },
     async exportSelection(profile: ServerUserProfile, value: unknown): Promise<{ mode: DirectorAssignmentPdfRequest["mode"]; assignments: DirectorAssignment[] }> {
-      const permissions = directorAssignmentPermissions(profile);
+      const permissions = permissionsOf(profile);
       requirePermission(permissions.canView);
       const request = readDirectorRecord(value);
       if (Object.keys(request).some(key => !["mode", "source", "entries"].includes(key))) throw new DirectorAssignmentError("Неизвестные поля выгрузки.");
@@ -147,11 +158,11 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
       return { mode: request.mode, assignments };
     },
     async personnel(profile: ServerUserProfile) {
-      requirePermission(directorAssignmentPermissions(profile).canManagePersonnel);
+      requirePermission(permissionsOf(profile).canManagePersonnel);
       return { employees: await repository.listEmployees(), users: await repository.listUserOptions() };
     },
     async saveEmployee(profile: ServerUserProfile, value: unknown, id?: string) {
-      requirePermission(directorAssignmentPermissions(profile).canManagePersonnel);
+      requirePermission(permissionsOf(profile).canManagePersonnel);
       const row = readDirectorRecord(value);
       if (Object.keys(row).some(key => !["revision", "fullName", "position", "department", "category", "userId", "active"].includes(key))) throw new DirectorAssignmentError("Неизвестные поля сотрудника.");
       if (!["АУП", "ИТР"].includes(String(row.category)) || typeof row.active !== "boolean") throw new DirectorAssignmentError("Проверьте категорию и состояние сотрудника.");
@@ -174,10 +185,10 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     },
     read: requireAssignment,
     async save(profile: ServerUserProfile, value: unknown, id?: string) {
-      const permissions = directorAssignmentPermissions(profile);
+      const permissions = permissionsOf(profile);
       requirePermission(permissions.canView && permissions.canManage);
       const envelope = readDirectorRecord(value);
-      const input = readDirectorAssignmentInput(envelope.assignment);
+      const input = readDirectorAssignmentInput(envelope.assignment, registryId);
       const changeComment = readDirectorText(envelope.comment, true, 4000);
       return transaction.run(async () => {
         const previous = id ? await requireAssignment(profile, id, true) : undefined;
@@ -189,7 +200,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           const source = await requireBoardSource(profile, input.sourceBoardAssignmentId, true);
           if (source.status === "completed") throw new DirectorAssignmentError("Завершённое поручение СД нельзя перепоручить.", 409);
         }
-        const people = await resolveEmployees(input.responsibleId, input.coExecutorIds);
+        const people = await resolveEmployees(input.responsibleId, input.coExecutorIds, previous?.responsibleId !== input.responsibleId);
         const scheduleUnchanged = previous && previous.recurrence === input.recurrence && previous.activeFrom === input.activeFrom && previous.activeTo === input.activeTo;
         const accepted = previous ? (await repository.listCompletions()).filter(item => item.assignment.id === previous.id) : [];
         const lastAcceptedOn = accepted.flatMap(item => [item.assignment.completedOn, item.assignment.currentOccurrenceDate]).sort().at(-1);
@@ -206,41 +217,40 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           needsClarification: false, source: previous?.source ?? null,
         };
         const saved = previous ? await repository.update(assignment, previous) : await repository.create(assignment);
-        await recordAudit(profile, previous ? "Изменено поручение генерального директора" : "Создано поручение генерального директора", saved.id);
+        await recordAudit(profile, previous ? `Изменено поручение ${registry.ownerGenitive}` : `Создано поручение ${registry.ownerGenitive}`, saved.id);
         return saved;
       });
     },
     async action(profile: ServerUserProfile, id: string, value: unknown) {
       return transaction.run(async () => {
         const previous = await requireAssignment(profile, id, true);
-        const permissions = directorAssignmentPermissions(profile);
+        const permissions = permissionsOf(profile);
         const row = readDirectorRecord(value);
         if (row.revision !== previous.revision) throw new DirectorAssignmentError("Поручение уже изменено. Обновите список.", 409);
         const canExecute = permissions.canExecute && canExecuteDirectorAssignment(await effectiveAssignment(previous), profile.userId, today());
         if (!permissions.canManage && !canExecute) throw new DirectorAssignmentError("Поручение недоступно для исполнения.", 403);
+        if (!directorAssignmentActions.includes(row.action as (typeof directorAssignmentActions)[number])) throw new DirectorAssignmentError("Выберите допустимое действие.");
+        // Same cycle as board assignments: the executor reports, only the controller decides.
+        if (row.action === "record_progress" || row.action === "submit_for_review") {
+          if (!canExecute) throw new DirectorAssignmentError("Поручение недоступно для исполнения.", 403);
+        } else if (!permissions.canManage) {
+          throw new DirectorAssignmentError("Принять исполнение или вернуть поручение может только руководитель.", 403);
+        } else if ((await effectiveAssignment(previous)).responsible?.userId === profile.userId) {
+          throw new DirectorAssignmentError("Своё поручение принимает другой руководитель.", 403);
+        }
         if (row.action === "record_progress") {
-          requirePermission(canExecute);
           const text = readDirectorText(row.comment, true, 4000);
           const assignment = { ...previous, progress: text, revision: previous.revision + 1, updatedAt: now().toISOString(), comments: [...previous.comments, comment(profile, text, previous.status)] };
           await repository.update(assignment, previous);
-          await recordAudit(profile, "Сохранён промежуточный результат поручения генерального директора", id);
+          await recordAudit(profile, `Сохранён промежуточный результат поручения ${registry.ownerGenitive}`, id);
           return assignment;
         }
-        let status: DirectorAssignment["status"];
-        let actionComment: string;
-        if (row.action === "complete") {
-          requirePermission(permissions.canManage || canExecute);
-          if (previous.status === "completed") throw new DirectorAssignmentError("Поручение уже завершено.", 409);
-          status = "completed";
-          actionComment = readDirectorText(row.comment, true, 4000);
-        } else {
-          const validation = validateBoardAssignmentAction({ action: row.action, comment: row.comment }, previous.status, {
-            canView: true, canCreate: permissions.canManage, canReview: permissions.canManage, canExecute,
-          });
-          if (!validation.ok) throw new DirectorAssignmentError(validation.errors.join(" "));
-          status = validation.value.status;
-          actionComment = validation.value.comment;
-        }
+        if (previous.status === "completed") throw new DirectorAssignmentError("Поручение уже завершено.", 409);
+        const validation = validateBoardAssignmentAction({ action: row.action, comment: row.comment }, previous.status, {
+          canView: true, canCreate: permissions.canManage, canReview: permissions.canManage, canExecute,
+        });
+        if (!validation.ok) throw new DirectorAssignmentError(validation.errors.join(" "));
+        const { status, comment: actionComment } = validation.value;
         const assignment = { ...previous, status, revision: previous.revision + 1, updatedAt: now().toISOString(),
           comments: [...previous.comments, comment(profile, actionComment, status)] };
         if (status === "completed") {
@@ -253,12 +263,14 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           if (next) { assignment.needsClarification = previous.needsClarification; assignment.status = "in_progress"; assignment.currentOccurrenceDate = next; assignment.completedOn = ""; }
         }
         await repository.update(assignment, previous);
-        await recordAudit(profile, "Изменён статус поручения генерального директора", id);
+        await recordAudit(profile, `Изменён статус поручения ${registry.ownerGenitive}`, id);
         return assignment;
       });
     },
+    /** Controllers of this registry who receive the "submitted for review" signal. */
+    reviewerUserIds: () => repository.listManagerUserIds(),
     async completions(profile: ServerUserProfile) {
-      const permissions = directorAssignmentPermissions(profile);
+      const permissions = permissionsOf(profile);
       requirePermission(permissions.canView && permissions.canManage);
       return (await repository.listCompletions()).map(item => ({ ...item, assignment: { ...item.assignment,
         durationWorkdays: directorWorkdays(item.assignment.assignedOn, item.assignment.currentOccurrenceDate),
@@ -267,7 +279,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     },
     /** Registry-wide counts only for users who see the whole registry; otherwise undefined. */
     async overviewSummary(profile: ServerUserProfile, period: { monthStart: string; today: string }) {
-      const permissions = directorAssignmentPermissions(profile);
+      const permissions = permissionsOf(profile);
       if (!permissions.canView || !permissions.canManage) return undefined;
       const [assignments, completions] = await Promise.all([repository.list(), repository.listCompletions()]);
       return buildAssignmentOverviewSummary({
@@ -278,13 +290,13 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     },
     async document(profile: ServerUserProfile, id: string, documentId: string) {
       const assignment = await requireAssignment(profile, id);
-      if (!directorAssignmentPermissions(profile).canManage && !assignment.documents.some(document => document.id === documentId)) throw new DirectorAssignmentError("Документ недоступен.", 404);
+      if (!permissionsOf(profile).canManage && !assignment.documents.some(document => document.id === documentId)) throw new DirectorAssignmentError("Документ недоступен.", 404);
       const document = await repository.readDocument(id, documentId);
       if (!document) throw new DirectorAssignmentError("Документ не найден.", 404);
       return document;
     },
     async changeDocument(profile: ServerUserProfile, id: string, document: { fileName: string; pdf: Buffer } | { removeId: string }) {
-      const permissions = directorAssignmentPermissions(profile);
+      const permissions = permissionsOf(profile);
       requirePermission(permissions.canManage && permissions.canView);
       return transaction.run(async () => {
         const previous = await requireAssignment(profile, id, true);
@@ -301,7 +313,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
           assignment.documents.push({ id: documentId, fileName: document.fileName, sizeBytes: document.pdf.length });
         }
         await repository.update(assignment, previous);
-        await recordAudit(profile, "Изменены документы поручения генерального директора", id);
+        await recordAudit(profile, `Изменены документы поручения ${registry.ownerGenitive}`, id);
         return assignment;
       });
     },

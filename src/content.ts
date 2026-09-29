@@ -72,6 +72,7 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
   options: ReadonlyArray<{ id: string; label: string }>;
 }>> = {
   "business.director_assignments": { title: "Режим работы", options: directorAssignmentAccessOptions },
+  "business.collegium_assignments": { title: "Режим работы", options: directorAssignmentAccessOptions },
   "business.board_assignments": {
     title: "Уровень доступа",
     options: boardAssignmentAccessOptions,
@@ -223,6 +224,7 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       description: "Постановка, исполнение и приёмка поручений",
       state: "active",
     },
+    { id: "business.collegium_assignments", label: "Поручения Коллегии", description: "Поручения Председателя Коллегии сотрудникам", state: "active" },
     {
       id: "business.warehouse_1c",
       label: "Склад 1С",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type Dispatch, type SetStateAction } from "react";
-import type { DirectorAssignment, DirectorAssignmentInput, DirectorAssignmentAccountLink, PersonnelEmployee } from "../server/src/contracts/directorAssignments";
+import { assignmentRegistries, type AssignmentRegistry, type AssignmentRegistryId, type DirectorAssignment, type DirectorAssignmentInput, type DirectorAssignmentAccountLink, type PersonnelEmployee } from "../server/src/contracts/directorAssignments";
 import { directorAssignmentPdf, directorDocument, directorRequest, type DirectorAssignmentListResponse, type PersonnelResponse } from "./services/directorAssignments";
 import { requestBoardAssignments } from "./services/boardAssignments";
 import type { BoardAssignmentListItem } from "./contracts/boardAssignments";
@@ -22,25 +22,50 @@ const textFields = [
   ["summary", "Суть поручения"], ["department", "Подразделение"], ["project", "Направление / проект"],
   ["progress", "Промежуточные результаты"], ["urgency", "Срочность"], ["importance", "Важность"], ["note", "Примечание"], ["incomingNumber", "Номер входящего"],
 ] as const;
-const columns = ["number", "assignedOn", "summary", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"] as const;
-const columnLabels = ["Номер", "Дата постановки", "Суть поручения", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Срок", "Срочность", "Важность", "Промежуточные результаты", "Дата исполнения", "Примечание", "Статус", "Номер входящего", "Длительность, рабочих дней", "Осталось рабочих дней", "Перенос срока"];
-function values(row: DirectorAssignment) {
-  return [row.number, row.assignedOn, row.summary, row.department, row.project, row.responsible?.fullName ?? row.source?.values[5] ?? "", row.source && row.revision === 1 ? row.source.values[6] ?? "" : row.coExecutors.map(e => e.fullName).join(", "), row.currentOccurrenceDate, row.urgency, row.importance, row.progress, row.completedOn, row.note, `${statuses[row.status]}${row.needsClarification ? " · Требует уточнения" : ""}`, row.incomingNumber, String(row.durationWorkdays ?? ""), String(row.remainingWorkdays ?? ""), row.postponedUntil];
+const protocolColumns = ["meetingDate", "protocolNumber", "decisionNumber"] as const;
+const baseColumns = ["number", "assignedOn", "summary", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"] as const;
+type Column = (typeof baseColumns)[number] | (typeof protocolColumns)[number];
+const columnLabels: Record<Column, string> = {
+  number: "Номер", assignedOn: "Дата постановки", summary: "Суть поручения", meetingDate: "Дата заседания", protocolNumber: "Протокол", decisionNumber: "Пункт решения",
+  department: "Подразделение", project: "Проект", responsible: "Ответственный", coExecutors: "Соисполнители", deadline: "Срок", urgency: "Срочность", importance: "Важность",
+  progress: "Промежуточные результаты", completedOn: "Дата исполнения", note: "Примечание", status: "Статус", incomingNumber: "Номер входящего",
+  durationWorkdays: "Длительность, рабочих дней", remainingWorkdays: "Осталось рабочих дней", postponedUntil: "Перенос срока",
+};
+const defaultColumns: readonly Column[] = ["number", "summary", "responsible", "deadline", "status", "progress"];
+function registryColumns(registry: AssignmentRegistry): Column[] {
+  return registry.hasProtocol ? [...baseColumns.slice(0, 3), ...protocolColumns, ...baseColumns.slice(3)] : [...baseColumns];
 }
-export function createDirectorAssignmentInput(today: string): DirectorAssignmentInput {
-  return { assignedOn: today, kind: "Поручение", summary: "", department: "", project: "", responsibleId: "", coExecutorIds: [], recurrence: "once", activeFrom: today, activeTo: today, urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null };
+function cellValues(row: DirectorAssignment): Record<Column, string> {
+  return {
+    number: row.number, assignedOn: row.assignedOn, summary: row.summary,
+    meetingDate: row.meetingDate ?? "", protocolNumber: row.protocolNumber ?? "", decisionNumber: row.decisionNumber ?? "",
+    department: row.department, project: row.project,
+    responsible: row.responsible?.fullName ?? row.source?.values[5] ?? "",
+    coExecutors: row.source && row.revision === 1 ? row.source.values[6] ?? "" : row.coExecutors.map(e => e.fullName).join(", "),
+    deadline: row.currentOccurrenceDate, urgency: row.urgency, importance: row.importance, progress: row.progress, completedOn: row.completedOn, note: row.note,
+    status: `${statuses[row.status]}${row.needsClarification ? " · Требует уточнения" : ""}`, incomingNumber: row.incomingNumber,
+    durationWorkdays: String(row.durationWorkdays ?? ""), remainingWorkdays: String(row.remainingWorkdays ?? ""), postponedUntil: row.postponedUntil,
+  };
 }
-function inputFrom(row: DirectorAssignment, employees: PersonnelEmployee[]): DirectorAssignmentInput {
-  const input = Object.fromEntries(Object.keys(createDirectorAssignmentInput("")).map(key => [key, row[key as keyof DirectorAssignmentInput]])) as DirectorAssignmentInput;
+export function createDirectorAssignmentInput(today: string, registryId: AssignmentRegistryId = "director"): DirectorAssignmentInput {
+  return {
+    assignedOn: today, kind: "Поручение", summary: "", department: "", project: "", responsibleId: "", coExecutorIds: [], recurrence: "once", activeFrom: today, activeTo: today, urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null,
+    ...(assignmentRegistries[registryId].hasProtocol ? { meetingDate: "", protocolNumber: "", decisionNumber: "" } : {}),
+  };
+}
+function inputFrom(row: DirectorAssignment, employees: PersonnelEmployee[], registryId: AssignmentRegistryId): DirectorAssignmentInput {
+  const input = Object.fromEntries(Object.keys(createDirectorAssignmentInput("", registryId)).map(key => [key, row[key as keyof DirectorAssignmentInput] ?? ""])) as DirectorAssignmentInput;
   const resolveId = (id: string, snapshot?: PersonnelEmployee | null) => {
     if (employees.some(employee => employee.id === id)) return id;
     const userId = id.startsWith("account:") ? id.slice(8) : snapshot?.userId;
     return employees.find(employee => userId && employee.userId === userId)?.id ?? id;
   };
-  return { ...input, responsibleId: resolveId(input.responsibleId, row.responsible), coExecutorIds: [...new Set(input.coExecutorIds.map(id => resolveId(id, row.coExecutors.find(employee => employee.id === id))))] };
+  return { ...input, sourceBoardAssignmentId: row.sourceBoardAssignmentId, responsibleId: resolveId(input.responsibleId, row.responsible), coExecutorIds: [...new Set(row.coExecutorIds.map(id => resolveId(id, row.coExecutors.find(employee => employee.id === id))))] };
 }
 
-export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: ShowToast }) {
+export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "director" }: { onShowToast: ShowToast; registryId?: AssignmentRegistryId }) {
+  const registry = assignmentRegistries[registryId];
+  const columns = registryColumns(registry);
   const [data, setData] = useState<DirectorAssignmentListResponse>();
   const [view, setView] = useState<"send" | "receive">("receive");
   const historyRequest = useRef(0);
@@ -63,12 +88,12 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [history, setHistory] = useState<Array<{ id: string; assignment: DirectorAssignment }> | null>(null);
   const [showAllColumns, setShowAllColumns] = useState(false);
-  async function refresh() { setData(await directorRequest<DirectorAssignmentListResponse>("/api/director-assignments")); }
+  async function refresh() { setData(await directorRequest<DirectorAssignmentListResponse>(registry.apiPath)); }
   useEffect(() => {
     const abort = new AbortController();
-    void directorRequest<DirectorAssignmentListResponse>("/api/director-assignments", "GET", undefined, abort.signal).then(next => { setData(next); if (next.permissions.canManage && !next.permissions.canExecute) setForm(createDirectorAssignmentInput(next.today)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
+    void directorRequest<DirectorAssignmentListResponse>(registry.apiPath, "GET", undefined, abort.signal).then(next => { setData(next); if (next.permissions.canManage && !next.permissions.canExecute) setForm(createDirectorAssignmentInput(next.today, registryId)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
     return () => abort.abort();
-  }, []);
+  }, [registry.apiPath, registryId]);
   async function mutate(operation: () => Promise<unknown>) {
     setSaving(true); setError("");
     try { await operation(); await refresh(); setSelected(undefined); setForm(undefined); setComment(""); onShowToast("Поручение сохранено", "Изменения сохранены.", "success"); }
@@ -77,7 +102,13 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   }
   function save(event: FormEvent) {
     event.preventDefault();
-    if (form) void mutate(() => directorRequest(`/api/director-assignments${selected ? `/${selected.id}` : ""}`, selected ? "PATCH" : "POST", { assignment: form, revision: selected?.revision, comment: selected ? comment : "Поручение создано." }));
+    if (form) void mutate(() => directorRequest(`${registry.apiPath}${selected ? `/${selected.id}` : ""}`, selected ? "PATCH" : "POST", { assignment: form, revision: selected?.revision, comment: selected ? comment : "Поручение создано." }));
+  }
+  function runAction(assignment: DirectorAssignment, action: "record_progress" | "submit_for_review" | "complete" | "return_for_revision") {
+    void mutate(() => directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision }));
+  }
+  function openAssignment(row: DirectorAssignment) {
+    setSelected(row); setForm(undefined); setComment(""); setContentOpenCount(count => count + 1);
   }
   function changeView(next: "send" | "receive") {
     historyRequest.current++;
@@ -88,7 +119,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
     const request = ++historyRequest.current;
     setError("");
     try {
-      const result = await directorRequest<{ completions: Array<{ id: string; assignment: DirectorAssignment }> }>("/api/director-assignments/completions");
+      const result = await directorRequest<{ completions: Array<{ id: string; assignment: DirectorAssignment }> }>(`${registry.apiPath}/completions`);
       if (request !== historyRequest.current) return;
       setSelected(undefined); setForm(undefined); setHistory(result.completions);
     }
@@ -103,7 +134,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
         if (!id) throw new Error("Откройте поручение заново перед выгрузкой.");
         return { id, revision: row.revision };
       });
-      const blob = await directorAssignmentPdf({ mode, source: history ? "history" : "current", entries });
+      const blob = await directorAssignmentPdf({ mode, source: history ? "history" : "current", entries }, registry.apiPath);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -118,27 +149,35 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
   const combinedAccess = data.permissions.canManage && data.permissions.canExecute;
   const isSending = data.permissions.canManage && (!combinedAccess || view === "send");
   const canExecuteSelected = selected !== undefined && (data.executableAssignmentIds?.includes(selected.id) ?? (!data.permissions.canManage && data.permissions.canExecute));
+  // Same decision rule as the board: only a controller decides, and only on a submitted result.
+  const canDecideSelected = !history && isSending && selected?.status === "under_review";
   const rows = history ? history.map(item => item.assignment) : combinedAccess && !isSending
     ? data.assignments.filter(assignment => data.ownAssignmentIds?.includes(assignment.id)) : data.assignments;
-  const visible = rows.filter(row => (selectedStatuses.length === 0 || selectedStatuses.some(status => status === "Требует уточнения" ? row.needsClarification : statuses[row.status] === status)) && values(row).join(" ").toLocaleLowerCase("ru-RU").includes((filters.query ?? "").toLocaleLowerCase("ru-RU")) && values(row).every((value, i) => value.toLocaleLowerCase("ru-RU").includes((filters[columns[i]] ?? "").toLocaleLowerCase("ru-RU"))));
-  const visibleColumns = showAllColumns ? [...columns] : (["number", "summary", "responsible", "deadline", "status", "progress"] as const);
+  const reviewQueue = !history && isSending ? data.assignments.filter(assignment => assignment.status === "under_review") : [];
+  const visible = rows.filter(row => {
+    const cells = cellValues(row);
+    return (selectedStatuses.length === 0 || selectedStatuses.some(status => status === "Требует уточнения" ? row.needsClarification : statuses[row.status] === status))
+      && columns.map(column => cells[column]).join(" ").toLocaleLowerCase("ru-RU").includes((filters.query ?? "").toLocaleLowerCase("ru-RU"))
+      && columns.every(column => cells[column].toLocaleLowerCase("ru-RU").includes((filters[column] ?? "").toLocaleLowerCase("ru-RU")));
+  });
+  const visibleColumns = showAllColumns ? columns : defaultColumns;
   return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
-    <header className="director-assignment-heading"><div><span className="eyebrow">{isSending ? "Отправка и контроль" : "Получение и выполнение"}</span><h2>Поручения генерального директора</h2><p>{isSending ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения." : "Ваши активные поручения. Сохраняйте промежуточные результаты, завершайте работу или отправляйте её на проверку."}</p></div></header>
+    <header className="director-assignment-heading"><div><span className="eyebrow">{isSending ? "Отправка и контроль" : "Получение и выполнение"}</span><h2>{registry.title}</h2><p>{isSending ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения." : "Ваши активные поручения. Сохраняйте промежуточные результаты и отправляйте выполненную работу на проверку."}</p></div></header>
     {combinedAccess && <div className="form-actions director-assignment-actions director-assignment-view-switch" role="group" aria-label="Режим поручений">
       <button type="button" className={!isSending ? "primary-button" : "secondary-button"} aria-pressed={!isSending} disabled={saving} onClick={() => changeView("receive")}>Мои поручения</button>
       <button type="button" className={isSending ? "primary-button" : "secondary-button"} aria-pressed={isSending} disabled={saving} onClick={() => changeView("send")}>Отправка и контроль</button>
     </div>}
     {error && <p role="alert">{error}</p>}
     {isSending && <div className="form-actions director-assignment-actions">
-      <button className="primary-button" type="button" disabled={saving} onClick={() => { setSelected(undefined); setForm(createDirectorAssignmentInput(data.today)); setComment(""); setHistory(null); }}>Создать поручение</button>
+      <button className="primary-button" type="button" disabled={saving} onClick={() => { setSelected(undefined); setForm(createDirectorAssignmentInput(data.today, registryId)); setComment(""); setHistory(null); }}>Создать поручение</button>
       <button type="button" onClick={() => { setHistory(null); setSelected(undefined); setForm(undefined); }}>Текущие поручения</button>
       <button type="button" onClick={() => { setSelected(undefined); setForm(undefined); void openHistory(); }}>История исполнений</button>
     </div>}
-    {form && <DirectorAssignmentForm legacyEmployees={selected ? [...(selected.responsible ? [selected.responsible] : []), ...selected.coExecutors] : []} form={form} setForm={setForm} employees={data.employees} saving={saving} assignmentNumber={selected?.number} comment={comment} onCommentChange={setComment} onSubmit={save} onCancel={() => { setForm(undefined); setSelected(undefined); }} />}
+    {form && <DirectorAssignmentForm registryId={registryId} legacyEmployees={selected ? [...(selected.responsible ? [selected.responsible] : []), ...selected.coExecutors] : []} form={form} setForm={setForm} employees={data.employees} saving={saving} assignmentNumber={selected?.number} comment={comment} onCommentChange={setComment} onSubmit={save} onCancel={() => { setForm(undefined); setSelected(undefined); }} />}
     {selected && !form && <section className="director-assignment-detail" ref={detailRef} tabIndex={-1} aria-labelledby="director-assignment-detail-title">
       <h3 id="director-assignment-detail-title">№{selected.number}: {selected.summary}</h3>
       <button type="button" className="secondary-button" disabled={saving || exporting} onClick={() => void exportPdf([selected], "assignment")}>Скачать поручение в PDF</button>
-      <dl className="board-assignment-details">{values(selected).map((value, index) => <div key={columns[index]}><dt>{columnLabels[index]}</dt><dd>{value || "—"}</dd></div>)}</dl>
+      <dl className="board-assignment-details">{columns.map(column => <div key={column}><dt>{columnLabels[column]}</dt><dd>{cellValues(selected)[column] || "—"}</dd></div>)}</dl>
       {selected.source && <details><summary>Исходная запись Google Sheets</summary><dl className="board-assignment-details">{selected.source.values.map((value, index) => <div key={index}><dt>{["Номер задачи", "Дата постановки", "Суть задачи", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Исходный срок", "Срочность", "Важность", "Промежуточные этапы", "Фактическая дата", "Примечание", "Исходный статус", "Номер входящего", "Второй номер", "Длительность", "Осталось рабочих дней", "Перенос срока"][index] ?? "Исходное поле"}</dt><dd>{value || "—"}</dd></div>)}</dl></details>}
       <section className="board-assignment-comments">
         <h4>Комментарии</h4>
@@ -148,27 +187,50 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
         <h4>Документы</h4>
         {!selected.documents.length && <p className="director-field-hint">Документов пока нет.</p>}
         {selected.documents.map(document => <div className="director-assignment-actions" key={document.id}>
-          <button type="button" className="secondary-button" disabled={saving} onClick={() => { void directorDocument(selected.id, document.id).then(blob => { if (blob) { const url = URL.createObjectURL(blob); const link = window.document.createElement("a"); link.href = url; link.download = document.fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }).catch(e => setError(e.message)); }}>{document.fileName}</button>
-          {!history && isSending && selected.status !== "completed" && <button type="button" className="secondary-button" disabled={saving} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/documents/${document.id}`, "DELETE"))}>Убрать документ</button>}
+          <button type="button" className="secondary-button" disabled={saving} onClick={() => { void directorDocument(selected.id, document.id, registry.apiPath).then(blob => { if (blob) { const url = URL.createObjectURL(blob); const link = window.document.createElement("a"); link.href = url; link.download = document.fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }).catch(e => setError(e.message)); }}>{document.fileName}</button>
+          {!history && isSending && selected.status !== "completed" && <button type="button" className="secondary-button" disabled={saving} onClick={() => void mutate(() => directorRequest(`${registry.apiPath}/${selected.id}/documents/${document.id}`, "DELETE"))}>Убрать документ</button>}
         </div>)}
-        {!history && isSending && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file)); }} /></label>}
+        {!history && isSending && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file, registry.apiPath)); }} /></label>}
       </section>
-      {!history && selected.status !== "completed" && (isSending || canExecuteSelected) && <section className="board-assignment-decision is-execute">
+      {!history && selected.status !== "completed" && (canExecuteSelected || canDecideSelected) && <section className={`board-assignment-decision ${canDecideSelected ? "is-review" : "is-execute"}`}>
         <label>
-          <span>Комментарий</span>
+          <span>{canDecideSelected ? "Комментарий к решению" : "Комментарий"}</span>
           <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-action-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
         </label>
-        <p className="director-field-hint" id="director-action-comment-hint">Для сохранения результата или изменения статуса укажите комментарий.</p>
+        <p className="director-field-hint" id="director-action-comment-hint">{canDecideSelected ? "Проверьте результат и комментарии исполнителя, затем примите работу или верните её с понятным замечанием." : "Для сохранения результата или отправки на проверку укажите комментарий."}</p>
         <div className="board-assignment-dialog-actions">
-          {canExecuteSelected && <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action: "record_progress", comment, revision: selected.revision }))}>Сохранить промежуточный результат</button>}
-          {isSending && canExecuteSelected && <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action: "submit_for_review", comment, revision: selected.revision }))}>Отправить на проверку</button>}
-          {(isSending ? selected.status === "under_review" ? [["complete", "Завершить"], ["return_for_revision", "Вернуть на доработку"]] : [["complete", "Завершить"]] : canExecuteSelected ? [["complete", "Завершить"], ["submit_for_review", "Отправить на проверку"]] : []).map(([action, label]) => <button type="button" className={action === "complete" ? "primary-button" : action === "return_for_revision" ? "secondary-button board-assignment-return-button" : "secondary-button"} key={action} disabled={saving || !comment.trim()} onClick={() => void mutate(() => directorRequest(`/api/director-assignments/${selected.id}/action`, "POST", { action, comment, revision: selected.revision }))}>{label}</button>)}
+          {canExecuteSelected && <>
+            <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "record_progress")}>Сохранить промежуточный результат</button>
+            <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "submit_for_review")}>Отправить на проверку</button>
+          </>}
+          {canDecideSelected && <>
+            <button type="button" className="secondary-button board-assignment-return-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "return_for_revision")}>Вернуть на доработку</button>
+            <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "complete")}>Принять исполнение</button>
+          </>}
         </div>
       </section>}
+      {!history && isSending && !canDecideSelected && !canExecuteSelected && selected.status !== "completed" && <p className="director-field-hint">Поручение у исполнителя. Принять исполнение или вернуть его можно после того, как исполнитель отправит результат на проверку.</p>}
       <footer className="board-assignment-dialog-actions">
-        {!history && selected.status !== "completed" && isSending && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
+        {!history && selected.status !== "completed" && isSending && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees, registryId)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
         <button type="button" className="secondary-button" disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
       </footer>
+    </section>}
+    {reviewQueue.length > 0 && <section className="board-assignment-review-queue" aria-label="Поручения, ожидающие решения">
+      <header>
+        <div><span>Требуют внимания</span><h2>Ожидают решения</h2></div>
+        <strong>{reviewQueue.length}</strong>
+      </header>
+      <div>
+        {reviewQueue.map(assignment => <article className="board-assignment-review-card" key={assignment.id}>
+          <div>
+            <span>№{assignment.number} · срок {assignment.currentOccurrenceDate.split("-").reverse().join(".")}</span>
+            {assignment.protocolNumber && <span>Протокол №{assignment.protocolNumber}{assignment.decisionNumber ? `, пункт ${assignment.decisionNumber}` : ""}</span>}
+          </div>
+          <h3>{assignment.summary}</h3>
+          <p>Ответственный: {cellValues(assignment).responsible || "—"}</p>
+          <button className="primary-button" type="button" disabled={saving} onClick={() => openAssignment(assignment)}>Проверить исполнение</button>
+        </article>)}
+      </div>
     </section>}
     <section className="director-register"><div className="director-register-heading"><h3>{history ? "История исполнений" : isSending ? "Отправленные поручения" : "Мои поручения"}</h3><span>Найдено: {visible.length}</span></div>
     <div className="director-assignment-filters board-assignment-filters">
@@ -192,16 +254,17 @@ export function DirectorAssignmentsWorkspace({ onShowToast }: { onShowToast: Sho
       </div>
       <button className="secondary-button" type="button" onClick={() => { setFilters({}); setSelectedStatuses([]); }}>Сбросить</button>
     </div>
-    <details className="director-more-filters"><summary>Дополнительные фильтры</summary><div className="director-assignment-filters board-assignment-filters">{columns.filter(column => column !== "status").map(column => <label key={column}>{columnLabels[columns.indexOf(column)]}<input value={filters[column] ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, [column]: value })); }} /></label>)}</div></details>
+    <details className="director-more-filters"><summary>Дополнительные фильтры</summary><div className="director-assignment-filters board-assignment-filters">{columns.filter(column => column !== "status").map(column => <label key={column}>{columnLabels[column]}<input value={filters[column] ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, [column]: value })); }} /></label>)}</div></details>
     <button type="button" className="secondary-button" disabled={saving || exporting || !visible.length} onClick={() => void exportPdf(visible, "register")}>Скачать журнал в PDF</button>
     {exporting && <LoadingIndicator label="Формирование PDF" />}
     <label className="director-columns-toggle"><input type="checkbox" checked={showAllColumns} onChange={event => setShowAllColumns(event.currentTarget.checked)} />Все колонки реестра</label>
-    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : isSending ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId="director.assignments" columns={visibleColumns}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[columns.indexOf(column)]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = values(row)[columns.indexOf(column)]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => { setSelected(row); setForm(undefined); setComment(""); setContentOpenCount(count => count + 1); }}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
+    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : isSending ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId={registry.tableId} columns={visibleColumns as never}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[column]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = cellValues(row)[column]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => openAssignment(row)}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
     </section>
   </section>;
 }
 
-export function DirectorAssignmentForm({ form, setForm, employees, saving, assignmentNumber, comment, onCommentChange, onCancel, onSubmit, sourceLocked = false, legacyEmployees = [] }: {
+export function DirectorAssignmentForm({ form, setForm, employees, saving, assignmentNumber, comment, onCommentChange, onCancel, onSubmit, sourceLocked = false, legacyEmployees = [], registryId = "director" }: {
+  registryId?: AssignmentRegistryId;
   form: DirectorAssignmentInput;
   setForm: Dispatch<SetStateAction<DirectorAssignmentInput | undefined>>;
   employees: PersonnelEmployee[];
@@ -215,6 +278,8 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
   legacyEmployees?: PersonnelEmployee[];
 }) {
   const isEditing = assignmentNumber !== undefined;
+  const registry = assignmentRegistries[registryId];
+  const canLinkBoard = registry.canLinkBoardAssignment && !sourceLocked;
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [board, setBoard] = useState<BoardAssignmentListItem[]>([]);
   function updateInput<Key extends keyof DirectorAssignmentInput>(key: Key, value: DirectorAssignmentInput[Key]) {
@@ -228,12 +293,17 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
         <label>Вид документа<select value={form.kind} onChange={event => updateInput("kind", event.currentTarget.value as DirectorAssignmentInput["kind"])}>{["Поручение", "Задача", "Распоряжение", "Приказ"].map(kind => <option key={kind}>{kind}</option>)}</select></label>
         <label>Дата постановки<input type="date" required value={form.assignedOn} onChange={event => updateInput("assignedOn", event.currentTarget.value)} /></label>
         <label className="is-wide">Суть поручения<textarea rows={4} required maxLength={20000} placeholder="Опишите ожидаемый результат" value={form.summary} onChange={event => updateInput("summary", event.currentTarget.value)} /></label>
+        {registry.hasProtocol && <>
+          <label>Дата заседания<input type="date" value={form.meetingDate ?? ""} onChange={event => updateInput("meetingDate", event.currentTarget.value)} /></label>
+          <label>Протокол №<input maxLength={100} value={form.protocolNumber ?? ""} onChange={event => updateInput("protocolNumber", event.currentTarget.value)} /></label>
+          <label>Пункт решения<input maxLength={100} value={form.decisionNumber ?? ""} onChange={event => updateInput("decisionNumber", event.currentTarget.value)} /></label>
+        </>}
       </fieldset>
       <fieldset disabled={saving} className="board-assignment-form-grid director-compose-fields">
         <legend>Кому поручить</legend>
         <label>Поиск сотрудника<input type="search" placeholder="ФИО или должность" value={employeeSearch} onChange={event => setEmployeeSearch(event.currentTarget.value)} /></label>
-        <label>Ответственный<select required value={form.responsibleId} onChange={event => { const value = event.currentTarget.value; setForm(current => current && { ...current, responsibleId: value, coExecutorIds: current.coExecutorIds.filter(id => id !== value) }); }}><option value="">Выберите сотрудника</option>{form.responsibleId && !employees.some(employee => employee.id === form.responsibleId) && <option value={form.responsibleId} disabled>Выберите аккаунт вместо прежнего ответственного</option>}{employeeOptions.map(employee => <option key={employee.id} value={employee.id}>{employee.fullName} — {employee.position}</option>)}</select></label>
-        <p className="director-field-hint is-wide">Доступно сотрудников: {employees.length}. Назначение доступно только действующим учётным записям сайта.</p>
+        <label>Ответственный<select required value={form.responsibleId} onChange={event => { const value = event.currentTarget.value; setForm(current => current && { ...current, responsibleId: value, coExecutorIds: current.coExecutorIds.filter(id => id !== value) }); }}><option value="">Выберите сотрудника</option>{form.responsibleId && !employees.some(employee => employee.id === form.responsibleId) && <option value={form.responsibleId} disabled>Выберите аккаунт вместо прежнего ответственного</option>}{employeeOptions.filter(employee => employee.canReceive !== false || employee.id === form.responsibleId).map(employee => <option key={employee.id} value={employee.id}>{employee.fullName} — {employee.position}</option>)}</select></label>
+        <p className="director-field-hint is-wide">Доступно сотрудников: {employees.length}. Ответственным можно выбрать учётную запись с доступом к вкладке «{registry.title}» в режиме получения поручений: только он отправляет результат на проверку. Соисполнителем — любую действующую учётную запись.</p>
         {employees.length === 0 && <p className="is-wide" role="status">Список сотрудников пока пуст. Добавьте учётные записи сотрудников.</p>}
         {form.coExecutorIds.filter(id => !employees.some(employee => employee.id === id)).map(id => <div key={id} className="is-wide director-assignment-actions"><span>{legacyEmployees.find(employee => employee.id === id)?.fullName ?? "Прежний соисполнитель"}: нет доступного аккаунта. Удалите участника и при необходимости выберите его аккаунт.</span><button type="button" disabled={saving} onClick={() => setForm(current => current && { ...current, coExecutorIds: current.coExecutorIds.filter(value => value !== id) })}>Убрать прежнего соисполнителя</button></div>)}
         <details className="is-wide director-coexecutors"><summary>Соисполнители{form.coExecutorIds.length ? `: ${form.coExecutorIds.length}` : " (необязательно)"}</summary><div>{employeeOptions.filter(employee => employee.id !== form.responsibleId).map(employee => <label key={employee.id}><input type="checkbox" checked={form.coExecutorIds.includes(employee.id)} onChange={event => { const checked = event.currentTarget.checked; setForm(current => current && { ...current, coExecutorIds: checked ? [...current.coExecutorIds, employee.id] : current.coExecutorIds.filter(id => id !== employee.id) }); }} /><span>{employee.fullName}<small>{employee.position}</small></span></label>)}</div></details>
@@ -244,8 +314,8 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
         <label>{form.recurrence === "once" ? "Срок исполнения" : "Первое исполнение"}<input type="date" required value={form.activeFrom} onChange={event => { const value = event.currentTarget.value; setForm(current => current && { ...current, activeFrom: value, activeTo: current.recurrence === "once" ? value : current.activeTo }); }} /></label>
         {form.recurrence !== "once" && <label>Окончание периода<input type="date" required min={form.activeFrom} value={form.activeTo} onChange={event => updateInput("activeTo", event.currentTarget.value)} /></label>}
       </fieldset>
-      <details className="director-compose-extra"><summary>{sourceLocked ? "Дополнительные сведения" : "Дополнительные сведения и связь с поручением Совета директоров"}</summary><div className="board-assignment-form-grid">
-        {!isEditing && !sourceLocked && <label className="is-wide">Исходное поручение Совета директоров<select value={form.sourceBoardAssignmentId ?? ""} onFocus={() => { if (!board.length) void requestBoardAssignments().then(result => { if (result.status === "ready") setBoard(result.assignments); }); }} onChange={event => { const id = event.currentTarget.value; const source = board.find(item => item.id === id); setForm(current => current && { ...current, sourceBoardAssignmentId: id || null, summary: source?.summary ?? current.summary }); }}><option value="">Без исходного поручения</option>{board.map(item => <option key={item.id} value={item.id}>{item.protocolNumber}, {item.decisionNumber}: {item.summary}</option>)}</select></label>}
+      <details className="director-compose-extra"><summary>{canLinkBoard ? "Дополнительные сведения и связь с поручением Совета директоров" : "Дополнительные сведения"}</summary><div className="board-assignment-form-grid">
+        {!isEditing && canLinkBoard && <label className="is-wide">Исходное поручение Совета директоров<select value={form.sourceBoardAssignmentId ?? ""} onFocus={() => { if (!board.length) void requestBoardAssignments().then(result => { if (result.status === "ready") setBoard(result.assignments); }); }} onChange={event => { const id = event.currentTarget.value; const source = board.find(item => item.id === id); setForm(current => current && { ...current, sourceBoardAssignmentId: id || null, summary: source?.summary ?? current.summary }); }}><option value="">Без исходного поручения</option>{board.map(item => <option key={item.id} value={item.id}>{item.protocolNumber}, {item.decisionNumber}: {item.summary}</option>)}</select></label>}
         {textFields.filter(([field]) => field !== "summary").map(([field, label]) => <label key={field}>{label}<input disabled={saving} value={form[field]} onChange={event => updateInput(field, event.currentTarget.value)} /></label>)}
       </div></details>
       {isEditing && <label className="director-edit-comment">Причина изменения<textarea required maxLength={4000} value={comment} onChange={event => onCommentChange(event.currentTarget.value)} /></label>}

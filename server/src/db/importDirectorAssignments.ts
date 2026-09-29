@@ -28,7 +28,7 @@ async function main() {
   const config = readServerConfig();
   const pool = createDatabasePool(config.databaseUrl);
   const database = createDatabaseTransactionContext(pool);
-  const repository = createDirectorAssignmentsRepository(database.pool);
+  const repository = createDirectorAssignmentsRepository(database.pool, "director");
   const audit = createAuditRepository(database.pool);
   try {
     const apply = () => database.transaction.run(async () => {

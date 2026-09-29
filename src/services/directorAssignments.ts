@@ -16,8 +16,8 @@ export async function directorRequest<T>(path: string, method = "GET", body?: un
   return payload as T;
 }
 
-export async function directorDocument(assignmentId: string, file: File | string) {
-  const path = `/api/director-assignments/${encodeURIComponent(assignmentId)}/documents${typeof file === "string" ? `/${encodeURIComponent(file)}` : `?fileName=${encodeURIComponent(file.name)}`}`;
+export async function directorDocument(assignmentId: string, file: File | string, apiPath = "/api/director-assignments") {
+  const path = `${apiPath}/${encodeURIComponent(assignmentId)}/documents${typeof file === "string" ? `/${encodeURIComponent(file)}` : `?fileName=${encodeURIComponent(file.name)}`}`;
   const response = await fetch(resolveApiEndpoint(path, path, {}), {
     method: typeof file === "string" ? "GET" : "POST", credentials: "include",
     headers: buildDevAccessHeaders(typeof file === "string" ? {} : { "Content-Type": "application/pdf" }),
@@ -30,8 +30,8 @@ export async function directorDocument(assignmentId: string, file: File | string
   return typeof file === "string" ? response.blob() : undefined;
 }
 
-export async function directorAssignmentPdf(request: DirectorAssignmentPdfRequest) {
-  const path = "/api/director-assignments/export.pdf";
+export async function directorAssignmentPdf(request: DirectorAssignmentPdfRequest, apiPath = "/api/director-assignments") {
+  const path = `${apiPath}/export.pdf`;
   const response = await fetch(resolveApiEndpoint(path, path, {}), {
     method: "POST", credentials: "include",
     headers: buildDevAccessHeaders({ Accept: "application/pdf", "Content-Type": "application/json" }),

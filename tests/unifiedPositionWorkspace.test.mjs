@@ -24,6 +24,7 @@ test("position form edits working tabs while admin rights are managed separately
       "business.director_assignments",
       "business.personnel",
       "business.board_assignments",
+      "business.collegium_assignments",
       "business.warehouse_1c",
       "business.railway_wagons",
       "business.settings",
@@ -92,7 +93,7 @@ test("position form edits working tabs while admin rights are managed separately
   // Режимы и уровни рабочих вкладок описаны одним каталогом.
   assert.deepEqual(
     Object.keys(navigationAccessLevels),
-    ["business.director_assignments", "business.board_assignments", "business.railway_wagons"],
+    ["business.director_assignments", "business.collegium_assignments", "business.board_assignments", "business.railway_wagons"],
   );
   assert.equal(
     navigationAccessLevels["business.railway_wagons"].title,

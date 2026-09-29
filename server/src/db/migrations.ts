@@ -4407,6 +4407,49 @@ const migrations: Migration[] = [
       `update app_users set is_root_admin = 1, is_admin_protected = 1 where lower(trim(login)) = 'admin';`,
     ],
   },
+  {
+    // Same shape as 085/086: the collegium registry reuses the director workflow with its own rows.
+    id: "088_collegium_assignments",
+    statements: [
+      `create table if not exists collegium_assignments (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        assigned_on date not null,
+        revision int unsigned not null,
+        source_key varchar(512) null,
+        payload longtext not null check (json_valid(payload)),
+        unique key uniq_collegium_assignment_id (id),
+        unique key uniq_collegium_assignment_source (source_key)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_assignment_history (
+        sequence_id bigint unsigned not null auto_increment primary key,
+        id varchar(100) not null,
+        assignment_id varchar(100) not null,
+        event_type varchar(20) not null,
+        payload longtext not null check (json_valid(payload)),
+        unique key uniq_collegium_history_id (id),
+        key idx_collegium_history_assignment (assignment_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_assignment_documents (
+        id varchar(100) not null primary key,
+        assignment_id varchar(100) not null,
+        file_name varchar(255) not null,
+        pdf mediumblob not null,
+        key idx_collegium_document_assignment (assignment_id)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+      `create table if not exists collegium_assignment_reminder_deliveries (
+        assignment_id varchar(100) not null,
+        occurrence_date date not null,
+        days_before tinyint unsigned not null,
+        user_id varchar(100) not null,
+        channel varchar(10) not null,
+        claim_token varchar(36) null,
+        lease_until timestamp(3) null,
+        delivered_at timestamp(3) null,
+        primary key (assignment_id, occurrence_date, days_before, user_id, channel)
+      ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
+    ],
+  },
 ];
 
 function removePositionJsonValue(
