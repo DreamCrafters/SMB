@@ -27,8 +27,8 @@ export function matchesBoardColumnFilters(row: BoardAssignmentSummary, filters: 
   const values = boardRegisterValues(row, completion);
   return (Object.keys(filters) as BoardRegisterColumn[]).every(key => values[key].toLocaleLowerCase("ru-RU").includes((filters[key] ?? "").toLocaleLowerCase("ru-RU")));
 }
-export function BoardAssignmentRegister({ assignments = [], completions, allColumns, loading, execute, onOpen }: {
-  assignments?: BoardAssignmentListItem[]; completions?: BoardAssignmentCompletionSummary[]; allColumns: boolean; loading: boolean; execute: boolean; onOpen: (id: string) => void;
+export function BoardAssignmentRegister({ assignments = [], completions, allColumns, loading, onOpen }: {
+  assignments?: BoardAssignmentListItem[]; completions?: BoardAssignmentCompletionSummary[]; allColumns: boolean; loading: boolean; onOpen: (id: string) => void;
 }) {
   const liveColumns = allColumns ? fullColumns : compactColumns;
   const completedColumns = allColumns ? historyColumns : [...compactColumns, "acceptedAt"] as const;
@@ -39,7 +39,7 @@ export function BoardAssignmentRegister({ assignments = [], completions, allColu
       const values = boardRegisterValues(assignment, completion);
       return <tr key={id} className={values.status === "Просрочено" ? "is-overdue" : undefined}>{columns.map(column => <TableCell key={column}>
         {column === "description" ? <><button className="board-assignment-link" type="button" onClick={() => onOpen(id)}>{values.description}</button><small>Протокол №{assignment.protocolNumber}, пункт {assignment.decisionNumber}</small></>
-          : column === "status" ? <><span className={`board-assignment-status is-${assignment.status}${values.status === "Просрочено" ? " is-overdue" : ""}`}>{values.status}</span>{execute && !completion && <button className="secondary-button board-assignment-execute-button" type="button" onClick={() => onOpen(id)}>Открыть и отчитаться</button>}</>
+          : column === "status" ? <><span className={`board-assignment-status is-${assignment.status}${values.status === "Просрочено" ? " is-overdue" : ""}`}>{values.status}</span></>
           : values[column] || "—"}
       </TableCell>)}</tr>;
     })}{!loading && !rows.length && <tr><TableCell className="board-assignment-empty" colSpan={columns.length}>По выбранным фильтрам поручений нет.</TableCell></tr>}</tbody></>;

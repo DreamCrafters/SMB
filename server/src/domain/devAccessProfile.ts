@@ -89,6 +89,21 @@ const defaultPositionDefinitions: Array<{
   { position: "dispatcher", positionDisplayName: "Диспетчер", accountType: "dispatcher" },
 ];
 
+/** The general director executes board assignments from «Поручения»; the board tab is for the board itself. */
+function buildBoardDevAccessOption(definition: (typeof defaultPositionDefinitions)[number]): DevAccessOption {
+  const isExecutor = definition.position === "general_director";
+  const navigationItems: AccountNavigationItem[] = [
+    ...navigationItemsByAccountType.business_owner,
+    "business.laboratory_review",
+    isExecutor ? "business.assignments" : "business.board_assignments",
+  ];
+  return {
+    ...definition,
+    navigationItems,
+    capabilities: resolveCapabilitiesForPosition(definition.position, navigationItems, isExecutor ? ["board"] : "none"),
+  };
+}
+
 export function buildDefaultDevAccessOptions(): DevAccessOption[] {
   return defaultPositionDefinitions.map((definition) =>
     definition.position === "economist"
@@ -110,22 +125,7 @@ export function buildDefaultDevAccessOptions(): DevAccessOption[] {
           definition.position === "board_member" ||
           definition.position === "general_director"
         )
-        ? {
-            ...definition,
-            navigationItems: [
-              ...navigationItemsByAccountType.business_owner,
-              "business.laboratory_review",
-              "business.board_assignments",
-            ],
-            capabilities: resolveCapabilitiesForPosition(
-              definition.position,
-              [
-                ...navigationItemsByAccountType.business_owner,
-                "business.laboratory_review",
-                "business.board_assignments",
-              ],
-            ),
-          }
+        ? buildBoardDevAccessOption(definition)
       : {
           ...definition,
           navigationItems: [...navigationItemsByAccountType[definition.accountType]],

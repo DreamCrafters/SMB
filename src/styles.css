@@ -4924,65 +4924,6 @@ p {
   color: var(--ink);
 }
 
-.board-assignment-executor-overview {
-  display: flex;
-  gap: var(--density-5);
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--density-5);
-  border: 1px solid rgba(155, 106, 34, 0.25);
-  border-radius: var(--radius);
-  background: linear-gradient(
-    135deg,
-    rgba(155, 106, 34, 0.12),
-    rgba(255, 255, 255, 0.82)
-  );
-}
-
-.board-assignment-executor-overview span {
-  color: #7b541d;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-}
-
-.board-assignment-executor-overview h2,
-.board-assignment-executor-overview p {
-  margin: 0;
-}
-
-.board-assignment-executor-overview h2 {
-  margin-top: var(--density-1);
-  color: var(--ink);
-  font-size: clamp(22px, 3vw, 30px);
-}
-
-.board-assignment-executor-overview p {
-  max-width: 720px;
-  margin-top: var(--density-2);
-  color: var(--muted);
-  font-weight: 700;
-  line-height: 1.5;
-}
-
-.board-assignment-executor-overview > strong {
-  display: grid;
-  min-width: 84px;
-  padding: var(--density-3);
-  border-radius: var(--radius);
-  color: #6c4919;
-  background: rgba(255, 255, 255, 0.72);
-  font-size: 30px;
-  text-align: center;
-}
-
-.board-assignment-executor-overview > strong small {
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
 .board-assignment-create-overview {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -5238,10 +5179,6 @@ p {
   background: var(--surface-raised);
 }
 
-.board-assignment-filters.is-compact {
-  grid-template-columns: minmax(260px, 2fr) minmax(180px, 1fr) auto;
-}
-
 .board-assignment-filters.is-history {
   grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
 }
@@ -5409,11 +5346,6 @@ p {
   border-radius: var(--radius);
   background: var(--surface-raised);
   box-shadow: var(--shadow-soft);
-}
-
-.board-assignment-execute-button {
-  display: block;
-  margin-top: var(--density-2);
 }
 
 .board-assignment-review-queue {
@@ -5945,10 +5877,6 @@ p {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .board-assignment-filters.is-compact {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
   .board-assignment-filters.is-history {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5962,7 +5890,6 @@ p {
 @media (max-width: 680px) {
   .board-assignments-heading,
   .board-assignment-dialog-heading,
-  .board-assignment-executor-overview,
   .board-assignment-create-overview,
   .board-assignment-review-overview,
   .board-assignment-history-overview {
@@ -5980,8 +5907,7 @@ p {
   .board-assignment-create-overview,
   .board-assignment-review-overview,
   .board-assignment-history-overview,
-  .board-assignment-schedule-fields > div,
-  .board-assignment-filters.is-compact {
+  .board-assignment-schedule-fields > div {
     grid-template-columns: 1fr;
   }
 

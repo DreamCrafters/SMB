@@ -111,7 +111,11 @@ export const localDevAccessOptions: DevAccessOption[] =
                 id !== "business.user_actions" &&
                 id !== "business.production_plan" &&
                 id !== "business.laboratory_results" &&
-                id !== "business.collegium_assignments",
+                id !== "business.collegium_assignments" &&
+                // The general director executes board assignments from «Поручения».
+                id !== (definition.position === "general_director"
+                  ? "business.board_assignments"
+                  : "business.assignments"),
             ),
             capabilities: [
               ...resolveLocalBoardAssignmentCapabilities(
@@ -131,6 +135,7 @@ export const localDevAccessOptions: DevAccessOption[] =
                 id !== "business.laboratory_results" &&
                 id !== "business.laboratory_review" &&
                 id !== "business.board_assignments" &&
+                id !== "business.assignments" &&
                 id !== "business.collegium_assignments",
             )
             .map(({ id }) => id),

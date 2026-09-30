@@ -4450,6 +4450,83 @@ const migrations: Migration[] = [
       ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;`,
     ],
   },
+  {
+    /**
+     * Задача 129: получение всех поручений переехало во вкладку «Поручения».
+     * Вкладки ГД и Коллегии остаются только для отправки и контроля, вкладка СД —
+     * без варианта исполнения. Каждый реестр, который должность исполняла,
+     * становится источником новой вкладки с тем же view и явным execute.
+     * Порядок важен: сначала права и новая вкладка, затем снятие старых вкладок.
+     */
+    id: "089_assignment_inbox",
+    statements: [
+      ...(["director", "collegium"] as const).map((registry) => addPositionJsonValue(
+        "capabilities",
+        `business.execute_${registry}_assignments`,
+        `json_contains(navigation_items, json_quote('business.${registry}_assignments'))
+          and not json_contains(capabilities, json_quote('business.manage_${registry}_assignments'))`,
+      )),
+      addPositionJsonValue(
+        "navigation_items",
+        "business.assignments",
+        `(json_contains(navigation_items, json_quote('business.director_assignments'))
+            and json_contains(capabilities, json_quote('business.execute_director_assignments')))
+          or (json_contains(navigation_items, json_quote('business.collegium_assignments'))
+            and json_contains(capabilities, json_quote('business.execute_collegium_assignments')))
+          or (json_contains(navigation_items, json_quote('business.board_assignments'))
+            and json_contains(capabilities, json_quote('business.execute_board_assignments')))`,
+      ),
+      ...(["director", "collegium"] as const).map((registry) => removePositionJsonValue(
+        "navigation_items",
+        `business.${registry}_assignments`,
+        `not json_contains(capabilities, json_quote('business.manage_${registry}_assignments'))`,
+      )),
+      removePositionJsonValue(
+        "navigation_items",
+        "business.board_assignments",
+        "json_contains(capabilities, json_quote('business.execute_board_assignments'))",
+      ),
+      // Accesses combine their positions; these items follow the same union rule.
+      addAccessJsonValueFromPositions("navigation_items", "business.assignments"),
+      ...(["director", "collegium"] as const).map((registry) =>
+        addAccessJsonValueFromPositions("capabilities", `business.execute_${registry}_assignments`)),
+      ...["business.director_assignments", "business.collegium_assignments", "business.board_assignments"].map((item) => `
+        update account_accesses accesses
+        set navigation_items = json_remove(
+          navigation_items,
+          json_unquote(json_search(navigation_items, 'one', '${item}'))
+        )
+        where json_contains(accesses.navigation_items, json_quote('business.assignments'))
+          and json_contains(accesses.navigation_items, json_quote('${item}'))
+          and not exists (
+            select 1 from account_positions positions
+            where json_contains(
+                coalesce(accesses.position_codes, json_array(accesses.position_code)),
+                json_quote(positions.id)
+              )
+              and json_contains(positions.navigation_items, json_quote('${item}'))
+          );
+      `),
+      `
+      delete sessions
+      from auth_sessions sessions
+      join account_accesses accesses on accesses.user_id = sessions.user_id
+      where json_contains(accesses.navigation_items, json_quote('business.assignments'));
+      `,
+      // Keep the start screen stable: the new tab takes the place before the director registry.
+      `
+      update app_navigation_settings
+      set navigation_order = json_array_insert(
+        navigation_order,
+        json_unquote(json_search(navigation_order, 'one', 'business.director_assignments')),
+        'business.assignments'
+      )
+      where setting_key = 'left_rail'
+        and json_search(navigation_order, 'one', 'business.assignments') is null
+        and json_search(navigation_order, 'one', 'business.director_assignments') is not null;
+      `,
+    ],
+  },
 ];
 
 function removePositionJsonValue(
@@ -4465,6 +4542,27 @@ function removePositionJsonValue(
     )
     where ${where}
       and json_contains(${column}, json_quote('${value}'));
+  `;
+}
+
+/** Adds a value to accesses whose positions, combined, grant it. */
+function addAccessJsonValueFromPositions(
+  column: "navigation_items" | "capabilities",
+  value: string,
+) {
+  return `
+    update account_accesses accesses
+    set ${column} = json_array_append(${column}, '$', '${value}')
+    where not json_contains(accesses.${column}, json_quote('${value}'))
+      and exists (
+        select 1 from account_positions positions
+        where json_contains(
+            coalesce(accesses.position_codes, json_array(accesses.position_code)),
+            json_quote(positions.id)
+          )
+          and json_contains(positions.${column}, json_quote('${value}'))
+          and json_contains(positions.navigation_items, json_quote('business.assignments'))
+      );
   `;
 }
 

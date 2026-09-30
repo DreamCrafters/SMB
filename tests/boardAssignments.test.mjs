@@ -291,7 +291,6 @@ test("board assignments workspace keeps the register, cancel flow, and distinct 
   for (const accessLayout of [
     "view-notice",
     "create-overview",
-    "executor-overview",
     "review-overview",
     "review-queue",
   ]) {
@@ -301,4 +300,6 @@ test("board assignments workspace keeps the register, cancel flow, and distinct 
   assert.match(source, /Принять исполнение/u);
   assert.match(source, /Вернуть на доработку/u);
   assert.doesNotMatch(styles, /\.board-assignment-access-card/u);
+  // Execution moved to «Поручения»: the board tab keeps no executor layout.
+  assert.doesNotMatch(styles, /\.board-assignment-executor-overview/u);
 });

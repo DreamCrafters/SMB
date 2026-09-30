@@ -26,6 +26,7 @@ const initialNavigationOrder = [
   "business.refractory_shop",
   "business.laboratory_results",
   "business.laboratory_review",
+  "business.assignments",
   "business.director_assignments",
   "business.personnel",
   "business.board_assignments",

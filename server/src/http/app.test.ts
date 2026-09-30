@@ -6049,7 +6049,7 @@ const accounts: AccountsRepository = {
         accountType: "dispatcher",
         navigationItems: ["business.dispatcher", "business.dispatcher_form"],
         capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -6060,7 +6060,7 @@ const accounts: AccountsRepository = {
         accountType: "business_owner",
         navigationItems: ["business.overview", "business.dispatcher"],
         capabilities: ["business.view_all_statistics", "business.view_dispatcher_feed"],
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 0,
         createdAt: "2026-07-10T00:00:00.000Z",
@@ -6068,10 +6068,10 @@ const accounts: AccountsRepository = {
     ];
   },
   async createPosition(input) {
-    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: "created-position", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async updatePosition(input) {
-    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
+    return { id: input.id, displayName: input.displayName, accountType: "dispatcher", navigationItems: input.navigationItems, capabilities: input.capabilities, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 1, createdAt: "2026-07-10T00:00:00.000Z" };
   },
   async deletePosition() {
     return "deleted";
@@ -6518,7 +6518,7 @@ test("admin positions API creates a position with tabs from the unified workspac
     ...accounts,
     async createPosition(input) {
       createdInput = input;
-      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-chief", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -6929,7 +6929,7 @@ test("position create and update accept combined railway roles with independent 
     writes.push(input);
     stored = {
       ...input, id: "mixed-position", accountType: "business_owner",
-      boardAssignmentAccess: "create", railwayWagonAccess: ["sales", "carrier"],
+      boardAssignmentAccess: "create", railwayWagonAccess: ["sales", "carrier"], assignmentInboxAccess: "none",
       showOverviewVisitors: false, isProtected: false, usageCount: 0,
       createdAt: "2026-09-11T00:00:00.000Z",
     };
@@ -7148,7 +7148,7 @@ test("admin positions API stores the selected board assignment access variant", 
         id: "position-board-reviewer",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "review", railwayWagonAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "review", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-27T00:00:00.000Z",
@@ -7168,7 +7168,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Проверяющий поручений",
         navigationItems: ["business.board_assignments"],
-        boardAssignmentAccess: "review", railwayWagonAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "review", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
       }),
     });
     const invalidResponse = await fetch(`${baseUrl}/api/admin/positions`, {
@@ -7177,7 +7177,7 @@ test("admin positions API stores the selected board assignment access variant", 
       body: JSON.stringify({
         displayName: "Несогласованная должность",
         navigationItems: ["business.overview"],
-        boardAssignmentAccess: "execute", railwayWagonAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "execute", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
       }),
     });
 
@@ -7198,7 +7198,7 @@ test("admin positions API allows an empty tab set and rejects the removed base c
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-worker", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -7233,7 +7233,7 @@ test("primary admin cannot assign root admin panels directly to a custom positio
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
+      return { id: "position-shared", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-07-12T00:00:00.000Z" };
     },
   };
 
@@ -7303,7 +7303,7 @@ test("renamed production root cannot assign root panels to a custom position", a
         id: "position-production-hybrid",
         accountType: "business_owner",
         ...input,
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
         isProtected: false,
         usageCount: 0,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -7371,7 +7371,7 @@ test("delegated account manager changes working tabs but cannot add root admin p
       "business.view_notifications" as const,
       "business.view_dispatcher_feed" as const,
     ],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -7467,7 +7467,7 @@ test("delegated account manager cannot mutate or unprotect a protected position"
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -7578,7 +7578,7 @@ test("delegated account manager cannot assign a position with admin rights", asy
       "platform.manage_users" as const,
       "platform.manage_access" as const,
     ],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: true,
     usageCount: 0,
@@ -7646,7 +7646,7 @@ test("original admin can keep an admin-rights position without working tabs", as
     accountType: "dispatcher" as const,
     navigationItems: ["business.dispatcher_form" as const],
     capabilities: ["business.submit_dispatcher_forms" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     hasAdminRights: true,
     usageCount: 2,
@@ -7688,7 +7688,7 @@ test("original admin can enable admin rights for a selected position", async () 
     accountType: "business_owner" as const,
     navigationItems: ["business.overview" as const],
     capabilities: ["business.view_all_statistics" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
     usageCount: 0,
@@ -7770,7 +7770,7 @@ test("admin positions API keeps the administrator outside the unified workspace"
         accountType: "admin",
         navigationItems: ["admin.accounts"],
         capabilities: ["platform.manage_users", "platform.manage_access"],
-        boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true,
+        boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true,
         isProtected: true,
         usageCount: 1,
         createdAt: "2026-07-12T00:00:00.000Z",
@@ -7820,7 +7820,7 @@ test("admin positions API deletes only an unused position", async () => {
     accountType: "worker" as const,
     navigationItems: [],
     capabilities: [],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: false,
     usageCount: 0,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -7862,7 +7862,7 @@ test("admin positions API deletes an unused laboratory system position", async (
     accountType: "business_owner" as const,
     navigationItems: ["business.laboratory_results" as const],
     capabilities: ["business.manage_laboratory_results" as const],
-    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "none" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-22T00:00:00.000Z",
@@ -7895,7 +7895,7 @@ test("admin positions API deletes an unused program-created non-admin position",
       "business.view_board_assignments" as const,
       "business.review_board_assignments" as const,
     ],
-    boardAssignmentAccess: "review" as const, railwayWagonAccess: "none" as const, showOverviewVisitors: true,
+    boardAssignmentAccess: "review" as const, railwayWagonAccess: "none" as const, assignmentInboxAccess: "none" as const, showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
     createdAt: "2026-07-10T00:00:00.000Z",
@@ -15564,29 +15564,38 @@ test("director endpoints authenticate and reject personnel access and forged pre
   } finally { server.close(); await once(server, "close"); }
 });
 
-test("position API accepts sender and receiver modes independently of the position title", async () => {
+test("position API gives registry tabs sending and «Поручения» sources execution, independently of the title", async () => {
   const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
+      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
     },
   };
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "admin");
     const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
-    for (const mode of ["send", "receive", "both", "invalid"]) {
-      const response = await fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers,
-        body: JSON.stringify({ displayName: "Произвольная должность", navigationItems: ["business.director_assignments"], directorAssignmentAccess: mode }),
-      });
-      assert.equal(response.status, mode === "invalid" ? 400 : 201);
-    }
+    const create = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers, body: JSON.stringify({ displayName: "Произвольная должность", ...body }) });
+    assert.equal((await create({ navigationItems: ["business.director_assignments"] })).status, 201);
+    assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: ["director"] })).status, 201);
+    assert.equal((await create({ navigationItems: ["business.director_assignments", "business.assignments"], assignmentInboxAccess: ["director"] })).status, 201);
+    // The old receive modes and a tab without sources are refused.
+    assert.equal((await create({ navigationItems: ["business.director_assignments"], directorAssignmentAccess: "receive" })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.assignments"] })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: [] })).status, 400);
+    assert.equal((await create({ navigationItems: [], assignmentInboxAccess: ["director"] })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: ["send"] })).status, 400);
+    // Board execution restricts the board register, so it cannot join board creation or review.
+    assert.equal((await create({ navigationItems: ["business.assignments", "business.board_assignments"], assignmentInboxAccess: ["board"], boardAssignmentAccess: "review" })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.board_assignments"], boardAssignmentAccess: "execute" })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.assignments"], assignmentInboxAccess: ["board"] })).status, 201);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
   assert.deepEqual(created.map(position => position.capabilities), [
     ["business.view_director_assignments", "business.manage_director_assignments"],
-    ["business.view_director_assignments"],
+    ["business.view_director_assignments", "business.execute_director_assignments"],
     ["business.view_director_assignments", "business.manage_director_assignments", "business.execute_director_assignments"],
+    ["business.view_board_assignments", "business.execute_board_assignments"],
   ]);
 });
 
@@ -15647,7 +15656,7 @@ test("collegium endpoints use their own registry, capabilities and review signal
     // Director rights never open the collegium registry.
     assert.equal((await fetch(`${baseUrl}/api/collegium-assignments`, { headers })).status, 403);
     assert.equal((await fetch(`${baseUrl}/api/director-assignments`, { headers })).status, 503);
-    profile.activeAccess.capabilities = ["business.view_collegium_assignments"];
+    profile.activeAccess.capabilities = ["business.view_collegium_assignments", "business.execute_collegium_assignments"];
     const list = await fetch(`${baseUrl}/api/collegium-assignments`, { headers });
     assert.equal(list.status, 200);
     const body: unknown = await list.json();
@@ -15667,27 +15676,26 @@ test("collegium endpoints use their own registry, capabilities and review signal
   } finally { server.close(); await once(server, "close"); }
 });
 
-test("position API stores the collegium mode separately from the director mode", async () => {
+test("position API keeps collegium and director sources separate", async () => {
   const created: Parameters<AccountsRepository["createPosition"]>[0][] = [];
   const repository: AccountsRepository = {
     ...accounts,
     async createPosition(input) {
       created.push(input);
-      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
+      return { id: "position-mode", accountType: "business_owner", ...input, boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: true, isProtected: false, usageCount: 0, createdAt: "2026-09-15T00:00:00Z" };
     },
   };
   await withApiServer(async (baseUrl) => {
     const sessionId = await createDevSession(baseUrl, "admin");
     const headers = { "Content-Type": "application/json", "X-SMB-Dev-Session": sessionId };
     const create = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/admin/positions`, { method: "POST", headers, body: JSON.stringify({ displayName: "Председатель Коллегии", ...body }) });
-    assert.equal((await create({ navigationItems: ["business.collegium_assignments"], collegiumAssignmentAccess: "send" })).status, 201);
-    assert.equal((await create({ navigationItems: ["business.collegium_assignments", "business.director_assignments"], collegiumAssignmentAccess: "both", directorAssignmentAccess: "receive" })).status, 201);
-    assert.equal((await create({ navigationItems: [], collegiumAssignmentAccess: "send" })).status, 400);
-    assert.equal((await create({ navigationItems: ["business.collegium_assignments"], collegiumAssignmentAccess: "review" })).status, 400);
+    assert.equal((await create({ navigationItems: ["business.collegium_assignments"] })).status, 201);
+    assert.equal((await create({ navigationItems: ["business.collegium_assignments", "business.assignments"], assignmentInboxAccess: ["collegium", "director"] })).status, 201);
+    assert.equal((await create({ navigationItems: ["business.collegium_assignments"], collegiumAssignmentAccess: "send" })).status, 400);
   }, dispatcherSubmissions, emptyReferenceDataSource, undefined, undefined, adminDatabase, config, undefined, repository);
   assert.deepEqual(created.map(position => position.capabilities), [
     ["business.view_collegium_assignments", "business.manage_collegium_assignments"],
-    ["business.view_collegium_assignments", "business.view_director_assignments", "business.manage_collegium_assignments", "business.execute_collegium_assignments"],
+    ["business.view_collegium_assignments", "business.manage_collegium_assignments", "business.execute_collegium_assignments", "business.view_director_assignments", "business.execute_director_assignments"],
   ]);
 });
 
@@ -15751,7 +15759,7 @@ for (const isRootAdmin of [false, true]) {
 
 test("delegated dev session cannot inherit root from a colliding production user ID", async () => {
   const repository: AccountsRepository = { ...accounts,
-    async listPositions() { return [{ id: "delegated-dev", displayName: "Управление аккаунтами", accountType: "business_owner", navigationItems: ["admin.accounts"], capabilities: ["platform.manage_users", "platform.manage_access"], boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: true, usageCount: 0, createdAt: "2026-09-23T00:00:00Z" }]; },
+    async listPositions() { return [{ id: "delegated-dev", displayName: "Управление аккаунтами", accountType: "business_owner", navigationItems: ["admin.accounts"], capabilities: ["platform.manage_users", "platform.manage_access"], boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: true, usageCount: 0, createdAt: "2026-09-23T00:00:00Z" }]; },
     async listAccounts() { return [{ ...adminAccount, userId: "dev-user-owner", isRootAdmin: true }]; },
   };
   await withApiServer(async baseUrl => {
@@ -15769,7 +15777,7 @@ test("concrete account preview uses live target identity, permissions and admini
   const actor = buildProductionProfile("admin");
   const target: Awaited<ReturnType<AccountsRepository["listAccounts"]>>[number] = {
     ...adminAccount, accessId: "target-access", userId: "target-user", login: "target", userDisplayName: "Получатель",
-    accountType: "worker", capabilities: ["business.view_director_assignments"], navigationItems: ["business.director_assignments"],
+    accountType: "worker", capabilities: ["business.view_director_assignments", "business.execute_director_assignments"], navigationItems: ["business.assignments"],
   };
   const rootAccount = { ...adminAccount, userId: actor.userId, accessId: actor.activeAccess.accountId, isRootAdmin: true };
   const accountRepository: AccountsRepository = { ...accounts, async listAccounts() { return [rootAccount, target]; } };
@@ -15827,7 +15835,7 @@ test("concrete account preview uses live target identity, permissions and admini
 
 test("a delegated dev preview cannot inherit impersonation from a colliding production root ID", async () => {
   const repository: AccountsRepository = { ...accounts,
-    async listPositions() { return [{ id: "delegated-preview", displayName: "Предпросмотр", accountType: "business_owner", navigationItems: ["admin.account_preview"], capabilities: [], boardAssignmentAccess: "none", railwayWagonAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: false, usageCount: 0, createdAt: "2026-09-24T00:00:00Z" }]; },
+    async listPositions() { return [{ id: "delegated-preview", displayName: "Предпросмотр", accountType: "business_owner", navigationItems: ["admin.account_preview"], capabilities: [], boardAssignmentAccess: "none", railwayWagonAccess: "none", assignmentInboxAccess: "none", showOverviewVisitors: false, isProtected: false, hasAdminRights: false, usageCount: 0, createdAt: "2026-09-24T00:00:00Z" }]; },
     async listAccounts() { return [{ ...adminAccount, userId: "dev-user-owner", isRootAdmin: true }]; },
   };
   await withApiServer(async baseUrl => {

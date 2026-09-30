@@ -16,7 +16,8 @@ export function directorAssignmentPermissions(profile: ServerUserProfile, regist
   return {
     canView,
     canManage,
-    canExecute: canView && (!canManage || hasProfileCapability(profile, registry.executeCapability)),
+    // Execution comes only from a «Поручения» source; the registry tab is sending and control.
+    canExecute: canView && hasProfileCapability(profile, registry.executeCapability),
     canManagePersonnel: hasProfileCapability(profile, "business.manage_personnel"),
   };
 }
@@ -75,7 +76,7 @@ export function createDirectorAssignmentsService({ repository, boardAssignments,
     const assignedUsers = [...found.values()].flatMap(employee => employee.userId ? [employee.userId] : []);
     if (new Set(assignedUsers).size !== assignedUsers.length) throw new DirectorAssignmentError("Один сотрудник не может быть указан среди исполнителей дважды.");
     // Only a controller can close an assignment after review, so the responsible must be able to submit it.
-    if (requireReceiver && !found.get(responsibleId)!.canReceive) throw new DirectorAssignmentError(`У ответственного нет доступа к вкладке «${registry.title}» в режиме получения поручений.`);
+    if (requireReceiver && !found.get(responsibleId)!.canReceive) throw new DirectorAssignmentError(`У ответственного нет вкладки «Поручения» с реестром «${registry.title}».`);
     return { responsible: found.get(responsibleId)!, coExecutors: coExecutorIds.map(id => found.get(id)!) };
   }
   return {

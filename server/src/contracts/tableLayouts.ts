@@ -27,6 +27,7 @@ const measurementColumns = [...new Set([
 /** Stable semantic column IDs; labels, filtering and optional columns never address stored widths. */
 export const tableDefinitions = {
   "board.delegations": defineTable("Перепоручения по поручению СД", ["createdAt", "assignment", "responsible", "deadline", "status", "history"]),
+  "assignments.inbox": defineTable("Поручения", ["source", "number", "summary", "assignedOn", "deadline", "status", "progress"]),
   "director.assignments": defineTable("Поручения генерального директора", ["number", "assignedOn", "summary", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
   "collegium.assignments": defineTable("Поручения Коллегии", ["number", "assignedOn", "summary", "meetingDate", "protocolNumber", "decisionNumber", "department", "project", "responsible", "coExecutors", "deadline", "urgency", "importance", "progress", "completedOn", "note", "status", "incomingNumber", "durationWorkdays", "remainingWorkdays", "postponedUntil"]),
   "director.personnel": defineTable("Сотрудники", ["fullName", "position", "department", "category", "user", "status"]),

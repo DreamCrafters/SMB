@@ -42,10 +42,11 @@ function fixture(registryId: AssignmentRegistryId = "director") {
   const profile = (userId: string, manager = false): ServerUserProfile => ({
     userId, displayName: userId, accountType: "business_owner", receivedAt: "2026-09-14T00:00:00Z",
     activeAccess: { accountId: userId, accountType: "business_owner", position: "worker", positionDisplayName: "Сотрудник", displayName: userId, scope: { kind: "organization" }, issuedAt: "2026-09-14T00:00:00Z",
-      navigationItems: [registryId === "collegium" ? "business.collegium_assignments" : "business.director_assignments"],
+      // A controller sends from the registry tab; an executor receives through «Поручения».
+      navigationItems: [manager ? (registryId === "collegium" ? "business.collegium_assignments" : "business.director_assignments") : "business.assignments"],
       capabilities: registryId === "collegium"
-        ? ["business.view_collegium_assignments", ...(manager ? ["business.manage_collegium_assignments" as const] : [])]
-        : ["business.view_director_assignments", ...(manager ? ["business.manage_director_assignments" as const] : [])] },
+        ? ["business.view_collegium_assignments", manager ? "business.manage_collegium_assignments" as const : "business.execute_collegium_assignments" as const]
+        : ["business.view_director_assignments", manager ? "business.manage_director_assignments" as const : "business.execute_director_assignments" as const] },
   });
   const input: DirectorAssignmentInput = { assignedOn: "2026-09-01", kind: "Поручение", summary: "Представить отчёт", department: "", project: "", responsibleId: employee.id, coExecutorIds: [], recurrence: "monthly", activeFrom: "2026-09-01", activeTo: "2026-12-31", urgency: "", importance: "", note: "", progress: "", incomingNumber: "", sourceBoardAssignmentId: null,
     ...(registryId === "collegium" ? { meetingDate: "2026-09-10", protocolNumber: "7", decisionNumber: "2.1" } : {}) };
@@ -187,7 +188,7 @@ test("the responsible account must be able to receive assignments of this regist
   const { service, profile, input, employee } = fixture();
   const manager = profile("director", true);
   employee.canReceive = false;
-  await assert.rejects(service.save(manager, { assignment: input, comment: "Создано" }), /нет доступа к вкладке «Поручения генерального директора»/u);
+  await assert.rejects(service.save(manager, { assignment: input, comment: "Создано" }), /нет вкладки «Поручения» с реестром «Поручения генерального директора»/u);
   employee.canReceive = true;
   const record = await service.save(manager, { assignment: input, comment: "Создано" });
   employee.canReceive = false;

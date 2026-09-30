@@ -63,11 +63,124 @@ function inputFrom(row: DirectorAssignment, employees: PersonnelEmployee[], regi
   return { ...input, sourceBoardAssignmentId: row.sourceBoardAssignmentId, responsibleId: resolveId(input.responsibleId, row.responsible), coExecutorIds: [...new Set(row.coExecutorIds.map(id => resolveId(id, row.coExecutors.find(employee => employee.id === id))))] };
 }
 
+const sourceFieldLabels = ["Номер задачи", "Дата постановки", "Суть задачи", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Исходный срок", "Срочность", "Важность", "Промежуточные этапы", "Фактическая дата", "Примечание", "Исходный статус", "Номер входящего", "Второй номер", "Длительность", "Осталось рабочих дней", "Перенос срока"];
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Server-selected journal or card PDF; the client sends only IDs and revisions. */
+export async function downloadDirectorAssignmentsPdf(registryId: AssignmentRegistryId, mode: "register" | "assignment", source: "current" | "history", entries: Array<{ id: string; revision: number; number: string }>) {
+  const blob = await directorAssignmentPdf({ mode, source, entries: entries.map(({ id, revision }) => ({ id, revision })) }, assignmentRegistries[registryId].apiPath);
+  downloadBlob(blob, mode === "register" ? "Журнал поручений.pdf" : `Поручение ${entries[0].number}.pdf`);
+}
+
+/** Read-only part of a card shared by the registry tab and «Поручения». */
+function DirectorAssignmentCardBody({ registryId, assignment }: { registryId: AssignmentRegistryId; assignment: DirectorAssignment }) {
+  const columns = registryColumns(assignmentRegistries[registryId]);
+  return <>
+    <dl className="board-assignment-details">{columns.map(column => <div key={column}><dt>{columnLabels[column]}</dt><dd>{cellValues(assignment)[column] || "—"}</dd></div>)}</dl>
+    {assignment.source && <details><summary>Исходная запись Google Sheets</summary><dl className="board-assignment-details">{assignment.source.values.map((value, index) => <div key={index}><dt>{sourceFieldLabels[index] ?? "Исходное поле"}</dt><dd>{value || "—"}</dd></div>)}</dl></details>}
+    <section className="board-assignment-comments">
+      <h4>Комментарии</h4>
+      {assignment.comments.length ? assignment.comments.map(item => <pre key={item.id}>{item.createdAt} · {item.author}: {item.text}</pre>) : <p>Комментариев пока нет.</p>}
+    </section>
+  </>;
+}
+
+function DirectorAssignmentDocumentLinks({ registryId, assignment, disabled, onError, onRemove }: {
+  registryId: AssignmentRegistryId;
+  assignment: DirectorAssignment;
+  disabled: boolean;
+  onError: (message: string) => void;
+  onRemove?: (documentId: string) => void;
+}) {
+  return <>
+    {!assignment.documents.length && <p className="director-field-hint">Документов пока нет.</p>}
+    {assignment.documents.map(document => <div className="director-assignment-actions" key={document.id}>
+      <button type="button" className="secondary-button" disabled={disabled} onClick={() => { void directorDocument(assignment.id, document.id, assignmentRegistries[registryId].apiPath).then(blob => { if (blob) downloadBlob(blob, document.fileName); }).catch(e => onError(e.message)); }}>{document.fileName}</button>
+      {onRemove && <button type="button" className="secondary-button" disabled={disabled} onClick={() => onRemove(document.id)}>Убрать документ</button>}
+    </div>)}
+  </>;
+}
+
+/**
+ * Executor card of «Поручения»: the responsible saves progress or submits the result;
+ * the server re-checks ownership, the date and the revision on every action.
+ */
+export function DirectorAssignmentExecutionCard({ registryId, assignment, canExecute, onClose, onChanged, onShowToast }: {
+  registryId: AssignmentRegistryId;
+  assignment: DirectorAssignment;
+  canExecute: boolean;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+  onShowToast: ShowToast;
+}) {
+  const registry = assignmentRegistries[registryId];
+  const [comment, setComment] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState("");
+  const cardRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    cardRef.current?.focus({ preventScroll: true });
+    cardRef.current?.scrollIntoView?.({ block: "start", behavior: "instant" });
+  }, [assignment.id]);
+  async function runAction(action: "record_progress" | "submit_for_review") {
+    setSaving(true); setError("");
+    try {
+      await directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision });
+      await onChanged();
+      onShowToast(action === "submit_for_review" ? "Отправлено на проверку" : "Результат сохранён", action === "submit_for_review" ? "Поручение передано руководителю." : "Изменения сохранены.", "success");
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось сохранить поручение."); }
+    finally { setSaving(false); }
+  }
+  async function exportCard() {
+    setExporting(true); setError("");
+    try { await downloadDirectorAssignmentsPdf(registryId, "assignment", "current", [assignment]); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось сформировать PDF."); }
+    finally { setExporting(false); }
+  }
+  const isOpen = assignment.status !== "completed";
+  return <section className="director-assignment-detail" ref={cardRef} tabIndex={-1} aria-labelledby="assignment-inbox-detail-title">
+    <span className="eyebrow">{registry.title}</span>
+    <h3 id="assignment-inbox-detail-title">№{assignment.number}: {assignment.summary}</h3>
+    {error && <p role="alert">{error}</p>}
+    <button type="button" className="secondary-button" disabled={saving || exporting} onClick={() => void exportCard()}>Скачать поручение в PDF</button>
+    <DirectorAssignmentCardBody registryId={registryId} assignment={assignment} />
+    <section className="director-assignment-documents">
+      <h4>Документы</h4>
+      <DirectorAssignmentDocumentLinks registryId={registryId} assignment={assignment} disabled={saving} onError={setError} />
+    </section>
+    {isOpen && canExecute && <section className="board-assignment-decision is-execute">
+      <label>
+        <span>Комментарий</span>
+        <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="assignment-inbox-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
+      </label>
+      <p className="director-field-hint" id="assignment-inbox-comment-hint">Для сохранения результата или отправки на проверку укажите комментарий.</p>
+      <div className="board-assignment-dialog-actions">
+        <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => void runAction("record_progress")}>Сохранить промежуточный результат</button>
+        <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => void runAction("submit_for_review")}>Отправить на проверку</button>
+      </div>
+    </section>}
+    {isOpen && !canExecute && <p className="director-field-hint">{assignment.status === "under_review" ? "Результат на проверке у руководителя." : assignment.needsClarification ? "Поручение требует уточнения у руководителя." : "Исполнение откроется с даты постановки поручения."}</p>}
+    <footer className="board-assignment-dialog-actions">
+      <button type="button" className="secondary-button" disabled={saving} onClick={onClose}>Закрыть</button>
+    </footer>
+  </section>;
+}
+
+/** Registry tab: sending and control only. Own assignments are executed in «Поручения». */
 export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "director" }: { onShowToast: ShowToast; registryId?: AssignmentRegistryId }) {
   const registry = assignmentRegistries[registryId];
   const columns = registryColumns(registry);
   const [data, setData] = useState<DirectorAssignmentListResponse>();
-  const [view, setView] = useState<"send" | "receive">("receive");
   const historyRequest = useRef(0);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -91,7 +204,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   async function refresh() { setData(await directorRequest<DirectorAssignmentListResponse>(registry.apiPath)); }
   useEffect(() => {
     const abort = new AbortController();
-    void directorRequest<DirectorAssignmentListResponse>(registry.apiPath, "GET", undefined, abort.signal).then(next => { setData(next); if (next.permissions.canManage && !next.permissions.canExecute) setForm(createDirectorAssignmentInput(next.today, registryId)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
+    void directorRequest<DirectorAssignmentListResponse>(registry.apiPath, "GET", undefined, abort.signal).then(next => { setData(next); if (next.permissions.canManage) setForm(createDirectorAssignmentInput(next.today, registryId)); }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
     return () => abort.abort();
   }, [registry.apiPath, registryId]);
   async function mutate(operation: () => Promise<unknown>) {
@@ -104,16 +217,11 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
     event.preventDefault();
     if (form) void mutate(() => directorRequest(`${registry.apiPath}${selected ? `/${selected.id}` : ""}`, selected ? "PATCH" : "POST", { assignment: form, revision: selected?.revision, comment: selected ? comment : "Поручение создано." }));
   }
-  function runAction(assignment: DirectorAssignment, action: "record_progress" | "submit_for_review" | "complete" | "return_for_revision") {
+  function runAction(assignment: DirectorAssignment, action: "complete" | "return_for_revision") {
     void mutate(() => directorRequest(`${registry.apiPath}/${assignment.id}/action`, "POST", { action, comment, revision: assignment.revision }));
   }
   function openAssignment(row: DirectorAssignment) {
     setSelected(row); setForm(undefined); setComment(""); setContentOpenCount(count => count + 1);
-  }
-  function changeView(next: "send" | "receive") {
-    historyRequest.current++;
-    setView(next); setSelected(undefined); setForm(undefined); setHistory(null);
-    setComment(""); setError(""); setFilters({}); setSelectedStatuses([]);
   }
   async function openHistory() {
     const request = ++historyRequest.current;
@@ -132,28 +240,18 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
       const entries = assignments.map(row => {
         const id = history ? history.find(item => item.assignment === row)?.id : row.id;
         if (!id) throw new Error("Откройте поручение заново перед выгрузкой.");
-        return { id, revision: row.revision };
+        return { id, revision: row.revision, number: row.number };
       });
-      const blob = await directorAssignmentPdf({ mode, source: history ? "history" : "current", entries }, registry.apiPath);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = mode === "register" ? "Журнал поручений.pdf" : `Поручение ${assignments[0].number}.pdf`;
-      document.body.append(link);
-      link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await downloadDirectorAssignmentsPdf(registryId, mode, history ? "history" : "current", entries);
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось сформировать PDF."); }
     finally { setExporting(false); }
   }
   if (!data) return <section className="workspace-panel">{error ? <p role="alert">{error}</p> : <LoadingIndicator label="Загрузка поручений" />}</section>;
-  const combinedAccess = data.permissions.canManage && data.permissions.canExecute;
-  const isSending = data.permissions.canManage && (!combinedAccess || view === "send");
-  const canExecuteSelected = selected !== undefined && (data.executableAssignmentIds?.includes(selected.id) ?? (!data.permissions.canManage && data.permissions.canExecute));
+  const canManage = data.permissions.canManage;
   // Same decision rule as the board: only a controller decides, and only on a submitted result.
-  const canDecideSelected = !history && isSending && selected?.status === "under_review";
-  const rows = history ? history.map(item => item.assignment) : combinedAccess && !isSending
-    ? data.assignments.filter(assignment => data.ownAssignmentIds?.includes(assignment.id)) : data.assignments;
-  const reviewQueue = !history && isSending ? data.assignments.filter(assignment => assignment.status === "under_review") : [];
+  const canDecideSelected = !history && canManage && selected?.status === "under_review";
+  const rows = history ? history.map(item => item.assignment) : data.assignments;
+  const reviewQueue = !history && canManage ? data.assignments.filter(assignment => assignment.status === "under_review") : [];
   const visible = rows.filter(row => {
     const cells = cellValues(row);
     return (selectedStatuses.length === 0 || selectedStatuses.some(status => status === "Требует уточнения" ? row.needsClarification : statuses[row.status] === status))
@@ -162,13 +260,9 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
   });
   const visibleColumns = showAllColumns ? columns : defaultColumns;
   return <section ref={workspaceRef} className="board-assignments-workspace director-assignments">
-    <header className="director-assignment-heading"><div><span className="eyebrow">{isSending ? "Отправка и контроль" : "Получение и выполнение"}</span><h2>{registry.title}</h2><p>{isSending ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения." : "Ваши активные поручения. Сохраняйте промежуточные результаты и отправляйте выполненную работу на проверку."}</p></div></header>
-    {combinedAccess && <div className="form-actions director-assignment-actions director-assignment-view-switch" role="group" aria-label="Режим поручений">
-      <button type="button" className={!isSending ? "primary-button" : "secondary-button"} aria-pressed={!isSending} disabled={saving} onClick={() => changeView("receive")}>Мои поручения</button>
-      <button type="button" className={isSending ? "primary-button" : "secondary-button"} aria-pressed={isSending} disabled={saving} onClick={() => changeView("send")}>Отправка и контроль</button>
-    </div>}
+    <header className="director-assignment-heading"><div><span className="eyebrow">Отправка и контроль</span><h2>{registry.title}</h2><p>{canManage ? "Поставьте задачу сотруднику, укажите срок и примите результат исполнения. Свои поручения исполняйте во вкладке «Поручения»." : "Для отправки поручений нужен доступ к этой вкладке."}</p></div></header>
     {error && <p role="alert">{error}</p>}
-    {isSending && <div className="form-actions director-assignment-actions">
+    {canManage && <div className="form-actions director-assignment-actions">
       <button className="primary-button" type="button" disabled={saving} onClick={() => { setSelected(undefined); setForm(createDirectorAssignmentInput(data.today, registryId)); setComment(""); setHistory(null); }}>Создать поручение</button>
       <button type="button" onClick={() => { setHistory(null); setSelected(undefined); setForm(undefined); }}>Текущие поручения</button>
       <button type="button" onClick={() => { setSelected(undefined); setForm(undefined); void openHistory(); }}>История исполнений</button>
@@ -177,41 +271,27 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
     {selected && !form && <section className="director-assignment-detail" ref={detailRef} tabIndex={-1} aria-labelledby="director-assignment-detail-title">
       <h3 id="director-assignment-detail-title">№{selected.number}: {selected.summary}</h3>
       <button type="button" className="secondary-button" disabled={saving || exporting} onClick={() => void exportPdf([selected], "assignment")}>Скачать поручение в PDF</button>
-      <dl className="board-assignment-details">{columns.map(column => <div key={column}><dt>{columnLabels[column]}</dt><dd>{cellValues(selected)[column] || "—"}</dd></div>)}</dl>
-      {selected.source && <details><summary>Исходная запись Google Sheets</summary><dl className="board-assignment-details">{selected.source.values.map((value, index) => <div key={index}><dt>{["Номер задачи", "Дата постановки", "Суть задачи", "Подразделение", "Проект", "Ответственный", "Соисполнители", "Исходный срок", "Срочность", "Важность", "Промежуточные этапы", "Фактическая дата", "Примечание", "Исходный статус", "Номер входящего", "Второй номер", "Длительность", "Осталось рабочих дней", "Перенос срока"][index] ?? "Исходное поле"}</dt><dd>{value || "—"}</dd></div>)}</dl></details>}
-      <section className="board-assignment-comments">
-        <h4>Комментарии</h4>
-        {selected.comments.length ? selected.comments.map(item => <pre key={item.id}>{item.createdAt} · {item.author}: {item.text}</pre>) : <p>Комментариев пока нет.</p>}
-      </section>
+      <DirectorAssignmentCardBody registryId={registryId} assignment={selected} />
       <section className="director-assignment-documents">
         <h4>Документы</h4>
-        {!selected.documents.length && <p className="director-field-hint">Документов пока нет.</p>}
-        {selected.documents.map(document => <div className="director-assignment-actions" key={document.id}>
-          <button type="button" className="secondary-button" disabled={saving} onClick={() => { void directorDocument(selected.id, document.id, registry.apiPath).then(blob => { if (blob) { const url = URL.createObjectURL(blob); const link = window.document.createElement("a"); link.href = url; link.download = document.fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } }).catch(e => setError(e.message)); }}>{document.fileName}</button>
-          {!history && isSending && selected.status !== "completed" && <button type="button" className="secondary-button" disabled={saving} onClick={() => void mutate(() => directorRequest(`${registry.apiPath}/${selected.id}/documents/${document.id}`, "DELETE"))}>Убрать документ</button>}
-        </div>)}
-        {!history && isSending && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file, registry.apiPath)); }} /></label>}
+        <DirectorAssignmentDocumentLinks registryId={registryId} assignment={selected} disabled={saving} onError={setError}
+          onRemove={!history && canManage && selected.status !== "completed" ? documentId => void mutate(() => directorRequest(`${registry.apiPath}/${selected.id}/documents/${documentId}`, "DELETE")) : undefined} />
+        {!history && canManage && selected.status !== "completed" && <label>Прикрепить PDF (до пяти файлов, каждый до 10 МБ)<input type="file" accept="application/pdf,.pdf" disabled={saving || selected.documents.length >= 5} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void mutate(() => directorDocument(selected.id, file, registry.apiPath)); }} /></label>}
       </section>
-      {!history && selected.status !== "completed" && (canExecuteSelected || canDecideSelected) && <section className={`board-assignment-decision ${canDecideSelected ? "is-review" : "is-execute"}`}>
+      {canDecideSelected && <section className="board-assignment-decision is-review">
         <label>
-          <span>{canDecideSelected ? "Комментарий к решению" : "Комментарий"}</span>
+          <span>Комментарий к решению</span>
           <textarea maxLength={4000} rows={4} disabled={saving} aria-describedby="director-action-comment-hint" value={comment} onChange={event => setComment(event.currentTarget.value)} />
         </label>
-        <p className="director-field-hint" id="director-action-comment-hint">{canDecideSelected ? "Проверьте результат и комментарии исполнителя, затем примите работу или верните её с понятным замечанием." : "Для сохранения результата или отправки на проверку укажите комментарий."}</p>
+        <p className="director-field-hint" id="director-action-comment-hint">Проверьте результат и комментарии исполнителя, затем примите работу или верните её с понятным замечанием.</p>
         <div className="board-assignment-dialog-actions">
-          {canExecuteSelected && <>
-            <button type="button" className="secondary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "record_progress")}>Сохранить промежуточный результат</button>
-            <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "submit_for_review")}>Отправить на проверку</button>
-          </>}
-          {canDecideSelected && <>
-            <button type="button" className="secondary-button board-assignment-return-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "return_for_revision")}>Вернуть на доработку</button>
-            <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "complete")}>Принять исполнение</button>
-          </>}
+          <button type="button" className="secondary-button board-assignment-return-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "return_for_revision")}>Вернуть на доработку</button>
+          <button type="button" className="primary-button" disabled={saving || !comment.trim()} onClick={() => runAction(selected, "complete")}>Принять исполнение</button>
         </div>
       </section>}
-      {!history && isSending && !canDecideSelected && !canExecuteSelected && selected.status !== "completed" && <p className="director-field-hint">Поручение у исполнителя. Принять исполнение или вернуть его можно после того, как исполнитель отправит результат на проверку.</p>}
+      {!history && canManage && !canDecideSelected && selected.status !== "completed" && <p className="director-field-hint">Поручение у исполнителя. Принять исполнение или вернуть его можно после того, как исполнитель отправит результат на проверку.</p>}
       <footer className="board-assignment-dialog-actions">
-        {!history && selected.status !== "completed" && isSending && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees, registryId)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
+        {!history && selected.status !== "completed" && canManage && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setForm(inputFrom(selected, data.employees, registryId)); setComment(""); setContentOpenCount(count => count + 1); }}>Редактировать</button>}
         <button type="button" className="secondary-button" disabled={saving} onClick={() => setSelected(undefined)}>Закрыть</button>
       </footer>
     </section>}
@@ -232,7 +312,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
         </article>)}
       </div>
     </section>}
-    <section className="director-register"><div className="director-register-heading"><h3>{history ? "История исполнений" : isSending ? "Отправленные поручения" : "Мои поручения"}</h3><span>Найдено: {visible.length}</span></div>
+    <section className="director-register"><div className="director-register-heading"><h3>{history ? "История исполнений" : "Отправленные поручения"}</h3><span>Найдено: {visible.length}</span></div>
     <div className="director-assignment-filters board-assignment-filters">
       <label>Поиск<input type="search" placeholder="Номер, содержание или сотрудник" value={filters.query ?? ""} onChange={event => { const value = event.currentTarget.value; setFilters(current => ({ ...current, query: value })); }} /></label>
       <div className="board-assignment-status-filter">
@@ -258,7 +338,7 @@ export function DirectorAssignmentsWorkspace({ onShowToast, registryId = "direct
     <button type="button" className="secondary-button" disabled={saving || exporting || !visible.length} onClick={() => void exportPdf(visible, "register")}>Скачать журнал в PDF</button>
     {exporting && <LoadingIndicator label="Формирование PDF" />}
     <label className="director-columns-toggle"><input type="checkbox" checked={showAllColumns} onChange={event => setShowAllColumns(event.currentTarget.checked)} />Все колонки реестра</label>
-    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : isSending ? "Здесь появятся отправленные поручения и результаты их исполнения." : "Активных поручений пока нет."}</p> : <div className="history-table-scroll"><ManagedTable tableId={registry.tableId} columns={visibleColumns as never}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[column]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = cellValues(row)[column]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => openAssignment(row)}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
+    {visible.length === 0 ? <p className="director-empty">{rows.length ? "По выбранным фильтрам поручений нет." : "Здесь появятся отправленные поручения и результаты их исполнения."}</p> : <div className="history-table-scroll"><ManagedTable tableId={registry.tableId} columns={visibleColumns as never}><thead><tr>{visibleColumns.map(column => <TableHeader key={column}>{columnLabels[column]}</TableHeader>)}</tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.id}-${index}`} className={!history && ["in_progress", "revision_requested"].includes(row.status) && row.currentOccurrenceDate < data.today ? "director-assignment-overdue" : undefined}>{visibleColumns.map(column => { const value = cellValues(row)[column]; return <TableCell key={column}>{column === "summary" ? <button type="button" disabled={saving} className="table-text-action board-assignment-link" onClick={() => openAssignment(row)}>{value}</button> : column === "responsible" ? <DirectorAssignmentResponsible name={value} link={data.responsibleAccountLinks?.[row.id]} showLink={!history} /> : value || "—"}</TableCell>; })}</tr>)}</tbody></ManagedTable></div>}
     </section>
   </section>;
 }
@@ -303,7 +383,7 @@ export function DirectorAssignmentForm({ form, setForm, employees, saving, assig
         <legend>Кому поручить</legend>
         <label>Поиск сотрудника<input type="search" placeholder="ФИО или должность" value={employeeSearch} onChange={event => setEmployeeSearch(event.currentTarget.value)} /></label>
         <label>Ответственный<select required value={form.responsibleId} onChange={event => { const value = event.currentTarget.value; setForm(current => current && { ...current, responsibleId: value, coExecutorIds: current.coExecutorIds.filter(id => id !== value) }); }}><option value="">Выберите сотрудника</option>{form.responsibleId && !employees.some(employee => employee.id === form.responsibleId) && <option value={form.responsibleId} disabled>Выберите аккаунт вместо прежнего ответственного</option>}{employeeOptions.filter(employee => employee.canReceive !== false || employee.id === form.responsibleId).map(employee => <option key={employee.id} value={employee.id}>{employee.fullName} — {employee.position}</option>)}</select></label>
-        <p className="director-field-hint is-wide">Доступно сотрудников: {employees.length}. Ответственным можно выбрать учётную запись с доступом к вкладке «{registry.title}» в режиме получения поручений: только он отправляет результат на проверку. Соисполнителем — любую действующую учётную запись.</p>
+        <p className="director-field-hint is-wide">Доступно сотрудников: {employees.length}. Ответственным можно выбрать учётную запись с вкладкой «Поручения» и реестром «{registry.title}»: только он отправляет результат на проверку. Соисполнителем — любую действующую учётную запись.</p>
         {employees.length === 0 && <p className="is-wide" role="status">Список сотрудников пока пуст. Добавьте учётные записи сотрудников.</p>}
         {form.coExecutorIds.filter(id => !employees.some(employee => employee.id === id)).map(id => <div key={id} className="is-wide director-assignment-actions"><span>{legacyEmployees.find(employee => employee.id === id)?.fullName ?? "Прежний соисполнитель"}: нет доступного аккаунта. Удалите участника и при необходимости выберите его аккаунт.</span><button type="button" disabled={saving} onClick={() => setForm(current => current && { ...current, coExecutorIds: current.coExecutorIds.filter(value => value !== id) })}>Убрать прежнего соисполнителя</button></div>)}
         <details className="is-wide director-coexecutors"><summary>Соисполнители{form.coExecutorIds.length ? `: ${form.coExecutorIds.length}` : " (необязательно)"}</summary><div>{employeeOptions.filter(employee => employee.id !== form.responsibleId).map(employee => <label key={employee.id}><input type="checkbox" checked={form.coExecutorIds.includes(employee.id)} onChange={event => { const checked = event.currentTarget.checked; setForm(current => current && { ...current, coExecutorIds: checked ? [...current.coExecutorIds, employee.id] : current.coExecutorIds.filter(id => id !== employee.id) }); }} /><span>{employee.fullName}<small>{employee.position}</small></span></label>)}</div></details>

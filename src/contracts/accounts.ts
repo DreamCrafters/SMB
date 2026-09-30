@@ -30,6 +30,7 @@ export const accountNavigationItems = [
   "business.refractory_shop",
   "business.laboratory_results",
   "business.laboratory_review",
+  "business.assignments",
   "business.board_assignments",
   "business.director_assignments",
   "business.collegium_assignments",
@@ -92,7 +93,6 @@ export const boardAssignmentAccessLevels = [
   "none",
   "view",
   "create",
-  "execute",
   "review",
 ] as const;
 

@@ -61,19 +61,13 @@ type BoardAssignmentMaterialReference =
   | Pick<BoardAssignmentDocument, "id" | "fileName">
   | { key: string; fileName: string };
 
-type BoardAssignmentAccessMode = "view" | "create" | "execute" | "review";
+type BoardAssignmentAccessMode = "view" | "create" | "review";
 type BoardAssignmentDisplayStatus = BoardAssignmentStatus | "overdue";
 
 const displayStatusLabels: Record<BoardAssignmentDisplayStatus, string> = {
   ...statusLabels,
   overdue: "Просрочено",
 };
-
-const executorDisplayStatuses: readonly BoardAssignmentDisplayStatus[] = [
-  "overdue",
-  "in_progress",
-  "revision_requested",
-];
 
 const emptyPermissions: BoardAssignmentPermissions = {
   canView: true,
@@ -518,36 +512,8 @@ export function BoardAssignmentsWorkspace({
 
   async function openMaterial(material: BoardAssignmentMaterialReference) {
     if (isMaterialOpening) return;
-
-    const previewWindow = window.open("", "_blank");
-    if (previewWindow !== null) {
-      previewWindow.opener = null;
-      previewWindow.document.title = "Открываем материал…";
-    }
     setIsMaterialOpening(true);
-    const result = await requestBoardAssignmentMaterial(material);
-    setIsMaterialOpening(false);
-    if (result.status === "error") {
-      previewWindow?.close();
-      onShowToast("Не удалось открыть материал", result.message, "warning");
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(result.blob);
-    if (previewWindow !== null) {
-      previewWindow.location.href = objectUrl;
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-      return;
-    }
-
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.target = "_blank";
-    link.rel = "noopener";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    await openBoardAssignmentMaterial(material, onShowToast, () => setIsMaterialOpening(false));
   }
 
   function openCreateDialog() {
@@ -580,13 +546,8 @@ export function BoardAssignmentsWorkspace({
     if (isPdfLoading) return;
     setIsPdfLoading(true); setPdfError("");
     try {
-      const result = await requestBoardAssignmentPdf(request);
-      if (result.status === "error") { setPdfError(result.message); return; }
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement("a");
-      link.href = url; link.download = result.fileName;
-      document.body.append(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const message = await downloadBoardAssignmentPdf(request);
+      if (message !== undefined) setPdfError(message);
     } catch (error) { setPdfError(error instanceof Error ? error.message : "Не удалось сформировать PDF."); }
     finally { setIsPdfLoading(false); }
   }
@@ -602,12 +563,10 @@ export function BoardAssignmentsWorkspace({
 
   const canCreate = permissions.canCreate;
   const accessMode = readBoardAssignmentAccessMode(permissions);
-  const availableStatuses = accessMode === "execute"
-    ? executorDisplayStatuses
-    : boardAssignmentStatuses;
+  const availableStatuses = boardAssignmentStatuses;
   const statusFilterSummary = formatStatusFilterSummary(statuses);
   const visibleAssignments = listState.assignments.filter((assignment) =>
-    (statuses.length === 0 || statuses.some(status => matchesDisplayStatus(assignment, status, accessMode)))
+    (statuses.length === 0 || statuses.some(status => matchesDisplayStatus(assignment, status)))
     && matchesBoardColumnFilters(assignment, columnFilters)
   );
   const visibleCompletions = completionListState.completions.filter(item => matchesBoardColumnFilters(item.assignment, columnFilters, item));
@@ -679,24 +638,6 @@ export function BoardAssignmentsWorkspace({
           <strong>
             {visibleCompletions.length}
             <small>выполнено</small>
-          </strong>
-        </section>
-      ) : accessMode === "execute" ? (
-        <section
-          className="board-assignment-executor-overview"
-          aria-label="Режим исполнения"
-        >
-          <div>
-            <span>К исполнению</span>
-            <h2>Активные поручения</h2>
-            <p>
-              Здесь только поручения, которые нужно выполнить сейчас.
-              Повторяющиеся появятся автоматически в следующую дату.
-            </p>
-          </div>
-          <strong>
-            {visibleAssignments.length}
-            <small>сейчас</small>
           </strong>
         </section>
       ) : accessMode === "create" ? (
@@ -776,9 +717,7 @@ export function BoardAssignmentsWorkspace({
 
       <form
         className={`board-assignment-filters${
-          accessMode === "execute" && registerMode === "live"
-            ? " is-compact"
-            : registerMode === "history"
+          registerMode === "history"
             ? " is-history"
             : ""
         }`}
@@ -788,8 +727,6 @@ export function BoardAssignmentsWorkspace({
           <span>
             {registerMode === "history"
               ? "Найти выполненное поручение"
-              : accessMode === "execute"
-              ? "Найти активное поручение"
               : "Поиск"}
           </span>
           <input
@@ -831,8 +768,7 @@ export function BoardAssignmentsWorkspace({
             </details>
           </div>
         ) : null}
-        {accessMode === "execute" && registerMode === "live" ? null : (
-          <>
+        <>
             <label>
               <span>Заседание с</span>
               <input
@@ -858,7 +794,6 @@ export function BoardAssignmentsWorkspace({
               />
             </label>
           </>
-        )}
         <div className="board-assignment-filter-actions">
           <button
             className="secondary-button"
@@ -894,7 +829,7 @@ export function BoardAssignmentsWorkspace({
           aria-label="История выполненных поручений"
         >
           <div className="board-assignment-table-wrap history-table-scroll">
-            <BoardAssignmentRegister completions={visibleCompletions} allColumns={showAllColumns} loading={completionListState.status === "loading"} execute={false} onOpen={setSelectedCompletionId} />
+            <BoardAssignmentRegister completions={visibleCompletions} allColumns={showAllColumns} loading={completionListState.status === "loading"} onOpen={setSelectedCompletionId} />
           </div>
         </section>
       ) : (
@@ -947,10 +882,10 @@ export function BoardAssignmentsWorkspace({
           ) : null}
           <section
             className="board-assignment-register"
-            aria-label={accessMode === "execute" ? "Активные поручения" : "Реестр поручений"}
+            aria-label="Реестр поручений"
           >
             <div className="board-assignment-table-wrap history-table-scroll">
-              <BoardAssignmentRegister assignments={visibleAssignments} allColumns={showAllColumns} loading={listState.status === "loading"} execute={accessMode === "execute"} onOpen={setSelectedId} />
+              <BoardAssignmentRegister assignments={visibleAssignments} allColumns={showAllColumns} loading={listState.status === "loading"} onOpen={setSelectedId} />
             </div>
           </section>
         </>
@@ -1037,7 +972,8 @@ export function BoardAssignmentsWorkspace({
           isOverdue={selectedAssignmentIsOverdue}
           isMaterialOpening={isMaterialOpening}
           isSaving={isSaving}
-          permissions={permissions}
+          // Execution lives in «Поручения»; this tab only views, creates and reviews.
+          permissions={{ ...permissions, canExecute: false }}
           onCommentChange={setActionComment}
           onCancel={() => {
             if (isSaving) return;
@@ -1090,6 +1026,139 @@ export function BoardAssignmentsWorkspace({
         />
       )}
     </main>
+  );
+}
+
+/** Opens a PDF material in a new tab; the tab is opened before the request so popups are not blocked. */
+async function openBoardAssignmentMaterial(material: BoardAssignmentMaterialReference, onShowToast: ShowToast, onLoaded: () => void) {
+  const previewWindow = window.open("", "_blank");
+  if (previewWindow !== null) {
+    previewWindow.opener = null;
+    previewWindow.document.title = "Открываем материал…";
+  }
+  const result = await requestBoardAssignmentMaterial(material);
+  onLoaded();
+  if (result.status === "error") {
+    previewWindow?.close();
+    onShowToast("Не удалось открыть материал", result.message, "warning");
+    return;
+  }
+
+  const objectUrl = URL.createObjectURL(result.blob);
+  if (previewWindow !== null) {
+    previewWindow.location.href = objectUrl;
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.target = "_blank";
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+/** Downloads a server-rendered PDF; returns the error message instead of throwing on a refused request. */
+export async function downloadBoardAssignmentPdf(request: BoardAssignmentPdfRequest): Promise<string | undefined> {
+  const result = await requestBoardAssignmentPdf(request);
+  if (result.status === "error") return result.message;
+  const url = URL.createObjectURL(result.blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = result.fileName;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return undefined;
+}
+
+/**
+ * Executor card of «Поручения»: the board card with only «Отправить на проверку».
+ * Delegation to employees stays inside the card; the server keeps the executor limited
+ * to active assignments.
+ */
+export function BoardAssignmentExecutionCard({ assignmentId, isOverdue, onClose, onChanged, onShowToast }: {
+  assignmentId: string;
+  isOverdue: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+  onShowToast: ShowToast;
+}) {
+  const [detailState, setDetailState] = useState<DetailState>({ status: "loading" });
+  const [permissions, setPermissions] = useState(emptyPermissions);
+  const [actionComment, setActionComment] = useState("");
+  const [formMessage, setFormMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isMaterialOpening, setIsMaterialOpening] = useState(false);
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setDetailState({ status: "loading" });
+    void requestBoardAssignment(assignmentId, { signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.status === "error") {
+        setDetailState({ status: "error", message: result.message });
+        return;
+      }
+      setPermissions(result.permissions);
+      setDetailState({ status: "ready", assignment: result.assignment });
+    });
+    return () => controller.abort();
+  }, [assignmentId]);
+
+  async function submitForReview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const action = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+    if (isSaving || detailState.status !== "ready" || action !== "submit_for_review") return;
+    setIsSaving(true);
+    setFormMessage("");
+    const result = await applyBoardAssignmentAction(detailState.assignment.id, { action, comment: actionComment });
+    setIsSaving(false);
+    if (result.status === "error") {
+      setFormMessage(result.message);
+      return;
+    }
+    onShowToast("Статус обновлён", statusLabels[result.assignment.status], "success");
+    onChanged();
+    onClose();
+  }
+
+  async function exportPdf() {
+    if (isPdfLoading || detailState.status !== "ready") return;
+    setIsPdfLoading(true); setPdfError("");
+    try {
+      const message = await downloadBoardAssignmentPdf({ mode: "assignment", source: "current", entries: [{ id: detailState.assignment.id, expectedUpdatedAt: detailState.assignment.updatedAt }] });
+      if (message !== undefined) setPdfError(message);
+    } catch (error) { setPdfError(error instanceof Error ? error.message : "Не удалось сформировать PDF."); }
+    finally { setIsPdfLoading(false); }
+  }
+
+  return (
+    <BoardAssignmentDetailDialog
+      onShowToast={onShowToast}
+      isPdfLoading={isPdfLoading}
+      pdfError={pdfError}
+      onPrint={() => void exportPdf()}
+      actionComment={actionComment}
+      detailState={detailState}
+      formMessage={formMessage}
+      isOverdue={isOverdue}
+      isMaterialOpening={isMaterialOpening}
+      isSaving={isSaving}
+      // «Поручения» only executes: creating and reviewing stay on the board tab.
+      permissions={{ ...permissions, canCreate: false, canReview: false }}
+      onCommentChange={setActionComment}
+      onCancel={onClose}
+      onOpenMaterial={(material) => {
+        if (isMaterialOpening) return;
+        setIsMaterialOpening(true);
+        void openBoardAssignmentMaterial(material, onShowToast, () => setIsMaterialOpening(false));
+      }}
+      onSubmit={(event) => void submitForReview(event)}
+    />
   );
 }
 
@@ -1859,7 +1928,6 @@ function readBoardAssignmentAccessMode(
   permissions: BoardAssignmentPermissions,
 ): BoardAssignmentAccessMode {
   if (permissions.canReview) return "review";
-  if (permissions.canExecute) return "execute";
   if (permissions.canCreate) return "create";
   return "view";
 }
@@ -1874,10 +1942,8 @@ function formatStatusFilterSummary(
 function matchesDisplayStatus(
   assignment: BoardAssignmentListItem,
   status: BoardAssignmentDisplayStatus,
-  accessMode: BoardAssignmentAccessMode,
 ) {
   if (status === "overdue") return assignment.isOverdue;
-  if (accessMode === "execute" && assignment.isOverdue) return false;
   return assignment.status === status;
 }
 

@@ -21,6 +21,7 @@ test("position form edits working tabs while admin rights are managed separately
       "business.refractory_shop",
       "business.laboratory_results",
       "business.laboratory_review",
+      "business.assignments",
       "business.director_assignments",
       "business.personnel",
       "business.board_assignments",
@@ -82,7 +83,6 @@ test("position form edits working tabs while admin rights are managed separately
     [
       "Только просмотр",
       "Просмотр и создание поручений",
-      "Исполнение и отправка на проверку",
       "Создание, приёмка и возврат на доработку",
     ],
   );
@@ -93,7 +93,7 @@ test("position form edits working tabs while admin rights are managed separately
   // Режимы и уровни рабочих вкладок описаны одним каталогом.
   assert.deepEqual(
     Object.keys(navigationAccessLevels),
-    ["business.director_assignments", "business.collegium_assignments", "business.board_assignments", "business.railway_wagons"],
+    ["business.assignments", "business.board_assignments", "business.railway_wagons"],
   );
   assert.equal(
     navigationAccessLevels["business.railway_wagons"].title,
@@ -113,7 +113,7 @@ test("bulk tab access assigns the level next to the access checkbox", async () =
   // Смена уровня сохраняет вкладку включённой и шлёт сам уровень.
   assert.match(
     appSource,
-    /handleSetPositionNavigationAccess\(\s*\[position\.id\],\s*true,\s*event\.currentTarget\.value as BoardAssignmentAccess \| DirectorAssignmentAccess,\s*\)/u,
+    /handleSetPositionNavigationAccess\(\s*\[position\.id\],\s*true,\s*event\.currentTarget\.value as BoardAssignmentAccess,\s*\)/u,
   );
   // Список уровней недоступен, пока вкладка не выдана.
   assert.match(

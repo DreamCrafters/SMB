@@ -49,6 +49,7 @@ const migrationsAfterRefractoryWagonLifecycle = [
   "086_director_assignment_reminders",
   "087_root_admin_identity",
   "088_collegium_assignments",
+  "089_assignment_inbox",
 ] as const;
 
 test("laboratory migration creates results storage and the system position", async () => {
@@ -3416,6 +3417,42 @@ test("collegium migration creates separate assignment, history, document and rem
   assert.doesNotMatch(statements.slice(0, 4).join("\n"), /director_|account_positions|app_users/u);
   assert.match(statements[3], /primary key \(assignment_id, occurrence_date, days_before, user_id, channel\)/u);
   assert.match(statements[4], /insert into schema_migrations/u);
+});
+
+test("assignment inbox migration moves receiving before removing registry tabs and keeps the rail order", async () => {
+  const statements: string[] = [];
+  const migration = "089_assignment_inbox";
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      return [sql.includes("select id from schema_migrations") && parameters?.[0] !== migration ? [{ id: parameters?.[0] }] : [], []];
+    },
+    async getConnection() { return {
+      async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+      async query(sql: string) { statements.push(normalizeSql(sql)); return [[], []]; },
+    }; },
+  } as unknown as DatabasePool;
+  await runMigrations(pool);
+  const indexOf = (pattern: RegExp) => statements.findIndex(statement => pattern.test(statement));
+  // Receivers get the execute right; senders (with manage) are left alone.
+  for (const registry of ["director", "collegium"]) {
+    const grant = indexOf(new RegExp(`json_array_append\\(capabilities, '\\$', 'business\\.execute_${registry}_assignments'\\)`, "u"));
+    assert.ok(grant >= 0, registry);
+    assert.match(statements[grant], new RegExp(`not json_contains\\(capabilities, json_quote\\('business\\.manage_${registry}_assignments'\\)\\)`, "u"));
+    const removal = indexOf(new RegExp(`update account_positions set navigation_items = json_remove\\( ?navigation_items, json_unquote\\(json_search\\(navigation_items, 'one', 'business\\.${registry}_assignments'`, "u"));
+    const inbox = indexOf(/update account_positions set navigation_items = json_array_append\(navigation_items, '\$', 'business\.assignments'\)/u);
+    assert.ok(grant < inbox && inbox < removal, registry);
+  }
+  const boardRemoval = indexOf(/update account_positions set navigation_items = json_remove\( ?navigation_items, json_unquote\(json_search\(navigation_items, 'one', 'business\.board_assignments'/u);
+  assert.match(statements[boardRemoval], /json_contains\(capabilities, json_quote\('business\.execute_board_assignments'\)\)/u);
+  // Accesses follow the union of their positions and lose sessions only when affected.
+  const accessInbox = indexOf(/update account_accesses accesses set navigation_items = json_array_append\(navigation_items, '\$', 'business\.assignments'\)/u);
+  assert.ok(accessInbox > boardRemoval);
+  assert.match(statements[accessInbox], /coalesce\(accesses\.position_codes, json_array\(accesses\.position_code\)\)/u);
+  const sessions = indexOf(/^delete sessions from auth_sessions/u);
+  assert.match(statements[sessions], /json_contains\(accesses\.navigation_items, json_quote\('business\.assignments'\)\)/u);
+  const order = indexOf(/update app_navigation_settings set navigation_order = json_array_insert/u);
+  assert.match(statements[order], /json_search\(navigation_order, 'one', 'business\.director_assignments'\)\) is not null|'business\.director_assignments'\) is not null/u);
+  assert.match(statements.at(-1)!, /insert into schema_migrations/u);
 });
 
 test("root authority migration preserves the previous identity once without changing assigned access", async () => {

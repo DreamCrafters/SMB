@@ -7,7 +7,7 @@ const vite = await createServer({ appType: "custom", logLevel: "silent", server:
 test.after(() => vite.close());
 const globalNames = ["window", "document", "navigator", "Element", "HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "Event", "Node", "IS_REACT_ACT_ENVIRONMENT"];
 
-for (const mode of ["send", "receive", "send-linked", "send-unlinked", "both"]) {
+for (const mode of ["send", "send-linked", "send-unlinked", "both"]) {
   test(`director workspace ${mode} uses server permissions and offers the appropriate workflow`, async () => {
     const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
     const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
@@ -48,28 +48,18 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked", "both"]) 
     try {
       const { DirectorAssignmentsWorkspace } = await vite.ssrLoadModule("/src/DirectorAssignments.tsx");
       await React.act(async () => root.render(React.createElement(DirectorAssignmentsWorkspace, { onShowToast() {} })));
-      assert.match(rootElement.textContent, mode !== "receive" && mode !== "both" ? /Отправка и контроль/u : /Получение и выполнение/u);
+      assert.match(rootElement.textContent, /Отправка и контроль/u);
+      assert.doesNotMatch(rootElement.textContent, /Получение и выполнение/u);
       if (mode === "both") {
+        // Own assignments are executed in «Поручения»: the registry tab shows the whole register only.
         const numbers = () => [...rootElement.querySelectorAll("tbody tr")].map(row => row.querySelector("td").textContent);
-        const switchView = async label => React.act(async () => [...rootElement.querySelectorAll(".director-assignment-view-switch button")].find(button => button.textContent === label).click());
-        assert.deepEqual(numbers(), ["ГД-1", "ГД-3"]);
-        assert.equal(rootElement.querySelector("form"), null);
-        assert.match(rootElement.querySelector(".director-register-heading").textContent, /Мои поручения/u);
-        await switchView("Отправка и контроль");
+        assert.equal(rootElement.querySelector(".director-assignment-view-switch"), null);
         assert.deepEqual(numbers(), ["ГД-1", "ГД-2", "ГД-3"]);
+        assert.match(rootElement.querySelector(".director-register-heading").textContent, /Отправленные поручения/u);
+        assert.ok(rootElement.querySelector("form"));
         await React.act(async () => rootElement.querySelector(".table-text-action").click());
         assert.ok(rootElement.querySelector(".director-assignment-detail"));
-        await switchView("Мои поручения");
-        assert.equal(rootElement.querySelector(".director-assignment-detail"), null);
-        assert.deepEqual(numbers(), ["ГД-1", "ГД-3"]);
-        assert.equal(rootElement.querySelector('[aria-pressed="true"]').textContent, "Мои поручения");
-        await switchView("Отправка и контроль");
-        delayHistory = true;
-        await React.act(async () => [...rootElement.querySelectorAll("button")].find(button => button.textContent === "История исполнений").click());
-        await switchView("Мои поручения");
-        await React.act(async () => releaseHistory());
-        assert.deepEqual(numbers(), ["ГД-1", "ГД-3"]);
-        assert.match(rootElement.querySelector(".director-register-heading").textContent, /Мои поручения/u);
+        assert.equal([...rootElement.querySelectorAll("button")].some(button => button.textContent === "Отправить на проверку"), false);
         return;
       }
       if (mode === "send-linked") {
@@ -154,17 +144,6 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked", "both"]) 
         return;
       }
       const form = rootElement.querySelector("form");
-      if (mode === "receive") {
-        assert.equal(form, null);
-        assert.doesNotMatch(rootElement.textContent, /Создать поручение/u);
-        assert.match(rootElement.textContent, /Мои поручения/u);
-        assert.match(rootElement.querySelector("tbody").textContent, /Ранее назначенная задача/u);
-        await React.act(async () => rootElement.querySelector(".table-text-action").click());
-        assert.ok(rootElement.querySelector(".director-assignment-detail"));
-        assert.equal(rootElement.querySelector(".board-assignment-decision"), null);
-        assert.ok([...rootElement.querySelectorAll("button")].some(button => button.textContent === "Скачать поручение в PDF"));
-        return;
-      }
       assert.ok(form);
       const summary = form.querySelector("textarea");
       const responsible = [...form.querySelectorAll("label")].find(label => label.textContent.startsWith("Ответственный")).querySelector("select");
@@ -195,7 +174,8 @@ for (const mode of ["send", "receive", "send-linked", "send-unlinked", "both"]) 
   });
 }
 
-for (const canManage of [false, true]) {
+// Execution moved to «Поручения» (tests/assignmentsInbox.test.mjs); the registry tab only decides.
+for (const canManage of [true]) {
   test(`review cycle ${canManage ? "controller accepts a submitted result" : "executor submits the result for review"} with a comment and revision`, async () => {
     const dom = new JSDOM('<div id="root"></div>', { url: "http://127.0.0.1:5173/" });
     const descriptors = new Map(globalNames.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));

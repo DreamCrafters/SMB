@@ -9,7 +9,7 @@ test("assignment roster contains only real accounts and deduplicates positions",
     { id: "person-unlinked", fullName: "Одинаковое имя", position: "Сотрудник", active: true, userId: null },
   ];
   const userRows = [
-    { user_id: "a", full_name: "Одинаковое имя", position_name: "Инженер", navigation_items: '["business.director_assignments"]', capabilities: '["business.view_director_assignments"]' },
+    { user_id: "a", full_name: "Одинаковое имя", position_name: "Инженер", navigation_items: '["business.assignments"]', capabilities: '["business.view_director_assignments","business.execute_director_assignments"]' },
     { user_id: "b", full_name: "Второй сотрудник", position_name: "Экономист", navigation_items: ["business.director_assignments"], capabilities: ["business.view_director_assignments", "business.manage_director_assignments"] },
     { user_id: "b", full_name: "Второй сотрудник", position_name: "Аналитик", navigation_items: [], capabilities: [] },
   ];

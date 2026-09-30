@@ -1,4 +1,4 @@
-import { readDirectorAssignmentAccess, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
+import { assignmentInboxNavigationItem, readAssignmentInboxAccess, type AssignmentInboxAccess } from "../contracts/directorAssignments.js";
 import { randomUUID } from "node:crypto";
 import type { PoolConnection, RowDataPacket } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
@@ -18,6 +18,7 @@ import {
   readBoardAssignmentAccess,
   readOverviewVisitorsAccess,
   combinePositionAccessDefinitions,
+  conflictsWithBoardAssignmentAccess,
   readRailwayWagonAccess,
   resolveCapabilitiesForPosition,
   resolveNavigationForPosition,
@@ -66,6 +67,7 @@ export type AdminPositionSummary = {
   capabilities: AccountCapability[];
   boardAssignmentAccess: BoardAssignmentAccess;
   railwayWagonAccess: RailwayWagonAccess;
+  assignmentInboxAccess: AssignmentInboxAccess;
   showOverviewVisitors: boolean;
   isProtected: boolean;
   hasAdminRights?: boolean;
@@ -235,6 +237,14 @@ export class ArchivedAccountLoginStatusError extends Error {
   constructor() {
     super("Архивную учётную запись нельзя включить или отключить.");
     this.name = "ArchivedAccountLoginStatusError";
+  }
+}
+
+/** Board execution and board creation/review cannot share one position. */
+export class PositionAccessConflictError extends Error {
+  constructor(positionName: string) {
+    super(`Должность «${positionName}»: исполнение поручений Совета директоров нельзя совмещать с их созданием или приёмкой.`);
+    this.name = "PositionAccessConflictError";
   }
 }
 
@@ -452,6 +462,7 @@ export function createAccountsRepository(
         input.capabilities,
         input.navigationItems,
       ),
+      assignmentInboxAccess: readAssignmentInboxAccess(input.capabilities, input.navigationItems),
       showOverviewVisitors: readOverviewVisitorsAccess(input.capabilities),
       isProtected: false,
       hasAdminRights: false,
@@ -512,14 +523,13 @@ export function createAccountsRepository(
       const capabilities = resolveCapabilitiesForPosition(
         input.id,
         navigationItems,
+        readAssignmentInboxAccess(input.capabilities, input.navigationItems),
         boardAssignmentAccess,
         hasAdminRights,
         showOverviewVisitors,
         current.can_review_raw_material_warehouse === true ||
           current.can_review_raw_material_warehouse === 1,
         railwayWagonAccess,
-        readDirectorAssignmentAccess(input.capabilities, input.navigationItems),
-        readDirectorAssignmentAccess(input.capabilities, input.navigationItems, "collegium"),
       );
       await connection.query(
         `update account_positions
@@ -560,6 +570,7 @@ export function createAccountsRepository(
           navigationItems,
         ),
         railwayWagonAccess: readRailwayWagonAccess(capabilities, navigationItems),
+        assignmentInboxAccess: readAssignmentInboxAccess(capabilities, navigationItems),
         showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
       };
     } catch (error) {
@@ -744,14 +755,13 @@ export function createAccountsRepository(
         : resolveCapabilitiesForPosition(
             position.id,
             navigationItems,
+            readAssignmentInboxAccess(storedCapabilities, storedNavigationItems),
             boardAssignmentAccess,
             input.isProtected,
             showOverviewVisitors,
             position.can_review_raw_material_warehouse === true ||
               position.can_review_raw_material_warehouse === 1,
             railwayWagonAccess,
-            readDirectorAssignmentAccess(storedCapabilities, storedNavigationItems),
-            readDirectorAssignmentAccess(storedCapabilities, storedNavigationItems, "collegium"),
           );
       await connection.query(
         `update account_positions
@@ -890,13 +900,29 @@ export function createAccountsRepository(
           storedCapabilities,
           currentNavigationItems,
         );
+        const nextBoardAssignmentAccess = navigationItem === "business.board_assignments" &&
+            accessLevel !== undefined
+          ? accessLevel as BoardAssignmentAccess
+          : storedBoardAssignmentAccess;
+        const storedAssignmentInboxAccess = readAssignmentInboxAccess(storedCapabilities, currentNavigationItems);
+        // The tab grants nothing without a source; a bare checkbox keeps the stored
+        // sources or starts from the director registry.
+        const nextAssignmentInboxAccess: AssignmentInboxAccess = navigationItem !== assignmentInboxNavigationItem
+          ? storedAssignmentInboxAccess
+          : accessLevel !== undefined
+            ? accessLevel as AssignmentInboxAccess
+            : enabled && storedAssignmentInboxAccess === "none" ? ["director"] : storedAssignmentInboxAccess;
+        if (navigationItems.includes("business.board_assignments") && conflictsWithBoardAssignmentAccess(
+          navigationItems.includes(assignmentInboxNavigationItem) ? nextAssignmentInboxAccess : "none",
+          nextBoardAssignmentAccess,
+        )) {
+          throw new PositionAccessConflictError(row.display_name);
+        }
         const capabilities = resolveCapabilitiesForPosition(
           row.id,
           navigationItems,
-          navigationItem === "business.board_assignments" &&
-            accessLevel !== undefined
-            ? accessLevel as BoardAssignmentAccess
-            : storedBoardAssignmentAccess,
+          nextAssignmentInboxAccess,
+          nextBoardAssignmentAccess,
           hasAdminRights,
           readOverviewVisitorsAccess(storedCapabilities),
           row.can_review_raw_material_warehouse === true ||
@@ -905,12 +931,6 @@ export function createAccountsRepository(
             accessLevel !== undefined
             ? accessLevel as RailwayWagonAccess
             : storedRailwayWagonAccess,
-          navigationItem === "business.director_assignments" && accessLevel !== undefined
-            ? accessLevel as DirectorAssignmentAccess
-            : readDirectorAssignmentAccess(storedCapabilities, navigationItems),
-          navigationItem === "business.collegium_assignments" && accessLevel !== undefined
-            ? accessLevel as DirectorAssignmentAccess
-            : readDirectorAssignmentAccess(storedCapabilities, navigationItems, "collegium"),
         );
         // Уровень внутри вкладки меняется без изменения списка вкладок,
         // поэтому одного сравнения вкладок мало.
@@ -1704,6 +1724,7 @@ function mapPositionRow(row: PositionRow): AdminPositionSummary {
       navigationItems,
     ),
     railwayWagonAccess: readRailwayWagonAccess(capabilities, navigationItems),
+    assignmentInboxAccess: readAssignmentInboxAccess(capabilities, navigationItems),
     showOverviewVisitors: readOverviewVisitorsAccess(capabilities),
     isProtected: row.is_protected === true || row.is_protected === 1,
     hasAdminRights:

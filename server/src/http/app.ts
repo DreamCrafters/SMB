@@ -3,7 +3,7 @@ import { AccountPreviewError, buildConcreteAccountPreview } from "../domain/acco
 import { BoardAssignmentPdfError, selectBoardAssignmentsForPdf } from "../domain/boardAssignmentPdf.js";
 import { renderBoardAssignmentsPdf } from "../integrations/boardAssignmentsPdf.js";
 import { renderDirectorAssignmentsPdf } from "../integrations/directorAssignmentsPdf.js";
-import { assignmentRegistries, directorAssignmentAccessLevels, type AssignmentRegistryId, type DirectorAssignmentAccess } from "../contracts/directorAssignments.js";
+import { assignmentInboxNavigationItem, assignmentInboxSourceOptions, assignmentRegistries, isAssignmentInboxAccess, type AssignmentRegistryId } from "../contracts/directorAssignments.js";
 import type { DirectorAssignmentsService } from "../domain/directorAssignmentsService.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
 import { isAdminDatabaseLayoutColumn } from "../repositories/adminDatabaseRepository.js";
@@ -29,6 +29,7 @@ import {
   hasAdminNavigationItems,
   hasSameAdminNavigationItems,
   isBoardAssignmentAccess,
+  conflictsWithBoardAssignmentAccess,
   isNavigationAccessLevel,
   nonAdminNavigationItems,
   resolveCapabilitiesForNavigationLevel,
@@ -247,6 +248,7 @@ import {
   ArchivedAccountLoginStatusError,
   AccountLoginAlreadyExistsError,
   SystemAdministratorPositionAssignmentError,
+  PositionAccessConflictError,
   type AccountsRepository,
   type AdminAccountSummary,
   type AdminPositionSummary,
@@ -9734,25 +9736,20 @@ function readNavigationAccessLevelLabel(
   level: NavigationAccessLevel,
 ): string {
   if (Array.isArray(level)) {
-    return level
-      .map((role) => readNavigationAccessLevelLabel(navigationItem, role))
+    return (level as string[])
+      .map((role) => readNavigationAccessLevelLabel(navigationItem, role as NavigationAccessLevel))
       .join(", ");
   }
   const labels: Record<string, string> = {
     "business.board_assignments:view": "Только просмотр",
     "business.board_assignments:create": "Создание поручений",
-    "business.board_assignments:execute": "Исполнение",
     "business.board_assignments:review": "Приёмка",
     "business.railway_wagons:view": "Только просмотр",
     "business.railway_wagons:sales": "Менеджер по продажам",
     "business.railway_wagons:carrier": "Сотрудник по работе с РЖД",
     "business.railway_wagons:logistics": "Директор по логистике",
     "business.railway_wagons:dispatcher": "Диспетчер",
-    ...Object.fromEntries(Object.values(assignmentRegistries).flatMap(({ navigationItem }) => [
-      [`${navigationItem}:send`, "Отправка и контроль исполнения"],
-      [`${navigationItem}:receive`, "Получение и выполнение"],
-      [`${navigationItem}:both`, "Отправка и контроль исполнения; Получение и выполнение"],
-    ])),
+    ...Object.fromEntries(assignmentInboxSourceOptions.map(({ id, label }) => [`${assignmentInboxNavigationItem}:${id}`, label])),
   };
 
   return labels[`${navigationItem}:${level}`] ?? level;
@@ -9773,6 +9770,7 @@ function readNavigationItemLabel(item: AccountNavigationItem) {
     "business.refractory_shop": "Огнеупорный цех",
     "business.laboratory_results": "Результаты испытаний",
     "business.laboratory_review": "Лаборатория",
+    "business.assignments": "Поручения",
     "business.board_assignments": "Поручения Совета директоров",
     "business.director_assignments": "Поручения генерального директора",
     "business.collegium_assignments": "Поручения Коллегии",
@@ -12561,6 +12559,12 @@ async function handleAdminAccountsRequest({
         });
         return;
       }
+      if (error instanceof PositionAccessConflictError) {
+        sendJson(res, 409, {
+          error: { code: "invalid_response", message: error.message },
+        });
+        return;
+      }
       throw error;
     }
     return;
@@ -13040,8 +13044,7 @@ function validateCreatePositionRequest(input: unknown):
     (key) =>
       key !== "displayName" &&
       key !== "navigationItems" &&
-      key !== "directorAssignmentAccess" &&
-      key !== "collegiumAssignmentAccess" &&
+      key !== "assignmentInboxAccess" &&
       key !== "boardAssignmentAccess" &&
       key !== "railwayWagonAccess" &&
       key !== "showOverviewVisitors",
@@ -13059,10 +13062,8 @@ function validateCreatePositionRequest(input: unknown):
       ? "view"
       : "none"
     : input.boardAssignmentAccess;
-  const hasDirectorAssignments = navigationItems.includes("business.director_assignments");
-  const directorAccess = input.directorAssignmentAccess ?? (hasDirectorAssignments ? "receive" : "none");
-  const hasCollegiumAssignments = navigationItems.includes("business.collegium_assignments");
-  const collegiumAccess = input.collegiumAssignmentAccess ?? (hasCollegiumAssignments ? "receive" : "none");
+  const hasAssignmentInbox = navigationItems.includes(assignmentInboxNavigationItem);
+  const assignmentInboxAccess = input.assignmentInboxAccess ?? "none";
   const hasRailwayWagons = navigationItems.includes("business.railway_wagons");
   const railwayWagonAccess = input.railwayWagonAccess === undefined
     ? hasRailwayWagons
@@ -13074,11 +13075,10 @@ function validateCreatePositionRequest(input: unknown):
     : input.showOverviewVisitors;
   const errors: string[] = [];
 
-  if (!directorAssignmentAccessLevels.includes(directorAccess as DirectorAssignmentAccess) || (directorAccess === "none") === hasDirectorAssignments) {
-    errors.push("Выберите режим поручений генерального директора.");
-  }
-  if (!directorAssignmentAccessLevels.includes(collegiumAccess as DirectorAssignmentAccess) || (collegiumAccess === "none") === hasCollegiumAssignments) {
-    errors.push("Выберите режим поручений Коллегии.");
+  if (!isAssignmentInboxAccess(assignmentInboxAccess) || (assignmentInboxAccess === "none") === hasAssignmentInbox) {
+    errors.push("Выберите реестры для вкладки «Поручения».");
+  } else if (isBoardAssignmentAccess(boardAssignmentAccess) && conflictsWithBoardAssignmentAccess(assignmentInboxAccess, boardAssignmentAccess)) {
+    errors.push("Исполнение поручений Совета директоров нельзя совмещать с их созданием или приёмкой в одной должности.");
   }
   if (unknownFields.length > 0) {
     errors.push("Запрос содержит неизвестные поля.");
@@ -13132,13 +13132,12 @@ function validateCreatePositionRequest(input: unknown):
       capabilities: resolveCapabilitiesForPosition(
         "position-custom",
         navigationItems,
+        isAssignmentInboxAccess(assignmentInboxAccess) ? assignmentInboxAccess : "none",
         validatedBoardAssignmentAccess,
         false,
         showOverviewVisitors === true,
         false,
         validatedRailwayWagonAccess,
-        directorAccess as DirectorAssignmentAccess,
-        collegiumAccess as DirectorAssignmentAccess,
       ),
     },
   };

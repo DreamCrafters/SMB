@@ -124,6 +124,7 @@ test("admin positions service lists and creates positions without a base cabinet
     capabilities: ["business.view_dashboard", "business.view_dispatcher_feed"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
@@ -148,6 +149,7 @@ test("admin positions service lists and creates positions without a base cabinet
     navigationItems: ["business.overview", "business.dispatcher_form"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
   }, { baseUrl: "http://api.test" });
 
@@ -160,6 +162,7 @@ test("admin positions service lists and creates positions without a base cabinet
     navigationItems: ["business.overview", "business.dispatcher_form"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
   });
 });
@@ -174,6 +177,7 @@ test("admin positions service updates only the title and unified tabs", async ()
     capabilities: ["business.submit_dispatcher_forms", "business.view_dispatcher_feed"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
     isProtected: false,
     hasAdminRights: false,
@@ -190,6 +194,7 @@ test("admin positions service updates only the title and unified tabs", async ()
     navigationItems: ["business.overview", "business.dispatcher_form"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
   }, { baseUrl: "http://api.test" });
 
@@ -200,6 +205,7 @@ test("admin positions service updates only the title and unified tabs", async ()
     navigationItems: ["business.overview", "business.dispatcher_form"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
   });
 });
@@ -229,6 +235,7 @@ test("admin positions service saves the complete position order", async () => {
       capabilities: ["business.view_all_statistics"],
       boardAssignmentAccess: "none",
       railwayWagonAccess: "none",
+      assignmentInboxAccess: "none",
     showOverviewVisitors: true,
       isProtected: true,
       hasAdminRights: false,
@@ -243,6 +250,7 @@ test("admin positions service saves the complete position order", async () => {
       capabilities: ["platform.manage_access"],
       boardAssignmentAccess: "none",
       railwayWagonAccess: "none",
+      assignmentInboxAccess: "none",
     showOverviewVisitors: true,
       isProtected: true,
       hasAdminRights: true,
@@ -286,6 +294,7 @@ test("unused laboratory system position can be deleted", () => {
     capabilities: ["business.manage_laboratory_results"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
@@ -302,6 +311,7 @@ test("administrator system position cannot be deleted", () => {
     capabilities: ["platform.manage_access"],
     boardAssignmentAccess: "none",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
@@ -321,6 +331,7 @@ test("unused program-created non-admin position can be deleted", () => {
     ],
     boardAssignmentAccess: "review",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
     isProtected: true,
     usageCount: 0,
@@ -340,6 +351,7 @@ test("assigned program-created non-admin position cannot be deleted", () => {
     ],
     boardAssignmentAccess: "review",
     railwayWagonAccess: "none",
+    assignmentInboxAccess: "none",
     showOverviewVisitors: true,
     isProtected: true,
     usageCount: 1,

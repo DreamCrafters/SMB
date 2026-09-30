@@ -2,7 +2,7 @@ import { directorReminderLeaseSeconds, type DirectorReminderDelivery } from "../
 import { randomUUID } from "node:crypto";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import type { DatabasePool } from "../db/pool.js";
-import { assignmentRegistries, type AssignmentRegistryId, type DirectorAssignment, type PersonnelEmployee } from "../contracts/directorAssignments.js";
+import { assignmentInboxNavigationItem, assignmentRegistries, type AssignmentRegistryId, type DirectorAssignment, type PersonnelEmployee } from "../contracts/directorAssignments.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
 
 type JsonRow = RowDataPacket & { payload: string | object };
@@ -55,8 +55,7 @@ export function createDirectorAssignmentsRepository(pool: DatabasePool, registry
     // Same rule as the service's canExecute over the union of the account's positions.
     for (const employee of employees.values()) {
       const granted = access.get(employee.userId!)!;
-      employee.canReceive = granted.has(registry.navigationItem) && granted.has(registry.viewCapability)
-        && (!granted.has(registry.manageCapability) || granted.has(registry.executeCapability));
+      employee.canReceive = granted.has(assignmentInboxNavigationItem) && granted.has(registry.viewCapability) && granted.has(registry.executeCapability);
     }
     return [...employees.values()];
   }

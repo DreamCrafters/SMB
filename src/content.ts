@@ -1,4 +1,4 @@
-import { directorAssignmentAccessOptions } from "../server/src/contracts/directorAssignments.js";
+import { assignmentInboxSourceOptions } from "../server/src/contracts/directorAssignments.js";
 import type {
   AccountNavigationItem,
   AccountPosition,
@@ -35,7 +35,6 @@ export const boardAssignmentAccessOptions: ReadonlyArray<{
 }> = [
   { id: "view", label: "Только просмотр" },
   { id: "create", label: "Просмотр и создание поручений" },
-  { id: "execute", label: "Исполнение и отправка на проверку" },
   { id: "review", label: "Создание, приёмка и возврат на доработку" },
 ];
 
@@ -71,8 +70,7 @@ export const navigationAccessLevels: Partial<Record<AccountNavigationItem, {
   title: string;
   options: ReadonlyArray<{ id: string; label: string }>;
 }>> = {
-  "business.director_assignments": { title: "Режим работы", options: directorAssignmentAccessOptions },
-  "business.collegium_assignments": { title: "Режим работы", options: directorAssignmentAccessOptions },
+  "business.assignments": { title: "Реестры поручений", options: assignmentInboxSourceOptions },
   "business.board_assignments": {
     title: "Уровень доступа",
     options: boardAssignmentAccessOptions,
@@ -216,15 +214,16 @@ export const navigationItemsByAccountType: Record<AccountType, NavigationItem[]>
       description: "Просмотр результатов испытаний",
       state: "active",
     },
-    { id: "business.director_assignments", label: "Поручения генерального директора", description: "Поручения сотрудникам и контроль исполнения", state: "active" },
+    { id: "business.assignments", label: "Поручения", description: "Исполнение всех полученных поручений", state: "active" },
+    { id: "business.director_assignments", label: "Поручения генерального директора", description: "Отправка поручений сотрудникам и контроль исполнения", state: "active" },
     { id: "business.personnel", label: "Сотрудники", description: "Справочник АУП и ИТР", state: "active" },
     {
       id: "business.board_assignments",
       label: "Поручения Совета директоров",
-      description: "Постановка, исполнение и приёмка поручений",
+      description: "Постановка и приёмка поручений",
       state: "active",
     },
-    { id: "business.collegium_assignments", label: "Поручения Коллегии", description: "Поручения Председателя Коллегии сотрудникам", state: "active" },
+    { id: "business.collegium_assignments", label: "Поручения Коллегии", description: "Отправка поручений Председателя Коллегии и контроль", state: "active" },
     {
       id: "business.warehouse_1c",
       label: "Склад 1С",

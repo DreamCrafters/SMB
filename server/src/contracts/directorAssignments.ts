@@ -1,11 +1,36 @@
 import type { BoardAssignmentRecurrence, BoardAssignmentStatus } from "./assignmentStates.js";
 
-export const directorAssignmentAccessLevels = ["none", "send", "receive", "both"] as const;
-export type DirectorAssignmentAccess = (typeof directorAssignmentAccessLevels)[number];
-export const directorAssignmentAccessOptions = [
-  { id: "send", label: "Отправка и контроль исполнения" },
-  { id: "receive", label: "Получение и выполнение" },
-] as const;
+/**
+ * The «Поручения» tab collects everything the account executes. Each source grants the
+ * registry's view and execute rights; sending and control stay on the registry's own tab.
+ */
+export const assignmentInboxNavigationItem = "business.assignments";
+export const assignmentInboxSources = ["director", "collegium", "board"] as const;
+export type AssignmentInboxSource = (typeof assignmentInboxSources)[number];
+/** Selected sources of the tab, or `none` without the tab. */
+export type AssignmentInboxAccess = "none" | AssignmentInboxSource[];
+export const assignmentInboxSourceOptions: ReadonlyArray<{ id: AssignmentInboxSource; label: string }> = [
+  { id: "director", label: "Поручения генерального директора" },
+  { id: "collegium", label: "Поручения Коллегии" },
+  { id: "board", label: "Поручения Совета директоров — исполнение всех активных" },
+];
+export const assignmentInboxSourceCapabilities = {
+  director: ["business.view_director_assignments", "business.execute_director_assignments"],
+  collegium: ["business.view_collegium_assignments", "business.execute_collegium_assignments"],
+  board: ["business.view_board_assignments", "business.execute_board_assignments"],
+} as const satisfies Record<AssignmentInboxSource, readonly string[]>;
+
+export function isAssignmentInboxAccess(value: unknown): value is AssignmentInboxAccess {
+  return value === "none" || (Array.isArray(value) && value.length > 0 && value.length <= assignmentInboxSources.length
+    && value.every(source => assignmentInboxSources.includes(source)) && new Set(value).size === value.length);
+}
+
+/** Sources are read back from the execute capabilities; the view right alone is not a source. */
+export function readAssignmentInboxAccess(capabilities: readonly string[], navigation: readonly string[]): AssignmentInboxAccess {
+  if (!navigation.includes(assignmentInboxNavigationItem)) return "none";
+  const sources = assignmentInboxSources.filter(source => capabilities.includes(assignmentInboxSourceCapabilities[source][1]));
+  return sources.length ? sources : "none";
+}
 
 /**
  * Employee assignment registries share one workflow and differ only in these details.
@@ -53,13 +78,6 @@ export const assignmentRegistryIds = Object.keys(assignmentRegistries) as Assign
 export function readAssignmentRegistry(registryId: unknown): AssignmentRegistry {
   if (!assignmentRegistryIds.includes(registryId as AssignmentRegistryId)) throw new Error("Unknown assignment registry.");
   return assignmentRegistries[registryId as AssignmentRegistryId];
-}
-
-export function readDirectorAssignmentAccess(capabilities: readonly string[], navigation: readonly string[], registryId: AssignmentRegistryId = "director"): DirectorAssignmentAccess {
-  const registry = assignmentRegistries[registryId];
-  if (!navigation.includes(registry.navigationItem)) return "none";
-  if (!capabilities.includes(registry.manageCapability)) return "receive";
-  return capabilities.includes(registry.executeCapability) ? "both" : "send";
 }
 
 export type PersonnelEmployee = {
