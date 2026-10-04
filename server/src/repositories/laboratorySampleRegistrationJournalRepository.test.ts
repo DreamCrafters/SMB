@@ -508,6 +508,40 @@ test("sample registration repository lists pending transmissions for a target jo
   assert.deepEqual(queries[0]?.parameters, ["verification", 500]);
 });
 
+test("sample registration repository filters pending transmissions like the target journal", async () => {
+  const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
+  const pool = {
+    async query(sql: string, parameters?: unknown[]) {
+      queries.push({ sql, parameters });
+      return [[], []];
+    },
+  } as unknown as DatabasePool;
+  const repository = createLaboratorySampleRegistrationJournalRepository(pool);
+
+  await repository.listPendingTransmissions("unshaped_product_sample", {
+    dateFrom: "2026-10-01",
+    dateTo: "2026-10-31",
+    query: "1690",
+    nameQuery: "100%_ШКИ",
+  });
+
+  const sql = queries[0]?.sql ?? "";
+  assert.match(
+    sql,
+    /where transmit_to_journal = \? and transmitted_record_id is null and sampling_date >= \? and sampling_date <= \? and instr\(/u,
+  );
+  assert.match(sql, /and sample_name like \?/u);
+  assert.match(sql, /order by sampling_date desc/u);
+  assert.deepEqual(queries[0]?.parameters, [
+    "unshaped_product_sample",
+    "2026-10-01",
+    "2026-10-31",
+    "1690",
+    "%100\\%\\_ШКИ%",
+    500,
+  ]);
+});
+
 test("sample registration repository claims a pending transmission under a row lock", async () => {
   const queries: Array<{ sql: string; parameters?: unknown[] }> = [];
   const pool = {

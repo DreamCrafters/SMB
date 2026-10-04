@@ -17,6 +17,7 @@ import {
 } from "./services/laboratoryVerificationJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
+import { usePendingSampleRegistrationTransmissions } from "./usePendingSampleRegistrationTransmissions";
 import { useRawMaterialNomenclature } from "./useRawMaterialNomenclature";
 
 type FormState = Record<
@@ -49,6 +50,15 @@ export function LaboratoryVerificationJournal({
   const [formMessage, setFormMessage] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "verification",
+    {
+      ...(dateFrom === "" ? {} : { dateFrom }),
+      ...(dateTo === "" ? {} : { dateTo }),
+      ...(query.trim() === "" ? {} : { query: query.trim() }),
+    },
+    refreshVersion,
+  );
   const [sourceSampleRegistrationId, setSourceSampleRegistrationId] =
     useState<string>();
   /**
@@ -112,6 +122,13 @@ export function LaboratoryVerificationJournal({
         : current.sampleCode,
     }));
     setFormMessage("");
+  }
+
+  function fillPendingTransmission(
+    option: LaboratorySampleRegistrationTransmissionOption,
+  ) {
+    resetForm();
+    selectTransmission(option);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -180,7 +197,9 @@ export function LaboratoryVerificationJournal({
           ? (
               <SampleRegistrationTransmissionPicker
                 disabled={false}
+                refreshKey={refreshVersion}
                 target="verification"
+                value={sourceSampleRegistrationId}
                 onSelect={selectTransmission}
               />
             )
@@ -332,9 +351,18 @@ export function LaboratoryVerificationJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
+        {pendingTransmissions.status === "error"
+          ? (
+              <p className="form-message is-error" role="alert">
+                {pendingTransmissions.message}
+              </p>
+            )
+          : null}
         <LaboratoryVerificationTable
+          pendingTransmissions={pendingTransmissions.options}
           records={history.records}
           onEditRecord={editRecord}
+          onFillPendingTransmission={fillPendingTransmission}
         />
       </section>
     </div>

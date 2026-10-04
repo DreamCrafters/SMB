@@ -1124,6 +1124,9 @@ test("laboratory review access reads every journal by name but cannot change lab
   const sampleRegistrationFilters: Parameters<
     LaboratorySampleRegistrationJournalRepository["list"]
   >[0][] = [];
+  const pendingTransmissionRequests: Parameters<
+    LaboratorySampleRegistrationJournalRepository["listPendingTransmissions"]
+  >[] = [];
   const sampleRegistrationJournal: LaboratorySampleRegistrationJournalRepository = {
     async create() {
       throw new Error("Laboratory review access must not create samples.");
@@ -1150,8 +1153,9 @@ test("laboratory review access reads every journal by name but cannot change lab
     async findOptionById() {
       return undefined;
     },
-    async listPendingTransmissions() {
-      throw new Error("Laboratory review access must not list pending transmissions.");
+    async listPendingTransmissions(...input) {
+      pendingTransmissionRequests.push(input);
+      return [];
     },
     async claimTransmission() {
       throw new Error("Laboratory review access must not claim transmissions.");
@@ -1325,6 +1329,14 @@ test("laboratory review access reads every journal by name but cannot change lab
         `${baseUrl}/api/laboratory/sample-registration-draft`,
         { headers },
       );
+      const pendingTransmissionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-pending-transmissions?target=unshaped_product_sample&dateFrom=2026-07-01&name=%D0%A8%D0%9A%D0%98`,
+        { headers },
+      );
+      const pendingTransmissionsPostResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-pending-transmissions?target=unshaped_product_sample`,
+        { method: "POST", headers, body: JSON.stringify({}) },
+      );
       const chemicalAnalysisResponse = await fetch(
         `${baseUrl}/api/laboratory/chemical-analysis-journal?name=%D0%A8%D0%9A%D0%98`,
         { headers },
@@ -1420,6 +1432,11 @@ test("laboratory review access reads every journal by name but cannot change lab
       assert.equal(sampleRegistrationCorrectionResponse.status, 403);
       assert.equal(sampleRegistrationLocationsResponse.status, 403);
       assert.equal(sampleRegistrationDraftResponse.status, 403);
+      assert.equal(pendingTransmissionsResponse.status, 200);
+      assert.deepEqual(await pendingTransmissionsResponse.json(), {
+        options: [],
+      });
+      assert.equal(pendingTransmissionsPostResponse.status, 403);
       assert.equal(chemicalAnalysisResponse.status, 200);
       assert.equal(chemicalAnalysisDraftResponse.status, 403);
       assert.equal(chemicalAnalysisProtocolResponse.status, 200);
@@ -1449,6 +1466,10 @@ test("laboratory review access reads every journal by name but cannot change lab
       }]);
       assert.deepEqual(kilnJournalFilters, [{ dateFrom: "2026-07-01" }]);
       assert.deepEqual(sampleRegistrationFilters, [{ nameQuery: "ШКИ" }]);
+      assert.deepEqual(pendingTransmissionRequests, [[
+        "unshaped_product_sample",
+        { dateFrom: "2026-07-01", nameQuery: "ШКИ" },
+      ]]);
       assert.deepEqual(chemicalAnalysisFilters, [
         { nameQuery: "ШКИ" },
         { dateFrom: "2026-07-01", query: "П-42" },
@@ -1745,6 +1766,9 @@ test("sample registration journal saves and filters registration records", async
   let requestedFilters:
     | Parameters<LaboratorySampleRegistrationJournalRepository["list"]>[0]
     | undefined;
+  const pendingTransmissionRequests: Parameters<
+    LaboratorySampleRegistrationJournalRepository["listPendingTransmissions"]
+  >[] = [];
   const journal: LaboratorySampleRegistrationJournalRepository = {
     async create(input) {
       savedInput = input;
@@ -1790,7 +1814,8 @@ test("sample registration journal saves and filters registration records", async
     async findOptionById() {
       return undefined;
     },
-    async listPendingTransmissions() {
+    async listPendingTransmissions(...input) {
+      pendingTransmissionRequests.push(input);
       return [];
     },
     async claimTransmission() {
@@ -1862,6 +1887,18 @@ test("sample registration journal saves and filters registration records", async
         `${baseUrl}/api/laboratory/sample-registration-journal?dateTo=2026-02-30`,
         { headers },
       );
+      const pendingTransmissionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-pending-transmissions?target=verification&dateFrom=2026-07-01&dateTo=2026-07-31&query=17`,
+        { headers },
+      );
+      const invalidPendingTransmissionsResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-pending-transmissions?target=verification&dateFrom=2026-08-01&dateTo=2026-07-31`,
+        { headers },
+      );
+      const unknownPendingTargetResponse = await fetch(
+        `${baseUrl}/api/laboratory/sample-registration-pending-transmissions?target=unknown`,
+        { headers },
+      );
 
       assert.equal(createResponse.status, 201);
       assert.equal(correctionResponse.status, 200);
@@ -1897,6 +1934,13 @@ test("sample registration journal saves and filters registration records", async
         dateTo: "2026-07-31",
         query: "ЛП-2026-017",
       });
+      assert.equal(pendingTransmissionsResponse.status, 200);
+      assert.equal(invalidPendingTransmissionsResponse.status, 400);
+      assert.equal(unknownPendingTargetResponse.status, 400);
+      assert.deepEqual(pendingTransmissionRequests, [[
+        "verification",
+        { dateFrom: "2026-07-01", dateTo: "2026-07-31", query: "17" },
+      ]]);
       assert.equal(savedInput?.submittedByUserId, profile.userId);
       assert.equal(savedInput?.submittedByAccountId, profile.activeAccess.accountId);
       assert.equal(

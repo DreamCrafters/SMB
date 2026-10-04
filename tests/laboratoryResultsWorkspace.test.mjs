@@ -802,6 +802,31 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
           },
         });
       }
+      if (
+        url.pathname ===
+          "/api/laboratory/sample-registration-pending-transmissions"
+      ) {
+        const isClaimed = unshapedProductSampleSubmissions.some(
+          (submission) =>
+            submission.sourceSampleRegistrationId === "sample-registration-1690",
+        );
+        return jsonResponse({
+          options:
+            url.searchParams.get("target") === "unshaped_product_sample" &&
+              !isClaimed
+              ? [{
+                  id: "sample-registration-1690",
+                  laboratorySampleCode: "26.1690",
+                  sampleNumber: "1690",
+                  sampleName: "ШКИ-66",
+                  samplingDate: "2026-08-03",
+                  samplingLaboratoryAssistant: "Петрова П.П.",
+                  samplingLocation: "склад готовой продукции",
+                  registrationDate: "2026-08-03",
+                }]
+              : [],
+        });
+      }
       if (url.pathname === "/api/laboratory/unshaped-product-sample-draft") {
         unshapedProductSampleDraftRequests += 1;
         const sampleNumber = unshapedProductSampleDraftRequests === 1
@@ -2555,6 +2580,74 @@ test("laboratory workspace supports results, banks, and laboratory journals", as
       false,
     );
     assert.ok(unshapedProductSampleRequests.length > 0);
+
+    // Task 132: a sample marked for this journal waits in its history and
+    // opens the form prefilled from the registration.
+    const pendingLink = rootElement.querySelector(
+      ".unshaped-product-sample-table .laboratory-pending-transmission-link",
+    );
+    assert.ok(pendingLink, "The marked sample must be visible in the journal.");
+    assert.equal(pendingLink.textContent, "26.1690");
+    await React.act(async () => pendingLink.click());
+    assert.equal(unshapedSampleNumber.value, "1690");
+    assert.equal(unshapedSampleCode.value, "26.1690");
+    assert.equal(
+      findControlByLabel(unshapedSampleForm, "Дата").value,
+      "2026-08-03",
+    );
+    assert.equal(
+      findControlByLabel(
+        unshapedSampleForm,
+        "Из регистрации проб",
+        "select",
+      ).value,
+      "sample-registration-1690",
+    );
+    await React.act(async () => {
+      for (const [label, value] of Object.entries({
+        "№ партии": "57",
+        "Масса партии": "18 т",
+        "Влажность": "0,7",
+        "Зерновой состав": "0–3 мм",
+        "Огнеупорность": "1700 °C",
+      })) {
+        const input = findControlByLabel(unshapedSampleForm, label);
+        setNativeInputValue(input, value);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      }
+      const suitability = findControlByLabel(
+        unshapedSampleForm,
+        "Пригодность",
+        "select",
+      );
+      setNativeInputValue(suitability, "yes");
+      suitability.dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
+    });
+    await React.act(async () => {
+      unshapedSampleForm.dispatchEvent(
+        new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(React, () => unshapedProductSampleSubmissions.length === 2);
+    assert.deepEqual(unshapedProductSampleSubmissions[1], {
+      sampleNumber: "1690",
+      sampleDate: "2026-08-03",
+      sampledBy: "Петрова П.П.",
+      batchNumber: "57",
+      sampleCode: "26.1690",
+      productName: "ШКИ-66",
+      batchMass: "18 т",
+      moisture: "0,7",
+      grainComposition: "0–3 мм",
+      fireResistance: "1700 °C",
+      suitability: "yes",
+      sourceSampleRegistrationId: "sample-registration-1690",
+    });
+    await waitFor(React, () =>
+      rootElement.querySelector(".laboratory-pending-transmission-row") === null
+    );
 
     const refractoryShopTab = findTabByText("ОЦ");
     assert.ok(refractoryShopTab);

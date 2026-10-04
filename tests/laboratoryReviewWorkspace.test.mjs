@@ -61,6 +61,7 @@ test("laboratory review filters every journal by date and nomenclature", async (
   const unshapedProductSampleRequests = [];
   const formedProductSampleRequests = [];
   const verificationRequests = [];
+  const pendingTransmissionRequests = [];
   const kilnJournalRequests = [];
   const rawMaterialQualityRequests = [];
   const greenProductQualityRequests = [];
@@ -292,6 +293,27 @@ test("laboratory review filters every journal by date and nomenclature", async (
           }],
         });
       }
+      if (
+        url.pathname ===
+          "/api/laboratory/sample-registration-pending-transmissions"
+      ) {
+        const target = url.searchParams.get("target");
+        pendingTransmissionRequests.push({ target, ...readJournalFilters(url) });
+        return jsonResponse({
+          options: target === "verification"
+            ? [{
+                id: "sample-registration-1690",
+                laboratorySampleCode: "26.1690",
+                sampleNumber: "1690",
+                sampleName: "ШКИ-66",
+                samplingDate: "2026-07-25",
+                samplingLaboratoryAssistant: "Иванова А.А.",
+                samplingLocation: "Склад готовой продукции",
+                registrationDate: "2026-07-25",
+              }]
+            : [],
+        });
+      }
       if (url.pathname === "/api/laboratory/green-product-quality-journal") {
         greenProductQualityRequests.push(readJournalFilters(url));
         return jsonResponse({
@@ -403,6 +425,18 @@ test("laboratory review filters every journal by date and nomenclature", async (
     assert.equal(unshapedProductSampleRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(formedProductSampleRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(verificationRequests.at(-1)?.dateFrom, "2026-07-21");
+    for (const target of [
+      "unshaped_product_sample",
+      "formed_product_sample",
+      "verification",
+    ]) {
+      assert.equal(
+        pendingTransmissionRequests
+          .filter((request) => request.target === target)
+          .at(-1)?.dateFrom,
+        "2026-07-21",
+      );
+    }
     assert.equal(rawMaterialQualityRequests.at(-1)?.dateFrom, "2026-07-21");
     assert.equal(greenProductQualityRequests.at(-1)?.dateFrom, "2026-07-21");
 
@@ -468,7 +502,10 @@ test("laboratory review filters every journal by date and nomenclature", async (
       assert.ok(table, `${selector} must show the server-backed journal.`);
       const headers = Array.from(table.querySelectorAll("thead th"))
         .map((cell) => cell.textContent);
-      const values = Array.from(table.querySelectorAll("tbody tr:first-child td"))
+      const values = Array.from(table.querySelectorAll(
+        "tbody tr:not(.laboratory-pending-transmission-row) td",
+      ))
+        .slice(0, headers.length)
         .map((cell) => cell.textContent);
       assert.deepEqual(headers.slice(-12), [
         "№ Хим анализа", "Дата хим. анализа", "Лаборант", "Номер партии",
@@ -492,6 +529,27 @@ test("laboratory review filters every journal by date and nomenclature", async (
         assert.ok(table.querySelector(".unshaped-product-sample-suitability-no"));
       }
     }
+    // Task 132: a sample marked for a journal shows up there before it is filled.
+    const pendingRows = container.querySelectorAll(
+      ".verification-table .laboratory-pending-transmission-row",
+    );
+    assert.equal(pendingRows.length, 1);
+    assert.deepEqual(
+      Array.from(pendingRows[0].querySelectorAll("td"))
+        .slice(0, 4)
+        .map((cell) => cell.textContent),
+      [
+        "25.07.2026",
+        "ШКИ-66",
+        "Склад готовой продукции",
+        "26.1690Ожидает заполнения",
+      ],
+    );
+    assert.equal(
+      container.querySelectorAll(".laboratory-pending-transmission-row").length,
+      1,
+      "Only the marked target journal shows the waiting sample.",
+    );
     assert.equal(
       container.querySelector(".chemical-analysis-edit-link"),
       null,

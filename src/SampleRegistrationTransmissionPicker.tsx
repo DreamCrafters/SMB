@@ -1,14 +1,10 @@
-import { useEffect, useState } from "react";
 import type {
   LaboratorySampleRegistrationTransmissionOption,
   LaboratorySampleRegistrationTransmissionTarget,
 } from "./contracts";
-import { requestLaboratorySampleRegistrationPendingTransmissions } from "./services/laboratorySampleRegistrationJournal";
+import { usePendingSampleRegistrationTransmissions } from "./usePendingSampleRegistrationTransmissions";
 
-type LoadState =
-  | { status: "loading" }
-  | { status: "ready" }
-  | { status: "error"; message: string };
+const unfilteredPendingTransmissions = {};
 
 /**
  * Задача 64: журнал `Регистрация проб` помечает пробу для трансляции в один из
@@ -19,60 +15,45 @@ type LoadState =
  * Этот пикер показывает ещё не использованные помеченные пробы для
  * конкретного целевого журнала и передаёт выбранную наверх для
  * предзаполнения формы; сама трансляция не создаёт запись автоматически.
+ * Задача 132: выбор управляется формой (`value`), чтобы клик по строке
+ * «Ожидает заполнения» в истории выбирал ту же пробу здесь, а `refreshKey`
+ * перечитывает список после сохранения, убирая использованную пробу.
  */
 export function SampleRegistrationTransmissionPicker({
   target,
+  value,
+  refreshKey,
   disabled = false,
   onSelect,
 }: {
   target: LaboratorySampleRegistrationTransmissionTarget;
+  value: string | undefined;
+  refreshKey: number;
   disabled?: boolean;
   onSelect: (
     option: LaboratorySampleRegistrationTransmissionOption | undefined,
   ) => void;
 }) {
-  const [options, setOptions] = useState<
-    LaboratorySampleRegistrationTransmissionOption[]
-  >([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoadState({ status: "loading" });
-    setSelectedId("");
-    requestLaboratorySampleRegistrationPendingTransmissions(target, {
-      signal: controller.signal,
-    }).then((result) => {
-      if (controller.signal.aborted) return;
-      if (result.status === "ready") {
-        setOptions(result.options);
-        setLoadState({ status: "ready" });
-        return;
-      }
-      setOptions([]);
-      setLoadState({
-        status: "error",
-        message: "Не удалось загрузить пробы для трансляции.",
-      });
-    });
-    return () => controller.abort();
-  }, [target]);
+  const pending = usePendingSampleRegistrationTransmissions(
+    target,
+    unfilteredPendingTransmissions,
+    refreshKey,
+  );
+  const { options } = pending;
 
   return (
     <label className="sample-registration-transmission-picker">
       <span>Из регистрации проб</span>
       <select
-        disabled={disabled || loadState.status !== "ready"}
-        value={selectedId}
+        disabled={disabled || pending.status !== "ready"}
+        value={value ?? ""}
         onChange={(event) => {
-          const value = event.currentTarget.value;
-          setSelectedId(value);
-          onSelect(options.find((option) => option.id === value));
+          const selectedId = event.currentTarget.value;
+          onSelect(options.find((option) => option.id === selectedId));
         }}
       >
         <option value="">
-          {loadState.status === "loading"
+          {pending.status === "loading"
             ? "Загружаем список…"
             : options.length === 0
               ? "Нет проб, переданных на этот журнал"
@@ -84,8 +65,8 @@ export function SampleRegistrationTransmissionPicker({
           </option>
         ))}
       </select>
-      {loadState.status === "error"
-        ? <small className="form-message is-error">{loadState.message}</small>
+      {pending.status === "error"
+        ? <small className="form-message is-error">{pending.message}</small>
         : null}
     </label>
   );

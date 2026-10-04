@@ -5,6 +5,7 @@ import type {
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySampleRegistrationCorrection,
   LaboratorySampleRegistrationJournalSubmission,
+  LaboratorySampleRegistrationPendingTransmissionFilters,
   LaboratorySampleRegistrationTransmissionOption,
   LaboratorySampleRegistrationTransmissionTarget,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
@@ -68,6 +69,7 @@ export type LaboratorySampleRegistrationJournalRepository = {
   ) => Promise<LaboratorySampleRegistrationOption | undefined>;
   listPendingTransmissions: (
     target: LaboratorySampleRegistrationTransmissionTarget,
+    filters?: LaboratorySampleRegistrationPendingTransmissionFilters,
   ) => Promise<LaboratorySampleRegistrationTransmissionOption[]>;
   claimTransmission: ClaimSampleRegistrationTransmission;
 };
@@ -513,7 +515,39 @@ export function createLaboratorySampleRegistrationJournalRepository(
       return rows[0] === undefined ? undefined : mapOption(rows[0]);
     },
 
-    async listPendingTransmissions(target) {
+    async listPendingTransmissions(target, filters = {}) {
+      const clauses = [
+        "transmit_to_journal = ?",
+        "transmitted_record_id is null",
+      ];
+      const parameters: unknown[] = [target];
+
+      if (filters.dateFrom !== undefined) {
+        clauses.push("sampling_date >= ?");
+        parameters.push(filters.dateFrom);
+      }
+      if (filters.dateTo !== undefined) {
+        clauses.push("sampling_date <= ?");
+        parameters.push(filters.dateTo);
+      }
+      if (filters.query !== undefined) {
+        clauses.push(`instr(
+          concat_ws(
+            ' ',
+            sample_number,
+            laboratory_sample_code,
+            sample_name,
+            sampling_location
+          ),
+          ?
+        ) > 0`);
+        parameters.push(filters.query);
+      }
+      if (filters.nameQuery !== undefined) {
+        clauses.push("sample_name like ?");
+        parameters.push(`%${escapeLikePattern(filters.nameQuery)}%`);
+      }
+
       const [rows] = await pool.query<
         LaboratorySampleRegistrationTransmissionOptionRow[]
       >(
@@ -527,10 +561,10 @@ export function createLaboratorySampleRegistrationJournalRepository(
           sampling_location,
           registration_date
         from laboratory_sample_registration_journal
-        where transmit_to_journal = ? and transmitted_record_id is null
-        order by registration_date desc, created_at desc, id desc
+        where ${clauses.join(" and ")}
+        order by sampling_date desc, created_at desc, id desc
         limit ?`,
-        [target, maxListLimit],
+        [...parameters, maxListLimit],
       );
 
       return rows.map(mapTransmissionOption);

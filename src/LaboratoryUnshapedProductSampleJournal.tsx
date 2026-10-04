@@ -21,6 +21,7 @@ import {
 } from "./services/laboratoryUnshapedProductSampleJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
+import { usePendingSampleRegistrationTransmissions } from "./usePendingSampleRegistrationTransmissions";
 import { useProductionBrands } from "./useProductionBrands";
 
 type FormState = Record<
@@ -65,6 +66,15 @@ export function LaboratoryUnshapedProductSampleJournal({
   const sampleCodeYear = useRef<number | undefined>(undefined);
   const { labels: productNames, loadState: productNamesLoadState } =
     useProductionBrands();
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "unshaped_product_sample",
+    {
+      ...(dateFrom === "" ? {} : { dateFrom }),
+      ...(dateTo === "" ? {} : { dateTo }),
+      ...(query.trim() === "" ? {} : { query: query.trim() }),
+    },
+    refreshVersion,
+  );
 
   useEffect(() => {
     if (editingRecordId !== undefined) return;
@@ -187,6 +197,13 @@ export function LaboratoryUnshapedProductSampleJournal({
     setFormMessage("");
   }
 
+  function fillPendingTransmission(
+    option: LaboratorySampleRegistrationTransmissionOption,
+  ) {
+    resetForm();
+    selectTransmission(option);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -271,7 +288,9 @@ export function LaboratoryUnshapedProductSampleJournal({
           ? (
               <SampleRegistrationTransmissionPicker
                 disabled={false}
+                refreshKey={refreshVersion}
                 target="unshaped_product_sample"
+                value={sourceSampleRegistrationId}
                 onSelect={selectTransmission}
               />
             )
@@ -462,9 +481,18 @@ export function LaboratoryUnshapedProductSampleJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
+        {pendingTransmissions.status === "error"
+          ? (
+              <p className="form-message is-error" role="alert">
+                {pendingTransmissions.message}
+              </p>
+            )
+          : null}
         <LaboratoryUnshapedProductSampleTable
+          pendingTransmissions={pendingTransmissions.options}
           records={history.records}
           onEditRecord={editRecord}
+          onFillPendingTransmission={fillPendingTransmission}
         />
       </section>
     </div>

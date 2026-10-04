@@ -6278,6 +6278,22 @@ p {
   background: var(--blue-gray-soft);
 }
 
+.laboratory-pending-transmission-row > td {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.laboratory-pending-transmission-row > td:first-child {
+  box-shadow: inset 4px 0 0 var(--blue-gray);
+}
+
+.laboratory-pending-transmission-badge {
+  display: block;
+  color: var(--blue-gray);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .sample-registration-journal-table th:last-child,
 .sample-registration-journal-table td:last-child,
 .chemical-analysis-journal-table th:last-child,

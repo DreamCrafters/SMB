@@ -26,6 +26,7 @@ import {
   type LaboratoryGreenProductQualityRecord,
   type LaboratoryFormedProductSampleRecord,
   type LaboratorySampleRegistrationJournalRecord,
+  type LaboratorySampleRegistrationTransmissionOption,
   type LaboratoryUnshapedProductSampleRecord,
   type LaboratoryVerificationRecord,
   type RotaryKiln2FiringJournalRecord,
@@ -158,6 +159,55 @@ function SampleChemicalAnalysisCells({
   });
 }
 
+type PendingTransmissionRowsProps = {
+  pendingTransmissions?: LaboratorySampleRegistrationTransmissionOption[];
+  onFillPendingTransmission?: (
+    option: LaboratorySampleRegistrationTransmissionOption,
+  ) => void;
+};
+
+/**
+ * Задача 132: проба, помеченная в `Регистрации проб` для этого журнала, видна
+ * в его истории сразу, отдельной строкой над сохранёнными записями. Строка
+ * показывает известные из регистрации поля; у лаборанта код пробы открывает
+ * форму, предзаполненную этой пробой, у руководителя строка read-only.
+ */
+function PendingTransmissionCode({
+  option,
+  onFill,
+}: {
+  option: LaboratorySampleRegistrationTransmissionOption;
+  onFill: PendingTransmissionRowsProps["onFillPendingTransmission"];
+}) {
+  const code = option.laboratorySampleCode || "—";
+  return (
+    <>
+      {onFill === undefined
+        ? code
+        : (
+            <button
+              className="board-assignment-link laboratory-pending-transmission-link"
+              type="button"
+              onClick={() => onFill(option)}
+            >
+              {code}
+            </button>
+          )}
+      <span className="laboratory-pending-transmission-badge">
+        Ожидает заполнения
+      </span>
+    </>
+  );
+}
+
+function formatPendingTransmissionValue(
+  value: string | undefined,
+  kind: string,
+) {
+  if (value === undefined || value === "") return "—";
+  return kind === "date" ? formatLaboratoryDate(value) : value;
+}
+
 export function LaboratoryChemicalAnalysisTable({
   records,
   onEditRecord,
@@ -223,11 +273,13 @@ export function LaboratoryChemicalAnalysisTable({
 export function LaboratoryUnshapedProductSampleTable({
   records,
   onEditRecord,
+  pendingTransmissions = [],
+  onFillPendingTransmission,
 }: {
   records: LaboratoryUnshapedProductSampleRecord[];
   onEditRecord?: (record: LaboratoryUnshapedProductSampleRecord) => void;
-}) {
-  if (records.length === 0) {
+} & PendingTransmissionRowsProps) {
+  if (records.length === 0 && pendingTransmissions.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
 
@@ -247,6 +299,37 @@ export function LaboratoryUnshapedProductSampleTable({
           </tr>
         </thead>
         <tbody>
+          {pendingTransmissions.map((option) => {
+            const values: Partial<Record<(typeof sampleFields)[number]["id"], string>> = {
+              sampleNumber: option.sampleNumber,
+              sampleDate: option.samplingDate,
+              sampledBy: option.samplingLaboratoryAssistant,
+              productName: option.sampleName,
+            };
+            return (
+              <tr
+                className="laboratory-pending-transmission-row"
+                key={`pending:${option.id}`}
+              >
+                {sampleFields.map((field) => (
+                  <TableCell key={field.id}>
+                    {field.id === "sampleCode"
+                      ? (
+                          <PendingTransmissionCode
+                            option={option}
+                            onFill={onFillPendingTransmission}
+                          />
+                        )
+                      : formatPendingTransmissionValue(
+                          values[field.id],
+                          field.kind,
+                        )}
+                  </TableCell>
+                ))}
+                <SampleChemicalAnalysisCells />
+              </tr>
+            );
+          })}
           {records.map((record) => (
             <tr
               className={`unshaped-product-sample-suitability-${record.suitability}`}
@@ -294,11 +377,13 @@ export function LaboratoryUnshapedProductSampleTable({
 export function LaboratoryFormedProductSampleTable({
   records,
   onEditRecord,
+  pendingTransmissions = [],
+  onFillPendingTransmission,
 }: {
   records: LaboratoryFormedProductSampleRecord[];
   onEditRecord?: (record: LaboratoryFormedProductSampleRecord) => void;
-}) {
-  if (records.length === 0) {
+} & PendingTransmissionRowsProps) {
+  if (records.length === 0 && pendingTransmissions.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
 
@@ -314,6 +399,38 @@ export function LaboratoryFormedProductSampleTable({
           </tr>
         </thead>
         <tbody>
+          {pendingTransmissions.map((option) => {
+            const values: Partial<Record<
+              (typeof laboratoryFormedProductSampleFields)[number]["id"],
+              string
+            >> = {
+              sortingDate: option.samplingDate,
+              productBrand: option.sampleName,
+            };
+            return (
+              <tr
+                className="laboratory-pending-transmission-row"
+                key={`pending:${option.id}`}
+              >
+                {laboratoryFormedProductSampleFields.map((field) => (
+                  <TableCell key={field.id}>
+                    {field.id === "sampleCode"
+                      ? (
+                          <PendingTransmissionCode
+                            option={option}
+                            onFill={onFillPendingTransmission}
+                          />
+                        )
+                      : formatPendingTransmissionValue(
+                          values[field.id],
+                          field.kind,
+                        )}
+                  </TableCell>
+                ))}
+                <SampleChemicalAnalysisCells />
+              </tr>
+            );
+          })}
           {records.map((record) => {
             const editLinkField = record.wagonNumber !== null
               ? "wagonNumber"
@@ -355,11 +472,13 @@ export function LaboratoryFormedProductSampleTable({
 export function LaboratoryVerificationTable({
   records,
   onEditRecord,
+  pendingTransmissions = [],
+  onFillPendingTransmission,
 }: {
   records: LaboratoryVerificationRecord[];
   onEditRecord?: (record: LaboratoryVerificationRecord) => void;
-}) {
-  if (records.length === 0) {
+} & PendingTransmissionRowsProps) {
+  if (records.length === 0 && pendingTransmissions.length === 0) {
     return <p className="laboratory-empty-note">По выбранным фильтрам записей нет.</p>;
   }
 
@@ -375,6 +494,39 @@ export function LaboratoryVerificationTable({
           </tr>
         </thead>
         <tbody>
+          {pendingTransmissions.map((option) => {
+            const values: Partial<Record<
+              (typeof laboratoryVerificationFields)[number]["id"],
+              string
+            >> = {
+              verificationDate: option.samplingDate,
+              productName: option.sampleName,
+              samplingLocation: option.samplingLocation,
+            };
+            return (
+              <tr
+                className="laboratory-pending-transmission-row"
+                key={`pending:${option.id}`}
+              >
+                {laboratoryVerificationFields.map((field) => (
+                  <TableCell key={field.id}>
+                    {field.id === "sampleCode"
+                      ? (
+                          <PendingTransmissionCode
+                            option={option}
+                            onFill={onFillPendingTransmission}
+                          />
+                        )
+                      : formatPendingTransmissionValue(
+                          values[field.id],
+                          field.kind,
+                        )}
+                  </TableCell>
+                ))}
+                <SampleChemicalAnalysisCells />
+              </tr>
+            );
+          })}
           {records.map((record) => (
             <tr key={record.id}>
               {laboratoryVerificationFields.map((field) => (

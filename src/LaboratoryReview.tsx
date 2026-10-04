@@ -55,6 +55,10 @@ import { requestLaboratoryRawMaterialQualityJournal } from "./services/laborator
 import { requestLaboratoryGreenProductQualityJournal } from "./services/laboratoryGreenProductQualityJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
+import {
+  usePendingSampleRegistrationTransmissions,
+  type PendingSampleRegistrationTransmissionsState,
+} from "./usePendingSampleRegistrationTransmissions";
 
 /** Empty values mean the matching filter button is switched off. */
 type ReviewQuery = {
@@ -553,6 +557,11 @@ function RotaryKiln2FiringHistory({ query }: { query: ReviewQuery }) {
 }
 
 function UnshapedProductSampleHistory({ query }: { query: ReviewQuery }) {
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "unshaped_product_sample",
+    buildPendingTransmissionFilters(query),
+    0,
+  );
   const [state, setState] = useState<
     RecordsState<LaboratoryUnshapedProductSampleRecord>
   >({ status: "loading", records: [] });
@@ -585,12 +594,21 @@ function UnshapedProductSampleHistory({ query }: { query: ReviewQuery }) {
   return (
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
-      <LaboratoryUnshapedProductSampleTable records={state.records} />
+      <PendingTransmissionsStatus state={pendingTransmissions} />
+      <LaboratoryUnshapedProductSampleTable
+        pendingTransmissions={pendingTransmissions.options}
+        records={state.records}
+      />
     </>
   );
 }
 
 function FormedProductSampleHistory({ query }: { query: ReviewQuery }) {
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "formed_product_sample",
+    buildPendingTransmissionFilters(query),
+    0,
+  );
   const [state, setState] = useState<
     RecordsState<LaboratoryFormedProductSampleRecord>
   >({ status: "loading", records: [] });
@@ -623,12 +641,21 @@ function FormedProductSampleHistory({ query }: { query: ReviewQuery }) {
   return (
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
-      <LaboratoryFormedProductSampleTable records={state.records} />
+      <PendingTransmissionsStatus state={pendingTransmissions} />
+      <LaboratoryFormedProductSampleTable
+        pendingTransmissions={pendingTransmissions.options}
+        records={state.records}
+      />
     </>
   );
 }
 
 function VerificationHistory({ query }: { query: ReviewQuery }) {
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "verification",
+    buildPendingTransmissionFilters(query),
+    0,
+  );
   const [state, setState] = useState<
     RecordsState<LaboratoryVerificationRecord>
   >({ status: "loading", records: [] });
@@ -661,7 +688,11 @@ function VerificationHistory({ query }: { query: ReviewQuery }) {
   return (
     <>
       <HistoryStatus state={state} loadingLabel="Загружаем записи…" />
-      <LaboratoryVerificationTable records={state.records} />
+      <PendingTransmissionsStatus state={pendingTransmissions} />
+      <LaboratoryVerificationTable
+        pendingTransmissions={pendingTransmissions.options}
+        records={state.records}
+      />
     </>
   );
 }
@@ -756,6 +787,23 @@ function HistoryStatus<Entry>({
     return <p className="form-message is-error" role="alert">{state.message}</p>;
   }
   return null;
+}
+
+function PendingTransmissionsStatus({
+  state,
+}: {
+  state: PendingSampleRegistrationTransmissionsState;
+}) {
+  return state.status === "error"
+    ? <p className="form-message is-error" role="alert">{state.message}</p>
+    : null;
+}
+
+function buildPendingTransmissionFilters(query: ReviewQuery) {
+  return {
+    ...buildJournalDateFilters(query),
+    ...(query.nameQuery === "" ? {} : { nameQuery: query.nameQuery }),
+  };
 }
 
 function buildJournalDateFilters(query: ReviewQuery) {

@@ -3740,6 +3740,8 @@ async function handleLaboratoryRequest({
     url.pathname === "/api/laboratory/results" ||
     url.pathname === "/api/laboratory/rotary-kiln-2-journal" ||
     url.pathname === "/api/laboratory/sample-registration-journal" ||
+    url.pathname ===
+      "/api/laboratory/sample-registration-pending-transmissions" ||
     url.pathname === "/api/laboratory/chemical-analysis-journal" ||
     url.pathname === "/api/laboratory/unshaped-product-sample-journal" ||
     url.pathname === "/api/laboratory/formed-product-sample-journal" ||
@@ -4695,15 +4697,6 @@ async function handleLaboratoryRequest({
   if (
     url.pathname === "/api/laboratory/sample-registration-pending-transmissions"
   ) {
-    if (!canManageLaboratory) {
-      sendJson(res, 403, {
-        error: {
-          code: "access_denied",
-          message: "Список проб для трансляции доступен только для заполнения журналов.",
-        },
-      });
-      return;
-    }
     if (req.method !== "GET") {
       sendJson(res, 405, {
         error: {
@@ -4739,9 +4732,35 @@ async function handleLaboratoryRequest({
       return;
     }
 
+    const dateFrom = readOptionalQueryParam(url, "dateFrom");
+    const dateTo = readOptionalQueryParam(url, "dateTo");
+    const query = readOptionalQueryParam(url, "query");
+    const nameQuery = readOptionalQueryParam(url, "name");
+    if (
+      (dateFrom !== undefined && !isCalendarDateQueryValue(dateFrom)) ||
+      (dateTo !== undefined && !isCalendarDateQueryValue(dateTo)) ||
+      (dateFrom !== undefined && dateTo !== undefined && dateFrom > dateTo) ||
+      (query !== undefined && query.length > 120) ||
+      (nameQuery !== undefined && nameQuery.length > 120)
+    ) {
+      sendJson(res, 400, {
+        error: {
+          code: "invalid_response",
+          message: "Проверьте фильтры списка проб для трансляции.",
+        },
+      });
+      return;
+    }
+
     sendJson(res, 200, {
       options: await laboratorySampleRegistrationJournal.listPendingTransmissions(
         target as LaboratorySampleRegistrationTransmissionTarget,
+        {
+          ...(dateFrom === undefined ? {} : { dateFrom }),
+          ...(dateTo === undefined ? {} : { dateTo }),
+          ...(query === undefined ? {} : { query }),
+          ...(nameQuery === undefined ? {} : { nameQuery }),
+        },
       ),
     });
     return;

@@ -148,6 +148,19 @@ export type LaboratorySampleRegistrationTransmissionOption = {
   registrationDate: string;
 };
 
+/**
+ * Задача 132: помеченные, но ещё не заполненные пробы показываются строками
+ * «Ожидает заполнения» в истории целевого журнала, поэтому список фильтруется
+ * так же, как сам журнал: период по дате отбора, `query` по номеру, коду,
+ * наименованию и месту отбора, `nameQuery` только по наименованию пробы.
+ */
+export type LaboratorySampleRegistrationPendingTransmissionFilters = {
+  dateFrom?: string;
+  dateTo?: string;
+  query?: string;
+  nameQuery?: string;
+};
+
 export type LaboratorySampleRegistrationJournalRecord =
   LaboratorySampleRegistrationJournalSubmission &
   Partial<LaboratoryChemicalAnalysisValues> & {

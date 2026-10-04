@@ -11,6 +11,7 @@ export type {
   LaboratorySampleRegistrationJournalFilters,
   LaboratorySampleRegistrationJournalRecord,
   LaboratorySampleRegistrationJournalSubmission,
+  LaboratorySampleRegistrationPendingTransmissionFilters,
   LaboratorySampleRegistrationTransmissionOption,
   LaboratorySampleRegistrationTransmissionTarget,
 } from "../../server/src/contracts/laboratorySampleRegistrationJournal.js";

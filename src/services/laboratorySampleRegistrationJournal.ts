@@ -5,6 +5,7 @@ import {
   type LaboratorySampleRegistrationJournalFilters,
   type LaboratorySampleRegistrationJournalRecord,
   type LaboratorySampleRegistrationJournalSubmission,
+  type LaboratorySampleRegistrationPendingTransmissionFilters,
   type LaboratorySampleRegistrationTransmissionOption,
   type LaboratorySampleRegistrationTransmissionTarget,
 } from "../contracts/laboratorySampleRegistrationJournal.js";
@@ -153,9 +154,14 @@ export async function requestLaboratorySampleRegistrationDraft(
 
 export async function requestLaboratorySampleRegistrationPendingTransmissions(
   target: LaboratorySampleRegistrationTransmissionTarget,
+  filters: LaboratorySampleRegistrationPendingTransmissionFilters = {},
   options: RequestOptions = {},
 ): Promise<LaboratorySampleRegistrationPendingTransmissionsResult> {
   const params = new URLSearchParams({ target });
+  if (filters.dateFrom !== undefined) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo !== undefined) params.set("dateTo", filters.dateTo);
+  if (filters.query !== undefined) params.set("query", filters.query);
+  if (filters.nameQuery !== undefined) params.set("name", filters.nameQuery);
   const result = await requestJson(
     `${PENDING_TRANSMISSIONS_PATH}?${params.toString()}`,
     "GET",

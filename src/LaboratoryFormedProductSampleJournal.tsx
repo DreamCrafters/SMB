@@ -16,6 +16,7 @@ import {
 } from "./services/laboratoryFormedProductSampleJournal";
 import { readShortUserMessage } from "./services/userFacingMessages";
 import type { ShowToast } from "./services/toastStack";
+import { usePendingSampleRegistrationTransmissions } from "./usePendingSampleRegistrationTransmissions";
 import { useProductionBrands } from "./useProductionBrands";
 
 type FormState = {
@@ -63,6 +64,15 @@ export function LaboratoryFormedProductSampleJournal({
   const [formMessage, setFormMessage] = useState("");
   const [editingRecordId, setEditingRecordId] = useState<string>();
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const pendingTransmissions = usePendingSampleRegistrationTransmissions(
+    "formed_product_sample",
+    {
+      ...(dateFrom === "" ? {} : { dateFrom }),
+      ...(dateTo === "" ? {} : { dateTo }),
+      ...(query.trim() === "" ? {} : { query: query.trim() }),
+    },
+    refreshVersion,
+  );
   const [wagonLookup, setWagonLookup] = useState<WagonLookupState>({
     status: "idle",
   });
@@ -157,6 +167,13 @@ export function LaboratoryFormedProductSampleJournal({
     setFormMessage("");
   }
 
+  function fillPendingTransmission(
+    option: LaboratorySampleRegistrationTransmissionOption,
+  ) {
+    resetForm();
+    selectTransmission(option);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -242,7 +259,9 @@ export function LaboratoryFormedProductSampleJournal({
           ? (
               <SampleRegistrationTransmissionPicker
                 disabled={false}
+                refreshKey={refreshVersion}
                 target="formed_product_sample"
+                value={sourceSampleRegistrationId}
                 onSelect={selectTransmission}
               />
             )
@@ -426,9 +445,18 @@ export function LaboratoryFormedProductSampleJournal({
           : history.status === "error"
             ? <p className="form-message is-error" role="alert">{history.message}</p>
             : null}
+        {pendingTransmissions.status === "error"
+          ? (
+              <p className="form-message is-error" role="alert">
+                {pendingTransmissions.message}
+              </p>
+            )
+          : null}
         <LaboratoryFormedProductSampleTable
+          pendingTransmissions={pendingTransmissions.options}
           records={history.records}
           onEditRecord={editRecord}
+          onFillPendingTransmission={fillPendingTransmission}
         />
       </section>
     </div>
