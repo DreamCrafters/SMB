@@ -3,6 +3,7 @@ import {
   collegiumMeetingsApiPath,
   type CollegiumAttachment,
   type CollegiumAttentionItem,
+  type CollegiumDashboard,
   type CollegiumCommentKind,
   type CollegiumInitiative,
   type CollegiumInitiativeActionRequest,
@@ -99,6 +100,18 @@ export async function requestCollegiumAttention(signal?: AbortSignal) {
   );
   return result.items;
 }
+
+export async function requestCollegiumDashboard(signal?: AbortSignal) {
+  const result = await request<{ dashboard: CollegiumDashboard }>(
+    `${collegiumInitiativesApiPath}/dashboard`,
+    "GET",
+    undefined,
+    signal,
+  );
+  return result.dashboard;
+}
+
+export const collegiumDashboardPdfPath = `${collegiumInitiativesApiPath}/dashboard.pdf`;
 
 /** Выгрузка или печатная форма: файл отдаёт сервер по тем же правам и фильтрам. */
 export async function downloadCollegiumFile(path: string) {

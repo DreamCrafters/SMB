@@ -33,6 +33,7 @@ import {
 } from "./contracts/collegiumInitiatives";
 import type { ServerUserProfile } from "./contracts";
 import { CollegiumMeetingsView } from "./CollegiumMeetings";
+import { CollegiumDashboardView } from "./CollegiumDashboard";
 import { LoadingIndicator } from "./LoadingIndicator";
 import { ManagedTable } from "./ManagedTable";
 import { TableCell, TableHeader } from "./TableCell";
@@ -91,7 +92,7 @@ export function CollegiumInitiativesWorkspace({
   });
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [view, setView] = useState<View>({ kind: "registry" });
-  const [section, setSection] = useState<"initiatives" | "meetings">("initiatives");
+  const [section, setSection] = useState<"initiatives" | "meetings" | "dashboard">("initiatives");
   const [filters, setFilters] = useState<CollegiumInitiativeFilters>({});
   const filtersKey = JSON.stringify(filters);
 
@@ -144,6 +145,7 @@ export function CollegiumInitiativesWorkspace({
           {([
             ["initiatives", "Инициативы"],
             ["meetings", "Заседания"],
+            ["dashboard", "Дашборд"],
           ] as const).map(([id, label]) => (
             <button
               aria-selected={section === id}
@@ -161,7 +163,15 @@ export function CollegiumInitiativesWorkspace({
           ))}
         </div>
       </header>
-      {section === "meetings" ? (
+      {section === "dashboard" ? (
+        <CollegiumDashboardView
+          refreshVersion={refreshVersion}
+          onOpen={(id) => {
+            setSection("initiatives");
+            setView({ kind: "card", id });
+          }}
+        />
+      ) : section === "meetings" ? (
         <CollegiumMeetingsView
           permissions={data.permissions}
           onInitiativesChanged={() => setRefreshVersion((version) => version + 1)}

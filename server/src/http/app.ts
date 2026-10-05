@@ -16,6 +16,7 @@ import {
   buildCollegiumRegistryXlsx,
   renderCollegiumInitiativeCardPdf,
   renderCollegiumProtocolPdf,
+  renderCollegiumDashboardPdf,
   renderCollegiumRegistryPdf,
 } from "../integrations/collegiumInitiativesExport.js";
 import { DirectorAssignmentError } from "../domain/directorAssignment.js";
@@ -1018,6 +1019,18 @@ export function createApiServer({
               content: isXlsx
                 ? buildCollegiumRegistryXlsx(registry.initiatives, registry.name, registry.overdueIds)
                 : await renderCollegiumRegistryPdf(registry.initiatives, registry.name, registry.overdueIds),
+            });
+            return;
+          }
+          if (url.pathname === `${collegiumInitiativesApiPath}/dashboard` && req.method === "GET") {
+            sendJson(res, 200, { dashboard: await collegiumInitiatives.dashboard(access.profile) });
+            return;
+          }
+          if (url.pathname === `${collegiumInitiativesApiPath}/dashboard.pdf` && req.method === "GET") {
+            sendCollegiumAttachment(res, {
+              fileName: "Сводка инициатив Коллегии.pdf",
+              contentType: "application/pdf",
+              content: await renderCollegiumDashboardPdf(await collegiumInitiatives.dashboard(access.profile)),
             });
             return;
           }

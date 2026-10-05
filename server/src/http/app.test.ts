@@ -109,6 +109,7 @@ import { createDirectorAssignmentsService } from "../domain/directorAssignmentsS
 import type { CollegiumInitiativesService } from "../domain/collegiumInitiativesService.js";
 import type { CollegiumMeetingsService } from "../domain/collegiumMeetingsService.js";
 import { CollegiumInitiativeError } from "../domain/collegiumInitiative.js";
+import { buildCollegiumDashboard } from "../domain/collegiumDashboard.js";
 import type { DirectorAssignmentsRepository } from "../repositories/directorAssignmentsRepository.js";
 
 
@@ -16120,6 +16121,10 @@ test("collegium initiatives API routes requests and maps module errors", async (
       calls.push(`add:${id}:${fileName}:${content.length}`);
       return { id: "file-1", kind: "file", label: fileName, fileName, fileType: "pdf", sizeBytes: content.length, createdByDisplayName: "x", createdAt: "2026-10-05T09:00:00.000Z" };
     },
+    async dashboard() {
+      calls.push("dashboard");
+      return buildCollegiumDashboard({ today: "2026-10-05", initiatives: [], meetings: [], assignments: [] });
+    },
     async exportRegistry(_profile: ServerUserProfile, filters: unknown) {
       calls.push(`export:${JSON.stringify(filters)}`);
       return { initiatives: [], name: () => "", overdueIds: new Set<string>() };
@@ -16181,6 +16186,14 @@ test("collegium initiatives API routes requests and maps module errors", async (
     assert.equal(pdf.headers.get("content-type"), "application/pdf");
     assert.equal((await fetch(`${baseUrl}/api/collegium-initiatives/export.xlsx?stage=all`, { headers })).status, 400);
     assert.deepEqual(calls, ['export:{"stage":"implementation"}', "export:{}"]);
+    calls.length = 0;
+
+    const dashboard = await fetch(`${baseUrl}/api/collegium-initiatives/dashboard`, { headers });
+    assert.equal(dashboard.status, 200);
+    assert.equal((await dashboard.json() as { dashboard: { plannedEffect: string } }).dashboard.plannedEffect, "0.00");
+    const summary = await fetch(`${baseUrl}/api/collegium-initiatives/dashboard.pdf`, { headers });
+    assert.equal(summary.headers.get("content-type"), "application/pdf");
+    assert.deepEqual(calls, ["dashboard", "dashboard"]);
     calls.length = 0;
 
     const binaryHeaders = { Cookie: headers.Cookie, "Content-Type": "application/octet-stream" };

@@ -4,6 +4,7 @@ import type { CollegiumInitiative, CollegiumMeeting } from "../contracts/collegi
 import { readXlsxWorkbook } from "./xlsxWorkbook.js";
 import {
   buildCollegiumRegistryXlsx,
+  renderCollegiumDashboardPdf,
   renderCollegiumProtocolPdf,
   renderCollegiumRegistryPdf,
 } from "./collegiumInitiativesExport.js";
@@ -55,4 +56,19 @@ test("registry and protocol PDFs render", async () => {
     protocol: { text: "ПРОТОКОЛ\\nРешения" }, createdByDisplayName: "x", createdAt: "", updatedAt: "",
   } as CollegiumMeeting);
   assert.equal(protocol.subarray(0, 5).toString("latin1"), "%PDF-");
+});
+
+test("dashboard summary PDF renders with every section", async () => {
+  const ref = { id: "i", number: "И-2026-0001", title: "Идея" };
+  const summary = await renderCollegiumDashboardPdf({
+    generatedOn: "2026-10-05", total: 1, statusCounts: [{ status: "in_progress", count: 1 }],
+    awaitingReview: 0, rework: 1, reworkOverdue: 1, inPilot: 0, inImplementation: 1, overdueAssignments: 2,
+    plannedEffect: "1000.00", confirmedEffect: "0.00",
+    effectByDirection: [{ directionLabel: "Сырьё", planned: "1000.00", confirmed: "0.00" }],
+    nextMeeting: { id: "m", number: "КЗ-2026-01", meetingDate: "2026-10-12", meetingTime: "10:00", items: [ref] },
+    unconfirmed: [ref], boardDecisions: [ref],
+    topByEffect: [{ ...ref, expectedEffect: "1000.00", status: "in_progress" }],
+    topRisks: [{ ...ref, risk: "Рост цен", expectedEffect: "1000.00" }],
+  });
+  assert.equal(summary.subarray(0, 5).toString("latin1"), "%PDF-");
 });

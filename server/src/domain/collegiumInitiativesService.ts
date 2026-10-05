@@ -9,6 +9,7 @@ import {
   collegiumInitiativeStatusLabels,
   type CollegiumAttachment,
   type CollegiumAttentionItem,
+  type CollegiumDashboard,
   type CollegiumCommentKind,
   type CollegiumInitiative,
   type CollegiumInitiativeCard,
@@ -39,6 +40,7 @@ import {
 } from "./collegiumAttachment.js";
 import { recordCollegiumInitiativeEvent } from "./collegiumInitiativeEvents.js";
 import { filterCollegiumInitiatives } from "./collegiumRegistry.js";
+import { buildCollegiumDashboard } from "./collegiumDashboard.js";
 import {
   buildAssignmentCreatedNotification,
   buildHiddenRoleNotifications,
@@ -485,6 +487,22 @@ export function createCollegiumInitiativesService({
         }
       }
       return items;
+    },
+
+    /** Дашборд Коллегии (ТЗ 13.1) по инициативам, видимым пользователю. */
+    async dashboard(profile: ServerUserProfile): Promise<CollegiumDashboard> {
+      const permissions = requireView(profile);
+      const [initiatives, meetings, linked] = await Promise.all([
+        repository.list(),
+        repository.listMeetings(),
+        assignments?.listWithInitiativeLink() ?? Promise.resolve([]),
+      ]);
+      return buildCollegiumDashboard({
+        today: today(),
+        initiatives: initiatives.filter((initiative) => canViewCollegiumInitiative(initiative, profile, permissions)),
+        meetings,
+        assignments: linked,
+      });
     },
 
     /** Тот же отфильтрованный реестр для выгрузок XLSX и PDF. */

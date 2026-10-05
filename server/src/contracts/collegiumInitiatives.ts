@@ -848,3 +848,32 @@ export type CollegiumAttentionItem = {
   title: string;
   reason: string;
 };
+
+type CollegiumInitiativeRef = { id: string; number: string; title: string };
+
+/** Дашборд Коллегии (ТЗ 13.1); суммы — канонические рубли `1234.50`. */
+export type CollegiumDashboard = {
+  generatedOn: string;
+  total: number;
+  statusCounts: Array<{ status: CollegiumInitiativeStatus; count: number }>;
+  awaitingReview: number;
+  rework: number;
+  reworkOverdue: number;
+  inPilot: number;
+  inImplementation: number;
+  overdueAssignments: number;
+  plannedEffect: string;
+  confirmedEffect: string;
+  effectByDirection: Array<{ directionLabel: string; planned: string; confirmed: string }>;
+  nextMeeting?: {
+    id: string;
+    number: string;
+    meetingDate: string;
+    meetingTime: string;
+    items: CollegiumInitiativeRef[];
+  };
+  unconfirmed: CollegiumInitiativeRef[];
+  boardDecisions: CollegiumInitiativeRef[];
+  topByEffect: Array<CollegiumInitiativeRef & { expectedEffect: string; status: CollegiumInitiativeStatus }>;
+  topRisks: Array<CollegiumInitiativeRef & { risk: string; expectedEffect: string }>;
+};

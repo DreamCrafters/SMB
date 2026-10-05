@@ -6,6 +6,7 @@ import {
   collegiumMeetingStatusLabels,
   collegiumRecurringPeriodLabels,
   collegiumResultConclusionLabels,
+  type CollegiumDashboard,
   type CollegiumInitiative,
   type CollegiumInitiativeDetailResponse,
   type CollegiumMeeting,
@@ -248,6 +249,68 @@ export async function renderCollegiumProtocolPdf(meeting: CollegiumMeeting) {
         italics: true,
         margin: [0, 16, 0, 0],
       },
+    ],
+  });
+}
+
+/** Печатная сводка дашборда Коллегии (ТЗ 13.1): те же цифры, что на экране. */
+export async function renderCollegiumDashboardPdf(dashboard: CollegiumDashboard) {
+  const table = (header: string[], widths: Array<number | string>, rows: string[][]) => ({
+    table: {
+      headerRows: 1,
+      widths,
+      body: [header.map((text) => ({ text, bold: true, fillColor: "#eeeeee" })), ...rows],
+    },
+    layout: { paddingTop: () => 3, paddingBottom: () => 3 },
+  });
+  const heading = (text: string) => ({ text, bold: true, fontSize: 11, margin: [0, 12, 0, 4] });
+  const list = (title: string, items: Array<{ number: string; title: string }>) => items.length === 0
+    ? []
+    : [heading(title), { ul: items.map((item) => `${item.number} «${item.title}»`) }];
+  const meeting = dashboard.nextMeeting;
+  return renderPdfDocument({
+    ...baseDocument,
+    pageOrientation: "portrait",
+    pageMargins: [40, 40, 40, 45],
+    info: { title: "Сводка инициатив Коллегии" },
+    content: [
+      { text: "Сводка инициатив Коллегии", bold: true, fontSize: 14 },
+      { text: `На ${date(dashboard.generatedOn)} · инициатив: ${dashboard.total}`, margin: [0, 2, 0, 4] },
+      table(["Показатель", "Значение"], ["*", 120], [
+        ["Ожидают предварительной оценки", String(dashboard.awaitingReview)],
+        ["На доработке", `${dashboard.rework}${dashboard.reworkOverdue > 0 ? `, просрочено ${dashboard.reworkOverdue}` : ""}`],
+        ["В пилоте", String(dashboard.inPilot)],
+        ["Во внедрении", String(dashboard.inImplementation)],
+        ["Просроченные поручения", String(dashboard.overdueAssignments)],
+        ["Плановый эффект", money(dashboard.plannedEffect)],
+        ["Подтверждённый эффект", money(dashboard.confirmedEffect)],
+      ]),
+      heading("Инициативы по статусам"),
+      table(["Статус", "Количество"], ["*", 120], dashboard.statusCounts.map((entry) =>
+        [collegiumInitiativeStatusLabels[entry.status], String(entry.count)])),
+      ...(dashboard.effectByDirection.length === 0 ? [] : [
+        heading("Эффект по направлениям"),
+        table(["Направление", "Плановый", "Подтверждённый"], ["*", 110, 110], dashboard.effectByDirection.map((entry) =>
+          [entry.directionLabel, money(entry.planned), money(entry.confirmed)])),
+      ]),
+      ...(meeting === undefined ? [] : [
+        heading(`Ближайшее заседание ${meeting.number}: ${date(meeting.meetingDate)} в ${meeting.meetingTime}`),
+        meeting.items.length === 0
+          ? { text: "Повестка пока пуста." }
+          : { ol: meeting.items.map((item) => `${item.number} «${item.title}»`) },
+      ]),
+      ...list("Требуют решения Совета директоров", dashboard.boardDecisions),
+      ...list("Завершены без подтверждённого эффекта", dashboard.unconfirmed),
+      ...(dashboard.topByEffect.length === 0 ? [] : [
+        heading("Топ-10 по ожидаемому эффекту"),
+        table(["Номер", "Наименование", "Статус", "Эффект"], [62, "*", 110, 90], dashboard.topByEffect.map((item) =>
+          [item.number, item.title, collegiumInitiativeStatusLabels[item.status], money(item.expectedEffect)])),
+      ]),
+      ...(dashboard.topRisks.length === 0 ? [] : [
+        heading("Топ-10 рисков"),
+        table(["Номер", "Инициатива", "Риск"], [62, 170, "*"], dashboard.topRisks.map((item) =>
+          [item.number, item.title, item.risk])),
+      ]),
     ],
   });
 }

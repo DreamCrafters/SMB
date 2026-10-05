@@ -10061,3 +10061,160 @@ p {
 .collegium-attention li span {
   color: var(--muted);
 }
+
+.collegium-dashboard {
+  /* Categorical pair validated for CVD separation on the light surface. */
+  --collegium-planned: #2a78d6;
+  --collegium-confirmed: #eb6834;
+  display: grid;
+  gap: var(--density-3);
+}
+
+.collegium-dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-2);
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.collegium-dashboard-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--density-2);
+  margin: 0;
+}
+
+.collegium-dashboard-tiles > div {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--density-3);
+  background: var(--surface-raised);
+}
+
+.collegium-dashboard-tiles > div.is-attention {
+  border-left: 4px solid var(--amber);
+}
+
+.collegium-dashboard-tiles dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.collegium-dashboard-tiles dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.collegium-dashboard-tiles dd.collegium-dashboard-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.collegium-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--density-3);
+  align-items: start;
+}
+
+.collegium-dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.collegium-dashboard-table th,
+.collegium-dashboard-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 4px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.collegium-dashboard-table thead th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.collegium-dashboard-table tbody th {
+  font-weight: 400;
+}
+
+.collegium-dashboard-table .is-number {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.collegium-dashboard-bars td:not(.is-number) {
+  width: 40%;
+  min-width: 80px;
+}
+
+.collegium-bar {
+  display: block;
+  height: 10px;
+  min-width: 0;
+  border-radius: 0 4px 4px 0;
+}
+
+.collegium-bar + .collegium-bar {
+  margin-top: 2px;
+}
+
+.collegium-bar.is-planned,
+.collegium-bar-key.is-planned {
+  background: var(--collegium-planned);
+}
+
+.collegium-bar.is-confirmed,
+.collegium-bar-key.is-confirmed {
+  background: var(--collegium-confirmed);
+}
+
+.collegium-dashboard-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--density-3);
+  margin: 0 0 var(--density-2);
+  padding: 0;
+  list-style: none;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.collegium-dashboard-legend li {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.collegium-bar-key {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.collegium-dashboard-list {
+  display: grid;
+  gap: var(--density-1);
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+@media (forced-colors: active) {
+  .collegium-bar,
+  .collegium-bar-key {
+    forced-color-adjust: none;
+  }
+}

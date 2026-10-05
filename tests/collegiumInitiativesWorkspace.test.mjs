@@ -374,6 +374,59 @@ test("the attention panel lists server-computed actions and opens the card", asy
   }
 });
 
+test("the dashboard shows server figures with labelled effect bars and opens a card", async () => {
+  const stored = buildInitiative({ title: "Экономия газа" });
+  const ref = { id: "initiative-1", number: "И-2026-0001", title: "Экономия газа" };
+  const view = await renderWorkspace(
+    { canView: true, canParticipate: false, canManage: false, canApprove: false },
+    async (url, _init, permissions) => {
+      if (url.pathname === "/api/collegium-initiatives") {
+        return [{ initiatives: [stored], people, reference, permissions, meetings: [], overdueIds: [] }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/dashboard") {
+        return [{
+          dashboard: {
+            generatedOn: "2026-10-05", total: 1, statusCounts: [{ status: "in_progress", count: 1 }],
+            awaitingReview: 0, rework: 2, reworkOverdue: 1, inPilot: 0, inImplementation: 1, overdueAssignments: 3,
+            plannedEffect: "1500000.00", confirmedEffect: "250000.50",
+            effectByDirection: [{ directionLabel: "Энергия", planned: "1500000.00", confirmed: "250000.50" }],
+            nextMeeting: { id: "m", number: "КЗ-2026-02", meetingDate: "2026-10-12", meetingTime: "10:00", items: [ref] },
+            unconfirmed: [], boardDecisions: [],
+            topByEffect: [{ ...ref, expectedEffect: "1500000.00", status: "in_progress" }],
+            topRisks: [{ ...ref, risk: "Рост цен на газ", expectedEffect: "1500000.00" }],
+          },
+        }];
+      }
+      if (url.pathname === "/api/collegium-initiatives/initiative-1") {
+        return [{
+          initiative: stored, revisions: [], comments: [], attachments: [], canAttach: false, canEdit: false,
+          canComment: false, canResolveComments: false, actions: [], missingAdmissionFields: [],
+          linkedAssignments: [], summaryStatus: "in_preparation", canCreateAssignments: false, canRecordResult: false,
+        }];
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+  const { React, container } = view;
+  try {
+    await waitFor(React, () => container.querySelector(".collegium-initiatives-table") !== null);
+    await React.act(async () => findButtonByText(container, "Дашборд").click());
+    await waitFor(React, () => container.querySelector(".collegium-dashboard") !== null);
+    assert.match(container.textContent, /просрочено: 1/u);
+    assert.match(container.textContent, /КЗ-2026-02: 12\.10\.2026 в 10:00/u);
+    assert.match(container.textContent, /Рост цен на газ/u);
+    // Both series carry a legend and printed values, not colour alone.
+    assert.match(container.querySelector(".collegium-dashboard-legend").textContent, /Плановый.*Подтверждённый/u);
+    const confirmedBar = container.querySelector(".collegium-bar.is-confirmed");
+    assert.match(confirmedBar.style.width, /^16\.66/u);
+    assert.match(confirmedBar.closest("tr").textContent, /250\s000,50/u);
+    await React.act(async () => findButtonByText(container, "И-2026-0001 «Экономия газа»").click());
+    await waitFor(React, () => container.querySelector(".collegium-revisions-table") !== null);
+  } finally {
+    await view.cleanup();
+  }
+});
+
 test("viewer sees the registry without the create action", async () => {
   const view = await renderWorkspace(
     { canView: true, canParticipate: false, canManage: false, canApprove: false },
